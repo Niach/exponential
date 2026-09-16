@@ -60,6 +60,7 @@ export const Route = createFileRoute(`/t/$teamSlug/reviews/`)({
 })
 
 const StackIcon = conceptIcon(`pr-stack`)
+const BatchIcon = conceptIcon(`pr-batch`)
 
 interface ExternalMergeTarget {
   repositoryId: string
@@ -381,18 +382,27 @@ function ReviewsPage() {
                         data-testid={`review-row-${issue.identifier}`}
                       >
                         {/* A batch PR wears the batch glyph; the overlay on it
-                            lists the issues it closes (EXP-897 Part 4). */}
-                        {isBatch ? (
-                          <PrGraphBadge
-                            teamId={team.id}
-                            teamSlug={teamSlug}
-                            face="changes"
-                            issue={issue}
-                            variant="glyph"
-                          />
-                        ) : (
-                          <GitPullRequest className="h-4 w-4 text-emerald-500" />
-                        )}
+                            lists the issues it closes (EXP-897 Part 4).
+                            EXP-916: the lead cell is ALWAYS drawn — a badge
+                            that renders nothing (its siblings have not synced)
+                            used to drop the grid's first column and shift the
+                            whole row. */}
+                        <span className="flex size-4 shrink-0 items-center justify-center">
+                          {isBatch ? (
+                            <PrGraphBadge
+                              teamId={team.id}
+                              teamSlug={teamSlug}
+                              face="changes"
+                              issue={issue}
+                              variant="glyph"
+                              fallback={
+                                <BatchIcon className="size-4 text-muted-foreground" />
+                              }
+                            />
+                          ) : (
+                            <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                          )}
+                        </span>
                         <span className="truncate font-mono text-xs text-muted-foreground">
                           {isBatch && issue.prNumber
                             ? `#${issue.prNumber}`

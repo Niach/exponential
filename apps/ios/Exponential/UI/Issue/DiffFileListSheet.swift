@@ -52,20 +52,17 @@ struct DiffFileListSheet: View {
             },
             content: {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        let shown = DiffPresentation.filter(files, query: filter)
-                        if shown.isEmpty {
-                            Text(files.isEmpty ? "No changed files." : "No matching files.")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .padding(.horizontal, GlassSheetTokens.headerHPadding)
-                                .padding(.vertical, 12)
+                    // EXP-916: the TREE, not a flat list — the same nesting
+                    // the sidebar draws on web and the desktop.
+                    DiffFileTree(
+                        files: files,
+                        query: filter,
+                        selected: selected,
+                        onSelect: { path in
+                            dismiss()
+                            onSelect(path)
                         }
-                        ForEach(Array(shown.enumerated()), id: \.element.path) { index, file in
-                            if index > 0 { GlassDivider() }
-                            row(file)
-                        }
-                    }
+                    )
                     .padding(.horizontal, 8)
                     .padding(.bottom, 16)
                 }
@@ -73,39 +70,6 @@ struct DiffFileListSheet: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("changes-file-list")
-    }
-
-    /// `letter · name · dimmed dir · counts` — the basename leads, the
-    /// directory trails it dimmed (web `FileDiffNav`).
-    private func row(_ file: Diff.File) -> some View {
-        Button {
-            dismiss()
-            onSelect(file.path)
-        } label: {
-            HStack(spacing: 8) {
-                DiffStatusLetter(status: file.status)
-                Text(DiffPresentation.pathBase(file.path))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                let dir = DiffPresentation.pathDir(file.path)
-                if !dir.isEmpty {
-                    Text(dir)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 8)
-                DiffCountsLabel(additions: file.additions, deletions: file.deletions)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(file.path == selected ? GlassTokens.fillActive : .clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("changes-file-list-row")
     }
 }
 

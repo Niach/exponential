@@ -2,11 +2,12 @@ import { useState, type ReactNode } from "react"
 import type { Board, Issue } from "@/db/schema"
 import {
   conceptIcon,
-  Button,
   PILL_PRIMARY_PAINT,
   type SessionDotTone,
 } from "@exp/ui"
+import { contract } from "@exp/domain-contract"
 import { cn } from "@/lib/utils"
+import { PrGithubButton as GithubGhostButton } from "@/components/pr-github-button"
 import { useReviewFiles } from "@/hooks/use-review-files"
 import { useSteerConfig } from "@/components/agent-session"
 import { ChangesFileSheet } from "@/components/changes-file-sheet"
@@ -37,22 +38,9 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 
 /** The GitHub control of a Changes surface — the PR page in a new tab. The
  *  phone wears it in the HEADER's action slot; the work bar's leading slot is
- *  the file sheet's (EXP-895). */
-export function GithubGhostButton({ prUrl }: { prUrl: string }) {
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-      aria-label="Open pull request on GitHub"
-      title="Open PR on GitHub"
-      data-testid="changes-github-action"
-      onClick={() => window.open(prUrl, `_blank`, `noopener,noreferrer`)}
-    >
-      <GithubIcon className="size-4" />
-    </Button>
-  )
-}
+ *  the file sheet's (EXP-895). EXP-916: ONE component, shared with the md+
+ *  work header, and its words are the contract's. */
+export { GithubGhostButton }
 
 /** The GitHub circle of a phone work bar — kept for the surfaces that still put
  *  it in a bar slot (the run's Changes face has no issue header to hang it on
@@ -61,8 +49,8 @@ export function GithubCircle({ prUrl }: { prUrl: string }) {
   return (
     <button
       type="button"
-      aria-label="Open pull request on GitHub"
-      title="Open PR on GitHub"
+      aria-label={contract.diffUi.openOnGithub}
+      title={contract.diffUi.openOnGithub}
       data-testid="changes-github-circle"
       onClick={() => window.open(prUrl, `_blank`, `noopener,noreferrer`)}
       className={MOBILE_WORK_CIRCLE_CLASS}
@@ -174,11 +162,12 @@ export function IssueChangesFace({
         )}
         {state.kind === `files` && (
           /* The file LIST is the bar's sheet on a phone, so the cards stand
-             alone here (`nav="none"`) and every one of them starts closed. */
+             alone here (`nav="none"`). EXP-916: they start OPEN, like every
+             other diff surface — only a file past the contract's collapse
+             threshold folds itself. */
           <ChangesView
             files={files}
             nav="none"
-            defaultCollapsed
             selected={selected}
             onSelect={setSelected}
             emptyLabel="No changes in this pull request."

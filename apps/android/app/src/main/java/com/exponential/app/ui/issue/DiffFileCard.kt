@@ -31,11 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.data.api.PullFile
 import com.exponential.app.domain.Diff
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.glassSectionBand
 
 // EXP-895 — ONE file's diff, the whole of the per-file rendering ×4 (web
 // `FileDiffCard`): a tappable `letter · path · +a −b · chevron` header over the
@@ -82,7 +84,7 @@ fun diffPathBase(path: String): String {
 }
 
 /** A file with more hunk lines than this starts folded (web `COLLAPSE_THRESHOLD`). */
-private const val COLLAPSE_THRESHOLD = 300
+private const val COLLAPSE_THRESHOLD = DomainContract.diffUiCollapseThresholdLines
 
 /** The hunk lines of a file — what the cap above is measured in. */
 fun diffLineCount(file: Diff.File): Int {
@@ -157,12 +159,18 @@ private fun diffPathText(path: String, dirChars: Int = DIR_CHARS): AnnotatedStri
  * invented two accent hues the token set does not have.
  */
 @Composable
-fun DiffStatusLetter(status: Diff.Status, modifier: Modifier = Modifier) {
+fun DiffStatusLetter(
+    status: Diff.Status,
+    modifier: Modifier = Modifier,
+    /** EXP-916: the card's call FAILED — the letter goes with its header. */
+    danger: Boolean = false,
+) {
     Text(
         diffStatusLetter(status),
-        color = when (status) {
-            Diff.Status.ADDED -> DesignTokens.Diff.AddFg
-            Diff.Status.REMOVED -> DesignTokens.Diff.DelFg
+        color = when {
+            danger -> DesignTokens.Semantic.Red
+            status == Diff.Status.ADDED -> DesignTokens.Diff.AddFg
+            status == Diff.Status.REMOVED -> DesignTokens.Diff.DelFg
             else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
         },
         fontFamily = FontFamily.Monospace,
@@ -192,9 +200,24 @@ fun DiffCounts(additions: Int, deletions: Int, modifier: Modifier = Modifier) {
 }
 
 /**
- * One changed file. [compact] is the transcript rung: a tighter header and a
- * body with no old-side gutter, for a card that lives inside a tool row rather
- * than on a page of its own.
+ * EXP-916: what the card KNOWS about its file. A `Ready` card is the ordinary
+ * one; the two others exist only inside an edited-files card, where a call may
+ * name a file before (or without) ever publishing a patch for it.
+ */
+enum class DiffCardState { Ready, Pending, Failed }
+
+/**
+ * One changed file — the one per-file unit ×4. [compact] is the transcript
+ * rung: a tighter header and a body with no old-side gutter, for a card that
+ * lives inside a transcript row rather than on a page of its own.
+ *
+ * EXP-916: [flush] drops the card's own border and radius so a stack of them
+ * reads as the ROWS of a parent card (hairlines between, drawn by the parent);
+ * the header always takes the section band's fill, never an opaque one, so the
+ * page gradient keeps showing through. [state] is the file's own certainty: a
+ * `Pending` card is the header alone (no counts, a muted dead chevron, no
+ * body), a `Failed` one wears the danger tint and the word `failed` instead of
+ * a chevron.
  */
 @Composable
 fun DiffFileCard(
@@ -203,49 +226,77 @@ fun DiffFileCard(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    flush: Boolean = false,
+    state: DiffCardState = DiffCardState.Ready,
 ) {
-    Column(modifier = modifier.fillMaxWidth().glassRow()) {
+    val ready = state == DiffCardState.Ready
+    val failed = state == DiffCardState.Failed
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    Column(modifier = modifier.fillMaxWidth().then(if (flush) Modifier else Modifier.glassRow())) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("changes-file-row")
-                .clickable(onClick = onToggle)
+                // The header is the section BAND everywhere — a flush card
+                // drops the outer edge, never the band under its header.
+                .glassSectionBand()
+                .then(if (ready) Modifier.clickable(onClick = onToggle) else Modifier)
                 .padding(
                     horizontal = if (compact) 10.dp else 12.dp,
                     vertical = if (compact) 7.dp else 10.dp,
                 ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DiffStatusLetter(file.status)
+            DiffStatusLetter(file.status, danger = failed)
             Spacer(Modifier.width(8.dp))
             Text(
                 diffPathText(file.path),
                 fontFamily = FontFamily.Monospace,
                 fontSize = PathFontSize,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = if (failed) DesignTokens.Semantic.Red else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
-            DiffCounts(file.additions, file.deletions)
-            Spacer(Modifier.width(6.dp))
-            // EXP-706: ONE glyph that turns, instead of two that swap — the
-            // rotation reads as the card opening. Motion.standard() snaps
-            // under the OS's reduce-motion setting (ui/theme/Motion.kt).
-            val rotation by animateFloatAsState(
-                targetValue = if (expanded) 180f else 0f,
-                animationSpec = Motion.standard(),
-                label = "file-chevron",
-            )
-            Icon(
-                ExpIcons.uiChevronDown,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                modifier = Modifier.size(16.dp).rotate(rotation),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+            when (state) {
+                // A patch landed: the counts, and a chevron that turns.
+                DiffCardState.Ready -> {
+                    DiffCounts(file.additions, file.deletions)
+                    Spacer(Modifier.width(6.dp))
+                    // EXP-706: ONE glyph that turns, instead of two that swap —
+                    // the rotation reads as the card opening. Motion.standard()
+                    // snaps under the OS's reduce-motion setting
+                    // (ui/theme/Motion.kt).
+                    val rotation by animateFloatAsState(
+                        targetValue = if (expanded) 180f else 0f,
+                        animationSpec = Motion.standard(),
+                        label = "file-chevron",
+                    )
+                    Icon(
+                        ExpIcons.uiChevronDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        modifier = Modifier.size(16.dp).rotate(rotation),
+                        tint = muted,
+                    )
+                }
+                // The call is still running: nothing to count and nothing to
+                // open, so the chevron is there as a placeholder and dead.
+                DiffCardState.Pending -> Icon(
+                    ExpIcons.uiChevronDown,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+                )
+                // It ended without one: say so, in the tint that means it.
+                DiffCardState.Failed -> Text(
+                    "failed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = DesignTokens.Semantic.Red,
+                )
+            }
         }
-        if (expanded) {
+        if (expanded && ready) {
             if (file.hunks.isNotEmpty()) {
                 PatchLines(
                     hunks = file.hunks,
@@ -261,50 +312,5 @@ fun DiffFileCard(
                 )
             }
         }
-    }
-}
-
-/**
- * A file LIST row (web `FileDiffNav`): `letter · name · dimmed dir · counts`,
- * the basename first because that is what a reader scans for. Flat — the rows
- * stack under a group band, EXP-818.
- */
-@Composable
-fun DiffFileRow(file: Diff.File, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("changes-file-list-row")
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        DiffStatusLetter(file.status)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            diffPathBase(file.path),
-            fontFamily = FontFamily.Monospace,
-            fontSize = PathFontSize,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        val dir = diffPathDir(file.path).trimEnd('/')
-        if (dir.isNotEmpty()) {
-            Spacer(Modifier.width(6.dp))
-            Text(
-                dir,
-                fontFamily = FontFamily.Monospace,
-                fontSize = PathFontSize,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            Spacer(Modifier.weight(1f))
-        }
-        Spacer(Modifier.width(8.dp))
-        DiffCounts(file.additions, file.deletions)
     }
 }

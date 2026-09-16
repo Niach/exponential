@@ -12,6 +12,7 @@ import {
 } from "@/lib/steer-commands"
 import { formatResetCountdown } from "@/lib/agent-usage"
 import { contract, toolGroupSummary } from "@exp/domain-contract"
+import { editRunEnd, isEditCall } from "@exp/domain-contract/edit-card"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
 // app — see design-tokens.test.ts, which reads the same file by path).
@@ -646,6 +647,10 @@ export function looksLikeMarkdown(text: string): boolean {
 export type FeedRow<T extends { id: number; kind: string }> =
   | { kind: `single`; item: T }
   | { kind: `toolRun`; id: number; items: T[] }
+  /** EXP-916: a maximal run of consecutive same-lane EDIT calls — the ONE
+   *  "N files edited" card (`@exp/domain-contract/edit-card` owns both the
+   *  rule and the card's rows). */
+  | { kind: `edits`; id: number; items: T[] }
   | { kind: `ask`; id: number; askId: string; items: T[] }
   | { kind: `subagent`; id: number; subagentId: string; items: T[] }
 
@@ -782,6 +787,7 @@ export function groupFeedRows<
     askId?: string
     subagentId?: string
     resolved?: boolean
+    toolKind?: string
     workflowId?: string
   },
 >(feed: readonly T[], start = 0): FeedRow<T>[] {
@@ -834,6 +840,16 @@ export function groupFeedRows<
       rows.push(row)
       continue
     }
+    // EXP-916: consecutive edit calls are the edited-files CARD, never a
+    // "N tool calls" run — the rule is the contract's, read off `kind`,
+    // `toolKind` and `workflowId` alone, so the card exists before any patch
+    // lands and a late `tool_update` can never re-split it.
+    if (isEditCall(item)) {
+      const end = editRunEnd(feed, i)
+      rows.push({ kind: `edits`, id: item.id, items: feed.slice(i, end + 1) })
+      i = end
+      continue
+    }
     // EXP-850 §3: the `Workflow` call renders as its own CARD, so it never
     // disappears inside a collapsed "N tool calls" run — neither as the run's
     // opener nor as a member of one.
@@ -846,7 +862,9 @@ export function groupFeedRows<
       end + 1 < feed.length &&
       feed[end + 1].kind === `tool` &&
       feed[end + 1].subagentId === undefined &&
-      feed[end + 1].workflowId === undefined
+      feed[end + 1].workflowId === undefined &&
+      // EXP-916: an edit BREAKS a command run and never joins it.
+      !isEditCall(feed[end + 1])
     )
       end++
     if (end === i) rows.push({ kind: `single`, item })
@@ -855,6 +873,48 @@ export function groupFeedRows<
     i = end
   }
   return hoistPendingCards(rows)
+}
+
+/** EXP-916: the same projection over ONE lane's items — a subagent's fold and
+ *  its conversation tab group exactly like the main transcript (edit runs into
+ *  cards, command runs into "N tool calls"), minus the lane and ask handling
+ *  the main feed does around them. */
+export function groupLaneRows<
+  T extends {
+    id: number
+    kind: string
+    toolKind?: string
+    subagentId?: string
+    workflowId?: string
+  },
+>(items: readonly T[]): FeedRow<T>[] {
+  const rows: FeedRow<T>[] = []
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (isEditCall(item)) {
+      const end = editRunEnd(items, i)
+      rows.push({ kind: `edits`, id: item.id, items: items.slice(i, end + 1) })
+      i = end
+      continue
+    }
+    if (item.kind !== `tool` || item.workflowId !== undefined) {
+      rows.push({ kind: `single`, item })
+      continue
+    }
+    let end = i
+    while (
+      end + 1 < items.length &&
+      items[end + 1].kind === `tool` &&
+      items[end + 1].workflowId === undefined &&
+      !isEditCall(items[end + 1])
+    )
+      end++
+    if (end === i) rows.push({ kind: `single`, item })
+    else
+      rows.push({ kind: `toolRun`, id: item.id, items: items.slice(i, end + 1) })
+    i = end
+  }
+  return rows
 }
 
 /** EXP-850 §9: a question or plan waiting on the reader belongs at the BOTTOM
@@ -900,7 +960,12 @@ export type RowClass = `turn` | `prose` | `tool`
 export function rowClass<T extends { id: number; kind: string }>(
   row: FeedRow<T>
 ): RowClass {
-  if (row.kind === `toolRun` || row.kind === `subagent`) return `tool`
+  if (
+    row.kind === `toolRun` ||
+    row.kind === `subagent` ||
+    row.kind === `edits`
+  )
+    return `tool`
   if (row.kind === `ask`) return `prose`
   switch (row.item.kind) {
     case `user_message`:

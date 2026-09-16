@@ -87,7 +87,7 @@ struct PrChangesFace<Trailing: View>: View {
             isPresented: $closeConfirm,
             titleVisibility: .visible
         ) {
-            Button("Close PR without merging", role: .destructive) { viewModel?.closePr() }
+            Button(DomainContract.diffUiClosePr, role: .destructive) { viewModel?.closePr() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Closes the pull request on GitHub without merging. Use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.")
@@ -128,11 +128,11 @@ struct PrChangesFace<Trailing: View>: View {
 
     private func content(_ vm: ChangesViewModel) -> some View {
         let files = loadedFiles(vm)
-        // EXP-895: the ONE diff view. Every card starts closed (EXP-248) —
-        // uniform with web's `defaultCollapsed` review layout.
+        // EXP-895: the ONE diff view. EXP-916: every card starts OPEN here
+        // too — a review that has to tap every file to read it is not a
+        // review; only the size rule folds a huge file away.
         return DiffFileList(
             files: files ?? [],
-            defaultCollapsed: true,
             emptyLabel: files == nil ? nil : "No changed files.",
             focusPath: selectedPath,
             accessibilityId: "changes-file-cards",
@@ -293,7 +293,7 @@ struct PrChangesFace<Trailing: View>: View {
                     } else {
                         AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
                     }
-                    Text("Merge PR")
+                    Text(DomainContract.diffUiMergePr)
                         .font(.subheadline.weight(.medium))
                 }
             }
@@ -316,14 +316,15 @@ struct PrChangesFace<Trailing: View>: View {
 
     private func closeCircle(_ vm: ChangesViewModel) -> some View {
         FloatingBarCircle(
-            accessibilityLabel: "Close PR without merging",
+            accessibilityLabel: DomainContract.diffUiClosePr,
             enabled: !vm.merging && !vm.closing,
             action: { closeConfirm = true }
         ) {
             if vm.closing {
                 ProgressView().controlSize(.small).tint(.white)
             } else {
-                AppIcon(AppIcons.uiClose, size: AppIcon.Size.medium, weight: .medium)
+                // EXP-916: the PR-closed mark, not a generic ✕.
+                AppIcon(AppIcons.prClosed, size: AppIcon.Size.medium, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
@@ -333,10 +334,10 @@ struct PrChangesFace<Trailing: View>: View {
     /// own (it owns that toolbar across faces); the Reviews page's is here.
     private func githubToolbarButton(_ url: URL) -> some View {
         Button { openURL(url) } label: {
-            AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.medium, weight: .medium)
+            AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium, weight: .medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
-        .accessibilityLabel("Open PR on GitHub")
+        .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
         .accessibilityIdentifier("changes-github-action")
     }
 

@@ -321,6 +321,80 @@ final class AgentFeedTests: XCTestCase {
         )
     }
 
+    // MARK: - Edited-files cards (EXP-916)
+
+    /// `every fixture case projects byte-exact` — the contract's own feed
+    /// fixture (`fixtures/feed/edit-cards.json`) replayed through the REAL
+    /// projection: `AgentFeed.rows` for the main lane, `AgentFeed.laneRows` for
+    /// a `lane` case. The row strings are the fixture's vocabulary:
+    /// `card@id[ids]: <render>` · `run@id[ids]` · `tool@id` · `narration@id` ·
+    /// `user@id` · `subagent@id(lane)`.
+    func testEveryFixtureCaseProjectsByteExact() throws {
+        for entry in try EditCardFixture.cases() {
+            let feed = EditCardFixture.feed(entry)
+            let workflowIds = EditCardFixture.workflowIds(entry)
+            let rows: [AgentFeedRow]
+            if let lane = entry.lane {
+                rows = AgentFeed.laneRows(
+                    feed.filter { $0.subagentKey == lane }, workflowIds: workflowIds
+                )
+            } else {
+                rows = AgentFeed.rows(
+                    feed, from: entry.start ?? 0, workflowIds: workflowIds
+                )
+            }
+            XCTAssertEqual(
+                rows.map { project($0, live: entry.live) }, entry.expected, entry.name
+            )
+        }
+    }
+
+    /// One projected row in the fixture's own notation.
+    private func project(_ row: AgentFeedRow, live: Int?) -> String {
+        switch row {
+        case let .edits(items):
+            let ids = items.map { String($0.id) }.joined(separator: ",")
+            let card = EditCard.render(EditCard.card(items, liveItemId: live))
+            return "card@\(row.id)[\(ids)]: \(card)"
+        case let .toolRun(items):
+            let ids = items.map { String($0.id) }.joined(separator: ",")
+            return "run@\(row.id)[\(ids)]"
+        case let .subagentRun(run):
+            return "subagent@\(run.id)(\(run.subagentId))"
+        case let .ask(group):
+            return "ask@\(group.id)"
+        case let .single(item):
+            switch item {
+            case .tool: return "tool@\(item.id)"
+            case .userMessage: return "user@\(item.id)"
+            case .narration: return "narration@\(item.id)"
+            default: return "other@\(item.id)"
+            }
+        }
+    }
+
+    /// EXP-916: a lone edit is a CARD, and a run of them never collapses into
+    /// the "N tool calls" row the other kinds share.
+    func testAnEditCallIsAlwaysACardAndNeverJoinsAToolRun() {
+        let edit = AgentFeedItem.tool(
+            id: 2, name: "Edit", detail: "a.ts", subagentId: nil,
+            callId: "tc-2", toolKind: "edit"
+        )
+        let bash = { (id: Int) in
+            AgentFeedItem.tool(
+                id: id, name: "Bash", detail: "bun test", subagentId: nil,
+                callId: "tc-\(id)", toolKind: "execute"
+            )
+        }
+        let feed: [AgentFeedItem] = [bash(1), edit, bash(3), bash(4)]
+        XCTAssertEqual(
+            AgentFeed.rows(feed),
+            [.single(feed[0]), .edits([edit]), .toolRun([feed[2], feed[3]])]
+        )
+        XCTAssertEqual(AgentFeedRow.edits([edit]).rowClass, .tool)
+        XCTAssertEqual(AgentFeedRow.edits([edit]).id, 2)
+    }
+
     func testGroupsASubagentRunUnderItsStartMarker() {
         let feed: [AgentFeedItem] = [
             .subagent(

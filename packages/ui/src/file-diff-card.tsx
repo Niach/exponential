@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { contract } from "@exp/domain-contract"
 import {
   unchangedBetween,
   unchangedBefore,
@@ -20,10 +21,16 @@ import { highlightLine, languageFor } from "./diff-lang"
 import { GLASS_SURFACE } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
 
-// EXP-895 — ONE file's diff, unified layout, ×4. The card is the whole of the
-// per-file rendering: the sticky `letter · path · counts · chevron` header and a
-// four-column body (old gutter, new gutter, sign, text). It takes a `DiffFile`
-// off the shared parser and nothing else — no PullFile, no patch strings.
+// EXP-895/EXP-916 — ONE file's diff, unified layout, ×4. The card is the whole
+// of the per-file rendering: the sticky glassy `letter · path · counts ·
+// chevron` header and a four-column body (old gutter, new gutter, sign, text).
+// It takes a `DiffFile` off the shared parser and nothing else — no PullFile,
+// no patch strings.
+//
+// EXP-916 makes it the ONE per-file unit everywhere: the review page, a
+// Changes face AND the transcript's edited-files card stack (`flush`, plus the
+// `pending`/`failed` header states a live edit run needs before its patch
+// lands). Its numbers and its copy are the contract's (`contract.diffUi`).
 //
 // The web analog of the desktop IDE's virtualized diff: instead of virtualizing
 // it CAPS and expands, so a 20k-line file never hard-freezes the tab.
@@ -31,9 +38,16 @@ import { conceptIcon } from "./icons.generated"
 const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
 
 /** A file with more hunk lines than this starts collapsed. */
-const COLLAPSE_THRESHOLD = 300
+const COLLAPSE_THRESHOLD = contract.diffUi.collapseThresholdLines
 /** An expanded file reveals this many lines per "Show more" step. */
-const LINE_CHUNK = 500
+const LINE_CHUNK = contract.diffUi.lineChunk
+
+/** `Show 500 more lines (1200 hidden)` — the contract's words, ×4. */
+export function showMoreLinesLabel(shown: number, hidden: number): string {
+  return contract.diffUi.showMoreLines
+    .replace(`{n}`, String(shown))
+    .replace(`{hidden}`, String(hidden))
+}
 /** Per-line syntax highlighting is skipped past this many hunk lines. */
 const HIGHLIGHT_LIMIT = 1500
 
@@ -106,6 +120,10 @@ const GRID_CLASS: Record<DiffDensity, string> = {
 
 const GUTTER_CLASS = `select-none pr-2 text-right tabular-nums text-diff-gutter-fg`
 
+/** EXP-916: a card without its patch yet. `pending` = the call is still
+ *  running, `failed` = it settled without one. Both are header-only. */
+export type FileDiffCardState = `ready` | `pending` | `failed`
+
 export function FileDiffCard({
   file,
   open,
@@ -113,6 +131,8 @@ export function FileDiffCard({
   onOpenChange,
   density = `comfortable`,
   isMobile = false,
+  state = `ready`,
+  flush = false,
   className,
 }: {
   file: DiffFile
@@ -124,10 +144,17 @@ export function FileDiffCard({
   density?: DiffDensity
   /** Threaded in, never read here — see `DiffPath`. */
   isMobile?: boolean
+  /** EXP-916: `pending`/`failed` draw the header ALONE — no counts, no body,
+   *  and for `failed` a rose tint plus a trailing `failed`. */
+  state?: FileDiffCardState
+  /** EXP-916: drop the outer glass border and radius — the card is a row of a
+   *  parent surface that divides its children itself (`EditedFilesCard`). */
+  flush?: boolean
   className?: string
 }) {
+  const ready = state === `ready`
   const [ownOpen, setOwnOpen] = useState(defaultOpen)
-  const isOpen = open ?? ownOpen
+  const isOpen = ready && (open ?? ownOpen)
   const setOpen = (next: boolean) => {
     if (open === undefined) setOwnOpen(next)
     onOpenChange?.(next)
@@ -242,14 +269,32 @@ export function FileDiffCard({
     <Collapsible
       open={isOpen}
       onOpenChange={setOpen}
-      className={cn(GLASS_SURFACE, `overflow-clip`, className)}
+      disabled={!ready}
+      className={cn(
+        !flush && GLASS_SURFACE,
+        `overflow-clip`,
+        state === `failed` && `text-rose-400`,
+        className
+      )}
       data-testid="file-diff-card"
+      data-state-kind={state}
     >
-      <div className="sticky top-0 z-10 rounded-t-md bg-background">
+      {/* EXP-916: the header is a GLASS section fill over a blur, not a grey
+          wash on the page background — the same paint every glass section
+          header wears, so a card stacks inside one without a seam. */}
+      <div
+        className={cn(
+          `sticky top-0 z-10 bg-glass-section backdrop-blur-sm`,
+          !flush && `rounded-t-md`
+        )}
+      >
         <CollapsibleTrigger
           className={cn(
-            `flex w-full items-center gap-2 rounded-t-md border-b border-glass-stroke bg-muted/30 px-3 py-1.5 text-left text-xs transition-colors duration-fast hover:bg-muted/50`,
-            !isOpen && `rounded-b-md border-b-transparent`
+            `flex w-full items-center gap-2 border-b border-glass-stroke px-3 py-1.5 text-left text-xs transition-colors duration-fast`,
+            !flush && `rounded-t-md`,
+            ready && `hover:bg-glass-active/50`,
+            !isOpen && !flush && `rounded-b-md`,
+            !isOpen && `border-b-transparent`
           )}
         >
           <DiffStatusLetter status={file.status} />
@@ -263,15 +308,31 @@ export function FileDiffCard({
             </span>
           )}
           <span className="ml-auto" />
-          <DiffCounts additions={file.additions} deletions={file.deletions} />
+          {/* A card with no patch has no counts to show — only what happened
+              to the call that would have carried them. */}
+          {ready && (
+            <DiffCounts additions={file.additions} deletions={file.deletions} />
+          )}
+          {state === `failed` && (
+            <span className="shrink-0 text-[0.6875rem]">failed</span>
+          )}
           {/* EXP-706: the disclosure chevron trails the row (native parity) —
-              pointing down when collapsed, flipped when open. */}
-          <ChevronDownGlyph
-            className={cn(
-              `size-3.5 shrink-0 text-muted-foreground transition-transform duration-fast`,
-              isOpen && `rotate-180`
-            )}
-          />
+              pointing down when collapsed, flipped when open. EXP-916: a
+              `pending` card keeps it, muted and inert; a `failed` one drops
+              it — there is nothing behind either, but a running call still
+              reads as a row that is about to open. */}
+          {state !== `failed` && (
+            <ChevronDownGlyph
+              className={cn(
+                `size-3.5 shrink-0 transition-transform duration-fast`,
+                ready
+                  ? `text-muted-foreground`
+                  : `text-muted-foreground/40 opacity-50`,
+                isOpen && `rotate-180`
+              )}
+              aria-hidden
+            />
+          )}
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent>
@@ -287,7 +348,10 @@ export function FileDiffCard({
                 className="w-full rounded-none border-t border-glass-stroke text-muted-foreground"
                 onClick={() => setVisibleCount((c) => c + LINE_CHUNK)}
               >
-                {`Show ${Math.min(LINE_CHUNK, hiddenCount)} more lines (${hiddenCount} hidden)`}
+                {showMoreLinesLabel(
+                  Math.min(LINE_CHUNK, hiddenCount),
+                  hiddenCount
+                )}
               </Button>
             )}
           </>

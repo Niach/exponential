@@ -625,10 +625,15 @@ public struct AgentAskGroup: Equatable, Sendable, Identifiable {
 }
 
 /// One render row over the flat feed: a single item, a run of ≥2 CONSECUTIVE
-/// tool calls (EXP-97), a subagent's run, or a multi-question ask.
+/// tool calls (EXP-97), a run of consecutive EDIT calls (EXP-916), a subagent's
+/// run, or a multi-question ask.
 public enum AgentFeedRow: Equatable, Sendable, Identifiable {
     case single(AgentFeedItem)
     case toolRun([AgentFeedItem])
+    /// EXP-916: one "edited files" card — a maximal run of same-lane edit
+    /// calls, however many (a lone edit is a card too). `EditCard` turns the
+    /// members into its rows.
+    case edits([AgentFeedItem])
     case subagentRun(AgentSubagentRun)
     case ask(AgentAskGroup)
 
@@ -636,6 +641,7 @@ public enum AgentFeedRow: Equatable, Sendable, Identifiable {
         switch self {
         case let .single(item): item.id
         case let .toolRun(items): items.first?.id ?? -1
+        case let .edits(items): items.first?.id ?? -1
         case let .subagentRun(run): run.id
         case let .ask(group): group.id
         }
@@ -660,7 +666,7 @@ extension AgentFeedRow {
     /// The row's class in the gap ladder.
     public var rowClass: AgentRowClass {
         switch self {
-        case .toolRun, .subagentRun: .tool
+        case .toolRun, .edits, .subagentRun: .tool
         case .ask: .prose
         case let .single(item):
             switch item {
@@ -1585,9 +1591,32 @@ public enum AgentFeed {
             return !question.resolved && !question.dismissed
         case let .ask(group):
             return group.questions.contains { !$0.resolved && !$0.dismissed }
-        case .toolRun, .subagentRun:
+        case .toolRun, .edits, .subagentRun:
             return false
         }
+    }
+
+    /// EXP-916 — one SUBAGENT LANE's items as render rows: the same
+    /// edited-files grouping the main transcript does, over the items of ONE
+    /// run (`AgentSubagentRun.items`, already filtered to that lane). The
+    /// lane's other rows stay one-per-item — a subagent's conversation is read
+    /// in publish order, and only its edits fold into a card.
+    public static func laneRows(
+        _ items: [AgentFeedItem], workflowIds: Set<String> = []
+    ) -> [AgentFeedRow] {
+        var rows: [AgentFeedRow] = []
+        var i = 0
+        while i < items.count {
+            if EditCard.isEditCall(items[i], workflowIds: workflowIds) {
+                let end = EditCard.runEnd(items, start: i, workflowIds: workflowIds)
+                rows.append(.edits(Array(items[i...end])))
+                i = end + 1
+                continue
+            }
+            rows.append(.single(items[i]))
+            i += 1
+        }
+        return rows
     }
 
     private static func project(
@@ -1628,13 +1657,24 @@ public enum AgentFeed {
                 continue
             }
 
+            // EXP-916: a run of consecutive EDIT calls is an edited-files card,
+            // never part of a "N tool calls" run — the card IS how edits read.
+            if EditCard.isEditCall(item, workflowIds: workflowIds) {
+                let end = EditCard.runEnd(feed, start: i, workflowIds: workflowIds)
+                builders.append(RowBuilder(kind: .edits, items: Array(feed[i...end])))
+                i = end + 1
+                continue
+            }
+
             if item.isTool, !isWorkflowTool(item, workflowIds: workflowIds) {
                 var end = i + 1
                 // A tool tagged with a subagent belongs to that group, never to
                 // a main-thread run; a WORKFLOW call is its own card row and
-                // never collapses into one either (EXP-850 §3).
+                // never collapses into one either (EXP-850 §3). EXP-916: an
+                // edit call ENDS the run — the card that follows is its own row.
                 while end < feed.count, feed[end].isTool, feed[end].subagentKey == nil,
-                      !isWorkflowTool(feed[end], workflowIds: workflowIds) {
+                      !isWorkflowTool(feed[end], workflowIds: workflowIds),
+                      !EditCard.isEditCall(feed[end], workflowIds: workflowIds) {
                     end += 1
                 }
                 if end - i >= 2 {
@@ -1702,6 +1742,8 @@ public enum AgentFeed {
         enum Kind {
             case single
             case toolRun
+            /// EXP-916: a run of consecutive edit calls — one card.
+            case edits
             case ask(String)
             case subagent(String)
         }
@@ -1719,6 +1761,8 @@ public enum AgentFeed {
             return .single(item)
         case .toolRun:
             return .toolRun(builder.items)
+        case .edits:
+            return .edits(builder.items)
         case let .ask(askId):
             // Step order, submit step last; the local id breaks ties so the
             // order never depends on the sort's stability.

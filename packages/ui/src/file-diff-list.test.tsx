@@ -5,7 +5,8 @@ import { FileDiffList, truncatedLinesNote } from "./file-diff-list"
 
 // EXP-895: the ported `diff-view.test.tsx` — the same behaviours (nav summary,
 // size-based collapse, the capped reveal, the review layout, focus-to-scroll)
-// over `DiffFile[]` instead of GitHub's `PullFile`.
+// over `DiffFile[]` instead of GitHub's `PullFile`. EXP-916: the column is the
+// file TREE and it no longer folds.
 
 const smallFile: DiffFile = fromPullFile({
   filename: `src/example.ts`,
@@ -45,7 +46,7 @@ describe(`FileDiffList`, () => {
   it(`renders the file column for a multi-file diff`, () => {
     render(<FileDiffList files={[smallFile, binaryFile]} />)
 
-    expect(screen.getByTestId(`file-diff-nav`)).toBeTruthy()
+    expect(screen.getByTestId(`file-diff-tree`)).toBeTruthy()
     expect(screen.getByText(`2 files +2 −1`)).toBeTruthy()
     // Nav row + card header both name the file.
     expect(screen.getAllByText(`example.ts`).length).toBeGreaterThanOrEqual(2)
@@ -94,7 +95,7 @@ describe(`FileDiffList`, () => {
 
     // Nothing above the files: the file column is gone, and so is the summary —
     // the Changes top bar carries both.
-    expect(screen.queryByTestId(`file-diff-nav`)).toBeNull()
+    expect(screen.queryByTestId(`file-diff-tree`)).toBeNull()
     expect(screen.getAllByText(`example.ts`).length).toBe(1)
 
     // Even the small file starts collapsed…
@@ -113,7 +114,7 @@ describe(`FileDiffList`, () => {
 
   it(`a single file needs no file column`, () => {
     render(<FileDiffList files={[smallFile]} />)
-    expect(screen.queryByTestId(`file-diff-nav`)).toBeNull()
+    expect(screen.queryByTestId(`file-diff-tree`)).toBeNull()
   })
 
   it(`the publisher's dropped-line count rides under the cards`, () => {
@@ -132,26 +133,10 @@ describe(`FileDiffList`, () => {
     expect(screen.getByText(`No changes in this PR.`)).toBeTruthy()
   })
 
-  it(`the file column folds`, () => {
-    const onNavOpenChange = vi.fn()
-    const { rerender } = render(
-      <FileDiffList
-        files={[smallFile, binaryFile]}
-        navOpen
-        onNavOpenChange={onNavOpenChange}
-      />
-    )
-    fireEvent.click(screen.getByTestId(`diff-nav-fold`))
-    expect(onNavOpenChange).toHaveBeenCalledWith(false)
-    rerender(
-      <FileDiffList
-        files={[smallFile, binaryFile]}
-        navOpen={false}
-        onNavOpenChange={onNavOpenChange}
-      />
-    )
-    expect(screen.queryByTestId(`file-diff-nav`)).toBeNull()
-    expect(screen.getByTestId(`diff-nav-fold`)).toBeTruthy()
+  it(`EXP-916: the file column does not fold — no control takes it away`, () => {
+    render(<FileDiffList files={[smallFile, binaryFile]} />)
+    expect(screen.getByTestId(`file-diff-tree`)).toBeTruthy()
+    expect(screen.queryByTestId(`diff-nav-fold`)).toBeNull()
   })
 })
 

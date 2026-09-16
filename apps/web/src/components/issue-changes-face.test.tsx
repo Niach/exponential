@@ -87,13 +87,15 @@ describe(`IssueChangesFace`, () => {
     expect(screen.getByTestId(`switcher`)).toBeTruthy()
   })
 
-  it(`draws the cards alone — the sheet owns the list — and all of them closed`, () => {
+  it(`draws the cards alone — the sheet owns the list — and OPEN (EXP-916)`, () => {
     filesState.value = { kind: `files`, files: [file(`src/a.ts`), file(`src/b.ts`)] }
     renderFace()
     expect(screen.getByTestId(`changes-view`)).toBeTruthy()
-    expect(screen.queryByTestId(`file-diff-nav`)).toBeNull()
+    expect(screen.queryByTestId(`file-diff-tree`)).toBeNull()
     expect(screen.getAllByTestId(`file-diff-card`)).toHaveLength(2)
-    expect(screen.queryByText(`@@ -1 +1,2 @@`)).toBeNull()
+    // EXP-916: cards start OPEN everywhere — only a file past the contract's
+    // collapse threshold folds itself.
+    expect(screen.getAllByText(`@@ -1 +1,2 @@`)).toHaveLength(2)
   })
 
   it(`a pick in the sheet scrolls the cards to that file`, () => {

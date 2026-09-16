@@ -58,6 +58,11 @@ import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionRateLimitState
 import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.projectLaneRows
+import com.exponential.app.domain.lane
+import com.exponential.app.domain.editCardFixtureCases
+import com.exponential.app.domain.EditCardFixtureCase
+import com.exponential.app.domain.EditCard
 import com.exponential.app.domain.parseToolKind
 import com.exponential.app.domain.rateLimitBannerShows
 import com.exponential.app.domain.rateLimitClears
@@ -2248,6 +2253,58 @@ class AgentFeedTest {
         """{"kind":"usage","contextUsed":$used,"contextSize":$size""" +
             (if (cost == null) "}" else ""","costUsd":$cost}"""),
     )
+
+    // EXP-916: the edited-files card. The SAME fixture `EditCardTest` replays
+    // through a reference projection is replayed here through the REAL
+    // `groupFeedRows` / `projectLaneRows`, so the grouping rule cannot drift
+    // between the contract and what the screen actually renders.
+
+    private fun realRows(case: EditCardFixtureCase): List<String> {
+        val rows = if (case.lane != null) {
+            projectLaneRows(case.feed.filter { it.lane() == case.lane }, case.workflowIds)
+        } else {
+            groupFeedRows(case.feed, case.start, case.workflowIds)
+        }
+        return rows.map { row ->
+            when (row) {
+                is AgentFeedRow.Edits -> "card@${row.id}" +
+                    "[${row.items.joinToString(",") { it.id.toString() }}]: " +
+                    EditCard.renderEditCard(EditCard.editCard(row.items, case.live))
+                is AgentFeedRow.ToolRun ->
+                    "run@${row.id}[${row.items.joinToString(",") { it.id.toString() }}]"
+                is AgentFeedRow.SubagentRun -> "subagent@${row.id}(${row.subagentId})"
+                is AgentFeedRow.QuestionStepper -> "ask@${row.id}"
+                is AgentFeedRow.Single -> when (val item = row.item) {
+                    is AgentFeedItem.Tool -> "tool@${item.id}"
+                    is AgentFeedItem.UserMessage -> "user@${item.id}"
+                    else -> "narration@${item.id}"
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `every edit-card fixture case projects byte exact through groupFeedRows`() {
+        val cases = editCardFixtureCases()
+        assertTrue(cases.size >= 18)
+        for (case in cases) {
+            assertEquals(case.name, case.expected, realRows(case))
+        }
+    }
+
+    @Test
+    fun `an edit call never joins a plain tool run`() {
+        val edit = AgentFeedItem.Tool(2, "Edit", "src/a.ts", toolKind = "edit")
+        val feed = listOf<AgentFeedItem>(tool(1), edit, tool(3))
+        val rows = groupFeedRows(feed)
+        assertEquals(listOf(1L, 2L, 3L), rows.map { it.id })
+        assertEquals(listOf(edit), (rows[1] as AgentFeedRow.Edits).items)
+        // Two neighbours of the SAME lane are one card, and its id never moves.
+        val pair = groupFeedRows(listOf(edit, edit.copy(id = 3)))
+        assertEquals(1, pair.size)
+        assertEquals(2L, pair.single().id)
+        assertEquals(AgentRowClass.Tool, pair.single().rowClass)
+    }
 
     private fun tool(id: Long) = AgentFeedItem.Tool(id, "Edit", "src/a.ts")
 

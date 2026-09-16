@@ -1,4 +1,5 @@
 import type { CodingSession } from "@/db/schema"
+import { contract } from "@exp/domain-contract"
 import { conceptIcon, Pill } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { useKillSession } from "@/hooks/use-kill-session"
@@ -18,7 +19,7 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 
 export const STOP_LABEL = `Stop`
 export const RESUME_LABEL = `Resume`
-export const MERGE_PR_LABEL = `Merge PR`
+export const MERGE_PR_LABEL = contract.diffUi.mergePr
 
 /** EXP-818: the ONE Stop — a small red-tinted glass pill, identical on the
  * machine that hosts the run and on one that only watches it (the IDE's

@@ -37,10 +37,15 @@
 import type { ReactElement } from "react"
 
 import { designTokens } from "@exp/design-tokens"
+import { parseDiff } from "@exp/domain-contract/diff"
+import { editCard } from "@exp/domain-contract/edit-card"
 import {
   AttachmentThumb,
   Button,
+  EditedFilesCard,
   FAB_CHROME_CLASS,
+  FileDiffCard,
+  FileDiffTree,
   GlassCard,
   GlassGroup,
   GlassInputRow,
@@ -497,6 +502,84 @@ const ANDROID_SHEET_ROWS = `apps/android/app/src/main/java/com/exponential/app/u
 const ANDROID_COMPONENTS = `apps/android/app/src/main/java/com/exponential/app/ui/components`
 
 const HEADER_EXCEPTION = `Emoji picker category headers stay uppercase on purpose (shared exception).`
+
+/* ----------------------------------------------------- EXP-916 diff files */
+
+const WEB_DIFF_CARD = `packages/ui/src/file-diff-card.tsx`
+const WEB_EDIT_CARD = `packages/ui/src/edited-files-card.tsx`
+const WEB_DIFF_TREE = `packages/ui/src/file-diff-tree.tsx`
+const DESKTOP_DIFF = `apps/desktop/crates/ui/src/diff.rs`
+const DESKTOP_SESSION_EXTRAS = `apps/desktop/crates/ui/src/session_extras.rs`
+const DESKTOP_DIFF_PANE = `apps/desktop/crates/ui/src/diff_pane.rs`
+const IOS_DIFF_CARD = `apps/ios/Exponential/UI/Issue/DiffFileCard.swift`
+const IOS_EDIT_CARD = `apps/ios/Exponential/UI/Session/EditedFilesCard.swift`
+const IOS_DIFF_TREE = `apps/ios/Exponential/UI/Issue/DiffFileTree.swift`
+const ANDROID_DIFF_CARD = `apps/android/app/src/main/java/com/exponential/app/ui/issue/DiffFileCard.kt`
+const ANDROID_EDIT_CARD = `apps/android/app/src/main/java/com/exponential/app/ui/session/EditedFilesCard.kt`
+const ANDROID_DIFF_TREE = `apps/android/app/src/main/java/com/exponential/app/ui/issue/DiffFileTree.kt`
+
+/** A tiny two-hunk patch — the resting state of one file card. */
+const DIFF_CARD_PATCH = [
+  `--- a/packages/ui/src/file-diff-card.tsx`,
+  `+++ b/packages/ui/src/file-diff-card.tsx`,
+  `@@ -12,4 +12,5 @@`,
+  ` const COLLAPSE_THRESHOLD = contract.diffUi.collapseThresholdLines`,
+  `-const LINE_CHUNK = 500`,
+  `+const LINE_CHUNK = contract.diffUi.lineChunk`,
+  `+const HIGHLIGHT_LIMIT = 1500`,
+  ` `,
+  `@@ -48,3 +49,3 @@`,
+  ` export function FileDiffCard({`,
+  `-  file,`,
+  `+  file, state = \`ready\`,`,
+  ` }) {`,
+].join(`\n`)
+
+const FIXTURE_FILE = parseDiff(DIFF_CARD_PATCH).files[0]
+
+/** Three edited files, the last one still open — an agent mid-run. */
+const EDIT_ITEMS = [
+  `packages/ui/src/file-diff-card.tsx`,
+  `packages/ui/src/file-diff-tree.tsx`,
+  `apps/web/src/components/agent-session.tsx`,
+].map((path, index) => ({
+  id: index + 1,
+  kind: `tool`,
+  toolKind: `edit`,
+  detail: path,
+  settled: true,
+  diff: [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -1,3 +1,4 @@`,
+    ` import { cn } from "./cn"`,
+    `-const LINE_CHUNK = 500`,
+    `+const LINE_CHUNK = contract.diffUi.lineChunk`,
+    `+`,
+  ].join(`\n`),
+}))
+
+const EDIT_CARD_VIEW = editCard(EDIT_ITEMS, 3)
+
+/** Six files across three directories — one of them a compacted chain. */
+const TREE_FILES = [
+  `packages/ui/src/file-diff-card.tsx`,
+  `packages/ui/src/file-diff-tree.tsx`,
+  `packages/ui/src/edited-files-card.tsx`,
+  `apps/web/src/components/agent-session.tsx`,
+  `apps/web/src/lib/agent-feed.ts`,
+  `README.md`,
+].map((path, index) =>
+  parseDiff(
+    [
+      `--- a/${path}`,
+      `+++ b/${path}`,
+      `@@ -1,2 +1,${index + 2} @@`,
+      ` kept`,
+      ...Array.from({ length: index + 1 }, (_, i) => `+added ${i}`),
+    ].join(`\n`)
+  ).files[0]
+)
 
 /* -------------------------------------------------------------- the specs */
 
@@ -1272,6 +1355,51 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         </GlassCard>
       </div>
     ),
+  },
+  {
+    id: `file-diff-card`,
+    title: `File diff card`,
+    kind: `Surfaces`,
+    blurb: `EXP-916: the ONE per-file unit every diff surface is made of — the review page, a Changes face and the transcript's edited-files card all stack THIS. A sticky glassy header (\`status letter · dimmed dir / name · +a −d · chevron\`) over the unified four-column body; the collapse threshold, the "Show N more lines" step and its wording are \`contract.diffUi\`, so nobody re-derives them. Two extra header states carry a live edit run: \`pending\` (the call is still going — no counts, an inert chevron, no body) and \`failed\` (rose, a trailing "failed", no body). \`flush\` drops the outer box so a card can be a ROW of a parent that divides its own children.`,
+    status: {
+      web: ok(`FileDiffCard`, WEB_DIFF_CARD),
+      desktop: ok(`diff::render_file_card`, DESKTOP_DIFF),
+      ios: ok(`DiffFileCard`, IOS_DIFF_CARD),
+      android: ok(`DiffFileCard`, ANDROID_DIFF_CARD),
+    },
+    island: () => <FileDiffCard file={FIXTURE_FILE} />,
+  },
+  {
+    id: `edited-files-card`,
+    title: `Edited files card`,
+    kind: `Surfaces`,
+    blurb: `EXP-916: what a transcript draws for a run of consecutive file edits — \`N files edited\` over a flush stack of the very same file card, hairline-divided. The grouping rule and the rows are the contract's (\`@exp/domain-contract/edit-card\`: one row per PATH, a file touched twice folds into one with summed counts, a call with no patch yet is a \`pending\`/\`failed\` stub). Everything starts collapsed except the LIVE row, which opens itself so the reader watches the edit land and folds back when the card settles; past \`cardPreviewFiles\` the rest sit behind "N more". A tap toggles a row in place — a card never navigates anywhere.`,
+    status: {
+      web: ok(`EditedFilesCard`, WEB_EDIT_CARD),
+      desktop: ok(`session_extras::render_edit_card`, DESKTOP_SESSION_EXTRAS),
+      ios: ok(`EditedFilesCard`, IOS_EDIT_CARD),
+      android: ok(`EditedFilesCard`, ANDROID_EDIT_CARD),
+    },
+    island: () => (
+      <EditedFilesCard
+        view={EDIT_CARD_VIEW}
+        openPaths={new Set([`apps/web/src/components/agent-session.tsx`])}
+        onToggle={noop}
+      />
+    ),
+  },
+  {
+    id: `file-diff-tree`,
+    title: `File diff tree`,
+    kind: `Grouped list`,
+    blurb: `EXP-916: the file column beside a diff — the review's summary line, a "Filter files" field, then the changed files as a TREE. \`diffFileTree\` is the shape: directories before files, each group by lower-cased name, a lone-child directory chain compacted into one node (\`packages/ui/src\`), a directory's counts its subtree's sums. Folders open by default and fold by path; a non-blank filter returns a FLAT list of matching files in input order, because a search result is not a pruned tree. Picking a row only reports the path — the caller scrolls, or closes its sheet.`,
+    status: {
+      web: ok(`FileDiffTree`, WEB_DIFF_TREE),
+      desktop: ok(`diff_pane::file_tree`, DESKTOP_DIFF_PANE),
+      ios: ok(`DiffFileTree`, IOS_DIFF_TREE),
+      android: ok(`DiffFileTree`, ANDROID_DIFF_TREE),
+    },
+    island: () => <FileDiffTree files={TREE_FILES} onSelect={noop} />,
   },
   {
     id: `fab-chrome`,

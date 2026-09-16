@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
+import { contract } from "@exp/domain-contract"
 import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
-import { ChangesTopBar, CHANGES_TITLE } from "@/components/changes-top-bar"
+import { ChangesTopBar } from "@/components/changes-top-bar"
 
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@tanstack/react-router`, () => ({
@@ -37,32 +38,43 @@ const MERGE = {
   steerEnabled: true,
 }
 
-// EXP-895: the ONE md+ header of a Changes surface. The locked shape: the totals
-// read like the file column's summary, and there is EXACTLY ONE merge control
-// (the run header's own Merge pill stands down while a Changes face is up).
+// EXP-916: the REVIEWS header. `identifier · branch · state · summary` then the
+// actions — reject, merge, GitHub — every label straight off `contract.diffUi`.
+// A run's Changes face has no bar at all now, so this carries exactly one merge
+// control and it is the review's.
 describe(`ChangesTopBar`, () => {
-  it(`captions the diff with the same numbers the summary label carries`, () => {
-    render(<ChangesTopBar files={FILES} branch="exp/MET-12" prState="open" />)
-    expect(screen.getByText(CHANGES_TITLE)).toBeTruthy()
-    // `+5 −0`, U+2212 on the deletions — `DiffCounts`, not a hand-rolled cell.
-    expect(screen.getByText(`+5`)).toBeTruthy()
-    expect(screen.getByText(`−0`)).toBeTruthy()
-    expect(screen.getByTestId(`changes-file-count`).textContent).toBe(`2 files`)
+  it(`identifies the review and sizes it with the summary label`, () => {
+    render(
+      <ChangesTopBar
+        identifier="MET-12"
+        files={FILES}
+        branch="exp/MET-12"
+        prState="open"
+      />
+    )
+    expect(screen.getByText(`MET-12`)).toBeTruthy()
     expect(screen.getByText(`exp/MET-12`)).toBeTruthy()
     expect(screen.getByText(`open`)).toBeTruthy()
+    // `summaryLabel(2, 5, 0)` — U+2212 on the deletions.
+    expect(screen.getByTestId(`changes-file-count`).textContent).toBe(
+      `2 files +5 −0`
+    )
   })
 
   it(`one file reads in the singular; no PR says so`, () => {
     render(<ChangesTopBar files={[FILES[0]]} />)
-    expect(screen.getByTestId(`changes-file-count`).textContent).toBe(`1 file`)
+    expect(screen.getByTestId(`changes-file-count`).textContent).toBe(
+      `1 file +2 −0`
+    )
     expect(screen.getByText(`No pull request`)).toBeTruthy()
   })
 
-  it(`carries EXACTLY ONE merge control`, () => {
+  it(`carries EXACTLY ONE merge control, and it says the contract's words`, () => {
     render(<ChangesTopBar files={FILES} prState="open" merge={MERGE} />)
     expect(
       screen.getAllByRole(`button`, { name: `Merge pull request` })
     ).toHaveLength(1)
+    expect(screen.getByText(contract.diffUi.mergePr)).toBeTruthy()
   })
 
   it(`no merge target = no merge control at all`, () => {
@@ -72,7 +84,7 @@ describe(`ChangesTopBar`, () => {
     ).toBeNull()
   })
 
-  it(`close-PR is the review's own action; GitHub rides the end`, () => {
+  it(`reject stands only while the PR is open; GitHub rides the end`, () => {
     const onClosePr = vi.fn()
     render(
       <ChangesTopBar
@@ -83,14 +95,20 @@ describe(`ChangesTopBar`, () => {
         onClosePr={onClosePr}
       />
     )
-    screen
-      .getByRole(`button`, { name: `Close pull request without merging` })
-      .click()
+    const reject = screen.getByTestId(`changes-close-pr`)
+    expect(reject.getAttribute(`title`)).toBe(contract.diffUi.closePr)
+    reject.click()
     expect(onClosePr).toHaveBeenCalledOnce()
-    expect(screen.getByTestId(`changes-github-link`)).toBeTruthy()
+    const github = screen.getByTestId(`changes-github-link`)
+    expect(github.getAttribute(`title`)).toBe(contract.diffUi.openOnGithub)
   })
 
-  it(`a closed PR offers neither close nor merge`, () => {
+  it(`no PR url, no GitHub control`, () => {
+    render(<ChangesTopBar files={FILES} prState="open" merge={MERGE} />)
+    expect(screen.queryByTestId(`changes-github-link`)).toBeNull()
+  })
+
+  it(`a closed PR offers neither reject nor merge`, () => {
     render(
       <ChangesTopBar
         files={FILES}
@@ -99,9 +117,7 @@ describe(`ChangesTopBar`, () => {
         onClosePr={vi.fn()}
       />
     )
-    expect(
-      screen.queryByRole(`button`, { name: `Close pull request without merging` })
-    ).toBeNull()
+    expect(screen.queryByTestId(`changes-close-pr`)).toBeNull()
     expect(
       screen.queryByRole(`button`, { name: `Merge pull request` })
     ).toBeNull()

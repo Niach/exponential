@@ -286,6 +286,7 @@ function ReviewDetailPage() {
       {/* The md+ header: the ONE Changes bar (EXP-895) — it owns the merge
           control, Close and the GitHub link. */}
       <ChangesTopBar
+        identifier={issue.identifier}
         files={files}
         branch={issue.branch}
         prState={issue.prNumber == null ? null : (issue.prState ?? `open`)}
@@ -357,10 +358,12 @@ function ReviewDetailPage() {
               </Pill>
             </div>
           ) : files.length > 0 ? (
+            /* EXP-916: every card starts OPEN — a review is read top to
+               bottom, and only a file past the contract's collapse threshold
+               folds itself. */
             <ChangesView
               files={files}
               nav="auto"
-              defaultCollapsed
               selected={selected}
               onSelect={setSelected}
             />

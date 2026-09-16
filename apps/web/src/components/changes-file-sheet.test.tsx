@@ -18,7 +18,8 @@ const file = (filename: string): DiffFile =>
 const FILES = [file(`src/a.ts`), file(`apps/web/src/b.tsx`)]
 
 // EXP-895: the phone's file list. `FileDiffList`'s md+ aside is gone on a phone,
-// so the list is a bottom sheet off the work bar's LEADING slot.
+// so the list is a bottom sheet off the work bar's LEADING slot. EXP-916: the
+// sheet holds the same file TREE the md+ column does.
 describe(`ChangesFileSheet`, () => {
   it(`the bar button wears the files glyph and the file count`, () => {
     render(<ChangesFileSheet files={FILES} onSelect={vi.fn()} />)
@@ -31,12 +32,16 @@ describe(`ChangesFileSheet`, () => {
     expect(screen.queryByTestId(`changes-file-sheet`)).toBeNull()
   })
 
-  it(`opens the sheet with the shared file list`, () => {
+  it(`opens the sheet with the shared file TREE`, () => {
     render(<ChangesFileSheet files={FILES} onSelect={vi.fn()} />)
     fireEvent.click(screen.getByTestId(`changes-file-sheet-button`))
+    // The title is the contract's.
+    expect(CHANGED_FILES_TITLE).toBe(`Changed files`)
     expect(screen.getByText(CHANGED_FILES_TITLE)).toBeTruthy()
-    expect(screen.getByTestId(`file-diff-nav`)).toBeTruthy()
+    expect(screen.getByTestId(`file-diff-tree`)).toBeTruthy()
     expect(screen.getByTestId(`diff-nav-row-src/a.ts`)).toBeTruthy()
+    // …and its folders, compacted the contract's way.
+    expect(screen.getByTestId(`diff-nav-dir-apps/web/src`)).toBeTruthy()
   })
 
   it(`a pick closes the sheet and reports the path`, () => {

@@ -52,6 +52,7 @@ export function PrGraphBadge({
   issue = null,
   session = null,
   variant = `pill`,
+  fallback = null,
   onMergeStack,
   className,
 }: {
@@ -63,6 +64,10 @@ export function PrGraphBadge({
   /** `pill` = the work header's glyph + `2 of 3`; `glyph` = a list row's
    *  lead icon (the Reviews queue's batch rows). */
   variant?: `pill` | `glyph`
+  /** EXP-916: what to draw when the graph has NO badge (a batch row whose
+   *  siblings have not synced yet). A `glyph` badge sits in a fixed lead cell
+   *  of a grid row, and returning nothing shifted the whole row one column. */
+  fallback?: ReactNode
   /** The Changes face's bottom entry offers it; absent = no control. */
   onMergeStack?: (topIssueId: string) => void
   className?: string
@@ -118,7 +123,7 @@ export function PrGraphBadge({
   )
 
   const kind = badgeKind(graph)
-  if (!kind) return null
+  if (!kind) return fallback
   const label = badgeLabel(graph)
   const name =
     kind === `stack+batch`

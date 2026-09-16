@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Diff
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BottomBarInset
@@ -97,11 +98,6 @@ fun ChangesFace(
             else -> emptyList()
         }
     }
-    // A live worktree diff is the run's own output and opens; a PR's files are
-    // a review queue and start collapsed (EXP-248), uniform with the web. Past
-    // `COLLAPSE_THRESHOLD` lines a file stays shut either way — one lockfile
-    // would otherwise bury every card under it.
-    val defaultCollapsed = diff == null
     val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -132,7 +128,12 @@ fun ChangesFace(
             }
             items(files.size, key = { "diff_file_$it" }) { index ->
                 val file = files[index]
-                val opens = diffOpensByDefault(file, defaultCollapsed)
+                // EXP-916: a file card opens by DEFAULT everywhere — the
+                // Changes face is a page of changes, and a column of shut
+                // headers says nothing. Past `COLLAPSE_THRESHOLD` lines a file
+                // still stays shut: one lockfile would otherwise bury every
+                // card under it.
+                val opens = diffOpensByDefault(file, defaultCollapsed = false)
                 DiffFileCard(
                     file = file,
                     expanded = expanded[file.path] ?: opens,
@@ -219,7 +220,7 @@ private fun FileListCircle(count: Int, onClick: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 ExpIcons.navFiles,
-                contentDescription = "Changed files",
+                contentDescription = DomainContract.diffUiChangedFilesTitle,
                 modifier = Modifier.size(18.dp),
                 tint = Color.White,
             )

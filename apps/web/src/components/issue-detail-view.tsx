@@ -47,6 +47,7 @@ import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { WORK_COLUMN_CLASS, WorkHeader } from "@/components/work-header"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
+import { PrGithubButton } from "@/components/pr-github-button"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
@@ -703,6 +704,9 @@ export function IssueDetailView({
               issue={issue}
             />
             {faceToggle}
+            {/* EXP-916: the Changes face has no bar of its own any more, so
+                the PR reaches GitHub from the header. */}
+            {issue.prUrl && <PrGithubButton prUrl={issue.prUrl} />}
             {pinToggle}
             <IssueActionsMenu
               issue={issue}

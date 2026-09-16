@@ -11,6 +11,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { parseDiff, totals, type DiffFile } from "@exp/domain-contract/diff"
+import { editCard } from "@exp/domain-contract/edit-card"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
@@ -24,16 +25,16 @@ import {
   MobileWorkCapsule,
 } from "@/components/mobile-work-bar"
 import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
+import { PrGithubButton } from "@/components/pr-github-button"
 import { ChangesFileSheet } from "@/components/changes-file-sheet"
-import { ChangesTopBar } from "@/components/changes-top-bar"
 import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
   conceptIcon,
   DiffCounts,
+  EditedFilesCard,
   FAB_CHROME_CLASS,
-  FileDiffList,
   GlassCard,
   useIsMobile,
   type SessionDotTone,
@@ -103,6 +104,7 @@ import {
   FREE_TEXT_PLACEHOLDER,
   PLAN_FEEDBACK_PLACEHOLDER,
   groupFeedRows,
+  groupLaneRows,
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
@@ -142,12 +144,6 @@ import {
   type WorkflowState,
 } from "@/lib/agent-feed"
 import { workingCaption } from "@/lib/working-caption"
-import {
-  canWidenDiffScope,
-  diffScopeTurnLabel,
-  sessionFileCards,
-  type SessionFileCard as SessionFileCardData,
-} from "@/lib/session-file-cards"
 import { AgentBrandMark } from "@/components/agent-brand-mark"
 import { SteerComposer } from "@/components/steer-composer"
 import { ContextRing } from "@/components/context-ring"
@@ -172,7 +168,6 @@ import {
   WorkHeader,
 } from "@/components/work-header"
 import { useCanResumeOn } from "@/hooks/use-resume-run"
-import { SessionFileCard } from "@/components/session-file-card"
 import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-card"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
@@ -445,11 +440,6 @@ export function AgentSessionView({
   const [composerOpen, setComposerOpen] = useState(false)
   /** EXP-877: the file the diff FACE is scrolled to (null = the top). */
   const [diffFile, setDiffFile] = useState<string | null>(null)
-  /** EXP-862: WHAT the diff face is showing — the whole session (the face
-   *  toggle) or the files of ONE turn (a file card's row), named by its
-   *  anchor so the scope tracks the card as the feed grows. The chip in the
-   *  face returns to the session. */
-  const [diffTurn, setDiffTurn] = useState<number | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   /** EXP-866: an account switch has been requested for THIS run — the live
    *  rate-limit notice stands down for good (the slot is cleared too, but a
@@ -807,10 +797,6 @@ export function AgentSessionView({
   const usageAvailable =
     !sessionEnded && Boolean(contextLabel || agentUsage || hasAccountRows)
 
-  /** EXP-850 §12: one card per turn segment, listing what that turn changed;
-   *  clicking a row opens the pane at that file. */
-  const fileCards = useMemo(() => sessionFileCards(feed), [feed])
-
   /** EXP-850 §3/§4: the subagents that belong to a workflow card — their rows
    *  nest inside it instead of standing in the transcript. */
   const workflowAgents = useMemo(() => workflowSubagentIds(feed), [feed])
@@ -821,35 +807,6 @@ export function AgentSessionView({
     () => backgroundStripLines({ backgroundTasks, feed }),
     [backgroundTasks, feed]
   )
-
-  /** The diff face opens at a file, so a file card click is one gesture.
-   *  EXP-862: it opens SCOPED to the turn the card closes — what that turn
-   *  changed, with the card's own patches — and the face's chip widens it
-   *  back to the session. EXP-893: the phone's Changes face is the same
-   *  face (no sheet any more). */
-  const openDiffFile = useCallback(
-    (path: string, card: SessionFileCardData) => {
-      setDiffFile(path)
-      setDiffTurn(card.turnId)
-      onFace(`diff`)
-    },
-    [onFace]
-  )
-
-  /** The scoped card, or null once the session scope is back (or the turn has
-   *  left the feed — a replay, an `activity_reset`). The key is the card's
-   *  `turnId`, the row that OPENED the turn: a live turn keeps growing, and
-   *  an anchor on its last row would drop the scope on the next narration. */
-  const diffCard = useMemo(
-    () =>
-      diffTurn === null
-        ? null
-        : (fileCards.find((card) => card.turnId === diffTurn) ?? null),
-    [fileCards, diffTurn]
-  )
-  /** What the diff FACE draws: the turn's files, or the whole branch. Its
-   *  totals are the scope's; the face toggle keeps the branch's. */
-  const paneFiles = diffCard?.files ?? diffFiles
 
   /** §4: the duplicate warnings a workflow card carries, by workflow id. A
    *  duplicate edge WITHOUT one renders inline in its subagent group row. */
@@ -895,29 +852,6 @@ export function AgentSessionView({
     [rows, workflows]
   )
 
-  /** §12: which render row each file card sits behind. A card anchored below
-   *  the rendered window is dropped (its turn is off screen). */
-  const cardsByRow = useMemo(() => {
-    const byRow = new Map<number, typeof fileCards>()
-    if (fileCards.length === 0) return byRow
-    const firstId = feed[windowStart]?.id ?? 0
-    let cursor = 0
-    while (cursor < fileCards.length && fileCards[cursor].afterId < firstId) {
-      cursor++
-    }
-    rows.forEach((row, index) => {
-      const maxId =
-        row.kind === `single` ? row.item.id : row.items[row.items.length - 1].id
-      while (cursor < fileCards.length && fileCards[cursor].afterId <= maxId) {
-        const held = byRow.get(index) ?? []
-        held.push(fileCards[cursor])
-        byRow.set(index, held)
-        cursor++
-      }
-    })
-    return byRow
-  }, [fileCards, rows, feed, windowStart])
-
   /** EXP-879: the screenshots this run published (`coding_sessions.results`,
    *  a synced jsonb blob). Empty = no Results face. */
   const results = useMemo(
@@ -949,10 +883,7 @@ export function AgentSessionView({
                 deletions={diffStats.deletions}
               />
             ),
-            onSelect: () => {
-              setDiffTurn(null)
-              onFace(`diff`)
-            },
+            onSelect: () => onFace(`diff`),
           },
         ]
       : []),
@@ -966,9 +897,9 @@ export function AgentSessionView({
         ]
       : []),
   ]
-  /** EXP-893: what the Changes face draws — the run's live diff (scoped or
-   *  whole), else the issue's PR files the route fetched for a phone. */
-  const changesFiles = paneFiles.length > 0 ? paneFiles : (prFiles ?? [])
+  /** EXP-893: what the Changes face draws — the run's live diff, else the
+   *  issue's PR files the route fetched for a phone. */
+  const changesFiles = diffFiles.length > 0 ? diffFiles : (prFiles ?? [])
   /** EXP-877: the diff face stands only while there is something to draw —
    *  with no files it falls back to the run face. */
   const showDiffFace = face === `diff` && changesFiles.length > 0
@@ -990,11 +921,12 @@ export function AgentSessionView({
     issueHeader.trailing
   ) : (
     <>
-      {/* EXP-895: the Changes face's own top bar owns the merge control while
-          that face is up — exactly ONE Merge per surface. */}
-      {canMerge && mergeProps && !showDiffFace && (
+      {/* EXP-916: the Changes face has no bar of its own any more, so the
+          header carries the merge control on every face — exactly ONE. */}
+      {canMerge && mergeProps && (
         <MergePrPill {...mergeProps} steerEnabled={steerEnabled} />
       )}
+      {prUrl && <PrGithubButton prUrl={prUrl} />}
       {canKill ? (
         <StopRunPill onStop={requestKill} />
       ) : sessionEnded && canResumeRun ? (
@@ -1091,7 +1023,6 @@ export function AgentSessionView({
           onIssueFace?.()
           return
         }
-        if (next === `changes`) setDiffTurn(null)
         onFace(
           next === `changes` ? `diff` : next === `results` ? `results` : `run`
         )
@@ -1293,33 +1224,13 @@ export function AgentSessionView({
           )}
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
-            <ChangesTopBar
-              files={changesFiles}
-              branch={session.branch}
-              prState={mergeProps?.prState ?? null}
-              prUrl={prUrl}
-              merge={
-                canMerge && mergeProps
-                  ? { ...mergeProps, steerEnabled }
-                  : null
-              }
-            />
+            {/* EXP-916: the face is the diff and nothing else — its merge,
+                GitHub and PR state live in the work header above it. */}
             <ChangesView
               files={changesFiles}
               nav="auto"
               selected={diffFile}
               onSelect={setDiffFile}
-              scopeLabel={
-                diffCard ? diffScopeTurnLabel(diffCard.files.length) : null
-              }
-              // Nothing to widen BACK to until the run publishes a session
-              // diff: the turn's files are then everything there is, and
-              // offering the chip would blank the face on click.
-              onClearScope={
-                canWidenDiffScope(diffFiles.length)
-                  ? () => setDiffTurn(null)
-                  : undefined
-              }
             />
           </div>
         </div>
@@ -1445,26 +1356,28 @@ export function AgentSessionView({
                       index === 0 ? null : rowClass(rows[index - 1]),
                       rowClass(row)
                     )
-                    // §12: the turn's file card follows the row that closed
-                    // its segment, inside the same wrapper so the ladder does
-                    // not gain a gap of its own.
-                    const cards = cardsByRow.get(index)
                     const wrap = (content: ReactNode) => (
                       <div
                         key={row.kind === `single` ? row.item.id : row.id}
                         className={gap}
                       >
                         {content}
-                        {cards?.map((card) => (
-                          <div key={`card-${card.turnId}`} className="pt-2">
-                            <SessionFileCard
-                              card={card}
-                              onOpenFile={openDiffFile}
-                            />
-                          </div>
-                        ))}
                       </div>
                     )
+                    // EXP-916: a run of consecutive edits IS the transcript's
+                    // edited-files card — the same `FileDiffCard` stack every
+                    // Changes surface draws, inline, never a jump away.
+                    if (row.kind === `edits`) {
+                      return wrap(
+                        <EditsCardRow
+                          rowId={row.id}
+                          items={
+                            row.items as Extract<FeedItem, { kind: `tool` }>[]
+                          }
+                          liveRowId={liveRowId ?? null}
+                        />
+                      )
+                    }
                     if (row.kind === `toolRun`) {
                       return wrap(
                         <ToolGroupRow
@@ -1493,7 +1406,7 @@ export function AgentSessionView({
                           workflows
                         )
                       ) {
-                        return cards ? wrap(null) : null
+                        return null
                       }
                       return wrap(<SubagentGroupRow items={row.items} />)
                     }
@@ -1576,7 +1489,7 @@ export function AgentSessionView({
                         if (
                           nestedWorkflowId(item, workflowAgents, workflows)
                         ) {
-                          return cards ? wrap(null) : null
+                          return null
                         }
                         return wrap(<SubagentGroupRow items={[item]} />)
                       case `question`:
@@ -2078,19 +1991,59 @@ function QueueStrip({
 }
 
 /** A workflow agent's own rows, folded away inside its card (§3) — the same
- *  two row components the transcript uses, nothing else. */
+ *  rows the transcript uses, grouped the same way (EXP-916: a lane's
+ *  consecutive edits are ITS edited-files card, not a stack of bare rows). */
 function NestedAgentEvents({ items }: { items: FeedItem[] }) {
+  return <LaneRows items={items} />
+}
+
+/** EXP-916: ONE lane's items — a subagent's fold, a workflow agent's rows —
+ *  through the same projection the main transcript runs (`groupLaneRows`), so
+ *  an edit run reads as the card it is everywhere else. */
+function LaneRows({ items }: { items: FeedItem[] }) {
+  const rows = useMemo(() => groupLaneRows(items), [items])
   return (
     <>
-      {items.map((item) =>
-        item.kind === `tool` ? (
-          <ToolRow key={item.id} item={item} />
-        ) : item.kind === `narration` ? (
-          <div key={item.id} className="py-0.5">
-            <NarrationBubble text={item.text} />
-          </div>
-        ) : null
-      )}
+      {rows.map((row) => {
+        if (row.kind === `edits`) {
+          return (
+            <div key={row.id} className="py-0.5">
+              <EditsCardRow
+                rowId={row.id}
+                items={row.items as ToolItem[]}
+                liveRowId={null}
+              />
+            </div>
+          )
+        }
+        if (row.kind === `toolRun`) {
+          return (
+            <Fragment key={row.id}>
+              {(row.items as ToolItem[]).map((tool) => (
+                <ToolRow key={tool.id} item={tool} />
+              ))}
+            </Fragment>
+          )
+        }
+        if (row.kind === `subagent` || row.kind === `ask`) return null
+        const item = row.item
+        if (item.kind === `tool`) return <ToolRow key={item.id} item={item} />
+        if (item.kind === `narration`) {
+          return (
+            <div key={item.id} className="py-0.5">
+              <NarrationBubble text={item.text} />
+            </div>
+          )
+        }
+        if (item.kind === `user_message`) {
+          return (
+            <div key={item.id} className="py-0.5">
+              <UserMessageBubble text={item.text} />
+            </div>
+          )
+        }
+        return null
+      })}
     </>
   )
 }
@@ -3338,9 +3291,7 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
       )}
       {expanded && (
         <div className="ml-5">
-          {tools.map((tool) => (
-            <ToolRow key={tool.id} item={tool} />
-          ))}
+          <LaneRows items={tools} />
         </div>
       )}
     </div>
@@ -3388,16 +3339,24 @@ function AgentConversation({
   summary?: SubagentSummary
   items: FeedItem[]
 }) {
-  const rows = items.filter(
-    (
-      item
-    ): item is Extract<
-      FeedItem,
-      { kind: `tool` | `narration` | `user_message` }
-    > =>
-      item.kind === `tool` ||
-      item.kind === `narration` ||
-      item.kind === `user_message`
+  // EXP-916: a subagent tab is a transcript too — the SAME projection, so its
+  // consecutive edits read as the one card they do everywhere else.
+  const rows = useMemo(
+    () =>
+      groupLaneRows(
+        items.filter(
+          (
+            item
+          ): item is Extract<
+            FeedItem,
+            { kind: `tool` | `narration` | `user_message` }
+          > =>
+            item.kind === `tool` ||
+            item.kind === `narration` ||
+            item.kind === `user_message`
+        )
+      ),
+    [items]
   )
   return (
     <>
@@ -3433,15 +3392,35 @@ function AgentConversation({
           Nothing from this agent yet.
         </div>
       ) : (
-        rows.map((item, index) => {
+        rows.map((row, index) => {
           // EXP-787: a subagent's conversation is a transcript too — same gap
           // ladder, and its tool rows keep their tighter inner padding.
           const gap = transcriptGapClass(
-            index === 0
-              ? null
-              : rowClass({ kind: `single`, item: rows[index - 1] }),
-            rowClass({ kind: `single`, item })
+            index === 0 ? null : rowClass(rows[index - 1]),
+            rowClass(row)
           )
+          if (row.kind === `edits`) {
+            return (
+              <div key={row.id} className={gap}>
+                <EditsCardRow
+                  rowId={row.id}
+                  items={row.items as ToolItem[]}
+                  liveRowId={null}
+                />
+              </div>
+            )
+          }
+          if (row.kind === `toolRun`) {
+            return (
+              <div key={row.id} className={gap}>
+                {(row.items as ToolItem[]).map((tool) => (
+                  <ToolRow key={tool.id} item={tool} />
+                ))}
+              </div>
+            )
+          }
+          if (row.kind !== `single`) return null
+          const item = row.item
           return (
             <div key={item.id} className={gap}>
               {item.kind === `narration` ? (
@@ -3449,7 +3428,7 @@ function AgentConversation({
               ) : item.kind === `user_message` ? (
                 <UserMessageBubble text={item.text} />
               ) : (
-                <ToolRow item={item} />
+                <ToolRow item={item as ToolItem} />
               )}
             </div>
           )
@@ -3544,8 +3523,8 @@ function ToolRow({
       {item.output === undefined ? (
         headline
       ) : (
-        // The output is the only thing a row-level toggle has to reveal — an
-        // `edit` row's diff cards carry their own chevrons.
+        // The output is the only thing a row-level toggle has to reveal —
+        // EXP-916 moved an edit's patch into its run's edited-files card.
         <button
           type="button"
           onClick={() => setPinned(!open)}
@@ -3555,7 +3534,8 @@ function ToolRow({
           {headline}
         </button>
       )}
-      {item.diff && <ToolDiff diff={item.diff} live={open} />}
+      {/* EXP-916: an edit call's patch belongs to the edited-files CARD its
+          run forms (`groupFeedRows`), never to a lone tool row. */}
       {open && item.output !== undefined && (
         <ToolOutput output={item.output} live={live} />
       )}
@@ -3758,35 +3738,63 @@ function ExpToolResult({
   return null
 }
 
-/** EXP-786: one call's diff, through the same file renderer the "Latest
- *  changes" bar uses, in a scroll box no taller than that bar. */
-const ToolDiff = memo(function ToolDiff({
-  diff,
-  live = false,
+/** EXP-916 — the transcript's edited-files CARD: one row per path, the same
+ *  `FileDiffCard` every Changes surface draws, folded until the reader opens
+ *  one. The projection is the contract's (`editCard`), memoised per CARD —
+ *  never once over the whole feed — and keyed on what can actually change it:
+ *  the row, its last member and the total size of its patches (a `tool_update`
+ *  that lands a patch grows exactly that).
+ *
+ *  Open state: while the card's last member is the LIVE tool row, that row is
+ *  open by itself so the reader watches the edit land; the moment the card
+ *  settles (its `liveIndex` goes null) the whole card collapses, unless the
+ *  reader has touched it. */
+function EditsCardRow({
+  rowId,
+  items,
+  liveRowId,
 }: {
-  diff: string
-  /** EXP-895: a card in the LIVE tail opens its files so the reader watches the
-   *  edit land; every other card stays folded. */
-  live?: boolean
+  rowId: number
+  items: ToolItem[]
+  liveRowId: number | null
 }) {
-  // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
-  // `diff --git` header) while the session diff is full `git diff` output —
-  // the shared parser reads both, and lifts the publisher's cut count off the
-  // trailing marker (EXP-786).
-  const { files, truncatedLines } = useMemo(() => parseDiff(diff), [diff])
-  if (files.length === 0 && truncatedLines === undefined) return null
-  return (
-    <div className="mt-1 max-h-72 overflow-auto overscroll-contain rounded-md border border-border/60">
-      <FileDiffList
-        files={files}
-        nav="none"
-        density="compact"
-        defaultCollapsed={!live}
-        truncatedLines={truncatedLines}
-      />
-    </div>
+  const last = items[items.length - 1]
+  const diffBytes = items.reduce((n, item) => n + (item.diff?.length ?? 0), 0)
+  const view = useMemo(
+    () => editCard(items, liveRowId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rowId, last?.id, diffBytes, liveRowId]
   )
-})
+  const livePath =
+    view.liveIndex === null ? null : (view.rows[view.liveIndex]?.path ?? null)
+  const [touched, setTouched] = useState(false)
+  const [open, setOpen] = useState<Set<string>>(() => new Set())
+  // The live row settled: the card folds itself back up, and the reader's own
+  // toggles start again from nothing.
+  useEffect(() => {
+    if (livePath !== null) return
+    setTouched(false)
+    setOpen(new Set())
+  }, [livePath])
+  const openPaths = useMemo(() => {
+    if (touched || livePath === null) return open
+    return new Set([livePath])
+  }, [touched, livePath, open])
+  const toggle = useCallback(
+    (path: string) => {
+      setTouched(true)
+      setOpen((prev) => {
+        const base = prev.size === 0 && livePath !== null ? new Set([livePath]) : prev
+        const next = new Set(base)
+        if (next.has(path)) next.delete(path)
+        else next.add(path)
+        return next
+      })
+    },
+    [livePath]
+  )
+  return <EditedFilesCard view={view} openPaths={openPaths} onToggle={toggle} />
+}
 
 /** A run of ≥2 consecutive tool calls collapsed into one row (EXP-97),
  *  expandable to the individual rows. EXP-785: the caption is the contract's
