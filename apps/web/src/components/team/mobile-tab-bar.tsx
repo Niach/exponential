@@ -1,5 +1,5 @@
 import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
-import { conceptIcon } from "@exp/ui"
+import { FAB_CHROME_CLASS, conceptIcon } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
@@ -147,7 +147,7 @@ function TabDot({ className }: { className: string }) {
 // active surface puts in it. EXP-827: on a board the slot is ONE 52px
 // capsule with two 52px arms — Start chat | New issue — split by a hairline
 // (`FAB_GROUP_CLASS` + `FAB_ARM_CLASS`); elsewhere a single circle.
-const FAB_CHROME = `pointer-events-auto shrink-0 border border-glass-stroke-card bg-popover/85 text-foreground shadow-lg shadow-black/40 backdrop-blur-xl`
+const FAB_CHROME = `pointer-events-auto shrink-0 ${FAB_CHROME_CLASS} text-foreground`
 const FAB_CLASS = `${FAB_CHROME} relative flex size-[3.25rem] items-center justify-center rounded-full`
 const FAB_GROUP_CLASS = `${FAB_CHROME} flex h-[3.25rem] items-stretch overflow-hidden rounded-full`
 const FAB_ARM_CLASS = `relative flex w-[3.25rem] items-center justify-center text-foreground transition-colors active:bg-glass-active`

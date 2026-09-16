@@ -33,6 +33,11 @@ const REF_TAIL = `(?![\\w-])`
 const ISSUE_REF_SOURCE = `${HASH_REF_SOURCE}${REF_TAIL}`
 const ISSUE_REF_BARE_SOURCE = `(?:${HASH_REF_SOURCE}|${BARE_REF_SOURCE})${REF_TAIL}`
 
+/** An in-progress `#query` at the caret (after start-of-text or whitespace)
+ *  — looser than the stored token, since it matches while still typing.
+ *  Shared by the TipTap detector (editor-autocomplete.ts) and MentionTextarea. */
+export const ISSUE_REF_AT_CARET = /(?:^|\s)#([a-zA-Z0-9-]*)$/
+
 export interface IssueRefMatchOptions {
   /** Also match bare `EXP-758` tokens (steering feeds only, display-only). */
   bare?: boolean

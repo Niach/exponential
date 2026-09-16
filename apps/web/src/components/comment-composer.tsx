@@ -25,7 +25,12 @@ import {
   isInlineImageAttachment,
   isInlineMediaAttachment,
 } from "@/lib/attachment-files"
-import { Pill, conceptIcon } from "@exp/ui"
+import {
+  AttachmentRemoveButton,
+  AttachmentThumb,
+  Pill,
+  conceptIcon,
+} from "@exp/ui"
 import {
   Composer,
   ComposerSubmit,
@@ -44,7 +49,6 @@ const EmojiIcon = conceptIcon(`editor-emoji`)
 const ImageIcon = conceptIcon(`editor-image`)
 const AttachIcon = conceptIcon(`ui-attach`)
 const IssueRefIcon = conceptIcon(`editor-issue-ref`)
-const CloseIcon = conceptIcon(`ui-close`)
 
 /** A file picked into the composer, or (in edit mode) an already-linked row.
  *  `uploadedId` survives a failed send so a retry never re-uploads; `existing`
@@ -268,44 +272,19 @@ export function CommentComposer({
         const videoSrc = isVideo
           ? (item.existing?.url ?? item.previewUrl)
           : undefined
-        const removeButton = (
-          <button
-            type="button"
-            aria-label={`Remove ${filename}`}
-            disabled={submitting}
-            onClick={() => removeItem(item.key)}
-            className="absolute -right-1.5 -top-1.5 rounded-full border border-glass-stroke-card bg-popover p-0.5 text-muted-foreground hover:text-foreground"
-          >
-            <CloseIcon className="size-3" />
-          </button>
-        )
-        if (imageSrc) {
+        const remove = () => removeItem(item.key)
+        const mediaSrc = imageSrc ?? videoSrc
+        if (mediaSrc) {
           return (
-            <div key={item.key} className="relative">
-              <img
-                src={imageSrc}
-                alt={filename}
-                className="size-16 rounded-md border border-glass-stroke-card object-cover"
-              />
-              {removeButton}
-            </div>
-          )
-        }
-        if (videoSrc) {
-          // EXP-824: a muted, metadata-only `<video>` is the cheapest
-          // first-frame thumb — no decode until the row exists server-side.
-          return (
-            <div key={item.key} className="relative">
-              <video
-                src={videoSrc}
-                muted
-                playsInline
-                preload="metadata"
-                aria-label={filename}
-                className="size-16 rounded-md border border-glass-stroke-card bg-black object-cover"
-              />
-              {removeButton}
-            </div>
+            <AttachmentThumb
+              key={item.key}
+              src={mediaSrc}
+              alt={filename}
+              kind={imageSrc ? `image` : `video`}
+              removeLabel={`Remove ${filename}`}
+              onRemove={remove}
+              disabled={submitting}
+            />
           )
         }
         const Icon = getAttachmentIcon(contentType)
@@ -316,7 +295,11 @@ export function CommentComposer({
           >
             <Icon className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate text-xs">{filename}</span>
-            {removeButton}
+            <AttachmentRemoveButton
+              label={`Remove ${filename}`}
+              disabled={submitting}
+              onClick={remove}
+            />
           </div>
         )
       })}

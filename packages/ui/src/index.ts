@@ -6,6 +6,7 @@
 // Adding a component: `shadcn add` into src/, rewrite its `@/…` imports to
 // relative ones, then add a line here (see README.md).
 export * from "./alert-dialog"
+export * from "./attachment-thumb"
 export * from "./avatar"
 export * from "./avatar-color"
 export * from "./board-icons"
@@ -24,6 +25,7 @@ export * from "./dialog-arms"
 export * from "./diff-counts"
 export * from "./dropdown-menu"
 export * from "./empty-state"
+export * from "./fab-chrome"
 export * from "./file-diff-card"
 export * from "./file-diff-list"
 export * from "./file-diff-nav"

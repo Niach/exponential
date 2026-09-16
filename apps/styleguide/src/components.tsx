@@ -38,7 +38,9 @@ import type { ReactElement } from "react"
 
 import { designTokens } from "@exp/design-tokens"
 import {
+  AttachmentThumb,
   Button,
+  FAB_CHROME_CLASS,
   GlassCard,
   GlassGroup,
   GlassInputRow,
@@ -191,6 +193,10 @@ const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
 const CloseGlyph = conceptIcon(`ui-close`)
 const ShellGlyph = conceptIcon(`session-shell`)
 const MergeGlyph = conceptIcon(`pr-merged`)
+
+/* A neutral stand-in for a picked screenshot: the island loads no network
+   image, so the thumb's crop and hairline read against a flat data-URI tile. */
+const THUMB_FIXTURE_SRC = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="gray"/></svg>`)}`
 
 /* One glyph per disc tone — the four heads the product actually opens with: a
    team/invite page, a saved connection, a refused one, an empty inbox. */
@@ -1263,6 +1269,69 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             <span>Mobile app</span>
           </div>
         </GlassCard>
+      </div>
+    ),
+  },
+  {
+    id: `fab-chrome`,
+    title: `Floating chrome`,
+    kind: `Surfaces`,
+    blurb: `The ONE floating-glass recipe a phone's bottom bar is made of, and only its paint: the card hairline, the popover fill at 85%, a large black-40% drop shadow and a backdrop blur. Size, radius, text colour and layout stay at the call site, because they genuinely differ — the 52px circle (the tab bar FAB, the Work bar slots, the issue bar's coding circle), the capsule stretched between two circles, and the radius-16 tray the steer composer expands into. EXP-904: four files restated the string before it became one constant.`,
+    status: {
+      web: ok(`FAB_CHROME_CLASS`, `packages/ui/src/fab-chrome.tsx`),
+      desktop: na(`no floating phone bar`),
+      ios: ok(`FloatingBarCircle`, `apps/ios/ExpUI/Sources/FloatingBottomBar.swift`),
+      android: {
+        state: `leftover`,
+        symbol: `Fab`,
+        file: `${ANDROID_COMPONENTS}/BottomNavBar.kt`,
+        note: `the tab bar FAB paints the opaque fill + strong hairline inline; no shared modifier`,
+      },
+    },
+    island: () => (
+      <div className="flex items-end gap-3">
+        <div
+          className={`flex size-[52px] items-center justify-center rounded-full text-foreground ${FAB_CHROME_CLASS}`}
+        >
+          <PlusGlyph className="size-5" />
+        </div>
+        <div
+          className={`flex h-[52px] flex-1 items-center rounded-full px-4 text-sm text-muted-foreground ${FAB_CHROME_CLASS}`}
+        >
+          Message the agent…
+        </div>
+        <div
+          className={`flex size-[52px] items-center justify-center rounded-full text-muted-foreground ${FAB_CHROME_CLASS}`}
+        >
+          <MoreGlyph className="size-5" />
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: `attachment-thumb`,
+    title: `Attachment thumbnail`,
+    kind: `Controls`,
+    blurb: `A picked attachment waiting in a composer: a 64px center-cropped tile at radius MD under the card hairline, with a small circular remove badge hung off its top-right corner. A video uses the same tile with a first-frame poster on black; any other file stays a chip that carries the same badge. EXP-904: the comment, launch and steer composers each drew it by copy-paste.`,
+    status: {
+      web: ok(
+        `AttachmentThumb / AttachmentRemoveButton`,
+        `packages/ui/src/attachment-thumb.tsx`
+      ),
+      desktop: ok(
+        `comment_attachments::pending_attachments_strip`,
+        `apps/desktop/crates/ui/src/comment_attachments.rs`
+      ),
+      ios: ok(
+        `PendingAttachmentStrip`,
+        `apps/ios/Exponential/UI/Components/AttachmentStrips.swift`
+      ),
+      android: ok(`PendingAttachmentStrip`, `${ANDROID_COMPONENTS}/AttachmentStrips.kt`),
+    },
+    island: () => (
+      <div className="flex flex-wrap gap-2 p-2">
+        <AttachmentThumb src={THUMB_FIXTURE_SRC} removeLabel="Remove image" onRemove={noop} />
+        <AttachmentThumb src={THUMB_FIXTURE_SRC} removeLabel="Remove image" onRemove={noop} />
       </div>
     ),
   },

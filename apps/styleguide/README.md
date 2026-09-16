@@ -89,6 +89,8 @@ its picker, one canonical form on all four clients (tap adds, the ✕ always con
 EXP-903 added two islands for primitives the app used to copy-paste: **glass card**, the ONE translucent
 card box — shown bare and again as the grouped-rows variant the call site makes with `divide-y` — and
 **icon disc**, the 48px heading circle in all four tones, whose wash and glyph colour are one choice.
+EXP-904 added **floating chrome** (`FAB_CHROME_CLASS`, the phone bar's glass paint; size and radius stay at the
+call site) and **attachment thumbnail**, the composers' 64px pending tile with its corner remove badge.
 
 Under each control is a per-platform table naming the ONE symbol and file that
 is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,

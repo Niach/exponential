@@ -13,6 +13,11 @@
 // The captured group is the bare email after the leading `@`.
 const MENTION_SOURCE = `@([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})`
 
+/** An in-progress `@query` at the caret (after start-of-text or whitespace);
+ *  the query stops at the caret so it never swallows trailing text. Shared by
+ *  the TipTap detector (editor-autocomplete.ts) and MentionTextarea. */
+export const MENTION_AT_CARET = /(?:^|\s)@([a-zA-Z0-9._%+-]*)$/
+
 export function createMentionRegExp(): RegExp {
   return new RegExp(MENTION_SOURCE, `g`)
 }
