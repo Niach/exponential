@@ -590,6 +590,13 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// the same login, so the switch would silently do nothing.
     public var canSwitchAccount: Bool { caps?.contains("account-switch") == true }
 
+    /// EXP-897: whether this machine reads a start frame's `stack` payload and
+    /// cuts the branch from the lower PR's. An older build has no `stack`
+    /// field in its decoder and would run UNSTACKED while the server had
+    /// already written the `blocks` relation, so the blocked-start alert
+    /// hides "Stacked PR" for it (the server refuses `stack` on its behalf).
+    public var canStackStart: Bool { caps?.contains("stacked-start") == true }
+
     /// EXP-862: whether this machine runs `agent_profile_remove` — deleting
     /// its own copy of a login (the profile's config dir plus its index row;
     /// the ACCOUNT itself is never touched). Its own cap beside `agent-login`:

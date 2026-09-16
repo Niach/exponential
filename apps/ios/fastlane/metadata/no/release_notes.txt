@@ -1,17 +1,18 @@
-- Meldinger i kø: sender du noe mens agenten fortsatt jobber, venter det i en Queued-linje over skrivefeltet, og fjerner du det, går teksten tilbake i utkastet
-- Stop som når fram: Stop i en økt som kjører avbryter nå den pågående turen i stedet for å bli borte på veien, og rydder bort det som står i kø bak
-- Roligere knapper: bare den ene handlingen en skjerm er til for beholder en fylt sirkel; fjern, lukk, oppdater, pilene og ...-menyene er nå enkle tegn
-- Velgere som viser hva de velger: agentvelgeren bærer merket til Claude Code eller Codex på knappen og ved siden av hvert navn, og enhetsmenyer starter med et laptop- eller serverikon
+- Én Work-skjerm: et issue, kjøringen, endringene og resultatene er sider av samme skjerm, du bytter mellom dem fra linjen nederst, og Stop eller Resume ligger øverst til høyre
+- Én diff-visning: alle differ leses likt, med linjenumre, skjulte uendrede linjer du kan åpne, og omdøpte eller binære filer navngitt i stedet for vist tomme
+- Stablede pull requests: start et issue oppå det som blokkerer det, slå sammen hele kjeden med Merge stack, les stack- eller batch-merket på arbeidet, og svar på spørsmålet en nøstet kjøring sender deg
+- Resultater fra en kjøring: en kjøring som publiserer skjermbilder får en Results-side, gruppert etter tema, én rute per plattform, og et trykk viser hele bildet
+- Batch-kjøringer med navn: en kjøring over flere issues leser nå EXP-874 +2 ved siden av tittelen på det første issuet i stedet for «Batch run»
+- Meldinger som lander med en gang: en melding du skriver mens agenten jobber, når fram straks og står som sendt til den er lest, og Stop gir teksten tilbake til skrivefeltet
+- GitHub på plass: å koble til GitHub, legge til et repository og sette repositoryet til et board fungerer her som på datamaskinen, og feil vises der du er
+- Meldinger i kø: en melding som venter på agenten står i en linje over skrivefeltet, og Stop i en økt som kjører avbryter virkelig den pågående turen i stedet for å bli borte på veien
+- Roligere knapper og tydeligere velgere: bare hovedhandlingen på en skjerm beholder en fylt sirkel, og agentvelgeren bærer merket til Claude Code eller Codex, mens enhetsmenyer starter med et laptop- eller serverikon
 - Agent-siden holder kjøringene dine: tidligere kjøringer brettes bak et tall du kan åpne, og når ingenting kjører, ligger skrivefeltet midt på siden
-- Logg inn der kontoen er: enhetsinnstillingene holder navn, deling og agentens standarder, mens innlogging, valg av aktiv konto og fjerning nå ligger på kontobrikkene
-- Legg til en konto: Add account ligger i Accounts-overskriften og logger en ny konto inn på en enhet, og en pluss ved en konto logger den samme inn på en annen enhet
+- Logg inn der kontoen er: innlogging, valg av aktiv konto og fjerning ligger nå på kontobrikkene, og Add account i Accounts-overskriften logger en ny konto inn på en enhet
 - Issue-filtre er borte: filterknappen og pillene er borte fra board og innboks, søk dekker det de ble brukt til, og gruppering og statusbånd blir
 - Fortsett med e-post eller med en passnøkkel: logg inn med en 6-sifret kode du får tilsendt, eller med Face ID eller Touch ID; alle valgene står i én liste, og en ukjent e-post blir rett og slett en ny konto
 - Arbeidsindikatoren stopper når agenten stopper: den følger nå agentens virkelige tur i stedet for tilkoblingen, viser hva den gjør med tid og tokens, og Stop ligger i overskriften til økten
-- Kort for Exponential-verktøy: når agenten kaller Exponential, viser loggen en enkel tekst som «Creating issue» eller «Opened pull request», og etterpå en forhåndsvisning av resultatet
-- Underagenter med navn: en underagents brikke bærer oppgaven den fikk, radene oppsummerer verktøyene den brukte, og en Plan-brikke uten knapper vises så lenge kjøringen fortsatt planlegger
+- Kort i loggen: et kall til Exponential viser en enkel tekst som «Creating issue» med en forhåndsvisning av resultatet, en underagents brikke bærer oppgaven den fikk, og en Plan-brikke uten knapper vises så lenge kjøringen planlegger
 - Workflow-kort: en kjøring med flere agenter vises som ett kort med fasene sine og agentene under, og en øktrad får en andre linje med det kjøringen jobber med akkurat nå
-- Kontoer som forteller sannheten: tilstanden til en agentkonto kommer fra en ekte forbruksmåling, så en død innlogging viser «Needs re-login» i stedet for «Signed in»
-- Devices er reparasjonssiden: hver maskin viser agentinnloggingene den har, og en brikke tilbyr riktig reparasjon, ny innlogging for en utløpt eller bruk denne kontoen her for en maskinen ikke bruker
-- Bytt konto midt i en kjøring: en Claude-kjøring som treffer grensen sin kan fortsette på en annen konto fra forbruksarket eller grensevarselet, som en ny kjøring knyttet til den gamle
-- Tilbake dit du kom fra: forlater du en økt, havner du tilbake på issuet, boardet eller innboksen du åpnet den fra, og en kjøring startet av en annen kjøring ligger under den
+- Kontoer og reparasjon: tilstanden til en agentkonto kommer fra en ekte forbruksmåling, så en død innlogging viser «Needs re-login», og Devices viser innloggingene til hver maskin med riktig reparasjon på en brikke
+- Bytt konto midt i en kjøring, og kom tilbake dit du kom fra: en Claude-kjøring på grensen sin kan fortsette på en annen konto, og forlater du en økt, havner du tilbake på issuet eller boardet du åpnet den fra

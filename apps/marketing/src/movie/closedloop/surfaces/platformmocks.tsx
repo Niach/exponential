@@ -280,7 +280,9 @@ const Avatar: React.FC<{ size: number; text: string }> = ({ size, text }) => (
 // and browser-like WORK TABS sit in a band above the panel — every live run
 // of mine in its agent group (Claude's orange mark, the chip's steady
 // liveness dot, the group's collapse chevron). The retired bottom session
-// strip is gone. The list header holds ONLY the ghost Filter button.
+// strip is gone. EXP-862 removed issue filtering, and with it the Filter
+// button: the list's control row is a fixed band that only fills when rows
+// are selected (the bulk action bar), so the mock keeps the empty band.
 export const WEB = { w: 560, chrome: 34, viewport: 348, sidebar: 156 } as const
 
 const WEB_NAV: {
@@ -760,26 +762,10 @@ export const WebBrowserMock: React.FC = () => (
           overflow: "hidden",
         }}
       >
-        <div
-          style={{
-            flex: "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            height: 34,
-            padding: "0 12px",
-            gap: 5,
-            color: C.muted,
-            fontSize: 11.5,
-          }}
-        >
-          <Glyph size={11} sw={1.8}>
-            <path d="M3 6h18" />
-            <path d="M7 12h10" />
-            <path d="M11 18h4" />
-          </Glyph>
-          Filter
-        </div>
+        {/* The board page's control row: a fixed band that only fills with
+            the bulk action bar once rows are selected (EXP-862 took the
+            Filter trigger with issue filtering). */}
+        <div style={{ flex: "none", height: 34 }} />
         <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
           {LINEUP_SECTIONS.map((section) => (
             <div key={section.name}>

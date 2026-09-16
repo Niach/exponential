@@ -37,6 +37,7 @@ import {
   getPullRequest,
   GitHubAsyncMergePending,
   GitHubMergeError,
+  membersAtOrBelowNumber,
   mergePullRequestSmart,
   resolvePrBaseState,
   retargetPullRequest,
@@ -317,12 +318,19 @@ async function finalizeIssueUpdateInTx(
 
 /** EXP-897: `queued` = GitHub's merge queue took it; `note` explains either. */
 type MergePrResult = {
-  merged: true
+  /** False ONLY for an enqueued merge (FEED-43 R1): GitHub's merge queue
+   * holds it and may still reject it, so nothing is merged yet; `queued`
+   * says why. The webhook (or the poller) completes the issues when it
+   * lands. */
+  merged: boolean
   queued?: boolean
   note?: string
-  /** EXP-897: the PR urls a stack merge landed (or queued), so a caller merging
-   * several issues can tell which of them this call actually covered. */
+  /** EXP-897: the PR urls a stack merge landed, so a caller merging several
+   * issues can tell which of them this call actually covered. Empty for an
+   * enqueued stack; see `queuedPrUrls`. */
   mergedPrUrls?: string[]
+  /** The PR urls an enqueued stack merge covers once it lands. */
+  queuedPrUrls?: string[]
 }
 
 /**
@@ -539,11 +547,14 @@ async function mergeStackFromMember(opts: {
       throw err
     }
     if (smart.queued) {
+      // FEED-43 R1: nothing has landed; the queue may still reject it. The
+      // claims stay (the landing merge's webhooks must stay attributed).
       return {
-        merged: true,
+        merged: false,
         queued: true,
-        mergedPrUrls: members.map((member) => member.prUrl),
-        note: `GitHub queued the stack merge of PR #${top.prNumber}. The issues complete when it lands.`,
+        mergedPrUrls: [],
+        queuedPrUrls: members.map((member) => member.prUrl),
+        note: `GitHub queued the stack merge of PR #${top.prNumber}. Nothing is merged yet; the issues complete when it lands.`,
       }
     }
     await completeStackCohort({
@@ -751,7 +762,7 @@ export const issuesRouter = router({
       let draftOwned = false
       if (input.draftId) {
         const [draft] = await ctx.db
-          .select({ id: issueDrafts.id })
+          .select({ id: issueDrafts.id, teamId: issueDrafts.teamId })
           .from(issueDrafts)
           .where(
             and(
@@ -761,12 +772,28 @@ export const issuesRouter = router({
           )
           .limit(1)
         draftOwned = draft != null
+        // A draft is opened ON a board, so it carries that board's team. The
+        // create must land in the same team: the reparent below would
+        // otherwise carry its attachments (and their storage quota) across a
+        // team boundary on the strength of a client-supplied boardId.
+        if (draft && draft.teamId !== board.teamId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `The draft belongs to a different team`,
+          })
+        }
 
         const origin = ctx.request.url
         const { attachmentIds, invalidUrls } =
           extractAttachmentIdsFromDescription(input.description ?? ``, origin)
         let ownedCount = 0
-        if (attachmentIds.length > 0) {
+        // Ownership is only provable through the caller's OWN draft row. With
+        // no such row the named id is either unwritten (nothing was ever
+        // uploaded, so no image can legitimately be embedded) or somebody
+        // else's draft, and either way every attachment id is refused: the
+        // probe below is keyed on draft_id alone, so it must not run
+        // unowned.
+        if (attachmentIds.length > 0 && draftOwned) {
           const owned = await ctx.db
             .select({ id: attachments.id })
             .from(attachments)
@@ -854,6 +881,9 @@ export const issuesRouter = router({
             .set({
               issueId: issue.id,
               boardId: issue.boardId,
+              // The trigger derives it from the board too; written explicitly
+              // so a reparent can never leave the draft's team_id behind.
+              teamId: board.teamId,
               draftId: null,
             })
             .where(eq(attachments.draftId, input.draftId))
@@ -1884,12 +1914,41 @@ export const issuesRouter = router({
       // merger) whenever no coding_sessions row survived. viaAgent marks an
       // MCP-driven merge (the shared-server daemon acts with its owner's
       // key) so attribution can swap to the session's requester.
-      claimPrMerge(repoFullName, row.prNumber, {
+      const claimActor = {
         userId: ctx.session.user.id,
         viaAgent: ctx.viaMcp === true,
         // EXP-711: the webhook's sweep must honour the same override.
         endSessions: input.endSessions,
-      })
+      }
+      claimPrMerge(repoFullName, row.prNumber, claimActor)
+      // FEED-43 R1: merging a stack member lands every unmerged member BELOW
+      // it in the same GitHub transaction, and each of their `closed`
+      // webhooks looks for its OWN claim (without one the fan-out falls back
+      // to the App bot / session owner). A known stack is read and claimed
+      // BEFORE the call, since those webhooks may beat the merge-async poll;
+      // a stack GitHub only reveals through its refusal is claimed from the
+      // result afterwards, best effort. Attribution only: an unreachable
+      // stack read never blocks the merge.
+      const claimedNumbers = new Set<number>([row.prNumber])
+      const claimMembers = (numbers: number[]) => {
+        for (const prNumber of numbers) {
+          if (claimedNumbers.has(prNumber)) continue
+          claimedNumbers.add(prNumber)
+          claimPrMerge(repoFullName, prNumber, claimActor)
+        }
+      }
+      if (row.prStackNumber != null) {
+        try {
+          const stack = await findStackForPull(
+            repoFullName,
+            row.prNumber,
+            resolved.token
+          )
+          if (stack) claimMembers(membersAtOrBelowNumber(stack, row.prNumber))
+        } catch {
+          // ignored
+        }
+      }
       let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
       try {
         // FEED-43: a stack member cannot be merged through the legacy
@@ -1912,9 +1971,11 @@ export const issuesRouter = router({
             message: asyncMergePendingMessage(err),
           })
         }
-        // The merge did not happen — drop the claim so it can't misattribute
-        // a later out-of-band merge of the same PR.
-        releasePrMergeClaim(repoFullName, row.prNumber)
+        // The merge did not happen: drop the claims so they can't
+        // misattribute a later out-of-band merge of the same PRs.
+        for (const prNumber of claimedNumbers) {
+          releasePrMergeClaim(repoFullName, prNumber)
+        }
         if (err instanceof GitHubMergeError) {
           // "Not mergeable" is actively misleading on a stacked PR whose base
           // is stale (EXP-324): the real fix is a retarget, not another
@@ -1945,16 +2006,21 @@ export const issuesRouter = router({
       // it. Nothing may be marked merged here; the webhook (or the poller)
       // completes the issues when GitHub finishes.
       if (smart.queued) {
+        // FEED-43 R1: `merged: false`, so an agent neither ends its run nor
+        // skips a retry on a merge the queue may still reject. The claims
+        // stay: the landing merge's webhooks must stay attributed.
+        claimMembers(smart.stackMemberNumbers)
         return {
-          merged: true,
+          merged: false,
           queued: true,
-          note: `GitHub queued the merge of PR #${row.prNumber}. The issue completes when the merge lands.`,
+          note: `GitHub queued the merge of PR #${row.prNumber}. Nothing is merged yet; the issue completes when the merge lands.`,
         }
       }
 
       // EXP-897: merging a stack member merged every unmerged member BELOW it
       // in the same GitHub transaction — complete their issues too.
       if (smart.viaStack) {
+        claimMembers(smart.stackMemberNumbers)
         await completeStackCohort({
           db: ctx.db,
           teamId,

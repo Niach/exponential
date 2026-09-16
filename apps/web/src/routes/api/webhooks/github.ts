@@ -469,7 +469,13 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         headRef,
       })
       for (const issueId of issueIds) {
-        await applyPrReopenedState({ issueId, prUrl: htmlUrl })
+        await applyPrReopenedState({
+          issueId,
+          prUrl: htmlUrl,
+          // EXP-897: the close cleared the stack edge; GitHub's payload
+          // carries the live base, so record it again.
+          baseBranch: pr.base?.ref ?? null,
+        })
       }
       await applySessionPrState({ prUrl: htmlUrl, state: `open` })
       return jsonResponse(200, { ok: true })
@@ -501,6 +507,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           prUrl: htmlUrl,
           prNumber: pr.number,
           branch: headRef,
+          // EXP-897 (FEED-43 R1): the stack edge, from the payload; a new
+          // PR must never inherit the edge of an earlier, closed one.
+          baseBranch: pr.base?.ref ?? null,
           ...(claim
             ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
             : { actorUserId: null }),

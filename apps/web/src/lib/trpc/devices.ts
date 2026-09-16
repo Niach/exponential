@@ -78,9 +78,10 @@ import {
 // `account-switch` (EXP-849: honours `account` on a live-run resume), `mcp`
 // (EXP-792: runs `mcp_oauth_*` and reports readiness), `agent-usage-refresh`
 // (EXP-747 C4), `update-now` (FEED-36: runs `update_now`) and
-// `account-remove` (EXP-862: runs `agent_profile_remove`). The daemon
-// advertises 18 today (11 build + 7 action caps), so the ceiling sits at 24
-// with headroom, not AT the count.
+// `account-remove` (EXP-862: runs `agent_profile_remove`) and `stacked-start`
+// (EXP-897: reads a start frame's `stack` payload). The daemon advertises 19
+// today (12 build + 7 action caps), so the ceiling sits at 24 with headroom,
+// not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
 

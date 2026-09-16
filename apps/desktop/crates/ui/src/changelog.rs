@@ -46,6 +46,23 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-16-release-train",
+    date: "2026-09-16",
+    title: "Release train 2026-09-16",
+    summary: "The phone gets one Work screen, every diff reads the same, pull requests can be stacked and merged as a chain, and a run can publish its results.",
+    body: r#"- **The phone Work screen**: an issue, its coding run, the changes and the results are faces of one screen on iOS, Android and the mobile web, switched from a bar at the bottom, with Stop or Resume in the top-right corner.
+- **One diff view**: every diff reads the same on all four clients now, with one palette and one set of line numbers, unchanged lines you can open around a change, and renamed, copied and binary files named instead of shown empty.
+- **Stacked pull requests**: an issue blocked by another can be started on top of it, the review queue nests the chain and offers Merge stack on the bottom of it, a badge says which stack or batch a piece of work belongs to, and every run list nests a run under the one that started it.
+- **Results from a run**: a run that publishes screenshots gains a Results face beside Issue, Run and Changes, grouped by topic with one labelled tile per platform.
+- **Batch runs by name**: a run covering several issues now reads `EXP-874 +2` beside the first issue's title instead of "Batch run", in every session list and in its own header.
+- **Drafts**: an issue you start and do not finish is kept as a draft, attachments included, and reopens where you left it.
+- **Session history stays on your machine**: finished runs keep their transcripts for as long as the desktop app's new Sessions setting says, and an issue with several runs of yours gets a picker to switch between them.
+- **Under the hood**: the web app, the styleguide and the marketing demos now share one component library, so cards, menus and glyphs read the same everywhere, and a Claude login refreshes itself in the background instead of expiring mid-run."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-batch-run-names",
     date: "2026-09-16",
     title: "Batch runs say what they are working on",
@@ -54,9 +71,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Right from the start**: the issues a batch covers are recorded when it launches, so the name is correct while it is still coding, not only once its pull request is open. Older batch runs take their name from the issues on their pull request."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
+/// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-session-results",
     date: "2026-09-16",
     title: "Results, right on the run",
@@ -64,20 +81,6 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
     body: r#"- **A fourth face**: when a run has published pictures, the header toggle gains Results next to Issue, Run and Changes, on the web, the desktop app, iOS and Android.
 - **Grouped by topic**: pictures sit under the topic the agent filed them in, one row of equal-height tiles with a label under each, so an iOS, Android and web shot of the same screen read side by side. Tap one to see it full size.
 - **The agent publishes them**: a run asks Exponential for an upload link, uploads the screenshot with one command, and can replace or remove a picture later. The playbook every run gets now asks for a screenshot of UI work before it finishes."#,
-};
-
-/// The entry before that.
-#[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-stacked-pull-requests",
-    date: "2026-09-16",
-    title: "Stacked pull requests",
-    summary: "An issue blocked by another can now be started on top of it: one pull request based on the other, merged together, with the stack visible everywhere the work is.",
-    body: r#"- **Start on top of a blocker**: starting an issue that something else blocks now asks whether to start anyway or open a stacked pull request. A stacked run cuts its branch from the blocker's branch, so its diff shows only its own work, and it builds the blocker first if nobody has.
-- **Merge the whole stack**: the review queue nests a stacked pull request under the one it is based on, says which one that is, and offers Merge stack on the bottom of the chain. Merging a stacked pull request through Exponential works again on GitHub, where it used to be refused outright.
-- **A badge for related work**: an issue, its run and its changes carry one small badge saying whether they are part of a stack or of a batch pull request. Hover it (or tap it on a phone) to see the blockers, the issues sharing the pull request, and the runs a run started.
-- **Every run list nests**: a run started by another run now sits under it in every list, with a twisty to fold the whole branch away, on the web, the desktop app, iOS and Android.
-- **Questions reach you**: a run several levels deep can hand a question to the person instead of to the run above it. It lands in your inbox and on the run you are watching."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

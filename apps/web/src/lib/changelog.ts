@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-16-release-train`,
+    date: `2026-09-16`,
+    title: `Release train 2026-09-16`,
+    summary: `The phone gets one Work screen, every diff reads the same, pull requests can be stacked and merged as a chain, and a run can publish its results.`,
+    body: `- **The phone Work screen**: an issue, its coding run, the changes and the results are faces of one screen on iOS, Android and the mobile web, switched from a bar at the bottom, with Stop or Resume in the top-right corner.
+- **One diff view**: every diff reads the same on all four clients now, with one palette and one set of line numbers, unchanged lines you can open around a change, and renamed, copied and binary files named instead of shown empty.
+- **Stacked pull requests**: an issue blocked by another can be started on top of it, the review queue nests the chain and offers Merge stack on the bottom of it, a badge says which stack or batch a piece of work belongs to, and every run list nests a run under the one that started it.
+- **Results from a run**: a run that publishes screenshots gains a Results face beside Issue, Run and Changes, grouped by topic with one labelled tile per platform.
+- **Batch runs by name**: a run covering several issues now reads \`EXP-874 +2\` beside the first issue's title instead of "Batch run", in every session list and in its own header.
+- **Drafts**: an issue you start and do not finish is kept as a draft, attachments included, and reopens where you left it.
+- **Session history stays on your machine**: finished runs keep their transcripts for as long as the desktop app's new Sessions setting says, and an issue with several runs of yours gets a picker to switch between them.
+- **Under the hood**: the web app, the styleguide and the marketing demos now share one component library, so cards, menus and glyphs read the same everywhere, and a Claude login refreshes itself in the background instead of expiring mid-run.`,
+  },
+  {
     id: `2026-09-batch-run-names`,
     date: `2026-09-16`,
     title: `Batch runs say what they are working on`,

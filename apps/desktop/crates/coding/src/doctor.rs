@@ -115,10 +115,16 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   delete ONE account's login from this machine (its profile dir and its
 ///   index row), never the account itself. An older build would leave the
 ///   row pending forever, so the server refuses to queue it without the cap.
+/// - `stacked-start` (EXP-897): this build reads a `start_session` frame's
+///   `stack` payload and cuts the branch from the lower PR's branch. A build
+///   without it would run UNSTACKED while the server had already written the
+///   `blocks` relation and the UI claimed a stack, so the server refuses a
+///   `stack`/`stackOn` start against a device without the cap and the
+///   composers hide the "Stacked PR" choice for such a machine.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 11 + 7 = 18.
-pub const DEVICE_CAPS: [&str; 11] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 12 + 7 = 19.
+pub const DEVICE_CAPS: [&str; 12] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -130,7 +136,13 @@ pub const DEVICE_CAPS: [&str; 11] = [
     "mcp",
     "agent-usage-refresh",
     "update-now",
+    STACKED_START_CAP,
 ];
+
+/// EXP-897's stacked-start cap, by name: the ONE place the literal lives, so
+/// a client deciding whether a machine can take a stacked start (the
+/// blocked-issue dialog's "Stacked PR") never repeats the string.
+pub const STACKED_START_CAP: &str = "stacked-start";
 
 /// EXP-849's account-switch cap, by name: the ONE place the literal lives, so
 /// a client deciding whether a machine can move a live run (or its default
@@ -1516,6 +1528,20 @@ mod tests {
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"mcp".to_string()));
         assert!(signed_out.contains(&"agent-usage-refresh".to_string()));
+        assert!(device_caps(&advert(&["claude"])).len() <= 24);
+    }
+
+    /// EXP-897: the server refuses a `stack`/`stackOn` start to a device
+    /// without `stacked-start`, a BUILD cap (reading the frame's `stack`
+    /// payload is a property of the binary), advertised while signed out
+    /// like `agent-start`, never an action cap.
+    #[test]
+    fn device_caps_advertise_stacked_start() {
+        assert_eq!(STACKED_START_CAP, "stacked-start");
+        assert!(DEVICE_CAPS.contains(&STACKED_START_CAP));
+        assert!(!ACTION_CAPS.contains(&STACKED_START_CAP));
+        assert!(device_caps(&advert(&[])).contains(&"stacked-start".to_string()));
+        assert!(device_caps(&advert(&["claude"])).contains(&"stacked-start".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }
 

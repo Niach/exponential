@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   branchExists,
   classifyPrBase,
   diagnoseUnmergeablePr,
+  fetchPullState,
   getPullRequest,
   type GitHubFetch,
   listOpenPullsByBase,
@@ -147,6 +148,46 @@ describe(`classifyPrBase`, () => {
       rebaseOnto: `master`,
       retargetTo: `master`,
       parentPrNumber: null,
+    })
+  })
+})
+
+describe(`fetchPullState`, () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  // EXP-897: the poller folds the stack member's base into its ONE read.
+  it(`maps state, merger and the live base ref`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () =>
+        jsonResponse(200, {
+          state: `closed`,
+          merged: true,
+          merged_by: { login: `octocat`, id: 1 },
+          base: { ref: `exp/EXP-314` },
+        })
+      )
+    )
+    await expect(fetchPullState(`o/r`, 241, `tok`)).resolves.toEqual({
+      state: `closed`,
+      merged: true,
+      mergedBy: { login: `octocat`, id: 1 },
+      baseRef: `exp/EXP-314`,
+    })
+  })
+
+  it(`reports a null base when GitHub omits it`, async () => {
+    vi.stubGlobal(
+      `fetch`,
+      vi.fn(async () => jsonResponse(200, { state: `open`, merged: false }))
+    )
+    await expect(fetchPullState(`o/r`, 241, `tok`)).resolves.toEqual({
+      state: `open`,
+      merged: false,
+      mergedBy: null,
+      baseRef: null,
     })
   })
 })

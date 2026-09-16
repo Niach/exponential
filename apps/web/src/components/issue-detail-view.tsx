@@ -113,9 +113,9 @@ export function DuplicateOfBanner({
         onClick={
           issueRefs ? () => issueRefs.open(canonical.identifier) : undefined
         }
-          // The banner is the chip's whole row: no 18rem cap on the title here.
-          className="max-w-none"
-        />
+        // The banner is the chip's whole row: no 18rem cap on the title here.
+        className="max-w-none"
+      />
       {!readOnly && (
         <Pill mode="action" className="ml-auto" onClick={onUnmark}>
           <UiUndoIcon className="size-3" />

@@ -88,14 +88,11 @@ export function ActionsDocsPage() {
           <DocsSection id="inputs" num="03" label="Inputs">
             <h2>Inputs</h2>
             <p>
-              An action can declare up to <strong>10 typed inputs</strong>,
-              each optional or required. Whoever runs it fills them in, and the
+              An action can declare up to <strong>10 typed pick inputs</strong>,
+              each optional or required. Whoever runs it picks them, and the
               values are appended to the prompt:
             </p>
             <ul>
-              <li>
-                <code>text</code>: free text, up to 4096 characters.
-              </li>
               <li>
                 <code>repo</code>: one of the team&apos;s connected
                 repositories.
@@ -109,11 +106,14 @@ export function ActionsDocsPage() {
               <li>
                 <code>icon</code>: a glyph from the shared icon set.
               </li>
-              <li>
-                <code>textarea</code>: multi-line free text, same 4096
-                characters.
-              </li>
             </ul>
+            <p>
+              There is no free-text input type. Whatever the runner wants to
+              add goes into the composer&apos;s{` `}
+              <strong>Additional instructions</strong> box, whose hint text is
+              the action&apos;s prompt placeholder; it lands in the run&apos;s
+              prompt under a heading of that name.
+            </p>
           </DocsSection>
 
           {/* ── 04 Running one ── */}
@@ -247,8 +247,10 @@ export function ActionsDocsPage() {
           <DocsSection id="builtins" num="06" label="The builtins">
             <h2>The builtins</h2>
             <p>
-              Three actions ship with the product. They can&apos;t be edited
-              or deleted, and they can&apos;t be automated:
+              Two builtins ship with the product and can be picked like any
+              action; the composer&apos;s own <strong>Chat</strong> is the
+              third way to run without one. None of them can be edited,
+              deleted or automated:
             </p>
             <ul>
               <li>
@@ -268,16 +270,16 @@ export function ActionsDocsPage() {
                 <a href="/docs/coding/#review-merge">Reviews</a> queue and in
                 the session view when a merge fails on conflicts.
               </li>
-              <li>
-                <strong>Chat</strong>: a free prompt with no issue attached
-                and no repository required. It is the{` `}
-                <a href="/docs/coding/#watch-steer">Agent page</a> composer
-                with nothing chipped rather than a list row; with a repository picked the run gets its own{` `}
-                <code>exp/chat-&lt;id&gt;</code> worktree, without one it runs
-                in a scratch directory. Either way it steers like any other
-                session.
-              </li>
             </ul>
+            <p>
+              <strong>Chat</strong> is not an action you pick: it is the{` `}
+              <a href="/docs/coding/#watch-steer">Agent page</a> composer
+              with nothing chipped, a free prompt with no issue attached and
+              no repository required. With a repository picked the run gets
+              its own <code>exp/chat-&lt;id&gt;</code> worktree, without one
+              it runs in a scratch directory. Either way it steers like any
+              other session.
+            </p>
             <p>
               Actions and automations are scriptable too. See the{` `}
               <a href="/docs/mcp/#tools">

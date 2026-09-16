@@ -14,7 +14,6 @@ import {
   IcHash,
   IcInbox,
   IcLifeBuoy,
-  IcListFilter,
   IcListTodo,
   IcLucideCircleDashed,
   IcMessage,
@@ -23,6 +22,7 @@ import {
   IcMore,
   IcPlay,
   IcPlus,
+  IcSearch,
   IcSettings,
   IcSignalHigh,
   IcSignalMedium,
@@ -331,8 +331,8 @@ const BottomBar = ({
 )
 
 /* ─── Issues tab — board list under the real nav bar: centered board-name
-   combobox, filter + settings sharing ONE trailing capsule (filters live
-   behind the funnel — the app has no filter-chip strip). ─── */
+   combobox, search + settings sharing ONE trailing capsule (EXP-686 put
+   Search in this row; EXP-862 removed issue filtering and its funnel). ─── */
 
 const IssuesScreen = ({
   reduce,
@@ -358,7 +358,7 @@ const IssuesScreen = ({
           <IcChevSwap size={13} />
         </button>
         <span className={`mob-navcaps`}>
-          <IcListFilter size={15} />
+          <IcSearch size={15} />
           <IcSettings size={15} />
         </span>
       </div>

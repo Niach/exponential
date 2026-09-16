@@ -116,7 +116,7 @@ const CAMERA_KEYS: CamKey[] = [{ f: 0, s: 1.06, x: 790, y: 513 }]
 // and all, instead of the old sheet-only crop. Two shots: the cut sits 4f
 // before `simul`, so the dock springs open ON camera in shot B, and in the
 // caption gap (ce1 is gone by 106, ce2 arrives at 116). Shot B slides right
-// and down so a band of the terminal dock rides beside the phone — the
+// and down so a band of the bottom terminal tab bar rides beside the phone; the
 // steer must be SEEN landing there.
 const CAMERA_KEYS_PT: CamKey[] = shotKeys([
   { at: 0, s: 1.7, x: 224, y: 610 }, // the WHOLE phone, Agent page up

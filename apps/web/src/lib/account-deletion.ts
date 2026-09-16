@@ -1,10 +1,12 @@
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import {
+  attachments,
   codingSessions,
   comments,
   emailBounces,
   githubInstallationRepoGrants,
+  issueDrafts,
   issues,
   teams,
   teamInvites,
@@ -14,6 +16,7 @@ import {
 } from "@/db/schema"
 import type { db as Database } from "@/db/connection"
 import { collectTeamStorageKeys } from "@/lib/storage/team-storage-keys"
+import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 import {
   findActiveSubscriptionsForTeams,
   type CancellableSubscription,
@@ -240,16 +243,39 @@ export async function guardAndCleanupTeamsForUserDeletion(
     .limit(1)
   const email = me?.email ?? null
 
-  // Collect the S3 objects the team deletes below will strand — that DB
-  // cascade never touches storage. ONLY attachments in the solo teams being
-  // deleted qualify (deduped; collected BEFORE any delete).
-  // NOTE (REV2-36): attachments this user UPLOADED into a surviving team are
-  // deliberately NOT reclaimed. `attachments.uploader_id` is ON DELETE SET
-  // NULL, so the rows outlive the account — any member may embed an image
+  // Collect the S3 objects the deletes below will strand — no DB cascade ever
+  // touches storage (deduped; collected BEFORE any delete). Two sources:
+  //
+  // 1. Every attachment in the solo teams being deleted.
+  // 2. EXP-878: the attachments of this user's ISSUE DRAFTS in EVERY team.
+  //    `issue_drafts.user_id` cascades on the users-row delete and
+  //    `attachments.draft_id` cascades with the draft, so those rows vanish
+  //    in surviving teams too; without this arm their objects would sit in
+  //    the bucket forever and drop out of the team's usage sum. A draft is
+  //    private to its author, so nothing else can embed its files.
+  //
+  // NOTE (REV2-36): attachments this user UPLOADED into a surviving ISSUE
+  // are deliberately NOT reclaimed. `attachments.uploader_id` is ON DELETE
+  // SET NULL, so the rows outlive the account — any member may embed an image
   // into a teammate's issue, and issues.creator_id is `set null` too, so
   // reclaiming an uploader's blobs would leave broken `![](/api/attachments/…)`
   // embeds scattered through content the deletion must not touch.
-  const storageKeys = await collectTeamStorageKeys(tx, soloToDelete)
+  const teamStorageKeys = await collectTeamStorageKeys(tx, soloToDelete)
+  const myDraftIds = tx
+    .select({ id: issueDrafts.id })
+    .from(issueDrafts)
+    .where(eq(issueDrafts.userId, userId))
+  const draftAttachmentRows = await tx
+    .select({
+      storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
+    })
+    .from(attachments)
+    .where(inArray(attachments.draftId, myDraftIds))
+  const storageKeys = collectAttachmentStorageKeys([
+    ...teamStorageKeys.map((storageKey) => ({ storageKey })),
+    ...draftAttachmentRows,
+  ])
 
   let deletedTeamIds: string[] = []
   let doomedTeamSubscriptions: CancellableSubscription[] = []

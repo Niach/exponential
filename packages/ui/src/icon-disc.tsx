@@ -40,7 +40,13 @@ export function IconDisc({
         className
       )}
     >
-      <Icon className="size-6" strokeWidth={strokeWidth} />
+      {/* Decorative: the disc always sits beside a title that names it. */}
+      <Icon
+        className="size-6"
+        strokeWidth={strokeWidth}
+        aria-hidden="true"
+        focusable="false"
+      />
     </div>
   )
 }

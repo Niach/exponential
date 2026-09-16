@@ -32,7 +32,7 @@ function Description({ issueId }: { issueId: string }) {
               </code>
             ) : seg.ref ? (
               /* #issue mention — plain `#EXP-5` in the markdown source,
-                 rendered as a clickable pill when it resolves in-workspace */
+                 rendered as a clickable pill when it resolves in the team */
               <span key={si} className="ide-refpill">
                 <StatusIcon status={getIssue(seg.t).status} size={9} />
                 {`#${seg.t}`}

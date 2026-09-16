@@ -192,6 +192,14 @@ export function TeamStorageSection({
             <p className="text-sm text-muted-foreground">
               {rows.length} attachment{rows.length === 1 ? `` : `s`} ·{` `}
               {formatAttachmentSize(list.totalBytes)}
+              {/* EXP-878: draft files are private to their author and never
+                  listed here, but they are the team's bytes all the same. */}
+              {list.draftBytes > 0 && (
+                <>
+                  {` `}(incl. {formatAttachmentSize(list.draftBytes)} in
+                  unsaved drafts)
+                </>
+              )}
             </p>
           )}
         </div>

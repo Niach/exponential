@@ -1,11 +1,11 @@
-/* ─── The board list SCREEN (full width beside the labelled rail): the
-   right-aligned Filter trigger over a grouped 28px-row list. A row opens its
+/* ─── The board list SCREEN (full width beside the labelled rail): a grouped
+   28px-row list with nothing above it (EXP-862). A row opens its
    issue beside the list, which folds into the ListNav (EXP-870). Grid = 24px priority · 72px identifier ·
    24px status · 1fr title · labels · assignee · due (issue_list.rs). ─── */
 import { GROUP_ORDER, ISSUES, type IssueStatus, type Issue } from "./data"
 import { useIde } from "./state"
 import { Avatar, LabelChip, PriorityIcon, StatusIcon } from "./bits"
-import { IcCalDays, IcChevDown, IcChevRight, IcListFilter } from "./icons"
+import { IcCalDays, IcChevDown, IcChevRight } from "./icons"
 
 /* Contract display order (backlog · started · completed), the
    order the real list groups in — `GROUP_ORDER` keeps the web fixture's. */
@@ -52,12 +52,8 @@ export function BoardPanel() {
   const { collapsedGroups, toggleGroup, interactive } = useIde()
   return (
     <div className="ide-board">
-      <div className="ide-filterbar">
-        <button className="ide-filterbtn" type="button">
-          <IcListFilter size={10} />
-          Filter
-        </button>
-      </div>
+      {/* board.rs: EXP-862 removed issue filtering, so the board is the list
+          and nothing above it; the list starts at the top of its panel. */}
       <div className="ide-board-list">
         {GROUPS.map((g) => {
           const issues = ISSUES.filter((i) => i.status === g.status)

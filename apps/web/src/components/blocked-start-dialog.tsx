@@ -33,6 +33,7 @@ export function BlockedStartDialog({
   open,
   blockers,
   busy = false,
+  canStack = true,
   onOpenChange,
   onStartAnyway,
   onStartStacked,
@@ -41,6 +42,10 @@ export function BlockedStartDialog({
   /** `openBlockers(...)` — never empty while the dialog is up. */
   blockers: readonly Issue[]
   busy?: boolean
+  /** The target machine advertises `stacked-start`. False hides the
+   * "Stacked PR" choice (an older desktop would run unstacked while the
+   * server had already recorded a stack); Cancel and Start anyway stay. */
+  canStack?: boolean
   onOpenChange: (open: boolean) => void
   onStartAnyway: () => void
   onStartStacked: () => void
@@ -70,9 +75,11 @@ export function BlockedStartDialog({
           <Button variant="outline" disabled={busy} onClick={onStartAnyway}>
             {START_ANYWAY_LABEL}
           </Button>
-          <Button disabled={busy} onClick={onStartStacked}>
-            {STACKED_PR_LABEL}
-          </Button>
+          {canStack ? (
+            <Button disabled={busy} onClick={onStartStacked}>
+              {STACKED_PR_LABEL}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

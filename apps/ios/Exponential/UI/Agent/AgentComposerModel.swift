@@ -141,6 +141,7 @@ final class AgentComposerModel {
 
     func load() async {
         refreshBlockers()
+        watchPoolForBlockers()
         guard let teamId else { return }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
         // EXP-615: one repository pre-picks for a chat (web parity); the
@@ -252,10 +253,21 @@ final class AgentComposerModel {
         )
     }
 
+    /// EXP-897: the target machine reads the frame's `stack` payload. An
+    /// older desktop/CLI has no `stack` field in its decoder and would run
+    /// UNSTACKED while the server had already recorded a stack, so the alert
+    /// hides "Stacked PR" for it and `startStacked()` refuses to send one.
+    var canStackStart: Bool { device?.canStackStart == true }
+
     /// Re-point the blocker observation at the sole checked issue (or tear it
-    /// down). Called from every path that can change the subject.
+    /// down). Called from every path that can change the subject, and again
+    /// when the pool reloads: the gate reads `effectiveChecked`, exactly
+    /// like `openBlockers`, so a stale checked id (a seeded `?issues=` id
+    /// whose row is not in the pool yet) neither arms it early nor skips the
+    /// prompt once the row lands.
     private func refreshBlockers() {
-        let issueId = (actionId == nil && checked.count == 1) ? checked.first : nil
+        let effective = effectiveChecked
+        let issueId = (actionId == nil && effective.count == 1) ? effective.first : nil
         guard issueId != blockerIssueId else { return }
         blockerIssueId = issueId
         blockerTask?.cancel()
@@ -282,6 +294,23 @@ final class AgentComposerModel {
                     self?.blockerIssues = issues
                 }
             } catch {}
+        }
+    }
+
+    /// The pool is a computed view over the sessions model's observations,
+    /// so a checked id can enter (or leave) it without any composer call:
+    /// re-run the gate whenever what `effectiveChecked` reads changes. The
+    /// tracking fires once per change and re-arms itself; `refreshBlockers`
+    /// dedupes on the resolved id, so a no-op change costs nothing.
+    private func watchPoolForBlockers() {
+        withObservationTracking {
+            _ = effectiveChecked
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                refreshBlockers()
+                watchPoolForBlockers()
+            }
         }
     }
 
@@ -652,9 +681,12 @@ final class AgentComposerModel {
     }
 
     /// The reader chose a stacked pull request: the branch is cut from the
-    /// blocker's PR branch and the pull request is based on it.
+    /// blocker's PR branch and the pull request is based on it. Never sent to
+    /// a machine without `stacked-start` (the alert hides the choice; this
+    /// guard keeps a stale tap from downgrading to a plain run).
     func startStacked() {
         blockedPrompt = nil
+        guard canStackStart else { return }
         send(stack: true)
     }
 

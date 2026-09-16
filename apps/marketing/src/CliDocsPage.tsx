@@ -148,7 +148,7 @@ EXP_INSTANCE=https://issues.example.com EXP_TOKEN=expu_... exponential login
             </p>
             <DocsCode language="shell">{`
 exponential code EXP-42 --agent claude --plan
-exponential run "Update the changelog" --input version=1.4.0
+exponential run "Update the changelog" --prompt "version 1.4.0"
 exponential run fix-conflicts --input pr=EXP-42
 `}</DocsCode>
             <p>

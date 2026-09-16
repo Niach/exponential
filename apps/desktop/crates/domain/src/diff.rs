@@ -214,14 +214,16 @@ fn step(n: u32) -> u32 {
     }
 }
 
-/// A `---`/`+++`/`diff --git` payload → a display path: cut at the first TAB
+/// A `---`/`+++`/`diff --git` payload → a display path: drop ONE trailing
+/// `\r` (a CRLF-framed patch, split on `\n` alone), cut at the first TAB
 /// (GNU diff's timestamp column), then unwrap surrounding double quotes (git
 /// quotes a path carrying control or non-ASCII bytes). The `a/`/`b/` prefix
 /// is stripped by [`strip_ab`] — only where git actually writes one.
 fn cut_path(raw: &str) -> &str {
-    let mut s = match raw.find('\t') {
-        Some(tab) => &raw[..tab],
-        None => raw,
+    let line = raw.strip_suffix('\r').unwrap_or(raw);
+    let mut s = match line.find('\t') {
+        Some(tab) => &line[..tab],
+        None => line,
     };
     if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
         s = &s[1..s.len() - 1];
@@ -307,7 +309,8 @@ fn parse_sections(text: &str, seed: Option<(&str, DiffStatus)>) -> Vec<DiffFile>
     let mut old_no: u32 = 0;
     let mut new_no: u32 = 0;
 
-    for raw in text.split('\n') {
+    let lines: Vec<&str> = text.split('\n').collect();
+    for (i, &raw) in lines.iter().enumerate() {
         // 1. `diff --git` starts the next file unconditionally — even mid-hunk,
         //    where a truncated patch can leave us.
         if !seeded && raw.starts_with("diff --git ") {
@@ -377,8 +380,17 @@ fn parse_sections(text: &str, seed: Option<(&str, DiffStatus)>) -> Vec<DiffFile>
             // 4. The hunk body, bounded by the header's counts. Past them the
             //    hunk is over, whatever the next line looks like — that is what
             //    lets a bare steer diff start its next file on a plain
-            //    `--- a/…`.
-            if rem_old > 0 || rem_new > 0 {
+            //    `--- a/…`. Inside them a `--- ` line with a `+++ ` line right
+            //    behind it (one-line lookahead) is STILL the next bare section's
+            //    opener, not a deletion of `-- …`: a header whose counts
+            //    overshoot its body must not swallow the file after it. A
+            //    `---` body line followed by anything else stays a deletion.
+            let bare_opener = !seeded
+                && raw.starts_with("--- ")
+                && lines
+                    .get(i + 1)
+                    .is_some_and(|next| next.starts_with("+++ "));
+            if (rem_old > 0 || rem_new > 0) && !bare_opener {
                 let sign = raw.as_bytes().first().copied();
                 match sign {
                     Some(b'+') => {
@@ -462,12 +474,12 @@ fn parse_sections(text: &str, seed: Option<(&str, DiffStatus)>) -> Vec<DiffFile>
                 rem_old = 0;
                 rem_new = 0;
             }
-            let payload = if raw.len() > 4 { &raw[4..] } else { "" };
+            let payload = cut_path(if raw.len() > 4 { &raw[4..] } else { "" });
             let file = cur.as_mut().expect("the `---` branch always has a file");
             if payload == "/dev/null" {
                 file.file.status = DiffStatus::Added;
             } else if !payload.is_empty() {
-                let path = strip_ab(cut_path(payload)).to_string();
+                let path = strip_ab(payload).to_string();
                 set_path(file, &path, RANK_OLD);
             }
             continue;
@@ -481,11 +493,11 @@ fn parse_sections(text: &str, seed: Option<(&str, DiffStatus)>) -> Vec<DiffFile>
         if !file.file.hunks.is_empty() {
             continue;
         }
-        if let Some(payload) = raw.strip_prefix("+++ ") {
+        if let Some(payload) = raw.strip_prefix("+++ ").map(cut_path) {
             if payload == "/dev/null" {
                 file.file.status = DiffStatus::Removed;
             } else if !payload.is_empty() {
-                let path = strip_ab(cut_path(payload)).to_string();
+                let path = strip_ab(payload).to_string();
                 set_path(file, &path, RANK_NEW);
             }
         } else if raw.starts_with("new file mode") {

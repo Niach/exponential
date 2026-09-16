@@ -12,7 +12,7 @@ pub fn logout(args: &[String]) -> CommandResult {
     // (desktop parity). An `expu_` credential (EXP_TOKEN provisioning) is an
     // API key, not a session — sign-out would revoke a synthetic session and
     // leave the key untouched, so skip the call: keys are revoked under
-    // Settings → API keys.
+    // Settings → Security.
     if let Some(token) = ctx.auth.token(&ctx.account.id) {
         if token.starts_with("expu_") {
             log::debug!("credential is an API key — skipping server-side sign-out");

@@ -107,18 +107,28 @@ function clamp(n: number): number {
   return n > DIFF_LINE_MAX ? DIFF_LINE_MAX : Math.floor(n)
 }
 
+/** A digit run → a counter, saturating at `DIFF_LINE_MAX`. A run too long
+ *  for a double (`Number` gives Infinity) is by definition past the ceiling,
+ *  never zero. */
+function clampDigits(digits: string): number {
+  const n = Number(digits)
+  return Number.isFinite(n) ? clamp(n) : DIFF_LINE_MAX
+}
+
 /** Advance a 1-based line counter, saturating rather than wrapping. */
 function step(n: number): number {
   return n >= DIFF_LINE_MAX ? DIFF_LINE_MAX : n + 1
 }
 
-/** A `---`/`+++`/`diff --git` payload → a display path: cut at the first TAB
+/** A `---`/`+++`/`diff --git` payload → a display path: drop ONE trailing
+ *  `\r` (a CRLF-framed patch, split on `\n` alone), cut at the first TAB
  *  (GNU diff's timestamp column), then unwrap surrounding double quotes (git
  *  quotes a path carrying control or non-ASCII bytes). The `a/`/`b/` prefix
  *  is stripped by `stripAb` — only where git actually writes one. */
 function cutPath(raw: string): string {
-  const tab = raw.indexOf(`\t`)
-  let s = tab >= 0 ? raw.slice(0, tab) : raw
+  const line = raw.endsWith(`\r`) ? raw.slice(0, -1) : raw
+  const tab = line.indexOf(`\t`)
+  let s = tab >= 0 ? line.slice(0, tab) : line
   if (s.length >= 2 && s.startsWith(`"`) && s.endsWith(`"`)) s = s.slice(1, -1)
   return s
 }
@@ -152,11 +162,11 @@ function parseHunkHeader(line: string): {
   const m = HUNK_HEADER.exec(line)
   if (!m) return null
   return {
-    oldStart: clamp(Number(m[1])),
+    oldStart: clampDigits(m[1]),
     // A count the header omits is 1 — `@@ -1 +1 @@` is one line each side.
-    oldLines: m[2] === undefined ? 1 : clamp(Number(m[2])),
-    newStart: clamp(Number(m[3])),
-    newLines: m[4] === undefined ? 1 : clamp(Number(m[4])),
+    oldLines: m[2] === undefined ? 1 : clampDigits(m[2]),
+    newStart: clampDigits(m[3]),
+    newLines: m[4] === undefined ? 1 : clampDigits(m[4]),
   }
 }
 
@@ -201,7 +211,9 @@ function parseSections(
     }
   }
 
-  for (const raw of text.split(`\n`)) {
+  const lines = text.split(`\n`)
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]
     // 1. `diff --git` starts the next file unconditionally — even mid-hunk,
     //    where a truncated patch can leave us.
     if (!seed && raw.startsWith(`diff --git `)) {
@@ -242,8 +254,18 @@ function parseSections(
 
     // 4. The hunk body, bounded by the header's counts. Past them the hunk is
     //    over, whatever the next line looks like — that is what lets a bare
-    //    steer diff start its next file on a plain `--- a/…`.
-    if (hunk && (remOld > 0 || remNew > 0)) {
+    //    steer diff start its next file on a plain `--- a/…`. Inside them a
+    //    `--- ` line with a `+++ ` line right behind it (one-line lookahead)
+    //    is STILL the next bare section's opener, not a deletion of `-- …`: a
+    //    header whose counts overshoot its body must not swallow the file
+    //    after it. A `---` body line followed by anything else stays a
+    //    deletion.
+    const bareOpener =
+      !seed &&
+      raw.startsWith(`--- `) &&
+      i + 1 < lines.length &&
+      lines[i + 1].startsWith(`+++ `)
+    if (hunk && (remOld > 0 || remNew > 0) && !bareOpener) {
       const sign = raw.charAt(0)
       if (sign === `+`) {
         cur!.additions += 1
@@ -294,9 +316,9 @@ function parseSections(
     //    file: a bare steer section has no `diff --git` to announce it.
     if (raw.startsWith(`--- `) || raw === `---`) {
       if (!cur || cur.hunks.length > 0) open(blank())
-      const payload = raw.length > 4 ? raw.slice(4) : ``
+      const payload = cutPath(raw.length > 4 ? raw.slice(4) : ``)
       if (payload === `/dev/null`) cur!.status = `added`
-      else if (payload) setPath(cur!, stripAb(cutPath(payload)), RANK_OLD)
+      else if (payload) setPath(cur!, stripAb(payload), RANK_OLD)
       continue
     }
     if (!cur) continue
@@ -304,9 +326,9 @@ function parseSections(
     // past it these words are just content that lost its sign.
     if (cur.hunks.length > 0) continue
     if (raw.startsWith(`+++ `)) {
-      const payload = raw.slice(4)
+      const payload = cutPath(raw.slice(4))
       if (payload === `/dev/null`) cur.status = `removed`
-      else if (payload) setPath(cur, stripAb(cutPath(payload)), RANK_NEW)
+      else if (payload) setPath(cur, stripAb(payload), RANK_NEW)
     } else if (raw.startsWith(`new file mode`)) {
       cur.status = `added`
     } else if (raw.startsWith(`deleted file mode`)) {
@@ -353,7 +375,7 @@ export function parseDiff(text: string): Diff {
   const cut = TRUNCATION_MARKER.exec(body)
   if (cut) {
     body = body.slice(0, cut.index)
-    truncatedLines = clamp(Number(cut[1]))
+    truncatedLines = clampDigits(cut[1])
   }
   const files = parseSections(body).filter(
     // A section that named neither a path nor a hunk is noise, not a file.

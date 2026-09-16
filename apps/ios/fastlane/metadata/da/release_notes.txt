@@ -1,17 +1,18 @@
-- Beskeder i kø: sender du noget, mens agenten stadig arbejder, venter det i en Queued-bjælke over skrivefeltet, og fjerner du det, ryger teksten tilbage i kladden
-- Stop, der når frem: Stop i en kørende session afbryder nu den igangværende tur i stedet for at blive væk undervejs, og det rydder det, der står i kø bagved
-- Roligere knapper: kun den ene handling, en skærm findes til, beholder en udfyldt cirkel; fjern, luk, opdater, pilene og ...-menuerne er nu almindelige tegn
-- Vælgere, der viser, hvad de vælger: agentvælgeren bærer mærket for Claude Code eller Codex på knappen og ved siden af hvert navn, og enhedsmenuer starter med et laptop- eller serverikon
+- Én Work-skærm: et issue, dets kørsel, ændringerne og resultaterne er nu flader på én skærm, du skifter mellem dem fra bjælken nederst, og Stop eller Resume ligger øverst til højre
+- Én diff-visning: alle diffs ser ens ud, med linjenumre, skjulte uændrede linjer du kan folde ud, og omdøbte og binære filer navngivet i stedet for vist tomme
+- Stablede pull requests: start et issue oven på det, der blokerer det, saml hele kæden med Merge stack, læs stack- eller batch-mærket på arbejdet, og svar på et spørgsmål fra en indlejret kørsel
+- Resultater fra en kørsel: en kørsel, der uploader skærmbilleder, får en Results-flade grupperet efter emne, ét felt pr. platform, og et tryk viser hele billedet
+- Batch-kørsler med navn: en kørsel over flere issues læser nu EXP-874 +2 ved siden af det første issues titel i stedet for „Batch run“
+- Beskeder, der lander med det samme: en besked skrevet, mens agenten arbejder, når frem straks og står som sendt, indtil den er læst, og Stop lægger teksten tilbage i skrivefeltet
+- GitHub bragt på plads: at forbinde GitHub, tilføje et repository og sætte et boards repository fungerer nu som på computeren, og fejl vises, hvor du er
+- Beskeder i kø: en besked, der venter på agenten, står i en bjælke over skrivefeltet, og Stop i en kørende session afbryder den igangværende tur i stedet for at blive væk undervejs
+- Roligere knapper og tydeligere vælgere: kun skærmens hovedhandling beholder en udfyldt cirkel, og agentvælgeren bærer mærket for Claude Code eller Codex, mens enhedsmenuer starter med et laptop- eller serverikon
 - Agent-siden holder dine kørsler: tidligere kørsler foldes bag et tal, du kan åbne, og når intet kører, sidder skrivefeltet midt på siden
-- Log ind, hvor kontoen er: enhedsindstillinger holder navn, deling og agentens standarder, mens login, valget af den aktive konto og fjernelse nu ligger på kontochipsene
-- Tilføj en konto: Add account sidder i Accounts-overskriften og logger en ny konto ind på en enhed, og et plus ved en konto logger den samme ind på en anden enhed
+- Log ind, hvor kontoen er: login, valget af den aktive konto og fjernelse ligger nu på kontochipsene, og Add account i Accounts-overskriften logger en ny konto ind på en enhed
 - Issue-filtre er væk: filterknappen og dens pills er væk fra board og indbakke, søgning dækker det, de blev brugt til, og gruppering og statusbånd bliver
 - Fortsæt med e-mail eller med en adgangsnøgle: log ind med en 6-cifret kode, du får tilsendt, eller med Face ID eller Touch ID; alle muligheder står i én liste, og en ukendt e-mail bliver bare til en ny konto
 - Arbejdsindikatoren stopper, når agenten stopper: den følger nu agentens rigtige tur i stedet for forbindelsen, viser hvad den laver med tid og tokens, og Stop ligger i sessionens overskrift
-- Kort for Exponential-værktøjer: når agenten kalder Exponential, viser forløbet en enkel tekst som „Creating issue“ eller „Opened pull request“ og derefter et smugkig på resultatet
-- Underagenter med navn: en underagents chip bærer den opgave, den fik, dens linjer opsummerer de værktøjer, den brugte, og en Plan-chip uden knapper vises, så længe kørslen stadig planlægger
+- Kort i forløbet: et kald til Exponential vises som en enkel tekst som „Creating issue“ med et smugkig på resultatet, en underagents chip bærer den opgave, den fik, og en Plan-chip uden knapper vises, mens kørslen stadig planlægger
 - Workflow-kort: en kørsel med flere agenter vises som ét kort med sine faser og agenterne nedenunder, og en sessionsrække får en anden linje med det, kørslen arbejder på lige nu
-- Konti, der siger sandheden: en agentkontos tilstand kommer fra en rigtig forbrugsmåling, så et dødt login viser „Needs re-login“ i stedet for „Signed in“
-- Devices er reparationssiden: hver maskine viser de agent-logins, den har, og en chip tilbyder den rigtige reparation, nyt login til et udløbet eller brug denne konto her til et, maskinen ikke bruger
-- Skift konto midt i en kørsel: en Claude-kørsel, der rammer sin grænse, kan fortsætte på en anden konto fra forbrugsarket eller grænsebeskeden, som en ny kørsel knyttet til den gamle
-- Tilbage hvor du kom fra: forlader du en session, lander du igen på det issue, board eller den indbakke, du åbnede den fra, og en kørsel startet af en anden kørsel ligger indrykket under den
+- Konti og reparation: en agentkontos tilstand kommer fra en rigtig forbrugsmåling, så et dødt login viser „Needs re-login“, og Devices viser hver maskines logins med den rigtige reparation på en chip
+- Skift konto midt i en kørsel, og kom tilbage hvor du kom fra: en Claude-kørsel, der rammer sin grænse, kan fortsætte på en anden konto, og forlader du en session, lander du igen på det issue eller board, du åbnede den fra

@@ -231,6 +231,81 @@ describe(`device presence + remote start`, () => {
     })
   })
 
+  test(`startSession passes stack through on a single-issue frame only (EXP-897)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+
+    const lower = {
+      issueId: `issue-11`,
+      identifier: `EXP-11`,
+      branch: `exp/EXP-11`,
+      prState: `open`,
+    }
+    const stack = { lower, chain: [lower] }
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { issueId: `issue-12` },
+      { agent: `claude`, stack }
+    )
+    // The stack rides the frame verbatim, as the LAST key.
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueId: `issue-12`,
+      agent: `claude`,
+      stack,
+    })
+    expect(desktop.sent.at(-1)).toBe(
+      JSON.stringify({
+        t: `start_session`,
+        issueId: `issue-12`,
+        agent: `claude`,
+        stack,
+      })
+    )
+
+    // Absent stack: byte-identical to the pre-EXP-897 frame (no `stack` key,
+    // not even an undefined one).
+    hub.startSession(`owner`, `dev-1`, { issueId: `issue-13` })
+    expect(desktop.sent.at(-1)).toBe(
+      JSON.stringify({ t: `start_session`, issueId: `issue-13` })
+    )
+    expect(desktop.lastFrame(`start_session`)).not.toHaveProperty(`stack`)
+
+    // A batch or action subject never grows the key, whatever it was handed.
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      {
+        issueIds: [`issue-1`, `issue-2`],
+        teamId: `t-1`,
+        repo: { repositoryId: `r-1`, fullName: `o/r`, defaultBranch: `master` },
+      },
+      { stack }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      issueIds: [`issue-1`, `issue-2`],
+      teamId: `t-1`,
+      repo: { repositoryId: `r-1`, fullName: `o/r`, defaultBranch: `master` },
+    })
+    hub.startSession(
+      `owner`,
+      `dev-1`,
+      { actionId: `builtin:chat`, actionName: `Chat`, teamId: `t-1` },
+      { prompt: `hello`, stack }
+    )
+    expect(desktop.lastFrame(`start_session`)).toEqual({
+      t: `start_session`,
+      actionId: `builtin:chat`,
+      actionName: `Chat`,
+      teamId: `t-1`,
+      prompt: `hello`,
+    })
+  })
+
   test(`startSession routes a resume subject and drops launch options (EXP-637)`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

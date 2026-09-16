@@ -1,17 +1,18 @@
-- Jonossa olevat viestit: agentin työskennellessä lähetetty viesti odottaa Queued-palkissa kirjoituskentän yläpuolella, ja kun poistat sen, teksti palaa luonnokseen
-- Stop, joka menee perille: käynnissä olevassa istunnossa Stop keskeyttää nyt oikeasti meneillään olevan vuoron sen sijaan että katoaisi matkalla, ja tyhjentää sen takana olevan jonon
-- Hillitymmät painikkeet: vain se yksi toiminto, jota varten näkymä on, säilyttää täytetyn ympyrän; poisto, sulkeminen, päivitys, nuolet ja ...-valikot ovat nyt pelkkiä kuvakkeita
-- Valitsimet näyttävät, mitä ne valitsevat: agenttivalitsin kantaa Claude Coden tai Codexin merkkiä painikkeessa ja jokaisen nimen vieressä, ja laitevalikot alkavat kannettavan tai palvelimen kuvakkeella
+- Yksi Work-näkymä: issue, sen ajo, muutokset ja tulokset ovat nyt saman näkymän puolia, vaihdat niiden välillä alapalkista, ja Stop tai Resume on oikeassa yläkulmassa
+- Yksi diff-näkymä: jokainen diff näyttää samalta, rivinumeroineen, piilotetut muuttumattomat rivit saa auki, ja uudelleennimetyt tai binääriset tiedostot nimetään tyhjän sijaan
+- Pinotut pull requestit: käynnistä issue sen päälle joka estää sen, yhdistä koko ketju Merge stackilla, lue työn päällä oleva stack- tai batch-merkki, ja vastaa kysymykseen jonka sisäkkäinen ajo lähettää
+- Ajon tulokset: kuvakaappauksia julkaiseva ajo saa Results-puolen, ryhmiteltynä aiheittain, yksi ruutu kutakin alustaa kohden, ja napautus näyttää koko kuvan
+- Batch-ajot nimellä: useaa issueta kattava ajo lukee nyt EXP-874 +2 ensimmäisen issuen otsikon vieressä eikä ”Batch run”
+- Viestit menevät heti perille: agentin työskennellessä kirjoitettu viesti menee sille heti ja näkyy lähetettynä kunnes se luetaan, ja Stop palauttaa tekstin kirjoituskenttään
+- GitHub kuntoon: GitHubin yhdistäminen, repositorion lisääminen ja boardin repositorion asettaminen toimivat täällä kuten työpöydällä, ja virheet näkyvät siinä missä olet
+- Jonossa olevat viestit: agenttia odottava viesti näkyy palkissa kirjoituskentän yläpuolella, ja Stop käynnissä olevassa istunnossa keskeyttää oikeasti meneillään olevan vuoron sen sijaan että katoaisi matkalla
+- Hillitymmät painikkeet ja selkeämmät valitsimet: vain näkymän päätoiminto säilyttää täytetyn ympyrän, ja agenttivalitsin kantaa Claude Coden tai Codexin merkkiä, kun taas laitevalikot alkavat kannettavan tai palvelimen kuvakkeella
 - Agent-sivu pitää ajosi: menneet ajot taittuvat luvun taakse, jonka voit avata, ja kun mikään ei ole käynnissä, kirjoituskenttä asettuu keskelle sivua
-- Kirjaudu siellä, missä tili on: laiteasetuksiin jäävät nimi, jakaminen ja agentin oletukset, kun taas kirjautuminen, aktiivisen tilin valinta ja poisto ovat nyt tilimerkeissä
-- Lisää tili: Add account on Accounts-otsikossa ja kirjaa uuden tilin laitteeseen, ja tilin vieressä oleva plus kirjaa saman tilin toiseen laitteeseen
+- Kirjaudu siellä, missä tili on: kirjautuminen, aktiivisen tilin valinta ja poisto ovat nyt tilimerkeissä, ja Accounts-otsikon Add account kirjaa uuden tilin laitteeseen
 - Issue-suodattimet ovat poissa: suodatinpainike ja sen pillerit lähtivät boardilta ja saapuneista, haku kattaa sen mihin niitä käytettiin, ja ryhmittely ja tilapalkit jäävät
 - Jatka sähköpostilla tai avainkoodilla: kirjaudu sisään sähköpostiin lähetetyllä 6-numeroisella koodilla tai Face ID:llä tai Touch ID:llä; kaikki vaihtoehdot ovat yhdessä listassa, ja tuntemattomasta osoitteesta syntyy yksinkertaisesti uusi tili
 - Työskentelyn merkki loppuu, kun agentti lopettaa: se seuraa nyt agentin todellista vuoroa yhteyden sijaan, näyttää mitä se tekee kestoineen ja tokeneineen, ja Stop on istunnon otsikkorivillä
-- Exponentialin työkalukortit: kun agentti kutsuu Exponentialia, historiassa näkyy selkeä teksti kuten ”Creating issue” tai ”Opened pull request” ja sen jälkeen esikatselu tuloksesta
-- Aliagentit nimellä: aliagentin merkki kertoo sille annetun tehtävän, sen rivit tiivistävät käytetyt työkalut, ja pelkkä Plan-merkki näkyy niin kauan kuin ajo vielä suunnittelee
+- Kortit historiassa: Exponentialin kutsu näkyy selkeänä tekstinä kuten ”Creating issue” ja esikatseluna tuloksesta, aliagentin merkki kertoo sille annetun tehtävän, ja pelkkä Plan-merkki näkyy niin kauan kuin ajo vielä suunnittelee
 - Workflow-kortti: monen agentin ajo näkyy yhtenä korttina, jossa ovat sen vaiheet ja agentit allekkain, ja istuntorivi saa toisen rivin siitä, mitä ajo juuri nyt tekee
-- Tilit, jotka kertovat totuuden: agenttitilin kunto tulee todellisesta käyttömittauksesta, joten kuollut kirjautuminen näyttää tekstin ”Needs re-login” eikä ”Signed in”
-- Devices on korjaussivu: jokainen kone listaa hallussaan olevat agenttikirjautumiset, ja merkki tarjoaa oikean korjauksen, uuden kirjautumisen vanhentuneeseen tai tämän tilin käyttöönoton siihen, jota kone ei käytä
-- Tilin vaihto kesken ajon: rajaansa törmännyt Claude-ajo voi jatkaa toisella tilillä käyttönäkymästä tai rajailmoituksesta, uutena ajona joka on kytketty edelliseen
-- Takaisin sinne mistä tulit: istunnosta poistuminen vie takaisin siihen issueen, boardiin tai saapuneisiin, josta sen avasit, ja toisen ajon käynnistämä ajo näkyy sen alla
+- Tilit ja korjaukset: agenttitilin kunto tulee todellisesta käyttömittauksesta, joten kuollut kirjautuminen näyttää tekstin ”Needs re-login”, ja Devices listaa kunkin koneen kirjautumiset oikean korjauksen kanssa merkissä
+- Tilin vaihto kesken ajon ja paluu sinne mistä tulit: rajaansa törmännyt Claude-ajo voi jatkaa toisella tilillä, ja istunnosta poistuminen vie takaisin siihen issueen tai boardiin, josta sen avasit

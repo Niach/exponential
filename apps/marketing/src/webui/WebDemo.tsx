@@ -40,9 +40,9 @@ const initialState = (view: WebView): InitState => {
   const base = { openIssueId: null, face: `issue` as WorkFace, selectedThreadId: SUPPORT_THREADS[0].id }
   switch (view) {
     case `issue`:
-      return { ...base, nav: `project`, openIssueId: `EXP-8` }
+      return { ...base, nav: `board`, openIssueId: `EXP-8` }
     case `run`:
-      return { ...base, nav: `project`, openIssueId: `EXP-8`, face: `run` }
+      return { ...base, nav: `board`, openIssueId: `EXP-8`, face: `run` }
     case `inbox`:
       return { ...base, nav: `inbox` }
     case `support`:
@@ -50,7 +50,7 @@ const initialState = (view: WebView): InitState => {
     case `agent`:
       return { ...base, nav: `agent` }
     default:
-      return { ...base, nav: `project` }
+      return { ...base, nav: `board` }
   }
 }
 
@@ -153,7 +153,7 @@ export function WebDemo({
 
   const main = openIssueId ? (
     <WebIssueDetail issueId={openIssueId} />
-  ) : nav === `project` ? (
+  ) : nav === `board` ? (
     <WebBoard />
   ) : nav === `agent` ? (
     <WebAgentPage key={agentSeedId ?? `chat`} />

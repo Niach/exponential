@@ -1,17 +1,18 @@
-- Messages en file d'attente : un message envoyé pendant que l'agent travaille attend dans une barre Queued au-dessus du champ de saisie, et le retirer remet le texte dans votre brouillon
-- Stop qui arrive jusqu'à l'agent : dans une session en cours, Stop interrompt vraiment le tour en train de tourner au lieu de se perdre en route, et il vide ce qui attend derrière
-- Des boutons plus discrets : seule l'action principale d'un écran garde un cercle plein ; supprimer, fermer, actualiser, les chevrons et les menus ... sont désormais de simples glyphes
-- Des sélecteurs qui montrent ce qu'ils choisissent : le sélecteur d'agent porte la marque Claude Code ou Codex sur le bouton et à côté de chaque nom, et les menus d'appareils portent une icône d'ordinateur ou de serveur
+- Un seul écran Work : une issue, son run, les changements et les résultats sont des faces d'un même écran, que la barre du bas fait défiler, avec Stop ou Resume en haut à droite
+- Une seule vue de diff : tous les diffs se lisent pareil, avec des numéros de ligne, des lignes inchangées que vous pouvez déplier, et les fichiers renommés ou binaires nommés au lieu d'être vides
+- Pull requests empilées : lancez une issue par-dessus celle qui la bloque, fusionnez toute la chaîne avec Merge stack, lisez la pastille de stack ou de batch sur le travail, et répondez à la question qu'un run imbriqué vous envoie
+- Résultats d'un run : un run qui publie des captures gagne une face Results, groupée par sujet, une tuile par plateforme, et une touche montre l'image entière
+- Runs batch nommés : un run couvrant plusieurs issues affiche désormais EXP-874 +2 à côté du titre de la première issue au lieu de « Batch run »
+- Des messages qui arrivent tout de suite : un message écrit pendant que l'agent travaille lui parvient aussitôt et reste marqué envoyé jusqu'à sa lecture, et Stop remet le texte dans le champ de saisie
+- GitHub remis d'aplomb : connecter GitHub, ajouter un dépôt et fixer le dépôt d'un board se comportent ici comme sur l'ordinateur, et les erreurs s'affichent là où vous êtes
+- Messages en file d'attente : un message qui attend l'agent apparaît dans une barre au-dessus du champ de saisie, et Stop dans une session en cours interrompt vraiment le tour en train de tourner au lieu de se perdre en route
+- Des boutons plus discrets et des sélecteurs plus clairs : seule l'action principale d'un écran garde un cercle plein, et le sélecteur d'agent porte la marque Claude Code ou Codex, tandis que les menus d'appareils portent une icône d'ordinateur ou de serveur
 - La page Agent porte vos runs : les runs passés se replient derrière un compteur que vous pouvez ouvrir, et quand rien ne tourne, le champ de saisie se place au milieu de la page
-- Se connecter là où est le compte : les réglages d'appareil gardent le nom, le partage et les valeurs par défaut de l'agent, tandis que la connexion, le choix du compte actif et la suppression vivent maintenant sur les puces de compte
-- Ajouter un compte : Add account se trouve dans l'en-tête Accounts pour connecter un nouveau compte sur un appareil, et un plus sur un compte le connecte sur un autre appareil
+- Se connecter là où est le compte : la connexion, le choix du compte actif et la suppression vivent maintenant sur les puces de compte, et Add account dans l'en-tête Accounts connecte un nouveau compte sur un appareil
 - Les filtres d'issues ont disparu : le bouton de filtre et ses pastilles quittent le board et la boîte de réception, la recherche couvre leur usage, et le regroupement et les bandes de statut restent
 - Continuer avec l'e-mail, ou avec une clé d'accès : connectez-vous avec un code à 6 chiffres envoyé par e-mail, ou avec Face ID ou Touch ID ; toutes les options tiennent dans une seule liste, et une adresse inconnue devient simplement un nouveau compte
 - L'indicateur de travail s'arrête quand l'agent s'arrête : il suit le vrai tour de l'agent au lieu de la connexion, affiche ce qu'il fait avec la durée et les tokens, et Stop se trouve dans l'en-tête de la session
-- Cartes d'outils Exponential : quand l'agent appelle Exponential, l'historique montre une légende simple comme « Creating issue » ou « Opened pull request », puis un aperçu du résultat
-- Des sous-agents nommés : la puce d'un sous-agent porte la tâche qu'on lui a confiée, ses lignes résument les outils utilisés, et une puce Plan en lecture seule s'affiche tant que le run planifie encore
+- Des cartes dans l'historique : un appel à Exponential montre une légende simple comme « Creating issue » avec un aperçu du résultat, la puce d'un sous-agent porte la tâche qu'on lui a confiée, et une puce Plan en lecture seule s'affiche tant que le run planifie
 - Carte de workflow : un run à plusieurs agents s'affiche comme une seule carte avec ses phases et ses agents en dessous, et une ligne de session gagne une deuxième ligne indiquant ce sur quoi le run travaille
-- Des comptes qui disent la vérité : l'état d'un compte d'agent vient d'une vraie mesure d'usage, donc une connexion morte affiche « Needs re-login » au lieu de « Signed in »
-- Devices est la page de réparation : chaque machine liste les comptes d'agent qu'elle détient, et une puce propose la bonne réparation, se reconnecter pour un compte expiré ou utiliser ce compte ici pour un compte que la machine n'utilise pas
-- Changer de compte en cours de run : un run Claude qui atteint sa limite peut continuer sur un autre compte depuis la feuille d'usage ou l'avis de limite, sous forme d'un nouveau run lié à l'ancien
-- Retour d'où vous veniez : quitter une session vous ramène à l'issue, au board ou à la boîte de réception d'où vous l'aviez ouverte, et un run lancé par un autre run apparaît imbriqué sous lui
+- Comptes et réparations : l'état d'un compte d'agent vient d'une vraie mesure d'usage, donc une connexion morte affiche « Needs re-login », et Devices liste les comptes de chaque machine avec la bonne réparation sur une puce
+- Changer de compte en cours de run, et revenir d'où vous veniez : un run Claude à sa limite peut continuer sur un autre compte, et quitter une session vous ramène à l'issue ou au board d'où vous l'aviez ouverte

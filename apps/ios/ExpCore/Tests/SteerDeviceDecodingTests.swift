@@ -242,17 +242,23 @@ final class SteerDeviceDecodingTests: XCTestCase {
         "caps":["actions","acp","resume-run"],"online":true,
         "launchDefaults":{"defaultAgent":"claude","startInTerminal":true}},
         {"deviceId":"d11","deviceLabel":"old-box","agents":["claude"],
-        "caps":["actions"],"online":true,"launchDefaults":{"defaultAgent":"claude"}}]}
+        "caps":["actions"],"online":true,"launchDefaults":{"defaultAgent":"claude"}},
+        {"deviceId":"d12","deviceLabel":"stacker","agents":["claude"],
+        "caps":["acp","stacked-start"],"online":true}]}
         """)
+        XCTAssertTrue(try XCTUnwrap(result.devices.last).canStackStart)
         let acp = try XCTUnwrap(result.devices.first)
         XCTAssertTrue(acp.supportsAcp)
         XCTAssertTrue(acp.canResumeRun)
         // EXP-849: honouring `account` on a LIVE run is its own cap — a
         // machine that only resumes must not be offered a mid-run switch.
         XCTAssertFalse(acp.canSwitchAccount)
+        // EXP-897: reading the frame's `stack` payload is its own cap too; a
+        // machine without it is never offered "Stacked PR".
+        XCTAssertFalse(acp.canStackStart)
         XCTAssertEqual(acp.launchDefaults?.defaultAgent, "claude")
 
-        let old = try XCTUnwrap(result.devices.last)
+        let old = try XCTUnwrap(result.devices.dropFirst().first)
         XCTAssertFalse(old.supportsAcp)
         XCTAssertEqual(old.launchDefaults?.defaultAgent, "claude")
     }

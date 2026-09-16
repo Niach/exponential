@@ -323,8 +323,8 @@ export type DetailIssueContent = {
   label?: { name: string; dot: string }
   assigneeName?: string
   due?: string
-  project?: string
-  projectColor?: string
+  board?: string
+  boardColor?: string
   /** EXP-496 origin chip label — `Feedback widget` / `Agent`, else none. */
   origin?: string
 }
@@ -339,8 +339,8 @@ const HERO_ISSUE: DetailIssueContent = {
   label: LABELS.bug,
   assigneeName: IDENTITY.user,
   due: BOARD.find((r) => r.id === HERO.id)?.due ?? "Jul 15",
-  project: IDENTITY.project,
-  projectColor: IDENTITY.projectColor,
+  board: IDENTITY.board,
+  boardColor: IDENTITY.boardColor,
 }
 
 // ── The ONE work header (EXP-877 work_header.rs, web `WorkHeader`) ───────────
@@ -575,8 +575,8 @@ export const WorkHeader: React.FC<WorkHeaderProps> = ({
               </Prop>
             ) : null}
             {issue.due ? <Prop Icon={IcCalendarDays}>{issue.due}</Prop> : null}
-            <Prop Icon={IcCode} color={issue.projectColor ?? `#818cf8`}>
-              {issue.project ?? IDENTITY.project}
+            <Prop Icon={IcCode} color={issue.boardColor ?? `#818cf8`}>
+              {issue.board ?? IDENTITY.board}
             </Prop>
             {issue.origin ? (
               <Prop Icon={IcMessageSquare}>{issue.origin}</Prop>

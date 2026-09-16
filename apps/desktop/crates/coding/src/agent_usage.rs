@@ -1621,6 +1621,13 @@ fn claude_keep_alive_step_at(
                 WriteOutcome::SavedToFallbackFile => log::warn!(
                     "claude keep-alive: {label} ({wrote:?}) — the credential store refused, so the rotated token went to the fallback file"
                 ),
+                // A `claude logout` landed during the POST. The grant is
+                // spent and the pair is kept for this one probe, but the
+                // store stays signed out: the next beat finds it missing and
+                // backs off an hour.
+                WriteOutcome::StoreGone => log::warn!(
+                    "claude keep-alive: {label} ({wrote:?}): the credential store vanished mid-refresh; the logout stands"
+                ),
                 _ => log::info!("claude keep-alive: {label} ({wrote:?})"),
             }
             Some(access_token)
@@ -1630,6 +1637,17 @@ fn claude_keep_alive_step_at(
             expires_at_ms,
         } => {
             usage_cache::note_credential_expiry(entry, expires_at_ms);
+            // A document with no (or a non-numeric) `expiresAt` cannot be
+            // scheduled off its expiry, and `refresh_if_expiring` never POSTs
+            // on a guess: without the hour backoff the `None` gate would
+            // re-read the keychain on every beat to learn the same nothing.
+            if expires_at_ms.is_none() {
+                usage_cache::note_refresh_failed(
+                    entry,
+                    now,
+                    usage_cache::REFRESH_UNSUPPORTED_BACKOFF_SECS,
+                );
+            }
             log::debug!("claude keep-alive: {label}");
             Some(access_token)
         }
@@ -3542,6 +3560,44 @@ mod tests {
 
     /// A file-backed `.credentials.json` under `config_dir` — the store shape
     /// an account profile keeps beside its config.
+    /// A document with no `expiresAt` cannot be scheduled off its expiry and
+    /// is never refreshed on a guess, so the keep-alive backs it off for an
+    /// hour instead of re-reading the store (on macOS: the keychain) on every
+    /// 30 s beat.
+    #[test]
+    fn a_login_with_no_expiry_backs_off_an_hour_instead_of_polling_the_store() {
+        let dir = usage_dir("keep-alive-no-expiry");
+        let now = 1_700_000_000u64;
+        std::fs::write(
+            dir.join(".credentials.json"),
+            serde_json::json!({
+                "claudeAiOauth": { "accessToken": "at-1", "refreshToken": "rt-1" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let (base, requests) = crate::test_support::canned_server_recording(vec![]);
+
+        let mut entry = AgentCacheEntry::default();
+        assert!(usage_cache::claude_refresh_due(&entry, now), "never read: look once");
+        let token = claude_keep_alive_step_at(&base, Some(&dir), &mut entry, now);
+
+        assert_eq!(token.as_deref(), Some("at-1"), "the stored token serves");
+        assert!(requests.lock().unwrap().is_empty(), "no POST on a guess");
+        assert_eq!(entry.claude_expires_at_ms, None, "the read saw no expiry");
+        assert_eq!(
+            entry.refresh_backoff_until_secs,
+            Some(now + usage_cache::REFRESH_UNSUPPORTED_BACKOFF_SECS)
+        );
+        assert!(!usage_cache::claude_refresh_due(&entry, now + 30), "the next beat skips the store");
+        assert!(usage_cache::claude_refresh_due(
+            &entry,
+            now + usage_cache::REFRESH_UNSUPPORTED_BACKOFF_SECS
+        ));
+        assert_eq!(entry.health, None, "not the account's answer");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn seed_claude_credentials(dir: &std::path::Path, expires_at_ms: i64) {
         std::fs::write(
             dir.join(".credentials.json"),

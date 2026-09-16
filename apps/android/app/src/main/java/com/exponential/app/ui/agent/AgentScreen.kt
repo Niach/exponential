@@ -124,6 +124,7 @@ fun AgentScreen(
     val subject by viewModel.subject.collectAsStateWithLifecycle()
     // EXP-897: non-empty while the blocked-start dialog is up.
     val blockedPrompt by viewModel.blockedPrompt.collectAsStateWithLifecycle()
+    val canStackStart by viewModel.canStackStart.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val images by viewModel.images.collectAsStateWithLifecycle()
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
@@ -604,6 +605,7 @@ fun AgentScreen(
     if (blockedPrompt.isNotEmpty()) {
         BlockedStartDialog(
             blockers = blockedPrompt,
+            canStack = canStackStart,
             onStacked = viewModel::submitStacked,
             onStartAnyway = viewModel::submitAnyway,
             onDismiss = viewModel::dismissBlockedPrompt,
@@ -650,6 +652,8 @@ private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> U
 @Composable
 private fun BlockedStartDialog(
     blockers: List<IssueEntity>,
+    /** The machine advertises `stacked-start`; false hides the primary. */
+    canStack: Boolean,
     onStacked: () -> Unit,
     onStartAnyway: () -> Unit,
     onDismiss: () -> Unit,
@@ -677,8 +681,12 @@ private fun BlockedStartDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onStacked, modifier = Modifier.testTag("start-stacked")) {
-                Text(StackStart.STACKED_PR_LABEL)
+            // EXP-897: an older machine has no `stack` field in its start
+            // decoder; Cancel and Start anyway stay, the stack is not offered.
+            if (canStack) {
+                TextButton(onClick = onStacked, modifier = Modifier.testTag("start-stacked")) {
+                    Text(StackStart.STACKED_PR_LABEL)
+                }
             }
         },
         dismissButton = {

@@ -71,6 +71,43 @@ describe(`orderStack`, () => {
     ])
   })
 
+  // FEED-43 R1: a closed-without-merge PR keeps its rows (and, until its
+  // edge is cleared, its base), so "first match" could hang the chain on a
+  // dead member while the live one on the same edge stayed out of it.
+  it(`prefers an open PR over a closed one on the same edge, on both walks`, () => {
+    const rows: StackRow[] = [
+      row(240, { identifier: `EXP-1`, prBaseBranch: `master` }),
+      // EXP-2 stacked on EXP-1, closed unmerged; EXP-3 stacked on EXP-1, open.
+      row(241, { identifier: `EXP-2`, prBaseBranch: `exp/EXP-1`, prState: `closed` }),
+      row(242, { identifier: `EXP-3`, prBaseBranch: `exp/EXP-1` }),
+    ]
+    expect(orderStack(rows, url(240)).map((entry) => entry.prNumber)).toEqual([
+      240, 242,
+    ])
+    expect(stackTopOpen(orderStack(rows, url(240)))?.prNumber).toBe(242)
+
+    // Below: two PRs own the branch `exp/EXP-1` (an old closed one and the
+    // live one); the open one is the foundation.
+    const rebased: StackRow[] = [
+      { ...row(239, { identifier: `EXP-1`, prBaseBranch: `master`, prState: `closed` }), id: `issue-EXP-1-old` },
+      row(240, { identifier: `EXP-1`, prBaseBranch: `master` }),
+      row(242, { identifier: `EXP-3`, prBaseBranch: `exp/EXP-1` }),
+    ]
+    expect(orderStack(rebased, url(242)).map((entry) => entry.prNumber)).toEqual([
+      240, 242,
+    ])
+  })
+
+  it(`still walks through a merged foundation when nothing open owns the edge`, () => {
+    const rows: StackRow[] = [
+      row(240, { identifier: `EXP-1`, prBaseBranch: `master`, prState: `merged` }),
+      row(242, { identifier: `EXP-3`, prBaseBranch: `exp/EXP-1` }),
+    ]
+    expect(orderStack(rows, url(242)).map((entry) => entry.prNumber)).toEqual([
+      240, 242,
+    ])
+  })
+
   it(`breaks a cycle where it first repeats`, () => {
     const cyclic: StackRow[] = [
       row(240, { identifier: `EXP-10`, prBaseBranch: `exp/EXP-11` }),

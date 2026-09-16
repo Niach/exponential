@@ -11,7 +11,7 @@ export type WebView = `board` | `issue` | `run` | `inbox` | `support` | `agent`
 /* Sidebar nav targets that actually switch the main pane. Devices, Actions,
    Automations and Reviews render for fidelity but stay inert — the demo keeps
    only the panes that carry a full recreation. */
-export type WebNav = `project` | `inbox` | `support` | `agent`
+export type WebNav = `board` | `inbox` | `support` | `agent`
 
 /* My Issues is a TAB of the Inbox page (EXP-186, `?tab=my-issues`), never a
    route or a sidebar entry. */

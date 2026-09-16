@@ -171,7 +171,9 @@ pub struct AgentCacheEntry {
     /// (unix MILLIseconds, the field's own unit). The claude keep-alive's cheap
     /// gate: it makes the cadence EXPIRY-driven rather than a timer, without a
     /// keychain read on every beat. `None` = never read / no expiry in the
-    /// document, which the gate treats as "look now".
+    /// document, which the gate treats as "look now" (a read that finds no
+    /// expiry pairs it with [`REFRESH_UNSUPPORTED_BACKOFF_SECS`], so "now" is
+    /// once an hour, not every beat).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claude_expires_at_ms: Option<i64>,
     /// EXP-852 — a refresh that failed for a reason that is NOT the account's
@@ -403,8 +405,11 @@ pub fn claude_refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
         return false;
     }
     match entry.claude_expires_at_ms {
-        // Never read, or a document with no expiry in it: look now, and the
-        // read itself stamps the answer that schedules every later beat.
+        // Never read, or a document with no expiry in it: look now. The read
+        // itself stamps the answer that schedules every later beat, and a
+        // read that finds no expiry sets the hour backoff above (the store
+        // cannot be scheduled off a field it lacks, and `refresh_if_expiring`
+        // never POSTs on a guess), so this arm never means "every beat".
         None => true,
         // Milliseconds on both sides. `saturating_mul` keeps a hand-edited or
         // absurd clock from wrapping the comparison into "not due".
@@ -416,7 +421,8 @@ pub fn claude_refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
 ///
 /// Recorded even when the keep-alive is disabled: the field is the CADENCE's
 /// input, so a user switching the setting on must not owe a blind read first,
-/// and a read that found no expiry writes `None` back — "look again".
+/// and a read that found no expiry writes `None` back ("look again"), which
+/// the keep-alive pairs with [`note_refresh_failed`] so "again" is bounded.
 pub fn note_credential_expiry(entry: &mut AgentCacheEntry, expires_at_ms: Option<i64>) {
     entry.claude_expires_at_ms = expires_at_ms;
 }
@@ -1071,9 +1077,16 @@ mod tests {
         note_credential_expiry(&mut entry, Some(ms_after(now, 8 * 3600)));
         assert!(!claude_refresh_due(&entry, now), "the read answered the gate");
 
-        // A later read that finds no expiry puts it back to "look now".
+        // A later read that finds no expiry puts it back to "look now"; the
+        // keep-alive pairs that with the hour backoff, so "now" is once an
+        // hour rather than a keychain read on every beat.
         note_credential_expiry(&mut entry, None);
         assert!(claude_refresh_due(&entry, now));
+        note_refresh_failed(&mut entry, now, REFRESH_UNSUPPORTED_BACKOFF_SECS);
+        assert_eq!(entry.claude_expires_at_ms, None, "the read's answer stands");
+        assert!(!claude_refresh_due(&entry, now));
+        assert!(!claude_refresh_due(&entry, now + REFRESH_UNSUPPORTED_BACKOFF_SECS - 1));
+        assert!(claude_refresh_due(&entry, now + REFRESH_UNSUPPORTED_BACKOFF_SECS));
     }
 
     /// A refresh the NETWORK lost backs the keep-alive off — the only rate

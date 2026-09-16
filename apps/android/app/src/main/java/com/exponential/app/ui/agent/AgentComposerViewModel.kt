@@ -267,6 +267,16 @@ class AgentComposerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
+     * EXP-897: the settled machine reads a start frame's `stack` payload
+     * (`stacked-start`). An older build would run the issue UNSTACKED while
+     * the server had already recorded a stack, so the blocked-start dialog
+     * hides "Stacked PR" for it and [submitStacked] refuses to send one.
+     */
+    val canStackStart: StateFlow<Boolean> = device
+        .map { it?.canStackStart == true }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
      * EXP-836: why the machine a play button NAMED is not the one this run
      * would go to (offline by now, every agent signed out there, removed from
      * the registry) — the amber note on the options line, web strings verbatim.
@@ -609,8 +619,15 @@ class AgentComposerViewModel @Inject constructor(
         dispatch(action, resumeOffered, stack = false)
     }
 
-    /** The dialog's primary: cut from the blocker, base the PR on it. */
-    fun submitStacked() = answerBlockedPrompt(stack = true)
+    /**
+     * The dialog's primary: cut from the blocker, base the PR on it. A machine
+     * without `stacked-start` never gets one (the dialog hides the button;
+     * a stale tap keeps the prompt up rather than downgrading the start).
+     */
+    fun submitStacked() {
+        if (device.value?.canStackStart != true) return
+        answerBlockedPrompt(stack = true)
+    }
 
     /** The dialog's secondary: the ordinary start, blockers and all. */
     fun submitAnyway() = answerBlockedPrompt(stack = false)

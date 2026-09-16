@@ -19,9 +19,11 @@ import { verifySteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
 import { Hub, type RelaySocket, type StartSubject } from "./hub"
 import {
   CLOSE_UNAUTHORIZED,
+  startStackSchema,
   type StartInput,
   type StartRepoGroup,
   type StartSessionOptions,
+  type StartStack,
 } from "./protocol"
 
 const RELAY_SECRET = process.env.STEER_RELAY_SECRET
@@ -342,6 +344,20 @@ app.post(`/start`, async (c) => {
     }
   }
 
+  // EXP-897: stack is an OPTIONAL pass-through on a SINGLE-ISSUE start only
+  // (a batch, action or resume start never carries one); a PRESENT key must
+  // parse against the wire schema, else 400 (the startedBy stance: a
+  // malformed stack would drop the frame desktop-side after /start already
+  // answered ok, and a silently dropped one launches an UNSTACKED run).
+  let stack: StartStack | undefined
+  if (body && `stack` in body) {
+    const parsed = startStackSchema.safeParse(body.stack)
+    if (hasResume || !hasIssueId || !parsed.success) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+    stack = parsed.data
+  }
+
   const options: StartSessionOptions = {
     ...(startedBy ? { startedBy } : {}),
     ...(startedReason ? { startedReason } : {}),
@@ -354,6 +370,7 @@ app.post(`/start`, async (c) => {
     ...(mcpServerIds ? { mcpServerIds } : {}),
     ...(account ? { account } : {}),
     ...(prompt ? { prompt } : {}),
+    ...(stack ? { stack } : {}),
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)

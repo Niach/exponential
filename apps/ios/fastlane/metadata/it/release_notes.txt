@@ -1,17 +1,18 @@
-- Messaggi in coda: un messaggio inviato mentre l'agente lavora resta in una barra Queued sopra il campo di scrittura, e rimuoverlo riporta il testo nella tua bozza
-- Stop che arriva all'agente: in una sessione dal vivo Stop interrompe davvero il turno in corso invece di perdersi per strada, e scarta quel che è rimasto in coda
-- Pulsanti più discreti: solo l'azione principale di una schermata tiene un cerchio pieno; rimuovi, chiudi, aggiorna, le frecce e i menu ... ora sono semplici glifi
-- Selettori che mostrano ciò che scelgono: il selettore dell'agente porta il segno di Claude Code o Codex sul pulsante e accanto a ogni nome, e i menu dei dispositivi si aprono con un'icona di portatile o di server
+- Una sola schermata Work: un issue, la sua esecuzione, le modifiche e i risultati sono facce di una stessa schermata, si cambia dalla barra in basso, e Stop o Resume sta in alto a destra
+- Una sola vista del diff: ogni diff si legge allo stesso modo, con i numeri di riga, le righe invariate che puoi aprire, e i file rinominati o binari nominati invece che vuoti
+- Pull request impilate: avvia un issue sopra quello che lo blocca, unisci l'intera catena con Merge stack, leggi il distintivo di stack o di batch sul lavoro, e rispondi alla domanda che ti manda un'esecuzione annidata
+- Risultati di un'esecuzione: un'esecuzione che pubblica schermate guadagna una faccia Results, raggruppata per argomento, un riquadro per piattaforma, e un tocco mostra l'immagine intera
+- Esecuzioni batch con un nome: un'esecuzione su più issue ora legge EXP-874 +2 accanto al titolo del primo issue invece di «Batch run»
+- Messaggi che arrivano subito: un messaggio scritto mentre l'agente lavora gli arriva all'istante e resta segnato come inviato finché non lo legge, e Stop riporta il testo nel campo di scrittura
+- GitHub a posto: collegare GitHub, aggiungere un repository e impostare il repository di una board funzionano qui come sul computer, e gli errori si vedono dove sei
+- Messaggi in coda: un messaggio che aspetta l'agente compare in una barra sopra il campo di scrittura, e Stop in una sessione dal vivo interrompe davvero il turno in corso invece di perdersi per strada
+- Pulsanti più discreti e selettori più chiari: solo l'azione principale di una schermata tiene un cerchio pieno, e il selettore dell'agente porta il segno di Claude Code o Codex, mentre i menu dei dispositivi si aprono con un'icona di portatile o di server
 - La pagina Agent tiene i tuoi run: i run passati si ripiegano dietro un conteggio che puoi aprire, e quando non gira nulla il campo di scrittura sta al centro della pagina
-- Accedi dove sta l'account: le impostazioni del dispositivo tengono nome, condivisione e valori predefiniti dell'agente, mentre accesso, scelta dell'account attivo e rimozione vivono ora sulle etichette dell'account
-- Aggiungere un account: Add account sta nell'intestazione Accounts e accede con un nuovo account su un dispositivo, e un più accanto a un account lo accede su un altro dispositivo
+- Accedi dove sta l'account: accesso, scelta dell'account attivo e rimozione vivono ora sulle etichette dell'account, e Add account nell'intestazione Accounts accede con un nuovo account su un dispositivo
 - I filtri degli issue sono spariti: il pulsante filtro e le sue pastiglie lasciano board e posta in arrivo, la ricerca copre quello che facevano, e raggruppamento e bande di stato restano
 - Continua con l'email, o con una passkey: accedi con un codice di 6 cifre inviato per email, oppure con Face ID o Touch ID; tutte le opzioni stanno in un unico elenco, e un'email sconosciuta diventa semplicemente un nuovo account
 - L'indicatore di lavoro finisce quando finisce l'agente: ora segue il turno reale dell'agente invece della connessione, mostra cosa sta facendo con durata e token, e Stop sta nell'intestazione della sessione
-- Schede degli strumenti Exponential: quando l'agente chiama Exponential, la cronologia mostra una didascalia semplice come «Creating issue» o «Opened pull request», e poi un'anteprima del risultato
-- Sottoagenti con un nome: il chip di un sottoagente porta il compito che ha ricevuto, le sue righe riassumono gli strumenti usati, e un chip Plan di sola lettura appare finché l'esecuzione sta ancora pianificando
+- Schede nella cronologia: una chiamata a Exponential mostra una didascalia semplice come «Creating issue» con un'anteprima del risultato, il chip di un sottoagente porta il compito che ha ricevuto, e un chip Plan di sola lettura appare finché l'esecuzione pianifica
 - Scheda workflow: un'esecuzione con più agenti appare come un'unica scheda con le sue fasi e gli agenti sotto, e una riga di sessione guadagna una seconda riga con ciò a cui sta lavorando
-- Account che dicono la verità: lo stato di un account agente arriva da una misura d'uso reale, quindi un accesso morto legge «Needs re-login» invece di «Signed in»
-- Devices è la pagina delle riparazioni: ogni macchina elenca gli account agente che tiene, e un chip propone la riparazione giusta, rientrare in uno scaduto o usare questo account qui per uno che la macchina non sta usando
-- Cambio account a metà esecuzione: un'esecuzione Claude che raggiunge il limite può proseguire con un altro account dal foglio dei consumi o dall'avviso di limite, come nuova esecuzione collegata alla precedente
-- Torna da dove sei arrivato: uscire da una sessione ti riporta all'issue, alla board o alla inbox da cui l'avevi aperta, e un'esecuzione avviata da un'altra compare annidata sotto
+- Account e riparazioni: lo stato di un account agente arriva da una misura d'uso reale, quindi un accesso morto legge «Needs re-login», e Devices elenca gli account di ogni macchina con la riparazione giusta su un chip
+- Cambio account a metà esecuzione, e ritorno da dove sei arrivato: un'esecuzione Claude al limite può proseguire con un altro account, e uscire da una sessione ti riporta all'issue o alla board da cui l'avevi aperta

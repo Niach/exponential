@@ -347,6 +347,15 @@ data class SteerDevice(
     val canSwitchAccount: Boolean get() = caps?.contains("account-switch") == true
 
     /**
+     * EXP-897: whether this machine reads a start frame's `stack` payload and
+     * cuts the branch from the lower PR's. An older build has no `stack` field
+     * in its decoder and would run UNSTACKED while the server had already
+     * written the `blocks` relation, so the blocked-start dialog hides
+     * "Stacked PR" for it (the server refuses `stack` on its behalf too).
+     */
+    val canStackStart: Boolean get() = caps?.contains("stacked-start") == true
+
+    /**
      * EXP-862: whether this machine can REMOVE one of its agent logins
      * (`agent_profile_remove` — it deletes its own copy of the profile, never
      * the account). Cap-gated like the switch: the server refuses the command

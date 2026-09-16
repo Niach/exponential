@@ -219,10 +219,19 @@ export function AppsDocsPage() {
               run&apos;s top bar, and its <strong>…</strong> menu holds{` `}
               <strong>Usage</strong> (how much
               of the agent&apos;s limits this run and this week have spent).
-              An open PR the run opened, on an issue or from an action or
-              chat, puts a <strong>Merge</strong> pill on its{` `}
-              <strong>Changes</strong> bar — replaced by{` `}
-              <strong>Fix conflicts</strong> if the merge hits conflicts.
+              The phone&apos;s work screen is one screen with four faces,{` `}
+              <strong>Issue</strong>, <strong>Run</strong>,{` `}
+              <strong>Changes</strong> and <strong>Results</strong>, swapped
+              held as screen state under one bottom bar. The bar is three
+              slots: a context slot on the left (the usage ring on Run, the
+              file list on Changes), a capsule in the middle (the composer on
+              Run, <strong>Merge PR</strong> on Changes) and the face
+              switcher circle on the right. So an open PR the run opened, on
+              an issue or from an action or chat, merges from the{` `}
+              <strong>Changes</strong> face, with{` `}
+              <strong>Fix conflicts</strong> taking the capsule if the merge
+              hits conflicts. <strong>Results</strong> appears once the run
+              has published screenshots.
             </p>
             <p>
               The full flow (starting runs, plan mode, batches, review) is

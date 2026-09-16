@@ -171,8 +171,8 @@ export function WebSidebar() {
                 key={board.slug}
                 icon={<Icon size={ICON_4} style={{ color: board.color }} />}
                 label={board.name}
-                active={nav === `project` && isBoard}
-                onClick={isBoard ? go(`project`) : undefined}
+                active={nav === `board` && isBoard}
+                onClick={isBoard ? go(`board`) : undefined}
               />
             )
           })}

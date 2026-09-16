@@ -254,8 +254,10 @@ pub struct HeartbeatScope {
     /// scopes (the server refuses it there) and on repo-less runs.
     pub branch: Option<String>,
     /// EXP-876: the issues a BATCH run covers, echoed so a resurrected row
-    /// keeps its name. Empty on every other scope (the server refuses them
-    /// outside the batch form, exactly like `branch` on an issue scope).
+    /// keeps its name. Empty on every other scope: unlike `branch` on an
+    /// issue scope, the heartbeat schema does not refuse them there, the
+    /// server simply ignores them (only the batch resurrect path writes the
+    /// column). `start` is the one that refuses them on a non-batch subject.
     pub batch_issue_ids: Vec<String>,
     /// EXP-484: the agent CLI running the session, echoed so a resurrected
     /// row still says which one it is.

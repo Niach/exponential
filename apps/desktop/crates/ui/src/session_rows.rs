@@ -373,6 +373,15 @@ impl EditMemo {
         self.by_item.borrow_mut().retain(|id, _| *id >= first);
     }
 
+    /// Forget everything. The viewer calls this on a replay swap: the feed
+    /// re-mints ids from the old anchor (or continues above a retained prefix
+    /// over ids the discarded tail held), so a re-minted id whose new diff
+    /// happens to have the SAME byte length would otherwise read back the
+    /// previous row's `path +a -d`.
+    pub(crate) fn clear(&self) {
+        self.by_item.borrow_mut().clear();
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.by_item.borrow().len()
