@@ -69,7 +69,7 @@ export function SessionResultsView({
     <div className="flex flex-col gap-4 py-3" data-testid="session-results">
       {groups.map((group) => (
         <div key={group.topic} className="flex flex-col">
-          <GlassSectionHeader label={group.topic} count={group.entries.length} />
+          <GlassSectionHeader label={group.topic} />
           <div className="flex flex-wrap gap-3">
             {group.entries.map((entry) => (
               <ResultTile
