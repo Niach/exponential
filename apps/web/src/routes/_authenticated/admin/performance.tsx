@@ -37,6 +37,7 @@ import {
   Meter,
   MinuteBars,
 } from "./-perf-shared"
+import { pageTitle } from "@/lib/page-title"
 
 // Admin console → Performance (EXP-553): live process/Electric/database/relay
 // insight plus windowed notification+email aggregates. In-memory series reset
@@ -54,6 +55,9 @@ const DATABASE_POLL_MS = 30_000
 const NOTIF_EMAIL_POLL_MS = 60_000
 
 export const Route = createFileRoute(`/_authenticated/admin/performance`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Performance`, `Admin`) }],
+  }),
   // `days` stays OPTIONAL so plain links (the admin nav) don't carry it. The
   // window only scopes the Notifications & email section.
   validateSearch: (

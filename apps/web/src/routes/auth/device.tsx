@@ -4,6 +4,7 @@ import { useState } from "react"
 import { authClient, fetchSessionOnce } from "@/lib/auth/client"
 import { Button, Input, Label } from "@exp/ui"
 import { AuthFormShell } from "@/components/auth-form-shell"
+import { pageTitle } from "@/lib/page-title"
 
 // RFC 8628 device verification page (EXP-403): the `exponential` CLI prints
 // `Visit <instance>/auth/device and enter XXXX-XXXX`. Claiming happens via
@@ -12,6 +13,7 @@ import { AuthFormShell } from "@/components/auth-form-shell"
 // approves or denies. Login-guarded: an anonymous visit bounces through
 // /auth/login with a redirect back here, user_code intact.
 export const Route = createFileRoute(`/auth/device`)({
+  head: () => ({ meta: [{ title: pageTitle(`Connect a device`) }] }),
   component: DeviceVerificationPage,
   ssr: false,
   validateSearch: (search: Record<string, unknown>): { user_code?: string } => ({

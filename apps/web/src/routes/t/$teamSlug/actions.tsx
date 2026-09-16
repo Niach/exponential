@@ -7,6 +7,7 @@ import {
 import { useIsMobile } from "@exp/ui"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { pageTitle } from "@/lib/page-title"
 
 // The team Actions surface (EXP-686 — its own top-level route on every
 // client). A desktop viewport shows the actions LIST alone (automations are
@@ -26,6 +27,15 @@ type ActionsSearch = {
 }
 
 export const Route = createFileRoute(`/t/$teamSlug/actions`)({
+  head: ({ match }) => ({
+    meta: [
+      {
+        title: pageTitle(
+          match.search.tab === `automations` ? `Automations` : `Actions`
+        ),
+      },
+    ],
+  }),
   validateSearch: (search: Record<string, unknown>): ActionsSearch => ({
     tab:
       search.tab === `automations` || search.tab === `suggestions`

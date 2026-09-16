@@ -7,6 +7,7 @@ import {
   OnboardingWizard,
   type WizardEntryStep,
 } from "@/components/onboarding/wizard"
+import { pageTitle } from "@/lib/page-title"
 
 // EXP-725: `?step=invite|devices` starts a resumed wizard past the board
 // step. It is the shots pipeline's capture hook (the seeded starter owns a
@@ -15,6 +16,7 @@ import {
 type OnboardingSearch = { step?: WizardEntryStep }
 
 export const Route = createFileRoute(`/_authenticated/onboarding`)({
+  head: () => ({ meta: [{ title: pageTitle(`Get started`) }] }),
   ssr: false,
   validateSearch: (search: Record<string, unknown>): OnboardingSearch => ({
     step:

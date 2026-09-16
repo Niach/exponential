@@ -12,8 +12,10 @@ import {
   IconDisc,
 } from "@exp/ui"
 import { Users, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/invite/$token`)({
+  head: () => ({ meta: [{ title: pageTitle(`Team Invite`) }] }),
   component: InviteAcceptPage,
   ssr: false,
 })

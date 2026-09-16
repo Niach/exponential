@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@exp/ui"
+import { pageTitle } from "@/lib/page-title"
 
 const LicensesIcon = conceptIcon(`settings-licenses`)
 const ExternalLinkIcon = conceptIcon(`ui-external-link`)
@@ -21,6 +22,7 @@ const LICENSE_URL = `https://github.com/Niach/exponential/blob/master/LICENSE`
 // notice must accompany that distribution too — gating it behind a session
 // would be wrong on the merits and would break external/self-host links.
 export const Route = createFileRoute(`/about`)({
+  head: () => ({ meta: [{ title: pageTitle(`About`) }] }),
   ssr: false,
   // The notice is FETCHED, never imported: importing it (or converting it to
   // a generated TS module) would put the ~600 KB blob into a JS chunk. It

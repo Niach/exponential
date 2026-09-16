@@ -25,12 +25,16 @@ import {
   runFaceLabel,
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 type IssueSearch = { from?: string; view?: `diff` }
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
 )({
+  head: ({ params }) => ({
+    meta: [{ title: pageTitle(params.issueIdentifier) }],
+  }),
   // No route-level auth guard: the parent `/t/$teamSlug` layout route
   // (route.tsx) already gates access — anonymous or non-member requests are
   // redirected to login there (EXP-180: nothing is anonymously readable).
@@ -76,6 +80,9 @@ function IssueDetailPage() {
     [board?.id, issueIdentifier]
   )
   const issue = (issues?.[0] ?? null) as Issue | null
+  usePageTitle(
+    issue ? pageTitle(`${issue.identifier} ${issue.title}`) : undefined
+  )
   // A disabled live query reports `isReady: true`, so the board gate rides
   // along: on a cold deep link the issues snapshot always lands after the
   // boards one, and claiming "not found" in that window is a lie (REV2-32).

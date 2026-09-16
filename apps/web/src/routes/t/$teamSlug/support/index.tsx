@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { SupportThreadList } from "@/components/helpdesk/support-inbox"
 import { useTeamBySlug } from "@/hooks/use-team-data"
+import { pageTitle } from "@/lib/page-title"
 
 // The helpdesk member inbox (EXP-128). The sidebar links here only when the
 // team has helpdesk_enabled, but the route itself just renders empty lists
@@ -11,6 +12,7 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 // conversation is its own route (`support/$threadId`) with this list in the
 // sidebar beside it, so a ticket is a URL you can share and refresh.
 export const Route = createFileRoute(`/t/$teamSlug/support/`)({
+  head: () => ({ meta: [{ title: pageTitle(`Support`) }] }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({

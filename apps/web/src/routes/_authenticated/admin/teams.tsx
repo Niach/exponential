@@ -19,12 +19,16 @@ import {
   DropdownMenuTrigger,
 } from "@exp/ui"
 import { PlanBadge, formatStorageMb } from "./-shared"
+import { pageTitle } from "@/lib/page-title"
 
 type AdminTeam = Awaited<
   ReturnType<typeof trpc.admin.listTeams.query>
 >[number]
 
 export const Route = createFileRoute(`/_authenticated/admin/teams`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Teams`, `Admin`) }],
+  }),
   loader: async () => {
     const teams = await trpc.admin.listTeams.query()
     return { teams }

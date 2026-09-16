@@ -17,8 +17,10 @@ import { Button, Separator, SEGMENTED_ITEM, SEGMENTED_LIST } from "@exp/ui"
 import { isAdminUser } from "@/lib/auth/app-user"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { cn } from "@/lib/utils"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/_authenticated/admin`)({
+  head: () => ({ meta: [{ title: pageTitle(`Admin`) }] }),
   ssr: false,
   beforeLoad: async ({ context }) => {
     if (!isAdminUser(context.user)) {

@@ -16,6 +16,7 @@ import {
   type AgentSearch,
   type LaunchSeed,
 } from "@/lib/launch-seed"
+import { pageTitle } from "@/lib/page-title"
 
 const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
@@ -44,6 +45,7 @@ const str = (value: unknown): string | undefined =>
 // the sidebar beside it).
 
 export const Route = createFileRoute(`/t/$teamSlug/agent`)({
+  head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   validateSearch: (
     search: Record<string, unknown>
   ): AgentSearch & { from?: string } => ({

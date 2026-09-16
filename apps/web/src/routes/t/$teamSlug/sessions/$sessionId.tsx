@@ -42,6 +42,7 @@ import { sessionIdentity } from "@/lib/session-identity"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 // EXP-740: one coding session, FULLSCREEN on its own route — the web twin of
 // the desktop IDE's `Screen::Session` center tab and the natives' pushed
@@ -62,6 +63,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 type SessionSearch = { from?: string; view?: `diff` | `results` }
 
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
+  head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   // EXP-818: `?from=` is WHERE this run was opened from (`lib/detail-origin.ts`
   // — the desktop's `derive_origin`), so Back returns to that list instead of
   // always landing on the Agent page. Absent = the Agent page's own list.
@@ -97,6 +99,17 @@ function SessionPage() {
     team?.id,
     currentUserId,
     sessionId
+  )
+  const title = row ? sessionIdentity(row) : null
+  usePageTitle(
+    title
+      ? pageTitle(
+          title.identifier
+            ? `${title.identifier} ${title.subject}`
+            : title.subject,
+          `Agent`
+        )
+      : undefined
   )
 
   // EXP-818: Back returns to the ORIGIN the run was opened from — the inbox,

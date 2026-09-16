@@ -6,8 +6,10 @@ import { authErrorMessage } from "@/lib/auth/error-messages"
 import { Button, Label } from "@exp/ui"
 import { AuthFormShell } from "@/components/auth-form-shell"
 import { PasswordInput } from "@/components/password-input"
+import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/auth/reset-password`)({
+  head: () => ({ meta: [{ title: pageTitle(`Choose a new password`) }] }),
   component: ResetPasswordPage,
   ssr: false,
   // Better Auth appends ?token=… to the redirectTo link in the reset email

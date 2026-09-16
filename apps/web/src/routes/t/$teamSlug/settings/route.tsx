@@ -12,10 +12,12 @@ import {
   SETTINGS_NAV,
   useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
+import { pageTitle } from "@/lib/page-title"
 
 const AddIcon = conceptIcon(`ui-add`)
 
 export const Route = createFileRoute(`/t/$teamSlug/settings`)({
+  head: () => ({ meta: [{ title: pageTitle(`Settings`) }] }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({

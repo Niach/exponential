@@ -26,6 +26,7 @@ import {
   TabsTrigger,
 } from "@exp/ui"
 import { EmailDeliveriesTable, formatRelative } from "./-shared"
+import { pageTitle } from "@/lib/page-title"
 
 type BounceRow = Awaited<
   ReturnType<typeof trpc.admin.listEmailBounces.query>
@@ -70,6 +71,9 @@ function isAutoBlocked(row: BounceRow): boolean {
 }
 
 export const Route = createFileRoute(`/_authenticated/admin/email`)({
+  head: () => ({
+    meta: [{ title: pageTitle(`Email health`, `Admin`) }],
+  }),
   // Filters stay OPTIONAL in the search schema so plain links to /admin/email
   // (the admin nav) don't have to carry them; invalid values just drop. The
   // active tab lives in the URL too (?tab=bounces; absent = sent), matching

@@ -39,6 +39,7 @@ import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import { BoardGlyph } from "@/components/board-glyph"
+import { pageTitle } from "@/lib/page-title"
 
 // Cross-board review queue: every issue in the team with an open PR,
 // grouped by board, with a one-click (confirmed) squash-merge that goes
@@ -46,6 +47,7 @@ import { BoardGlyph } from "@/components/board-glyph"
 // should be short. Open PRs WITHOUT any link (manual PRs, external
 // contributors) are listed last, grouped by repository, straight from GitHub.
 export const Route = createFileRoute(`/t/$teamSlug/reviews/`)({
+  head: () => ({ meta: [{ title: pageTitle(`Reviews`) }] }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({

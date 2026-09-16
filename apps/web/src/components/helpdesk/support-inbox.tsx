@@ -50,6 +50,7 @@ import {
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { IssueChip } from "@/components/issue-chip"
 import { cn } from "@/lib/utils"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
 
 // EXP-525: the Open/Resolved pills carry the shared registry's support glyphs,
 // so the tabs read the same here as in the desktop IDE.
@@ -340,6 +341,7 @@ export function SupportConversation({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const { userMap } = useTeamUsers(teamId)
+  usePageTitle(detail ? pageTitle(detail.thread.title, `Support`) : undefined)
 
   const loadDetail = useCallback(async () => {
     try {
