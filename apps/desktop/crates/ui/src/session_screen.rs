@@ -595,6 +595,82 @@ impl SessionScreenView {
         )
     }
 
+    /// EXP-897 — a STACKED run says where it sits before its transcript: the
+    /// position line (`2 of 3 · on top of #EXP-11`) and the one sentence that
+    /// explains the diff it is about to show (`Your pull request is based on
+    /// #EXP-11's branch, not on master.`). Derived from the SYNCED chain
+    /// (`issues.pr_base_branch`), so it is right on every machine.
+    fn render_stack_position(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let row = self.inner.read(cx).session_row().cloned()?;
+        let issue_id = row.issue_id.clone()?;
+        let store = sync::Store::try_global(cx)?;
+        let collections = store.collections().clone();
+        let issue = collections.issues.read(cx).get(&issue_id).cloned()?;
+        let boards = collections.boards.read(cx);
+        let board = boards.get(&issue.board_id).cloned()?;
+        // The stack rule matches branch names, so the list is scoped to the
+        // issue's TEAM (its twin on every other client does the same).
+        let issues: Vec<domain::rows::Issue> = collections
+            .issues
+            .read(cx)
+            .iter()
+            .filter(|row| {
+                boards
+                    .get(&row.board_id)
+                    .is_some_and(|other| other.team_id == board.team_id)
+            })
+            .cloned()
+            .collect();
+        let position = domain::pr_stack::stack_position(&issue, &issues)?;
+        let below = position.below.clone()?;
+        let default_branch = board
+            .default_branch
+            .clone()
+            .filter(|branch| !branch.trim().is_empty())
+            .unwrap_or_else(|| "the default branch".to_string());
+        let muted = cx.theme().muted_foreground;
+        Some(
+            h_flex()
+                .w_full()
+                .flex_shrink_0()
+                .min_w_0()
+                .items_start()
+                .gap_1p5()
+                .px_3()
+                .py_1p5()
+                .border_b_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .child(
+                    Icon::new(registry::PR_STACK)
+                        .xsmall()
+                        .flex_shrink_0()
+                        .text_color(muted),
+                )
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .gap_0p5()
+                        .child(div().text_xs().text_color(muted).child(SharedString::from(
+                            domain::pr_stack::stack_position_line(
+                                position.position,
+                                position.size,
+                                &below,
+                            ),
+                        )))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted.opacity(0.7))
+                                .child(SharedString::from(domain::pr_stack::stack_base_note(
+                                    &below,
+                                    &default_branch,
+                                ))),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// The face toggle for this screen: `Issue` when the run is issue-bound,
     /// `Run`, and the diff item when the run has changes; active = Diff while
     /// the full-page diff is up, else Run. Issue → the tab's issue face;
@@ -767,8 +843,19 @@ impl SessionScreenView {
             // The header entity's rows are built through `entity.update` from
             // this render (the detail view's precedent) — they never call
             // back into this view synchronously.
+            let session_id = self.session_id.clone();
             let (right, tray, extra) = header.update(cx, |header, cx| {
                 header.set_merge_suppressed(diff_open);
+                // EXP-897: the badge's overlay follows the face that is up —
+                // the run tree on Run, the PR stack on Changes.
+                header.set_badge_context(
+                    if diff_open {
+                        crate::pr_graph::BadgeFace::Changes
+                    } else {
+                        crate::pr_graph::BadgeFace::Run
+                    },
+                    Some(session_id.clone()),
+                );
                 let right = header.right_cluster(&issue, toggle, cx);
                 let actions = header.issue_actions(&issue, action, cx);
                 (
@@ -794,6 +881,17 @@ impl SessionScreenView {
             None => SharedString::from("Loading…"),
         });
         let mut right: Vec<AnyElement> = Vec::with_capacity(4);
+        // EXP-897 §4: the same badge an issue-bound header carries — a batch
+        // run's PR closes several issues, and a chat run can be stacked.
+        if let Some(row) = row.as_ref() {
+            let face = if self.diff_open(cx) {
+                crate::pr_graph::BadgeFace::Changes
+            } else {
+                crate::pr_graph::BadgeFace::Run
+            };
+            let spec = crate::pr_graph::session_spec(row, face, cx);
+            right.extend(crate::pr_graph::badge("session-pr-graph", spec, cx));
+        }
         right.extend(self.face_toggle(None, cx));
         let (merge_target, killable, local, device_label) = {
             let inner = self.inner.read(cx);
@@ -952,6 +1050,8 @@ impl Render for SessionScreenView {
         // EXP-849: the continuation byline sits directly under the header —
         // it is about THIS run's history, not about its result.
         let continuation = self.render_continuation(cx);
+        // EXP-897: and, for a stacked run, where in the stack it sits.
+        let stack_position = self.render_stack_position(cx);
         // EXP-773/EXP-877: one column — the shared work header, then the
         // transcript, whose own footer carries the composer (and the usage
         // readout). EXP-862 stopped storing `coding_sessions.summary`, so no
@@ -963,6 +1063,7 @@ impl Render for SessionScreenView {
             .track_focus(&self.focus_handle)
             .child(header)
             .children(continuation)
+            .children(stack_position)
             .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }
 }

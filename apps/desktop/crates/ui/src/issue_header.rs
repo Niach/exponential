@@ -71,6 +71,12 @@ pub struct IssueHeader {
     /// session screen before it builds the tray; the issue detail leaves it
     /// false.
     merge_suppressed: bool,
+    /// EXP-897: which FACE this header is drawn on — it decides the stack /
+    /// batch badge's overlay sections. The issue detail leaves the default;
+    /// a session screen sets [`Self::set_badge_context`].
+    badge_face: crate::pr_graph::BadgeFace,
+    /// The run the badge's session tree is about (the session screen's run).
+    badge_session: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -146,6 +152,8 @@ impl IssueHeader {
             board_query,
             start_coding,
             merge_suppressed: false,
+            badge_face: crate::pr_graph::BadgeFace::Issue,
+            badge_session: None,
             _subscriptions: subscriptions,
         }
     }
@@ -154,6 +162,19 @@ impl IssueHeader {
     /// control (the run's Changes bar).
     pub(crate) fn set_merge_suppressed(&mut self, suppressed: bool) {
         self.merge_suppressed = suppressed;
+    }
+
+    /// EXP-897: which face the shared header is being drawn on, and the run
+    /// it is about — the stack/batch badge's overlay shows that face's
+    /// sections. The issue detail never calls this (the Issue face is the
+    /// default).
+    pub(crate) fn set_badge_context(
+        &mut self,
+        face: crate::pr_graph::BadgeFace,
+        session_id: Option<String>,
+    ) {
+        self.badge_face = face;
+        self.badge_session = session_id;
     }
 
     /// Point the header at another issue.
@@ -701,6 +722,7 @@ impl IssueHeader {
                 crate::pr_merge::two_click(
                     crate::pr_merge::MergeOp::MergeIssuePr {
                         issue_id: issue_id.clone(),
+                        merge_stack: false,
                     },
                     None,
                     None,
@@ -814,7 +836,9 @@ impl IssueHeader {
         leading: Option<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut cluster = Vec::with_capacity(3);
+        let mut cluster = Vec::with_capacity(4);
+        // EXP-897 §4: the ONE stack/batch badge, shared by all three faces.
+        cluster.extend(self.pr_graph_badge(issue, cx));
         cluster.extend(leading);
         // EXP-778: the personal pin toggle — a pinned issue lands in the
         // rail's Pinned section. Needs the team (the board's) to address
@@ -833,6 +857,25 @@ impl IssueHeader {
         }
         cluster.push(self.render_actions_menu(issue, cx).into_any_element());
         cluster
+    }
+
+    /// EXP-897 §4 — the stack / batch badge: a small pill carrying the
+    /// `pr-stack` / `pr-batch` concepts and `2 of 3`, whose popover lists this
+    /// face's sections (blockers + batch on the Issue face, the run tree on
+    /// the Run face, the PR stack on Changes). Absent when there is nothing
+    /// around this issue at all.
+    fn pr_graph_badge(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        let session = self.badge_session.as_deref().and_then(|session_id| {
+            sync::Store::try_global(cx)?
+                .collections()
+                .coding_sessions
+                .read(cx)
+                .get(session_id)
+                .cloned()
+        });
+        let spec =
+            crate::pr_graph::issue_spec(issue, session.as_ref(), self.badge_face, cx);
+        crate::pr_graph::badge("issue-pr-graph", spec, cx)
     }
 
     /// EXP-877: the tray's trailing action cluster — `[Merge PR while the PR

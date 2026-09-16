@@ -740,6 +740,18 @@ pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
 /// the shared `pr_number`/`branch` and is the merge/dismiss target.
 pub struct ReviewEntry {
     pub issues: Vec<domain::rows::Issue>,
+    /// EXP-897: how deep this pull request sits in its STACK — 0 for the
+    /// bottom (and for every unstacked PR), +1 per member above.
+    pub depth: usize,
+    /// The identifier(s) of the pull request directly BELOW this one, when it
+    /// is stacked on a PR that is also in this list. Renders as the row's
+    /// `on top of #EXP-11` caption.
+    pub stacked_on: Option<String>,
+    /// On a `depth == 0` entry that CARRIES a stack: the representative issue
+    /// id of the top of that chain. Its presence is what turns the row's
+    /// Merge into "Merge stack" (the call itself rides this row's OWN issue
+    /// id — the server resolves the top).
+    pub stack_top_issue_id: Option<String>,
 }
 
 impl ReviewEntry {
@@ -753,6 +765,80 @@ impl ReviewEntry {
     pub fn is_batch(&self) -> bool {
         self.issues.len() > 1
     }
+
+    /// The pull request's head branch (shared by every issue on it).
+    fn head_branch(&self) -> Option<&str> {
+        self.representative()
+            .branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+    }
+
+    /// The branch the pull request TARGETS — the stack edge (EXP-897).
+    fn base_branch(&self) -> Option<&str> {
+        self.representative()
+            .pr_base_branch
+            .as_deref()
+            .map(str::trim)
+            .filter(|branch| !branch.is_empty())
+    }
+
+    /// `EXP-11`, or `EXP-11, EXP-12` for a batch PR.
+    pub fn identifiers(&self) -> String {
+        self.issues
+            .iter()
+            .map(|issue| issue.identifier.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// EXP-897 — nest the Reviews entries into their PR STACKS: every entry
+/// follows the one it is based on (`pr_base_branch` == that PR's `branch`),
+/// one level deeper, and carries the caption + merge facts its row needs.
+/// Roots keep the caller's order; a base nobody in the list owns leaves the
+/// entry a root (a merged lower member simply un-nests — the server rewrites
+/// `pr_base_branch`, so no row ever reports a missing base); a cycle breaks
+/// where it first repeats. Pure — the rule is
+/// [`domain::pr_stack::nest_pr_stacks`], shared ×4.
+pub fn nest_review_entries(entries: Vec<ReviewEntry>) -> Vec<ReviewEntry> {
+    let nested = domain::pr_stack::nest_pr_stacks(
+        entries,
+        |entry: &ReviewEntry| entry.head_branch(),
+        |entry: &ReviewEntry| entry.base_branch(),
+    );
+    // One pass over the tree order fills in the two row facts: the caption
+    // names the row directly below (the parent at `depth - 1`), and every
+    // stack ROOT learns the issue id of the member at its very top.
+    let mut labels: Vec<String> = Vec::new();
+    let mut rows: Vec<ReviewEntry> = Vec::with_capacity(nested.len());
+    let mut root_of: Vec<Option<usize>> = Vec::with_capacity(nested.len());
+    let mut current_root: Option<usize> = None;
+    for row in nested {
+        let depth = row.depth;
+        labels.truncate(depth);
+        let mut entry = row.entry;
+        entry.depth = depth;
+        entry.stacked_on = depth.checked_sub(1).and_then(|below| labels.get(below).cloned());
+        labels.push(entry.identifiers());
+        if depth == 0 {
+            current_root = Some(rows.len());
+        }
+        root_of.push(current_root);
+        rows.push(entry);
+    }
+    // The TOP of each chain, walked back onto its root.
+    for index in 0..rows.len() {
+        if rows[index].depth == 0 {
+            continue;
+        }
+        if let Some(root) = root_of[index] {
+            let top = rows[index].representative().id.clone();
+            rows[root].stack_top_issue_id = Some(top);
+        }
+    }
+    rows
 }
 
 /// One Reviews page section: a board and its open-PR entries (the
@@ -791,17 +877,42 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
 
     // One entry per PR; issues newest first (ISO strings from one source
     // compare lexicographically, None last) so the representative is newest.
-    let mut by_board: HashMap<String, Vec<ReviewEntry>> = HashMap::new();
-    let mut board_order: Vec<String> = Vec::new();
+    let mut entries: Vec<ReviewEntry> = Vec::with_capacity(pr_order.len());
     for key in pr_order {
         let mut issues = by_pr.remove(&key).unwrap_or_default();
         issues.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        let board_id = issues[0].board_id.clone();
-        let entries = by_board.entry(board_id.clone()).or_default();
-        if entries.is_empty() {
+        entries.push(ReviewEntry {
+            issues,
+            depth: 0,
+            stacked_on: None,
+            stack_top_issue_id: None,
+        });
+    }
+    // Newest entry first — by the representative's created_at. This is the
+    // ROOT order; nesting keeps it and threads each stack under its bottom.
+    entries.sort_by(|a, b| {
+        b.representative()
+            .created_at
+            .cmp(&a.representative().created_at)
+    });
+    // EXP-897: stacks are nested across the WHOLE team before the grouping,
+    // then bucketed by the ROOT entry's board — a chain never splits across
+    // two board sections just because a member lives on another board.
+    let mut by_board: HashMap<String, Vec<ReviewEntry>> = HashMap::new();
+    let mut board_order: Vec<String> = Vec::new();
+    let mut current_board: Option<String> = None;
+    for entry in nest_review_entries(entries) {
+        if entry.depth == 0 {
+            current_board = Some(entry.representative().board_id.clone());
+        }
+        let Some(board_id) = current_board.clone() else {
+            continue;
+        };
+        let bucket = by_board.entry(board_id.clone()).or_default();
+        if bucket.is_empty() {
             board_order.push(board_id);
         }
-        entries.push(ReviewEntry { issues });
+        bucket.push(entry);
     }
 
     let mut groups: Vec<ReviewGroup> = board_order
@@ -810,13 +921,7 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
             // The team filter in `review_issues` already proved the
             // board exists; the lookup only resolves the row.
             let board = boards.get(&board_id)?.clone();
-            let mut entries = by_board.remove(&board_id).unwrap_or_default();
-            // Newest entry first — by the representative's created_at.
-            entries.sort_by(|a, b| {
-                b.representative()
-                    .created_at
-                    .cmp(&a.representative().created_at)
-            });
+            let entries = by_board.remove(&board_id).unwrap_or_default();
             Some(ReviewGroup { board, entries })
         })
         .collect();
@@ -3396,5 +3501,103 @@ mod tests {
         ] {
             assert_eq!(session_dot_tone(facts, muted), muted.opacity(0.4));
         }
+    }
+}
+
+#[cfg(test)]
+mod review_stack_tests {
+    use super::*;
+
+    /// One Reviews entry for a pull request on `head`, based on `base`.
+    fn entry(identifier: &str, head: Option<&str>, base: Option<&str>) -> ReviewEntry {
+        ReviewEntry {
+            issues: vec![serde_json::from_value(serde_json::json!({
+                "id": format!("id-{identifier}"),
+                "board_id": "board-1",
+                "number": 1,
+                "identifier": identifier,
+                "title": identifier,
+                "status": "in_review",
+                "branch": head,
+                "pr_base_branch": base,
+                "pr_state": "open",
+            }))
+            .unwrap()],
+            depth: 0,
+            stacked_on: None,
+            stack_top_issue_id: None,
+        }
+    }
+
+    fn shape(rows: &[ReviewEntry]) -> Vec<String> {
+        rows.iter()
+            .map(|row| format!("{}@{}", row.identifiers(), row.depth))
+            .collect()
+    }
+
+    /// EXP-897: an entry whose PR targets another entry's branch nests under
+    /// it, carries the `on top of #…` caption, and hands the bottom row the
+    /// chain's top so it can offer "Merge stack".
+    #[test]
+    fn review_entries_nest_under_their_base_pr() {
+        let rows = nest_review_entries(vec![
+            entry("EXP-13", Some("exp/EXP-13"), Some("exp/EXP-12")),
+            entry("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
+            entry("EXP-11", Some("exp/EXP-11"), Some("master")),
+        ]);
+        assert_eq!(shape(&rows), ["EXP-11@0", "EXP-12@1", "EXP-13@2"]);
+        assert_eq!(rows[0].stacked_on, None);
+        assert_eq!(rows[1].stacked_on.as_deref(), Some("EXP-11"));
+        assert_eq!(rows[2].stacked_on.as_deref(), Some("EXP-12"));
+        assert_eq!(
+            domain::pr_stack::on_top_of(rows[1].stacked_on.as_deref().unwrap()),
+            "on top of #EXP-11"
+        );
+        // Only the BOTTOM row offers the stack merge.
+        assert_eq!(rows[0].stack_top_issue_id.as_deref(), Some("id-EXP-13"));
+        assert_eq!(rows[1].stack_top_issue_id, None);
+        assert_eq!(rows[2].stack_top_issue_id, None);
+    }
+
+    /// A PR based on the repo's default branch (or on a merged PR the list no
+    /// longer holds) stays a ROOT — the list never renders a missing base.
+    #[test]
+    fn review_entries_stay_flat_without_a_base() {
+        let rows = nest_review_entries(vec![
+            entry("EXP-20", Some("exp/EXP-20"), Some("master")),
+            entry("EXP-21", Some("exp/EXP-21"), None),
+            // The base names a branch nobody in the list owns (it merged).
+            entry("EXP-22", Some("exp/EXP-22"), Some("exp/EXP-19")),
+        ]);
+        assert_eq!(shape(&rows), ["EXP-20@0", "EXP-21@0", "EXP-22@0"]);
+        assert!(rows.iter().all(|row| row.stacked_on.is_none()));
+        assert!(rows.iter().all(|row| row.stack_top_issue_id.is_none()));
+    }
+
+    /// Defensive: a base chain that loops keeps every row exactly once.
+    #[test]
+    fn review_entry_nesting_breaks_a_cycle() {
+        let rows = nest_review_entries(vec![
+            entry("EXP-40", Some("a"), Some("b")),
+            entry("EXP-41", Some("b"), Some("a")),
+        ]);
+        assert_eq!(shape(&rows), ["EXP-40@0", "EXP-41@1"]);
+        assert_eq!(rows[1].stacked_on.as_deref(), Some("EXP-40"));
+    }
+
+    /// A batch PR is ONE stack member: its identifiers read as a list and the
+    /// caption below it names the whole batch.
+    #[test]
+    fn a_batch_entry_is_one_stack_member() {
+        let mut batch = entry("EXP-30", Some("exp/batch-a1b2c3d4"), Some("master"));
+        let mut second = entry("EXP-31", Some("exp/batch-a1b2c3d4"), Some("master"));
+        batch.issues.push(second.issues.remove(0));
+        let rows = nest_review_entries(vec![
+            entry("EXP-32", Some("exp/EXP-32"), Some("exp/batch-a1b2c3d4")),
+            batch,
+        ]);
+        assert_eq!(shape(&rows), ["EXP-30, EXP-31@0", "EXP-32@1"]);
+        assert_eq!(rows[1].stacked_on.as_deref(), Some("EXP-30, EXP-31"));
+        assert!(rows[0].is_batch());
     }
 }

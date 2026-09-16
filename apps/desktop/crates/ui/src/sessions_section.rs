@@ -536,8 +536,9 @@ fn open_session_id(window: &Window, cx: &mut App) -> Option<String> {
 /// EXP-827: the rows a nested list actually DRAWS — everything under a
 /// collapsed parent is dropped, at any depth (the rail's `hidden_below` walk).
 /// The sequence is already in tree order, so one pass over the depths is the
-/// whole rule. Pure, so the folding is unit-tested without a window.
-fn drop_collapsed<R>(
+/// whole rule. Pure, so the folding is unit-tested without a window. EXP-897
+/// reuses it for the Reviews page's PR stacks — the same fold, one rule.
+pub(crate) fn drop_collapsed<R>(
     rows: Vec<R>,
     collapsed: &HashSet<String>,
     id: impl Fn(&R) -> &str,
@@ -563,7 +564,7 @@ fn drop_collapsed<R>(
 /// EXP-827: the fold control for a row — `None` unless it HAS children. The
 /// click toggles the section's collapsed set, which is view state, so this is a
 /// listener rather than a plain closure.
-fn fold_for<V: Collapsible + 'static>(
+pub(crate) fn fold_for<V: Collapsible + 'static>(
     session_id: String,
     has_children: bool,
     collapsed: &HashSet<String>,
@@ -582,7 +583,7 @@ fn fold_for<V: Collapsible + 'static>(
 }
 
 /// A section that folds its nested rows away ([`fold_for`]).
-trait Collapsible {
+pub(crate) trait Collapsible {
     fn collapsed_mut(&mut self) -> &mut HashSet<String>;
 }
 
@@ -595,6 +596,13 @@ impl Collapsible for RunningSessionsSection {
 impl Collapsible for PastSessionsSection {
     fn collapsed_mut(&mut self) -> &mut HashSet<String> {
         &mut self.collapsed
+    }
+}
+
+// EXP-897: the Automations page's run log folds exactly like these two.
+impl Collapsible for crate::automations_view::AutomationsView {
+    fn collapsed_mut(&mut self) -> &mut HashSet<String> {
+        self.collapsed_runs_mut()
     }
 }
 

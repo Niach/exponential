@@ -58,6 +58,10 @@ pub struct ReviewsView {
     open_pulls_key: Option<String>,
     /// Bumped per fetch — a stale response checks it before landing.
     open_pulls_seq: u64,
+    /// EXP-897: the stack BOTTOMS whose members are folded away, by
+    /// representative issue id (the sessions lists' rule, one fold ×4). Per
+    /// view, never persisted.
+    collapsed: HashSet<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -89,6 +93,7 @@ impl ReviewsView {
             open_pulls: None,
             open_pulls_key: None,
             open_pulls_seq: 0,
+            collapsed: HashSet::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -195,10 +200,15 @@ impl ReviewsView {
     fn review_row(
         &self,
         entry: &queries::ReviewEntry,
+        has_children: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let issue = entry.representative();
         let is_batch = entry.is_batch();
+        // EXP-897: the BOTTOM of a stack merges the whole chain; the server
+        // resolves the top off this row's own issue id.
+        let merges_stack = entry.depth == 0 && entry.stack_top_issue_id.is_some();
+        let collapsed = self.collapsed.contains(&issue.id);
         let identifier_text = if is_batch {
             match issue.pr_number {
                 Some(number) => format!("#{number}"),
@@ -217,7 +227,20 @@ impl ReviewsView {
         } else {
             issue.title.clone()
         };
-        let batch_count = is_batch.then(|| format!("{} issues", entry.issues.len()));
+        // EXP-897: a batch PR wears the `pr-batch` CONCEPT with its issues in
+        // the shared overlay, never a bare count.
+        let batch_glyph = is_batch.then(|| {
+            crate::pr_graph::batch_glyph(
+                SharedString::from(format!("review-batch-{}", issue.id)),
+                entry.issues.clone(),
+                cx,
+            )
+        });
+        // The caption an upper stack member carries: `on top of #EXP-11`.
+        let stacked_on = entry
+            .stacked_on
+            .as_deref()
+            .map(domain::pr_stack::on_top_of);
 
         let theme = cx.theme();
         let fg = theme.foreground;
@@ -309,12 +332,30 @@ impl ReviewsView {
             if merging {
                 button = button.label("Merging…").loading(true).disabled(true);
             } else if armed {
-                button = button.label("Confirm merge").danger().cursor_pointer();
+                button = button
+                    .label(if merges_stack {
+                        domain::pr_stack::MERGE_STACK_CONFIRM_LABEL
+                    } else {
+                        "Confirm merge"
+                    })
+                    .danger()
+                    .cursor_pointer();
             } else {
                 // EXP-642 (web parity): the merge glyph rides the label.
+                // EXP-897: the bottom of a stack merges the whole chain.
                 button = button
-                    .icon(Icon::new(registry::PR_MERGED))
-                    .label(if swapped { "Retry merge" } else { "Merge" });
+                    .icon(Icon::new(if merges_stack {
+                        registry::PR_STACK
+                    } else {
+                        registry::PR_MERGED
+                    }))
+                    .label(if swapped {
+                        "Retry merge"
+                    } else if merges_stack {
+                        domain::pr_stack::MERGE_STACK_LABEL
+                    } else {
+                        "Merge"
+                    });
             }
             let click_id = issue.id.clone();
             button
@@ -323,6 +364,7 @@ impl ReviewsView {
                     crate::pr_merge::two_click(
                         MergeOp::MergeIssuePr {
                             issue_id: click_id.clone(),
+                            merge_stack: merges_stack,
                         },
                         None,
                         None,
@@ -362,6 +404,8 @@ impl ReviewsView {
             .min_w_0()
             .px_3()
             .py_2p5()
+            // EXP-897: 14px per stack level — the sessions lists' indent.
+            .pl(gpui::px(12. + 14. * entry.depth as f32))
             .gap_2()
             .when(selected, |this| this.bg(row_active))
             .hover(move |this| this.bg(row_hover))
@@ -383,6 +427,41 @@ impl ReviewsView {
                     None => crate::navigation::navigate(window, cx, screen),
                 }
             }))
+            // EXP-897: the fold chevron every parent row carries (×4).
+            .when(has_children, |this| {
+                let fold_id = issue.id.clone();
+                this.child(
+                    div()
+                        .id(SharedString::from(format!("review-fold-{}", issue.id)))
+                        .flex_shrink_0()
+                        .cursor_pointer()
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new(if collapsed {
+                                domain::pr_stack::EXPAND_CHILD_RUNS
+                            } else {
+                                domain::pr_stack::COLLAPSE_CHILD_RUNS
+                            })
+                            .build(window, cx)
+                        })
+                        .child(
+                            Icon::new(if collapsed {
+                                registry::UI_CHEVRON_RIGHT
+                            } else {
+                                registry::UI_CHEVRON_DOWN
+                            })
+                            .xsmall()
+                            .text_color(muted),
+                        )
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            // The row itself opens the diff — folding must not.
+                            cx.stop_propagation();
+                            if !this.collapsed.insert(fold_id.clone()) {
+                                this.collapsed.remove(&fold_id);
+                            }
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 v_flex()
                     .flex_1()
@@ -417,16 +496,18 @@ impl ReviewsView {
                                     .text_color(fg)
                                     .child(SharedString::from(title_text)),
                             )
-                            .when_some(batch_count, |this, count| {
-                                this.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .text_xs()
-                                        .text_color(muted)
-                                        .child(SharedString::from(count)),
-                                )
-                            }),
+                            .children(batch_glyph),
                     )
+                    .when_some(stacked_on, |this, caption| {
+                        this.child(
+                            div()
+                                .pl_5()
+                                .text_xs()
+                                .truncate()
+                                .text_color(muted)
+                                .child(SharedString::from(caption)),
+                        )
+                    })
                     .when_some(sub, |this, branch| {
                         this.child(
                             div()
@@ -873,8 +954,24 @@ impl Render for ReviewsView {
                                 .child(SharedString::from(format!("{}", group.entries.len()))),
                         ),
                 );
-                for entry in &group.entries {
-                    block = block.child(self.review_row(entry, cx));
+                // EXP-897: the rows a nested list actually DRAWS — the
+                // sessions lists' fold, one rule.
+                let visible = crate::sessions_section::drop_collapsed(
+                    group.entries.iter().collect::<Vec<_>>(),
+                    &self.collapsed,
+                    |entry| entry.representative().id.as_str(),
+                    |entry| entry.depth,
+                );
+                for entry in visible.iter() {
+                    // A parent is a row the NEXT one in tree order nests under
+                    // (the fold hides the subtree, so read it off the group).
+                    let has_children = group
+                        .entries
+                        .iter()
+                        .skip_while(|row| row.representative().id != entry.representative().id)
+                        .nth(1)
+                        .is_some_and(|next| next.depth > entry.depth);
+                    block = block.child(self.review_row(entry, has_children, cx));
                 }
                 children.push(block.into_any_element());
             }

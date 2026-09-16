@@ -81,7 +81,14 @@ pub enum MergeOp {
     /// completes every linked issue). Echo-settled: the spinner holds until
     /// `pr_state` leaves `open`. Merge always closes (EXP-498): the server
     /// ends the issues' live coding sessions on every merge.
-    MergeIssuePr { issue_id: String },
+    ///
+    /// EXP-897: `merge_stack` merges the whole `pr_base_branch` chain the PR
+    /// sits in, bottom-up. It rides the BOTTOM member's issue id (the row
+    /// that offers "Merge stack"); the server resolves the top itself.
+    MergeIssuePr {
+        issue_id: String,
+        merge_stack: bool,
+    },
     /// `issues.closePr` — close the linked PR WITHOUT merging (EXP-100).
     /// Echo-settled like the merge.
     CloseIssuePr { issue_id: String },
@@ -154,7 +161,16 @@ impl MergeOp {
 
     fn describe(&self) -> String {
         match self {
-            MergeOp::MergeIssuePr { issue_id, .. } => format!("issues.mergePr({issue_id})"),
+            MergeOp::MergeIssuePr {
+                issue_id,
+                merge_stack,
+            } => {
+                if *merge_stack {
+                    format!("issues.mergePr({issue_id}, stack)")
+                } else {
+                    format!("issues.mergePr({issue_id})")
+                }
+            }
             MergeOp::CloseIssuePr { issue_id } => format!("issues.closePr({issue_id})"),
             MergeOp::MergeSessionPr { session_id } => {
                 format!("codingSessions.mergePr({session_id})")
@@ -168,9 +184,10 @@ impl MergeOp {
 
     fn run(&self, trpc: &api::TrpcClient) -> Result<(), api::ApiError> {
         match self {
-            MergeOp::MergeIssuePr { issue_id } => {
-                api::issues::merge_pr(trpc, issue_id).map(|_| ())
-            }
+            MergeOp::MergeIssuePr {
+                issue_id,
+                merge_stack,
+            } => api::issues::merge_pr(trpc, issue_id, *merge_stack).map(|_| ()),
             MergeOp::CloseIssuePr { issue_id } => {
                 api::issues::close_pr(trpc, issue_id).map(|_| ())
             }
@@ -468,6 +485,16 @@ pub enum TwoClick {
     Fired,
 }
 
+/// EXP-897 — fire an op that was CONFIRMED elsewhere: the stack overlay's
+/// "Merge stack" lives in a popover that closes on the first click, so a
+/// two-click arm there would never be a confirm. The native alert is the
+/// confirm; this arms and fires in one go.
+pub fn fire_confirmed(op: MergeOp, cx: &mut App) -> TwoClick {
+    let key = op.key();
+    MergeState::global(cx).update(cx, |this, cx| this.arm_key(key, cx));
+    two_click(op, None, None, cx)
+}
+
 /// The shared two-click flow: first call arms (auto-disarm ~5s), second call
 /// fires the op on the background executor. Failures land in the shared
 /// error slot (and run `on_failure` — the terminal dock jumps to the Reviews
@@ -587,6 +614,7 @@ mod tests {
         assert_eq!(close_pr_key("issue-1"), "close:issue-1");
         let merge = MergeOp::MergeIssuePr {
             issue_id: "i1".to_string(),
+            merge_stack: false,
         };
         let close = MergeOp::CloseIssuePr {
             issue_id: "i1".to_string(),

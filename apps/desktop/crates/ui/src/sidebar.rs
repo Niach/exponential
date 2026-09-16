@@ -3749,11 +3749,13 @@ impl ListPanel {
             let active = open_session.as_deref() == Some(open_id.as_str());
             let origin = origin.clone();
             // EXP-874: the shared run rows (live → running row, ended → past
-            // row); automated runs are flat, a sub-session they start is
-            // listed on the Agent page.
+            // row); automated runs are flat HERE (depth 0, no fold) — the
+            // Automations page is where the run tree nests (EXP-897).
             rows.push(crate::run_rows::render_run_list_row(
                 "list-nav-automation",
                 index,
+                0,
+                None,
                 facts,
                 active,
                 Box::new(move |_, window, cx| {

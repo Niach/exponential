@@ -101,6 +101,9 @@ impl MergeTarget {
         match self {
             MergeTarget::Issue { issue_id } => crate::pr_merge::MergeOp::MergeIssuePr {
                 issue_id: issue_id.clone(),
+                // The Changes bar merges THIS pull request; a whole stack is
+                // merged from its bottom row in Reviews (EXP-897).
+                merge_stack: false,
             },
             MergeTarget::Session { session_id } => crate::pr_merge::MergeOp::MergeSessionPr {
                 session_id: session_id.clone(),

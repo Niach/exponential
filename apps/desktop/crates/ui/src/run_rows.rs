@@ -277,6 +277,15 @@ fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: 
         .id((SharedString::from(format!("{id_prefix}-fold")), index))
         .flex_shrink_0()
         .cursor_pointer()
+        // EXP-897: the fold's accessible label, byte-identical ×4.
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(if collapsed {
+                domain::pr_stack::EXPAND_CHILD_RUNS
+            } else {
+                domain::pr_stack::COLLAPSE_CHILD_RUNS
+            })
+            .build(window, cx)
+        })
         .child(
             Icon::from(if collapsed {
                 registry::UI_CHEVRON_RIGHT
@@ -472,10 +481,14 @@ impl RunListFacts {
     }
 }
 
-/// A flat (depth 0, never killable) row of a mixed list.
+/// A row of a mixed list (never killable). EXP-897: it carries the tree's
+/// `depth` and fold like every other session row — the Automations log nests
+/// its child runs too.
 pub(crate) fn render_run_list_row(
     id_prefix: &'static str,
     index: usize,
+    depth: usize,
+    fold: Option<RunRowFold>,
     facts: RunListFacts,
     active: bool,
     on_open: RunRowAction,
@@ -486,8 +499,8 @@ pub(crate) fn render_run_list_row(
             RunningRunSpec {
                 id_prefix,
                 index,
-                depth: 0,
-                fold: None,
+                depth,
+                fold,
                 facts,
                 on_open,
                 kill: None,
@@ -499,8 +512,8 @@ pub(crate) fn render_run_list_row(
             PastRunSpec {
                 id_prefix,
                 index,
-                depth: 0,
-                fold: None,
+                depth,
+                fold,
                 facts,
                 on_open,
             },
