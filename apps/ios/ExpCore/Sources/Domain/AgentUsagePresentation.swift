@@ -56,6 +56,28 @@ public struct UsageCard: Equatable, Sendable, Identifiable {
     }
 }
 
+/// EXP-909: one entry of the COMPACT usage line — the tiny "label · meter ·
+/// NN%" triplet the account rows and the Devices page draw. It carries the
+/// WIRE label (`5h` / `Week` / `Fable`), not `cardTitle`'s sentence: three of
+/// these sit on ONE line, which only works because the wire labels are short
+/// by construction.
+public struct UsageMiniWindow: Equatable, Sendable, Identifiable {
+    public let key: String
+    public let label: String
+    /// Nil when the machine reported the window but no number for it.
+    public let percent: Double?
+    public let resetsAt: String?
+
+    public var id: String { key }
+
+    public init(key: String, label: String, percent: Double?, resetsAt: String?) {
+        self.key = key
+        self.label = label
+        self.percent = percent
+        self.resetsAt = resetsAt
+    }
+}
+
 /// A titled run of cards. `key` is stable (`session` / `weekly` / `other`) so
 /// a view can special-case one without matching on its title.
 public struct UsageGroup: Equatable, Sendable, Identifiable {
@@ -199,6 +221,68 @@ public enum AgentUsagePresentation {
             UsageGroup(key: "other", title: "Other", windows: other, now: now),
         ].filter { !$0.cards.isEmpty }
     }
+
+    /// EXP-909: at most THREE windows for the compact line, in a fixed order:
+    /// the `session` window, then `weekly`, then the FIRST `model:*` one.
+    /// A report naming none of those (codex credits, a machine's `Other`
+    /// windows) falls back to its first three windows in REPORT order, so the
+    /// line is never empty for a machine that reported something.
+    ///
+    /// Locked ×4 (web `miniWindows`, Android `miniWindows`, desktop
+    /// `mini_windows`) by `mini windows pick session, weekly, then the first
+    /// model window` + `mini windows fall back to report order`.
+    public static func miniWindows(_ usage: AgentUsage?) -> [UsageMiniWindow] {
+        let windows = usage?.windows ?? []
+        var picked: [AgentUsageWindow] = []
+        if let session = windows.first(where: { $0.key == sessionWindowKey }) {
+            picked.append(session)
+        }
+        if let weekly = windows.first(where: { $0.key == weeklyWindowKey }) {
+            picked.append(weekly)
+        }
+        if let model = windows.first(where: { $0.key.hasPrefix(modelWindowPrefix) }) {
+            picked.append(model)
+        }
+        if picked.isEmpty { picked = Array(windows.prefix(3)) }
+        return picked.map {
+            UsageMiniWindow(key: $0.key, label: $0.label, percent: $0.percent, resetsAt: $0.resetsAt)
+        }
+    }
+
+    /// EXP-909: `as of 18 minutes ago` when the numbers are no longer current
+    /// — past the freshness window, or flagged `stale` by the machine that
+    /// failed to refresh them. Nil while they are current: a fresh report says
+    /// nothing about its age.
+    ///
+    /// THE rule ×4 now (the overlay used to dim on `stale` alone): numbers are
+    /// never hidden for being old, they are dimmed and dated. Nil too when the
+    /// stamp is unreadable — an undatable report cannot claim an age.
+    public static func usageAge(_ usage: AgentUsage?, now: Date = Date()) -> String? {
+        guard let usage else { return nil }
+        guard !isFresh(fetchedAt: usage.fetchedAt, now: now) || usage.stale == true else {
+            return nil
+        }
+        let relative = relativeDate(usage.fetchedAt, now: now)
+        return relative.isEmpty ? nil : "as of \(relative)"
+    }
+
+    /// The AgentsView relative-date idiom: Electric syncs timestamps as
+    /// Postgres text (space separator, hour-only offset), which
+    /// `ISO8601DateFormatter` alone rejects — `WireTimestamps` handles both
+    /// wire forms (EXP-169). Empty for an absent or unreadable stamp, so
+    /// callers can drop the caption entirely.
+    public static func relativeDate(_ value: String?, now: Date = Date()) -> String {
+        guard let value, let date = WireTimestamps.parse(value) else { return "" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+
+    /// EXP-909: a machine that reported its agent accounts and found NONE —
+    /// the per-device empty line on the Devices page. Distinct from
+    /// `Checking…` (it has not reported yet) and from `No usage reported` (it
+    /// has a login, nobody has probed its limits). Byte-identical ×4.
+    public static let noLoginReported = "No login reported"
 
     // MARK: - Session context + spend (EXP-746)
 

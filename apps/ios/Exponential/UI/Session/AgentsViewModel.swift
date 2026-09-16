@@ -57,22 +57,16 @@ final class AgentsViewModel {
     /// `devices.list` poll. nil until the first observation emission, so the
     /// view can tell "loading" from "no machines".
     var devices: [SteerDevice]?
-    /// EXP-829: the Devices page's Accounts section (web/desktop EXP-818) —
-    /// one row per agent ACCOUNT off the same devices rows, in agent bands,
-    /// attention first. Empty until the first devices emission; see
-    /// `accountsLoaded` for "loading" vs "no machine reported an account".
-    private(set) var accountSections: [AgentAccountSection] = []
-    private(set) var accountGroups: [AgentAccountUsageGroup] = []
-    /// EXP-849: the FLAT machine × agent × profile rows behind both surfaces —
-    /// the Accounts rows fold them by login, the machines list draws each
-    /// machine's own as chips (health badge, re-login, "use this account
-    /// here"). Derived in the same pass, so the two can never disagree.
+    /// EXP-909: the machine × agent × profile rows behind the machines list —
+    /// every login every listed machine reported, derived in the same pass as
+    /// `devices` so the two can never disagree. Each device row draws its own
+    /// (`deviceLoginRows`); there is no cross-device Accounts section any more
+    /// (EXP-909 folded it away — a login belongs to the machine holding it).
     private(set) var accountRows: [AgentProfileUsageRow] = []
     var accountsLoaded: Bool { deviceEntities != nil }
-    /// EXP-829: the accounts a usage refresh is in flight for (keyed like
-    /// `accountGroups`) — the row shows a spinner in place of its refresh
-    /// glyph. Cleared when the machine's re-report moves the stamp, or after
-    /// `Self.refreshPendingWindow` with no answer.
+    /// EXP-829: the LOGINS a usage refresh is in flight for (keyed by
+    /// `AgentProfileUsageRow.key`). Cleared when the machine's re-report moves
+    /// the stamp, or after `Self.refreshPendingWindow` with no answer.
     private(set) var refreshingAccounts: Set<String> = []
     /// EXP-849: the account ACTIONS a machine chip offers (re-login, "use this
     /// account here") — the rows a command is in flight for, keyed by
@@ -157,6 +151,10 @@ final class AgentsViewModel {
     /// when it was queued.
     private var refreshMarks: [String: (fetchedAt: String?, at: Date)] = [:]
     private var autoRefreshAttempts: [String: Date] = [:]
+    /// EXP-909: the caps of the machines behind `accountRows`, captured in the
+    /// same pass — `canRefresh` is asked per LOGIN now, and a row carries its
+    /// device id but not its caps.
+    private var refreshCaps: [String: [String]] = [:]
 
     private var sessions: [CodingSessionEntity] = []
     private var endedSessions: [CodingSessionEntity] = []
@@ -418,13 +416,14 @@ final class AgentsViewModel {
         rebuildPast()
     }
 
-    // MARK: - Accounts (EXP-829)
+    // MARK: - Agent logins (EXP-829/EXP-909)
 
-    /// EXP-829: the Accounts section off the same rows the machines list
-    /// reads — own machines plus the servers teammates shared with the
-    /// ACTIVE team (web `AgentAccountsSection`'s filter), folded by login
-    /// (`AgentAccountsRows`, the ×4 rule). A refresh may only be queued on
-    /// one of MY online machines that advertises the cap.
+    /// The logins off the same rows the machines list reads — own machines
+    /// plus the servers teammates shared with the ACTIVE team — one row per
+    /// machine × agent × profile (`AgentAccountsRows`, the ×4 rule). Every
+    /// device row draws its own; EXP-909 folded the cross-device Accounts
+    /// section away. A refresh may only be queued on one of MY online
+    /// machines that advertises the cap.
     private func rebuildAccounts(_ entities: [DeviceEntity], now: Date) {
         let scoped = entities.filter { row in
             (userId != nil && row.userId == userId)
@@ -434,30 +433,30 @@ final class AgentsViewModel {
             (devices ?? []).map { ($0.deviceId, $0.caps ?? []) },
             uniquingKeysWith: { a, _ in a }
         )
-        let rows = AgentAccountsRows.profileRows(
+        accountRows = AgentAccountsRows.profileRows(
             devices: scoped,
             currentUserId: userId,
             isOnline: { DeviceLiveness.isOnline(lastSeenAt: $0, now: now) }
         )
-        let groups = AgentAccountsRows.sortGroupsAttentionFirst(
-            AgentAccountsRows.accountGroups(rows) { row in
-                row.mine && row.online
-                    && (capsByDevice[row.deviceId] ?? []).contains(AgentAccountsRows.refreshCap)
-            }
-        )
-        accountRows = rows
-        accountGroups = groups
-        accountSections = AgentAccountsRows.sections(groups)
-        pruneRefreshing(groups, now: now)
-        autoRefreshAccounts(groups, now: now)
+        refreshCaps = capsByDevice
+        pruneRefreshing(accountRows, now: now)
+        autoRefreshLogins(accountRows, now: now)
+    }
+
+    /// EXP-909: whether a refresh may be QUEUED on this login's machine —
+    /// mine, online, and advertising the cap (the server refuses the command
+    /// below it). Web `deviceCanRefreshUsage`, the same three gates.
+    func canRefresh(_ row: AgentProfileUsageRow) -> Bool {
+        row.mine && row.online
+            && (refreshCaps[row.deviceId] ?? []).contains(AgentAccountsRows.refreshCap)
     }
 
     /// An in-flight mark clears when the account's stamp moved (the machine
     /// answered) or when nobody answered inside the pending window.
-    private func pruneRefreshing(_ groups: [AgentAccountUsageGroup], now: Date) {
+    private func pruneRefreshing(_ rows: [AgentProfileUsageRow], now: Date) {
         guard !refreshMarks.isEmpty else { return }
         for (key, mark) in refreshMarks {
-            let stamp = groups.first { $0.key == key }?.usage?.fetchedAt
+            let stamp = rows.first { $0.key == key }?.usage?.fetchedAt
             if stamp != mark.fetchedAt || now.timeIntervalSince(mark.at) > Self.refreshPendingWindow {
                 refreshMarks[key] = nil
             }
@@ -465,92 +464,62 @@ final class AgentsViewModel {
         refreshingAccounts = Set(refreshMarks.keys)
     }
 
-    /// EXP-817: keep the section current while it is open. Every pass, each
-    /// account with an eligible machine and a freshest report past the floor
-    /// gets ONE refresh queued — never while one is in flight, never twice
-    /// inside `autoRefreshRetry`. The floor is the device's own 429 budget,
-    /// so this can never out-poll what the machine allows itself. Passes run
-    /// on every devices emission and on the 30s liveness tick, exactly the
-    /// web effect's `[groups, now]`.
-    private func autoRefreshAccounts(_ groups: [AgentAccountUsageGroup], now: Date) {
+    /// EXP-817/EXP-909: keep the machines list current while it is open.
+    /// Every pass, each LOGIN on an eligible machine whose report is past the
+    /// floor gets ONE refresh queued — never while one is in flight, never
+    /// twice inside `autoRefreshRetry`. The floor is the device's own 429
+    /// budget, so this can never out-poll what the machine allows itself.
+    /// Passes run on every devices emission and on the 30s liveness tick.
+    /// Keyed by `row.key` since EXP-909 folded the account groups away.
+    private func autoRefreshLogins(_ rows: [AgentProfileUsageRow], now: Date) {
         guard devicesApi != nil else { return }
-        for group in groups {
-            guard group.refreshTarget != nil else { continue }
-            if refreshMarks[group.key] != nil { continue }
-            if AgentAccountsRows.refreshAllowedAt(group.usage, now: now) != nil { continue }
-            if let last = autoRefreshAttempts[group.key],
+        for row in rows {
+            guard canRefresh(row) else { continue }
+            if refreshMarks[row.key] != nil { continue }
+            if AgentAccountsRows.refreshAllowedAt(row.usage, now: now) != nil { continue }
+            if let last = autoRefreshAttempts[row.key],
                now.timeIntervalSince(last) < Self.autoRefreshRetry {
                 continue
             }
-            autoRefreshAttempts[group.key] = now
-            refreshAccount(group)
+            autoRefreshAttempts[row.key] = now
+            refreshLogin(row)
         }
     }
 
-    /// Queue `agent_usage_refresh` for the account on its refresh target.
-    /// EXP-862 retired the per-row refresh BUTTON on every client, so this is
-    /// only ever the page's own pass — and it fails quietly: a command still
-    /// queued from the last round is a CONFLICT, and the next pass simply
-    /// looks again.
-    private func refreshAccount(_ group: AgentAccountUsageGroup) {
-        guard let target = group.refreshTarget, let devicesApi else { return }
-        refreshMarks[group.key] = (fetchedAt: group.usage?.fetchedAt, at: Date())
+    /// Queue `agent_usage_refresh` for ONE login on its own machine. EXP-862
+    /// retired the per-row refresh BUTTON on every client, so this is only
+    /// ever the page's own pass — and it fails quietly: a command still queued
+    /// from the last round is a CONFLICT, and the next pass simply looks
+    /// again.
+    private func refreshLogin(_ row: AgentProfileUsageRow) {
+        guard let devicesApi else { return }
+        refreshMarks[row.key] = (fetchedAt: row.usage?.fetchedAt, at: Date())
         refreshingAccounts = Set(refreshMarks.keys)
         let accountId = accountId
         Task { [weak self] in
             do {
                 _ = try await devicesApi.createCommand(
                     accountId: accountId,
-                    deviceId: target.deviceId,
+                    deviceId: row.deviceId,
                     kind: "agent_usage_refresh",
-                    agent: target.agent,
-                    profileId: target.profileId
+                    agent: row.agent,
+                    profileId: row.profileId
                 )
             } catch {
                 guard let self else { return }
-                self.refreshMarks[group.key] = nil
+                self.refreshMarks[row.key] = nil
                 self.refreshingAccounts = Set(self.refreshMarks.keys)
             }
         }
     }
 
-    // MARK: - Accounts: the two surfaces (EXP-849)
+    // MARK: - One machine's logins (EXP-909)
 
-    /// EXP-849: the agents the Accounts section offers a TAB for, in contract
-    /// order. One agent = no tabs (a single band of rows reads fine); two or
-    /// more and codex stops crowding claude.
-    var accountAgents: [String] {
-        accountSections.map(\.agent)
-    }
-
-    /// The account rows under one agent tab — already attention-first
-    /// (`sortGroupsAttentionFirst` ran over the whole set). Deliberately NOT
-    /// named `accountGroups(agent:)`: a method may not share its base name
-    /// with the stored property above.
-    func groupsForAgent(_ agent: String) -> [AgentAccountUsageGroup] {
-        accountSections.first { $0.agent == agent }?.groups ?? []
-    }
-
-    /// EXP-849: one machine's logins, as its row draws them (attention first).
-    func deviceAccountRows(_ deviceId: String) -> [AgentProfileUsageRow] {
+    /// EXP-909: one machine's logins, in the order its row draws them
+    /// (contract agent order, its active login first). The ONE per-device
+    /// entry point since the cross-device Accounts section was folded away.
+    func deviceLoginRows(_ deviceId: String) -> [AgentProfileUsageRow] {
         AgentAccountsRows.deviceRows(accountRows, deviceId: deviceId)
-    }
-
-    /// EXP-862: the machines an account row's "+" can sign this account in on
-    /// — MINE, online, advertising `agent-login`, with the agent installed,
-    /// and not already holding the account (web `addAccountDevices`). Empty
-    /// for an account nobody could sign in AS (web's `showAdd`): a signed-out
-    /// login, or one the machines reported with no email, has no identity to
-    /// add elsewhere.
-    func addAccountTargets(_ group: AgentAccountUsageGroup) -> [SteerDevice] {
-        guard AgentAccountsRows.canAddAccountElsewhere(group) else { return [] }
-        let holders = Set(group.rows.map(\.deviceId))
-        return (devices ?? []).filter { device in
-            device.isMine && device.isOnline && device.canAgentLogin
-                && !holders.contains(device.deviceId)
-                && (device.agentIds.contains(group.agent)
-                    || device.unauthedAgentIds.contains(group.agent))
-        }
     }
 
     /// EXP-849: the health badge a machine row wears — the worst of its

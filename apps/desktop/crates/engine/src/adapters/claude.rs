@@ -390,10 +390,17 @@ struct ClaudeSession {
     /// between them), so two prompts racing on a loaded session used to spawn
     /// two CLIs, the second silently orphaning the first.
     start_gate: tokio::sync::Mutex<()>,
+    /// EXP-909: the LOGIN this run spends (`coding::profile_id` of the
+    /// launch's `account`, so `system` = the ambient one). Every live usage
+    /// publish is keyed by it, so a run on a secondary account never moves
+    /// the ambient login's numbers.
+    account_profile: String,
     /// EXP-819: this session's slot in the machine's live usage registry
     /// (`coding::agent_usage::live`), held for the run like codex's. Released
     /// by [`ClaudeSession::detach_live_usage`] when the connection ends; its
     /// `Drop` is the backstop for every path that never gets there.
+    /// EXP-909: `None` for a transcript REPLAY — reading history spends no
+    /// tokens, and a viewer left open used to hold a phantom live session.
     live_usage: Mutex<Option<coding::agent_usage::live::Attached>>,
     state: Mutex<State>,
 }
@@ -853,6 +860,11 @@ impl ClaudeSession {
             },
             ..State::default()
         };
+        let account_profile = coding::profile_id(options.account.as_deref());
+        // EXP-909: a replay is a READ of a transcript — it spends nothing, so
+        // it attaches nothing.
+        let live_usage = (!spec.replay)
+            .then(|| coding::agent_usage::live::attach(coding::CodingAgent::Claude, &account_profile));
         let (gone_gate, gone) = flume::bounded(0);
         ClaudeSession {
             spec,
@@ -860,9 +872,8 @@ impl ClaudeSession {
             gone,
             gone_gate: Mutex::new(Some(gone_gate)),
             start_gate: tokio::sync::Mutex::new(()),
-            live_usage: Mutex::new(Some(coding::agent_usage::live::attach(
-                coding::CodingAgent::Claude,
-            ))),
+            account_profile,
+            live_usage: Mutex::new(live_usage),
             state: Mutex::new(state),
         }
     }
@@ -1866,7 +1877,11 @@ impl ClaudeSession {
                 coding::agent_usage::merge_live_windows(&state.rate_limit.windows, &fresh);
             state.rate_limit.windows.clone()
         };
-        coding::agent_usage::live::publish(coding::CodingAgent::Claude, windows);
+        coding::agent_usage::live::publish(
+            coding::CodingAgent::Claude,
+            &self.account_profile,
+            windows,
+        );
     }
 
     /// A synthetic limit notice (`You've hit your session limit · resets

@@ -5,6 +5,7 @@ import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.AgentUsageWindow
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.ui.issue.relativeTime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -37,6 +38,23 @@ data class UsageGroup(
     val key: String,
     val title: String,
     val cards: List<UsageCard>,
+)
+
+/**
+ * EXP-909: one window in the MINI form — the three-bar line an account row (in
+ * the usage overlay) and a device login row (on the Devices page) carry under
+ * their identity line, and the hover preview EXP-872 will mount on the account
+ * picker. The label is the WIRE label verbatim (`5h` / `Week` / `Fable`;
+ * codex's `5h` / `Week` / `Month`), which is short by construction — the full
+ * form's `cardTitle` ("Current session", "Fable only") would never fit three
+ * abreast. Picked by [AgentUsagePresentation.miniWindows], ×4.
+ */
+data class UsageMiniWindow(
+    val key: String,
+    val label: String,
+    val percent: Int,
+    val severity: AgentUsageSeverity,
+    val resetsAt: String?,
 )
 
 /**
@@ -244,6 +262,67 @@ object AgentUsagePresentation {
     const val GROUP_SESSION = "session"
     const val GROUP_WEEKLY = "weekly"
     const val GROUP_OTHER = "other"
+
+    /** How many windows the mini form ever shows. */
+    private const val MINI_WINDOW_CAP = 3
+
+    /**
+     * EXP-909: at most three windows for the MINI form, in the order that
+     * answers "how much is left on this login" fastest: the current session,
+     * the all-models week, then the first per-model window. A report carrying
+     * none of the three (codex's `credits`/`Month`, or a future agent naming
+     * its windows differently) falls back to the first three in REPORT order,
+     * so an unfamiliar shape still shows numbers instead of nothing.
+     *
+     * Byte-identical ×4 (`miniWindows` / `mini_windows`).
+     */
+    fun miniWindows(usage: AgentUsage?): List<UsageMiniWindow> {
+        val windows = usage?.windows.orEmpty()
+        if (windows.isEmpty()) return emptyList()
+        val picked = buildList {
+            windows.firstOrNull { it.key == WINDOW_SESSION }?.let(::add)
+            windows.firstOrNull { it.key == WINDOW_WEEKLY }?.let(::add)
+            windows.firstOrNull { it.key.startsWith(MODEL_WINDOW_PREFIX) }?.let(::add)
+        }
+        val chosen = picked.ifEmpty { windows.take(MINI_WINDOW_CAP) }
+        return chosen.map { window ->
+            UsageMiniWindow(
+                key = window.key,
+                // The WIRE label, never the card title: three of those in one
+                // row would each truncate to nothing.
+                label = window.label,
+                percent = window.percent.toInt(),
+                severity = severity(window.percent),
+                resetsAt = window.resetsAt,
+            )
+        }
+    }
+
+    /**
+     * EXP-909: `as of 18 minutes ago` whenever a report is no longer live —
+     * either it aged past [FRESH_WINDOW_MS] or the machine flagged it `stale`
+     * (a refresh failed and these are the last good numbers). Null while it is
+     * current, and null when there is no stamp to date it by.
+     *
+     * The Accounts page's rule became THE rule: stale numbers are never
+     * hidden, they DIM and say when they were true. Byte-identical ×4
+     * (`usageAge` / `usage_age`).
+     */
+    fun usageAge(usage: AgentUsage?, nowMs: Long): String? {
+        if (usage == null) return null
+        val fetchedAt = usage.fetchedAt?.takeIf { it.isNotBlank() } ?: return null
+        if (!usage.stale && isFresh(fetchedAt, nowMs)) return null
+        val relative = relativeTime(fetchedAt, nowMs).takeIf { it.isNotEmpty() } ?: return null
+        return "as of $relative"
+    }
+
+    /**
+     * EXP-909: a device that HAS reported its agent accounts and holds none —
+     * the per-device empty line under a machine row on the Devices page. A
+     * device that has not reported yet says `Checking…` instead, which is a
+     * different statement. Byte-identical ×4.
+     */
+    const val NO_LOGIN_REPORTED = "No login reported"
 
     fun severity(percent: Double): AgentUsageSeverity = when {
         percent >= 95.0 -> AgentUsageSeverity.Danger

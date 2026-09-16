@@ -372,6 +372,11 @@ fn fraction_percent(fraction: f64) -> u8 {
 /// endpoint's model-scoped weekly, its credits — keeps the report's numbers
 /// rather than vanishing; a key the report never had is appended. The order
 /// is the report's, so the bar never reshuffles between a poll and a turn.
+///
+/// EXP-881: laying over is only ever sound when the frame is NEWER than the
+/// report — the caller ([`live_probe`]) checks that against
+/// `endpoint_fetched_at_secs` first. This function merges what it is given
+/// and asks no questions about time.
 pub fn merge_live_windows(reported: &[UsageWindow], live: &[UsageWindow]) -> Vec<UsageWindow> {
     let mut merged: Vec<UsageWindow> = reported.to_vec();
     for window in live {
@@ -527,12 +532,14 @@ impl fmt::Debug for ClaudeOauthCredential {
 impl ClaudeOauthCredential {
     /// Whether the token is past its own expiry.
     ///
-    /// With the keep-alive OFF (the default) an expired credential means "no
-    /// numbers until the user's CLI renews it" — the previous numbers stay,
-    /// marked stale. With it ON, [`claude_keep_alive_step`] has already had
-    /// its chance on this beat, so reaching here means the rotation could not
-    /// happen (a sibling held the lock, the store carried no refresh token,
-    /// the grant is dead) and the answer is the same: no numbers this pass.
+    /// EXP-881: an expired token is now ALWAYS given a rotation attempt
+    /// first, whatever `claudeKeepAlive` says — an expired credential makes
+    /// every usage read 401, and a 401 is read as `Needs re-login`. So
+    /// reaching here means the rotation was tried on this beat and could NOT
+    /// happen (a sibling process holds the machine-wide claim, the store
+    /// carries no refresh token, the grant came back `invalid_grant`). The
+    /// answer is then the same as it always was: no numbers this pass, the
+    /// previous ones stay, dimmed.
     pub fn expired(&self, now_ms: i64) -> bool {
         self.expires_at_ms.is_some_and(|at| now_ms >= at)
     }
@@ -666,6 +673,11 @@ pub fn fetch_oauth_usage(access_token: &str, user_agent: &str) -> UsageFetch {
 /// no credits), so the collector lays it over the endpoint's last report by
 /// key ([`super::merge_live_windows`]) instead of replacing it.
 ///
+/// EXP-909: the registry is keyed by `(agent, profile)` — the LOGIN the run
+/// spends, not just the agent — because a run on a secondary account must
+/// never move the ambient login's numbers (and vice versa). A transcript
+/// REPLAY attaches nothing at all: it spends no tokens.
+///
 /// Process-global on purpose: publisher (the engine's codex and claude
 /// adapters) and reader (the desktop's device-sync beat, the daemon's
 /// device worker) live in the same process. A SIBLING process still shares the on-disk
@@ -680,7 +692,7 @@ pub mod live {
     use super::UsageWindow;
     use crate::agent::CodingAgent;
 
-    /// What one agent's live sessions have published on this machine.
+    /// What one LOGIN's live sessions have published on this machine.
     #[derive(Clone, Debug, Default, PartialEq, Eq)]
     pub struct LiveUsage {
         /// The last windows a session reported (empty = a session is
@@ -688,15 +700,22 @@ pub mod live {
         pub windows: Vec<UsageWindow>,
         /// Unix seconds of the last [`publish`].
         pub updated_at_secs: Option<u64>,
-        /// How many sessions are attached RIGHT NOW. `> 0` is what makes the
-        /// numbers current no matter how long ago the last frame arrived
-        /// (an idle turn-less session reports nothing new).
+        /// How many sessions are attached RIGHT NOW to this login. EXP-881:
+        /// `> 0` only WIDENS how long a frame is trusted (a live run refreshes
+        /// its own numbers every turn, so a frame within the endpoint's own
+        /// cadence is as good as a fetch); it never makes an OLD frame
+        /// current. An idle turn-less session publishes nothing, and its last
+        /// frame ages out exactly like a detached one's.
         pub sessions: usize,
     }
 
-    static LIVE: OnceLock<Mutex<HashMap<CodingAgent, LiveUsage>>> = OnceLock::new();
+    /// `(agent, profile)` — the profile is [`crate::agent_profiles::profile_id`]
+    /// of the run's launch account, so `system` = the ambient login.
+    type LiveKey = (CodingAgent, String);
 
-    fn live() -> MutexGuard<'static, HashMap<CodingAgent, LiveUsage>> {
+    static LIVE: OnceLock<Mutex<HashMap<LiveKey, LiveUsage>>> = OnceLock::new();
+
+    fn live() -> MutexGuard<'static, HashMap<LiveKey, LiveUsage>> {
         let lock = LIVE.get_or_init(|| Mutex::new(HashMap::new()));
         match lock.lock() {
             Ok(guard) => guard,
@@ -704,40 +723,47 @@ pub mod live {
         }
     }
 
-    /// A live session for `agent` has started. Hold the guard for the run.
+    /// A live session for `agent` on `profile` has started. Hold the guard
+    /// for the run.
     #[must_use = "dropping the guard immediately detaches the session"]
-    pub fn attach(agent: CodingAgent) -> Attached {
-        live().entry(agent).or_default().sessions += 1;
-        Attached(agent)
+    pub fn attach(agent: CodingAgent, profile: &str) -> Attached {
+        live()
+            .entry((agent, profile.to_string()))
+            .or_default()
+            .sessions += 1;
+        Attached(agent, profile.to_string())
     }
 
     /// One attached session. `Drop` is the release path, so a panicked or
     /// abandoned run detaches itself; an owner that knows the session ended
     /// simply drops it earlier.
-    pub struct Attached(CodingAgent);
+    pub struct Attached(CodingAgent, String);
 
     impl Drop for Attached {
         fn drop(&mut self) {
             let mut live = live();
-            let entry = live.entry(self.0).or_default();
+            let entry = live.entry((self.0, self.1.clone())).or_default();
             // Saturating: a double release must never wrap to usize::MAX and
             // pin the numbers "live" forever.
             entry.sessions = entry.sessions.saturating_sub(1);
         }
     }
 
-    /// A session reported new windows. Latest-wins, like every other usage
-    /// slot; the stamp is what makes them expire after the session ends.
-    pub fn publish(agent: CodingAgent, windows: Vec<UsageWindow>) {
+    /// A session reported new windows for the login it runs on. Latest-wins,
+    /// like every other usage slot; the stamp is what decides whether the
+    /// frame still answers ([`super::live_probe`]).
+    pub fn publish(agent: CodingAgent, profile: &str, windows: Vec<UsageWindow>) {
         let mut live = live();
-        let entry = live.entry(agent).or_default();
+        let entry = live.entry((agent, profile.to_string())).or_default();
         entry.windows = windows;
         entry.updated_at_secs = Some(crate::run_registry::now_secs());
     }
 
-    /// What this machine's sessions last said about `agent`, if anything.
-    pub fn snapshot(agent: CodingAgent) -> Option<LiveUsage> {
-        live().get(&agent).cloned()
+    /// What this machine's sessions on `profile` last said about `agent`, if
+    /// anything. A run on another login is INVISIBLE here — that is the point
+    /// of the key.
+    pub fn snapshot(agent: CodingAgent, profile: &str) -> Option<LiveUsage> {
+        live().get(&(agent, profile.to_string())).cloned()
     }
 
     /// Tests only: the registry is process-global, so a test that asserts on
@@ -786,14 +812,21 @@ impl AgentStatusPayload {
 /// seconds — passed in so one pass stamps one instant (and tests are
 /// deterministic).
 ///
-/// EXP-754: an agent a LIVE session already reports for ([`live`]) skips all
-/// of that — no spawn, no request, and no poll floor either. The one
-/// exception is identity: a rate-limit frame names nobody, so a due beat
-/// with no cached account still spends one probe to name it — for an agent
-/// whose probe CAN name one ([`probe_names_account`]). EXP-819: claude's
-/// live frame covers only the session and weekly windows, so the endpoint is
-/// still read every [`usage_cache::LIVE_ENDPOINT_POLL_SECS`] for the others
-/// (the model-scoped weekly, credits) — they used to freeze for the whole run.
+/// EXP-754: a login a LIVE session already reports for ([`live`]) skips all
+/// of that — no spawn, no request, and no poll floor either — for as long as
+/// its last frame is CURRENT ([`live_probe`], EXP-881: a frame that has aged
+/// past the cadence, or whose window has reset, stops answering and the poll
+/// takes over). The one exception is identity: a rate-limit frame names
+/// nobody, so a due beat with no cached account still spends one probe to
+/// name it — for an agent whose probe CAN name one ([`probe_names_account`]).
+/// EXP-819: claude's live frame covers only the session and weekly windows,
+/// so the endpoint is still read every
+/// [`usage_cache::LIVE_ENDPOINT_POLL_SECS`] for the others (the model-scoped
+/// weekly, credits) — they used to freeze for the whole run.
+///
+/// EXP-909: the live registry is keyed by `(agent, LOGIN)`, so every profile
+/// in the plan consults its own sessions. A run on a secondary account moves
+/// that account's `profiles[].usage` row and nothing else.
 ///
 /// EXP-808: the pass covers every ACCOUNT PROFILE of every agent, not just
 /// the device's active login — each profile's numbers land in its own
@@ -881,13 +914,25 @@ fn collect_inner(
         // floors), longer than any sane margin. So it runs here, every beat,
         // before the live/poll match; on success the probe below rides the
         // NEW token and skips a second store read.
-        let claude_keep_alive = agent == CodingAgent::Claude
+        let scheduled_keep_alive = agent == CodingAgent::Claude
             && settings.claude_keep_alive
             && usage_cache::claude_refresh_due(&entry, now)
             && (target.active || {
                 let used = used_logins.get_or_insert_with(|| logins_used_on_this_machine(data_dir));
                 used.contains(&cache_id)
             });
+        // EXP-881 — the SECOND gate: a token that has ALREADY expired is
+        // refreshed whatever the setting says and whoever runs here. Not a
+        // keep-alive in the EXP-852 sense (nothing is being kept warm): every
+        // usage read on an expired token 401s, and a 401 paints `Needs
+        // re-login` on an account that is perfectly fine. Rotating it is the
+        // only way to learn which it is, so neither `claudeKeepAlive` nor
+        // "this machine runs this login" gates it — a PARKED account's
+        // numbers are shown too, and they are just as wrong.
+        let expired_refresh = agent == CodingAgent::Claude
+            && usage_cache::claude_token_expired(&entry, now)
+            && usage_cache::claude_refresh_due(&entry, now);
+        let claude_keep_alive = scheduled_keep_alive || expired_refresh;
         // ONE refresh actor per login, MACHINE-WIDE: the shared poll floors
         // keep the two processes from spending two requests, but a refresh
         // also ROTATES the credential — the IDE and the daemon both
@@ -902,6 +947,13 @@ fn collect_inner(
         let claude_keep_alive = claude_keep_alive && refresh_claim.is_some();
         let fresh_token = if claude_keep_alive {
             let token = claude_keep_alive_step(target.dir.as_deref(), &mut entry, now);
+            // EXP-881: a rotation on a login whose numbers are DIMMED takes
+            // down the wall the failure put up — the next read is the one
+            // that can undim them, so it happens on THIS beat rather than
+            // after the failure backoff. The 429 floor is untouched.
+            if token.is_some() && entry.usage.as_ref().is_some_and(|usage| usage.stale) {
+                usage_cache::note_token_rotated(&mut entry, now);
+            }
             // Persist the backoff / dead marker / new expiry NOW, before the
             // slow probe, so the sibling process sees the attempt as taken.
             changed = true;
@@ -911,13 +963,13 @@ fn collect_inner(
         } else {
             None
         };
-        // EXP-754: a live session on this machine has already been told the
+        // EXP-754: a live session on this login has already been told the
         // numbers. Reading them spawns nothing, sends nothing and contends
         // with no sibling process, so this runs BEFORE (and instead of) the
-        // poll policy. EXP-808: a rate-limit frame names no LOGIN either, so
-        // the live numbers only ever answer for the ACTIVE profile — the one
-        // a run without an explicit account lands on.
-        let live = target.active.then(|| live_probe(agent, &entry, now)).flatten();
+        // poll policy. EXP-909: EVERY login is consulted, not just the active
+        // one — the registry is keyed by `(agent, profile)`, so a run on a
+        // secondary account answers for THAT account and for nothing else.
+        let live = live_probe(agent, &target.profile, &entry, now);
         // A PARTIAL frame (claude) never carries the endpoint's other windows,
         // so the endpoint keeps its own slower cadence under a live session —
         // otherwise the model-scoped weekly froze at its pre-run number for
@@ -936,7 +988,13 @@ fn collect_inner(
                 // there is, so it clears the flag (and refreshes the
                 // sibling's `fetched_at`) even mid-backoff.
                 let dimmed = entry.usage.as_ref().is_some_and(|usage| usage.stale);
-                if due || dimmed || probe.outcome == PollOutcome::Changed {
+                // EXP-881: `due` is NOT a reason to apply. A poll being owed
+                // says nothing about the frame, and re-applying an UNCHANGED
+                // frame restamped `fetched_at` — which made numbers that had
+                // not moved in hours read as freshly fetched, the whole bug.
+                // Only a frame that says something new, or one that clears a
+                // dim, touches the cache.
+                if dimmed || probe.outcome == PollOutcome::Changed {
                     // Deliberately past `MIN_POLL_SECS`: the floor exists to
                     // ration requests, and a live read is not one. Moving
                     // numbers reach the bar as fast as codex reports them.
@@ -950,7 +1008,10 @@ fn collect_inner(
                 // row for the whole session. Spend ONE app-server probe on
                 // the identity when a beat is due; every later beat rides
                 // the live shortcut above.
-                if due && entry.account.is_none() && probe_names_account(agent) {
+                // EXP-909: `may_poll` too — a secondary login's identity
+                // probe is still a request, and it waits its stagger slot
+                // like every other one.
+                if due && target.may_poll && entry.account.is_none() && probe_names_account(agent) {
                     polled = true;
                     changed = true;
                     // Claim the slot before the (slow) spawn, as the poll arm
@@ -1005,6 +1066,12 @@ fn collect_inner(
                     // instead of dropping back to the doctor's presence-only row.
                     entry.account = Some(account.clone());
                     apply_account(&mut accounts, &id, &target, account);
+                }
+                // EXP-881: the ENDPOINT answered, so stamp the read that a
+                // live frame is compared against. Only here — a live apply
+                // moves `fetched_at_secs`, never this.
+                if probe.windows.is_some() {
+                    entry.endpoint_fetched_at_secs = Some(now);
                 }
                 usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
                 usage_cache::schedule_live_endpoint(&mut entry, now);
@@ -1084,6 +1151,34 @@ pub fn force_collect(
         now,
         Some((agent, &profile)),
     ))
+}
+
+/// EXP-909 — a usage overlay just OPENED on a run hosted here: read THAT
+/// login's numbers now, if the policy allows one.
+///
+/// Deliberately NOT [`force_collect`]: that one is a person pressing Refresh
+/// and sets the shared TTL aside, while opening a popover is a glance. This
+/// keeps every floor ([`usage_cache::poll_due`] — the schedule, the
+/// machine-wide TTL, the 429, a refused keychain) and only puts the login past
+/// the secondary STAGGER, so a run on a parked account still gets one read
+/// instead of waiting out its rotation slot. `None` = nothing was due and the
+/// caller keeps what it has.
+pub fn refresh_on_demand(
+    data_dir: &Path,
+    settings: &Settings,
+    report: &DoctorReport,
+    agent: CodingAgent,
+    profile: &str,
+    now: u64,
+) -> Option<AgentStatusPayload> {
+    let profile = crate::agent_profiles::get(data_dir, agent, profile.trim())
+        .map(|row| row.id)
+        .unwrap_or_else(|| crate::agent_profiles::SYSTEM_PROFILE.to_string());
+    let cache_id = usage_cache::entry_key(agent.id(), &profile);
+    let due = usage_cache::load(data_dir)
+        .get(&cache_id)
+        .is_none_or(|entry| usage_cache::poll_due(entry, now));
+    due.then(|| collect_inner(data_dir, settings, report, now, Some((agent, &profile))))
 }
 
 /// EXP-849 — "use this account here": make `profile` this machine's DEFAULT
@@ -1500,30 +1595,66 @@ struct AgentProbe {
     account: Option<crate::agent_accounts::AgentAccount>,
 }
 
-/// EXP-754 — the windows a LIVE session already published, when they are
-/// worth reporting: a session is attached right now, or one just ended and
-/// its last numbers are still inside the shared TTL.
+/// EXP-754/EXP-881 — the windows a live session on `profile` published, when
+/// they are still CURRENT.
+///
+/// "Current" is a question about the FRAME, not about attachment. A frame
+/// answers when
+/// * it is younger than the cadence that applies — the endpoint's own
+///   ([`usage_cache::LIVE_ENDPOINT_POLL_SECS`]) while a session is attached
+///   (a live run republishes every turn, so a recent frame is worth a fetch),
+///   the machine-wide TTL ([`usage_cache::SHARED_TTL_SECS`]) once nobody is
+///   attached — and
+/// * no window it carries has RESET since ([`any_reset_passed`]): past its
+///   `resets_at` the percentage is a lie about the new window, and reporting
+///   it would show a full bar on an account that just came back.
+///
+/// EXP-881: an ATTACHED session no longer pins its numbers current forever.
+/// An idle run publishes nothing, so `sessions > 0` only WIDENS the window a
+/// frame is trusted for; it never resurrects an old one.
 ///
 /// `None` means "nobody is telling us" — the caller falls back to the poll
 /// policy and its spawn. codex pushes `account/rateLimits/updated` down the
 /// app-server connection and claude prints a `rate_limit_event` per turn
 /// (EXP-819).
-fn live_probe(agent: CodingAgent, entry: &AgentCacheEntry, now: u64) -> Option<AgentProbe> {
+fn live_probe(
+    agent: CodingAgent,
+    profile: &str,
+    entry: &AgentCacheEntry,
+    now: u64,
+) -> Option<AgentProbe> {
     let source = live_source(agent)?;
-    let live = live::snapshot(agent)?;
+    // EXP-909: per LOGIN — a run on another account says nothing about this
+    // one's numbers.
+    let live = live::snapshot(agent, profile)?;
     if live.windows.is_empty() {
         return None;
     }
-    let current = live.sessions > 0
-        || live
-            .updated_at_secs
-            .is_some_and(|at| now.saturating_sub(at) < usage_cache::SHARED_TTL_SECS);
-    if !current {
+    let frame_at = live.updated_at_secs?;
+    let currency = if live.sessions > 0 {
+        usage_cache::LIVE_ENDPOINT_POLL_SECS
+    } else {
+        usage_cache::SHARED_TTL_SECS
+    };
+    if now.saturating_sub(frame_at) >= currency {
+        return None;
+    }
+    if any_reset_passed(&live.windows, now) {
         return None;
     }
     let windows = match source {
         LiveSource::Whole => live.windows,
         LiveSource::Partial => {
+            // The frame covers only some keys, so it is laid OVER the last
+            // report. A report read AFTER the frame already contains the
+            // frame's turn: overlaying it then would drag those keys
+            // backwards, so the frame simply stops answering.
+            if entry
+                .endpoint_fetched_at_secs
+                .is_some_and(|read_at| read_at >= frame_at)
+            {
+                return None;
+            }
             let reported = entry
                 .usage
                 .as_ref()
@@ -1542,6 +1673,24 @@ fn live_probe(agent: CodingAgent, entry: &AgentCacheEntry, now: u64) -> Option<A
         windows: Some(windows),
         // A rate-limit frame names no identity; the cached one stays.
         account: None,
+    })
+}
+
+/// EXP-881 — has any of these windows RESET since it was measured?
+///
+/// A percentage belongs to the window it was read in; once that window's
+/// `resets_at` is behind us the number says nothing about the fresh one (and
+/// a stuck 100 % is exactly what the user is waiting to see fall). A window
+/// with no `resets_at`, or one whose stamp does not parse, never kills the
+/// frame — an unreadable stamp is not evidence of a reset.
+fn any_reset_passed(windows: &[UsageWindow], now: u64) -> bool {
+    let now_ms = (now as i64).saturating_mul(1000);
+    windows.iter().any(|window| {
+        window
+            .resets_at
+            .as_deref()
+            .and_then(crate::agent_accounts::unix_millis_from_iso)
+            .is_some_and(|at| now_ms >= at)
     })
 }
 
@@ -1716,7 +1865,9 @@ fn claude_keep_alive_step_at(
 /// login.
 ///
 /// EXP-852: `fresh_access_token` is the token claude's keep-alive just
-/// rotated for THIS login, when it ran on this beat.
+/// rotated for THIS login, when it ran on this beat — either on its schedule
+/// or, EXP-881, because the cached token had already expired and a usage read
+/// on a dead token would have looked like a broken account.
 // One call site per match arm, and every argument is a fact the CALLER
 // already holds (the plan's target, the pass's cache entry, the keep-alive's
 // answers): bundling them into a struct would move the same fields one line
@@ -1766,11 +1917,13 @@ fn probe_agent(
                     // must not owe a blind store read first.
                     usage_cache::note_credential_expiry(entry, credential.expires_at_ms);
                     if credential.expired(now as i64 * 1000) {
-                        // The keep-alive is off, or it could not rotate this
-                        // login (a sibling holds the lock, the store carries
-                        // no refresh token, the grant is dead). Either way
-                        // there are no numbers this pass; the old ones stay,
-                        // dimmed, until the user's own CLI renews the token.
+                        // EXP-881: the rotation ran on this beat whatever the
+                        // keep-alive setting said, so this is the arm where it
+                        // could not happen — a sibling process holds the
+                        // machine-wide claim, the store carries no refresh
+                        // token, or the grant is dead. There are no numbers
+                        // this pass; the old ones stay, dimmed, until a later
+                        // beat rotates it or the user's own CLI does.
                         return AgentProbe {
                             outcome: PollOutcome::Failed,
                             windows: None,
@@ -1865,6 +2018,7 @@ fn fetch_and_parse(access_token: &str, user_agent: &str) -> AgentProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_profiles::SYSTEM_PROFILE;
 
     /// The modern `limits[]` body: every window it lists, in report order,
     /// plus the enabled credits pool. EXP-688: an inactive window is kept —
@@ -2166,12 +2320,16 @@ mod tests {
         dir
     }
 
+    /// EXP-881: the reset is far in the FUTURE on purpose. A live frame stops
+    /// answering once a window it carries has reset (`any_reset_passed`), so a
+    /// fixture with a stamp in the past would silently kill every live test
+    /// the moment the wall clock caught up with it.
     fn session_window(percent: u8) -> UsageWindow {
         UsageWindow {
             key: "session".to_string(),
             label: "5h".to_string(),
             percent,
-            resets_at: Some("2026-09-06T14:00:00.000Z".to_string()),
+            resets_at: Some("2099-09-06T14:00:00.000Z".to_string()),
         }
     }
 
@@ -2223,8 +2381,8 @@ mod tests {
         };
         let report = codex_ready_report();
 
-        let session = live::attach(CodingAgent::Codex);
-        live::publish(CodingAgent::Codex, vec![session_window(4)]);
+        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(4)]);
 
         let now = crate::run_registry::now_secs();
         let payload = collect_if_due(&dir, &settings, &report, now);
@@ -2234,7 +2392,7 @@ mod tests {
 
         // Ten seconds later — deep inside the poll floor — moving numbers
         // still land, because reading them costs nothing.
-        live::publish(CodingAgent::Codex, vec![session_window(9)]);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(9)]);
         let payload = collect_if_due(&dir, &settings, &report, now + 10);
         let usage = payload.usage.get("codex").expect("the live windows");
         assert_eq!(usage.windows, vec![session_window(9)]);
@@ -2260,8 +2418,8 @@ mod tests {
         };
 
         // A session ran, published, and ended.
-        drop(live::attach(CodingAgent::Codex));
-        live::publish(CodingAgent::Codex, vec![session_window(4)]);
+        drop(live::attach(CodingAgent::Codex, SYSTEM_PROFILE));
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(4)]);
 
         // What an earlier real poll cached.
         let earlier = vec![session_window(71)];
@@ -2335,8 +2493,8 @@ mod tests {
         usage_cache::save(&dir, &cache);
 
         // A session starts and reports the very same percentages.
-        let session = live::attach(CodingAgent::Codex);
-        live::publish(CodingAgent::Codex, windows.clone());
+        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, windows.clone());
 
         let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
         let usage = payload.usage.get("codex").expect("the live windows");
@@ -2384,9 +2542,9 @@ mod tests {
             ..Settings::default()
         };
 
-        let session = live::attach(CodingAgent::Codex);
+        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
         let windows = vec![session_window(12)];
-        live::publish(CodingAgent::Codex, windows.clone());
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, windows.clone());
 
         let now = crate::run_registry::now_secs();
         let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
@@ -2400,7 +2558,7 @@ mod tests {
 
         // The next beat is inside the floor: no second spawn.
         std::fs::remove_file(&marker).unwrap();
-        live::publish(CodingAgent::Codex, vec![session_window(13)]);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(13)]);
         let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now + 10);
         assert!(!marker.exists(), "every later beat rides the live shortcut");
         assert_eq!(
@@ -2563,6 +2721,12 @@ mod tests {
     /// model-scoped row: it keeps the last polled numbers instead of
     /// vanishing. The cache entry is fresh and not due (its endpoint stamp
     /// included), so the pass owes the endpoint nothing.
+    ///
+    /// EXP-881: every reset here is in 2099 — a window that has already reset
+    /// stops the frame answering at all — and the last leg locks the other
+    /// half of the overlay rule: a report read AFTER the frame already
+    /// contains that turn, so the frame steps aside instead of dragging the
+    /// numbers back.
     #[test]
     fn live_claude_windows_lay_over_the_endpoint_report() {
         let _lock = live_lock();
@@ -2576,28 +2740,29 @@ mod tests {
             percent,
             resets_at: Some(resets.to_string()),
         };
-        let opus = window("model:opus", "Opus", 33, "2026-09-10T00:00:00.000Z");
+        let opus = window("model:opus", "Opus", 33, "2099-09-10T00:00:00.000Z");
 
         let now = crate::run_registry::now_secs();
         let mut cache = usage_cache::load(&dir);
         cache.insert(
-            usage_cache::entry_key("claude", crate::agent_profiles::SYSTEM_PROFILE),
+            usage_cache::entry_key("claude", SYSTEM_PROFILE),
             cached(
                 vec![
-                    window("session", "5h", 40, "2026-09-05T19:00:00.000Z"),
+                    window("session", "5h", 40, "2099-09-05T19:00:00.000Z"),
                     opus.clone(),
-                    window("weekly", "Week", 10, "2026-09-10T00:00:00.000Z"),
+                    window("weekly", "Week", 10, "2099-09-10T00:00:00.000Z"),
                 ],
                 now - 10,
             ),
         );
         usage_cache::save(&dir, &cache);
 
-        let session = live::attach(CodingAgent::Claude);
+        let session = live::attach(CodingAgent::Claude, SYSTEM_PROFILE);
         live::publish(
             CodingAgent::Claude,
+            SYSTEM_PROFILE,
             vec![
-                window("session", "5h", 55, "2026-09-06T14:00:00.000Z"),
+                window("session", "5h", 55, "2099-09-06T14:00:00.000Z"),
                 UsageWindow { key: "weekly".to_string(), label: "Week".to_string(), percent: 12, resets_at: None },
             ],
         );
@@ -2606,22 +2771,60 @@ mod tests {
         assert_eq!(
             usage.windows,
             vec![
-                window("session", "5h", 55, "2026-09-06T14:00:00.000Z"),
+                window("session", "5h", 55, "2099-09-06T14:00:00.000Z"),
                 opus.clone(),
-                window("weekly", "Week", 12, "2026-09-10T00:00:00.000Z"),
+                window("weekly", "Week", 12, "2099-09-10T00:00:00.000Z"),
             ],
             "the frame's keys move, the endpoint's row and its reset stay"
         );
         assert!(!usage.stale);
 
         // The next turn, seconds later: still lands, still over the report.
-        live::publish(CodingAgent::Claude, vec![window("session", "5h", 58, "2026-09-06T14:00:00.000Z")]);
+        live::publish(
+            CodingAgent::Claude,
+            SYSTEM_PROFILE,
+            vec![window("session", "5h", 58, "2099-09-06T14:00:00.000Z")],
+        );
         let payload = collect_if_due(&dir, &settings, &report, now + 10);
         let usage = payload.usage.get("claude").expect("the merged windows");
         assert_eq!(
             usage.windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
             vec![("session", 58), ("model:opus", 33), ("weekly", 12)]
         );
+
+        // EXP-881 — an endpoint report read AFTER that frame already covers
+        // the frame's turn. Re-laying the frame would push `session` back to
+        // 58; the frame stops answering instead and the report stands.
+        let mut cache = usage_cache::load(&dir);
+        let mut entry = cache
+            .get(&usage_cache::entry_key("claude", SYSTEM_PROFILE))
+            .cloned()
+            .expect("the live-applied entry");
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![
+                window("session", "5h", 61, "2099-09-06T14:00:00.000Z"),
+                opus.clone(),
+                window("weekly", "Week", 14, "2099-09-10T00:00:00.000Z"),
+            ]),
+            now + 20,
+            "LATER",
+        );
+        entry.endpoint_fetched_at_secs = Some(now + 20);
+        entry.next_poll_at_secs = now + 10_000;
+        entry.endpoint_due_at_secs = Some(now + 10_000);
+        cache.insert(usage_cache::entry_key("claude", SYSTEM_PROFILE), entry);
+        usage_cache::save(&dir, &cache);
+
+        let payload = collect_if_due(&dir, &settings, &report, now + 30);
+        let usage = payload.usage.get("claude").expect("the endpoint's report");
+        assert_eq!(
+            usage.windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("session", 61), ("model:opus", 33), ("weekly", 14)],
+            "a frame older than the report never overlays it"
+        );
+        assert_eq!(usage.fetched_at, "LATER", "and it never restamps it either");
 
         drop(session);
         live::reset();
@@ -2660,6 +2863,396 @@ mod tests {
 
         assert_eq!(usage_cache::force_due(&mut entry, now), Ok(()));
         assert!(usage_cache::live_endpoint_due(&entry, now));
+
+        // EXP-881: through all of that, `endpoint_fetched_at_secs` never
+        // moved — only the collector's POLL arm stamps it, and no poll ran
+        // here. It is the frame's yardstick, so a live apply must never touch
+        // it (that is what made a frame look newer than the report forever).
+        assert_eq!(entry.endpoint_fetched_at_secs, None);
+    }
+
+    /// EXP-909 — the registry is keyed by LOGIN, so a run on the ambient
+    /// account says nothing about the machine's ACTIVE one. Before this, the
+    /// only key was the agent and whatever ran last wrote the active login's
+    /// numbers — a run on a second account silently rewrote the bar of an
+    /// account it never touched.
+    #[test]
+    fn a_live_session_on_one_account_never_moves_anothers_numbers() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("live-per-login");
+        let settings = Settings {
+            codex_path: "/usr/bin/true".to_string(),
+            ..Settings::default()
+        };
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
+
+        let now = crate::run_registry::now_secs();
+        let mut cache = usage_cache::load(&dir);
+        cache.insert(
+            usage_cache::entry_key("codex", SYSTEM_PROFILE),
+            cached(vec![session_window(11)], now),
+        );
+        cache.insert(
+            usage_cache::entry_key("codex", &work.id),
+            cached(vec![session_window(22)], now),
+        );
+        usage_cache::save(&dir, &cache);
+
+        // A run on the AMBIENT login while `work` is the machine default.
+        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(88)]);
+
+        let payload = collect_if_due(&dir, &settings, &codex_named_report(), now);
+        let row = |id: &str| {
+            payload.accounts["codex"]
+                .profiles
+                .iter()
+                .find(|row| row.id == id)
+                .and_then(|row| row.usage.as_ref())
+                .map(|usage| usage.windows.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(row(SYSTEM_PROFILE), vec![session_window(88)], "the run's own login moved");
+        assert_eq!(row(&work.id), vec![session_window(22)], "the active login did NOT");
+        assert_eq!(
+            payload.usage["codex"].windows,
+            vec![session_window(22)],
+            "and the top-level map still reports the active login"
+        );
+
+        drop(session);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-881 — an ATTACHED session widens how long its frame is trusted (a
+    /// live run republishes every turn), it does not make an old frame
+    /// current. Past the endpoint's own cadence an idle run's last frame
+    /// stops answering and the poll takes the question back.
+    #[test]
+    fn a_live_snapshot_older_than_the_endpoints_cadence_stops_answering() {
+        let _lock = live_lock();
+        live::reset();
+        let entry = AgentCacheEntry::default();
+        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(4)]);
+        let published = crate::run_registry::now_secs();
+
+        assert!(
+            live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, published).is_some(),
+            "a frame from this turn answers"
+        );
+        assert!(
+            live_probe(
+                CodingAgent::Codex,
+                SYSTEM_PROFILE,
+                &entry,
+                published + usage_cache::LIVE_ENDPOINT_POLL_SECS - 1,
+            )
+            .is_some(),
+            "and it keeps answering inside the cadence, session attached"
+        );
+        assert!(
+            live_probe(
+                CodingAgent::Codex,
+                SYSTEM_PROFILE,
+                &entry,
+                published + usage_cache::LIVE_ENDPOINT_POLL_SECS,
+            )
+            .is_none(),
+            "past it the session being open is not evidence of anything"
+        );
+
+        // Detached, the frame is trusted for the shared TTL and no longer.
+        drop(session);
+        assert!(
+            live_probe(
+                CodingAgent::Codex,
+                SYSTEM_PROFILE,
+                &entry,
+                published + usage_cache::SHARED_TTL_SECS - 1,
+            )
+            .is_some()
+        );
+        assert!(
+            live_probe(
+                CodingAgent::Codex,
+                SYSTEM_PROFILE,
+                &entry,
+                published + usage_cache::SHARED_TTL_SECS,
+            )
+            .is_none()
+        );
+        live::reset();
+    }
+
+    /// EXP-881 — a percentage belongs to the window it was measured in. Once
+    /// that window's `resets_at` is behind us the frame says nothing about
+    /// the fresh one, and a stuck 100 % is exactly the number the user is
+    /// waiting to see fall. An unreadable stamp is not evidence of a reset.
+    #[test]
+    fn a_window_whose_reset_has_passed_kills_the_live_snapshot() {
+        let _lock = live_lock();
+        live::reset();
+        let entry = AgentCacheEntry::default();
+        let now = crate::run_registry::now_secs();
+        let window = |resets: Option<&str>| UsageWindow {
+            key: "session".to_string(),
+            label: "5h".to_string(),
+            percent: 100,
+            resets_at: resets.map(str::to_string),
+        };
+
+        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        live::publish(
+            CodingAgent::Codex,
+            SYSTEM_PROFILE,
+            vec![window(Some("2026-09-06T14:00:00.000Z"))],
+        );
+        assert!(
+            live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_none(),
+            "that window reset long ago"
+        );
+
+        live::publish(
+            CodingAgent::Codex,
+            SYSTEM_PROFILE,
+            vec![window(Some("2099-09-06T14:00:00.000Z"))],
+        );
+        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_some());
+
+        // Neither an absent nor an unparsable stamp is evidence of a reset.
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![window(None)]);
+        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_some());
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![window(Some("soon"))]);
+        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_some());
+
+        drop(session);
+        live::reset();
+    }
+
+    /// EXP-881, THE regression — a frame that says exactly what the cache
+    /// already holds must not restamp it. `apply_outcome` moves
+    /// `fetched_at`, which is the age every client renders, so re-applying an
+    /// UNCHANGED frame on a due beat made numbers that had not moved in hours
+    /// read as freshly fetched. A poll being due is not a reason to apply
+    /// anything.
+    #[test]
+    fn an_unchanged_live_frame_never_restamps_the_numbers() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("live-unchanged");
+        let settings = Settings {
+            codex_path: "/nonexistent/codex".to_string(),
+            ..Settings::default()
+        };
+        let windows = vec![session_window(46)];
+        let now = crate::run_registry::now_secs();
+
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(windows.clone()),
+            now - 10_000,
+            "EARLIER",
+        );
+        // The identity is known, so this pass owes nobody a probe…
+        entry.account = Some(crate::agent_accounts::AgentAccount {
+            signed_in: true,
+            email: Some("dev@example.com".to_string()),
+            ..Default::default()
+        });
+        // …and a poll IS due, which used to be reason enough to re-apply.
+        entry.next_poll_at_secs = now - 1;
+        assert!(usage_cache::poll_due(&entry, now));
+        let mut cache = usage_cache::UsageCache::default();
+        cache.insert(usage_cache::entry_key("codex", SYSTEM_PROFILE), entry);
+        usage_cache::save(&dir, &cache);
+
+        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, windows.clone());
+
+        let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
+        let usage = payload.usage.get("codex").expect("the cached windows");
+        assert_eq!(usage.windows, windows);
+        assert_eq!(
+            usage.fetched_at, "EARLIER",
+            "the numbers keep the age they actually have"
+        );
+        let stored = usage_cache::load(&dir)
+            .get(&usage_cache::entry_key("codex", SYSTEM_PROFILE))
+            .cloned()
+            .expect("the entry");
+        assert_eq!(stored.fetched_at_secs, now - 10_000, "nothing was restamped");
+
+        drop(session);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-881 — claude's frame is a SUBSET of the endpoint's report, laid
+    /// over it by key. That is only sound while the frame is the newer of the
+    /// two: a report read after the frame already covers the frame's turn, so
+    /// overlaying it would drag those keys backwards.
+    #[test]
+    fn a_live_frame_older_than_the_endpoint_report_stays_under_it() {
+        let _lock = live_lock();
+        live::reset();
+        let window = |percent: u8| UsageWindow {
+            key: "session".to_string(),
+            label: "5h".to_string(),
+            percent,
+            resets_at: Some("2099-09-06T14:00:00.000Z".to_string()),
+        };
+        let session = live::attach(CodingAgent::Claude, SYSTEM_PROFILE);
+        live::publish(CodingAgent::Claude, SYSTEM_PROFILE, vec![window(55)]);
+        let published = crate::run_registry::now_secs();
+
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window(61)]),
+            published,
+            "REPORT",
+        );
+
+        // A report read BEFORE the frame: the frame is the newer word.
+        entry.endpoint_fetched_at_secs = Some(published - 1);
+        let probe = live_probe(CodingAgent::Claude, SYSTEM_PROFILE, &entry, published)
+            .expect("the frame answers");
+        assert_eq!(probe.windows.as_deref(), Some(&[window(55)][..]));
+
+        // Read at the same second or later: the report stands on its own.
+        entry.endpoint_fetched_at_secs = Some(published);
+        assert!(live_probe(CodingAgent::Claude, SYSTEM_PROFILE, &entry, published).is_none());
+        entry.endpoint_fetched_at_secs = Some(published + 30);
+        assert!(live_probe(CodingAgent::Claude, SYSTEM_PROFILE, &entry, published + 30).is_none());
+
+        // codex's frame is the WHOLE report, so no such question arises.
+        let codex = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![window(55)]);
+        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, published).is_some());
+
+        drop(codex);
+        drop(session);
+        live::reset();
+    }
+
+    /// EXP-909 — the identity probe under a live session is still a REQUEST,
+    /// and a secondary login's requests wait their stagger slot like every
+    /// other one. Before this, consulting the live registry for every profile
+    /// would have let a nameless secondary spawn an app-server on any beat,
+    /// multiplying this machine's request rate by the number of accounts on
+    /// it — the very thing the stagger exists to stop.
+    #[cfg(unix)]
+    #[test]
+    fn a_secondary_logins_identity_probe_still_waits_its_stagger_slot() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("secondary-identity");
+        // A stand-in codex that records the ARGV of every spawn (`login
+        // status` answers 0 with no output, so both logins read as signed in
+        // for the doctor). The identity probe is the one that asks for
+        // `app-server`, which is how this test tells it from the doctor's own
+        // spawns.
+        let marker = dir.join("probed");
+        let program = dir.join("codex-stub.sh");
+        std::fs::write(
+            &program,
+            format!("#!/bin/sh\necho \"$@\" >> {}\n", marker.display()),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = Settings {
+            codex_path: program.to_string_lossy().to_string(),
+            ..Settings::default()
+        };
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
+        let other = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Other").unwrap();
+
+        // The ambient login is the machine default. `home` is a secondary
+        // that IS due a poll and whose identity nobody has named yet — but a
+        // sibling secondary was read a second ago, so this beat's secondary
+        // slot is already spent and `home` may not poll.
+        let now = crate::run_registry::now_secs();
+        let mut cache = usage_cache::load(&dir);
+        cache.insert(
+            usage_cache::entry_key("codex", SYSTEM_PROFILE),
+            cached(vec![session_window(11)], now),
+        );
+        cache.insert(
+            usage_cache::entry_key("codex", &home.id),
+            AgentCacheEntry {
+                fetched_at_secs: now - 10_000,
+                next_poll_at_secs: 0,
+                ..AgentCacheEntry::default()
+            },
+        );
+        cache.insert(
+            usage_cache::entry_key("codex", &other.id),
+            cached(vec![session_window(33)], now - 1),
+        );
+        usage_cache::save(&dir, &cache);
+
+        // The state the guard is about: a poll IS due for `home`, and its
+        // stagger slot is NOT free.
+        let eligible = std::collections::BTreeMap::from([
+            (usage_cache::entry_key("codex", SYSTEM_PROFILE), true),
+            (usage_cache::entry_key("codex", &home.id), true),
+            (usage_cache::entry_key("codex", &other.id), true),
+        ]);
+        let targets = usage_targets(
+            &dir,
+            &codex_named_report(),
+            &eligible,
+            &usage_cache::load(&dir),
+            now,
+            None,
+        );
+        let target = targets
+            .iter()
+            .find(|target| target.profile == home.id)
+            .expect("the secondary is a target");
+        assert!(!target.may_poll, "its slot is spent this beat");
+        assert!(usage_cache::poll_due(
+            usage_cache::load(&dir)
+                .get(&usage_cache::entry_key("codex", &home.id))
+                .unwrap(),
+            now
+        ));
+
+        // A run on that secondary login publishes its windows.
+        let session = live::attach(CodingAgent::Codex, &home.id);
+        live::publish(CodingAgent::Codex, &home.id, vec![session_window(64)]);
+
+        let payload = collect_if_due(&dir, &settings, &codex_named_report(), now);
+        let spawns = std::fs::read_to_string(&marker).unwrap_or_default();
+        assert!(
+            !spawns.contains("app-server"),
+            "a secondary login's identity probe waits its slot: {spawns}"
+        );
+        let windows = payload.accounts["codex"]
+            .profiles
+            .iter()
+            .find(|row| row.id == home.id)
+            .and_then(|row| row.usage.as_ref())
+            .map(|usage| usage.windows.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            windows,
+            vec![session_window(64)],
+            "its windows still land — reading them costs nothing"
+        );
+
+        drop(session);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Only codex's probe names the login; a live claude session never owes
@@ -2743,6 +3336,10 @@ mod tests {
             fetched_at_secs: now,
             next_poll_at_secs: now + 10_000,
             endpoint_due_at_secs: Some(now + 10_000),
+            // EXP-881: the ENDPOINT produced this report, so its own stamp is
+            // set too — a live frame is only laid over a report it is NEWER
+            // than.
+            endpoint_fetched_at_secs: Some(now),
             ..AgentCacheEntry::default()
         }
     }
@@ -3028,8 +3625,10 @@ mod tests {
         crate::agent_profiles::set_active_profile(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         // Every login already has numbers and none is due, so this pass
-        // spends no probe at all — it only has to REPORT.
-        let now = 1_800_000_000;
+        // spends no probe at all — it only has to REPORT. EXP-881: the wall
+        // clock, because the live leg below publishes against it and a frame
+        // is only current relative to the real instant it was stamped at.
+        let now = crate::run_registry::now_secs();
         let mut cache = usage_cache::load(&dir);
         cache.insert(
             usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE),
@@ -3065,6 +3664,40 @@ mod tests {
             vec![session_window(22)],
             "the top-level map is the ACTIVE login's, not the ambient one's"
         );
+
+        // EXP-909 — a live session on the NON-active login. Its frame moves
+        // that login's row and nothing else: not its siblings' rows, and not
+        // the top-level map, which stays the active login's.
+        let session = live::attach(CodingAgent::Codex, &home.id);
+        live::publish(CodingAgent::Codex, &home.id, vec![session_window(77)]);
+        let payload = collect_if_due(&dir, &settings, &codex_named_report(), now);
+        let codex = &payload.accounts["codex"];
+        let windows = |id: &str| {
+            codex
+                .profiles
+                .iter()
+                .find(|row| row.id == id)
+                .unwrap_or_else(|| panic!("no row for {id}"))
+                .usage
+                .as_ref()
+                .expect("this login's own numbers")
+                .windows
+                .clone()
+        };
+        assert_eq!(windows(&home.id), vec![session_window(77)], "its own row moved");
+        assert_eq!(windows(&work.id), vec![session_window(22)], "the active login did not");
+        assert_eq!(
+            windows(crate::agent_profiles::SYSTEM_PROFILE),
+            vec![session_window(11)],
+            "and neither did the ambient one"
+        );
+        assert_eq!(
+            payload.usage["codex"].windows,
+            vec![session_window(22)],
+            "the map still reports the ACTIVE login"
+        );
+
+        drop(session);
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3295,6 +3928,12 @@ mod tests {
     /// The named login's token sits inside [`usage_cache::CLAUDE_REFRESH_MARGIN_SECS`];
     /// the ambient one's is a month out, deliberately: its config dir is this
     /// MACHINE's own `~/.claude`, and no test may go near it.
+    ///
+    /// EXP-881: the `+60 s` expiry is now load-bearing TWICE — it is inside
+    /// the margin (so the scheduled keep-alive is due) and NOT yet expired (so
+    /// the unconditional expired-token refresh stays out of these tests). Move
+    /// it into the past and every "the keep-alive did not run" case below
+    /// starts refusing.
     #[cfg(unix)]
     fn claude_keep_alive_fixture(
         tag: &str,
@@ -3365,6 +4004,44 @@ mod tests {
         assert_eq!(entry.refreshed_at_secs, None, "no rotation was stamped");
         assert!(entry.dead_refresh_tokens.is_empty());
         assert_eq!(entry.credential_denied_until_secs, None);
+    }
+
+    /// EXP-881 — the MIRROR of [`assert_never_kept_alive`]: a refresh was
+    /// attempted for `profile`. The fixture's store holds an access token and
+    /// no refresh token, so the attempt cannot spend a grant and cannot leave
+    /// the machine; what it does leave is `NoRefreshToken`'s backoff, which is
+    /// the proof the gate fired.
+    #[cfg(unix)]
+    fn assert_refresh_attempted(dir: &std::path::Path, profile: &str) {
+        let entry = usage_cache::load(dir)
+            .get(&usage_cache::entry_key("claude", profile))
+            .cloned()
+            .expect("the login's cache entry");
+        assert!(
+            entry.refresh_backoff_until_secs.is_some(),
+            "the keep-alive step ran and recorded its outcome"
+        );
+    }
+
+    /// EXP-881 — put `profile`'s token in the PAST, in both places the
+    /// collector reads it: the store the step opens and the cached expiry the
+    /// gate keys on.
+    #[cfg(unix)]
+    fn expire_claude_login(dir: &std::path::Path, profile: &str, now: u64) {
+        let expired = (now as i64 - 60) * 1000;
+        std::fs::write(
+            crate::agent_profiles::profile_dir(dir, CodingAgent::Claude, profile)
+                .expect("the profile has a config dir")
+                .join(".credentials.json"),
+            format!(r#"{{"claudeAiOauth":{{"accessToken":"at-1","expiresAt":{expired}}}}}"#),
+        )
+        .unwrap();
+        let mut cache = usage_cache::load(dir);
+        let key = usage_cache::entry_key("claude", profile);
+        let mut entry = cache.get(&key).cloned().expect("the login's cache entry");
+        entry.claude_expires_at_ms = Some(expired);
+        cache.insert(key, entry);
+        usage_cache::save(dir, &cache);
     }
 
     /// EXP-852 — the keep-alive is OPT-IN: with `claudeKeepAlive` off (the
@@ -3448,6 +4125,142 @@ mod tests {
 
         assert_never_kept_alive(&dir, &work.id);
         live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-881 — an EXPIRED token is refreshed whatever `claudeKeepAlive`
+    /// says. Keeping a live token warm is an opt-in convenience; rotating a
+    /// DEAD one is the only way to tell a working account from a broken one,
+    /// because every usage read on it 401s and a 401 is painted as
+    /// `Needs re-login`.
+    #[cfg(unix)]
+    #[test]
+    fn an_expired_login_refreshes_even_with_the_keep_alive_off() {
+        let _lock = live_lock();
+        live::reset();
+        let now = 1_800_000_000;
+        let (dir, settings, work) = claude_keep_alive_fixture("expired-keep-alive-off", now);
+        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
+        assert!(!settings.claude_keep_alive, "the setting is OFF");
+        // Inside the margin but alive, the setting still decides…
+        collect_if_due(&dir, &settings, &claude_named_report(), now);
+        assert_never_kept_alive(&dir, &work.id);
+
+        // …and past the expiry it does not.
+        expire_claude_login(&dir, &work.id, now);
+        collect_if_due(&dir, &settings, &claude_named_report(), now);
+        assert_refresh_attempted(&dir, &work.id);
+
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-881 — and the same for a PARKED login (added here, signed in here,
+    /// never the default and never run here). EXP-852 leaves a parked
+    /// account's live token to expire on purpose — but its numbers are shown
+    /// on the Accounts surface like everybody's, and an expired token makes
+    /// them read `Needs re-login`, so a dead one is still rotated.
+    #[cfg(unix)]
+    #[test]
+    fn an_expired_parked_login_still_refreshes_for_its_numbers() {
+        let _lock = live_lock();
+        live::reset();
+        let now = 1_800_000_000;
+        let (dir, mut settings, work) = claude_keep_alive_fixture("expired-parked", now);
+        settings.claude_keep_alive = true;
+        // The ambient login is the device default and no run ever named
+        // `work`: the EXP-852 gate refuses it …
+        assert_eq!(
+            crate::agent_profiles::active_profile(&dir, CodingAgent::Claude),
+            SYSTEM_PROFILE
+        );
+        assert!(crate::run_registry::all(&dir).is_empty());
+        collect_if_due(&dir, &settings, &claude_named_report(), now);
+        assert_never_kept_alive(&dir, &work.id);
+
+        // … until the token is actually dead.
+        expire_claude_login(&dir, &work.id, now);
+        collect_if_due(&dir, &settings, &claude_named_report(), now);
+        assert_refresh_attempted(&dir, &work.id);
+
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-881 — the point of rotating an expired token: the login stops
+    /// reading `Needs re-login`. A rotation lands, the FAILED backoff it was
+    /// sitting behind is released so the read happens on this beat, and the
+    /// read's answer (a 200) is what sets the health — there is no new health
+    /// code anywhere, just an account that can answer again.
+    ///
+    /// The usage GET has no URL seam ([`CLAUDE_USAGE_URL`] is a const), so the
+    /// 200 is folded in through [`usage_cache::apply_outcome`] exactly as
+    /// `probe_agent` would; the rotation itself is the real machinery against
+    /// a canned token endpoint.
+    #[test]
+    fn an_expired_login_that_rotates_stops_reading_needs_relogin() {
+        let dir = usage_dir("expired-rotates");
+        let now = 1_800_000_000;
+        let expired = (now as i64 - 60) * 1000;
+        std::fs::write(
+            dir.join(".credentials.json"),
+            format!(
+                r#"{{"claudeAiOauth":{{"accessToken":"at-old","refreshToken":"rt-1","expiresAt":{expired}}}}}"#
+            ),
+        )
+        .unwrap();
+        let (base, _requests) = crate::test_support::canned_server_recording(vec![(
+            200,
+            r#"{"access_token":"at-new","refresh_token":"rt-2","expires_in":28800}"#.to_string(),
+        )]);
+
+        // Where the login stood: a 401 named it broken and dimmed its numbers.
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![session_window(12)]),
+            now - 10_000,
+            "EARLIER",
+        );
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Unauthorized, None, now - 1, "EARLIER");
+        assert_eq!(
+            entry.health.as_deref(),
+            Some(crate::agent_accounts::Health::NeedsRelogin.as_str())
+        );
+        assert!(entry.usage.as_ref().unwrap().stale, "and the bar is dimmed");
+        assert!(!usage_cache::poll_due(&entry, now), "behind the failure's wall");
+        assert!(usage_cache::claude_token_expired(&entry, now) || entry.claude_expires_at_ms.is_none());
+
+        // The rotation, through the real step against the canned endpoint.
+        let token = claude_keep_alive_step_at(&base, Some(&dir), &mut entry, now);
+        assert_eq!(token.as_deref(), Some("at-new"));
+        assert!(!usage_cache::claude_token_expired(&entry, now), "a live token now");
+        usage_cache::note_token_rotated(&mut entry, now);
+        assert!(
+            entry.next_poll_at_secs <= now,
+            "the wall the FAILURE put up is down"
+        );
+        // What is left is only the machine-wide shared TTL, which every read
+        // waits out — the login is no longer serving out a five-minute
+        // failure backoff for a token that has since been replaced.
+        assert!(usage_cache::poll_due(&entry, now + usage_cache::SHARED_TTL_SECS));
+
+        // And the read the new token buys answers — which is the health.
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![session_window(12)]),
+            now,
+            "NOW",
+        );
+        assert_eq!(
+            entry.health.as_deref(),
+            Some(crate::agent_accounts::Health::Ok.as_str()),
+            "the account was never broken, its token was"
+        );
+        assert!(!entry.usage.as_ref().unwrap().stale);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 

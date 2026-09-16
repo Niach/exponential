@@ -122,7 +122,7 @@ struct AgentSessionView<Switcher: View>: View {
     private var hasUsage: Bool {
         // EXP-849: the readout is also the ACCOUNT surface, so a run whose
         // machine reported logins but no numbers still opens it.
-        model?.agentUsage != nil || model?.sessionUsage != nil
+        model?.runUsage != nil || model?.sessionUsage != nil
             || model?.accountOptions.isEmpty == false
     }
 
@@ -318,6 +318,10 @@ struct AgentSessionView<Switcher: View>: View {
                         db: deps.db
                     )
                 }
+                // EXP-909: the overlay's one-shot usage refresh rides the
+                // device command queue. Set on every appearance — a reattached
+                // model was built on an earlier one.
+                model?.devicesApi = deps.devicesApi
             }
             .onDisappear {
                 // NOT a teardown: the store keeps the socket up while the session
@@ -353,8 +357,13 @@ struct AgentSessionView<Switcher: View>: View {
             .sheet(isPresented: $showUsageSheet) {
                 if hasUsage, let model {
                     AgentUsageSheet(
-                        usage: model.agentUsage?.usage,
+                        agent: model.session?.agent,
+                        // EXP-909: the login the run SPENDS, and ITS windows —
+                        // not the machine's active login's (the two differ the
+                        // moment a run is started on a second account).
+                        runAccount: model.runAccount,
                         account: model.agentAccount,
+                        usage: model.runUsage,
                         sessionUsage: model.sessionUsage,
                         // EXP-849: the run's accounts, and the switch — a
                         // resume under another login, claude only, between
@@ -366,7 +375,9 @@ struct AgentSessionView<Switcher: View>: View {
                         onSwitch: { option in
                             showUsageSheet = false
                             switchAccount(model, option)
-                        }
+                        },
+                        // EXP-909: one refresh of the run's login per open.
+                        onOpen: { model.requestUsageRefresh() }
                     )
                 }
             }

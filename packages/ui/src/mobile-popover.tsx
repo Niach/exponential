@@ -38,6 +38,9 @@ export function MobilePopoverTrigger(
 
 type ContentProps = React.ComponentProps<typeof RawPopoverContent> & {
   mobileTitle?: string
+  /** Kept on BOTH shells: the overlay is one surface, so a test (or an
+   *  assistive tree) must not have to know which one is up. */
+  "data-testid"?: string
 }
 
 export function MobilePopoverContent({
@@ -51,6 +54,8 @@ export function MobilePopoverContent({
     return (
       <SheetContent
         side="bottom"
+        aria-label={props[`aria-label`]}
+        data-testid={props[`data-testid`]}
         className={cn(`flex flex-col gap-0 p-0 pb-[env(safe-area-inset-bottom)]`)}
       >
         {/* Every sheet gets the same header (EXP-687): left, headline, never

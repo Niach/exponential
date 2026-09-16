@@ -1,6 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { MyMachines } from "@/components/my-machines"
-import { AgentAccountsSection } from "@/components/agent-usage-page"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -12,14 +11,14 @@ import { pageTitle } from "@/lib/page-title"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
 // surface: Actions and Automations are their own routes now): the caller's
-// online desktops and servers, the remote-start entry point, and the agent
-// Accounts across them. EXP-825: a device row's play button is a navigation
-// to the Agent page composer with that device pre-picked (`?device=`) — the
-// launch dialog is gone.
+// online desktops and servers and the remote-start entry point. EXP-825: a
+// device row's play button is a navigation to the Agent page composer with
+// that device pre-picked (`?device=`) — the launch dialog is gone.
 //
-// EXP-862: two sections, two jobs — "My devices"/"Team devices" is the
-// SETUP/REPAIR surface (a device's logins live on its chips), Accounts the
-// DECISION one (which login to run on, and what it has spent).
+// EXP-909: ONE surface, not two. The cross-device "Accounts" section is gone
+// and every machine lists the logins it holds under its own row — a credential
+// lives on a machine and is repaired there, so the device row is the only
+// place that can act on it.
 
 export const Route = createFileRoute(`/t/$teamSlug/devices`)({
   head: () => ({ meta: [{ title: pageTitle(`Devices`) }] }),
@@ -75,16 +74,6 @@ function DevicesPage() {
               onChanged={remote.refresh}
               latestVersions={remote.latestVersions}
               teamId={teamId}
-            />
-          )}
-
-          {/* EXP-818: the agent Accounts across those devices — the Usage
-              page, folded in here. (The Running / Past run sections moved
-              to the Agent page's sessions list.) */}
-          {isMember && currentUserId && teamId && (
-            <AgentAccountsSection
-              teamId={teamId}
-              currentUserId={currentUserId}
             />
           )}
         </div>

@@ -37,7 +37,10 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // face ×4 — a flat capped jsonb array, bytes in session_attachments), and
 // `batch_issue_ids` for EXP-876 (the issues a batch run covers — without it
 // every batch row on every client is titled "Batch run" and no two can be
-// told apart) — each a
+// told apart), and `agent_account` for EXP-909 (which LOGIN of that agent
+// the run spends — without it no client can point the usage readout at the
+// run's own account, and the account switch has to guess the current one)
+// — each a
 // ONE-TIME shape-identity rotation (benign: small table, full resync; land in
 // one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
@@ -60,6 +63,7 @@ const CODING_SESSION_COLUMNS = [
   `device_label`,
   `device_id`,
   `agent`,
+  `agent_account`,
   `status`,
   `branch`,
   `pr_url`,

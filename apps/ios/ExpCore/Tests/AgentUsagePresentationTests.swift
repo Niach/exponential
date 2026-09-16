@@ -111,6 +111,68 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertTrue(AgentUsagePresentation.usageGroups(AgentUsage(windows: []), now: now).isEmpty)
     }
 
+    // EXP-909: the COMPACT line takes at most three windows, in a FIXED
+    // order — the session window, the weekly one, then the first per-model
+    // one — and wears their WIRE labels, which is what lets three of them sit
+    // on one row. Locked ×4 against this same fixture.
+    func testMiniWindowsPickSessionWeeklyThenTheFirstModelWindow() throws {
+        let usage = try XCTUnwrap(AgentUsagePresentation.parse("""
+            {"fetchedAt":"2026-08-28T09:58:00Z","stale":false,"windows":[
+            {"key":"credits","label":"Credits","percent":10},
+            {"key":"model:fable","label":"Fable","percent":96},
+            {"key":"model:opus","label":"Opus","percent":12},
+            {"key":"weekly","label":"Week","percent":78},
+            {"key":"session","label":"5h","percent":42}]}
+            """))
+        let mini = AgentUsagePresentation.miniWindows(usage)
+        XCTAssertEqual(mini.map(\.label), ["5h", "Week", "Fable"])
+        XCTAssertEqual(mini.map(\.key), ["session", "weekly", "model:fable"])
+        XCTAssertEqual(mini.map(\.percent), [42, 78, 96])
+        XCTAssertTrue(AgentUsagePresentation.miniWindows(nil).isEmpty)
+        XCTAssertTrue(AgentUsagePresentation.miniWindows(AgentUsage(windows: [])).isEmpty)
+    }
+
+    // A report naming none of the three (codex credits, a machine's "Other"
+    // windows) still draws a line: its first three windows, in REPORT order.
+    func testMiniWindowsFallBackToReportOrder() throws {
+        let usage = try XCTUnwrap(AgentUsagePresentation.parse("""
+            {"fetchedAt":"2026-08-28T09:58:00Z","windows":[
+            {"key":"credits","label":"Credits","percent":10},
+            {"key":"43200","label":"Month","percent":20},
+            {"key":"other","label":"Other","percent":30},
+            {"key":"spare","label":"Spare","percent":40}]}
+            """))
+        XCTAssertEqual(
+            AgentUsagePresentation.miniWindows(usage).map(\.label),
+            ["Credits", "Month", "Other"]
+        )
+    }
+
+    // EXP-909: numbers are never hidden for being old — they are dated. The
+    // caption appears past the freshness window OR when the machine flagged
+    // its own report stale, and never while the numbers are current.
+    func testUsageAgeSaysAsOfWhenNotFreshOrStale() throws {
+        let fresh = try XCTUnwrap(AgentUsagePresentation.parse(usageJson))
+        XCTAssertNil(AgentUsagePresentation.usageAge(fresh, now: now))
+        let old = AgentUsage(fetchedAt: "2026-08-28T09:00:00Z", stale: false, windows: [])
+        XCTAssertEqual(
+            AgentUsagePresentation.usageAge(old, now: now)?.hasPrefix("as of "),
+            true
+        )
+        // Stale beats fresh: a report the machine could not refresh says so
+        // even when the stamp is minutes old.
+        let stale = AgentUsage(fetchedAt: "2026-08-28T09:58:00Z", stale: true, windows: [])
+        XCTAssertEqual(
+            AgentUsagePresentation.usageAge(stale, now: now)?.hasPrefix("as of "),
+            true
+        )
+        // Nothing to date: no report, and an unreadable stamp.
+        XCTAssertNil(AgentUsagePresentation.usageAge(nil, now: now))
+        XCTAssertNil(
+            AgentUsagePresentation.usageAge(AgentUsage(fetchedAt: "nonsense"), now: now)
+        )
+    }
+
     func testSeverityThresholds() {
         XCTAssertEqual(AgentUsagePresentation.severity(nil), .normal)
         XCTAssertEqual(AgentUsagePresentation.severity(0), .normal)

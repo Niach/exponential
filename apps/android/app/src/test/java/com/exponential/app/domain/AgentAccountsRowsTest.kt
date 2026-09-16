@@ -16,10 +16,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-829: the Devices page's Accounts section rule, on the same fixtures
- * and the same test names as web (`agent-usage.test.ts`, `accountUsageGroups`)
- * and the desktop (`usage_bar.rs`): one row per account, the freshest
- * machine's numbers, attention first.
+ * EXP-829/EXP-909: the Devices page's per-login rules, on the same fixtures
+ * and the same test names as web (`agent-usage.test.ts`) and the desktop
+ * (`usage_bar.rs`): one row per login a MACHINE holds, its active login first,
+ * and an identity label that never doubles as a status.
  */
 class AgentAccountsRowsTest {
 
@@ -38,6 +38,8 @@ class AgentAccountsRowsTest {
         usage: AgentUsage? = null,
         checkedAt: String? = null,
         health: AgentHealth = AgentHealthRules.derived(signedIn),
+        active: Boolean = true,
+        profileLabel: String = "Default",
     ) = AgentProfileUsageRow(
         key = "$deviceId:$agent:$profileId",
         deviceId = deviceId,
@@ -46,8 +48,8 @@ class AgentAccountsRowsTest {
         online = online,
         agent = agent,
         profileId = profileId,
-        profileLabel = "Default",
-        active = true,
+        profileLabel = profileLabel,
+        active = active,
         signedIn = signedIn,
         health = health,
         email = email,
@@ -190,161 +192,9 @@ class AgentAccountsRowsTest {
         assertEquals("old", old.profileLabel)
         assertFalse(old.signedIn)
         assertNull(old.usage)
-        assertEquals("Studio · Work", AgentAccountsRows.chipLabel(work))
-        assertEquals("Studio", AgentAccountsRows.chipLabel(active))
     }
 
-    // ── accountUsageGroups ───────────────────────────────────────────────────
-
-    @Test
-    fun `merges the same email across machines, freshest report first`() {
-        val groups = AgentAccountsRows.accountUsageGroups(
-            listOf(
-                row(
-                    deviceId = "server", agent = "claude", email = "Dev@Acme.test", plan = "max",
-                    online = false,
-                    usage = usage("2026-08-26T10:00:00.000Z", 69),
-                    checkedAt = "2026-08-27T10:00:00.000Z",
-                ),
-                row(
-                    deviceId = "macbook", agent = "claude", email = "dev@acme.test",
-                    usage = usage("2026-08-28T11:00:00.000Z", 75),
-                    checkedAt = "2026-08-28T11:00:00.000Z",
-                ),
-                row(
-                    deviceId = "mint", agent = "claude", email = "other@acme.test",
-                    usage = usage("2026-08-28T11:30:00.000Z", 46),
-                ),
-            ),
-        ) { false }
-        assertEquals(listOf("claude:dev@acme.test", "claude:other@acme.test"), groups.map { it.key })
-        val shared = groups[0]
-        // The chips: online machines lead.
-        assertEquals(listOf("macbook", "server"), shared.rows.map { it.deviceId })
-        // The numbers are the FRESHEST member's, the plan the first one named.
-        assertEquals(75, AgentAccountsRows.peakPercent(shared.usage))
-        assertEquals("max", shared.plan)
-        assertEquals("2026-08-28T11:00:00.000Z", shared.checkedAt)
-        assertNull(shared.refreshTarget)
-    }
-
-    @Test
-    fun `keeps email-less and signed-out rows apart — nothing to merge on`() {
-        val groups = AgentAccountsRows.accountUsageGroups(
-            listOf(
-                row(deviceId = "a", agent = "codex", plan = "openai-codex (oauth)"),
-                row(deviceId = "b", agent = "codex", plan = "openai-codex (oauth)"),
-                row(deviceId = "a", agent = "claude", signedIn = false, email = "x@y.z"),
-                row(deviceId = "b", agent = "claude", signedIn = false),
-            ),
-        ) { false }
-        assertEquals(
-            listOf("codex:a:system", "codex:b:system", "claude:a:system", "claude:b:system"),
-            groups.map { it.key },
-        )
-        assertFalse(groups[2].signedIn)
-    }
-
-    @Test
-    fun `prefers a non-stale report on a tie and a report with windows over none`() {
-        val groups = AgentAccountsRows.accountUsageGroups(
-            listOf(
-                row(
-                    deviceId = "a", agent = "claude", email = "dev@acme.test",
-                    usage = usage("2026-08-28T11:00:00.000Z", 10, stale = true),
-                ),
-                row(
-                    deviceId = "b", agent = "claude", email = "dev@acme.test",
-                    usage = usage("2026-08-28T11:00:00.000Z", 20),
-                ),
-                row(deviceId = "c", agent = "claude", email = "dev@acme.test"),
-            ),
-        ) { false }
-        assertEquals(1, groups.size)
-        assertEquals(20, AgentAccountsRows.peakPercent(groups[0].usage))
-        // Windows beat none on an otherwise equal pair.
-        val withWindows = AgentUsage(fetchedAt = "2026-08-28T11:00:00.000Z", windows = usage("x", 5).windows)
-        val without = AgentUsage(fetchedAt = "2026-08-28T11:00:00.000Z")
-        val pair = AgentAccountsRows.accountUsageGroups(
-            listOf(
-                row(deviceId = "a", agent = "claude", email = "dev@acme.test", usage = without),
-                row(deviceId = "b", agent = "claude", email = "dev@acme.test", usage = withWindows),
-            ),
-        ) { false }
-        assertEquals(5, AgentAccountsRows.peakPercent(pair[0].usage))
-    }
-
-    @Test
-    fun `targets the refresh at the eligible member with the freshest numbers`() {
-        val groups = AgentAccountsRows.accountUsageGroups(
-            listOf(
-                row(
-                    deviceId = "stale-but-capable", agent = "claude", email = "dev@acme.test",
-                    usage = usage("2026-08-26T10:00:00.000Z", 69),
-                ),
-                row(
-                    deviceId = "fresh-and-capable", agent = "claude", email = "dev@acme.test",
-                    usage = usage("2026-08-28T11:00:00.000Z", 75),
-                ),
-                row(
-                    deviceId = "freshest-but-not-mine", agent = "claude", email = "dev@acme.test",
-                    mine = false,
-                    usage = usage("2026-08-28T11:30:00.000Z", 75),
-                ),
-            ),
-        ) { it.mine }
-        assertEquals("fresh-and-capable", groups[0].refreshTarget?.deviceId)
-        // The group's own numbers still come from the freshest member of all.
-        assertEquals("2026-08-28T11:30:00.000Z", groups[0].usage?.fetchedAt)
-    }
-
-    @Test
-    fun `orders groups attention first — signed out, then danger, then the rest`() {
-        val groups = AgentAccountsRows.sortAccountGroupsAttentionFirst(
-            AgentAccountsRows.accountUsageGroups(
-                listOf(
-                    row(deviceId = "a", agent = "claude", email = "low@acme.test", usage = usage("2026-08-28T11:00:00.000Z", 10)),
-                    row(deviceId = "a", agent = "codex", email = "hot@acme.test", usage = usage("2026-08-28T11:00:00.000Z", 96)),
-                    row(deviceId = "b", agent = "claude", signedIn = false),
-                    row(deviceId = "a", agent = "claude", email = "mid@acme.test", usage = usage("2026-08-28T11:00:00.000Z", 60)),
-                ),
-            ) { false },
-        )
-        assertEquals(
-            listOf("claude:b:system", "codex:hot@acme.test", "claude:mid@acme.test", "claude:low@acme.test"),
-            groups.map { it.key },
-        )
-    }
-
-    @Test
-    fun `folds the synced device rows end to end`() {
-        // Two machines, one login: the page shows ONE row with two chips.
-        val devices = listOf("macbook", "server").map { id ->
-            device(
-                deviceId = id,
-                agentAccounts = """{"claude":{"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:00:00.000Z"}}""",
-                agentUsage = """{"claude":${usageJson("2026-08-28T11:00:00.000Z", "weekly", 75)}}""",
-                caps = """["agent-usage-refresh"]""",
-            )
-        }
-        val rows = AgentAccountsRows.agentProfileUsageRows(devices, "me") { true }
-        val groups = AgentAccountsRows.accountUsageGroups(rows) { true }
-        assertEquals(1, groups.size)
-        assertEquals(2, groups[0].rows.size)
-        assertEquals("macbook", groups[0].refreshTarget?.deviceId)
-        assertEquals("dev@acme.test", AgentAccountsRows.caption(groups[0]))
-    }
-
-    // ── The section's own rules ──────────────────────────────────────────────
-
-    @Test
-    fun `sections follow the contract agent order`() {
-        val groups = listOf("zeta", "claude", "codex", "alpha").map { agent ->
-            AgentAccountsRows.accountUsageGroups(listOf(row(deviceId = "a", agent = agent))) { false }.single()
-        }
-        val sections = AgentAccountsRows.sections(groups)
-        assertEquals(listOf("claude", "codex", "alpha", "zeta"), sections.map { it.agent })
-    }
+    // ── EXP-817: the auto-refresh gate ───────────────────────────────────────
 
     @Test
     fun `refresh needs my own online machine with the cap`() {
@@ -373,78 +223,6 @@ class AgentAccountsRowsTest {
     }
 
     @Test
-    fun `the section reads my machines plus the servers shared with the team`() {
-        val rows = listOf(
-            device(deviceId = "mine"),
-            device(deviceId = "their-server", userId = "them", sharedTeamIds = listOf("team-1"), kind = "server"),
-            device(deviceId = "their-desktop", userId = "them", sharedTeamIds = listOf("team-1"), kind = "desktop"),
-            device(deviceId = "other-team", userId = "them", sharedTeamIds = listOf("team-2"), kind = "server"),
-            // FEED-33: one server shared with both teams reads on both pages.
-            device(deviceId = "both", userId = "them", sharedTeamIds = listOf("team-1", "team-2"), kind = "server"),
-        )
-        assertEquals(
-            listOf("mine", "their-server", "both"),
-            AgentAccountsRows.sectionDevices(rows, "me", "team-1").map { it.deviceId },
-        )
-        assertEquals(
-            listOf("mine", "other-team", "both"),
-            AgentAccountsRows.sectionDevices(rows, "me", "team-2").map { it.deviceId },
-        )
-        assertEquals(listOf("mine"), AgentAccountsRows.sectionDevices(rows, "me", null).map { it.deviceId })
-        assertTrue(AgentAccountsRows.sectionDevices(rows, null, "team-1").isEmpty())
-    }
-
-    // ── EXP-849: health ──────────────────────────────────────────────────────
-
-    @Test
-    fun `a group carries the worst health of its machines`() {
-        val groups = AgentAccountsRows.accountUsageGroups(
-            listOf(
-                row(deviceId = "a", agent = "claude", email = "me@acme.test", health = AgentHealth.Ok),
-                row(deviceId = "b", agent = "claude", email = "me@acme.test", health = AgentHealth.NeedsRelogin),
-            ),
-        ) { false }
-        assertEquals(1, groups.size)
-        assertEquals(AgentHealth.NeedsRelogin, groups[0].health)
-        assertEquals("Needs re-login", AgentAccountsRows.healthBadge(groups[0]))
-    }
-
-    @Test
-    fun `a signed-out group says so in its badge, never in its caption`() {
-        // EXP-862: the caption is the account's IDENTITY, never a status —
-        // "Not signed in" as a title said what the badge already says and
-        // buried the only identifying thing the row had.
-        val groups = AgentAccountsRows.accountUsageGroups(
-            listOf(row(deviceId = "a", agent = "claude", signedIn = false)),
-        ) { false }
-        assertEquals(AgentHealth.SignedOut, groups[0].health)
-        assertEquals("Default", AgentAccountsRows.caption(groups[0]))
-        assertEquals("Signed out", AgentAccountsRows.healthBadge(groups[0]))
-    }
-
-    @Test
-    fun `an expired credential leads like a signed-out one`() {
-        val groups = AgentAccountsRows.sortAccountGroupsAttentionFirst(
-            AgentAccountsRows.accountUsageGroups(
-                listOf(
-                    row(deviceId = "a", agent = "claude", email = "hot@acme.test", usage = usage("2026-08-28T11:00:00.000Z", 96)),
-                    row(
-                        deviceId = "b",
-                        agent = "claude",
-                        email = "dead@acme.test",
-                        health = AgentHealth.NeedsRelogin,
-                        usage = usage("2026-08-28T11:00:00.000Z", 2),
-                    ),
-                ),
-            ) { false },
-        )
-        assertEquals(
-            listOf("claude:dead@acme.test", "claude:hot@acme.test"),
-            groups.map { it.key },
-        )
-    }
-
-    @Test
     fun `profile health rides the synced rows`() {
         val accounts = """{"claude":{"signedIn":true,"email":"a@acme.test","health":"ok","profiles":[""" +
             """{"id":"system","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"},""" +
@@ -456,75 +234,100 @@ class AgentAccountsRowsTest {
         assertEquals(AgentHealth.Ok, rows.first { it.profileId == "system" }.health)
         assertEquals(AgentHealth.NeedsRelogin, rows.first { it.profileId == "work" }.health)
     }
-    // ── EXP-849: the machine row's chips (the SETUP/REPAIR surface) ──────────
+    // ── EXP-909: the Devices page's per-device fold ─────────────────────────
 
     @Test
-    fun `device account chips list every login the machine holds, active first`() {
+    fun `device logins lead with the active login, in contract agent order`() {
         val accounts = """{"codex":{"signedIn":true,"email":"c@acme.test","plan":"plus"},""" +
             """"claude":{"signedIn":true,"email":"a@acme.test","health":"ok","profiles":[""" +
             """{"id":"work","signedIn":true,"email":"b@acme.test","label":"Work","health":"needs_relogin"},""" +
             """{"id":"system","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"}]}}"""
-        val chips = AgentAccountsRows.deviceAccountChips(
-            parseAgentAccounts(accounts),
+        val rows = AgentAccountsRows.deviceLoginRows(
+            steerDevice(deviceId = "studio", label = "Studio", agentAccounts = parseAgentAccounts(accounts)),
         )
         // Contract agent order (claude before codex), the ACTIVE login of each
         // agent first, and a profile-less agent yields its ambient account.
         assertEquals(
-            listOf("claude:system", "claude:work", "codex:system"),
-            chips.map { it.key },
+            listOf("studio:claude:system", "studio:claude:work", "studio:codex:system"),
+            rows.map { it.key },
         )
-        val ambient = chips[0]
+        val ambient = rows[0]
         assertTrue(ambient.active)
         assertEquals("Default", ambient.profileLabel)
         assertEquals("a@acme.test", ambient.email)
         assertEquals(AgentHealth.Ok, ambient.health)
-        val work = chips[1]
+        // The device meta rides every row — the fold never re-derives it.
+        assertTrue(ambient.mine)
+        assertTrue(ambient.online)
+        assertEquals("Studio", ambient.deviceLabel)
+        val work = rows[1]
         assertFalse(work.active)
         assertEquals("Work", work.profileLabel)
         assertEquals(AgentHealth.NeedsRelogin, work.health)
         // The pre-profile machine's single ambient account is always "active".
-        assertTrue(chips[2].active)
-        assertEquals("Default", chips[2].profileLabel)
+        assertTrue(rows[2].active)
+        assertEquals("Default", rows[2].profileLabel)
+        // Behind the active login, the ones that need attention lead.
+        val ordered = AgentAccountsRows.sortDeviceLogins(
+            listOf(
+                row(deviceId = "d", agent = "claude", profileId = "fine", active = false, profileLabel = "Fine"),
+                row(
+                    deviceId = "d",
+                    agent = "claude",
+                    profileId = "dead",
+                    active = false,
+                    profileLabel = "Dead",
+                    health = AgentHealth.NeedsRelogin,
+                ),
+                row(deviceId = "d", agent = "claude", profileId = "system", active = true),
+            ),
+        )
+        assertEquals(listOf("system", "dead", "fine"), ordered.map { it.profileId })
     }
 
     @Test
-    fun `a machine chip names the agent and the login`() {
-        val chips = AgentAccountsRows.deviceAccountChips(
-            parseAgentAccounts("""{"claude":{"signedIn":true,"email":"a@acme.test"}}"""),
-        )
+    fun `the login label is the identity, never the status`() {
         assertEquals(
-            "Claude · a@acme.test",
-            AgentAccountsRows.machineChipLabel(chips[0]) { it.replaceFirstChar(Char::uppercase) },
+            "a@acme.test",
+            AgentAccountsRows.loginLabel(row(deviceId = "d", agent = "claude", email = "a@acme.test", plan = "max")),
         )
-        // No email: the plan an agent reports instead of an address.
-        val plan = AgentAccountsRows.deviceAccountChips(
-            parseAgentAccounts("""{"claude":{"signedIn":true,"plan":"max"}}"""),
+        // No email: the bare plan an agent reports instead of an address.
+        assertEquals(
+            "max",
+            AgentAccountsRows.loginLabel(row(deviceId = "d", agent = "claude", plan = "max")),
         )
-        assertEquals("claude · max", AgentAccountsRows.machineChipLabel(plan[0]) { it })
-        // Signed out: the profile's own label, never "signed in".
-        val out = AgentAccountsRows.deviceAccountChips(
-            parseAgentAccounts("""{"claude":{"signedIn":false}}"""),
+        // Neither: the login's own label — never "Not signed in" / "signed in".
+        assertEquals(
+            "Work",
+            AgentAccountsRows.loginLabel(
+                row(deviceId = "d", agent = "claude", signedIn = false, profileLabel = "Work"),
+            ),
         )
-        assertEquals("claude · Default", AgentAccountsRows.machineChipLabel(out[0]) { it })
+        // …and the badge is where the status lives.
+        assertEquals(
+            "Signed out",
+            AgentAccountsRows.healthBadge(row(deviceId = "d", agent = "claude", signedIn = false)),
+        )
+        assertNull(AgentAccountsRows.healthBadge(row(deviceId = "d", agent = "claude")))
     }
 
     @Test
     fun `the chip menu offers the repairs that state allows`() {
+        // EXP-909: the login ROW is the only shape the menu is built from
+        // now — the cross-device chip type is gone with its section.
         fun chip(
             signedIn: Boolean,
             active: Boolean,
             health: AgentHealth,
             profileId: String = "work",
-        ) = DeviceAccountChip(
-            key = "claude:$profileId",
+        ) = row(
+            deviceId = "studio",
             agent = "claude",
             profileId = profileId,
-            profileLabel = "Work",
             signedIn = signedIn,
-            active = active,
-            email = null,
-            plan = null,
             health = health,
+            active = active,
+            profileLabel = "Work",
         )
         // EXP-862: signed out or expired = a sign-in and nothing else. A dead
         // credential is never "set as default": it would not work.
@@ -574,16 +377,12 @@ class AgentAccountsRowsTest {
 
     @Test
     fun `the caps gate their own entries, and the ambient login is never removable`() {
-        fun chip(profileId: String, active: Boolean) = DeviceAccountChip(
-            key = "claude:$profileId",
+        fun chip(profileId: String, active: Boolean) = row(
+            deviceId = "studio",
             agent = "claude",
             profileId = profileId,
-            profileLabel = "Default",
-            signedIn = true,
-            active = active,
-            email = null,
-            plan = null,
             health = AgentHealth.Ok,
+            active = active,
         )
         val other = chip("work", active = false)
         // `agent_profile_use` shipped in desktop/CLI 0.14.38 and
@@ -652,15 +451,15 @@ class AgentAccountsRowsTest {
         )
         val rows = AgentAccountsRows.agentProfileUsageRows(listOf(stale), "me") { true }
         assertEquals(listOf("old-box:claude:system"), rows.map { it.key })
+        // …and the per-device fold drops it just as hard.
         assertEquals(
-            listOf("claude"),
-            AgentAccountsRows.sections(
-                AgentAccountsRows.accountUsageGroups(rows) { false },
-            ).map { it.agent },
-        )
-        assertEquals(
-            listOf("claude:system"),
-            AgentAccountsRows.deviceAccountChips(parseAgentAccounts(stale.agentAccounts)).map { it.key },
+            listOf("old-box:claude:system"),
+            AgentAccountsRows.deviceLoginRows(
+                steerDevice(
+                    deviceId = "old-box",
+                    agentAccounts = parseAgentAccounts(stale.agentAccounts),
+                ),
+            ).map { it.key },
         )
         // …and the machine's badge is its CLAUDE health, never pi's.
         assertNull(
@@ -692,48 +491,6 @@ class AgentAccountsRowsTest {
         owner = if (mine) null else DeviceOwner(id = "someone-else", name = "Alex"),
         agentAccounts = agentAccounts,
     )
-
-    @Test
-    fun `add account offers only my online machines that can sign in`() {
-        val mine = steerDevice("mine")
-        val candidates = listOf(
-            mine,
-            steerDevice("theirs", mine = false),
-            steerDevice("offline", online = false),
-            // Too old to take the command: `agent-login` is strictly gated.
-            steerDevice("old", caps = emptyList()),
-            steerDevice("ancient", caps = null),
-            // Online and capable, but nothing installed to sign in to.
-            steerDevice("bare", agents = emptyList()),
-        )
-        assertEquals(
-            listOf("mine"),
-            AgentAccountsRows.addAccountDevices(candidates).map { it.deviceId },
-        )
-
-        // An agent filter keeps only the machines that have it installed —
-        // signed out counts, that is the whole point of a sign-in.
-        val codexBox = steerDevice("codex-box", agents = emptyList(), unauthedAgents = listOf("codex"))
-        val both = listOf(mine, codexBox)
-        assertEquals(
-            listOf("codex-box"),
-            AgentAccountsRows.addAccountDevices(both, agent = "codex").map { it.deviceId },
-        )
-        assertEquals(
-            listOf("mine"),
-            AgentAccountsRows.addAccountDevices(both, agent = "claude").map { it.deviceId },
-        )
-
-        // `exclude` drops the machines that already hold the account — the
-        // per-account "+" chip offers the rest.
-        assertEquals(
-            listOf("codex-box"),
-            AgentAccountsRows.addAccountDevices(both, exclude = setOf("mine")).map { it.deviceId },
-        )
-        assertTrue(
-            AgentAccountsRows.addAccountDevices(both, exclude = setOf("mine", "codex-box")).isEmpty(),
-        )
-    }
 
     @Test
     fun `addable agents are the installed ones, signed in or out, in contract order`() {

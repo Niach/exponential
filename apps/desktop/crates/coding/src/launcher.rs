@@ -1355,6 +1355,11 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     options.plan_mode &= !resume_prompt;
     let options = &options;
     let agent = options.agent;
+    // EXP-909: the LOGIN this run spends, in the vocabulary the server column
+    // and the usage cache share — `system` for the ambient login, else the
+    // device-local profile id. Hoisted once so the row, the heartbeat and
+    // `apply_account_env` can never name different accounts.
+    let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
 
     // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
     // agent must resolve — a missing codex never blocks a claude launch).
@@ -1579,6 +1584,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // path always starts a run of its own.
             None,
             agent.wire_id(),
+            Some(agent_account.as_str()),
             &attachment_ids,
         ),
         PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
@@ -1589,6 +1595,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             run_reason,
             None,
             agent.wire_id(),
+            Some(agent_account.as_str()),
             &attachment_ids,
             // EXP-876: the row is NAMED by these — nothing else links a
             // batch to its issues until `pr_open`.
@@ -1864,6 +1871,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                 // EXP-876: an issue run names itself off its issue.
                 batch_issue_ids: Vec::new(),
                 agent: agent.wire_id().map(str::to_string),
+                agent_account: Some(agent_account.clone()),
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -1889,6 +1897,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
                     .map(|issue| issue.issue_id.clone())
                     .collect(),
                 agent: agent.wire_id().map(str::to_string),
+                agent_account: Some(agent_account.clone()),
             }
         }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -1978,6 +1987,9 @@ fn prepare_action(
     // run (the server validates remote starts identically).
     let options = req.options.clone();
     let agent = options.agent;
+    // EXP-909: the LOGIN this run spends — hoisted once so the row, the
+    // heartbeat and the account env can never name different accounts.
+    let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
     // The creator builtin always runs in its scratch dir — a repo INPUT only
     // pins the authored action's repositoryId, never this run's cwd. The
     // fix-conflicts builtin REQUIRES its repo (checked below).
@@ -2344,6 +2356,7 @@ fn prepare_action(
             branch: run_branch.as_deref(),
             resumed_from_id: None,
             agent: agent.wire_id(),
+            agent_account: Some(agent_account.as_str()),
             attribution: attribution(&req.origin, deps),
             attachment_ids: &attachment_ids,
         },
@@ -2563,6 +2576,7 @@ fn prepare_action(
             // EXP-876: an action run names itself off its snapshot.
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
+            agent_account: Some(agent_account.clone()),
         },
         acp: AcpLaunch {
             prompt: rendered.clone(),
@@ -2755,6 +2769,11 @@ fn prepare_resume_run(
         // mid-session account change is (the gate is below).
         account: resume_account.clone(),
     };
+    // EXP-909: the LOGIN the CONTINUATION spends. On a switch `options.account`
+    // is already the switch TARGET (`resume_account`), so the new row is
+    // stamped with the account it will actually run on — matching
+    // `resumed_record.set_account` below — never the one it came from.
+    let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
     let profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
         Some(agent),
@@ -3079,6 +3098,7 @@ fn prepare_resume_run(
             run_reason,
             Some(&record.session_id),
             agent.wire_id(),
+            Some(agent_account.as_str()),
             &attachment_ids,
         ),
         RunKind::Batch => coding_sessions::start_batch(
@@ -3089,6 +3109,7 @@ fn prepare_resume_run(
             run_reason,
             Some(&record.session_id),
             agent.wire_id(),
+            Some(agent_account.as_str()),
             &attachment_ids,
             // EXP-876: a resumed batch keeps the name of the run it
             // continues — the record holds the issues it covered.
@@ -3111,6 +3132,7 @@ fn prepare_resume_run(
                 branch: record.branch.as_deref(),
                 resumed_from_id: Some(&record.session_id),
                 agent: agent.wire_id(),
+                agent_account: Some(agent_account.as_str()),
                 attribution: attribution(&req.origin, deps),
                 attachment_ids: &attachment_ids,
             },
@@ -3250,6 +3272,7 @@ fn prepare_resume_run(
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
+            agent_account: Some(agent_account.clone()),
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3268,6 +3291,7 @@ fn prepare_resume_run(
                 .map(|issue| issue.issue_id.clone())
                 .collect(),
             agent: agent.wire_id().map(str::to_string),
+            agent_account: Some(agent_account.clone()),
         },
         _ => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3281,6 +3305,7 @@ fn prepare_resume_run(
             branch: record.branch.clone(),
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
+            agent_account: Some(agent_account.clone()),
         },
     };
     let issue_identifier = match record.kind {
@@ -4480,6 +4505,9 @@ mod tests {
         assert_eq!(requests.len(), 1, "{requests:?}");
         assert!(requests[0].starts_with("POST /api/trpc/codingSessions.start"));
         assert!(requests[0].contains(r#""actionId":"act-1""#));
+        // EXP-909: the row names the LOGIN it spends — an account-less launch
+        // is the AMBIENT login, spelled `system`, never "unknown".
+        assert!(requests[0].contains(r#""agentAccount":"system""#), "{requests:?}");
 
         // EXP-773: claude's session id is the ACP adapter's to mint, and a
         // claude run has no codex originator.
@@ -5466,10 +5494,70 @@ mod tests {
                 .any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
             "{requests:?}"
         );
+        // EXP-909: the continuation row is stamped with the TARGET login —
+        // the account it will actually spend, not the one it came from.
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.contains(&format!(r#""agentAccount":"{}""#, target.id))),
+            "{requests:?}"
+        );
         drop(requests);
+        assert_eq!(
+            prepared.heartbeat_scope.agent_account.as_deref(),
+            Some(target.id.as_str())
+        );
         let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
         assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
         assert_eq!(fresh.account().as_deref(), Some(target.id.as_str()));
+    }
+
+    /// EXP-909 — a resume that SWITCHES logins starts the continuation row on
+    /// the NEW account, never the one the previous run spent. Without this the
+    /// usage overlay of a switched run keeps reading the old login's numbers,
+    /// which is exactly the account the switch was made to get away from.
+    #[test]
+    fn a_resume_onto_another_account_starts_the_row_on_the_new_one() {
+        let dir = temp_dir("resume-switch-row");
+        let (base, captured) = canned_server_recording(vec![(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                .to_string(),
+        )]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let from = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "From").unwrap();
+        let to = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "To").unwrap();
+
+        // The run happened on `from`; the resume asks for `to`.
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.set_account(Some(&from.id));
+        let mut req = resume_request(record);
+        req.account = Some(to.id.clone());
+        let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+
+        let requests = captured.lock().unwrap();
+        let start = requests
+            .iter()
+            .find(|r| r.contains("codingSessions.start"))
+            .expect("start mutation");
+        assert!(
+            start.contains(&format!(r#""agentAccount":"{}""#, to.id)),
+            "{start}"
+        );
+        assert!(!start.contains(&from.id), "the old login is gone: {start}");
+        drop(requests);
+        assert_eq!(
+            prepared.heartbeat_scope.agent_account.as_deref(),
+            Some(to.id.as_str()),
+            "and a resurrect keeps the new one"
+        );
     }
 
     /// EXP-849 — the two switches the launcher refuses outright, before it
@@ -6319,6 +6407,17 @@ mod tests {
         assert_eq!(prepared.heartbeat_scope.started_reason, None);
         let requests = captured.lock().unwrap();
         assert!(!requests.iter().any(|r| r.contains("startedReason")));
+        // EXP-909: and the row says which login it runs on.
+        let start = requests
+            .iter()
+            .find(|r| r.contains("codingSessions.start"))
+            .expect("start mutation");
+        assert!(start.contains(r#""agentAccount":"system""#), "{start}");
+        assert_eq!(
+            prepared.heartbeat_scope.agent_account.as_deref(),
+            Some("system"),
+            "the heartbeat echoes it, so a resurrected row keeps it"
+        );
     }
 
     /// EXP-662: `resume_prompt` is the DEGRADED half of resume — no record

@@ -1,109 +1,75 @@
-// EXP-484/688: the agent's rate-limit windows as CARDS, off the host
-// machine's synced `devices.agent_usage`. One card per window, grouped by
-// `usageGroups`: the current session, the weekly limits, then anything else
-// the machine reported.
+// EXP-484/688/909: the agent's rate-limit windows, FULL form — every window
+// the host machine reported (`usageGroups`: the current session, the weekly
+// limits, then anything else), each as TWO lines:
 //
-// Three surfaces render this and nothing else does: the mobile session view's
-// "Usage" dialog, each agent's tab in the device-settings dialog (`compact`)
-// and the usage page's account cards (`compact dense`, EXP-817). Every rule (the titles, the three tones, the countdown
-// wording, the stale dimming) lives in `lib/agent-usage.ts` and is
-// hand-mirrored on iOS, Android and the desktop IDE. Change a string here,
-// change it there.
+//   Current session                        resets in 1h 4m
+//   ▓▓░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   9%
+//
+// One surface renders it — the run's usage overlay, under the account it runs
+// on. The other accounts, and every login on the Devices page, get the short
+// three-bar `UsageMini` instead; there is no `compact` and no `dense` variant
+// any more, because there is no third rhythm to be in.
+//
+// EXP-909: the bar is the shared `Meter` from `@exp/ui`, the same primitive the
+// Context block and the mini line draw — the hand-rolled span with its own tone
+// map is gone. Staleness DIMS the block and captions it (`usageAge`); it never
+// hides it, since numbers with an age on them are still the best answer anyone
+// has.
+//
+// Every rule (the titles, the three tones, the countdown wording, the as-of
+// rule) lives in `lib/agent-usage.ts` and is hand-mirrored on iOS, Android and
+// the desktop IDE. Change a string here, change it there.
 import type { DeviceAgentUsage } from "@/db/schema"
-import { GLASS_CARD_CLASS } from "@exp/ui"
-import { usageGroups, type UsageSeverity } from "@/lib/agent-usage"
-import { relativeTime } from "@/components/comment-rows/format"
+import { Meter } from "@exp/ui"
+import { usageAge, usageGroups } from "@/lib/agent-usage"
 import { cn } from "@/lib/utils"
 
-const TONE: Record<UsageSeverity, string> = {
-  normal: `bg-foreground/30`,
-  warning: `bg-amber-500`,
-  danger: `bg-destructive`,
-}
-
-/** Every window the machine reported, grouped. `compact` is the
- * device-settings tab arm (EXP-694): the windows are FLAT rows inside the
- * agent's own glass group — no nested card chrome — because the group around
- * them already draws the surface. The sheet arm keeps its standalone cards.
- * `dense` (EXP-817, the usage page's account cards) additionally folds the
- * caption onto the title line so a card is two lines per window — the
- * strings are the same, only the rhythm is tighter. */
-export function AgentUsageCards({
+export function UsageWindows({
   usage,
   now,
-  compact = false,
-  dense = false,
+  className,
 }: {
   usage: DeviceAgentUsage
   now: Date
-  compact?: boolean
-  dense?: boolean
+  className?: string
 }) {
   const groups = usageGroups(usage, now)
   if (groups.length === 0) return null
+  const age = usageAge(usage, now)
   return (
-    <div
-      className={cn(
-        dense ? `space-y-1.5` : compact ? `space-y-2` : `space-y-3`,
-        usage.stale && `opacity-50`
-      )}
-    >
+    <div className={cn(`space-y-2`, age && `opacity-50`, className)}>
       {groups.map((group) => (
-        <div key={group.key} className={dense ? `space-y-1` : `space-y-1.5`}>
-          {/* Header-skip rule shared with Android/desktop: empty titles render
-              no header (the weekly group's cards name themselves, EXP-694) and
-              neither does the session group — its single card is already
-              titled "Current session". */}
-          {group.title.length > 0 && group.key !== `session` && (
-            <p className="text-[11px] text-muted-foreground">{group.title}</p>
-          )}
+        <div key={group.key} className="space-y-1.5">
+          {/* EXP-909: no group headings ×4 — every window names itself
+              ("Current session" / "All models" / "<Label> only", or its wire
+              label), so the groups only order the rows. */}
           {group.cards.map((card) => (
-            <div
-              key={card.key}
-              className={cn(
-                dense ? `space-y-1` : `space-y-1.5`,
-                !compact && !dense && GLASS_CARD_CLASS,
-                !compact && !dense && `px-3 py-2`
-              )}
-            >
+            <div key={card.key} className="space-y-1">
               <div className="flex items-baseline gap-2">
                 <span className="min-w-0 flex-1 truncate text-xs">
                   {card.title}
                 </span>
-                {dense && card.caption.length > 0 && (
-                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                {card.caption.length > 0 && (
+                  <span className="min-w-0 shrink-0 truncate text-[11px] text-muted-foreground">
                     {card.caption}
                   </span>
                 )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Meter
+                  value={card.percent}
+                  tone={card.severity}
+                  className="min-w-0 flex-1"
+                />
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {`${card.percent}% used`}
+                  {`${card.percent}%`}
                 </span>
               </div>
-              <span
-                className={cn(
-                  `block w-full rounded-full bg-glass-stroke-strong`,
-                  dense ? `h-1` : `h-1.5`
-                )}
-              >
-                <span
-                  className={`block h-full rounded-full ${TONE[card.severity]}`}
-                  style={{ width: `${card.percent}%` }}
-                />
-              </span>
-              {!dense && card.caption.length > 0 && (
-                <p className="text-[11px] text-muted-foreground">
-                  {card.caption}
-                </p>
-              )}
             </div>
           ))}
         </div>
       ))}
-      {usage.stale && (
-        <p className="text-[11px] text-muted-foreground">
-          as of {relativeTime(usage.fetchedAt)}
-        </p>
-      )}
+      {age && <p className="text-[11px] text-muted-foreground">{age}</p>}
     </div>
   )
 }

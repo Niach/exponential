@@ -9,10 +9,14 @@
 // devices".
 //
 // EXP-862: nothing on a row SAYS anything about sign-ins any more. A login's
-// state is said once, on the chip that owns it (summarised by the row's
-// health badge) — the status line used to repeat it as "codex not signed in"
-// beside a chip already wearing the badge, and a "Sign in" pill repeated it a
-// third time.
+// state is said once, on the login row that owns it (summarised by the
+// device row's health badge) — the status line used to repeat it as "codex
+// not signed in", and a "Sign in" pill repeated it a third time.
+//
+// EXP-909: each device LISTS its logins underneath (`DeviceLogins`), editable
+// on the caller's own machines and read-only on a teammate's shared server.
+// That fold replaced the cross-device Accounts section, so this list also
+// carries the 30 s refresh loop that used to live there.
 import { useMemo, useState } from "react"
 import { LoaderCircle } from "lucide-react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
@@ -47,6 +51,7 @@ import { relativeTime } from "@/components/comment-rows/format"
 import { trpc } from "@/lib/trpc-client"
 import {
   describeUpdateBlockers,
+  deviceCanRefreshUsage,
   deviceCanUpdateNow,
   deviceHasRunnableAgent,
   deviceIsMine,
@@ -66,18 +71,13 @@ import type { CodingSession, Issue, User } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
-import { requestAgentLogin } from "@/components/agent-login-dialog"
+import { DeviceLogins } from "@/components/device-logins"
+import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 import {
-  AccountChipMenu,
-  accountChipActionable,
-} from "@/components/device-agent-account"
-import {
-  deviceAccountChips,
+  deviceLoginRows,
   deviceWorstHealth,
   healthBadgeLabel,
-  type DeviceAccountChip,
 } from "@/lib/agent-usage"
-import { agentLabel } from "@/components/agent-picker"
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule); the LoaderCircle
@@ -182,98 +182,6 @@ export function CopyIconButton({ text }: { text: string }) {
   )
 }
 
-// EXP-849: the Devices surface is the SETUP/REPAIR surface — one row per
-// device with its agents, worktrees and the accounts it holds. Accounts
-// (the page's other section) decides WHICH login to run on; everything that
-// touches a device's credentials happens here: the worst health bubbles to
-// the row's title, and every account it holds is a chip whose menu signs in,
-// makes that login the device's default, or removes it from the device.
-//
-// Nothing here ever copies a credential: a chip action queues either the
-// device's OWN `agent_login` (`AgentLoginDialog`, the agent CLI's login in
-// that profile's config dir), `agent_profile_use` (point the agent at a
-// profile the device already holds) or `agent_profile_remove` (forget one).
-function MachineAccountChips({ device }: { device: SteerDevice }) {
-  const chips = deviceAccountChips({ agentAccounts: device.agentAccounts })
-  if (chips.length === 0) return null
-  return (
-    <div className="mt-1 flex flex-wrap gap-1">
-      {chips.map((chip) => (
-        <MachineAccountChip key={chip.key} device={device} chip={chip} />
-      ))}
-    </div>
-  )
-}
-
-/** `claude · dennis@…` with the active check and the health badge. */
-function machineChipLabel(chip: DeviceAccountChip): string {
-  const who =
-    chip.email ??
-    (chip.signedIn ? (chip.plan ?? `signed in`) : chip.profileLabel)
-  return `${agentLabel(chip.agent)} · ${who}`
-}
-
-function MachineAccountChip({
-  device,
-  chip,
-}: {
-  device: SteerDevice
-  chip: DeviceAccountChip
-}) {
-  const health = healthBadgeLabel(chip.health)
-  const body = (
-    <>
-      <span className="min-w-0 truncate">{machineChipLabel(chip)}</span>
-      {chip.signedIn && chip.active && (
-        <CheckIcon
-          className="size-3 text-emerald-400"
-          aria-label="Active login"
-        />
-      )}
-      {health && (
-        <span className="shrink-0 text-[10px] font-medium text-amber-500">
-          {health}
-        </span>
-      )}
-    </>
-  )
-  // EXP-862: the ONE menu per state lives in `AccountChipMenu` (Sign in /
-  // Set as default / Remove account, ×4). A chip with no entry — a teammate's
-  // device, an offline one, a build that takes none of the commands — is the
-  // statement it always was.
-  if (!accountChipActionable(device, chip)) {
-    return (
-      <Pill size="sm" className="max-w-full" title={machineChipLabel(chip)}>
-        {body}
-      </Pill>
-    )
-  }
-  return (
-    <AccountChipMenu
-      device={device}
-      row={chip}
-      accountLabel={machineChipLabel(chip)}
-      onSignIn={() =>
-        requestAgentLogin({
-          device,
-          agent: chip.agent,
-          profileId: chip.profileId,
-        })
-      }
-      trigger={
-        <Pill
-          size="sm"
-          mode="action"
-          className="max-w-full"
-          title={machineChipLabel(chip)}
-        >
-          {body}
-        </Pill>
-      }
-    />
-  )
-}
-
 // The row's second line (native `deviceStatusLine` parity): a live dot +
 // "Online", or the last-seen caption for offline devices. EXP-862: it says
 // nothing about sign-ins — the account chips own that.
@@ -322,7 +230,9 @@ export function MyMachines({
   const [updateNowTarget, setUpdateNowTarget] = useState<SteerDevice | null>(null)
   const [busy, setBusy] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
-  const now = useNow()
+  // EXP-909: 30 s, not the default minute — the login rows under each device
+  // age their "as of …" captions on this clock, and so does the refresh loop.
+  const now = useNow(30_000)
   const blockersFor = useUpdateBlockers()
   const { data: userRows } = useLiveQuery(
     (q) => q.from({ u: userCollection }),
@@ -336,6 +246,36 @@ export function MyMachines({
 
   const mine = devices?.filter(deviceIsMine) ?? null
   const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
+  // EXP-909: the 30 s auto-refresh the deleted Accounts section used to run,
+  // keyed by LOGIN and scoped to the caller's own machines — a teammate's
+  // server takes no commands from here.
+  const ownLogins = useMemo(
+    () =>
+      (mine ?? []).flatMap((device) =>
+        deviceLoginRows(
+          {
+            deviceId: device.deviceId,
+            deviceLabel: device.deviceLabel,
+            agentAccounts: device.agentAccounts,
+            agentUsage: device.agentUsage,
+            agentUsageAt: device.agentUsageAt,
+          },
+          { mine: true, online: deviceIsOnline(device) }
+        )
+      ),
+    [mine]
+  )
+  const capsByDevice = useMemo(
+    () => new Map((mine ?? []).map((device) => [device.deviceId, device.caps ?? []])),
+    [mine]
+  )
+  useAgentUsageRefresh(
+    ownLogins,
+    (row) =>
+      row.online &&
+      deviceCanRefreshUsage({ caps: capsByDevice.get(row.deviceId) ?? [] }),
+    now
+  )
   // Re-resolved each render so the dialog always edits the LIVE synced row.
   const settingsTarget =
     mine?.find((device) => device.deviceId === settingsTargetId) ?? null
@@ -515,9 +455,9 @@ export function MyMachines({
                       {blockerLine}
                     </div>
                   )}
-                  {/* EXP-849: the accounts this device holds — the repair
-                      controls live on these chips. */}
-                  <MachineAccountChips device={device} />
+                  {/* EXP-909: the logins this device holds — every repair
+                      control lives on these rows. */}
+                  <DeviceLogins device={device} now={now} />
                 </div>
                 {/* EXP-698: the fixed trailing column — a play slot and a ⋯
                     slot, so the controls line up down the list. A row without
@@ -663,6 +603,9 @@ export function MyMachines({
                       online={online}
                       lastSeenAt={device.lastSeenAt}
                     />
+                    {/* EXP-909: a teammate's machine lists its logins too —
+                        read-only: its credentials are theirs to repair. */}
+                    <DeviceLogins device={device} now={now} readOnly />
                   </div>
                   {/* The same fixed trailing column as "My devices": a
                       read-only row has no ⋯ menu, so its slot is an empty

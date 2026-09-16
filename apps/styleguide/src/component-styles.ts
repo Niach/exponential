@@ -713,6 +713,19 @@ export const componentStyles = `
 .cmp-usage-bar .fill { width: 62%; height: 100%; border-radius: 9999px; background: var(--fg-30); }
 .cmp-usage-bar.warn .fill { width: 88%; background: var(--warn); }
 
+/* EXP-909: the same report in ONE line — three wire labels, three 4px meters,
+   three percents. The fills are fixed here because a demo may carry no inline
+   style; the real component reads them off miniWindows. */
+.cmp-usage-mini { display: flex; align-items: center; gap: 12px; }
+.cmp-usage-mini .line { display: flex; flex: 1; align-items: center; gap: 6px; font-size: 11px; }
+.cmp-usage-mini .label { color: var(--muted-fg); }
+.cmp-usage-mini .amount { color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+.cmp-usage-mini .track { flex: 1; height: 4px; border-radius: 9999px; background: var(--stroke-strong); overflow: hidden; }
+.cmp-usage-mini .fill { display: block; height: 100%; border-radius: 9999px; background: var(--fg-30); }
+.cmp-usage-mini .line:nth-child(1) .fill { width: 4%; }
+.cmp-usage-mini .line:nth-child(2) .fill { width: 73%; }
+.cmp-usage-mini .line:nth-child(3) .fill { width: 100%; background: var(--destructive); }
+
 /* -------------------------------------------------------------- divider */
 .cmp-divider { height: 1px; background: var(--stroke-soft); }
 

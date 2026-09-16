@@ -227,6 +227,22 @@ final class AgentSessionModel {
     /// nothing to switch between. Derived off the same synced `devices` rows as
     /// `agentUsage`, so it repaints on every heartbeat.
     private(set) var accountOptions: [SessionAccountOption] = []
+    /// EXP-909: WHICH of those logins this run SPENDS — the synced
+    /// `coding_sessions.agent_account` when it names one, else the login whose
+    /// email the machine reports for the agent, else the machine's active one
+    /// (`SessionAccountSwitch.activeAccountIndex`, the ×4 order). Nil = the
+    /// machine listed nothing, or nothing resolved: UNKNOWN, never a guess.
+    private(set) var runAccount: SessionAccountOption?
+    /// EXP-909: the RESOLVED account's own rate-limit windows — the overlay's
+    /// header block. The profile's own report, falling back to the machine's
+    /// top-level `agentUsage[agent]` only when that profile is its ACTIVE
+    /// login (the only login those top-level numbers can belong to) or the
+    /// run's account is unknown. Unlike `agentUsage` this is NOT gated on
+    /// freshness: EXP-909 dims and dates old numbers instead of hiding them.
+    private(set) var runUsage: AgentUsage?
+    /// EXP-829/EXP-909: the command queue the overlay's one-shot usage refresh
+    /// rides. Set by the session screen; nil = nothing is ever queued.
+    var devicesApi: DevicesApi?
     /// EXP-849: the machine a switch (a resume naming another login) would go
     /// to — the run's OWN machine as the devices shape presents it, live runs
     /// included (`resumeDevice` is the ENDED-run affordance and stays that).
@@ -1456,14 +1472,14 @@ final class AgentSessionModel {
         agentUsage = AgentUsagePresentation.sessionUsage(
             session: session, devices: deviceRows, now: now
         )
-        // Same devices-row match `sessionUsage` makes (the stamped device id,
-        // preferring the session owner's own row) — only the account map is
-        // read, and only for the agent the run uses.
-        agentAccount = agentUsage.flatMap { usage -> AgentAccount? in
-            let byId = deviceRows.filter { $0.deviceId == session.deviceId }
-            let row = byId.first { $0.userId == session.userId } ?? byId.first
-            return AgentUsagePresentation.parseAccounts(row?.agentAccounts)?[usage.agent]
-        }
+        // ONE devices-row join for everything below it — the same match
+        // `AgentUsagePresentation.sessionUsage` makes internally (the stamped
+        // device id, preferring the session owner's own row, since two users
+        // can see one machine through a shared server row). It used to be
+        // spelled out three times in this method, once per consumer.
+        let hostRow = Self.hostRow(session: session, devices: deviceRows)
+        let hostAccounts = AgentUsagePresentation.parseAccounts(hostRow?.agentAccounts)
+        agentAccount = session.agent.flatMap { hostAccounts?[$0] }
         // EXP-773: Resume moved from the list row into this screen's header,
         // so the machine a Resume would go to is resolved here — the same ×4
         // rule the lists used (own ended run, its own machine, online and
@@ -1477,19 +1493,69 @@ final class AgentSessionModel {
             currentUserId: currentUserId
         )
         // EXP-849: the host machine and the logins it reports for this run's
-        // agent — the switch surface. The devices-row match is the one
-        // `sessionUsage` makes (the stamped id, preferring the owner's own row),
-        // and the rows come off the same ×4 derivation the Accounts page uses,
-        // so a login reads identically on both surfaces.
-        let hostRows = deviceRows.filter { $0.deviceId == session.deviceId }
-        let hostRow = hostRows.first { $0.userId == session.userId } ?? hostRows.first
+        // agent — the switch surface. The rows come off the same ×4
+        // derivation the Devices page uses, so a login reads identically on
+        // both surfaces.
         switchDevice = hostRow.map {
             SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
         }
         accountOptions = SessionAccountSwitch.options(
-            accounts: AgentUsagePresentation.parseAccounts(hostRow?.agentAccounts),
-            agent: session.agent
+            accounts: hostAccounts,
+            agent: session.agent,
+            // EXP-909: the run's OWN account, synced since the coding-sessions
+            // shape carries `agent_account`.
+            currentAccount: session.agentAccount
         )
+        // EXP-909: which of them the run spends, and that login's numbers.
+        runAccount = SessionAccountSwitch.currentOption(
+            accountOptions,
+            reportedEmail: session.agent.flatMap { hostAccounts?[$0]?.email }
+        )
+        let reportedUsage = session.agent.flatMap {
+            AgentUsagePresentation.parseMap(hostRow?.agentUsage)?[$0]
+        }
+        // The machine only ever puts its ACTIVE login's numbers in the
+        // top-level map, so that fallback is legitimate for the active profile
+        // and for an unknown account — and a lie for any other profile.
+        runUsage = runAccount?.usage ?? (runAccount?.active != false ? reportedUsage : nil)
+    }
+
+    /// The run's host `devices` row: the stamped `device_id`, preferring the
+    /// session owner's own row.
+    private static func hostRow(
+        session: CodingSessionEntity,
+        devices: [DeviceEntity]
+    ) -> DeviceEntity? {
+        let byId = devices.filter { $0.deviceId == session.deviceId }
+        return byId.first { $0.userId == session.userId } ?? byId.first
+    }
+
+    /// EXP-909: ONE `agent_usage_refresh` as the Usage overlay opens — never a
+    /// polling loop, because the heartbeat delivers the answer within 30 s.
+    ///
+    /// Only on MY machine, only while it is listening, only when its build
+    /// advertises the cap (the server refuses the command below it), and only
+    /// past the device's own 429 floor (`refreshAllowedAt`) — the same four
+    /// gates the Devices page's refresh round applies. It fails quietly: a
+    /// command still queued from a previous open is a CONFLICT, and the next
+    /// open simply looks again.
+    func requestUsageRefresh() {
+        guard let devicesApi, let device = switchDevice, let agent = session?.agent else { return }
+        guard device.isMine, device.isOnline,
+              device.caps?.contains(AgentAccountsRows.refreshCap) == true,
+              AgentAccountsRows.refreshAllowedAt(runUsage, now: Date()) == nil
+        else { return }
+        let accountId = accountId
+        let profileId = runAccount?.profileId
+        Task {
+            _ = try? await devicesApi.createCommand(
+                accountId: accountId,
+                deviceId: device.deviceId,
+                kind: "agent_usage_refresh",
+                agent: agent,
+                profileId: profileId
+            )
+        }
     }
 
     // MARK: - Composer autocomplete (EXP-802)

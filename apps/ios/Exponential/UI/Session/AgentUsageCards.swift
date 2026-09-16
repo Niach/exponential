@@ -2,200 +2,197 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-688: agent rate-limit usage as CARDS — one per window the machine
-/// reported, grouped Current session / (untitled weekly) / Other.
+/// EXP-909: the run's **Usage overlay** — ONE layout on all four clients.
 ///
-/// This replaces the EXP-484 hairline strip and its radio "pinned window"
-/// rows: there is no tracked-window concept any more on any client. The device
-/// is still the only writer (it probes its own CLIs and reports `agent_usage`
-/// on heartbeat); everything here reads the synced row through the pure rules
-/// in ExpCore's `AgentUsagePresentation.usageGroups`, which the web, Android
-/// and desktop cards mirror against the same fixture.
+/// It answers three questions in one column, top to bottom: which account is
+/// this run spending (the header), how much of that account is left (the
+/// windows), how full is the run's own context (the Context line) — and then
+/// offers the other logins the machine holds, each with its own compact bars,
+/// so "I am out of limit" and "use my other account" stay one thought.
 ///
-/// Two hosts: the steering screen's "Usage" sheet (`AgentUsageSheet`) and each
-/// agent's tab in Device settings (`compact`).
+/// What EXP-875 found and this replaces: three-line cards per window, a
+/// full-width "Switch to this account" button on every row that cut the email,
+/// two different bar primitives, and a plan string repeated on every row.
+/// Now: two lines per window (title + countdown, then meter + `NN%`), ONE bar
+/// primitive (`AgentUsageTrack`, ExpUI), the plan said ONCE in the header, and
+/// an icon-only switch.
+///
+/// The device is still the only writer of the numbers (it probes its own CLIs
+/// and reports on heartbeat); everything here reads the synced row through the
+/// pure ×4 rules in `AgentUsagePresentation` / `SessionAccountSwitch`.
 
-/// Every group the report yields, headers and all. Session cards carry no
-/// header — the card itself already says "Current session" — and neither does
-/// any group the rules left untitled (EXP-694's weekly group).
-struct AgentUsageCards: View {
+/// Every window the machine reported for ONE login, two lines each. No group
+/// headers: the card titles already say "Current session" / "All models" /
+/// "<Label> only", which is what the headers used to repeat.
+///
+/// Numbers are NEVER hidden for being old (EXP-909) — past the freshness
+/// window, or flagged stale by a machine that could not refresh them, the block
+/// dims and dates itself with `usageAge`.
+struct UsageWindows: View {
     let usage: AgentUsage
-    /// Device settings renders the same numbers as FLAT rows (EXP-694): no
-    /// card chrome of their own, because the grouped row they sit in already
-    /// has it.
-    var compact = false
+    var now = Date()
+
+    private var cards: [UsageCard] {
+        AgentUsagePresentation.usageGroups(usage, now: now).flatMap(\.cards)
+    }
+
+    private var age: String? {
+        AgentUsagePresentation.usageAge(usage, now: now)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 12 : 16) {
-            ForEach(AgentUsagePresentation.usageGroups(usage, now: Date())) { group in
-                VStack(alignment: .leading, spacing: 8) {
-                    if group.key != "session", !group.title.isEmpty {
-                        Text(group.title)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                    ForEach(group.cards) { card in
-                        AgentUsageCardRow(card: card, compact: compact)
-                    }
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(cards) { card in
+                windowRow(card)
+            }
+            if let age {
+                Text(age)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
-        // Numbers the machine kept after a failed refresh still read, they
-        // just stop claiming to be current.
-        .opacity(usage.stale == true ? 0.5 : 1)
-    }
-}
-
-/// One card: title + `n% used`, the severity-toned track, and the caption
-/// (`resets in 2h 10m`, or the idle session window's "Starts when a message is
-/// sent") when the rules produced one.
-///
-/// EXP-694: `compact` is a FLAT row — no `.glassRow()` and no horizontal
-/// padding, because the grouped card hosting it already draws both. Only the
-/// standalone Usage sheet still carries card chrome.
-struct AgentUsageCardRow: View {
-    let card: UsageCard
-    var compact = false
-
-    @ViewBuilder
-    var body: some View {
-        if compact {
-            content
-                .padding(.vertical, 2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .combine)
-        } else {
-            content
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassRow()
-                .accessibilityElement(children: .combine)
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(age == nil ? 1 : 0.5)
     }
 
-    private var content: some View {
-        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+    /// Line 1: the window's title and its countdown (or the idle session
+    /// window's "Starts when a message is sent"). Line 2: the meter and the
+    /// percentage — `NN%`, without the word "used": the title already says
+    /// what is being measured.
+    private func windowRow(_ card: UsageCard) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Text(card.title)
-                    .font(compact ? .subheadline.weight(.medium) : .body.weight(.medium))
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Text(percentText)
+                if !card.caption.isEmpty {
+                    Text(card.caption)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                }
+            }
+            HStack(spacing: 8) {
+                AgentUsageTrack(percent: card.percent, severity: card.severity)
+                Text(percentText(card.percent))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
-            AgentUsageTrack(percent: card.percent, severity: card.severity)
-            if !card.caption.isEmpty {
-                Text(card.caption)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
         }
+        .accessibilityElement(children: .combine)
     }
 
     /// A window the machine reported without a number draws an empty rail and
-    /// says so, rather than claiming 0% used.
-    private var percentText: String {
-        guard let percent = card.percent else { return "—" }
-        return "\(Int(percent.rounded()))% used"
+    /// says so, rather than claiming 0%.
+    private func percentText(_ percent: Double?) -> String {
+        guard let percent else { return "—" }
+        return "\(Int(percent.rounded()))%"
     }
 }
 
-/// The track itself: a rounded rail with the used share filled in the tone the
-/// locked severity thresholds pick (≥95 red, ≥75 amber, otherwise a muted
-/// white). A window with no percentage draws an empty rail rather than a lie.
-struct AgentUsageTrack: View {
-    let percent: Double?
-    let severity: AgentUsageSeverity
-    var height: CGFloat = 6
-
-    private var tone: Color {
-        switch severity {
-        case .normal: return GlassTokens.usageFill
-        case .warning: return DesignTokens.Semantic.yellow
-        case .danger: return DesignTokens.Semantic.red
-        }
-    }
-
-    var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(GlassTokens.strokeStrong)
-                Capsule()
-                    .fill(tone)
-                    .frame(width: geo.size.width * min(max((percent ?? 0) / 100, 0), 1))
-            }
-        }
-        .frame(height: height)
-        .accessibilityHidden(true)
-    }
-}
-
-/// The steering screen's "Usage" sheet (EXP-688) — the `…` menu's Usage entry.
-/// Content-fitted (EXP-687): a machine reporting many windows grows the sheet
-/// up to the shared 85 % cap, then scrolls.
+/// EXP-909: the COMPACT form — up to three tiny meters on ONE line, each
+/// `label · meter · NN%`, wearing the WIRE labels (`5h` / `Week` / `Fable`),
+/// which is the only reason three fit. Empty for a login with no windows.
 ///
-/// EXP-746: it opens on EITHER half now. The machine's rate-limit report is
-/// optional (a fresh run on a machine that reported nothing still has its own
-/// numbers) and the ACP engine's per-run context/spend rides above it as its
-/// own "Context" block — deliberately NOT folded into `usageGroups`, whose
-/// percent cards are fixture-locked ×4 and would draw an empty rail for a
-/// token count.
-///
-/// EXP-849 makes it the run's ACCOUNT surface too: under the numbers sit the
-/// logins the host machine reports for this run's agent, each with its own
-/// bars, and — claude only, between turns, on the run's own machine — a
-/// "Switch to this account" that resumes the run under that login. That is why
-/// the usage/context readout is a CONTROL on every client now: "I am out of
-/// limit" and "use my other account" are one thought.
-struct AgentUsageSheet: View {
+/// Deliberately standalone and reusable: this is the same piece EXP-872 mounts
+/// as the account picker's rate-limit preview, and the Devices page draws it
+/// under every login. Web `UsageMini`, desktop `usage_bar::render_usage_mini`,
+/// Android `AgentUsageMini`.
+struct AgentUsageMini: View {
     let usage: AgentUsage?
-    /// The host machine's sign-in status for THIS session's agent, when it
-    /// reported one — the agent name is already the sheet's context, so the
-    /// caption drops the `<agent> · ` prefix `accountRow` adds.
+
+    private var windows: [UsageMiniWindow] {
+        AgentUsagePresentation.miniWindows(usage)
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if !windows.isEmpty {
+            HStack(spacing: 10) {
+                ForEach(windows) { window in
+                    HStack(spacing: 4) {
+                        Text(window.label)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                        AgentUsageTrack(
+                            percent: window.percent,
+                            severity: AgentUsagePresentation.severity(window.percent),
+                            height: 4
+                        )
+                        .frame(width: 24)
+                        Text(window.percent.map { "\(Int($0.rounded()))%" } ?? "—")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// The steering screen's "Usage" sheet — the composer ring's destination and
+/// the rate-limit wall's "Switch account" pill.
+///
+/// Content-fitted (EXP-687): a machine reporting many windows grows the sheet
+/// up to the shared 85 % cap, then scrolls. It hides once the run has ended
+/// (the host's limits are then nobody's business) — its presenter decides that.
+struct AgentUsageSheet: View {
+    /// The run's agent — the header's brand mark.
+    let agent: String?
+    /// EXP-909: the login this run SPENDS, resolved by the ×4 order
+    /// (`SessionAccountSwitch.activeAccountIndex`). Nil = unknown, which is
+    /// not "the ambient one": the header then falls back to the machine's own
+    /// account report.
+    let runAccount: SessionAccountOption?
+    /// The host machine's top-level report for this run's agent — the header's
+    /// caption when no listed profile resolved.
     let account: AgentAccount?
+    /// The RESOLVED account's own rate-limit windows (A2: the profile's
+    /// `usage`, falling back to the machine's top-level map only when that
+    /// profile is its active login, or the run's account is unknown).
+    var usage: AgentUsage?
     /// EXP-746: this run's own context window and spend off the relay's
     /// latest-wins `usage` event.
     var sessionUsage: AgentSessionUsage? = nil
-    /// EXP-849: the host machine's logins for this run's agent
-    /// (`AgentSessionModel.accountOptions`). Empty = the machine said nothing
-    /// about the agent, so there is nothing to switch between and the block is
-    /// absent.
+    /// EXP-849: EVERY login the host machine reports for this run's agent. The
+    /// header one is dropped from the Accounts section — a row saying "switch
+    /// to the account you are already on" is noise.
     var accounts: [SessionAccountOption] = []
     /// EXP-849: whether this run's agent can change login at all (claude). A
     /// codex run still lists its accounts — read-only, because switching there
     /// means starting the next run on the other one.
     var supportsSwitch: Bool = false
     /// EXP-849: why switching onto a given login would be refused right now
-    /// (`AgentSessionModel.accountSwitchRefusal`, the ×4 rule). The control
-    /// stays and says so — nil for the rows a switch would take.
+    /// (`AgentSessionModel.accountSwitchRefusal`, the ×4 rule).
     var switchRefusal: ((SessionAccountOption) -> String?)? = nil
     /// A switch is on the wire — every row's control waits.
     var switching: Bool = false
     var onSwitch: ((SessionAccountOption) -> Void)? = nil
+    /// EXP-909: ONE usage refresh, requested as the overlay opens (no polling
+    /// loop — the heartbeat delivers within 30 s). The model decides whether
+    /// the machine may take it.
+    var onOpen: (() -> Void)? = nil
+
+    /// The other logins — never the one the header names.
+    private var otherAccounts: [SessionAccountOption] {
+        guard let runAccount else { return accounts }
+        return accounts.filter { $0.profileId != runAccount.profileId }
+    }
 
     var body: some View {
         GlassSheetChrome(title: "Usage") {
-            VStack(alignment: .leading, spacing: 16) {
-                if let account {
-                    Text(AgentUsagePresentation.accountCaption(account))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            VStack(alignment: .leading, spacing: 12) {
+                header
+                GlassDivider()
+                windowsBlock
                 if let sessionUsage {
+                    GlassDivider()
                     SessionContextBlock(usage: sessionUsage)
-                }
-                if let usage {
-                    AgentUsageCards(usage: usage)
-                }
-                if let staleCaption {
-                    Text(staleCaption)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
                 accountsBlock
             }
@@ -204,54 +201,136 @@ struct AgentUsageSheet: View {
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onAppear { onOpen?() }
     }
 
-    /// EXP-849: the run's accounts — one row per login the host machine
-    /// reports for its agent, the machine's current one marked, each with its
-    /// own bars, and the switch where one is allowed.
-    @ViewBuilder
-    private var accountsBlock: some View {
-        if !accounts.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(SessionAccountSwitch.sectionTitle)
+    // MARK: - Header
+
+    /// The brand mark, the run's account (truncating), and ONE trailing slot:
+    /// the health badge when the login needs attention, else the plan — said
+    /// here and nowhere else, so the rows below stay identities.
+    private var header: some View {
+        HStack(spacing: 8) {
+            if let agent, let mark = AgentBrandMark.image(agent) {
+                mark
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+            }
+            Text(headerCaption)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            if let badge = runAccount?.health.badgeLabel {
+                Text(badge)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.Semantic.yellow)
+                    .lineLimit(1)
+            } else if let plan = headerPlan {
+                Text(plan)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                ForEach(accounts) { option in
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("session-usage-header")
+    }
+
+    private var headerCaption: String {
+        runAccount?.caption ?? AgentUsagePresentation.accountCaption(account)
+    }
+
+    /// The plan rides the trailing slot only when the caption is the EMAIL —
+    /// otherwise the caption already IS the plan and printing it twice reads
+    /// as a bug.
+    private var headerPlan: String? {
+        if let runAccount {
+            guard runAccount.email != nil else { return nil }
+            return runAccount.plan
+        }
+        guard let account, account.email?.isEmpty == false else { return nil }
+        return account.plan.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    // MARK: - Windows
+
+    /// The resolved login's windows — or, while the machine has reported the
+    /// login but nothing has probed its limits yet, the one word that says so.
+    /// "No usage reported" would make a machine that is simply still working
+    /// read as broken.
+    @ViewBuilder
+    private var windowsBlock: some View {
+        if let usage, !(usage.windows ?? []).isEmpty {
+            UsageWindows(usage: usage)
+        } else {
+            Text("Checking…")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+    }
+
+    // MARK: - Accounts
+
+    /// EXP-849/EXP-909: the OTHER logins the host machine holds for this run's
+    /// agent — each an identity line with its compact bars, and the icon-only
+    /// switch. The footer says the one thing that is true of all of them: the
+    /// run-level refusal, or what a switch costs.
+    @ViewBuilder
+    private var accountsBlock: some View {
+        if !otherAccounts.isEmpty {
+            GlassDivider()
+            VStack(alignment: .leading, spacing: 10) {
+                Text(SessionAccountSwitch.sectionTitle.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                ForEach(otherAccounts) { option in
                     SessionAccountRow(
                         option: option,
                         showsSwitch: supportsSwitch && onSwitch != nil,
-                        refusal: switchRefusal?(option),
+                        refusal: rowRefusal(option),
                         switching: switching,
                         onSwitch: { onSwitch?(option) }
                     )
                 }
-                // The one-time cost, stated BEFORE the tap — the relaunch
-                // re-reads the transcript on the account moved to.
-                if supportsSwitch, accounts.count > 1 {
-                    Text(SessionAccountSwitch.costNote)
+                if let footer {
+                    Text(footer)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("session-accounts")
         }
     }
 
-    /// Numbers the machine could not refresh say so, in the same words the
-    /// other three clients use.
-    private var staleCaption: String? {
-        guard usage?.stale == true else { return nil }
-        let asOf = agentUsageRelativeDate(usage?.fetchedAt)
-        return asOf.isEmpty ? nil : "as of \(asOf)"
+    /// A refusal that is about the RUN (wrong agent, mid-turn, offline …) is
+    /// said ONCE in the footer; only a row-specific one rides its row.
+    private func rowRefusal(_ option: SessionAccountOption) -> String? {
+        let refusal = switchRefusal?(option)
+        return refusal == globalBlocker ? nil : refusal
+    }
+
+    private var globalBlocker: String? {
+        SessionAccountSwitch.globalSwitchBlocker(otherAccounts.map { switchRefusal?($0) })
+    }
+
+    /// The run-level refusal when there is one, else the one-time cost of a
+    /// switch — stated BEFORE the tap, because the relaunch re-reads the
+    /// transcript on the account moved to.
+    private var footer: String? {
+        if let globalBlocker { return globalBlocker }
+        return supportsSwitch ? SessionAccountSwitch.costNote : nil
     }
 }
 
-/// EXP-849: one login of the run's host machine inside the Usage sheet — who it
-/// is, its health, whether it is that machine's CURRENT login, its own bars,
-/// and the switch. The control STAYS when a switch would be refused and the
-/// reason sits under the row: a vanished button teaches nothing. Mirrors
-/// Android's `SessionAccountRow` field for field.
+/// EXP-849: one OTHER login of the run's host machine — who it is, its health,
+/// its own compact bars, and the switch. The control STAYS when a switch would
+/// be refused and the reason sits under the row: a vanished button teaches
+/// nothing. Mirrors Android's `SessionAccountRow` field for field.
 struct SessionAccountRow: View {
     let option: SessionAccountOption
     /// Whether this run's agent supports switching at all (claude). A codex run
@@ -262,49 +341,30 @@ struct SessionAccountRow: View {
     let switching: Bool
     let onSwitch: () -> Void
 
-    /// `max · Active login` — the plan (when it is not already the title) and
-    /// the machine's CURRENT login. Never a claim about which account THIS run
-    /// is on: that stays server-side.
-    private var subtitle: String {
-        var parts: [String] = []
-        if let plan = option.plan, plan != option.caption { parts.append(plan) }
-        if option.active { parts.append("Active login") }
-        return parts.joined(separator: " · ")
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(option.caption)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(
-                                option.signedIn ? Color.white : DesignTokens.Semantic.yellow
-                            )
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let badge = option.health.badgeLabel {
-                            Text(badge)
-                                .font(.caption2)
-                                .foregroundStyle(DesignTokens.Semantic.yellow)
-                                .lineLimit(1)
-                        }
-                    }
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
+                Text(option.caption)
+                    .font(.subheadline)
+                    .foregroundStyle(option.signedIn ? Color.white : DesignTokens.Semantic.yellow)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let badge = option.health.badgeLabel {
+                    Text(badge)
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.Semantic.yellow)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if showsSwitch {
                     switchControl
                 }
             }
-            if let usage = option.usage, !(usage.windows ?? []).isEmpty {
-                AgentUsageCards(usage: usage, compact: true)
+            AgentUsageMini(usage: option.usage)
+            if let age = AgentUsagePresentation.usageAge(option.usage) {
+                Text(age)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             // The refusal rides the ROW the control is on, so it is read where
             // the tap was meant to happen.
@@ -315,13 +375,13 @@ struct SessionAccountRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassRow()
         .accessibilityIdentifier("session-account-\(option.profileId)")
     }
 
+    /// EXP-909: icon-only. The labelled pill cut the email on every row it sat
+    /// beside; the label survives as the control's accessibility name, which
+    /// is the only place it was load-bearing.
     @ViewBuilder
     private var switchControl: some View {
         if switching {
@@ -330,68 +390,53 @@ struct SessionAccountRow: View {
                 .tint(.white)
                 .accessibilityLabel("Switching account")
         } else {
-            GlassPill(
-                SessionAccountSwitch.switchLabel,
-                icon: AppIcons.uiSwap,
-                mode: .action(onSwitch),
-                enabled: refusal == nil
+            CircleIconButton(
+                AppIcons.uiSwap,
+                accessibilityLabel: SessionAccountSwitch.switchLabel,
+                size: 28,
+                glyphSize: AppIcon.Size.small,
+                enabled: refusal == nil,
+                action: onSwitch
             )
             .accessibilityIdentifier("switch-account-\(option.profileId)")
         }
     }
 }
 
-/// EXP-746: the run's own context window and spend — `124k / 200k (62%)` with
-/// the same severity-toned track the rate-limit cards use, and the spend
-/// beside it when there is one worth printing. The strings come from the
-/// ×4-locked pure rules; nothing here formats a number itself.
+/// EXP-746/EXP-909: the run's own context window and spend on ONE line —
+/// `Context · 124k / 200k (62%) · $1.24` — with the shared meter under it. The
+/// strings come from the ×4-locked pure rules; nothing here formats a number
+/// itself.
 struct SessionContextBlock: View {
     let usage: AgentSessionUsage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(AgentUsagePresentation.contextSectionTitle)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Text(
-                        AgentUsagePresentation.formatContextUsage(
-                            used: usage.contextUsed, size: usage.contextSize
-                        ) ?? "—"
-                    )
-                    .font(.subheadline.weight(.medium).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    Spacer(minLength: 0)
-                    if let cost = AgentUsagePresentation.formatUsageCost(usage.costUsd) {
-                        Text(cost)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                }
-                AgentUsageTrack(
-                    percent: usage.percent.map(Double.init),
-                    severity: AgentUsagePresentation.severity(usage.percent.map(Double.init))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(AgentUsagePresentation.contextSectionTitle)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(
+                    AgentUsagePresentation.formatContextUsage(
+                        used: usage.contextUsed, size: usage.contextSize
+                    ) ?? "—"
                 )
+                .font(.subheadline.weight(.medium).monospacedDigit())
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                Spacer(minLength: 0)
+                if let cost = AgentUsagePresentation.formatUsageCost(usage.costUsd) {
+                    Text(cost)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassRow()
-            .accessibilityElement(children: .combine)
+            AgentUsageTrack(
+                percent: usage.percent.map(Double.init),
+                severity: AgentUsagePresentation.severity(usage.percent.map(Double.init))
+            )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
-}
-
-/// The AgentsView relative-date idiom, shared by the usage surfaces: Electric
-/// syncs timestamps as Postgres text (space separator, hour-only offset),
-/// which `ISO8601DateFormatter` alone rejects — `WireTimestamps` handles both
-/// wire forms (EXP-169). Empty for an absent or unreadable stamp, so callers
-/// can drop the caption entirely.
-func agentUsageRelativeDate(_ value: String?) -> String {
-    guard let value, let date = WireTimestamps.parse(value) else { return "" }
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .short
-    return formatter.localizedString(for: date, relativeTo: Date())
 }

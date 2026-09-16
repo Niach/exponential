@@ -588,6 +588,14 @@ pub struct CodingSession {
     /// value; `None` on rows written before the column existed.
     #[serde(default)]
     pub agent: Option<String>,
+    /// EXP-909: which LOGIN of that agent the run spends (`system` = the
+    /// ambient one, else a device-local profile id, matching the devices
+    /// row's `agentAccounts[agent].profiles[].id`). `None` on rows written
+    /// before the desktop stamped it — which reads as "unknown", never as
+    /// the ambient login: guessing it would point the usage readout at the
+    /// wrong account's numbers, the very thing EXP-909 fixed.
+    #[serde(default)]
+    pub agent_account: Option<String>,
     /// Desktop-written attention flag (EXP-214): the agent is parked on a
     /// plan-approval / AskUserQuestion picker and waits for a human.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]

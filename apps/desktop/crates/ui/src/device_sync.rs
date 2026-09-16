@@ -1127,6 +1127,62 @@ pub(crate) fn use_agent_profile_here(
     Ok(())
 }
 
+/// EXP-909 — the usage overlay OPENED on a run this machine hosts: read that
+/// login's rate-limit windows now, and mirror the answer into the hub so the
+/// sheet under the pointer redraws without waiting for a beat.
+///
+/// Deliberately the POLITE read ([`coding::refresh_on_demand`], not
+/// `force_collect`): opening a popover is a glance, not a person pressing
+/// Refresh, so every floor the device sets itself still holds and a login
+/// that was read a minute ago simply keeps what it has. Nothing is reported
+/// back to the caller — the numbers land on the hub, and [`beat_soon`] ships
+/// them to the other clients on the next heartbeat.
+pub(crate) fn refresh_agent_usage_here(
+    agent: coding::CodingAgent,
+    profile: String,
+    cx: &mut App,
+) {
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    let hub = crate::coding_flow::CodingHub::global(cx);
+    let (settings, report) =
+        hub.read_with(cx, |hub, _| (hub.settings.clone(), hub.doctor.report.clone()));
+    cx.spawn(async move |cx| {
+        // The probe talks to the agent CLI (and possibly the network): never
+        // on the main thread, where it would stall the frame the popover is
+        // opening in.
+        let status = cx
+            .background_executor()
+            .spawn(async move {
+                let report = match report {
+                    Some(report) => report,
+                    None => coding::run_doctor(&settings),
+                };
+                coding::refresh_on_demand(
+                    &data_dir,
+                    &settings,
+                    &report,
+                    agent,
+                    &profile,
+                    now_unix_secs(),
+                )
+            })
+            .await;
+        let Some(status) = status else {
+            // Nothing was due — the policy said so, and what is on screen is
+            // the freshest thing there is.
+            return;
+        };
+        let _ = cx.update(|cx| {
+            crate::coding_flow::CodingHub::global(cx).update(cx, |hub, cx| {
+                hub.agent_status = Some(status);
+                cx.notify();
+            });
+            beat_soon(cx);
+        });
+    })
+    .detach();
+}
+
 /// EXP-862 — the LOCAL "Remove account" (the chip's own menu on THIS machine):
 /// the same body the command runs, plus the hub mirror so the accounts list
 /// loses the chip without waiting for the next beat. `Err` is the sentence to

@@ -309,6 +309,12 @@ data class CodingSessionEntity(
     // values, a documented varchar server-side). NULL on every pre-EXP-484 row
     // and on any starter that omits it — the usage bar simply doesn't render.
     val agent: String? = null,
+    // EXP-909: the agent ACCOUNT PROFILE this run spends — `system` = the
+    // machine's ambient login, else a device-local profile id matching
+    // `agentAccounts[agent].profiles[].id` on the devices row. NULL/absent =
+    // UNKNOWN, which is NOT the ambient login: the usage overlay then falls
+    // back to the machine's reported email, then its active profile.
+    @ColumnInfo(name = "agent_account") @SerialName("agent_account") @JsonNames("agentAccount") val agentAccount: String? = null,
     // EXP-637: who ended the run — `agent` (sessions_end), `user`
     // (killSession), `client` (exit/tab close/quit), `merge` (a PR merge) or
     // `system` (the sweep). NULL on rows ended before the stamp existed.

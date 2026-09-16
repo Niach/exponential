@@ -5,11 +5,9 @@
 //!
 //! The page owns nothing but the scaffold: every row, poll and mutation lives
 //! in [`crate::machines::MachinesSection`], which reads the synced `devices`
-//! shape directly (EXP-485), and — EXP-818 — in
-//! [`crate::accounts_section::AccountsSection`], the Usage page folded in
-//! under it: "My devices" (the SETUP surface: which device, which logins it
-//! holds, what it may run), then Accounts (the DECISION surface: which login a
-//! run should spend).
+//! shape directly (EXP-485). EXP-909 folded the Accounts section INTO those
+//! rows — each device now lists its own logins — so the page is ONE list
+//! again: which device, which logins it holds, what it may run.
 
 use gpui::{
     AppContext as _, Entity, IntoElement, ParentElement, Render, ScrollHandle, Subscription,
@@ -27,8 +25,6 @@ pub struct DevicesView {
     /// rows come straight off the synced `devices` shape (EXP-485), so it
     /// holds no poll of its own.
     machines: Entity<crate::machines::MachinesSection>,
-    /// EXP-818: the agent accounts across those devices (the old Usage page).
-    accounts: Entity<crate::accounts_section::AccountsSection>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -36,14 +32,12 @@ impl DevicesView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let machines = cx.new(|cx| crate::machines::MachinesSection::new(window, cx));
-        let accounts = cx.new(|cx| crate::accounts_section::AccountsSection::new(window, cx));
         // A team switch re-scopes the section's reads.
         let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         Self {
             nav,
             scroll: ScrollHandle::new(),
             machines,
-            accounts,
             _subscriptions: subscriptions,
         }
     }
@@ -57,9 +51,7 @@ impl Render for DevicesView {
             &self.scroll,
             // EXP-818: the Running / Past run sections moved to the Agent
             // page's sessions list (`sidebar::SidebarPanel::render_sessions_tool`).
-            gpui_component::v_flex()
-                .child(self.machines.clone())
-                .child(self.accounts.clone()),
+            gpui_component::v_flex().child(self.machines.clone()),
         )
     }
 }

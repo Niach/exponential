@@ -374,9 +374,16 @@ fn one_session_at_a_time() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
-/// What this machine's codex sessions have published so far.
+/// What this machine's codex sessions on the AMBIENT login have published so
+/// far (EXP-909: the registry is keyed by `(agent, profile)`, and every spec
+/// here launches account-less).
 fn live_usage() -> coding::agent_usage::live::LiveUsage {
-    coding::agent_usage::live::snapshot(coding::CodingAgent::Codex).unwrap_or_default()
+    live_usage_on(coding::SYSTEM_PROFILE)
+}
+
+/// The same, for a named account profile.
+fn live_usage_on(profile: &str) -> coding::agent_usage::live::LiveUsage {
+    coding::agent_usage::live::snapshot(coding::CodingAgent::Codex, profile).unwrap_or_default()
 }
 
 #[tokio::test]
@@ -943,6 +950,72 @@ async fn a_codex_session_publishes_live_usage_and_detaches_on_end() {
     // numbers stay (the collector ages them out by their own stamp).
     settle(|| live_usage().sessions == 0).await;
     assert_eq!(live_usage().windows, usage.windows());
+}
+
+/// EXP-909 — a codex run publishes under the LOGIN it spends. The machine's
+/// ambient login has its own budget and its own bar, and a turn on a named
+/// account must not move it.
+#[tokio::test]
+async fn a_codex_session_publishes_under_the_account_it_runs_on() {
+    let _session = one_session_at_a_time();
+    let (fake, connection) = FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());
+    let mut launch = spec();
+    launch.options.account = Some("prof-9".to_string());
+    let ambient_before = live_usage();
+    let agent = CodexAgent::with_connection(launch, connection);
+    let during = Arc::new(Mutex::new(None));
+    let recorded = during.clone();
+    let ending = fake.clone();
+
+    let driven = Client
+        .builder()
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            agent_client_protocol::on_receive_notification!(),
+        )
+        .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(ClientCapabilities::new()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                .block_task()
+                .await?;
+            cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![text("run the tests")],
+            ))
+            .block_task()
+            .await?;
+            settle(|| !live_usage_on("prof-9").windows.is_empty()).await;
+            if let Ok(mut slot) = recorded.lock() {
+                *slot = Some((live_usage_on("prof-9"), live_usage()));
+            }
+            ending.crash();
+            cx.incoming_closed().await;
+            Ok(())
+        });
+
+    tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("the session ends")
+        .expect("the session runs");
+
+    let (account, ambient) = during
+        .lock()
+        .expect("the recorded snapshot")
+        .clone()
+        .expect("a live snapshot");
+    assert!(account.sessions >= 1, "the run's own login holds the slot");
+    assert_eq!(account.windows.first().map(|window| window.percent), Some(4));
+    assert_eq!(
+        ambient.sessions, ambient_before.sessions,
+        "the ambient login never knew this run existed"
+    );
+    assert_eq!(ambient.windows, ambient_before.windows, "nor its numbers");
 }
 
 // ---------------------------------------------------------------------------

@@ -805,7 +805,7 @@
       "id": "agents",
       "group": "coding",
       "title": "Devices",
-      "blurb": "The machines that can run a coding session: the caller's desktops and headless servers, with the remote-start affordance on each.",
+      "blurb": "The machines that can run a coding session: the caller's desktops and headless servers, each listing the agent logins it holds — identity, health and its rate-limit numbers — with the remote-start affordance on the row.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/devices",
@@ -1098,49 +1098,6 @@
         "env": {
           "EXP_DEV_SCREEN": "devices"
         }
-      }
-    },
-    {
-      "id": "usage",
-      "group": "coding",
-      "title": "Accounts",
-      "blurb": "The Accounts section of the Devices page on all four clients (the Usage page, folded in — EXP-818; mobile since EXP-829): one row per agent account with the machines that hold it as chips, a check on the machine where it is the active login, the freshest report winning, refreshed on its own while open.",
-      "order": 10,
-      "web": {
-        "route": "/t/$teamSlug/devices",
-        "anchor": {
-          "text": "Accounts",
-          "timeoutMs": 30000
-        },
-        "settleMs": 1200
-      },
-      "webMobile": {
-        "route": "/t/$teamSlug/devices",
-        "anchor": {
-          "text": "Accounts",
-          "timeoutMs": 30000
-        },
-        "recipe": "scrollToAccounts",
-        "settleMs": 1200
-      },
-      "ios": {
-        "shot": "sg_usage",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_usage",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "devices"
-        }
-      },
-      "notes": {
-        "web-mobile": "Same route as agents; the recipe scrolls the Accounts band to the top so the phone frame is not a duplicate of agents/web-mobile (EXP-829).",
-        "ios": "The mobile Devices page carries the Accounts section since EXP-829; sg_usage photographs it scrolled into view.",
-        "android": "The mobile Devices page carries the Accounts section since EXP-829; sg_usage photographs it scrolled into view."
       }
     },
     {

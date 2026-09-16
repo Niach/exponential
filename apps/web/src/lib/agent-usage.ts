@@ -15,6 +15,7 @@
 // no "the fullest one" heuristic any more — a reading habit nobody had.
 
 import { contract } from "@exp/domain-contract"
+import { relativeTime } from "@/components/comment-rows/format"
 import type { SessionUsageState } from "@/lib/agent-feed"
 import type {
   CodingSession,
@@ -260,6 +261,52 @@ export function usageGroups(
   return groups
 }
 
+/** EXP-909: the SHORT form of the same report — at most three windows, in one
+ * line, under an account row that is not the run's own (the overlay's other
+ * accounts, the Devices page's logins, and EXP-872's hover preview).
+ *
+ * The three that matter, in this order: the five-hour `session` window, the
+ * rolling `weekly` one, then the FIRST per-model window. A report that names
+ * none of them (credits only, or a vocabulary this build has no rule for)
+ * falls back to its first three windows in report order, so a mini line is
+ * never empty beside a report that has numbers.
+ *
+ * The labels are the WIRE labels verbatim (`5h`, `Week`, `Fable`; codex `5h`,
+ * `Week`, `Month`) — short by construction, which is the whole reason the mini
+ * form can put three of them on one line while the full form spells
+ * `cardTitle` out. Hand-mirrored ×4. */
+export function miniWindows(
+  usage: DeviceAgentUsage | null | undefined
+): DeviceUsageWindow[] {
+  const windows = usage?.windows ?? []
+  const picked: DeviceUsageWindow[] = []
+  const session = windows.find((window) => window.key === `session`)
+  if (session) picked.push(session)
+  const weekly = windows.find((window) => window.key === `weekly`)
+  if (weekly) picked.push(weekly)
+  const model = windows.find((window) => window.key.startsWith(`model:`))
+  if (model) picked.push(model)
+  return picked.length > 0 ? picked : windows.slice(0, 3)
+}
+
+/** EXP-909: `as of 18 minutes ago`, or null while the numbers are current.
+ * The Accounts page's rule is now THE rule everywhere: a report is captioned
+ * once it is past `USAGE_FRESH_MS` OR the device itself marked it stale (an
+ * expired credential, a failed fetch with the older numbers kept). The overlay
+ * used to dim on `stale` alone and claim a 40-minute-old report was live.
+ *
+ * A captioned block DIMS rather than disappearing: numbers with an age on them
+ * are still the best answer anyone has. Hand-mirrored ×4. */
+export function usageAge(
+  usage: DeviceAgentUsage | null | undefined,
+  now: Date
+): string | null {
+  if (!usage) return null
+  if (usageIsFresh(usage, now) && usage.stale !== true) return null
+  const age = relativeTime(usage.fetchedAt)
+  return age.length > 0 ? `as of ${age}` : null
+}
+
 // ── The RUN's own context meter (EXP-746) ────────────────────────────────────
 // Deliberately BESIDE `usageGroups`, never inside it: these numbers come from
 // the ACP engine's `usage` activity event (tokens for one session), while the
@@ -405,70 +452,6 @@ export function worstHealth(
   return worst
 }
 
-/** EXP-849: one account a MACHINE holds, for the device row's chips. The
- * Devices surface is the repair surface, so every chip names the agent, the
- * login, whether it is that machine's ACTIVE one and how healthy it is — the
- * account-level view (`agentProfileUsageRows`) groups ACROSS machines and is
- * the wrong shape for "what is wrong on this box". */
-export interface DeviceAccountChip {
-  /** `${agent}:${profileId}` — stable within one device row. */
-  key: string
-  agent: string
-  profileId: string
-  /** The profile's label (`Default` for the ambient login). */
-  profileLabel: string
-  signedIn: boolean
-  active: boolean
-  email: string | null
-  plan: string | null
-  health: DeviceAgentHealth
-}
-
-/** Every account one machine reported, agent by agent (contract order is the
- * caller's business), the ACTIVE login of each agent first. A machine that
- * reported no profiles yields its single ambient account. */
-export function deviceAccountChips(
-  device: HealthDeviceRow
-): DeviceAccountChip[] {
-  const out: DeviceAccountChip[] = []
-  for (const [agent, account] of Object.entries(device.agentAccounts ?? {})) {
-    if (!account || !isContractAgent(agent)) continue
-    const profiles = (account.profiles ?? []).filter(
-      (profile): profile is NonNullable<typeof profile> => Boolean(profile?.id)
-    )
-    if (profiles.length === 0) {
-      out.push({
-        key: `${agent}:${SYSTEM_PROFILE_ID}`,
-        agent,
-        profileId: SYSTEM_PROFILE_ID,
-        profileLabel: `Default`,
-        signedIn: account.signedIn === true,
-        active: true,
-        email: account.email || null,
-        plan: account.plan || null,
-        health: agentHealth(account),
-      })
-      continue
-    }
-    const chips = profiles.map((profile) => ({
-      key: `${agent}:${profile.id}`,
-      agent,
-      profileId: profile.id,
-      profileLabel:
-        profile.label ||
-        (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
-      signedIn: profile.signedIn === true,
-      active: profile.active === true,
-      email: profile.email || null,
-      plan: profile.plan || null,
-      health: agentHealth(profile),
-    }))
-    chips.sort((a, b) => Number(b.active) - Number(a.active))
-    out.push(...chips)
-  }
-  return out
-}
-
 // `Device`'s column is nullable; `SteerDevice`'s is optional — accept both,
 // so a device row and a composed machine can be passed unchanged.
 type HealthDeviceRow = {
@@ -578,20 +561,19 @@ export function parseAgentLoginResult(
   }
 }
 
-// ── The cross-device usage page (EXP-792, EXP-747 C1-C4) ────────────────────
-// One row per device × agent profile off the synced devices rows. Profiles
+// ── One row per LOGIN a machine holds (EXP-792, EXP-747 C1-C4) ──────────────
+// A device × agent profile row off the synced devices rows. Profiles
 // (`agentAccounts[agent].profiles`, EXP-747 B5) carry their own usage; a
 // device that reports none (an older build) falls back to the top-level
-// account + `agentUsage[agent]` as the single `system` row, so the page never
-// goes blank on a pre-profile machine.
+// account + `agentUsage[agent]` as the single `system` row, so a machine never
+// reads as login-less on a pre-profile build.
 //
-// EXP-807: this section is mirrored on the DESKTOP — same names, same
-// fallbacks, same ordering — in `apps/desktop/crates/ui/src/usage_bar.rs`
-// (`agent_profile_usage_rows` / `peak_percent` / `attention_rank` /
-// `sort_attention_first` / `refresh_allowed_at`), rendered by its
-// `usage_view.rs`. A web+desktop PAIR, not the ×4 rule above it: iOS and
-// Android ship no usage page (`packages/view-catalog/views.json`), only the
-// per-run sheet the cards feed. Change a rule here, change it there.
+// EXP-909 folded the cross-device Accounts page into the device rows, so this
+// is now a ×4 section like the rest of the module — `deviceLoginRows` is what
+// the Devices page lists under each machine and what the run's account switch
+// reads (desktop `usage_bar.rs` `agent_profile_usage_rows` /
+// `sort_device_logins` / `login_label`, iOS `AgentAccountsRows`, Android
+// `AgentAccountsRows`). Change a rule here, change it in all four.
 
 /** The ambient login's profile id — byte-identical with the desktop's
  * `agent_profiles::SYSTEM_PROFILE`. */
@@ -602,6 +584,11 @@ export const SYSTEM_PROFILE_ID = `system`
  * endpoint more often (its `RATE_LIMITED_FLOOR_SECS`), so the button greys
  * out and names the next allowed time instead of queueing a no-op. */
 export const RATE_LIMITED_FLOOR_MS = 5 * 60 * 1000
+
+/** EXP-909: what a device row says when it reported its accounts and there
+ * were none — distinct from `Checking…`, which is a machine that has not
+ * answered yet. Byte-identical ×4. */
+export const NO_LOGIN_REPORTED = `No login reported`
 
 export interface AgentProfileUsageRow {
   /** `${deviceId}:${agent}:${profileId}` — stable enough to key a list. */
@@ -644,84 +631,153 @@ type UsageDeviceRow = Pick<
   | `lastSeenAt`
 >
 
-/** The rows the usage page renders for `devices`, grouped later by agent.
- * `online` is decided by the caller's clock the same way every device list
- * does (`deviceRowIsOnline`); it is passed in rather than re-derived so the
+/** ONE machine's reporting, as either a synced `Device` row (`label`, nullable
+ * columns) or a composed `SteerDevice` (`deviceLabel`, optional ones). */
+export type LoginDeviceRow = {
+  deviceId: string
+  deviceLabel: string
+  agentAccounts?: Device[`agentAccounts`] | undefined
+  agentUsage?: Device[`agentUsage`] | undefined
+  agentUsageAt?: Date | string | null | undefined
+}
+
+/** EXP-909: every login ONE machine holds, agent by agent — the rows the
+ * device's fold lists and the accounts a run can switch to. `mine`/`online`
+ * are the caller's verdicts (its own clock, its own user id), passed in so the
+ * derivation stays a pure function of the row. Unordered: `sortDeviceLogins`
+ * owns that. */
+export function deviceLoginRows(
+  device: LoginDeviceRow,
+  opts: { mine: boolean; online: boolean }
+): AgentProfileUsageRow[] {
+  const out: AgentProfileUsageRow[] = []
+  const accounts = device.agentAccounts ?? {}
+  const usageMap = parseAgentUsageMap(device.agentUsage ?? {})
+  const agents = new Set<string>(
+    [...Object.keys(accounts), ...Object.keys(usageMap)].filter(isContractAgent)
+  )
+  for (const agent of agents) {
+    const account = accounts[agent] ?? null
+    const base = {
+      deviceId: device.deviceId,
+      deviceLabel: device.deviceLabel,
+      mine: opts.mine,
+      online: opts.online,
+      agent,
+    }
+    const profiles = account?.profiles ?? []
+    if (profiles.length === 0) {
+      out.push({
+        ...base,
+        key: `${device.deviceId}:${agent}:${SYSTEM_PROFILE_ID}`,
+        profileId: SYSTEM_PROFILE_ID,
+        profileLabel: `Default`,
+        active: true,
+        signedIn: account?.signedIn === true,
+        health: agentHealth(account),
+        email: account?.email || null,
+        plan: account?.plan || null,
+        usage: usageMap[agent] ?? null,
+        // A machine that reports no profiles reports one login, and it is
+        // always inside its own probe cap.
+        unmonitored: false,
+        checkedAt:
+          account?.checkedAt ??
+          (device.agentUsageAt
+            ? new Date(device.agentUsageAt).toISOString()
+            : null),
+      })
+      continue
+    }
+    for (const profile of profiles) {
+      // The active profile's numbers ride BOTH the profile entry and the
+      // pre-profile `agentUsage[agent]` slot; prefer the profile's own and
+      // fall back for a device that only populated the old slot.
+      const usage =
+        parseAgentUsage(profile.usage) ??
+        (profile.active ? (usageMap[agent] ?? null) : null)
+      out.push({
+        ...base,
+        key: `${device.deviceId}:${agent}:${profile.id}`,
+        profileId: profile.id,
+        profileLabel:
+          profile.label ||
+          (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
+        active: profile.active === true,
+        signedIn: profile.signedIn === true,
+        health: agentHealth(profile),
+        email: profile.email || null,
+        plan: profile.plan || null,
+        usage,
+        unmonitored: profile.unmonitored === true,
+        checkedAt: profile.checkedAt ?? account?.checkedAt ?? null,
+      })
+    }
+  }
+  return out
+}
+
+/** Every login across `devices` — `deviceLoginRows` per machine. `online` is
+ * decided by the caller's clock the same way every device list does
+ * (`deviceRowIsOnline`); it is passed in rather than re-derived so the
  * derivation stays a pure function of the rows. */
 export function agentProfileUsageRows(
   devices: readonly UsageDeviceRow[],
   currentUserId: string,
   isOnline: (lastSeenAt: Date | string) => boolean
 ): AgentProfileUsageRow[] {
-  const out: AgentProfileUsageRow[] = []
-  for (const device of devices) {
-    const accounts = device.agentAccounts ?? {}
-    const usageMap = parseAgentUsageMap(device.agentUsage ?? {})
-    const agents = new Set<string>(
-      [...Object.keys(accounts), ...Object.keys(usageMap)].filter(
-        isContractAgent
-      )
-    )
-    for (const agent of agents) {
-      const account = accounts[agent] ?? null
-      const base = {
+  return devices.flatMap((device) =>
+    deviceLoginRows(
+      {
         deviceId: device.deviceId,
         deviceLabel: device.label,
+        agentAccounts: device.agentAccounts,
+        agentUsage: device.agentUsage,
+        agentUsageAt: device.agentUsageAt,
+      },
+      {
         mine: device.userId === currentUserId,
         online: isOnline(device.lastSeenAt),
-        agent,
       }
-      const profiles = account?.profiles ?? []
-      if (profiles.length === 0) {
-        out.push({
-          ...base,
-          key: `${device.deviceId}:${agent}:${SYSTEM_PROFILE_ID}`,
-          profileId: SYSTEM_PROFILE_ID,
-          profileLabel: `Default`,
-          active: true,
-          signedIn: account?.signedIn === true,
-          health: agentHealth(account),
-          email: account?.email || null,
-          plan: account?.plan || null,
-          usage: usageMap[agent] ?? null,
-          // A machine that reports no profiles reports one login, and it is
-          // always inside its own probe cap.
-          unmonitored: false,
-          checkedAt:
-            account?.checkedAt ??
-            (device.agentUsageAt
-              ? new Date(device.agentUsageAt).toISOString()
-              : null),
-        })
-        continue
-      }
-      for (const profile of profiles) {
-        // The active profile's numbers ride BOTH the profile entry and the
-        // pre-profile `agentUsage[agent]` slot; prefer the profile's own and
-        // fall back for a device that only populated the old slot.
-        const usage =
-          parseAgentUsage(profile.usage) ??
-          (profile.active ? (usageMap[agent] ?? null) : null)
-        out.push({
-          ...base,
-          key: `${device.deviceId}:${agent}:${profile.id}`,
-          profileId: profile.id,
-          profileLabel:
-            profile.label ||
-            (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
-          active: profile.active === true,
-          signedIn: profile.signedIn === true,
-          health: agentHealth(profile),
-          email: profile.email || null,
-          plan: profile.plan || null,
-          usage,
-          unmonitored: profile.unmonitored === true,
-          checkedAt: profile.checkedAt ?? account?.checkedAt ?? null,
-        })
-      }
-    }
+    )
+  )
+}
+
+/** EXP-909: what a login row is CALLED — its identity, never its status: the
+ * email, else the plan (some agents report a provider and no address), else
+ * the profile's own label. The brand mark beside it says which agent, the
+ * device row above it says which machine, and the health badge says what is
+ * wrong; a title that repeated any of those said the same thing twice.
+ * Hand-mirrored ×4. */
+export function loginLabel(
+  row: Pick<AgentProfileUsageRow, `email` | `plan` | `profileLabel`>
+): string {
+  return row.email || row.plan || row.profileLabel
+}
+
+/** EXP-909: the order logins appear in UNDER one device: contract agent order
+ * first (claude before codex, whatever the map's key order was), then the
+ * machine's ACTIVE login for that agent, then attention (a dead credential
+ * leads), then the label and the id so a heartbeat can never reshuffle two
+ * equal rows. Hand-mirrored ×4. */
+export function sortDeviceLogins(
+  rows: readonly AgentProfileUsageRow[]
+): AgentProfileUsageRow[] {
+  const order = contract.codingAgent.values as readonly string[]
+  const agentRank = (agent: string) => {
+    const at = order.indexOf(agent)
+    return at === -1 ? order.length : at
   }
-  return out
+  return [...rows].sort((a, b) => {
+    const byAgent = agentRank(a.agent) - agentRank(b.agent)
+    if (byAgent !== 0) return byAgent
+    if (a.active !== b.active) return a.active ? -1 : 1
+    const byAttention = attentionRank(a) - attentionRank(b)
+    if (byAttention !== 0) return byAttention
+    const byLabel = a.profileLabel.localeCompare(b.profileLabel)
+    if (byLabel !== 0) return byLabel
+    return a.profileId.localeCompare(b.profileId)
+  })
 }
 
 /** EXP-862: what an account row has to SAY about its numbers, so no surface
@@ -736,7 +792,7 @@ export function agentProfileUsageRows(
  *  - `none` — nothing to report at all: the login is signed out, and its row
  *    offers a sign-in instead of a bar.
  *
- * Mirrored on the desktop (`usage_bar.rs`, the web+desktop pair above). */
+ * Mirrored ×4. */
 export type UsageState = `ready` | `checking` | `unmonitored` | `none`
 
 export function usageState(
@@ -757,9 +813,7 @@ export function peakPercent(usage: DeviceAgentUsage | null | undefined): number 
 }
 
 /** Attention-first ordering: signed-out rows lead (there is something to do),
- * then rows at or over `DANGER_PERCENT`, then everything else. Within a
- * bucket the fuller row comes first, then device label, agent, profile, so
- * a heartbeat cannot shuffle equal rows. */
+ * then rows at or over `DANGER_PERCENT`, then everything else. */
 export function attentionRank(
   row: Pick<AgentProfileUsageRow, `signedIn` | `usage`> & {
     health?: DeviceAgentHealth
@@ -771,22 +825,6 @@ export function attentionRank(
   if (row.health === `needs_relogin`) return 0
   if (peakPercent(row.usage) >= DANGER_PERCENT) return 1
   return 2
-}
-
-export function sortAttentionFirst(
-  rows: readonly AgentProfileUsageRow[]
-): AgentProfileUsageRow[] {
-  return [...rows].sort((a, b) => {
-    const byRank = attentionRank(a) - attentionRank(b)
-    if (byRank !== 0) return byRank
-    const byPeak = peakPercent(b.usage) - peakPercent(a.usage)
-    if (byPeak !== 0) return byPeak
-    const byDevice = a.deviceLabel.localeCompare(b.deviceLabel)
-    if (byDevice !== 0) return byDevice
-    const byAgent = a.agent.localeCompare(b.agent)
-    if (byAgent !== 0) return byAgent
-    return a.profileId.localeCompare(b.profileId)
-  })
 }
 
 /** When a forced refresh is next allowed for `usage`: null = right now (no
@@ -801,133 +839,4 @@ export function refreshAllowedAt(
   if (Number.isNaN(fetched)) return null
   const next = fetched + RATE_LIMITED_FLOOR_MS
   return next > now.getTime() ? new Date(next) : null
-}
-
-// ── EXP-817: one card per ACCOUNT ───────────────────────────────────────────
-// The page rows above are device × profile; the same login on two machines
-// reported the same numbers twice (and, before the poll-pin fix, at two
-// different ages). So the page renders one card per ACCOUNT — an agent plus
-// the email the machine named — and lists the machines that hold it as
-// chips. Mirrored on the desktop (`usage_bar.rs`, same names, same tests).
-
-export interface AgentAccountUsageGroup {
-  /** `${agent}:${email}` for a named login; a row with no email (a
-   * provider-only report, or a signed-out row) can never be told apart from
-   * another machine's, so it keeps its own `${agent}:${deviceId}:${profileId}`. */
-  key: string
-  agent: string
-  signedIn: boolean
-  /** EXP-849: the WORST health among the machines holding this account — the
-   * badge the account row carries (one machine's expired credential is a
-   * re-login, even if another machine's copy still works). */
-  health: DeviceAgentHealth
-  email: string | null
-  plan: string | null
-  /** The machines (× profile) holding this account: online first, then by
-   * label, then profile — a heartbeat cannot reshuffle the chips. */
-  rows: AgentProfileUsageRow[]
-  /** The FRESHEST member's numbers: newest `fetchedAt`, a non-stale report
-   * winning a tie, a report with windows beating one without. */
-  usage: DeviceAgentUsage | null
-  /** The newest probe stamp among the members — the "as of …" fallback. */
-  checkedAt: string | null
-  /** Where a refresh is queued: the eligible member (`canRefresh`) that
-   * reported the freshest numbers, or null when no member may run one. */
-  refreshTarget: AgentProfileUsageRow | null
-}
-
-function stampMs(stamp: string | null | undefined): number {
-  if (!stamp) return Number.NEGATIVE_INFINITY
-  const ms = new Date(stamp).getTime()
-  return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
-}
-
-/** Whether `candidate` is a fresher report than `current`. */
-function fresherUsage(
-  candidate: DeviceAgentUsage | null,
-  current: DeviceAgentUsage | null
-): boolean {
-  if (!candidate) return false
-  if (!current) return true
-  const byStamp = stampMs(candidate.fetchedAt) - stampMs(current.fetchedAt)
-  if (byStamp !== 0) return byStamp > 0
-  if (candidate.stale !== current.stale) return current.stale === true
-  return candidate.windows.length > 0 && current.windows.length === 0
-}
-
-export function accountGroupKey(row: AgentProfileUsageRow): string {
-  const email = row.signedIn ? row.email?.trim().toLowerCase() : null
-  return email
-    ? `${row.agent}:${email}`
-    : `${row.agent}:${row.deviceId}:${row.profileId}`
-}
-
-/** Fold the page rows into account groups. `canRefresh` decides which
- * members may run `agent_usage_refresh` (mine + online + the cap) — injected
- * so the derivation stays a pure function of the rows. Nothing is sorted
- * across groups here: `sortAccountGroupsAttentionFirst` owns that. */
-export function accountUsageGroups(
-  rows: readonly AgentProfileUsageRow[],
-  canRefresh: (row: AgentProfileUsageRow) => boolean
-): AgentAccountUsageGroup[] {
-  const byKey = new Map<string, AgentAccountUsageGroup>()
-  for (const row of rows) {
-    const key = accountGroupKey(row)
-    let group = byKey.get(key)
-    if (!group) {
-      group = {
-        key,
-        agent: row.agent,
-        signedIn: row.signedIn,
-        health: row.health,
-        email: row.email,
-        plan: row.plan,
-        rows: [],
-        usage: null,
-        checkedAt: null,
-        refreshTarget: null,
-      }
-      byKey.set(key, group)
-    }
-    group.rows.push(row)
-    if (healthRank(row.health) < healthRank(group.health)) {
-      group.health = row.health
-    }
-    if (!group.plan && row.plan) group.plan = row.plan
-    if (fresherUsage(row.usage, group.usage)) group.usage = row.usage
-    if (stampMs(row.checkedAt) > stampMs(group.checkedAt)) {
-      group.checkedAt = row.checkedAt
-    }
-    if (
-      canRefresh(row) &&
-      (!group.refreshTarget || fresherUsage(row.usage, group.refreshTarget.usage))
-    ) {
-      group.refreshTarget = row
-    }
-  }
-  for (const group of byKey.values()) {
-    group.rows.sort((a, b) => {
-      if (a.online !== b.online) return a.online ? -1 : 1
-      const byDevice = a.deviceLabel.localeCompare(b.deviceLabel)
-      if (byDevice !== 0) return byDevice
-      return a.profileId.localeCompare(b.profileId)
-    })
-  }
-  return [...byKey.values()]
-}
-
-/** `attentionRank` over groups, then the fuller group, then agent, then the
- * key (email or device) — the page order. */
-export function sortAccountGroupsAttentionFirst(
-  groups: readonly AgentAccountUsageGroup[]
-): AgentAccountUsageGroup[] {
-  return [...groups].sort((a, b) => {
-    const byRank = attentionRank(a) - attentionRank(b)
-    if (byRank !== 0) return byRank
-    const byPeak = peakPercent(b.usage) - peakPercent(a.usage)
-    if (byPeak !== 0) return byPeak
-    const byAgent = a.agent.localeCompare(b.agent)
-    if (byAgent !== 0) return byAgent
-    return a.key.localeCompare(b.key)
-  })
 }

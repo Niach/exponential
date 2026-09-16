@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-accounts-usage",
+    date: "2026-09-17",
+    title: "Accounts and usage",
+    summary: "One usage view on every client that names the account a run is on, shows that account's numbers, keeps them current, and lists each device's logins in place.",
+    body: r#"- **One usage overlay**: the context ring opens the same view on web, desktop, iOS and Android: the run's own account at the top with its three rate-limit windows, the context window below, and every other account on that machine as a compact row with a switch button beside it instead of across it.
+- **The right account**: the overlay names the login the run actually spends, so a run started on a second account no longer wears the default account's name or its re-login badge.
+- **Numbers that move**: an idle run no longer pins its last rate-limit reading, a window that has reset re-reads within a heartbeat, opening the overlay asks the machine for a fresh read, and an account nobody ran for days refreshes its own token to report instead of showing days-old numbers.
+- **Devices list their logins**: the Devices page lists each machine's accounts under the machine, with the same compact usage line and one menu per login, in place of the separate Accounts section, its tabs and its chips."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-fix-conflicts-everywhere",
     date: "2026-09-16",
     title: "Fix conflicts, on every Merge button",
@@ -55,9 +68,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **iOS**: merging a stack from the overlay on the Work screen reports a refusal instead of silently doing nothing."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
+/// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-16-release-train",
     date: "2026-09-16",
     title: "Release train 2026-09-16",
@@ -71,18 +84,6 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 - **Session history stays on your machine**: finished runs keep their transcripts for as long as the desktop app's new Sessions setting says, and an issue with several runs of yours gets a picker to switch between them.
 - **Under the hood**: the web app, the styleguide and the marketing demos now share one component library, so cards, menus and glyphs read the same everywhere, and a Claude login refreshes itself in the background instead of expiring mid-run."#,
 };
-
-/// The entry before that.
-#[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-batch-run-names",
-    date: "2026-09-16",
-    title: "Batch runs say what they are working on",
-    summary: "A run covering several issues is now named after them instead of reading \"Batch run\", so two batches can be told apart at a glance.",
-    body: r#"- **Named by its issues**: a batch run's row reads `EXP-874 +2` beside the first issue's title, in every session list and in the run's own header, on the web, the desktop app, iOS and Android.
-- **Right from the start**: the issues a batch covers are recorded when it launches, so the name is correct while it is still coding, not only once its pull request is open. Older batch runs take their name from the issues on their pull request."#,
-};
-
 
 /// Whether the rail's "What's new" card renders, given the stored
 /// `changelogSeenId`. Pure so the rule is testable without a gpui App: a

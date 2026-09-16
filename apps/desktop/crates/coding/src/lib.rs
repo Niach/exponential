@@ -108,11 +108,11 @@ pub use doctor::{
     MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
 };
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health};
-pub use agent_profiles::{AgentProfile, SYSTEM_PROFILE};
+pub use agent_profiles::{profile_id, AgentProfile, SYSTEM_PROFILE};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{
-    collect_if_due, force_collect, use_profile, AgentStatusPayload, AgentUsage, AgentUsageMap,
-    UsageWindow,
+    collect_if_due, force_collect, refresh_on_demand, use_profile, AgentStatusPayload,
+    AgentUsage, AgentUsageMap, UsageWindow,
 };
 pub use mcp_servers::{McpBlocker, McpReadinessState, ResolvedMcp};
 pub use scm::{

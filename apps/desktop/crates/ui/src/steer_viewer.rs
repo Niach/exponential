@@ -6658,20 +6658,50 @@ impl SteerSessionView {
         let local = self.is_local();
         let working = self.working_now();
         let session_id = self.session_id.to_string();
+        let open_session_id = session_id.clone();
+        let open_device_id = device_id.clone();
         Some(
             gpui_component::popover::Popover::new("session-usage")
                 .p_2()
                 .trigger(ring)
+                // EXP-909: opening the sheet asks for ONE fresh read of the
+                // run's own login — a run parked on an account nobody else is
+                // spending would otherwise show numbers from its last turn.
+                // A glance, not a Refresh: every floor the device sets itself
+                // still holds, and there is no polling loop while it is open
+                // (the beat delivers the rest).
+                .on_open_change(move |open, _window, cx| {
+                    if !*open {
+                        return;
+                    }
+                    let Some(agent) = agent else {
+                        return;
+                    };
+                    refresh_run_usage(
+                        &open_session_id,
+                        open_device_id.as_deref(),
+                        agent,
+                        local,
+                        cx,
+                    );
+                })
                 .content(move |_, _window, cx| {
-                    // The machine's rate-limit windows: read from the local
-                    // agent status for a run hosted here, off the synced
-                    // `devices` row for one hosted anywhere else.
+                    // The run's OWN login's rate-limit windows: the local
+                    // agent status for a run hosted here, the synced
+                    // `devices` row for one hosted anywhere else — in both
+                    // cases the profile the run spends, never simply the
+                    // machine's active login (EXP-875 §1).
                     let windows = agent.and_then(|agent| {
                         if local {
-                            crate::device_settings::own_agent_status(cx)
-                                .1
-                                .get(agent.id())
-                                .cloned()
+                            let account = run_account(&session_id, cx);
+                            let (accounts, usage) =
+                                crate::device_settings::own_agent_status(cx);
+                            crate::usage_sheet::account_windows(
+                                &accounts,
+                                &usage,
+                                agent,
+                                account.as_deref(),
+                            )
                         } else {
                             crate::usage_sheet::device_usage(device_id.as_deref(), agent, cx)
                         }
@@ -6908,6 +6938,97 @@ pub(crate) fn split_image_markers(text: &str, count: usize) -> Vec<MarkerSegment
             marker => Some(marker),
         })
         .collect()
+}
+
+/// EXP-909 — the account a run hosted HERE is spending, as the launcher
+/// recorded it (`runs.json`): `system` for the ambient login, a profile id
+/// otherwise. `None` when this machine has no record of the run at all — and
+/// then nothing is guessed, the sheet falls back to the machine's own report.
+fn run_account(session_id: &str, cx: &App) -> Option<String> {
+    coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id)
+        .map(|record| coding::profile_id(record.account().as_deref()))
+}
+
+/// EXP-909 — the one refresh the usage sheet asks for when it OPENS: read the
+/// run's own login now, so a run parked on an account nobody else spends does
+/// not show numbers from its last turn.
+///
+/// A run hosted here reads it in-process ([`crate::device_sync::
+/// refresh_agent_usage_here`], the polite read); one hosted on another of MY
+/// machines gets the `agent_usage_refresh` command — but only while that
+/// machine is online, advertises the cap and its last fetch is past the
+/// shared floor, which is the same gate the Devices page applies. A
+/// teammate's machine is never asked: it is not mine to poll.
+fn refresh_run_usage(
+    session_id: &str,
+    device_id: Option<&str>,
+    agent: coding::CodingAgent,
+    local: bool,
+    cx: &mut App,
+) {
+    if local {
+        let profile = run_account(session_id, cx)
+            .unwrap_or_else(|| coding::SYSTEM_PROFILE.to_string());
+        crate::device_sync::refresh_agent_usage_here(agent, profile, cx);
+        return;
+    }
+    let Some(device_id) = device_id.filter(|id| !id.is_empty()) else {
+        return;
+    };
+    let Some(session_account) = sync::Store::try_global(cx).and_then(|store| {
+        store
+            .collections()
+            .coding_sessions
+            .read(cx)
+            .iter()
+            .find(|row| row.id == session_id)
+            .map(|row| row.agent_account.clone().unwrap_or_default())
+    }) else {
+        return;
+    };
+    let profile = coding::profile_id(Some(session_account.as_str()));
+    let now_epoch = chrono::Utc::now().timestamp();
+    let Some(row) = crate::usage_bar::device_profile_rows(cx)
+        .into_iter()
+        .find(|row| {
+            row.device_id == device_id && row.agent == agent.id() && row.profile_id == profile
+        })
+    else {
+        return;
+    };
+    if !row.mine
+        || !row.online
+        || crate::usage_bar::refresh_allowed_at(row.usage.as_ref(), now_epoch).is_some()
+    {
+        return;
+    }
+    if !crate::queries::device_caps(cx, &device_id)
+        .iter()
+        .any(|cap| cap == crate::usage_bar::USAGE_REFRESH_CAP)
+    {
+        return;
+    }
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        return;
+    };
+    let device_id = device_id.to_string();
+    let agent_id = agent.id().to_string();
+    cx.spawn(async move |cx| {
+        // A refusal (a command from the last round still queued) is
+        // swallowed: nobody asked for this, and the next open looks again.
+        let _ = cx
+            .background_executor()
+            .spawn(async move {
+                api::devices::create_agent_usage_refresh_command(
+                    &trpc,
+                    &device_id,
+                    &agent_id,
+                    &profile,
+                )
+            })
+            .await;
+    })
+    .detach();
 }
 
 /// Append a prose run, FUSING it onto the previous one — a token that turned

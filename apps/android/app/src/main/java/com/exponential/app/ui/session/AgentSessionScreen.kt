@@ -216,6 +216,9 @@ import com.exponential.app.domain.locksCard
 import com.exponential.app.domain.visibleSubagentTabs
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.UsageTrack
 import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.ExponentialMark
@@ -269,7 +272,6 @@ import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
-import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1298,9 +1300,10 @@ fun RunFace(
         }
     }
 
-    // ── The Usage sheet (EXP-688) — behind the bar's ring (EXP-893).
-    // Only reachable while the host machine reports fresh numbers for this
-    // run's agent, so the sheet retires itself when they age out.
+    // ── The Usage overlay (EXP-688/EXP-909) — behind the bar's ring
+    // (EXP-893). It retires with the run: an ended row reports no windows, so
+    // nothing here has anything to show. Stale numbers are NOT a reason to
+    // hide it — they dim and date themselves instead.
     val sheetUsage = agentUsage
     // EXP-746: this run's own context/spend meter — a second, independent
     // source, so the sheet stays reachable while EITHER has something.
@@ -1311,7 +1314,18 @@ fun RunFace(
             usageSheetOpen = false
         }
     }
+    // EXP-909: one on-demand refresh of the run's login when the overlay
+    // opens — the machine answers by re-reporting, which arrives through sync.
+    // Once per open; the VM refuses it when there is nothing to ask.
+    LaunchedEffect(usageSheetOpen) {
+        if (usageSheetOpen) viewModel.refreshRunUsage()
+    }
     if (usageSheetOpen && (sheetUsage != null || contextUsage != null || switchOptions.isNotEmpty())) {
+        // EXP-909: THE overlay, identical ×4 — the run's account as the
+        // header, its windows, the Context line, then only the OTHER accounts.
+        val nowMs = rememberUsageClock()
+        val runAccount = switchOptions.firstOrNull { it.current }
+        val otherAccounts = switchOptions.filter { it != runAccount }
         GlassSheet(title = "Usage", onDismiss = { usageSheetOpen = false }) {
             Column(
                 modifier = Modifier
@@ -1319,72 +1333,134 @@ fun RunFace(
                     .verticalScroll(rememberScrollState())
                     // EXP-698: 16dp — the group inset every other sheet uses.
                     .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Whose limits these are — the machine's sign-in for this
-                // agent, without the agent prefix (the sheet is already about
-                // this run's agent).
-                agentAccount?.let { account ->
-                    Text(
-                        AgentUsagePresentation.accountCaption(account),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Secondary,
-                        ),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                }
-                // EXP-746: the run's own window first — it is about THIS
-                // conversation; the machine's plan limits follow below.
-                if (contextUsage != null) {
-                    Text(
-                        AgentUsagePresentation.CONTEXT_SECTION_TITLE,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        AgentUsagePresentation.formatContextUsage(contextUsage),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Secondary,
-                        ),
-                    )
-                    AgentUsagePresentation.formatUsageCost(contextUsage)?.let { cost ->
+                // ── Header: whose limits these are. The brand mark says the
+                // agent, the caption the login, and the trailing slot carries
+                // the health badge when there is one — else the plan, which is
+                // then the only place the plan string appears.
+                val headerCaption = runAccount?.caption
+                    ?: agentAccount?.let(AgentUsagePresentation::accountCaption)
+                if (headerCaption != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            agentIconPainter(workingAgent),
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = agentIconTint(workingAgent),
+                        )
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            cost,
-                            style = MaterialTheme.typography.bodySmall,
+                            headerCaption,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        val headerBadge = runAccount
+                            ?.let { AgentHealthRules.badgeLabel(it.health) }
+                        val headerPlan = runAccount?.plan
+                            ?.takeIf { it != headerCaption }
+                            ?: agentAccount?.plan?.takeIf { it != headerCaption }
+                        when {
+                            headerBadge != null -> Text(
+                                headerBadge,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeedsInputAmber,
+                                maxLines = 1,
+                            )
+                            headerPlan != null -> Text(
+                                headerPlan,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Tertiary,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                }
+                // ── The run's own windows. "Checking…" while its login has
+                // reported none yet: a machine still working must not read as
+                // a machine with nothing to say.
+                if (sheetUsage != null && sheetUsage.windows.isNotEmpty()) {
+                    UsageWindows(usage = sheetUsage)
+                } else if (headerCaption != null) {
+                    Text(
+                        "Checking…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
+                // ── EXP-746: this conversation's context window + spend. ONE
+                // line (title · numbers · cost), then the same meter primitive
+                // the windows use.
+                if (contextUsage != null) {
+                    GroupDivider()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            AgentUsagePresentation.CONTEXT_SECTION_TITLE,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Tertiary,
+                                alpha = TextEmphasis.Secondary,
                             ),
                         )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            AgentUsagePresentation.formatContextUsage(contextUsage),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        AgentUsagePresentation.formatUsageCost(contextUsage)?.let { cost ->
+                            Text(
+                                cost,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Tertiary,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(12.dp))
+                    AgentUsagePresentation.contextPercent(contextUsage)?.let { percent ->
+                        UsageTrack(
+                            percent = percent.toDouble(),
+                            severity = AgentUsagePresentation.severity(percent.toDouble()),
+                        )
+                    }
                 }
-                if (sheetUsage != null) AgentUsageCards(usage = sheetUsage)
-                // EXP-849 phase 3: the machine's logins for this agent, each
-                // with its own numbers — the readout IS the switch control now.
-                // Claude only, idle only, owner only; a refused row keeps the
+                // ── EXP-849 phase 3 / EXP-909: the OTHER logins this machine
+                // holds for the agent — the readout IS the switch control.
+                // Claude only, idle only, owner only; a refused row keeps its
                 // button and says why rather than hiding it mid-run.
-                if (switchOptions.isNotEmpty()) {
-                    Spacer(Modifier.height(16.dp))
+                if (otherAccounts.isNotEmpty()) {
+                    GroupDivider()
                     Text(
-                        SessionAccountSwitch.SECTION_TITLE,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        SessionAccountSwitch.SECTION_TITLE.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
-                    Spacer(Modifier.height(6.dp))
-                    switchOptions.forEach { option ->
+                    otherAccounts.forEach { option ->
                         SessionAccountRow(
                             option = option,
                             refusal = accountSwitch.refusal(option, activity.turnState),
                             switching = launchRunState is ActionRunState.Sending ||
                                 launchRunState is ActionRunState.Sent,
+                            nowMs = nowMs,
                             onSwitch = {
                                 usageSheetOpen = false
                                 viewModel.switchAccount(option)
                             },
                         )
-                        Spacer(Modifier.height(6.dp))
                     }
                     Text(
                         SessionAccountSwitch.COST_NOTE,
@@ -4539,74 +4615,75 @@ private fun ExpandedSteerComposer(
 }
 
 /**
- * EXP-849 phase 3: ONE login of this run's agent on its machine — the identity
- * line, its health, its own rate-limit windows, and the switch. A refused
- * switch keeps the button and says why underneath: the reason is nearly always
- * something the person can change (wait for the turn, sign in on the machine),
- * and a control that vanishes mid-run reads as a bug.
+ * EXP-849 phase 3 / EXP-909: ONE OTHER login of this run's agent on its
+ * machine — the identity line, its health, its own numbers in the mini form,
+ * and an ICON-ONLY switch. A refused switch keeps the button and says why
+ * underneath: the reason is nearly always something the person can change
+ * (wait for the turn, sign in on the machine), and a control that vanishes
+ * mid-run reads as a bug.
+ *
+ * No "Active login" / "Default" caption: the header above names the login the
+ * run is ON, so every row here is by definition another one.
  */
 @Composable
 private fun SessionAccountRow(
     option: SessionAccountOption,
     refusal: String?,
     switching: Boolean,
+    nowMs: Long,
     onSwitch: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .flatRow()
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
-            .testTag("session-account-row"),
+            // Per-profile, matching iOS's a11y ids: two account rows in one
+            // overlay have to be tellable apart from a test.
+            .testTag("session-account-${option.profileId}"),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        option.caption,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    AgentHealthRules.badgeLabel(option.health)?.let { badge ->
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            badge,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeedsInputAmber,
-                            maxLines = 1,
-                        )
-                    }
-                }
-                val subtitle = buildList {
-                    option.plan?.takeIf { it != option.caption }?.let(::add)
-                    // The machine's CURRENT login — not a claim about which
-                    // account THIS run is on (that stays server-side).
-                    if (option.active) add("Active login")
-                }.joinToString(" · ")
-                if (subtitle.isNotEmpty()) {
-                    Text(
-                        subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                    )
-                }
+            Text(
+                option.caption,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            AgentHealthRules.badgeLabel(option.health)?.let { badge ->
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeedsInputAmber,
+                    maxLines = 1,
+                )
             }
             Spacer(Modifier.width(8.dp))
-            GlassPill(
-                SessionAccountSwitch.SWITCH_LABEL,
-                onClick = onSwitch,
-                icon = ExpIcons.uiSwap,
-                enabled = refusal == null && !switching,
-                loading = switching,
-            )
+            if (switching) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 1.5.dp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            } else {
+                CircleIconButton(
+                    ExpIcons.uiSwap,
+                    contentDescription = SessionAccountSwitch.SWITCH_LABEL,
+                    onClick = onSwitch,
+                    enabled = refusal == null,
+                    borderless = true,
+                    modifier = Modifier.testTag("switch-account-${option.profileId}"),
+                )
+            }
         }
-        option.usage?.let { usage ->
-            AgentUsageCards(usage = usage, compact = true)
+        AgentUsageMini(usage = option.usage)
+        AgentUsagePresentation.usageAge(option.usage, nowMs)?.let { age ->
+            Text(
+                age,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+            )
         }
         if (refusal != null) {
             Text(

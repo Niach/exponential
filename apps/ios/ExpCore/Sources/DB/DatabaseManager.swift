@@ -428,6 +428,10 @@ public final class DatabaseManager: @unchecked Sendable {
                 // EXP-876: the issues a BATCH run covers as raw jsonb text —
                 // what names the row; nil / `[]` = "Batch run".
                 t.column("batch_issue_ids", .text)
+                // EXP-909: the agent account profile the run spends
+                // (`system` = the ambient login, else a device-local profile
+                // id); NULL = unknown, never "the ambient login".
+                t.column("agent_account", .text)
                 // Action run linkage (EXP-253): both NULL on ordinary
                 // issue/batch sessions; action_name outlives a deleted action
                 // (server FK SET NULL keeps the snapshot label).
@@ -1638,6 +1642,29 @@ public final class DatabaseManager: @unchecked Sendable {
             if !existing.contains("batch_issue_ids") {
                 try db.alter(table: "coding_sessions") { t in
                     t.add(column: "batch_issue_ids", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
+        // v43 (EXP-909 the run's account): `coding_sessions.agent_account`
+        // rides the coding-sessions shape — which agent login a run spends,
+        // the header account of the usage overlay. Same
+        // additive-ALTER-then-refetch shape as v41's `results` (shape key
+        // 'coding-sessions' WITH A DASH — the proxy route name).
+        migrator.registerMigration("v43_coding_session_agent_account") { db in
+            guard try db.tableExists("coding_sessions") else { return }
+            let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+            if !existing.contains("agent_account") {
+                try db.alter(table: "coding_sessions") { t in
+                    t.add(column: "agent_account", .text)
                 }
             }
             // Force a re-snapshot so already-synced rows pick up the column.

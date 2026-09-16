@@ -31,6 +31,11 @@ public struct SessionAccountOption: Equatable, Sendable, Identifiable {
     public let active: Bool
     /// This login's own rate-limit windows, when the machine reported them.
     public let usage: AgentUsage?
+    /// EXP-909: the run is KNOWN to be on this login — its synced
+    /// `coding_sessions.agent_account` names this profile. False on every row
+    /// of a run whose account is unknown; never inferred from `active` (see
+    /// `activeAccountIndex`, which does the inferring explicitly).
+    public let current: Bool
 
     public var id: String { profileId }
 
@@ -45,7 +50,8 @@ public struct SessionAccountOption: Equatable, Sendable, Identifiable {
         signedIn: Bool,
         health: AgentAccountHealth,
         active: Bool,
-        usage: AgentUsage?
+        usage: AgentUsage?,
+        current: Bool = false
     ) {
         self.profileId = profileId
         self.label = label
@@ -55,6 +61,7 @@ public struct SessionAccountOption: Equatable, Sendable, Identifiable {
         self.health = health
         self.active = active
         self.usage = usage
+        self.current = current
     }
 }
 
@@ -114,8 +121,10 @@ public enum SessionAccountSwitch {
     /// about the agent — there is then nothing to switch between.
     public static func options(
         accounts: [String: AgentAccount]?,
-        agent: String?
+        agent: String?,
+        currentAccount: String? = nil
     ) -> [SessionAccountOption] {
+        let current = nonEmpty(currentAccount)
         guard let agent, !agent.trimmingCharacters(in: .whitespaces).isEmpty,
               let account = accounts?[agent]
         else { return [] }
@@ -130,7 +139,8 @@ public enum SessionAccountSwitch {
                     signedIn: account.signedIn == true,
                     health: AgentAccountHealth.of(account),
                     active: true,
-                    usage: nil
+                    usage: nil,
+                    current: current == AgentAccountsRows.systemProfileId
                 )
             ]
         }
@@ -144,7 +154,8 @@ public enum SessionAccountSwitch {
                 signedIn: profile.signedIn == true,
                 health: AgentAccountHealth.of(profile),
                 active: profile.active == true,
-                usage: profile.usage
+                usage: profile.usage,
+                current: current == profile.id
             )
         }
     }
@@ -152,9 +163,10 @@ public enum SessionAccountSwitch {
     /// Why `option` cannot be switched to right now, or nil when it can.
     /// Display gating only — the server and the machine re-check everything.
     ///
-    /// `currentAccount` is the profile this run is KNOWN to be on, when the
-    /// client knows it (`coding_sessions` carries no account column, so it is
-    /// usually nil and the machine's own active login is not a safe stand-in).
+    /// `currentAccount` is the profile this run is KNOWN to be on — since
+    /// EXP-909 the synced `coding_sessions.agent_account`. Still nil for a run
+    /// started by a client too old to stamp it, and the machine's own active
+    /// login is never a safe stand-in for it.
     public static func refusal(
         option: SessionAccountOption,
         agent: String?,
@@ -182,6 +194,63 @@ public enum SessionAccountSwitch {
         if !option.signedIn || option.health == .signedOut { return reasonSignedOut }
         if let currentAccount, currentAccount == option.profileId { return reasonAlready }
         return nil
+    }
+
+    /// The refusals that are about the RUN, not about one login — when every
+    /// listed account is refused for the same one of these, the overlay says
+    /// it ONCE in its footer instead of repeating it under every row.
+    static let globalSwitchReasons: [String] = [
+        reasonAgent,
+        reasonNotMine,
+        reasonEnded,
+        reasonOffline,
+        reasonNoCap,
+        reasonBusy,
+    ]
+
+    /// EXP-863: the ONE footer sentence when switching is refused for every
+    /// listed account by the same run-level reason, else nil (the footer then
+    /// carries `costNote`). Row-specific refusals (signed out, needs a
+    /// re-login) never become the footer: they stay under their row. Web
+    /// `globalSwitchBlocker`, same rule.
+    public static func globalSwitchBlocker(_ refusals: [String?]) -> String? {
+        guard let first = refusals.first ?? nil, globalSwitchReasons.contains(first) else {
+            return nil
+        }
+        return refusals.allSatisfy { $0 == first } ? first : nil
+    }
+
+    /// EXP-909: WHICH listed login the run is on, as an index into `options`
+    /// — nil when it cannot be known, which is NOT "the ambient one". The
+    /// order is the desktop's `SwitchTarget.current` rule, mirrored from web
+    /// `activeAccountIndex`, in the order the client can know it:
+    ///   1. the synced `coding_sessions.agent_account` (`option.current`),
+    ///   2. else the login whose email the machine REPORTS for this agent
+    ///      (`agentAccounts[agent].email`, always the active login's),
+    ///   3. else the machine's active login for the agent.
+    ///
+    /// Guessing here is the failure that matters: a header naming the wrong
+    /// account draws the wrong limits beside a run that is spending someone
+    /// else's.
+    public static func activeAccountIndex(
+        _ options: [SessionAccountOption],
+        reportedEmail: String?
+    ) -> Int? {
+        if let known = options.firstIndex(where: { $0.current }) { return known }
+        if let email = nonEmpty(reportedEmail),
+           let byEmail = options.firstIndex(where: { $0.email == email }) {
+            return byEmail
+        }
+        return options.firstIndex { $0.active }
+    }
+
+    /// `activeAccountIndex` as the option itself — what the usage overlay's
+    /// header draws (and whose windows it shows).
+    public static func currentOption(
+        _ options: [SessionAccountOption],
+        reportedEmail: String?
+    ) -> SessionAccountOption? {
+        activeAccountIndex(options, reportedEmail: reportedEmail).map { options[$0] }
     }
 
     /// What the switch carries as `account` — the picked profile VERBATIM,

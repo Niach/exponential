@@ -17,7 +17,7 @@ import XCTest
 ///   sg_sign-in · sg_board-switcher · sg_onboarding-create-team ·
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
-///   sg_issue-create · sg_search · sg_my-issues · sg_agents · sg_usage ·
+///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
 ///   sg_chat · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_automations-list ·
 ///   sg_automations · sg_action-suggestions · sg_reviews ·
@@ -25,10 +25,10 @@ import XCTest
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
 ///
-/// EXP-829 added `sg_usage`: the Devices page scrolled to its Accounts section
-/// (web/desktop EXP-818 folded the Usage page into Devices; the shot keeps the
-/// catalog's `usage` id). It needs the relay stub's demo device too — its
-/// heartbeat announces the agent accounts the section lists.
+/// EXP-909 retired `sg_usage`: the cross-device Accounts section it
+/// photographed is gone — every machine lists its own logins under its row, so
+/// `sg_agents` is the one shot of them. It still needs the relay stub's demo
+/// device: its heartbeat announces the agent accounts those rows list.
 ///
 /// EXP-725 added `sg_onboarding-invite` + `sg_onboarding-devices`: the wizard
 /// runs the same four steps on every client now, and the last two need a
@@ -110,7 +110,8 @@ final class StyleguideScreenshots: XCTestCase {
     /// The device `bun run screenshots:desktop` registers for the demo user.
     private static let demoDeviceName = "Alex's MacBook Pro"
     /// The login that device announces for its agents (`screenshot-demo.ts`
-    /// `DEMO_AGENT_STATUS`) — the Accounts section's first row names it.
+    /// `DEMO_AGENT_STATUS`) — EXP-909: the first login row UNDER the machine
+    /// row names it.
     private static let demoAccountEmail = "demo@exponential.at"
 
     @MainActor
@@ -357,27 +358,14 @@ final class StyleguideScreenshots: XCTestCase {
             app.staticTexts[Self.demoDeviceName].firstMatch.waitForExistence(timeout: 60),
             "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
         )
+        // EXP-909: the machine's own logins sit under its row — the subject
+        // the retired `sg_usage` shot used to have a section of its own for.
+        XCTAssertTrue(
+            anyElement(app, containing: Self.demoAccountEmail).waitForExistence(timeout: 60),
+            "No \(Self.demoAccountEmail) login row — is the stub device reporting agent accounts?"
+        )
         snapshot("sg_agents", settle: 2)
 
-        // ── sg_usage: the Accounts section of the Devices page ───────────────
-        // EXP-829: the same page, scrolled so the Accounts section is the
-        // subject. LazyVStack only materialises rows near the viewport, so
-        // swipe until the header exists, then until the demo account row is
-        // on screen (the stub's heartbeat announces the accounts).
-        let accountsHeader = app.staticTexts["Accounts"].firstMatch
-        var accountSwipes = 0
-        while !accountsHeader.exists && accountSwipes < 8 {
-            app.swipeUp()
-            accountSwipes += 1
-        }
-        XCTAssertTrue(accountsHeader.exists, "The Devices page never showed its Accounts section")
-        let accountRow = anyElement(app, containing: Self.demoAccountEmail)
-        XCTAssertTrue(
-            accountRow.waitForExistence(timeout: 60),
-            "No \(Self.demoAccountEmail) account row — is the stub device reporting agent accounts?"
-        )
-        scrollUntilVisible(app, accountRow, attempts: 4)
-        snapshot("sg_usage", settle: 2)
         // Back to the top: the next shots tap the machine row's play glyph.
         let startCoding = app.buttons["Start coding"].firstMatch
         var homeSwipes = 0

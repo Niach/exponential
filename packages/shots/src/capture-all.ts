@@ -71,6 +71,9 @@ const CORE_SERVICES = [`postgres`, `electric`, `caddy`]
  * captured without the stub it has no row to open and skips outright.
  */
 const STEER_DEPENDENT_VIEWS = new Set([
+  // EXP-909: the Devices page anchors on the stand-in's device row and now
+  // photographs the logins that row reports — nothing to frame without it.
+  `agents`,
   `chat-issues`,
   `chat-action`,
   `steering`,

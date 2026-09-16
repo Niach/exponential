@@ -47,9 +47,8 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _, ButtonVariant},
     h_flex,
-    menu::DropdownMenu as _,
     notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, WindowExt as _,
 };
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
@@ -651,7 +650,8 @@ fn notify(note: Notification, cx: &mut App) {
 // `agent_login` command and opens [`open_login_dialog`] — a title and ONE
 // status line, which closes itself once the machine reports the login.
 
-/// One machine a sign-in can be queued on right now (web `addAccountDevices`):
+/// One machine a sign-in can be queued on right now (the device the Add
+/// account row was pressed on, EXP-909):
 /// one of MINE, online, on a build that runs `agent_login`, with at least one
 /// agent installed there.
 #[derive(Clone)]
@@ -661,7 +661,6 @@ pub(crate) struct LoginDevice {
     /// This very install — the login runs in a terminal tab right here
     /// instead of riding a heartbeat.
     pub own: bool,
-    pub server: bool,
     /// The agents installed there, runnable or signed out, in contract order.
     pub agents: Vec<CodingAgent>,
     /// What the machine reported about those agents — where a NEW login lands.
@@ -669,15 +668,6 @@ pub(crate) struct LoginDevice {
 }
 
 impl LoginDevice {
-    /// The device-kind glyph every picker shows beside the name (×4).
-    pub(crate) fn icon(&self) -> crate::icons::ExpIcon {
-        if self.server {
-            crate::icons::registry::UI_SERVER
-        } else {
-            crate::icons::registry::UI_DEVICE
-        }
-    }
-
     /// Whether the machine's AMBIENT login for `agent` is already taken — a
     /// new account then lands in a profile of its own.
     fn ambient_signed_in(&self, agent: CodingAgent) -> bool {
@@ -784,7 +774,6 @@ pub(crate) fn add_account_devices(
             } else {
                 label
             }),
-            server: row.is_server(),
             agents,
             accounts: crate::device_settings::parse_agent_map::<coding::AgentAccount>(
                 row.agent_accounts.as_ref(),
@@ -1187,32 +1176,38 @@ impl Render for LoginDialogView {
     }
 }
 
-/// EXP-862 — "+ Add account": pick one of MY machines and an agent installed
-/// there, then sign in. The desktop twin of the web `AddAccountDialog`; the
-/// per-agent context menu it replaced could only ever add an account HERE.
-pub(crate) fn open_add_account_dialog(window: &mut Window, cx: &mut App) {
-    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(300.)));
+/// EXP-909 — "Add account" ON A DEVICE: the dialog is DEVICE-BOUND now. It is
+/// only ever opened from a device's own login rows ([`crate::machines`]), so
+/// the machine is already chosen and only the agent is left to pick; the
+/// device picker went with the cross-device Accounts section that used to be
+/// the other way in.
+pub(crate) fn open_add_account_dialog_for(device_id: String, window: &mut Window, cx: &mut App) {
+    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(280.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| AddAccountDialogView::new(window, cx));
+        let device_id = device_id.clone();
+        let view = cx.new(|cx| AddAccountDialogView::new(device_id, window, cx));
         native_dialog::DialogContent::new(view)
     });
 }
 
 struct AddAccountDialogView {
     devices: Vec<LoginDevice>,
-    /// The picked machine's id (the first candidate on open).
+    /// The machine the dialog was opened ON — fixed for its lifetime.
     device_id: String,
     agent: Option<CodingAgent>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AddAccountDialogView {
-    fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+    fn new(device_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let devices = add_account_devices(None, &[], cx);
-        let device_id = devices.first().map(|device| device.device_id.clone()).unwrap_or_default();
-        let agent = devices.first().and_then(|device| device.agents.first().copied());
+        let agent = devices
+            .iter()
+            .find(|device| device.device_id == device_id)
+            .and_then(|device| device.agents.first().copied());
         let collection = sync::Store::global(cx).collections().devices.clone();
-        // A machine going offline mid-dialog must not stay pickable.
+        // The machine going offline mid-dialog must not leave a Sign in that
+        // cannot land: the list is live, and the empty state takes over.
         let subscriptions = vec![cx.observe_in(&collection, window, |this: &mut Self, _, _, cx| {
             this.devices = add_account_devices(None, &[], cx);
             this.reconcile();
@@ -1226,17 +1221,9 @@ impl AddAccountDialogView {
         }
     }
 
-    /// Keep the two picks on a machine that still exists and an agent it still
-    /// runs (the list is live).
+    /// Keep the agent pick on one the bound machine still runs (the list is
+    /// live). The MACHINE never moves: this dialog belongs to it.
     fn reconcile(&mut self) {
-        if !self.devices.iter().any(|device| device.device_id == self.device_id) {
-            self.device_id = self
-                .devices
-                .first()
-                .map(|device| device.device_id.clone())
-                .unwrap_or_default();
-            self.agent = None;
-        }
         let agents = self.selected().map(|device| device.agents.clone()).unwrap_or_default();
         if !self.agent.is_some_and(|agent| agents.contains(&agent)) {
             self.agent = agents.first().copied();
@@ -1269,57 +1256,6 @@ impl AddAccountDialogView {
 }
 
 impl AddAccountDialogView {
-    /// The machine picker (×4: the device-kind glyph plus the name, on the
-    /// trigger AND on every row).
-    fn machine_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let selected = self.selected().cloned();
-        let machines = self.devices.clone();
-        let view = cx.entity().downgrade();
-        let picked_id = self.device_id.clone();
-        crate::pickers::chip_button("add-account-device", cx)
-            .children(selected.as_ref().map(|device| {
-                Icon::new(device.icon()).with_size(px(crate::surface::PillSize::Sm.glyph()))
-            }))
-            .child(crate::pickers::chip_label(
-                selected
-                    .as_ref()
-                    .map(|device| device.label.clone())
-                    .unwrap_or_else(|| "Pick a device".into()),
-                selected.is_none(),
-                cx,
-            ))
-            .child(
-                Icon::new(crate::icons::registry::UI_CHEVRON_DOWN)
-                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
-                    .text_color(muted),
-            )
-            .dropdown_menu(move |menu, _window, _cx| {
-                let mut menu = menu;
-                for device in &machines {
-                    let id = device.device_id.clone();
-                    let view = view.clone();
-                    menu = menu.item(crate::pickers::option_item(
-                        device.label.clone(),
-                        Icon::new(device.icon()),
-                        id == picked_id,
-                        move |_window, cx| {
-                            let id = id.clone();
-                            if let Some(view) = view.upgrade() {
-                                view.update(cx, |this, cx| {
-                                    this.device_id = id;
-                                    this.reconcile();
-                                    cx.notify();
-                                });
-                            }
-                        },
-                    ));
-                }
-                menu
-            })
-            .into_any_element()
-    }
-
     /// The agent picker — the SHARED one (`coding_selects::agent_picker`), so
     /// the composer, the device editor and this dialog all pick an agent the
     /// same way.
@@ -1356,7 +1292,10 @@ impl AddAccountDialogView {
 impl Render for AddAccountDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
-        if self.devices.is_empty() {
+        // EXP-909: the machine is the one the row belongs to. It dropping off
+        // the list mid-dialog (offline, the daemon stopped) is the only empty
+        // state left.
+        if self.selected().is_none() {
             // Web parity, word for word — and it keeps a way out: the window's
             // ✕ is not the only affordance in an empty dialog.
             return v_flex()
@@ -1377,7 +1316,6 @@ impl Render for AddAccountDialogView {
                     ),
                 );
         }
-        let machine_picker = self.machine_picker(cx);
         let agent_picker = self.agent_picker(cx);
         let caption: SharedString = match self.selected() {
             Some(device) => format!(
@@ -1391,7 +1329,6 @@ impl Render for AddAccountDialogView {
             .w_full()
             .gap_4()
             .child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_picker_row("Device", None, machine_picker, cx),
                 crate::surface::glass_picker_row("Agent", None, agent_picker, cx),
             ]))
             .child(div().text_xs().text_color(muted).child(caption))
@@ -1504,7 +1441,6 @@ mod tests {
             device_id: "dev-1".to_string(),
             label: "Studio".into(),
             own: false,
-            server: false,
             agents: vec![CodingAgent::Claude],
             accounts,
         }

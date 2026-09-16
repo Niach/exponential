@@ -4,7 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,13 +29,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,22 +45,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
-import com.exponential.app.domain.AgentAccountUsageGroup
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.AgentUsagePresentation
-import com.exponential.app.domain.DeviceAccountChip
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.GlassSheet
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
@@ -87,27 +83,17 @@ import kotlinx.coroutines.delay
  * machine's play glyph opens that page with the machine preselected instead
  * of a launcher sheet of its own.
  *
- * EXP-829: below the machines sits "Accounts" (web `AgentAccountsSection`,
- * desktop `accounts_section.rs`) — one row per agent account the machines
- * report, its machines as chips (a check where the account is the ACTIVE
- * login there), the freshest machine's usage windows, refreshed by itself
- * while the page is open.
- *
- * EXP-849 splits the two surfaces deliberately, and they are NOT mirror
- * images:
- *   - **Accounts** is the DECISION surface — one row per account (who it is,
- *     what it may spend, how healthy it is). The machine chips there are QUIET
- *     presence indicators, never a control cluster.
- *   - **My devices** is the SETUP/REPAIR surface — one row per machine, with
- *     an ACCOUNT CHIP per login it holds: the health badge bubbles to the row,
- *     and the chip's menu makes another login this machine's default
- *     (`agent_profile_use`), removes this machine's copy of one
- *     (`agent_profile_remove`, EXP-862), or signs one in — the login sheet
- *     owns the link and the code field, wherever it was opened from.
- *
- * EXP-862: the account CHIPS are controls on BOTH surfaces (same menu, one
- * rule), the Accounts header carries "+ Add account", every account's machines
- * end in a bare `+` ("Sign in on <device>"), and nothing refreshes by hand.
+ * EXP-909 folded the accounts INTO the machines. The cross-device "Accounts"
+ * section — logins merged by email, per-agent tabs, a chip per machine with
+ * its own menu, a "+" chip — is gone: it answered "what may this account
+ * spend" while every repair it offered was per-MACHINE, so the one thing a
+ * person came for (which box needs a sign-in) was the thing it hid. Each
+ * device row now lists its OWN logins beneath it, one flat sub-row each:
+ * the brand mark, the login's identity, its health badge, its numbers in the
+ * mini form, and the unchanged ⋯ menu (Sign in / Set as default / Remove
+ * account). A teammate's shared machine renders its logins READ-ONLY —
+ * seeing that a shared server's codex login expired explains a refused start,
+ * but only its owner can fix it.
  */
 @Composable
 fun AgentsScreen(
@@ -119,18 +105,19 @@ fun AgentsScreen(
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val latestVersions by viewModel.latestVersions.collectAsStateWithLifecycle()
     val deviceBusy by viewModel.deviceBusy.collectAsStateWithLifecycle()
-    val accountSections by viewModel.accountSections.collectAsStateWithLifecycle()
-    val accountsError by viewModel.accountsError.collectAsStateWithLifecycle()
+    // EXP-909: the logins each machine holds, keyed by device id. null until
+    // the device list has landed, which is what makes a row say "Checking…"
+    // rather than flashing "No login reported".
+    val deviceLogins by viewModel.deviceLogins.collectAsStateWithLifecycle()
     // EXP-849: the account commands the MACHINE rows issued (`agent_profile_use`
-    // — "use this account here"), keyed by machine × login: the chip spins
-    // while one is in flight and the row captions a refusal. Sign-ins are not
-    // here: they round-trip a link and a code, which is the device-settings
-    // sheet's job.
+    // — "use this account here"), keyed by machine × login: the row spins
+    // while one is in flight and captions a refusal. Sign-ins are not here:
+    // they round-trip a link and a code, which the login sheet owns.
     val accountCommandStates by viewModel.accountCommandStates.collectAsStateWithLifecycle()
 
-    // EXP-817: the section's own refresh round — on every change of the rows
-    // and on the same 30s clock the countdowns re-read on (web `useNow`).
-    LaunchedEffect(accountSections) { viewModel.autoRefreshAccounts() }
+    // EXP-817: the machines list's own refresh round — on every change of the
+    // logins and on the same 30s clock the countdowns re-read on (web `useNow`).
+    LaunchedEffect(deviceLogins) { viewModel.autoRefreshAccounts() }
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000L)
@@ -145,19 +132,14 @@ fun AgentsScreen(
     // machine runs its agent's OWN login flow and publishes the link back, so
     // the sheet is the ONE place that renders a login, wherever it started.
     var loginTarget by remember { mutableStateOf<AgentLoginTarget?>(null) }
-    var addAccountOpen by remember { mutableStateOf(false) }
+    // EXP-909: "Add account" is DEVICE-BOUND now — the sheet is opened on the
+    // machine the sign-in will run on, so it keeps its agent picker and drops
+    // its device picker.
+    var addAccountDevice by remember { mutableStateOf<SteerDevice?>(null) }
     // The login whose "Remove account" is waiting on its confirm.
     var removeTargetAccount by remember {
         mutableStateOf<Pair<SteerDevice, AgentProfileUsageRow>?>(null)
     }
-    // …and its machine-row twin, which names a chip rather than a usage row.
-    var removeTargetChip by remember {
-        mutableStateOf<Pair<SteerDevice, DeviceAccountChip>?>(null)
-    }
-    // EXP-849: the Accounts section's agent TAB (claude | codex) — one agent's
-    // rows at a time, so the second agent's accounts never crowd the first's
-    // (web/desktop parity). Null = the first reported agent.
-    var accountAgentTab by rememberSaveable { mutableStateOf<String?>(null) }
 
     val steerOn = state.steerEnabled == true
     val listState = rememberLazyListState()
@@ -204,19 +186,21 @@ fun AgentsScreen(
                                 onEdit = { settingsTargetId = device.deviceId },
                                 onRemove = { removeTarget = device },
                                 onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
-                                onSetAccountDefault = { chip -> viewModel.useAccountHere(device, chip) },
-                                onRemoveAccount = { chip -> removeTargetChip = device to chip },
+                                logins = deviceLogins?.get(device.deviceId),
+                                onSetAccountDefault = { row -> viewModel.useAccountHere(device, row) },
+                                onRemoveAccount = { row -> removeTargetAccount = device to row },
                                 // EXP-862: the sign-in link, its code field and
                                 // the waiting state live in ONE sheet, opened
                                 // on the login that needs the repair — the
                                 // device-settings sheet carries no accounts.
-                                onSignInAccount = { chip ->
+                                onSignInAccount = { row ->
                                     loginTarget = AgentLoginTarget(
                                         device = device,
-                                        agent = chip.agent,
-                                        profileId = chip.profileId,
+                                        agent = row.agent,
+                                        profileId = row.profileId,
                                     )
                                 },
+                                onAddAccount = { addAccountDevice = device },
                             )
                         }
                     }
@@ -235,6 +219,7 @@ fun AgentsScreen(
                                 onEdit = {},
                                 onRemove = {},
                                 onUpdate = {},
+                                logins = deviceLogins?.get(device.deviceId),
                                 // A teammate's machine renders its logins
                                 // READ-ONLY: seeing that a shared server's
                                 // codex login expired explains a refused
@@ -242,132 +227,8 @@ fun AgentsScreen(
                                 onSetAccountDefault = {},
                                 onRemoveAccount = {},
                                 onSignInAccount = {},
+                                onAddAccount = {},
                             )
-                        }
-                    }
-                    // EXP-829: the Accounts section. The header carries the
-                    // tag the screenshot flow scrolls to, and (EXP-862) the
-                    // "Add account" pill — the Add-device twin. No refresh
-                    // note: the numbers refresh themselves, and saying so was
-                    // chrome about chrome.
-                    item(key = "__accounts_gap__") { Spacer(Modifier.height(10.dp)) }
-                    item(key = "__accounts_header__") {
-                        SectionHeader(
-                            "Accounts",
-                            modifier = Modifier.testTag("agent-accounts-section"),
-                            trailing = {
-                                GlassPill(
-                                    "Add account",
-                                    size = PillSize.Sm,
-                                    icon = ExpIcons.uiAdd,
-                                    onClick = { addAccountOpen = true },
-                                    modifier = Modifier.testTag("add-account"),
-                                )
-                            },
-                        )
-                    }
-                    accountsError?.let { message ->
-                        item(key = "__accounts_error__") {
-                            Text(
-                                message,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 4.dp),
-                            )
-                        }
-                    }
-                    val sections = accountSections
-                    when {
-                        sections == null -> item(key = "__accounts_loading__") { HintRow("Loading…") }
-                        sections.isEmpty() -> item(key = "__no_accounts__") {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                            ) {
-                                Icon(
-                                    ExpIcons.uiDeviceOffline,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                                )
-                                Text(
-                                    AgentAccountsRows.EMPTY_STATE,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                                )
-                            }
-                        }
-                        else -> {
-                            // EXP-849: per-AGENT tabs, not a band per agent —
-                            // codex's accounts no longer push claude's off the
-                            // screen. Only agents a machine reported get a
-                            // segment, and a lone agent gets no strip at all.
-                            val agents = sections.map { it.agent }
-                            val selectedAgent = accountAgentTab?.takeIf { it in agents }
-                                ?: agents.first()
-                            if (agents.size >= 2) {
-                                item(key = "__accounts_tabs__") {
-                                    GlassSegmentedControl(
-                                        options = agents,
-                                        selected = selectedAgent,
-                                        label = ::agentLabel,
-                                        onSelect = { accountAgentTab = it },
-                                        // EXP-862: the agent is recognised by
-                                        // its brand mark everywhere else, so
-                                        // the tab carries it too.
-                                        leadingIcon = { agent ->
-                                            Icon(
-                                                agentIconPainter(agent),
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = agentIconTint(agent),
-                                            )
-                                        },
-                                        modifier = Modifier
-                                            .padding(bottom = 4.dp)
-                                            .testTag("agent-accounts-tabs"),
-                                        testTag = { "agent-accounts-tab-$it" },
-                                    )
-                                }
-                            }
-                            val section = sections.first { it.agent == selectedAgent }
-                            items(section.groups, key = { "acct_${it.key}" }) { group ->
-                                AccountRow(
-                                    group = group,
-                                    devices = devices.orEmpty(),
-                                    commandStates = accountCommandStates,
-                                    onSetDefault = { device, row ->
-                                        viewModel.setAccountDefault(device, row.agent, row.profileId)
-                                    },
-                                    onRemove = { device, row -> removeTargetAccount = device to row },
-                                    onSignIn = { device, row ->
-                                        loginTarget = AgentLoginTarget(
-                                            device = device,
-                                            agent = row.agent,
-                                            profileId = row.profileId,
-                                        )
-                                    },
-                                    onAddHere = { device ->
-                                        // Named after the ACCOUNT, like web and
-                                        // iOS: the same "+" names the profile the
-                                        // same on every client.
-                                        val target = AgentAccountsRows.addAccountLoginTarget(
-                                            device,
-                                            group.agent,
-                                            AgentAccountsRows.clampProfileLabel(
-                                                AgentAccountsRows.caption(group),
-                                            ),
-                                        )
-                                        loginTarget = AgentLoginTarget(
-                                            device = device,
-                                            agent = group.agent,
-                                            profileId = target.profileId,
-                                            newProfileLabel = target.newProfileLabel,
-                                        )
-                                    },
-                                )
-                            }
                         }
                     }
                 }
@@ -419,20 +280,9 @@ fun AgentsScreen(
     // EXP-862: "Remove account" — the machine deletes ITS copy of the login.
     // The confirm names the login and the machine and says in the same breath
     // that the account itself survives (the pinned sentence ×4).
-    removeTargetChip?.let { (device, chip) ->
-        RemoveAccountDialog(
-            accountLabel = AgentAccountsRows.machineChipLabel(chip, ::agentLabel),
-            deviceLabel = device.displayLabel,
-            onConfirm = {
-                viewModel.removeAccountHere(device, chip.agent, chip.profileId)
-                removeTargetChip = null
-            },
-            onDismiss = { removeTargetChip = null },
-        )
-    }
     removeTargetAccount?.let { (device, row) ->
         RemoveAccountDialog(
-            accountLabel = row.email ?: row.profileLabel,
+            accountLabel = AgentAccountsRows.loginLabel(row),
             deviceLabel = device.displayLabel,
             onConfirm = {
                 viewModel.removeAccountHere(device, row.agent, row.profileId)
@@ -442,14 +292,15 @@ fun AgentsScreen(
         )
     }
 
-    // EXP-862: "Add account" — pick one of the caller's online machines and an
-    // agent installed there, then hand off to the sign-in sheet, which is the
-    // ONE place a login renders on this client.
-    if (addAccountOpen) {
+    // EXP-862/EXP-909: "Add account" — pick the agent to sign in on THIS
+    // machine, then hand off to the sign-in sheet, which is the ONE place a
+    // login renders on this client. The machine is no longer a pick: the row
+    // the control sits under already named it.
+    addAccountDevice?.let { device ->
         AddAccountSheet(
-            devices = AgentAccountsRows.addAccountDevices(devices.orEmpty()),
-            onPick = { device, agent ->
-                addAccountOpen = false
+            device = device,
+            onPick = { agent ->
+                addAccountDevice = null
                 val target = AgentAccountsRows.addAccountLoginTarget(
                     device,
                     agent,
@@ -462,7 +313,7 @@ fun AgentsScreen(
                     newProfileLabel = target.newProfileLabel,
                 )
             },
-            onDismiss = { addAccountOpen = false },
+            onDismiss = { addAccountDevice = null },
         )
     }
 
@@ -493,27 +344,23 @@ private fun RemoveAccountDialog(
 }
 
 /**
- * EXP-862: "Add account" — the machine and the agent the sign-in runs on (web
- * `AddAccountDialog`). Only the caller's ONLINE machines that advertise
- * `agent-login` can take one, and only the agents installed there.
+ * EXP-862/EXP-909: "Add account" — the agent the sign-in runs on. DEVICE-BOUND
+ * since EXP-909: the control that opens it lives under one machine's row, so
+ * the sheet dropped its device picker and keeps only the agent one (web
+ * `AddAccountDialog`). Only the agents INSTALLED on that machine are offered.
  */
 @Composable
 private fun AddAccountSheet(
-    devices: List<SteerDevice>,
-    onPick: (SteerDevice, String) -> Unit,
+    device: SteerDevice,
+    onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    // EXP-862: the picks are remembered as the user's CHOICE, never keyed on
-    // the device rows. Those re-emit on every heartbeat (~30s) with a fresh
-    // `lastSeenAt`, so a `remember(devices)` key would re-initialise mid-sheet
-    // and silently snap the pick back to the first machine — a sign-in would
-    // then land on a machine nobody chose. An empty or vanished pick falls
-    // back to the first candidate here instead.
-    var pickedDeviceId by remember { mutableStateOf("") }
+    // EXP-862: the pick is remembered as the user's CHOICE, never keyed on the
+    // device row. Those re-emit on every heartbeat (~30s) with a fresh
+    // `lastSeenAt`, so a `remember(device)` key would re-initialise mid-sheet
+    // and silently snap the pick back to the first agent.
     var pickedAgent by remember { mutableStateOf("") }
-    val device = devices.firstOrNull { it.deviceId == pickedDeviceId } ?: devices.firstOrNull()
-    val deviceId = device?.deviceId ?: ""
-    val agents = device?.let(AgentAccountsRows::addableAgents).orEmpty()
+    val agents = AgentAccountsRows.addableAgents(device)
     val agent = pickedAgent.takeIf { it in agents } ?: agents.firstOrNull() ?: ""
     GlassSheet(
         title = "Add account",
@@ -521,10 +368,10 @@ private fun AddAccountSheet(
         modifier = Modifier.testTag("add-account-sheet"),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            if (devices.isEmpty()) {
+            if (agents.isEmpty()) {
                 Text(
-                    "None of your devices is online with an agent that can sign in " +
-                        "remotely. Open the desktop app or start the daemon there first.",
+                    "This device reports no agent that can sign in remotely. Open the " +
+                        "desktop app or start the daemon there first.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
@@ -532,27 +379,11 @@ private fun AddAccountSheet(
             } else {
                 OptionGroup {
                     PickerRow(
-                        label = "Device",
-                        value = device?.displayLabel ?: "",
-                        options = devices.map { it.deviceId },
-                        selected = deviceId,
-                        optionLabel = { id ->
-                            devices.firstOrNull { it.deviceId == id }?.displayLabel ?: id
-                        },
-                        optionIcon = { id ->
-                            val row = devices.firstOrNull { it.deviceId == id }
-                            if (row?.isServer == true) ExpIcons.uiServer else ExpIcons.uiDevice
-                        },
-                        onSelect = { pickedDeviceId = it },
-                    )
-                    GroupDivider()
-                    PickerRow(
                         label = "Agent",
                         value = agent.takeIf { it.isNotEmpty() }?.let(::agentLabel) ?: "",
                         options = agents,
                         selected = agent,
                         optionLabel = ::agentLabel,
-                        enabled = agents.isNotEmpty(),
                         onSelect = { pickedAgent = it },
                     )
                 }
@@ -565,8 +396,8 @@ private fun AddAccountSheet(
                         "Sign in",
                         icon = ExpIcons.uiSignIn,
                         primary = true,
-                        enabled = device != null && agent.isNotEmpty(),
-                        onClick = { device?.let { onPick(it, agent) } },
+                        enabled = agent.isNotEmpty(),
+                        onClick = { onPick(agent) },
                     )
                 }
             }
@@ -609,13 +440,18 @@ private fun MachineRow(
     onEdit: () -> Unit,
     onRemove: () -> Unit,
     onUpdate: () -> Unit,
+    /** EXP-909: the logins this machine holds — null while the list is still
+     *  loading, which is what makes the row say "Checking…". */
+    logins: List<AgentProfileUsageRow>?,
     /** EXP-862 "Set as default": make this login the machine's ACTIVE one
      *  (`agent_profile_use`). */
-    onSetAccountDefault: (DeviceAccountChip) -> Unit,
+    onSetAccountDefault: (AgentProfileUsageRow) -> Unit,
     /** EXP-862 "Remove account": the machine drops ITS copy of the login. */
-    onRemoveAccount: (DeviceAccountChip) -> Unit,
+    onRemoveAccount: (AgentProfileUsageRow) -> Unit,
     /** EXP-849: run the agent's own sign-in here — the login sheet owns the flow. */
-    onSignInAccount: (DeviceAccountChip) -> Unit,
+    onSignInAccount: (AgentProfileUsageRow) -> Unit,
+    /** EXP-909: sign a NEW login in on this machine (the device-bound sheet). */
+    onAddAccount: () -> Unit,
 ) {
     val online = device.online
     // EXP-836: a start needs an online machine WITH a runnable agent. Gating on
@@ -844,49 +680,102 @@ private fun MachineRow(
                 }
             }
         }
-        MachineAccountChips(
-            deviceId = device.deviceId,
-            chips = AgentAccountsRows.deviceAccountChips(device.agentAccounts),
+        DeviceLoginRows(
+            device = device,
+            logins = logins,
             // A repair only runs on one of MY machines that is listening and
             // new enough to advertise the cap — the server refuses the
             // commands without it, and an offline machine would hold them
             // until it wakes, which reads as a dead tap.
             actionable = device.isMine && online && device.canAgentLogin,
-            // EXP-849: `agent_profile_use` is REFUSED by the server on a
-            // machine that does not also advertise `account-switch` (it
-            // shipped in desktop/CLI 0.14.38, above the fleet floor), so an
-            // older machine never offers the pick — its logins are repaired by
-            // signing in, which every `agent-login` build can run.
-            canSwitch = device.canSwitchAccount,
-            // EXP-862: and `account-remove` for the destructive entry — the
-            // server refuses the command on a build without it.
-            canRemove = device.canRemoveAccount,
-            // …which the server ALSO gates on `agent-login`.
-            canAgentLogin = device.canAgentLogin,
             commandStates = commandStates,
             onSetDefault = onSetAccountDefault,
             onRemove = onRemoveAccount,
             onSignIn = onSignInAccount,
+            onAddAccount = onAddAccount,
         )
     }
 }
 
 /**
- * EXP-849: the logins ONE machine holds, as the chips on its row — the
- * setup/repair half of the accounts split (web `MachineAccountChips`, iOS
- * `DeviceAccountChips`).
+ * EXP-849/EXP-909: the logins ONE machine holds, listed UNDER its row (web
+ * `DeviceLogins`, iOS `DeviceLogins`, desktop `machines::render_login_rows`).
  *
- * The Accounts section decides WHICH account to run on; a machine row is where
- * a broken or missing login gets fixed. So each chip names the agent and the
- * login, badges THIS machine's health for it, and carries the repairs that
- * machine owes it (EXP-862): sign in, make it the machine's default
+ * A machine row is where a broken or missing login gets fixed, so each row
+ * names the agent by its brand mark, the login by its identity alone
+ * ([AgentAccountsRows.loginLabel] — never a status), badges THIS machine's
+ * health for it, shows its numbers in the mini form, and carries the repairs
+ * that machine owes it (EXP-862): sign in, make it the machine's default
  * (`agent_profile_use` — no login flow, no logout, no credential touched), or
  * remove this machine's copy of it.
  */
 @Composable
-private fun MachineAccountChips(
-    deviceId: String,
-    chips: List<DeviceAccountChip>,
+private fun DeviceLoginRows(
+    device: SteerDevice,
+    logins: List<AgentProfileUsageRow>?,
+    actionable: Boolean,
+    commandStates: Map<String, DeviceCommandUiState>,
+    onSetDefault: (AgentProfileUsageRow) -> Unit,
+    onRemove: (AgentProfileUsageRow) -> Unit,
+    onSignIn: (AgentProfileUsageRow) -> Unit,
+    onAddAccount: () -> Unit,
+) {
+    // EXP-909: the "Add account" control is OFFERED or ABSENT, never visible
+    // and disabled — this deliberately reverses EXP-845, which showed a dead
+    // control on every machine that could not take a sign-in and made the
+    // page read as broken. Never on a teammate's machine.
+    val canAdd = device.isMine &&
+        device.online &&
+        device.canAgentLogin &&
+        AgentAccountsRows.addableAgents(device).isNotEmpty()
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        when {
+            // Still loading the device list: say so rather than claiming the
+            // machine holds nothing.
+            logins == null -> LoginHint("Checking…")
+            logins.isEmpty() -> LoginHint(AgentUsagePresentation.NO_LOGIN_REPORTED)
+            else -> logins.forEach { login ->
+                key(login.key) {
+                    DeviceLoginRow(
+                        row = login,
+                        actionable = actionable,
+                        canSwitch = device.canSwitchAccount,
+                        canRemove = device.canRemoveAccount,
+                        canAgentLogin = device.canAgentLogin,
+                        state = commandStates[deviceLoginCommandKey(login)],
+                        onSetDefault = { onSetDefault(login) },
+                        onRemove = { onRemove(login) },
+                        onSignIn = { onSignIn(login) },
+                    )
+                }
+            }
+        }
+        if (canAdd) {
+            GlassPill(
+                "Add account",
+                size = PillSize.Sm,
+                icon = ExpIcons.uiAdd,
+                onClick = onAddAccount,
+                modifier = Modifier.testTag("add-account"),
+            )
+        }
+    }
+}
+
+/** The per-device caption ladder: `Checking…` / `No login reported`. */
+@Composable
+private fun LoginHint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+    )
+}
+
+/** ONE login of one machine: the agent, the login, its state, its menu. */
+@Composable
+private fun DeviceLoginRow(
+    row: AgentProfileUsageRow,
     actionable: Boolean,
     /** The machine advertises `account-switch` — see [AgentAccountsRows.chipActions]. */
     canSwitch: Boolean,
@@ -894,71 +783,23 @@ private fun MachineAccountChips(
     canRemove: Boolean,
     /** …and `agent-login`, which a removal needs as well. */
     canAgentLogin: Boolean,
-    commandStates: Map<String, DeviceCommandUiState>,
-    onSetDefault: (DeviceAccountChip) -> Unit,
-    onRemove: (DeviceAccountChip) -> Unit,
-    onSignIn: (DeviceAccountChip) -> Unit,
-) {
-    if (chips.isEmpty()) return
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        chips.forEach { chip ->
-            key(chip.key) {
-                MachineAccountChip(
-                    chip = chip,
-                    actionable = actionable,
-                    canSwitch = canSwitch,
-                    canRemove = canRemove,
-                    canAgentLogin = canAgentLogin,
-                    state = commandStates[deviceAccountCommandKey(deviceId, chip)],
-                    onSetDefault = { onSetDefault(chip) },
-                    onRemove = { onRemove(chip) },
-                    onSignIn = { onSignIn(chip) },
-                )
-            }
-        }
-    }
-    // The material outcome of a pick arrives by SYNC (the machine re-reports
-    // its accounts, which moves the check), but a refusal would otherwise be
-    // silent — including the honest one a machine too old to know the command
-    // answers with.
-    chips.forEach { chip ->
-        val failure = commandStates[deviceAccountCommandKey(deviceId, chip)]
-            as? DeviceCommandUiState.Failed ?: return@forEach
-        Text(
-            failure.message,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.error,
-        )
-    }
-}
-
-/** One login of one machine: the agent, the login, its state, its menu. */
-@Composable
-private fun MachineAccountChip(
-    chip: DeviceAccountChip,
-    actionable: Boolean,
-    canSwitch: Boolean,
-    canRemove: Boolean,
-    canAgentLogin: Boolean,
     state: DeviceCommandUiState?,
     onSetDefault: () -> Unit,
     onRemove: () -> Unit,
     onSignIn: () -> Unit,
 ) {
-    val label = AgentAccountsRows.machineChipLabel(chip, ::agentLabel)
-    val badge = AgentHealthRules.badgeLabel(chip.health)
+    val nowMs = rememberUsageClock()
+    val label = AgentAccountsRows.loginLabel(row)
+    val badge = AgentAccountsRows.healthBadge(row)
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
     var menuOpen by remember { mutableStateOf(false) }
     // EXP-862: the entries, decided in ONE place ×4 — a signed-out or expired
     // login offers a sign-in and nothing else; a healthy one can become the
-    // machine's default and can be removed from it. Empty = the chip is a
+    // machine's default and can be removed from it. Empty = the row is a
     // statement (a teammate's machine, an offline one, the ambient login).
     val actions = if (actionable) {
         AgentAccountsRows.chipActions(
-            chip,
+            row,
             canSwitchAccount = canSwitch,
             canRemoveAccount = canRemove,
             canAgentLogin = canAgentLogin,
@@ -966,67 +807,129 @@ private fun MachineAccountChip(
     } else {
         emptyList()
     }
+    // The `· plan` tail only when the label is already the EMAIL: a login that
+    // has nothing but its plan must not read "max · max".
+    val planTail = row.plan?.takeIf { row.email != null }
     val description = buildString {
-        append(label)
-        if (chip.active) append(", the account this device uses")
+        append("${agentLabel(row.agent)}, $label")
+        planTail?.let { append(", $it") }
+        if (row.active) append(", the account this device uses")
         badge?.let { append(", ${it.lowercase()}") }
     }
-    val pill: @Composable () -> Unit = {
-        GlassPill(
-            label,
-            size = PillSize.Sm,
-            onClick = if (actions.isEmpty()) null else ({ menuOpen = true }),
-            trailing = when {
-                busy -> null
-                badge != null -> {
-                    {
-                        Icon(
-                            ExpIcons.uiWarning,
-                            contentDescription = badge,
-                            tint = NeedsInputAmber,
-                            modifier = Modifier.size(12.dp),
+    Column(
+        modifier = Modifier.fillMaxWidth().testTag("device-login-row"),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) { contentDescription = description },
+        ) {
+            Icon(
+                agentIconPainter(row.agent),
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = agentIconTint(row.agent),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (planTail != null) {
+                Text(
+                    " · $planTail",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            if (badge != null) {
+                Text(
+                    badge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = NeedsInputAmber,
+                    maxLines = 1,
+                    modifier = Modifier.testTag("device-login-health"),
+                )
+            }
+            if (busy) {
+                Spacer(Modifier.width(6.dp))
+                CircularProgressIndicator(
+                    modifier = Modifier.size(12.dp),
+                    strokeWidth = 1.5.dp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            } else if (actions.isNotEmpty()) {
+                Box {
+                    CircleIconButton(
+                        ExpIcons.uiMore,
+                        contentDescription = "Account menu",
+                        onClick = { menuOpen = true },
+                        // EXP-862: every "⋯" is a ghost rung — no circle, no
+                        // hairline (×4).
+                        borderless = true,
+                        size = 28.dp,
+                        glyphSize = 15.dp,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
+                    GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        AccountChipMenuItems(
+                            actions = actions,
+                            busy = busy,
+                            onSignIn = {
+                                menuOpen = false
+                                onSignIn()
+                            },
+                            onSetDefault = {
+                                menuOpen = false
+                                onSetDefault()
+                            },
+                            onRemove = {
+                                menuOpen = false
+                                onRemove()
+                            },
                         )
                     }
                 }
-                chip.signedIn && chip.active -> {
-                    {
-                        Icon(
-                            ExpIcons.uiCheck,
-                            contentDescription = "The account this device uses",
-                            tint = ReviewGreen,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
+            }
+        }
+        // The numbers, or the caption ladder when there are none: a signed-in
+        // login nothing has probed YET reads "Checking…" — "No usage reported"
+        // made a device that is simply still working read as broken (×4).
+        val age = AgentUsagePresentation.usageAge(row.usage, nowMs)
+        val asOf = age ?: row.checkedAt?.takeIf { it.isNotBlank() }
+            ?.let(::relativeTime)?.takeIf { it.isNotEmpty() }?.let { "as of $it" }
+        Column(
+            modifier = Modifier.padding(start = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            if (row.usage?.windows?.isNotEmpty() == true) {
+                Column(modifier = Modifier.alpha(if (age != null) 0.5f else 1f)) {
+                    AgentUsageMini(usage = row.usage)
                 }
-                else -> null
-            },
-            loading = busy,
-            contentDescription = description,
-            modifier = Modifier.testTag("device-account-chip"),
-        )
-    }
-    if (actions.isEmpty()) {
-        pill()
-        return
-    }
-    Box {
-        pill()
-        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            AccountChipMenuItems(
-                actions = actions,
-                busy = busy,
-                onSignIn = {
-                    menuOpen = false
-                    onSignIn()
-                },
-                onSetDefault = {
-                    menuOpen = false
-                    onSetDefault()
-                },
-                onRemove = {
-                    menuOpen = false
-                    onRemove()
-                },
+                if (age != null) LoginHint(age)
+            } else if (row.signedIn && asOf == null) {
+                LoginHint("Checking…")
+            } else {
+                LoginHint(if (asOf != null) "No usage reported · $asOf" else "No usage reported")
+            }
+        }
+        // The material outcome of a pick arrives by SYNC (the machine
+        // re-reports its accounts, which moves the check), but a refusal would
+        // otherwise be silent — including the honest one a machine too old to
+        // know the command answers with.
+        (state as? DeviceCommandUiState.Failed)?.let { failure ->
+            Text(
+                failure.message,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }
@@ -1070,290 +973,6 @@ private fun AccountChipMenuItems(
         }
     }
 }
-
-/**
- * EXP-829: one account ROW under its agent band — the identity line (who the
- * account is, plus its plan and the health badge when there is one), the
- * machine chips, and the freshest machine's usage windows (the same cards the
- * device settings sheet used to render; dimmed with an "as of …" line once
- * they are older than the freshness window). Web `AccountCard`, desktop
- * `render_row`.
- *
- * EXP-862: no refresh button — the numbers re-read themselves while the page
- * is open, so a control that mostly said "not yet" was chrome. The chips are
- * controls now: each carries the same menu a machine row's chip does, and a
- * bare `+` offers the account to a machine that does not hold it yet.
- */
-@Composable
-private fun AccountRow(
-    group: AgentAccountUsageGroup,
-    /** Every machine the caller can see — the chips resolve their caps here. */
-    devices: List<SteerDevice>,
-    commandStates: Map<String, DeviceCommandUiState>,
-    onSetDefault: (SteerDevice, AgentProfileUsageRow) -> Unit,
-    onRemove: (SteerDevice, AgentProfileUsageRow) -> Unit,
-    onSignIn: (SteerDevice, AgentProfileUsageRow) -> Unit,
-    /** "Sign in on <device>" — the account gains a machine. */
-    onAddHere: (SteerDevice) -> Unit,
-) {
-    val nowMs = rememberUsageClock()
-    val usage = group.usage
-    val fresh = AgentUsagePresentation.isFresh(usage?.fetchedAt, nowMs)
-    // The "as of …" fallback: the numbers' own stamp, else when a machine last
-    // probed the account.
-    val asOf = (usage?.fetchedAt?.takeIf { it.isNotBlank() } ?: group.checkedAt)
-        ?.let(::relativeTime)?.takeIf { it.isNotEmpty() }
-    // The machines this account is NOT on yet — where the `+` chip can put it.
-    val holders = group.rows.map { it.deviceId }.toSet()
-    val addTargets = AgentAccountsRows.addAccountDevices(devices, group.agent, holders)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .flatRow()
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
-            .testTag("agent-account-row"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text(
-                AgentAccountsRows.caption(group),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (group.signedIn && group.email != null && group.plan != null) {
-                Text(
-                    " · ${group.plan}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                )
-            }
-            // EXP-862: the ONE sign-in notice this row carries — a signed-out
-            // or expired credential, in the badge the caption no longer says.
-            AgentAccountsRows.healthBadge(group)?.let { badge ->
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    badge,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = NeedsInputAmber,
-                    maxLines = 1,
-                    modifier = Modifier.testTag("agent-account-health"),
-                )
-            }
-        }
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            group.rows.forEach { row ->
-                // Keyed: the rows re-sort as health and usage move.
-                key(row.key) {
-                    val device = devices.firstOrNull { it.deviceId == row.deviceId }
-                    DeviceChip(
-                        row = row,
-                        device = device,
-                        state = commandStates[
-                            accountCommandKey(row.deviceId, row.agent, row.profileId),
-                        ],
-                        onSetDefault = { device?.let { onSetDefault(it, row) } },
-                        onRemove = { device?.let { onRemove(it, row) } },
-                        onSignIn = { device?.let { onSignIn(it, row) } },
-                    )
-                }
-            }
-            if (addTargets.isNotEmpty()) {
-                key("__add__") { AddAccountHereChip(devices = addTargets, onPick = onAddHere) }
-            }
-        }
-        // A refused command captions the row that triggered it.
-        group.rows.forEach { row ->
-            val failure = commandStates[accountCommandKey(row.deviceId, row.agent, row.profileId)]
-                as? DeviceCommandUiState.Failed ?: return@forEach
-            Text(
-                failure.message,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        if (usage != null && usage.windows.isNotEmpty()) {
-            Column(
-                modifier = Modifier.alpha(if (fresh) 1f else 0.5f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                AgentUsageCards(usage = usage, compact = true)
-                // The cards caption their own staleness (the device's flag);
-                // an aged-out but never-failed report gets the line here.
-                if (!fresh && !usage.stale && asOf != null) {
-                    Text(
-                        "as of $asOf",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-            }
-        } else if (group.signedIn && asOf == null) {
-            // EXP-862: a signed-in login nothing has probed YET reads
-            // "Checking…" — "No usage reported" made a device that is simply
-            // still working read as broken (×4).
-            Text(
-                "Checking…",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        } else {
-            Text(
-                if (asOf != null) "No usage reported · as of $asOf" else "No usage reported",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
-    }
-}
-
-/**
- * EXP-829/EXP-849/EXP-862: one machine chip on an ACCOUNT row — the online
- * dot, the machine (· profile), a CHECK when the account is that machine's
- * ACTIVE login, an amber warning glyph when THAT machine's copy is broken, and
- * the same menu the machine row's chip carries (Sign in / Set as default /
- * Remove account). The rule that decides the entries is shared ×4, so a chip
- * cannot offer different repairs depending on which list it is in.
- */
-@Composable
-private fun DeviceChip(
-    row: AgentProfileUsageRow,
-    device: SteerDevice?,
-    state: DeviceCommandUiState?,
-    onSetDefault: () -> Unit,
-    onRemove: () -> Unit,
-    onSignIn: () -> Unit,
-) {
-    val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
-    var menuOpen by remember { mutableStateOf(false) }
-    // A command only runs on one of MY machines that is listening and new
-    // enough to advertise the cap — otherwise the chip is a statement.
-    val actions = if (device != null && row.mine && row.online && device.canAgentLogin) {
-        AgentAccountsRows.chipActions(
-            row,
-            canSwitchAccount = device.canSwitchAccount,
-            canRemoveAccount = device.canRemoveAccount,
-            canAgentLogin = device.canAgentLogin,
-        )
-    } else {
-        emptyList()
-    }
-    val badge = AgentHealthRules.badgeLabel(row.health)
-    val description = buildString {
-        append(AgentAccountsRows.chipLabel(row))
-        append(if (row.online) ", online" else ", offline")
-        if (row.signedIn && row.active) append(", active here")
-        badge?.let { append(", ${it.lowercase()}") }
-    }
-    val pill: @Composable () -> Unit = {
-        GlassPill(
-            AgentAccountsRows.chipLabel(row),
-            size = PillSize.Sm,
-            onClick = if (actions.isEmpty()) null else ({ menuOpen = true }),
-            dot = if (row.online) {
-                ReviewGreen
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-            },
-            trailing = when {
-                busy -> null
-                badge != null -> {
-                    {
-                        Icon(
-                            ExpIcons.uiWarning,
-                            contentDescription = badge,
-                            tint = NeedsInputAmber,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                }
-                row.signedIn && row.active -> {
-                    {
-                        Icon(
-                            ExpIcons.uiCheck,
-                            contentDescription = "Active on this device",
-                            tint = ReviewGreen,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                }
-                else -> null
-            },
-            loading = busy,
-            contentDescription = description,
-            modifier = Modifier.testTag("agent-account-chip"),
-        )
-    }
-    if (actions.isEmpty()) {
-        pill()
-        return
-    }
-    Box {
-        pill()
-        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            AccountChipMenuItems(
-                actions = actions,
-                busy = busy,
-                onSignIn = {
-                    menuOpen = false
-                    onSignIn()
-                },
-                onSetDefault = {
-                    menuOpen = false
-                    onSetDefault()
-                },
-                onRemove = {
-                    menuOpen = false
-                    onRemove()
-                },
-            )
-        }
-    }
-}
-
-/**
- * EXP-862: the bare `+` chip at the end of an account's machines — "Sign in on
- * <device>" for every machine of the caller's that could hold this account and
- * does not yet. Same chip ×4.
- */
-@Composable
-private fun AddAccountHereChip(devices: List<SteerDevice>, onPick: (SteerDevice) -> Unit) {
-    var menuOpen by remember { mutableStateOf(false) }
-    Box {
-        GlassPill(
-            "",
-            size = PillSize.Sm,
-            icon = ExpIcons.uiAdd,
-            onClick = { menuOpen = true },
-            contentDescription = "Add this account to a device",
-            modifier = Modifier.testTag("agent-account-add-chip"),
-        )
-        GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            devices.forEach { device ->
-                GlassMenuItem(
-                    text = { Text("Sign in on ${device.displayLabel}") },
-                    leadingIcon = {
-                        Icon(
-                            if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
-                            contentDescription = null,
-                        )
-                    },
-                    onClick = {
-                        menuOpen = false
-                        onPick(device)
-                    },
-                )
-            }
-        }
-    }
-}
-
 
 @Composable
 private fun HintRow(text: String) {

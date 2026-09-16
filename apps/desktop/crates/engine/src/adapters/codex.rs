@@ -91,20 +91,51 @@ pub struct CodexUsage(Arc<UsageSlot>);
 
 struct UsageSlot {
     windows: Mutex<Vec<coding::agent_usage::UsageWindow>>,
+    /// EXP-909: the LOGIN this run spends (`coding::profile_id` of the
+    /// launch's `account`), the key everything published from here lands
+    /// under — a run on a secondary account never moves the ambient one's
+    /// numbers.
+    profile: String,
     /// The live-registry attachment, released by [`CodexUsage::detach`] at
     /// session end — or, if nobody gets there, by dropping the last handle.
+    /// EXP-909: `None` for a transcript REPLAY, which spends nothing.
     attached: Mutex<Option<coding::agent_usage::live::Attached>>,
 }
 
 impl CodexUsage {
-    /// Register a live codex session with the machine's usage registry.
-    pub fn attach() -> CodexUsage {
+    /// Register a live codex session on `profile` with the machine's usage
+    /// registry.
+    pub fn attach(profile: &str) -> CodexUsage {
         CodexUsage(Arc::new(UsageSlot {
             windows: Mutex::new(Vec::new()),
+            profile: profile.to_string(),
             attached: Mutex::new(Some(coding::agent_usage::live::attach(
                 coding::CodingAgent::Codex,
+                profile,
             ))),
         }))
+    }
+
+    /// EXP-909: the usage handle of a transcript REPLAY — it still collects
+    /// whatever the recording said, but holds no live session slot, because
+    /// reading history spends no tokens.
+    pub fn replaying(profile: &str) -> CodexUsage {
+        CodexUsage(Arc::new(UsageSlot {
+            windows: Mutex::new(Vec::new()),
+            profile: profile.to_string(),
+            attached: Mutex::new(None),
+        }))
+    }
+
+    /// The handle `spec` asks for: attached for a real run, detached for a
+    /// replay, always keyed by the login the run spends.
+    fn for_spec(spec: &AdapterSpec) -> CodexUsage {
+        let profile = coding::profile_id(spec.options.account.as_deref());
+        if spec.replay {
+            CodexUsage::replaying(&profile)
+        } else {
+            CodexUsage::attach(&profile)
+        }
     }
 
     pub fn windows(&self) -> Vec<coding::agent_usage::UsageWindow> {
@@ -133,7 +164,7 @@ impl CodexUsage {
         }
         // EXP-754: the machine's usage poller reads THIS instead of spawning
         // a second `codex app-server` to ask the same account again.
-        coding::agent_usage::live::publish(coding::CodingAgent::Codex, published);
+        coding::agent_usage::live::publish(coding::CodingAgent::Codex, &self.0.profile, published);
     }
 }
 
@@ -187,19 +218,21 @@ impl CodexAgent {
         if let Some(exit) = &connection.exit {
             crate::transport::forward_exit(exit.clone(), spec.exit.clone());
         }
+        let usage = CodexUsage::for_spec(&spec);
         Ok(CodexAgent {
             spec,
             connection,
-            usage: CodexUsage::attach(),
+            usage,
         })
     }
 
     /// Drive an already-connected app-server (the adapter tests).
     pub fn with_connection(spec: AdapterSpec, connection: CodexConnection) -> CodexAgent {
+        let usage = CodexUsage::for_spec(&spec);
         CodexAgent {
             spec,
             connection,
-            usage: CodexUsage::attach(),
+            usage,
         }
     }
 

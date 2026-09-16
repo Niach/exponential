@@ -343,4 +343,38 @@ class CodingSessionEntityDecodeTest {
         assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent_caption\": null")).agentCaption)
         assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agentCaption)
     }
+
+    // EXP-909: agent_account — the account profile the run spends. Absent on
+    // every pre-EXP-909 row, and absent means UNKNOWN, never `system`: the
+    // overlay must be free to fall back to the machine's reported login.
+    @Test
+    fun `agent_account decodes from both wire forms and defaults null`() {
+        fun row(extra: String) = """
+            {
+              "id": "sess-1",
+              "team_id": "team-1",
+              "user_id": "user-1",
+              "status": "running"$extra,
+              "started_at": "2026-09-16 10:00:00+00",
+              "created_at": "2026-09-16 10:00:00+00",
+              "updated_at": "2026-09-16 10:00:00+00"
+            }
+        """.trimIndent()
+        assertEquals(
+            "system",
+            json.decodeFromString(
+                CodingSessionEntity.serializer(),
+                row(", \"agent_account\": \"system\""),
+            ).agentAccount,
+        )
+        assertEquals(
+            "work",
+            json.decodeFromString(
+                CodingSessionEntity.serializer(),
+                row(", \"agentAccount\": \"work\""),
+            ).agentAccount,
+        )
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row(", \"agent_account\": null")).agentAccount)
+        assertNull(json.decodeFromString(CodingSessionEntity.serializer(), row("")).agentAccount)
+    }
 }

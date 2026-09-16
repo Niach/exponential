@@ -16,17 +16,13 @@ import SwiftUI
 /// pushes it with an empty seed. When the relay is off nothing here can be
 /// started, so the tab says so instead of listing devices.
 ///
-/// EXP-829: below the devices, "Accounts" (`AgentAccountsSection`) — the Usage
-/// page web and desktop folded into Devices in EXP-818: one row per agent
-/// account across the same devices, the freshest report's usage bars, per-agent
-/// tabs, and a chip per device holding the login.
-///
-/// EXP-849 splits the two jobs this page used to mix. Accounts (below) is the
-/// DECISION surface — which login, how much is left, is it still good. The
-/// device rows are the SETUP/REPAIR surface: each one badges the worst health
-/// of its logins ("Needs re-login" is not "Signed out") and carries its account
-/// chips, whose menu signs a login in, makes one the device's default, or
-/// removes it from that device (EXP-862).
+/// EXP-909: every device row LISTS ITS OWN LOGINS beneath it (`DeviceLogins`)
+/// — who each login is, its health, its compact usage line, and (own machines
+/// only) the menu that signs it in, makes it that machine's default, or
+/// removes it. The separate cross-device "Accounts" section is gone: it
+/// email-merged logins that are per MACHINE, so one account lived in two
+/// places with two orderings and two menus. A login belongs to the machine
+/// that holds it, and that is where it now reads.
 struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -191,15 +187,6 @@ struct AgentsView: View {
                     }
                 }
 
-                // EXP-829: the agent accounts across those devices (web /
-                // desktop EXP-818 parity). A login is REPAIRED on the device
-                // row that holds it; what this section owns is adding one —
-                // "+ Add account" and the per-account "+" (EXP-862).
-                AgentAccountsSection(
-                    viewModel: vm,
-                    onSignIn: { loginTarget = $0 },
-                    onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) }
-                )
                 if let deviceError {
                     Text(deviceError)
                         .font(.caption2)
@@ -367,14 +354,15 @@ struct AgentsView: View {
                     .accessibilityIdentifier("machine-menu")
                 }
             }
-            // EXP-849/EXP-862: the machine's logins, with the repairs on
-            // them. A sign-in opens the login sheet on the chip's OWN login
+            // EXP-849/EXP-862/EXP-909: the machine's logins, with the repairs
+            // on them. A sign-in opens the login sheet on the row's OWN login
             // (a machine with two claude profiles would otherwise re-login the
             // active one, not the expired one that was tapped); a removal
-            // confirms first.
-            DeviceAccountChips(
+            // confirms first. A teammate's shared server renders read-only.
+            DeviceLogins(
                 viewModel: vm,
                 device: device,
+                readOnly: !device.isMine,
                 onSignIn: { row in
                     loginTarget = AgentLoginTarget(
                         deviceId: device.deviceId,
