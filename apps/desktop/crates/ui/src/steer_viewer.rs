@@ -286,25 +286,6 @@ struct PrChanges {
     files: Vec<coding::scm::DiffFile>,
 }
 
-/// EXP-862 — WHAT the diff pane is showing.
-///
-/// The pane used to be one thing (the whole published branch diff) with a
-/// file list, so a per-turn file card could only scroll it. A turn's card and
-/// an inline edit card are both claims about a SUBSET, and the pane now
-/// carries that claim: the scope chip says which subset is on screen and
-/// clicking it goes back to the branch.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) enum DiffScope {
-    /// The whole published worktree diff — the header's Diff pill.
-    #[default]
-    Session,
-    /// ONE tool call's patch (an inline edit card's header).
-    Tool { item: FeedItemId },
-    /// Every file a TURN touched (a file card's row), keyed by the card's
-    /// anchor row the way [`crate::session_rows::file_cards`] keys them.
-    Turn { anchor: FeedItemId },
-}
-
 /// EXP-895 — how much of a tool row is SHOWN.
 ///
 /// The transcript runs inside the flow: exactly ONE row is expanded at a time
@@ -423,31 +404,31 @@ pub(crate) struct SteerSessionView {
     /// the diff pane's file list is unfolded, and which file its header
     /// names.
     run_face: RunFace,
-    diff_list_open: bool,
     diff_selected: usize,
-    /// EXP-895: the file list's `Filter files` field.
+    /// EXP-895: the file tree's `Filter files` field.
     diff_filter: Entity<InputState>,
+    /// EXP-916: the tree's FOLDED directories, keyed by path. Every
+    /// directory is open by default, so this set is what the reader shut.
+    folded_dirs: HashSet<String>,
     /// EXP-895 — the FALLBACK files (web `useReviewFiles`): a run that
     /// published no diff of its own still has changes to show once it has
     /// pushed, so the pane falls back to the issue's PR files
     /// (`issues.prFiles`) or, with no PR yet, its branch against the repo
     /// default (`repositories.branchDiff`). Fetched once per issue+PR key.
     pr_changes: Option<PrChanges>,
-    /// EXP-862: WHAT the pane shows — the whole branch, one turn's files or
-    /// one edit.
-    diff_scope: DiffScope,
     /// The view's own measured width (the recorded-px canvas recipe) — the
     /// transcript's bubble cap reads it.
     view_width: std::rc::Rc<std::cell::Cell<Pixels>>,
-    /// EXP-850 §12: the per-turn file cards, keyed by the row they hang
-    /// under. EXP-884: derived state ([`Self::refresh_derived`]), rebuilt
-    /// only when the feed's generation moved.
-    file_cards: HashMap<FeedItemId, crate::session_rows::FileCard>,
-    /// EXP-884: the memo behind `file_cards` — each settled edit's patch is
-    /// read once, not once per frame.
+    /// EXP-884/EXP-916: the memo behind the edited-files cards — a card's
+    /// patches are parsed once, not once per frame.
     edit_memo: crate::session_rows::EditMemo,
+    /// EXP-916: which PATHS the reader unfolded inside each edited-files
+    /// card, keyed by the card (its first member's id). The live row opens
+    /// itself and closes again when the transcript moves on, so nothing here
+    /// survives the run's own flow.
+    expanded_edit_rows: HashMap<FeedItemId, HashSet<String>>,
     /// EXP-884: the [`SteerFeed::generation`] the derived state (`active`,
-    /// `file_cards`, `subagents`, `strip_lines`, `duplicates`) was computed
+    /// `subagents`, `strip_lines`, `duplicates`) was computed
     /// for; `None` before the first derivation.
     derived_for: Option<u64>,
     /// EXP-884: `feed.subagents()` — the strip's tabs and the focused tab's
@@ -457,7 +438,8 @@ pub(crate) struct SteerSessionView {
     strip_lines: Vec<crate::session_rows::StripLine>,
     /// EXP-884: the §4 duplicate edges, asked per workflow row.
     duplicates: Vec<crate::session_rows::DuplicateWarning>,
-    /// …and the cards whose `{rest} more` half is unfolded.
+    /// EXP-916: the edited-files cards whose `{n} more` half is unfolded,
+    /// keyed by the card (its first member's id).
     expanded_cards: HashSet<FeedItemId>,
     /// EXP-850 §3: the workflow agents whose nested events are unfolded,
     /// keyed `{workflow id}#{agent index}`.
@@ -692,14 +674,13 @@ impl SteerSessionView {
                 crate::diff::DiffView::new(window, cx)
             }),
             run_face: RunFace::Run,
-            diff_list_open: true,
             diff_selected: 0,
             diff_filter,
+            folded_dirs: HashSet::new(),
             pr_changes: None,
-            diff_scope: DiffScope::Session,
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
-            file_cards: HashMap::new(),
             edit_memo: Default::default(),
+            expanded_edit_rows: HashMap::new(),
             derived_for: None,
             subagents: Vec::new(),
             strip_lines: Vec::new(),
@@ -903,7 +884,7 @@ impl SteerSessionView {
 
     /// EXP-884 — re-derive every whole-feed projection this view keeps (the
     /// answerable cards, the subagent summaries, the strip lines, the
-    /// duplicate edges, the per-turn file cards), but ONLY when the feed's
+    /// duplicate edges, the duplicate edges), but ONLY when the feed's
     /// generation moved since the last derivation.
     ///
     /// Called wherever the feed mutates and at the top of every frame. The
@@ -924,7 +905,6 @@ impl SteerSessionView {
         self.strip_lines =
             crate::session_rows::strip_lines(self.feed.background_tasks(), self.feed.items());
         self.duplicates = crate::session_rows::duplicate_warnings(self.feed.items());
-        self.file_cards = crate::session_rows::file_cards(self.feed.items(), &self.edit_memo);
     }
 
     /// EXP-848 — the ONE working predicate (identical on all four clients,
@@ -1028,9 +1008,10 @@ impl SteerSessionView {
         self.expanded_groups.retain(|id| *id >= first);
         self.expanded_bodies.retain(|id| *id >= first);
         self.expanded_extras.retain(|id| *id >= first);
-        // EXP-850 §12: a file card is keyed by the edit row it hangs under,
-        // so it is evicted with that row like every other per-row flag.
+        // EXP-916: an edited-files card is keyed by its FIRST member, so it
+        // is evicted with that row like every other per-row flag.
         self.expanded_cards.retain(|id| *id >= first);
+        self.expanded_edit_rows.retain(|id, _| *id >= first);
         // `picked` is keyed by `answer_key`, not by row id, so it has to be
         // retained against the question ids still in the feed. Read them
         // borrow-free (`items()` and `picked` are disjoint fields) and without
@@ -2462,10 +2443,7 @@ impl SteerSessionView {
         if self.diff_selected >= files {
             self.diff_selected = 0;
         }
-        // EXP-862: only the SESSION scope follows the published diff. A pane
-        // scoped to one turn or one edit shows what that row did, and a new
-        // push must not silently swap it for something else.
-        if self.run_face == RunFace::Diff && self.diff_scope == DiffScope::Session {
+        if self.run_face == RunFace::Diff {
             self.rebuild_changes_diff(cx);
         }
         // EXP-895: a published diff retires the fallback; its absence asks
@@ -2535,7 +2513,7 @@ impl SteerSessionView {
                     key,
                     files: crate::diff::files_from_pull(&files),
                 });
-                if this.run_face == RunFace::Diff && this.diff_scope == DiffScope::Session {
+                if this.run_face == RunFace::Diff {
                     this.rebuild_changes_diff(cx);
                 }
                 cx.notify();
@@ -2557,79 +2535,25 @@ impl SteerSessionView {
         )
     }
 
-    /// EXP-862 — the files the pane is showing: the whole published diff in
-    /// the session scope, else the per-call patches of the rows the scope
-    /// names (the same bytes their inline cards render).
-    fn scope_files(&self) -> Vec<coding::scm::DiffFile> {
-        match &self.diff_scope {
-            DiffScope::Session => self
-                .changes
-                .as_ref()
-                .map(|state| state.files.clone())
-                // EXP-895: no published diff → what the branch pushed
-                // (`Self::load_pr_changes`), so the Changes face exists for a
-                // run whose host is gone.
-                .or_else(|| self.pr_changes.as_ref().map(|pr| pr.files.clone()))
-                .unwrap_or_default(),
-            DiffScope::Tool { item } => self.item_diff_files(*item),
-            DiffScope::Turn { anchor } => {
-                let files: Vec<coding::scm::DiffFile> = crate::session_rows::turn_items(
-                    self.feed.items(),
-                    *anchor,
-                    &self.edit_memo,
-                )
-                .into_iter()
-                .flat_map(|item| self.item_diff_files(item))
-                .collect();
-                // EXP-895: two writes to one file inside a turn are ONE
-                // entry — the contract's fold, exactly as the turn's file
-                // card counts them.
-                domain::diff::merge_files_by_path(&files)
-            }
-        }
-    }
-
-    /// One feed row's own patch: the engine's local edit cards where this
-    /// process hosts the run, else the cut patch the publisher put on the
-    /// wire (EXP-786) — the same precedence [`Self::render_tool_item`] uses.
-    fn item_diff_files(&self, item: FeedItemId) -> Vec<coding::scm::DiffFile> {
-        if let Some(files) = self.extras.edit_files(item) {
-            return files;
-        }
-        self.feed
-            .items()
-            .iter()
-            .find(|row| row.id == item)
-            .and_then(|row| match &row.kind {
-                FeedKind::Tool { diff: Some(diff), .. } => {
-                    // EXP-895: the contract parser, straight — a wire patch is
-                    // one bare section and its truncation marker.
-                    domain::diff::parse_diff(diff)
-                        .files
-                        .into_iter()
-                        .next()
-                        .map(|file| vec![file])
-                }
-                _ => None,
-            })
+    /// EXP-916 — the files the Changes face is showing: the whole published
+    /// worktree diff, else the FALLBACK the branch pushed.
+    ///
+    /// (EXP-862's per-turn and per-edit scopes are gone: an edited-files card
+    /// shows its patch IN PLACE now, so the pane has exactly one thing to
+    /// show and the tree beside it is how a big change is navigated.)
+    fn changes_files(&self) -> Vec<coding::scm::DiffFile> {
+        self.changes
+            .as_ref()
+            .map(|state| state.files.clone())
+            // EXP-895: no published diff → what the branch pushed
+            // (`Self::load_pr_changes`), so the Changes face exists for a
+            // run whose host is gone.
+            .or_else(|| self.pr_changes.as_ref().map(|pr| pr.files.clone()))
             .unwrap_or_default()
     }
 
-    /// EXP-862: the pane's scope chip — `None` in the session scope, where
-    /// the header's Diff pill already says what is on screen.
-    fn scope_label(&self, files: usize) -> Option<SharedString> {
-        match &self.diff_scope {
-            DiffScope::Session => None,
-            DiffScope::Tool { .. } => Some(SharedString::from("This edit")),
-            DiffScope::Turn { .. } => Some(SharedString::from(format!(
-                "This turn: {files} file{}",
-                if files == 1 { "" } else { "s" }
-            ))),
-        }
-    }
-
     fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
-        let files = self.scope_files();
+        let files = self.changes_files();
         let prepared = crate::diff::build_scm_diff(
             &files,
             &cx.theme().highlight_theme,
@@ -2671,9 +2595,8 @@ impl SteerSessionView {
     /// EXP-877/EXP-879 — Changes and Results are FACES of the run (the work
     /// header's `Issue | Run | +N −M | Results` toggle switches between
     /// them), so the host SETS the face. Opening the diff builds its rows —
-    /// they are only worth rendering when visible — and always returns the
-    /// pane to the session scope (the toggle item is the WHOLE BRANCH,
-    /// EXP-862). A Results face asked for on a run that has published
+    /// they are only worth rendering when visible. A Results face asked for
+    /// on a run that has published
     /// nothing falls back to the transcript rather than to a blank page.
     pub(crate) fn set_run_face(&mut self, face: RunFace, cx: &mut gpui::Context<Self>) {
         let face = match face {
@@ -2685,39 +2608,10 @@ impl SteerSessionView {
         }
         self.run_face = face;
         if face == RunFace::Diff {
-            self.diff_scope = DiffScope::Session;
             self.diff_selected = 0;
             // EXP-895: the face may be opening onto the FALLBACK files.
             self.load_pr_changes(cx);
             self.rebuild_changes_diff(cx);
-        }
-        cx.notify();
-    }
-
-    /// EXP-862 — open the pane SCOPED: a turn's file card shows that turn's
-    /// files (scrolled to the row that was clicked), an inline edit card
-    /// shows that one edit. A scope whose rows carry no patch at all opens
-    /// nothing rather than an empty pane.
-    fn open_diff_scoped(
-        &mut self,
-        scope: DiffScope,
-        path: Option<&str>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let previous = std::mem::replace(&mut self.diff_scope, scope);
-        if self.scope_files().is_empty() {
-            self.diff_scope = previous;
-            return;
-        }
-        self.run_face = RunFace::Diff;
-        self.diff_selected = 0;
-        self.rebuild_changes_diff(cx);
-        if let Some(index) = path.and_then(|path| {
-            self.scope_files()
-                .iter()
-                .position(|file| file.path == path)
-        }) {
-            self.select_diff_file(index, cx);
         }
         cx.notify();
     }
@@ -2730,9 +2624,10 @@ impl SteerSessionView {
         cx.notify();
     }
 
-    /// §11 — the right-hand pane: the file list, the selected file's header
-    /// and the shared [`crate::diff::DiffView`]. `None` while it is shut or
-    /// while this run has published no diff.
+    /// EXP-916 — the Changes FACE: the file tree beside the per-file cards.
+    /// `None` while it is shut or while this run has published no diff. The
+    /// work header above it owns the branch, the PR state, the merge pill and
+    /// the GitHub link — the pane has no bar of its own.
     fn render_diff_pane(
         &self,
         window: &Window,
@@ -2741,7 +2636,7 @@ impl SteerSessionView {
         if self.run_face != RunFace::Diff {
             return None;
         }
-        let scoped = self.scope_files();
+        let scoped = self.changes_files();
         if scoped.is_empty() {
             return None;
         }
@@ -2749,68 +2644,23 @@ impl SteerSessionView {
             .iter()
             .map(crate::diff_pane::PaneFile::new)
             .collect();
-        let scope_label = self.scope_label(files.len());
-        // EXP-895: the bar OWNS the merge control while this face is up (the
-        // run header hides its own), and says what the branch and its PR are.
-        let merge_target = self.merge_target(cx);
-        // EXP-917: a refused merge captions the bar (the review page's
-        // precedent) — the swap itself lives in the shared slot.
-        let caption = merge_target.as_ref().and_then(|target| {
-            let state = crate::pr_merge::MergeState::global(cx);
-            let error = state.read(cx).error(&target.key());
-            error
-        });
-        let merge = merge_target.map(crate::diff_pane::MergeSlot::Merge);
-        let issue = self.issue_row(cx);
-        let branch = self
-            .session_row()
-            .and_then(|row| row.branch.clone())
-            .or_else(|| issue.as_ref().and_then(|issue| issue.branch.clone()))
-            .filter(|branch| !branch.is_empty())
-            .map(SharedString::from);
-        let state = self
-            .session_row()
-            .and_then(|row| row.pr_state.clone())
-            .or_else(|| issue.as_ref().and_then(|issue| issue.pr_state.clone()))
-            .map(|state| crate::pr_diff::capitalize(&state))
-            .unwrap_or_else(|| SharedString::from("No Pull Request"));
-        let close = crate::controls::ghost_icon_button(
-            "session-diff-close",
-            gpui_component::Icon::new(crate::icons::registry::UI_CLOSE),
-            cx,
-        )
-        .tooltip("Close diff")
-        .on_click(cx.listener(move |this: &mut Self, _: &ClickEvent, _window, cx| {
-            cx.stop_propagation();
-            this.run_face = RunFace::Run;
-            cx.notify();
-        }))
-        .into_any_element();
         Some(crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
-                bar: crate::diff_pane::DiffBarSpec {
-                    totals: domain::diff::totals(&scoped),
-                    state: Some(state),
-                    branch,
-                    merge,
-                    trailing: vec![close],
-                },
+                header: None,
                 files,
                 selected: self.diff_selected,
-                list_open: self.diff_list_open,
                 filter: Some(self.diff_filter.clone()),
-                scope_label,
-                caption,
+                folded_dirs: self.folded_dirs.clone(),
+                caption: None,
                 diff: self.changes_diff.clone(),
-                on_toggle_list: Box::new(|this: &mut Self, cx| {
-                    this.diff_list_open = !this.diff_list_open;
-                    cx.notify();
-                }),
-                on_show_session: Box::new(|this: &mut Self, cx| {
-                    this.open_diff_scoped(DiffScope::Session, None, cx);
-                }),
                 on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
                     this.select_diff_file(index, cx);
+                }),
+                on_toggle_dir: std::rc::Rc::new(|this: &mut Self, path: String, cx| {
+                    if !this.folded_dirs.insert(path.clone()) {
+                        this.folded_dirs.remove(&path);
+                    }
+                    cx.notify();
                 }),
             },
             window,
@@ -2884,18 +2734,6 @@ impl SteerSessionView {
         self.feed.workflow_for(call_id.as_deref()?)
     }
 
-    /// The per-turn file card hanging under a row (§12) — the card is
-    /// anchored on the segment's last EDIT, which may be any item of a
-    /// grouped tool run.
-    fn file_card_of(&self, spec: &FeedRowSpec) -> Option<&crate::session_rows::FileCard> {
-        let items = self.feed.items();
-        spec.item_indices()
-            .iter()
-            .rev()
-            .filter_map(|&ix| items.get(ix))
-            .find_map(|item| self.file_cards.get(&item.id))
-    }
-
     /// The DUPLICATE warnings belonging to `workflow_id` (§4: they render
     /// under the card, and stay there when it collapses).
     fn workflow_duplicates(&self, workflow_id: &str) -> Vec<crate::session_rows::DuplicateWarning> {
@@ -2934,9 +2772,15 @@ impl SteerSessionView {
                 }
             }
         }
-        if let Some(card) = self.file_card_of(spec) {
-            card.files.len().hash(&mut hasher);
-            self.expanded_cards.contains(&card.anchor).hash(&mut hasher);
+        // EXP-916: an edited-files card re-measures when its fold or any of
+        // its rows opens (the card itself grows with the run, which the
+        // member ids already fold in above).
+        if let FeedRowSpec::Edits { id, .. } = spec {
+            self.expanded_cards.contains(id).hash(&mut hasher);
+            self.expanded_edit_rows
+                .get(id)
+                .map_or(0, HashSet::len)
+                .hash(&mut hasher);
         }
         hasher.finish()
     }
@@ -4074,17 +3918,6 @@ impl SteerSessionView {
         let spec = spec.clone();
         let row = spec.resolve(self.feed.items());
         let element = self.render_row(&row, ix == last_row && live, &self.active, window, cx);
-        // EXP-850 §12: the turn's file card, under the last edit it made.
-        let element = match self.render_file_card(&spec, cx) {
-            Some(card) => v_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1()
-                .child(element)
-                .child(card)
-                .into_any_element(),
-            None => element,
-        };
         self.transcript_row(ix, element)
     }
 
@@ -4102,6 +3935,8 @@ impl SteerSessionView {
             // grouping keeps it a row of its own (`is_workflow_call`), which
             // renders as the card.
             FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, cx),
+            // EXP-916: a run of edits is the ONE edited-files card.
+            FeedRow::Edits { id, items } => self.render_edits_card(*id, items, cx),
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => {
                 self.render_subagent(*id, items, window, cx)
@@ -4505,7 +4340,6 @@ impl SteerSessionView {
             name,
             detail,
             failed,
-            diff,
             output,
             settled,
             preview,
@@ -4557,9 +4391,10 @@ impl SteerSessionView {
                 self.render_extras(id, expanded, cx)
             }
             // Runner parity: once a call ENDED the row reads the same locally
-            // and remotely — the wire's own capped patch and tail-cut output.
+            // and remotely — the wire's own tail-cut output. EXP-916: a
+            // patch never hangs off a tool row; it belongs to the
+            // edited-files card the run's edits grouped into.
             _ => crate::session_extras::render_wire_extras(
-                diff.as_deref(),
                 live_output.as_deref().or(output.as_deref()),
                 id,
                 expanded,
@@ -4569,7 +4404,6 @@ impl SteerSessionView {
                     }
                     cx.notify();
                 })),
-                Some(self.open_edit_listener(id, cx)),
                 cx,
             ),
         };
@@ -4615,7 +4449,6 @@ impl SteerSessionView {
                 }
                 cx.notify();
             })),
-            Some(self.open_edit_listener(item, cx)),
             session.map(|session| -> Box<dyn Fn(&str, &mut Window, &mut App) + 'static> {
                 Box::new(move |terminal_id: &str, _window: &mut Window, _cx: &mut App| {
                     session.kill_terminal(terminal_id);
@@ -4625,15 +4458,67 @@ impl SteerSessionView {
         )
     }
 
-    /// EXP-862 — an inline edit card's header opens the pane on THAT edit.
-    fn open_edit_listener(
+    /// EXP-916 — THE edited-files card for a [`steer::feed::FeedRow::Edits`].
+    ///
+    /// The members' patches are the wire's own (`tool_update`), falling back
+    /// while a call is still RUNNING to what the local engine has written so
+    /// far ([`crate::session_extras::LocalExtras::edit_patch`]) — so the
+    /// runner sees a live edit's diff instead of a `pending` row, and a
+    /// remote viewer sees exactly what the publisher sent. The view itself is
+    /// the contract's ([`domain::edit_card::edit_card`]), memoised per card
+    /// (EXP-884: a long run must not re-parse every patch every frame).
+    fn render_edits_card(
         &self,
-        item: FeedItemId,
+        id: FeedItemId,
+        items: &[&FeedItem],
         cx: &mut gpui::Context<Self>,
-    ) -> crate::session_extras::OpenDiff {
-        std::rc::Rc::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.open_diff_scoped(DiffScope::Tool { item }, None, cx);
-        }))
+    ) -> AnyElement {
+        let members: Vec<domain::edit_card::EditCardMember<'_>> = items
+            .iter()
+            .map(|item| {
+                let (detail, diff, settled) = match &item.kind {
+                    FeedKind::Tool {
+                        detail,
+                        diff,
+                        settled,
+                        ..
+                    } => (detail.as_deref(), diff.as_deref(), *settled),
+                    _ => (None, None, true),
+                };
+                domain::edit_card::EditCardMember {
+                    id: item.id,
+                    detail,
+                    diff: diff.or_else(|| self.extras.edit_patch(item.id)),
+                    settled,
+                }
+            })
+            .collect();
+        // The ONE live row ×4: the transcript's running tool row, and only
+        // when it is this card's last member.
+        let live = steer::feed::live_tool_row_id(self.feed.items())
+            .filter(|_| self.phase == ViewerPhase::Live);
+        let view = self.edit_memo.card(id, &members, live);
+        let open = self.expanded_edit_rows.get(&id).cloned().unwrap_or_default();
+        crate::session_extras::render_edit_card(
+            id,
+            &view,
+            &open,
+            self.expanded_cards.contains(&id),
+            std::rc::Rc::new(cx.listener(move |this, path: &str, _window, cx| {
+                let rows = this.expanded_edit_rows.entry(id).or_default();
+                if !rows.insert(path.to_string()) {
+                    rows.remove(path);
+                }
+                cx.notify();
+            })),
+            Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                if !this.expanded_cards.insert(id) {
+                    this.expanded_cards.remove(&id);
+                }
+                cx.notify();
+            })),
+            cx,
+        )
     }
 
     /// A body that never folds: the plan a reader must approve is always
@@ -4889,7 +4774,27 @@ impl SteerSessionView {
             column = column.child(self.render_duplicate_row(&warning, cx));
         }
         if expanded {
-            for item in body {
+            // EXP-916: the lane's own consecutive edits fold into ONE
+            // edited-files card inside the group, exactly as they do on the
+            // main line (`steer::feed`'s rule, byte-locked ×4).
+            let body: Vec<&FeedItem> = body.into_iter().copied().collect();
+            let held = self.feed.workflow_ids();
+            let mut at = 0;
+            while at < body.len() {
+                let item = body[at];
+                if item.is_edit_call(&held) {
+                    let end = domain::edit_card::edit_run_end(at, body.len(), |ix| {
+                        body[ix].is_edit_call(&held)
+                    });
+                    column = column.child(div().pl_5().py_0p5().child(self.render_edits_card(
+                        item.id,
+                        &body[at..=end],
+                        cx,
+                    )));
+                    at = end + 1;
+                    continue;
+                }
+                at += 1;
                 match &item.kind {
                     FeedKind::Tool { .. } => {
                         // EXP-787: the subagent's inner rhythm is unchanged.
@@ -5232,95 +5137,6 @@ impl SteerSessionView {
                     .child(SharedString::from(warning.detail.clone())),
             )
             .into_any_element()
-    }
-
-    /// §12 — the turn's file card: `{N} files edited`, up to
-    /// [`crate::session_rows::FILE_CARD_ROWS`] rows of `path +a -d` and a
-    /// `{rest} more` toggle. A row opens the diff pane at that file.
-    fn render_file_card(
-        &self,
-        spec: &FeedRowSpec,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        let card = self.file_card_of(spec)?;
-        let muted = cx.theme().muted_foreground;
-        let anchor = card.anchor;
-        let expanded = self.expanded_cards.contains(&anchor);
-        let shown = if expanded {
-            card.files.len()
-        } else {
-            card.files.len().min(crate::session_rows::FILE_CARD_ROWS)
-        };
-        let rest = card.files.len().saturating_sub(shown);
-        let mut column = v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_0p5()
-            .rounded(px(theme::tokens::radius::MD))
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-            .px_2()
-            .py_1p5()
-            .child(
-                tool_text(h_flex())
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    .text_color(muted)
-                    .child(Icon::new(registry::CODING_DIFF).xsmall())
-                    .child(SharedString::from(card.title())),
-            );
-        for (index, file) in card.files.iter().take(shown).enumerate() {
-            let path = file.path.clone();
-            // EXP-895: the SHARED file row — the same `letter · name · dimmed
-            // dir · +N −M` the Changes face's file list draws.
-            let row = crate::diff_pane::PaneFile::from_parts(
-                &file.path,
-                file.status,
-                file.additions,
-                file.deletions,
-            );
-            column = column.child(
-                crate::diff_pane::file_row(
-                    ("steer-file-card-row", anchor as usize * 64 + index),
-                    &row,
-                    false,
-                    cx,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    cx.stop_propagation();
-                    // EXP-862: a file card is one TURN's work, so the pane
-                    // opens on that turn's files, scrolled to this one; the
-                    // chip goes back to the whole branch.
-                    this.open_diff_scoped(DiffScope::Turn { anchor }, Some(&path), cx);
-                })),
-            );
-        }
-        if rest > 0 || expanded {
-            column = column.child(
-                div()
-                    .id(("steer-file-card-more", anchor as usize))
-                    .px_1()
-                    .cursor_pointer()
-                    .text_2xs()
-                    .text_color(muted)
-                    .child(SharedString::from(if expanded {
-                        "Show less".to_string()
-                    } else {
-                        format!("{rest} more")
-                    }))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        if !this.expanded_cards.insert(anchor) {
-                            this.expanded_cards.remove(&anchor);
-                        }
-                        cx.notify();
-                    })),
-            );
-        }
-        Some(column.into_any_element())
     }
 
     /// §1/§2 — the strip directly above the composer: one line per background

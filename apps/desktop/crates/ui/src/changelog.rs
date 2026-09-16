@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "diff-ui-one-design",
+    date: "2026-09-17",
+    title: "One diff design, everywhere",
+    summary: "Every diff in Exponential is now built from the same file card, the files a run edits appear in the transcript itself, and the file list beside a diff is a tree.",
+    body: r#"- **One file card**: a review, a run's changes and a transcript all draw the same card now, with the same header, the same counts and the same way to open the lines it hides. Cards start open, so a diff reads top to bottom without a click.
+- **Edits in the transcript**: the files a run touches in a row are collected into one "N files edited" card in the conversation, with the file it is writing right now open and the rest a tap away. No jumping to another screen to see what changed.
+- **A file tree**: the list beside a diff is a tree of folders now, with the counts per folder, a filter, and long folder chains folded into one line.
+- **Reviews polish**: a review's header says which issue it is, how big the diff is and what the pull request's state is, with reject, Merge PR and the GitHub link beside it. Batch rows in the review queue no longer lose their first column."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-accounts-usage",
     date: "2026-09-17",
     title: "Accounts and usage",
@@ -56,9 +69,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Devices list their logins**: the Devices page lists each machine's accounts under the machine, with the same compact usage line and one menu per login, in place of the separate Accounts section, its tabs and its chips."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
+/// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-fix-conflicts-everywhere",
     date: "2026-09-16",
     title: "Fix conflicts, on every Merge button",
@@ -66,23 +79,6 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
     body: r#"- **The swap works everywhere**: on the web the issue header, the run header, the Changes faces and the review page all showed an error notification on a conflict and kept the plain Merge PR button. They now swap it for Fix conflicts with a Retry merge beside it, like the Reviews list always did.
 - **Desktop app**: a batch or chat run's header and its Changes bar make the same swap, and a merge refused for any other reason now shows its message under the button instead of only in the log.
 - **iOS**: merging a stack from the overlay on the Work screen reports a refusal instead of silently doing nothing."#,
-};
-
-/// The entry before that.
-#[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-16-release-train",
-    date: "2026-09-16",
-    title: "Release train 2026-09-16",
-    summary: "The phone gets one Work screen, every diff reads the same, pull requests can be stacked and merged as a chain, and a run can publish its results.",
-    body: r#"- **The phone Work screen**: an issue, its coding run, the changes and the results are faces of one screen on iOS, Android and the mobile web, switched from a bar at the bottom, with Stop or Resume in the top-right corner.
-- **One diff view**: every diff reads the same on all four clients now, with one palette and one set of line numbers, unchanged lines you can open around a change, and renamed, copied and binary files named instead of shown empty.
-- **Stacked pull requests**: an issue blocked by another can be started on top of it, the review queue nests the chain and offers Merge stack on the bottom of it, a badge says which stack or batch a piece of work belongs to, and every run list nests a run under the one that started it.
-- **Results from a run**: a run that publishes screenshots gains a Results face beside Issue, Run and Changes, grouped by topic with one labelled tile per platform.
-- **Batch runs by name**: a run covering several issues now reads `EXP-874 +2` beside the first issue's title instead of "Batch run", in every session list and in its own header.
-- **Drafts**: an issue you start and do not finish is kept as a draft, attachments included, and reopens where you left it.
-- **Session history stays on your machine**: finished runs keep their transcripts for as long as the desktop app's new Sessions setting says, and an issue with several runs of yours gets a picker to switch between them.
-- **Under the hood**: the web app, the styleguide and the marketing demos now share one component library, so cards, menus and glyphs read the same everywhere, and a Claude login refreshes itself in the background instead of expiring mid-run."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

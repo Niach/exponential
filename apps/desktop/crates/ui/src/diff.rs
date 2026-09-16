@@ -94,6 +94,10 @@ pub struct DiffOptions {
     /// Run the Tree-sitter pass. Off on `compact`, and off wherever the
     /// caller would pay for a highlight nobody reads.
     pub highlight: bool,
+    /// EXP-916: the card is stacked INSIDE a parent card (the transcript's
+    /// edited-files card), so it drops its own frame — no outer border, no
+    /// radius, no fill; the rows separate on a hairline instead.
+    pub flush: bool,
 }
 
 impl DiffOptions {
@@ -106,6 +110,7 @@ impl DiffOptions {
             start_expanded: true,
             compact: false,
             highlight: true,
+            flush: false,
         }
     }
 
@@ -117,6 +122,7 @@ impl DiffOptions {
             start_expanded: true,
             compact: false,
             highlight: true,
+            flush: false,
         }
     }
 
@@ -128,17 +134,21 @@ impl DiffOptions {
             start_expanded: true,
             compact: false,
             highlight: true,
+            flush: false,
         }
     }
 
-    /// The transcript's inline edit card: compact rows, no highlight, no
-    /// disclosure of its own (the tool row's Show more owns that).
+    /// EXP-916 — ONE file inside the transcript's edited-files card: compact
+    /// rows, no highlight, and FLUSH (the parent card is the frame, the file
+    /// cards stack on hairlines inside it). The card owns which rows are
+    /// open, so the options carry no disclosure of their own.
     pub fn card() -> Self {
         Self {
             collapsible: false,
             start_expanded: false,
             compact: true,
             highlight: false,
+            flush: true,
         }
     }
 
@@ -311,8 +321,13 @@ impl RowShape {
 /// The per-row card frame: [`theme::tokens::glass`]'s row fill + row stroke at
 /// [`theme::tokens::radius::MD`] — the same three tokens
 /// [`crate::surface::glass_row_card`] uses, sliced per row.
-pub(crate) fn card_row(shape: RowShape) -> gpui::Div {
+/// EXP-916: `flush` drops the frame entirely — the row is painted inside a
+/// parent card that already carries the border, the radius and the fill.
+pub(crate) fn card_row(shape: RowShape, flush: bool) -> gpui::Div {
     let chrome = shape.chrome();
+    if flush {
+        return div().w_full().min_w_0().overflow_hidden();
+    }
     let stroke = theme::tokens::glass::STROKE_ROW.to_hsla();
     let radius = px(theme::tokens::radius::MD);
     let mut row = div().w_full().min_w_0().overflow_hidden();
@@ -385,6 +400,20 @@ pub(crate) fn no_hunks_note(file: &DiffFile) -> &'static str {
     }
 }
 
+/// EXP-916 — a file's patch size in LINES, the number
+/// [`domain::contract::DIFF_UI_COLLAPSE_THRESHOLD_LINES`] bounds.
+pub(crate) fn hunk_lines(file: &DiffFile) -> usize {
+    file.hunks.iter().map(|hunk| hunk.lines.len()).sum()
+}
+
+/// EXP-916 — whether a file OPENS on a surface whose files start expanded: a
+/// patch past the contract's threshold opens collapsed, because a 4000-line
+/// generated file would otherwise bury every file under it. Mirrored ×4 (web
+/// `diffOpensByDefault`).
+pub(crate) fn opens_by_default(lines: usize) -> bool {
+    lines <= domain::contract::DIFF_UI_COLLAPSE_THRESHOLD_LINES
+}
+
 // ---------------------------------------------------------------------------
 // Row building (pure — no gpui App/Window)
 // ---------------------------------------------------------------------------
@@ -396,6 +425,11 @@ pub struct FileSummary {
     pub status: DiffStatus,
     pub additions: u32,
     pub deletions: u32,
+    /// EXP-916: the file's HUNK lines — what
+    /// [`domain::contract::DIFF_UI_COLLAPSE_THRESHOLD_LINES`] is measured
+    /// against, so a huge file opens collapsed even on the always-expanded
+    /// surfaces (web `diffOpensByDefault`, ×4).
+    pub lines: usize,
     /// Index of the file's header row in the flat row list (scroll target).
     pub row_index: usize,
     /// The file's FULL span: its header, every body row, and the trailing
@@ -504,6 +538,7 @@ fn build_rows(
             status: file.status,
             additions: file.additions,
             deletions: file.deletions,
+            lines: hunk_lines(file),
             row_index: rows.len(),
             row_range: rows.len()..rows.len(),
         });
@@ -801,7 +836,7 @@ pub(crate) fn render_diff_row(
             };
             file_header_row(row, shape, options, chevron, cx).into_any_element()
         }
-        RenderRow::Note { message } => card_row(shape)
+        RenderRow::Note { message } => card_row(shape, options.flush)
             .flex()
             .items_center()
             .h(px(NOTE_ROW_H))
@@ -810,7 +845,7 @@ pub(crate) fn render_diff_row(
             .text_color(theme.muted_foreground)
             .child(message.clone())
             .into_any_element(),
-        RenderRow::HunkHeader { header } => card_row(shape)
+        RenderRow::HunkHeader { header } => card_row(shape, options.flush)
             .flex()
             .items_center()
             .h(px(options.line_h()))
@@ -826,7 +861,7 @@ pub(crate) fn render_diff_row(
                     .child(header.clone()),
             )
             .into_any_element(),
-        RenderRow::Unchanged { lines } => card_row(shape)
+        RenderRow::Unchanged { lines } => card_row(shape, options.flush)
             .flex()
             .items_center()
             .justify_center()
@@ -874,7 +909,7 @@ pub(crate) fn render_diff_row(
                         value.map(|n| n.to_string()).unwrap_or_default(),
                     ))
             };
-            let mut line = card_row(shape)
+            let mut line = card_row(shape, options.flush)
                 .flex()
                 .items_center()
                 .h(px(options.line_h()))
@@ -955,13 +990,17 @@ fn file_header_row(
         ..
     } = row
     else {
-        return card_row(shape);
+        return card_row(shape, options.flush);
     };
     let theme = cx.theme();
     let mono = theme.mono_font_family.clone();
     let muted = theme.muted_foreground;
     let text_size = px(options.text_size() + 1.);
-    let mut header = card_row(shape)
+    let mut header = card_row(shape, options.flush)
+        // EXP-916: the file header is the ONE glassy band of a diff — the
+        // section-band fill every other grouped list wears, never an opaque
+        // bar: the code under it must still read as one surface.
+        .bg(theme::tokens::glass::FILL_SECTION.to_hsla())
         .flex()
         .items_center()
         .h(px(options.header_h()))
@@ -1128,8 +1167,18 @@ impl DiffView {
         self.rows = rows;
         self.files = summaries;
         self.expanded.clear();
-        if !self.options.collapsible || self.options.start_expanded {
+        if !self.options.collapsible {
             self.expanded.extend(0..self.files.len());
+        } else if self.options.start_expanded {
+            // EXP-916: "open by default" stops at the contract's threshold —
+            // a file past it is one header until the reader asks for it.
+            self.expanded.extend(
+                self.files
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, file)| opens_by_default(file.lines))
+                    .map(|(ix, _)| ix),
+            );
         }
         self.chevron_anim = None;
         self.rebuild_projection();
