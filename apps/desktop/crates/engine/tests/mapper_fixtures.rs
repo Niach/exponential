@@ -372,6 +372,68 @@ fn a_long_edit_diff_is_truncated_on_line_boundaries_and_non_edits_send_none() {
     assert_eq!(updates[2], json!({"kind": "tool_update", "id": "tc-same", "status": "completed"}));
 }
 
+/// EXP-916: an `Edit` update that carries SEVERAL `Diff`s (codex's
+/// `apply_patch` reports a whole file set under one call) publishes ONE
+/// `tool_update` whose patch holds every file's section, in order — the
+/// transcript's edited-files card counts the files off that patch, so a
+/// last-section-wins wire made a five-file patch read `1 file edited`.
+#[test]
+fn a_multi_file_edit_publishes_every_section_in_one_patch() {
+    use agent_client_protocol::schema::v1::{
+        Diff, SessionId, SessionNotification, SessionUpdate, ToolCall, ToolCallContent,
+        ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    };
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    mapper.on_update(
+        &SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::ToolCall(
+                ToolCall::new(ToolCallId::new("tc-patch"), "Editing files").kind(ToolKind::Edit),
+            ),
+        ),
+        &mut out,
+    );
+    mapper.on_update(
+        &SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                ToolCallId::new("tc-patch"),
+                ToolCallUpdateFields::new()
+                    .status(ToolCallStatus::Completed)
+                    .content(vec![
+                        ToolCallContent::Diff(
+                            Diff::new("/tmp/worktree/a.txt", "one\nTWO\n")
+                                .old_text(Some("one\ntwo\n".to_string())),
+                        ),
+                        ToolCallContent::Diff(
+                            Diff::new("/tmp/worktree/b.txt", "x\n").old_text(Some("x\n".to_string())),
+                        ),
+                        ToolCallContent::Diff(Diff::new("/tmp/worktree/c.txt", "new file\n")),
+                    ]),
+            )),
+        ),
+        &mut out,
+    );
+    mapper.on_stop(StopReason::EndTurn, &mut out);
+
+    let updates: Vec<Value> = out
+        .wire
+        .iter()
+        .filter(|event| matches!(event, steer::ActivityEvent::ToolUpdate { .. }))
+        .map(|event| serde_json::to_value(event).unwrap())
+        .collect();
+    assert_eq!(updates.len(), 1, "one settle, one patch");
+    let diff = updates[0]["diff"].as_str().expect("the multi-file edit carries a diff");
+    let a = diff.find("a.txt").expect("the first file's section");
+    let c = diff.find("c.txt").expect("the created file's section");
+    assert!(a < c, "sections keep the update's order:\n{diff}");
+    assert!(!diff.contains("b.txt"), "an unchanged file has no section:\n{diff}");
+    let files = domain::diff::parse_diff(diff).files;
+    assert_eq!(files.len(), 2, "{diff}");
+    assert_eq!(files[0].additions + files[1].additions, 2);
+}
+
 /// EXP-750: a `ToolCallContent::Terminal` is a LOCAL binding edge — the
 /// terminal id names the live command the card renders, and neither the id
 /// nor the command line it came from may reach the relay.
