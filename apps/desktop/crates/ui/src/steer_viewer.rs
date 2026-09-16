@@ -2752,9 +2752,15 @@ impl SteerSessionView {
         let scope_label = self.scope_label(files.len());
         // EXP-895: the bar OWNS the merge control while this face is up (the
         // run header hides its own), and says what the branch and its PR are.
-        let merge = self
-            .merge_target(cx)
-            .map(crate::diff_pane::MergeSlot::Merge);
+        let merge_target = self.merge_target(cx);
+        // EXP-917: a refused merge captions the bar (the review page's
+        // precedent) — the swap itself lives in the shared slot.
+        let caption = merge_target.as_ref().and_then(|target| {
+            let state = crate::pr_merge::MergeState::global(cx);
+            let error = state.read(cx).error(&target.key());
+            error
+        });
+        let merge = merge_target.map(crate::diff_pane::MergeSlot::Merge);
         let issue = self.issue_row(cx);
         let branch = self
             .session_row()
@@ -2794,7 +2800,7 @@ impl SteerSessionView {
                 list_open: self.diff_list_open,
                 filter: Some(self.diff_filter.clone()),
                 scope_label,
-                caption: None,
+                caption,
                 diff: self.changes_diff.clone(),
                 on_toggle_list: Box::new(|this: &mut Self, cx| {
                     this.diff_list_open = !this.diff_list_open;

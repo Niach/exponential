@@ -239,7 +239,6 @@ function ReviewDetailPage() {
     prState: issue.prState,
     prNumber: issue.prNumber,
     branch: issue.branch,
-    teamId: issue.teamId,
     updatedAt: issue.updatedAt,
     steerEnabled,
   }

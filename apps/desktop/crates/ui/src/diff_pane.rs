@@ -335,8 +335,11 @@ fn render_bar<V: Render>(
 /// the swap leaves standing.
 fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>) -> AnyElement {
     match merge {
+        // EXP-917: the shared SLOT — a conflict-refused ISSUE target swaps
+        // here too, so a run's Changes bar (which never builds the explicit
+        // arm below) offers the recovery run like the review page's does.
         MergeSlot::Merge(target) => {
-            crate::work_header::merge_pill("diff-bar-merge", &target, true, cx)
+            crate::work_header::merge_slot("diff-bar-merge", &target, true, cx)
         }
         MergeSlot::FixConflicts {
             issue_id,

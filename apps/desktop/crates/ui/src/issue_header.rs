@@ -599,145 +599,25 @@ impl IssueHeader {
         Some(column.into_any_element())
     }
 
-    /// The "Fix conflicts" button (EXP-313): opens the Agent page composer
-    /// with the fix-conflicts builtin and this issue's PR preselected.
-    /// EXP-799: it wears the PRIMARY paint — while it is up it holds the
-    /// tray's Merge slot (see [`merge_slot_swapped`]), so it is the header's
-    /// one emphasised action and Merge stands down beside it.
-    fn fix_conflicts_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // "Fixing…" only while an ACTUAL fix run works the branch — any other
-        // session still holding it is ended by the fix-run launch itself.
-        let fixing = issue.branch.as_deref().is_some_and(|branch| {
-            LocalSessions::global_ref(cx)
-                .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
-        });
-        let issue_id = issue.id.clone();
-        let board_id = issue.board_id.clone();
-        // EXP-367: no agent CLI → disabled with the reason, never hidden.
-        let no_agent = crate::coding_flow::no_agent_reason(cx);
-        // EXP-698: the ONE capsule at the `Sm` rung — it shares its slot with
-        // the merge pill, so the two read as one pair of chips.
-        let mut button = crate::surface::glass_pill_button_primary("header-fix-conflicts", PillSize::Sm)
-            .icon(
-                Icon::from(ExpIcon::GitBranch)
-                    .with_size(px(PillSize::Sm.glyph()))
-                    .text_color(cx.theme().primary_foreground),
-            )
-            .label(if fixing { "Fixing…" } else { "Fix conflicts" })
-            .tooltip(
-                no_agent
-                    .clone()
-                    .unwrap_or_else(|| "Run the fix-conflicts action on this pull request".into()),
-            )
-            .on_click(cx.listener(move |_, _, window, cx| {
-                if Store::global(cx)
-                    .collections()
-                    .boards
-                    .read(cx)
-                    .get(&board_id)
-                    .is_none()
-                {
-                    return;
-                }
-                // EXP-825: the composer with the fix-conflicts builtin and
-                // this PR preselected.
-                crate::navigation::navigate_to_chat(
-                    window,
-                    cx,
-                    crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()),
-                );
-            }));
-        if fixing || no_agent.is_some() {
-            button = button.disabled(true);
-        }
-        button
-    }
-
-    /// The header Merge button (EXP-268): two-click arm ("Merge" →
-    /// "Confirm merge", auto-disarm ~5s — the reviews-rail pattern), then
-    /// `issues.mergePr` on the background executor. The spinner is held
-    /// until the Electric echo flips `pr_state` away from `open` (which
-    /// also drops the whole button). Merge always closes (EXP-498): the
-    /// server ends every linked live coding session on merge.
-    ///
-    /// EXP-799: on a REAL conflict the slot swaps, the Reviews / PR-diff
-    /// pattern (`reviews_view.rs`, `pr_diff.rs`): "Fix conflicts" takes the
-    /// primary paint and Merge steps down to a glass "Retry merge" beside
-    /// it — never a dead end, the conflict may have been resolved outside
-    /// that run (a teammate rebased and pushed). The swap is short-lived by
-    /// construction: `MergeState` drops a failure whose row re-synced
-    /// (`superseded_by`), so the next echo restores the plain Merge pill.
+    /// The header Merge button (EXP-268): the shared merge SLOT
+    /// (`work_header::merge_slot`, EXP-917) — two-click arm ("Merge PR" →
+    /// "Confirm merge", auto-disarm ~5s), `issues.mergePr` on the background
+    /// executor, the spinner held until the Electric echo flips `pr_state`
+    /// away from `open` (which also drops the whole button). Merge always
+    /// closes (EXP-498). EXP-799: on a REAL conflict the slot swaps to
+    /// "Fix conflicts" + a glass "Retry merge" — the slot does that itself,
+    /// like every other Merge PR surface. Primary: with a PR open, merging is
+    /// what the reader came to do, and Start coding stands down to the glass
+    /// paint beside it (`header_action_styles`).
     fn merge_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let (armed, merging, failed_op, is_conflict) = {
-            let state = crate::pr_merge::MergeState::global(cx);
-            let state = state.read(cx);
-            (
-                state.armed(&issue.id),
-                state.merging(&issue.id),
-                state.failed_op(&issue.id),
-                state.is_conflict(&issue.id),
-            )
-        };
-        let swapped = merge_slot_swapped(
-            issue.pr_state.as_deref() == Some("open"),
-            failed_op == Some(crate::pr_merge::FailedOp::Merge),
-            is_conflict,
-            issue.branch.is_some(),
-        );
-        let issue_id = issue.id.clone();
-        // EXP-877: the plain slot IS the shared Merge pill (`work_header::
-        // merge_pill`, the ONE look on the detail, the session screen and the
-        // run face) — primary: with a PR open, merging is what the reader
-        // came to do, and Start coding stands down to the glass paint beside
-        // it (`header_action_styles`).
-        if !swapped {
-            return crate::work_header::merge_pill(
-                "header-merge-pr",
-                &crate::changes_bar::MergeTarget::Issue { issue_id },
-                true,
-                cx,
-            );
-        }
-        // EXP-698: the ONE capsule at the `Sm` rung, glass while Fix
-        // conflicts holds the primary paint.
-        let mut button = glass_pill_button("header-merge-pr", PillSize::Sm, cx)
-            .icon(
-                Icon::from(ExpIcon::GitMerge)
-                    .with_size(px(PillSize::Sm.glyph()))
-                    .text_color(if armed {
-                        cx.theme().danger
-                    } else {
-                        cx.theme().muted_foreground
-                    }),
-            )
-            .label(if merging {
-                "Merging…"
-            } else if armed {
-                "Confirm merge"
-            } else {
-                "Retry merge"
-            })
-            .tooltip("Merge the pull request: completes every linked issue and closes its coding sessions")
-            .on_click(cx.listener(move |_, _, _, cx| {
-                crate::pr_merge::two_click(
-                    crate::pr_merge::MergeOp::MergeIssuePr {
-                        issue_id: issue_id.clone(),
-                        merge_stack: false,
-                    },
-                    None,
-                    None,
-                    cx,
-                );
-            }));
-        if merging {
-            button = button.disabled(true);
-        }
-        h_flex()
-            .items_center()
-            .gap_1()
-            .child(self.fix_conflicts_button(issue, cx))
-            .child(button)
-            .into_any_element()
+        crate::work_header::merge_slot(
+            "header-merge-pr",
+            &crate::changes_bar::MergeTarget::Issue {
+                issue_id: issue.id.clone(),
+            },
+            true,
+            cx,
+        )
     }
 
     // -- EXP-277: the former issue-detail header cluster ---------------------
@@ -1148,19 +1028,6 @@ pub(crate) fn header_action_styles(start_visible: bool, pr_open: bool) -> Header
     }
 }
 
-/// EXP-799: whether the tray's Merge slot swaps to a "Fix conflicts" primary
-/// beside a glass "Retry merge". MERGE failures only: the fix run ends in a
-/// merge, so a failed CLOSE must never offer it; and only a REAL content
-/// conflict (EXP-533) — an offline or policy-refused merge has nothing to
-/// rebase; and only with the PR's recorded branch, which the run rebases.
-pub(crate) fn merge_slot_swapped(
-    pr_open: bool,
-    merge_failed: bool,
-    is_conflict: bool,
-    has_branch: bool,
-) -> bool {
-    pr_open && merge_failed && is_conflict && has_branch
-}
 
 #[cfg(test)]
 mod tests {
@@ -1191,22 +1058,6 @@ mod tests {
         assert!(!neither.demote_start);
     }
 
-    /// EXP-799: the Merge slot swaps to Fix conflicts + Retry merge on a
-    /// real conflict of a failed MERGE with a recorded branch — and on
-    /// nothing less.
-    #[test]
-    fn merge_slot_swaps_only_on_a_real_merge_conflict() {
-        // A conflict-classified merge failure on an open PR with a branch.
-        assert!(merge_slot_swapped(true, true, true, true));
-        // A merge refused for another reason (offline, stale base, no App).
-        assert!(!merge_slot_swapped(true, true, false, true));
-        // A failed CLOSE, even one the server called a conflict.
-        assert!(!merge_slot_swapped(true, false, true, true));
-        // No recorded branch: nothing for the fix run to rebase.
-        assert!(!merge_slot_swapped(true, true, true, false));
-        // The PR is no longer open: there is no slot to swap.
-        assert!(!merge_slot_swapped(false, true, true, true));
-    }
 
     #[test]
     fn mutation_date_is_iso_ymd() {

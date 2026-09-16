@@ -39,14 +39,16 @@ export type SessionMergeTarget =
   | { kind: `session`; session: CodingSession }
 
 /** The props both merge paths hand `SessionMergeButton` — one shape so the
- * three call sites (Agents row, steering strip, dock) never re-derive it. */
+ * three call sites (Agents row, steering strip, dock) never re-derive it.
+ * EXP-917: NO `teamId` here — a synced issue row has none (the board-scoped
+ * `issues` shape drops it), and the "Fix conflicts" swap once gated on it,
+ * which made the swap unreachable from every issue-fed surface. */
 export interface SessionMergeTargetProps {
   issueId?: string
   sessionId?: string
   prState: string | null
   prNumber: number | null
   branch: string | null
-  teamId: string | null
   updatedAt: string | Date | null
 }
 
@@ -60,7 +62,6 @@ export function mergeTargetProps(
       prState: issue.prState,
       prNumber: issue.prNumber,
       branch: issue.branch,
-      teamId: issue.teamId,
       updatedAt: issue.updatedAt,
     }
   }
@@ -70,7 +71,6 @@ export function mergeTargetProps(
     prState: session.prState,
     prNumber: session.prNumber,
     branch: session.branch,
-    teamId: session.teamId,
     updatedAt: session.updatedAt,
   }
 }

@@ -82,7 +82,6 @@ export function MergeCapsule(props: {
   prState: string | null
   prNumber: number | null
   branch: string | null
-  teamId: string | null
   updatedAt: string | Date | null
   steerEnabled: boolean
 }) {
@@ -203,7 +202,6 @@ export function IssueChangesFace({
               prState={issue.prState}
               prNumber={issue.prNumber}
               branch={issue.branch}
-              teamId={issue.teamId}
               updatedAt={issue.updatedAt}
               steerEnabled={steerEnabled}
             />
