@@ -20,10 +20,13 @@ import {
   type EmojiRecord,
 } from "@/lib/emoji"
 import { ISSUE_REF_AT_CARET } from "@/lib/issue-refs"
+import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
 import { MENTION_AT_CARET } from "@/lib/mention-refs"
 
 // `:shortcode` (EXP-551) lives in lib/emoji.ts (`matchEmojiToken`) — shared
 // with the TipTap editor's detector.
+
+const NO_ROWS: ResolvedIssueRef[] = []
 
 type AutocompleteMenu = {
   kind: `mention` | `issueRef` | `emoji`
@@ -101,10 +104,18 @@ export const MentionTextarea = forwardRef<
           )
           .slice(0, 6)
       : []
-  const issueCandidates =
-    menu?.kind === `issueRef` && issueRefs
-      ? issueRefs.search(menu.query, { limit: 6 })
-      : []
+  // EXP-892: the shared engine — local ranking now, the server's full-text
+  // hits spliced in behind once they answer (the same list every `#` picker
+  // shows on every client).
+  const issueMenuOpen = menu?.kind === `issueRef` && issueRefs !== null
+  const { results: issueCandidates } = useIssueSearchResults({
+    teamId: issueRefs?.teamId,
+    query: issueMenuOpen ? menu.query : ``,
+    rows: issueMenuOpen ? issueRefs.rows : NO_ROWS,
+    limit: 6,
+    resolveHit: (hit) => issueRefs?.fromHit(hit) ?? null,
+    server: issueMenuOpen,
+  })
   const emojiCandidates =
     menu?.kind === `emoji` && emojiData
       ? searchEmoji(emojiData, menu.query, 8)

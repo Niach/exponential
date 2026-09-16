@@ -307,16 +307,6 @@ pub(crate) fn select_file(window: &mut Window, cx: &mut App, path: Option<String
     });
 }
 
-/// The window's file tree (EXP-635: `crate::file_tree::select_trunk_root`
-/// re-roots it from outside — the entity lives on the shared rail state, so
-/// every reach-in goes through here).
-pub(crate) fn window_file_tree(
-    window: &mut Window,
-    cx: &mut App,
-) -> Entity<crate::file_tree::FileTreeView> {
-    rail_shared_for_window(window, cx).read(cx).file_tree.clone()
-}
-
 /// DEV-ONLY `EXP_DEV_SETTINGS` values: the [`crate::settings::SettingsSection`]
 /// variants in kebab form, plus `board:<uuid>` for one board's pane. The
 /// settings screen clamps a section the signed-in user cannot see

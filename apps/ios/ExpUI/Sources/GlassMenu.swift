@@ -55,6 +55,12 @@ public enum GlassMenuTokens {
     public static let maxWidth: CGFloat = 280
     /// White .06 over the opaque card fill == #252525 (EXP-357 parity).
     public static let tintOpacity: Double = 0.06
+    /// EXP-892 — the ACTIVE row's fill: the autocomplete menu's keyboard
+    /// selection and the issue pickers' highlighted row, one rung brighter than
+    /// the surface tint so the top row reads as selected while typing.
+    public static let activeFillOpacity: Double = 0.10
+    /// The active row's inset fill radius (its surface is already clipped).
+    public static let activeFillRadius: CGFloat = 8
     /// Gap between the anchor and the menu, and the minimum screen margin.
     public static let anchorGap: CGFloat = 8
     public static let screenMargin: CGFloat = 12

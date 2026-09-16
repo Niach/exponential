@@ -501,6 +501,7 @@ struct IssueFaceView<Switcher: View>: View {
         case .duplicateOf:
             DuplicatePickerSheet(
                 loadCandidates: { await vm.duplicateCandidates() },
+                serverSearch: { await vm.searchIssueHits($0) },
                 onSelect: { canonical in
                     Task { await vm.markDuplicate(of: canonical) }
                 }
@@ -508,6 +509,7 @@ struct IssueFaceView<Switcher: View>: View {
         case .addRelation:
             RelationPickerSheet(
                 loadCandidates: { await vm.relationCandidates() },
+                serverSearch: { await vm.searchIssueHits($0) },
                 onSelect: { pick, other in
                     Task { await vm.addRelation(pick, other: other) }
                 }

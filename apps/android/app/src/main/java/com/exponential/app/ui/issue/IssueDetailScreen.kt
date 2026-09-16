@@ -381,7 +381,12 @@ fun IssueFace(
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
     val issueRefHandler = remember(issueRefCandidates) {
-        IssueRefHandler(issueRefCandidates) { target -> currentOnOpenIssue(target.issueId) }
+        IssueRefHandler(
+            issueRefCandidates,
+            // EXP-892: the `#` menu also asks the server's full-text search
+            // (comment bodies included) behind the locally ranked rows.
+            searchServer = viewModel::searchIssueRefs,
+        ) { target -> currentOnOpenIssue(target.issueId) }
     }
 
     // Inline `@email` mention pills (REV2-42): the same synced team members the
@@ -843,6 +848,7 @@ fun IssueFace(
             candidates = duplicateCandidates,
             onPick = { viewModel.markDuplicate(it.id) },
             onDismiss = { controller.activeSheet = null },
+            searchServer = viewModel::searchTeamIssues,
         )
     }
 
@@ -854,6 +860,7 @@ fun IssueFace(
             candidates = duplicateCandidates,
             onPick = { pick, other -> viewModel.addRelation(pick, other.id) },
             onDismiss = { controller.activeSheet = null },
+            searchServer = viewModel::searchTeamIssues,
         )
     }
 

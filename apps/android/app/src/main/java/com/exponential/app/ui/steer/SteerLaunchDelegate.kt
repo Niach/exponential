@@ -137,6 +137,9 @@ class SteerLaunchDelegate @Inject constructor(
                             repositoryId = eligibleBoards[issue.boardId]?.repositoryId,
                             status = issue.status,
                             priority = issue.priority,
+                            description = issue.description,
+                            createdAt = issue.createdAt,
+                            updatedAt = issue.updatedAt,
                         )
                     }
             }

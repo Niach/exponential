@@ -22,7 +22,6 @@ import {
   desc,
   eq,
   gte,
-  ilike,
   inArray,
   isNotNull,
   isNull,
@@ -141,7 +140,7 @@ import {
   releasePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
 import { composeDeviceList } from "@/lib/steer-devices"
-import { escapeLikePattern } from "@/lib/like-pattern"
+import { issueSearchMatchIds } from "@/lib/issue-search-sql"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
@@ -907,7 +906,7 @@ export function registerExponentialTools(
       // inline value lists out too, so status/statusCategory, their exclude*
       // twins and priority all validate at runtime (the refusal names the
       // values; issues_create spells the status enum out).
-      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut to 200 chars (issues_get has all). Custom statuses: exponential_statuses_list; exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: title substring; assigneeId null = unassigned.`,
+      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut to 200 chars (issues_get has all). statusId: exponential_statuses_list; exclude* invert. created*/updated*: ISO datetime. sort: [-]createdAt|updatedAt|priority. search: full text + identifier; assigneeId null = unassigned.`,
       inputSchema: strictInput({
         boardId: uuidString.optional(),
         boardIds: z.array(uuidString).optional(),
@@ -1149,8 +1148,13 @@ export function registerExponentialTools(
         }
         if (dueAfter) conditions.push(gte(issues.dueDate, dueAfter))
         if (dueBefore) conditions.push(lte(issues.dueDate, dueBefore))
+        // EXP-892: the same full-text + identifier predicate every client's
+        // search box runs (lib/issue-search-sql.ts), over the boards this
+        // call may see.
         if (search) {
-          conditions.push(ilike(issues.title, `%${escapeLikePattern(search)}%`))
+          conditions.push(
+            sql`${issues.id} in (${issueSearchMatchIds(search, { boardIds: allowedBoardIds })})`
+          )
         }
 
         const dir = sort.startsWith(`-`) ? desc : asc

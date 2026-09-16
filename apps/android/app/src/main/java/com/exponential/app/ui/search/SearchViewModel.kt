@@ -10,6 +10,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.IssueSearch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -30,8 +31,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 
 // Cross-board search (the Search tab), hybrid local + server:
-//   - Fast path: a pure client-side substring match over identifier + title
-//     across every board of the active account (local Room data, instant).
+//   - Fast path: the shared `IssueSearch` engine (EXP-892 — identifier before
+//     title before description, one ranking ×4) over every board of the
+//     active account (local Room data, instant).
 //   - Augmentation: the server-side full-text `issues.search` (title +
 //     description + comment text) fires on the same debounced query, one call
 //     per team of the account, and appends whatever the local filter
@@ -40,7 +42,10 @@ import kotlinx.coroutines.flow.transformLatest
 // The empty-query state shows a search hint (assigned issues live on the
 // "My Work" tab since EXP-58).
 
-/** Results under one board header, most recently updated board first. */
+/**
+ * Results under one board header. EXP-892: a board's band appears where its
+ * best-ranked match does, and its rows keep the ranked order.
+ */
 data class SearchResultGroup(val board: BoardEntity, val issues: List<IssueEntity>)
 
 data class SearchState(
@@ -128,44 +133,40 @@ class SearchViewModel @Inject constructor(
         } else {
             val boardsById = boards.associateBy { it.id }
             // Live boards only (the DAO already filters trashed boards).
-            val localMatches = issues.asSequence()
-                .filter { it.boardId in boardsById }
-                .filter {
-                    it.title.contains(trimmed, ignoreCase = true) ||
-                        it.identifier.contains(trimmed, ignoreCase = true)
-                }
-                .sortedByDescending { it.updatedAt }
-                .take(MAX_RESULTS)
-                .toList()
+            val localMatches = IssueSearch.rank(
+                issues.filter { it.boardId in boardsById },
+                trimmed,
+                limit = MAX_RESULTS,
+            )
 
-            // Merge: local matches first, then server-found issues the local
-            // substring filter missed (description/comment hits), deduped by
-            // id in server relevance order. A hit that exists in local Room
-            // renders as its live local row; an unsynced hit renders from the
-            // returned fields (a placeholder entity — the row only shows
-            // identifier/title/status/priority).
-            val seen = localMatches.mapTo(HashSet()) { it.id }
+            // Merge (the shared splice): local matches first, then the
+            // server-found issues the local ranking missed (description /
+            // comment hits), deduped by id in server relevance order. A hit
+            // that exists in local Room renders as its live local row; an
+            // unsynced hit renders from the returned fields (a placeholder
+            // entity — the row only shows identifier/title/status/priority).
             val matches = if (server.query == trimmed && server.hits.isNotEmpty()) {
                 val issuesById = issues.associateBy { it.id }
-                val extras = server.hits.asSequence()
-                    .filter { seen.add(it.id) }
-                    .mapNotNull { hit ->
-                        val local = issuesById[hit.id]
-                        when {
-                            local != null -> local.takeIf { it.boardId in boardsById }
-                            hit.boardId in boardsById -> placeholderIssue(hit)
-                            // No local board to group the row under (sync
-                            // lag / trashed board) — drop it.
-                            else -> null
-                        }
+                IssueSearch.mergeServerHits(
+                    localMatches,
+                    server.hits,
+                    limit = MAX_RESULTS,
+                ) { hit ->
+                    val local = issuesById[hit.id]
+                    when {
+                        local != null -> local.takeIf { it.boardId in boardsById }
+                        hit.boardId in boardsById -> placeholderIssue(hit)
+                        // No local board to group the row under (sync lag /
+                        // trashed board) — drop it.
+                        else -> null
                     }
-                    .toList()
-                localMatches + extras
+                }
             } else {
                 localMatches
             }
 
-            // Group by board, most recently updated match first.
+            // Group by board; a board's band appears where its first ranked
+            // match does, and its rows keep the ranked order.
             val groups = LinkedHashMap<String, MutableList<IssueEntity>>()
             for (issue in matches) {
                 groups.getOrPut(issue.boardId) { mutableListOf() }.add(issue)

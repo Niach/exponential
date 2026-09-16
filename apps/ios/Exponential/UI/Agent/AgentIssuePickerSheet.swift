@@ -53,19 +53,24 @@ struct AgentIssuePickerSheet: View {
         .onAppear { pinnedIds = Set(model.effectiveChecked) }
     }
 
-    /// Pinned rows first (the open-time snapshot), then the rest, search
-    /// applied to both and the tail capped so a big team stays scrollable.
+    /// Pinned rows first (the open-time snapshot), then the rest, both ranked
+    /// by the shared `IssueSearch` engine (EXP-892) and the tail capped so a
+    /// big team stays scrollable.
     private var rows: [IssueOption] {
-        let pinned = model.issues.filter { pinnedIds.contains($0.id) && matches($0) }
-        let others = model.issues.filter { !pinnedIds.contains($0.id) && matches($0) }.prefix(50)
+        let pool = model.issues
+        let pinned = IssueSearch.rank(
+            pool.filter { pinnedIds.contains($0.id) },
+            query: searchText,
+            limit: Int.max,
+            projection: \.searchRow
+        )
+        let others = IssueSearch.rank(
+            pool.filter { !pinnedIds.contains($0.id) },
+            query: searchText,
+            limit: 50,
+            projection: \.searchRow
+        )
         return pinned + others
-    }
-
-    private func matches(_ option: IssueOption) -> Bool {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return true }
-        return option.title.localizedCaseInsensitiveContains(trimmed)
-            || (option.identifier ?? "").localizedCaseInsensitiveContains(trimmed)
     }
 
     private func issueRow(_ option: IssueOption) -> some View {

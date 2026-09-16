@@ -183,6 +183,7 @@ export function LaunchComposer({
         tools={
           <>
             <IssuePicker
+              teamId={model.teamId}
               eligible={model.eligibleIssues}
               checked={model.checkedIssues}
               onToggle={model.toggleIssue}

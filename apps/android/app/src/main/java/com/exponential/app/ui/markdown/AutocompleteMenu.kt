@@ -1,5 +1,6 @@
 package com.exponential.app.ui.markdown
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
@@ -54,6 +56,7 @@ internal fun AutocompleteMenu(
     mentionCandidates: List<MentionMember>,
     refCandidates: List<IssueRefTarget>,
     emojiCandidates: List<EmojiRecord>,
+    selectedIndex: Int,
     onPickMention: (MentionMember) -> Unit,
     onPickIssueRef: (IssueRefTarget) -> Unit,
     onPickEmoji: (EmojiRecord) -> Unit,
@@ -93,6 +96,7 @@ internal fun AutocompleteMenu(
             mentionCandidates = mentionCandidates,
             refCandidates = refCandidates,
             emojiCandidates = emojiCandidates,
+            selectedIndex = selectedIndex,
             onPickMention = onPickMention,
             onPickIssueRef = onPickIssueRef,
             onPickEmoji = onPickEmoji,
@@ -116,11 +120,20 @@ internal fun AutocompleteRows(
     mentionCandidates: List<MentionMember>,
     refCandidates: List<IssueRefTarget>,
     emojiCandidates: List<EmojiRecord>,
+    /**
+     * EXP-892: the highlighted row, an index into the FLAT candidate list
+     * ([autocompleteCandidateCount]). The top row is selected while typing;
+     * a hardware ↑/↓ moves it and Enter/Tab picks it, exactly like the `/`
+     * command menu — one selection contract on every client.
+     */
+    selectedIndex: Int,
     onPickMention: (MentionMember) -> Unit,
     onPickIssueRef: (IssueRefTarget) -> Unit,
     onPickEmoji: (EmojiRecord) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Only one of the three lists is ever non-empty, so the flat index is the
+    // index within whichever list is showing.
     GlassMenuSurface(modifier = modifier) {
         Column(
             modifier = Modifier
@@ -129,11 +142,12 @@ internal fun AutocompleteRows(
                 // Scrolls with the content, matching M3's menu padding.
                 .padding(vertical = 4.dp),
         ) {
-            mentionCandidates.forEach { m ->
+            mentionCandidates.forEachIndexed { index, m ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = AutocompleteRowHeight)
+                        .background(selectionFill(index == selectedIndex))
                         .clickable { onPickMention(m) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -148,11 +162,12 @@ internal fun AutocompleteRows(
                     )
                 }
             }
-            refCandidates.forEach { target ->
+            refCandidates.forEachIndexed { index, target ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = AutocompleteRowHeight)
+                        .background(selectionFill(mentionCandidates.size + index == selectedIndex))
                         .clickable { onPickIssueRef(target) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -181,11 +196,13 @@ internal fun AutocompleteRows(
                     )
                 }
             }
-            emojiCandidates.forEach { emoji ->
+            emojiCandidates.forEachIndexed { index, emoji ->
+                val flat = mentionCandidates.size + refCandidates.size + index
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = AutocompleteRowHeight)
+                        .background(selectionFill(flat == selectedIndex))
                         .clickable { onPickEmoji(emoji) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -211,6 +228,46 @@ internal fun AutocompleteRows(
             }
         }
     }
+}
+
+/**
+ * The active fill of every menu in the app (the `/` command menu's, EXP-724) —
+ * what "this row is what Enter picks" looks like.
+ */
+private fun selectionFill(selected: Boolean): Color =
+    if (selected) Color.White.copy(alpha = 0.06f) else Color.Transparent
+
+/**
+ * The flat candidate count the ↑/↓ selection wraps around: at most one of the
+ * three lists is ever non-empty (the triggers are exclusive), so the sum IS
+ * the showing list's size.
+ */
+internal fun autocompleteCandidateCount(
+    mentionCandidates: List<MentionMember>,
+    refCandidates: List<IssueRefTarget>,
+    emojiCandidates: List<EmojiRecord>,
+): Int = mentionCandidates.size + refCandidates.size + emojiCandidates.size
+
+/**
+ * Pick the row at [index] of the flat candidate list — the ONE dispatcher
+ * every host's Enter/Tab handler calls, so a key press and a tap can never
+ * pick different things. False when the index is out of range.
+ */
+internal fun pickAutocompleteAt(
+    index: Int,
+    mentionCandidates: List<MentionMember>,
+    refCandidates: List<IssueRefTarget>,
+    emojiCandidates: List<EmojiRecord>,
+    onPickMention: (MentionMember) -> Unit,
+    onPickIssueRef: (IssueRefTarget) -> Unit,
+    onPickEmoji: (EmojiRecord) -> Unit,
+): Boolean {
+    mentionCandidates.getOrNull(index)?.let { onPickMention(it); return true }
+    refCandidates.getOrNull(index - mentionCandidates.size)?.let { onPickIssueRef(it); return true }
+    emojiCandidates
+        .getOrNull(index - mentionCandidates.size - refCandidates.size)
+        ?.let { onPickEmoji(it); return true }
+    return false
 }
 
 /** The scroll cap every autocomplete menu shares with the `/` command menu. */

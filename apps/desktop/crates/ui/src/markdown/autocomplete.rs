@@ -13,6 +13,7 @@
 //! UNICODE, never the `:shortcode:` text (EXP-551: stored markdown is plain
 //! GFM shared with clients that expand nothing).
 
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use domain::rows::Issue;
@@ -342,27 +343,18 @@ fn mention_matches(name: &str, email: &str, needle: &str) -> bool {
         || email.to_lowercase().contains(needle)
 }
 
-/// Filter + rank `#` candidates the way the web `IssueRefProvider.search`
-/// does (iOS and Android mirror it): case-insensitive SUBSTRING match on
-/// identifier or title, newest-created first — so the empty query surfaces
-/// the most recent work. Ties (equal or missing `created_at`) fall back to
-/// the natural identifier order, highest number first, keeping the ranking
-/// deterministic.
+/// Filter + rank `#` candidates through the ONE issue-search engine
+/// (EXP-892, `domain::issue_search`): identifier hits over title hits over
+/// description hits, ties by recency, an empty query listing the
+/// newest-created work. Capped at [`MAX_ITEMS`] like every other popover.
 fn filter_and_rank_issue_refs(issues: &mut Vec<Issue>, query: &str) {
-    let needle = query.to_lowercase();
-    issues.retain(|issue| {
-        needle.is_empty()
-            || issue.identifier.to_lowercase().contains(&needle)
-            || issue.title.to_lowercase().contains(&needle)
-    });
-    // `Option<String>` on ISO-8601 timestamps: lexicographic == chronological,
-    // and `None` (no created_at) sorts before every `Some` — reversed here so
-    // undated rows land last.
-    issues.sort_by(|a, b| {
-        b.created_at
-            .cmp(&a.created_at)
-            .then_with(|| sync::cmp_identifiers(&b.identifier, &a.identifier))
-    });
+    let order = {
+        let rows: Vec<domain::issue_search::SearchRow<'_>> =
+            issues.iter().map(Into::into).collect();
+        domain::issue_search::rank(&rows, query, MAX_ITEMS, &HashSet::new())
+    };
+    let ranked: Vec<Issue> = order.into_iter().map(|ix| issues[ix].clone()).collect();
+    *issues = ranked;
 }
 
 #[cfg(test)]
@@ -532,15 +524,25 @@ mod tests {
         assert!(mention_matches(NAME, EMAIL, ""));
     }
 
-    // -- filter_and_rank_issue_refs (web IssueRefProvider.search parity) ----
+    // -- filter_and_rank_issue_refs (EXP-892 `domain::issue_search` parity) --
 
     fn issue(identifier: &str, title: &str, created_at: Option<&str>) -> Issue {
+        described(identifier, title, None, created_at)
+    }
+
+    fn described(
+        identifier: &str,
+        title: &str,
+        description: Option<&str>,
+        created_at: Option<&str>,
+    ) -> Issue {
         serde_json::from_value(serde_json::json!({
             "id": identifier,
             "board_id": "p1",
             "number": 1,
             "identifier": identifier,
             "title": title,
+            "description": description,
             "status": "todo",
             "created_at": created_at,
         }))
@@ -600,5 +602,52 @@ mod tests {
         let mut issues = vec![issue("EXP-1", "Fix login flow", None)];
         filter_and_rank_issue_refs(&mut issues, "zzz");
         assert!(issues.is_empty());
+    }
+
+    /// EXP-892: the `#` menu searches DESCRIPTIONS too, below identifier and
+    /// title hits.
+    #[test]
+    fn issue_refs_match_descriptions_below_title_hits() {
+        let mut issues = vec![
+            described("EXP-1", "Nothing here", Some("uses a tsvector index"), Some("2026-07-03T00:00:00Z")),
+            described("EXP-2", "tsvector drift", None, Some("2026-07-01T00:00:00Z")),
+        ];
+        filter_and_rank_issue_refs(&mut issues, "tsvector");
+        // The title word-prefix hit outranks the description hit even though
+        // the description row is newer.
+        assert_eq!(identifiers(&issues), vec!["EXP-2", "EXP-1"]);
+    }
+
+    /// An exact identifier (or its bare number, `#` stripped) wins over every
+    /// title hit, however recent.
+    #[test]
+    fn issue_refs_rank_an_exact_identifier_first() {
+        let mut issues = vec![
+            issue("EXP-870", "Newest by far", Some("2026-08-01T00:00:00Z")),
+            issue("EXP-87", "Old", Some("2026-01-01T00:00:00Z")),
+        ];
+        filter_and_rank_issue_refs(&mut issues, "#87");
+        assert_eq!(identifiers(&issues), vec!["EXP-87", "EXP-870"]);
+    }
+
+    /// Every token must match somewhere (AND semantics).
+    #[test]
+    fn issue_refs_require_every_token_to_match() {
+        let mut issues = vec![
+            issue("EXP-1", "Session results", None),
+            issue("EXP-2", "Session list", None),
+        ];
+        filter_and_rank_issue_refs(&mut issues, "session res");
+        assert_eq!(identifiers(&issues), vec!["EXP-1"]);
+    }
+
+    /// The popover never renders more than [`MAX_ITEMS`] rows.
+    #[test]
+    fn issue_refs_cap_at_max_items() {
+        let mut issues: Vec<Issue> = (0..MAX_ITEMS + 5)
+            .map(|n| issue(&format!("EXP-{n}"), "Login", None))
+            .collect();
+        filter_and_rank_issue_refs(&mut issues, "login");
+        assert_eq!(issues.len(), MAX_ITEMS);
     }
 }

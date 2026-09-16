@@ -2252,6 +2252,9 @@ pub(crate) fn open_issue_picker(
     });
 }
 
+/// How many ranked candidates the duplicate/relation picker lists.
+const ISSUE_PICKER_LIMIT: usize = 50;
+
 /// Searchable issue list over the synced `issues` collection, confined to the
 /// excluded issue's team and excluding the issue itself. Picking runs the
 /// host's `on_pick` and closes the dialog.
@@ -2259,6 +2262,9 @@ struct IssuePicker {
     exclude_issue_id: String,
     on_pick: crate::pickers::OnPick<String>,
     search: Entity<InputState>,
+    /// EXP-892 (the uniform list contract): the highlighted row — the top one
+    /// while typing, moved by ↑/↓ and by hovering, opened by Enter.
+    selected: usize,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -2273,8 +2279,10 @@ impl IssuePicker {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         let mut subscriptions = vec![cx.subscribe(
             &search,
-            |_, _, event: &InputEvent, cx| {
+            |this: &mut Self, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    // A new query re-selects the top row.
+                    this.selected = 0;
                     cx.notify();
                 }
             },
@@ -2288,12 +2296,13 @@ impl IssuePicker {
             exclude_issue_id,
             on_pick,
             search,
+            selected: 0,
             _subscriptions: subscriptions,
         }
     }
 
     fn matches(&self, cx: &App) -> Vec<Issue> {
-        let query = self.search.read(cx).value().trim().to_lowercase();
+        let query = self.search.read(cx).value().to_string();
         let collections = Store::global(cx).collections();
         // REV-19: candidates are confined to the marked issue's TEAM (join
         // through the boards collection) — the synced issues collection spans
@@ -2315,24 +2324,70 @@ impl IssuePicker {
         else {
             return Vec::new();
         };
-        let mut issues: Vec<Issue> = collections
-            .issues_in_team(&team_id, cx)
-            .into_iter()
-            .filter(|issue| issue.id != self.exclude_issue_id)
-            .filter(|issue| {
-                query.is_empty()
-                    || issue.identifier.to_lowercase().contains(&query)
-                    || issue.title.to_lowercase().contains(&query)
-            })
-            .collect();
-        issues.sort_by(|a, b| sync::cmp_identifiers(&a.identifier, &b.identifier));
-        issues.truncate(50);
-        issues
+        // EXP-892: the ONE engine ranks the pool (identifier over title over
+        // description, ties by recency); the marked issue itself is excluded.
+        let issues: Vec<Issue> = collections.issues_in_team(&team_id, cx);
+        let exclude: std::collections::HashSet<String> =
+            [self.exclude_issue_id.clone()].into_iter().collect();
+        let order = {
+            let rows: Vec<domain::issue_search::SearchRow<'_>> =
+                issues.iter().map(Into::into).collect();
+            domain::issue_search::rank(&rows, &query, ISSUE_PICKER_LIMIT, &exclude)
+        };
+        order.into_iter().map(|ix| issues[ix].clone()).collect()
     }
 
     fn pick(&self, picked_id: String, window: &mut Window, cx: &mut App) {
         (self.on_pick)(picked_id, window, cx);
         crate::native_dialog::close_dialog_window(window, cx);
+    }
+
+    /// ↑/↓ arrive as the search field's own actions — a single-line input
+    /// no-ops them, so the dialog CAPTURES them for the list.
+    fn move_selection(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
+        let count = self.matches(cx).len();
+        if count == 0 {
+            return;
+        }
+        self.selected = self
+            .selected
+            .min(count - 1)
+            .saturating_add_signed(delta)
+            .min(count - 1);
+        cx.notify();
+    }
+
+    fn on_move_up(
+        &mut self,
+        _: &gpui_component::input::MoveUp,
+        _window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.move_selection(-1, cx);
+    }
+
+    fn on_move_down(
+        &mut self,
+        _: &gpui_component::input::MoveDown,
+        _window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.move_selection(1, cx);
+    }
+
+    /// Enter picks the selected row.
+    fn on_enter(
+        &mut self,
+        _: &gpui_component::input::Enter,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let issues = self.matches(cx);
+        let Some(issue) = issues.get(self.selected.min(issues.len().saturating_sub(1))) else {
+            return;
+        };
+        let issue_id = issue.id.clone();
+        self.pick(issue_id, window, cx);
     }
 }
 
@@ -2351,7 +2406,9 @@ impl Render for IssuePicker {
                     .child("No matching issues."),
             );
         }
-        for issue in issues {
+        // EXP-892: ONE highlight — the selected row; hovering moves it there.
+        let selected = self.selected.min(issues.len().saturating_sub(1));
+        for (position, issue) in issues.into_iter().enumerate() {
             let issue_id = issue.id.clone();
             list = list.child(
                 h_flex()
@@ -2363,7 +2420,15 @@ impl Render for IssuePicker {
                     .items_center()
                     .rounded_md()
                     .cursor_pointer()
-                    .hover(|style| style.bg(cx.theme().colors.list_hover))
+                    .when(position == selected, |style| {
+                        style.bg(cx.theme().colors.list_active)
+                    })
+                    .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+                        if *hovered && this.selected != position {
+                            this.selected = position;
+                            cx.notify();
+                        }
+                    }))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.pick(issue_id.clone(), window, cx);
                     }))
@@ -2392,6 +2457,9 @@ impl Render for IssuePicker {
         v_flex()
             .w_full()
             .gap_2()
+            .capture_action(cx.listener(Self::on_move_up))
+            .capture_action(cx.listener(Self::on_move_down))
+            .capture_action(cx.listener(Self::on_enter))
             .child(glass_input(&self.search, window, cx).web_input_sm())
             .child(
                 div()

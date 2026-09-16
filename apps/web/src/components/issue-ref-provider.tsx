@@ -6,13 +6,17 @@ import { issueCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { statusColorCssValue } from "@/components/issue-properties/status-dropdown"
+import { rankIssueSearch } from "@/lib/issue-search"
 import type { Issue } from "@/db/schema"
 import type { IssueStatus } from "@/lib/domain"
 
 // Team-scoped issue-reference resolution, mounted once in the team
 // layout. Powers the `#IDENTIFIER` pill rendering in the markdown editors, the
 // #-autocomplete in the comment composer, and the mark-as-duplicate issue
-// picker — all from the already-synced issues shape (no server round-trips).
+// picker — resolution from the already-synced issues shape; searching runs
+// the shared engine (EXP-892, `lib/issue-search.ts`) over `rows`, and the
+// consumers that can wait add the server's full-text pass through
+// `useIssueSearchResults`.
 // Resolution is scoped to the current team's boards so a same-prefix
 // identifier from another team never leaks in.
 
@@ -20,6 +24,12 @@ export interface ResolvedIssueRef {
   id: string
   identifier: string
   title: string
+  // EXP-892: the search engine (`lib/issue-search.ts`) ranks descriptions
+  // and breaks ties on recency, so the rows carry them.
+  description: string | null
+  createdAt: string | Date | null
+  updatedAt: string | Date | null
+  boardId: string
   status: IssueStatus
   // EXP-314: carried so the ref/autocomplete/duplicate-picker rows render the
   // team's own status glyph, not just the anchor's.
@@ -33,12 +43,29 @@ export interface ResolvedIssueRef {
 }
 
 export interface IssueRefContextValue {
+  /** The team the refs resolve in (undefined until the layout knows it). */
+  teamId: string | undefined
+  /** Every visible issue of the team, newest created first — the pool the
+   * search hook ranks (`useIssueSearchResults`). */
+  rows: ResolvedIssueRef[]
   /** Resolve an identifier (case-insensitive) to a visible issue, or null. */
   resolve: (identifier: string) => ResolvedIssueRef | null
   /** Resolve a row UUID to a visible issue, or null — the relations card
    * reads ids off the issue_relations shape, never identifiers. */
   resolveById: (id: string) => ResolvedIssueRef | null
-  /** Search visible issues by identifier/title; empty query = most recent. */
+  /** EXP-892: a server full-text hit as a ref row — the synced row when the
+   * id is local, else a stand-in from the hit's fields (its board must be
+   * known, or null). */
+  fromHit: (hit: {
+    id: string
+    identifier: string
+    title: string
+    boardId: string
+    status: string
+    statusId: string | null
+  }) => ResolvedIssueRef | null
+  /** Local ranking only (`lib/issue-search.ts`); empty query = most recent.
+   * Async consumers use `useIssueSearchResults` for the server pass. */
   search: (
     query: string,
     opts?: { excludeIssueIds?: string[]; limit?: number }
@@ -105,6 +132,10 @@ export function IssueRefProvider({
         id: issue.id,
         identifier: issue.identifier,
         title: issue.title,
+        description: issue.description ?? null,
+        createdAt: issue.createdAt,
+        updatedAt: issue.updatedAt,
+        boardId: issue.boardId,
         status: issue.status,
         statusId: issue.statusId,
         statusIcon: statusOption.icon,
@@ -112,15 +143,9 @@ export function IssueRefProvider({
         boardSlug,
       })
     }
-    // Most recently created first, so empty-query search surfaces fresh work.
-    const createdAt = new Map(
-      ((issues ?? []) as Issue[]).map((issue) => [
-        issue.id,
-        new Date(issue.createdAt).getTime(),
-      ])
-    )
-    list.sort((a, b) => (createdAt.get(b.id) ?? 0) - (createdAt.get(a.id) ?? 0))
-    return list
+    // Most recently created first, so empty-query search surfaces fresh work
+    // (the engine's own empty-query order).
+    return rankIssueSearch(list, ``, { limit: Number.POSITIVE_INFINITY })
   }, [issues, boardSlugById, resolveStatus])
 
   const byIdentifier = useMemo(
@@ -135,28 +160,40 @@ export function IssueRefProvider({
 
   const value = useMemo<IssueRefContextValue>(
     () => ({
+      teamId,
+      rows: refs,
       resolve: (identifier) =>
         byIdentifier.get(identifier.toUpperCase()) ?? null,
       resolveById: (id) => byId.get(id) ?? null,
-      search: (query, opts) => {
-        const q = query.trim().toLowerCase()
-        const exclude = new Set(opts?.excludeIssueIds ?? [])
-        const limit = opts?.limit ?? 8
-        const matches: ResolvedIssueRef[] = []
-        for (const ref of refs) {
-          if (exclude.has(ref.id)) continue
-          if (
-            q &&
-            !ref.identifier.toLowerCase().includes(q) &&
-            !ref.title.toLowerCase().includes(q)
-          ) {
-            continue
-          }
-          matches.push(ref)
-          if (matches.length >= limit) break
+      fromHit: (hit) => {
+        const local = byId.get(hit.id)
+        if (local) return local
+        const boardSlug = boardSlugById.get(hit.boardId)
+        if (!boardSlug) return null
+        const statusOption = resolveStatus({
+          status: hit.status as IssueStatus,
+          statusId: hit.statusId,
+        })
+        return {
+          id: hit.id,
+          identifier: hit.identifier,
+          title: hit.title,
+          description: null,
+          createdAt: null,
+          updatedAt: null,
+          boardId: hit.boardId,
+          status: hit.status as IssueStatus,
+          statusId: hit.statusId,
+          statusIcon: statusOption.icon,
+          statusColor: statusColorCssValue(statusOption),
+          boardSlug,
         }
-        return matches
       },
+      search: (query, opts) =>
+        rankIssueSearch(refs, query, {
+          limit: opts?.limit ?? 8,
+          exclude: opts?.excludeIssueIds,
+        }),
       open: (identifier) => {
         const ref = byIdentifier.get(identifier.toUpperCase())
         if (!ref) return
@@ -170,7 +207,7 @@ export function IssueRefProvider({
         })
       },
     }),
-    [byIdentifier, byId, refs, navigate, teamSlug]
+    [teamId, byIdentifier, byId, refs, boardSlugById, resolveStatus, navigate, teamSlug]
   )
 
   return (

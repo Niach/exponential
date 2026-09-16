@@ -8,6 +8,7 @@ import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.IssueImagesApi
+import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
@@ -40,6 +41,7 @@ import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.markdown.IssueRefTarget
+import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
@@ -132,6 +134,7 @@ class AgentComposerViewModel @Inject constructor(
     selection: TeamSelection,
     private val steerLaunch: SteerLaunchDelegate,
     private val imagesApi: IssueImagesApi,
+    private val issuesApi: IssuesApi,
 ) : ViewModel() {
 
     /** The route's one-shot preselection — applied once in `init`. */
@@ -317,18 +320,27 @@ class AgentComposerViewModel @Inject constructor(
                     issues
                         .filter { it.boardId in teamBoardIds }
                         .sortedByDescending { it.createdAt }
-                        .map {
-                            IssueRefTarget(
-                                it.id,
-                                it.identifier,
-                                it.title,
-                                IssueStatusResolver.resolve(it, statuses),
-                            )
-                        }
+                        .map { issueRefTarget(it, statuses) }
                 }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * EXP-892: the composer's `#` menu server half — `issues.search` over the
+     * selected team. Failures degrade to local-only.
+     */
+    suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
+        val accountId = auth.activeAccountId.value ?: return emptyList()
+        val team = teamId.value ?: return emptyList()
+        return try {
+            issuesApi.search(accountId, team, query).map(::issueRefTarget)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     /** The team's members — the `@` vocabulary (stored as the plain `@email`). */
     val mentionMembers: StateFlow<List<MentionMember>> = teamId

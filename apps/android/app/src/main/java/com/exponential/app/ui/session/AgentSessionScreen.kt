@@ -240,9 +240,11 @@ import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.markdown.AutocompleteRows
 import com.exponential.app.ui.markdown.EMOJI_TYPEAHEAD_LIMIT
 import com.exponential.app.ui.markdown.IssueRefHandler
-import com.exponential.app.ui.markdown.MENTION_CANDIDATE_LIMIT
+import com.exponential.app.ui.markdown.autocompleteCandidateCount
 import com.exponential.app.ui.markdown.autocompleteTriggersAt
 import com.exponential.app.ui.markdown.mentionCandidatesFor
+import com.exponential.app.ui.markdown.pickAutocompleteAt
+import com.exponential.app.ui.markdown.rememberIssueRefCandidates
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
@@ -353,7 +355,10 @@ fun RunFace(
     val stackPosition by viewModel.stackPosition.collectAsStateWithLifecycle()
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
     val issueRefHandler = remember(issueRefCandidates) {
-        IssueRefHandler(issueRefCandidates) { target -> currentOnOpenIssue(target.issueId) }
+        IssueRefHandler(
+            issueRefCandidates,
+            searchServer = viewModel::searchIssueRefs,
+        ) { target -> currentOnOpenIssue(target.issueId) }
     }
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
@@ -537,9 +542,9 @@ fun RunFace(
         refsEnabled = issueRefCandidates.isNotEmpty(),
     )
     val composerMentions = mentionCandidatesFor(mentionMembers, composerTriggers.mentionQuery)
-    val composerRefs = composerTriggers.issueRefQuery
-        ?.let { issueRefHandler.search(it, limit = MENTION_CANDIDATE_LIMIT) }
-        ?: emptyList()
+    // EXP-892: ranked by the shared engine, with the server's full-text hits
+    // (comment bodies included) spliced in behind them once typing settles.
+    val composerRefs = rememberIssueRefCandidates(issueRefHandler, composerTriggers.issueRefQuery)
     val composerEmojiMatch = composerTriggers.emoji
     val composerEmojiData = rememberEmojiData(enabled = composerEmojiMatch != null)
     val composerEmojiPrefs = rememberEmojiPrefs()
@@ -553,6 +558,12 @@ fun RunFace(
     LaunchedEffect(composerTriggers.none) {
         if (composerTriggers.none) composerArmed = false
     }
+    // EXP-892: the highlighted autocomplete row — the TOP one while typing,
+    // moved by a hardware ↑/↓ and picked by Enter/Tab, like the `/` menu.
+    val composerCandidateCount =
+        autocompleteCandidateCount(composerMentions, composerRefs, composerEmoji)
+    var autocompleteSelected by remember { mutableIntStateOf(0) }
+    LaunchedEffect(composerMentions, composerRefs, composerEmoji) { autocompleteSelected = 0 }
     // Every pick splices against the LIVE value (EXP-655) and clears the latch.
     fun commitComposerToken(spliced: TextFieldValue?) {
         val next = spliced ?: return
@@ -1117,6 +1128,7 @@ fun RunFace(
                         mentionCandidates = composerMentions,
                         refCandidates = composerRefs,
                         emojiCandidates = composerEmoji,
+                        selectedIndex = autocompleteSelected,
                         onPickMention = { commitComposerToken(composerField.withMention(it)) },
                         onPickIssueRef = { commitComposerToken(composerField.withIssueRef(it)) },
                         onPickEmoji = { record ->
@@ -1171,6 +1183,50 @@ fun RunFace(
                 },
                 fieldModifier = Modifier.onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    // EXP-892: the autocomplete owns the same four keys while
+                    // IT is the menu that is up.
+                    if (composerMenu == ComposerMenu.Autocomplete && composerCandidateCount > 0) {
+                        return@onPreviewKeyEvent when (event.key) {
+                            Key.DirectionUp -> {
+                                autocompleteSelected =
+                                    (autocompleteSelected - 1 + composerCandidateCount) %
+                                        composerCandidateCount
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                autocompleteSelected =
+                                    (autocompleteSelected + 1) % composerCandidateCount
+                                true
+                            }
+                            Key.Enter, Key.NumPadEnter, Key.Tab -> {
+                                pickAutocompleteAt(
+                                    index = autocompleteSelected
+                                        .coerceIn(0, composerCandidateCount - 1),
+                                    mentionCandidates = composerMentions,
+                                    refCandidates = composerRefs,
+                                    emojiCandidates = composerEmoji,
+                                    onPickMention = {
+                                        commitComposerToken(composerField.withMention(it))
+                                    },
+                                    onPickIssueRef = {
+                                        commitComposerToken(composerField.withIssueRef(it))
+                                    },
+                                    onPickEmoji = { record ->
+                                        commitComposerToken(
+                                            composerField.withEmoji(record, trailingSpace = true),
+                                        )
+                                        composerEmojiPrefs.pushRecent(record.unicode)
+                                    },
+                                )
+                                true
+                            }
+                            Key.Escape -> {
+                                composerArmed = false
+                                true
+                            }
+                            else -> false
+                        }
+                    }
                     // Keyed on the RESOLVED menu, not on `slashMenuOpen`:
                     // ↑/↓/Enter must only ever drive the menu that is up.
                     if (composerMenu != ComposerMenu.Slash) return@onPreviewKeyEvent false

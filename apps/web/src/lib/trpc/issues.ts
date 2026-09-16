@@ -65,7 +65,7 @@ import {
   isStackedPrRefusal,
   prMergeFailureError,
 } from "@/lib/trpc/pr-merge-error"
-import { escapeLikePattern } from "@/lib/like-pattern"
+import { issueSearchMatchIds, issueSearchRankSql } from "@/lib/issue-search-sql"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
   applyPrClosedState,
@@ -2639,27 +2639,13 @@ export const issuesRouter = router({
     }),
 
   // Full-text issue search (EXP-3): Postgres FTS over issue title +
-  // description AND comment bodies, team-scoped, relevance-ordered. A
-  // title/identifier ILIKE fallback keeps this a strict superset of the old
-  // title-substring search — it still matches identifiers (EXP-42) and
-  // partial title words that FTS lexemes miss. All values are parameterized
-  // via drizzle `sql` interpolation; the query cap (REV-17) bounds the FTS
+  // description AND comment bodies, team-scoped, relevance-ordered, with a
+  // tokenized title/identifier ILIKE fallback (EXP-42). EXP-892: the
+  // predicate lives in lib/issue-search-sql.ts, shared with MCP
+  // `exponential_issues_list({search})`; the notes on why each branch is
+  // index-friendly (REV-14) and how team scoping avoids the boards join
+  // (REV2-5, EXP-500) live there too. The query cap (REV-17) bounds the FTS
   // parse and LIKE pattern cost per call.
-  //
-  // REV-14: each `matches` branch is index-friendly on its own — the FTS
-  // branches hit the GIN expression indexes (idx_issues_fts /
-  // idx_comments_body_fts; the tsvector expressions must stay byte-identical
-  // to the index definitions in @exp/db-schema) and the ILIKE branch touches
-  // only the cheap title/identifier columns behind idx_issues_team. A single
-  // OR'd predicate would force a per-row to_tsvector over every issue in the
-  // team instead. Description/comment-body substring fallbacks were dropped
-  // deliberately: they required detoasting + scanning megabytes of markdown
-  // per keystroke, and whole-word matches ride the FTS branches. Team scoping
-  // uses the trigger-denormalized issues/comments team_id +
-  // board_deleted_at + board_archived_at mirrors (REV2-5, EXP-500) —
-  // equivalent to joining boards on team_id/deleted_at/archived_at, without
-  // the join. This is what keeps an archived board's issues and comments out
-  // of search on every client.
   search: authedProcedure
     .input(
       z.object({
@@ -2671,30 +2657,8 @@ export const issuesRouter = router({
     .query(async ({ ctx, input }) => {
       await assertTeamMember(ctx.session.user.id, input.teamId)
 
-      // Escape LIKE wildcards so the substring fallback matches literally.
-      const like = `%${escapeLikePattern(input.query)}%`
-
       const result = await ctx.db.execute(sql`
-        with matches as (
-          select i.id from issues i
-          where i.team_id = ${input.teamId}::uuid
-            and i.board_deleted_at is null
-            and i.board_archived_at is null
-            and to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))
-              @@ websearch_to_tsquery('english', ${input.query})
-          union
-          select c.issue_id from comments c
-          where c.team_id = ${input.teamId}::uuid
-            and c.board_deleted_at is null
-            and c.board_archived_at is null
-            and to_tsvector('english', c.body) @@ websearch_to_tsquery('english', ${input.query})
-          union
-          select i.id from issues i
-          where i.team_id = ${input.teamId}::uuid
-            and i.board_deleted_at is null
-            and i.board_archived_at is null
-            and (i.title ilike ${like} or i.identifier ilike ${like})
-        )
+        with matches as (${issueSearchMatchIds(input.query, { teamId: input.teamId })})
         select
           i.id,
           i.identifier,
@@ -2705,12 +2669,7 @@ export const issuesRouter = router({
           i.priority
         from issues i
         join matches m on m.id = i.id
-        order by
-          ts_rank(
-            to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, '')),
-            websearch_to_tsquery('english', ${input.query})
-          ) desc,
-          i.updated_at desc
+        order by ${issueSearchRankSql(input.query)} desc, i.updated_at desc
         limit ${input.limit}
       `)
 

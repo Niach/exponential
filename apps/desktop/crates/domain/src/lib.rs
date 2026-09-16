@@ -34,6 +34,9 @@
 //!   every session list renders (web `lib/session-tree.ts` twin);
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
 //!   `lib/steer-image-message.ts`'s byte-identical twin;
+//! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
+//!   merge), byte-locked ×4 by
+//!   `packages/domain-contract/fixtures/issue-search.json`;
 //! * [`diff`] — EXP-895's ONE diff model + parser (`git diff`, bare steer
 //!   sections, GitHub patches), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/diff/`.
@@ -51,6 +54,7 @@ pub mod diff;
 pub mod enums;
 pub mod hydrate;
 pub mod image_message;
+pub mod issue_search;
 pub mod options;
 pub mod pr_graph;
 pub mod pr_stack;

@@ -299,6 +299,10 @@ pub(crate) struct ChatScreenView {
     pending_pr: Option<String>,
     pending_icon: Option<String>,
     issue_search: Entity<InputState>,
+    /// EXP-892: the `#` picker's keyboard selection — a POSITION in the rows
+    /// the popover currently lists (↑/↓ move it, hover moves it, Enter
+    /// toggles that row).
+    issue_pick_selected: usize,
     /// EXP-868: the `#` tool's pool while nothing is picked, keyed by the
     /// team and the revisions of every collection it reads. The composer
     /// renders on EVERY window redraw (a caret blink, a keystroke anywhere),
@@ -380,8 +384,10 @@ impl ChatScreenView {
                 },
             ),
             cx.observe(&nav, |_, _, cx| cx.notify()),
-            cx.subscribe(&issue_search, |_, _, event: &InputEvent, cx| {
+            cx.subscribe(&issue_search, |this: &mut Self, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
+                    // EXP-892: a new query re-selects the top row.
+                    this.issue_pick_selected = 0;
                     cx.notify();
                 }
             }),
@@ -438,6 +444,7 @@ impl ChatScreenView {
             pending_pr: None,
             pending_icon: None,
             issue_search,
+            issue_pick_selected: 0,
             team_pool: RefCell::new(None),
             team_repos: Vec::new(),
             repos_team: None,
@@ -2046,16 +2053,8 @@ app that cannot start a stacked PR. Update it, or start anyway."
             };
         let trigger = crate::composer::composer_tool("chat-tool-issues", registry::EDITOR_ISSUE_REF, cx)
             .tooltip("Pick issues");
-        issue_picker::issue_picker_popover(
-            trigger,
-            rows,
-            &checked,
-            &self.issue_search,
-            notes,
-            Self::toggle_issue,
-            cx,
-        )
-        .into_any_element()
+        issue_picker::issue_picker_popover(trigger, rows, &checked, &self.issue_search, notes, cx)
+            .into_any_element()
     }
 
     /// The ▶ tool: the actions popover (builtins pinned first, Create
@@ -2408,6 +2407,28 @@ app that cannot start a stacked PR. Update it, or start anyway."
 impl Focusable for ChatScreenView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+/// EXP-892: the `#` picker's host — the checked set lives in the subject, the
+/// keyboard selection in [`ChatScreenView::issue_pick_selected`].
+impl issue_picker::IssuePickerHost for ChatScreenView {
+    fn picker_selected(&self) -> usize {
+        self.issue_pick_selected
+    }
+
+    fn set_picker_selected(&mut self, position: usize) {
+        self.issue_pick_selected = position;
+    }
+
+    fn toggle_picked_issue(
+        &mut self,
+        issue_id: String,
+        on: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.toggle_issue(issue_id, on, window, cx);
     }
 }
 

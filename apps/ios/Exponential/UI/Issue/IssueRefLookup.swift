@@ -102,10 +102,16 @@ enum IssueRefLookup {
         }) ?? nil
     }
 
-    /// Issues offered by the #-autocomplete: identifier/title substring match
-    /// (case-insensitive), newest first, empty query = most recent (parity
-    /// with the web `IssueRefProvider.search`). The issue being edited never
-    /// offers itself.
+    /// Issues offered by the #-autocomplete, ranked by the shared
+    /// `IssueSearch` engine (EXP-892 — the ONE algorithm web, iOS, Android and
+    /// desktop run: identifier before title before description, recency
+    /// breaking ties, an empty query = most recent). The issue being edited
+    /// never offers itself.
+    ///
+    /// The team's rows are materialized and ranked in Swift rather than
+    /// filtered with SQL `LIKE`: the ranking needs the whole pool to order it,
+    /// and the old two-`LIKE` predicate was a full scan of the same rows
+    /// anyway.
     static func search(
         _ query: String,
         scope: Scope,
@@ -114,13 +120,6 @@ enum IssueRefLookup {
         limit: Int = 8
     ) -> [IssueRefCandidate] {
         guard let pool = try? db.pool(forAccountId: accountId) else { return [] }
-        // Escape LIKE metacharacters so a literal `%`/`_` in the query can't
-        // widen the match ("" stays a match-everything pattern by design).
-        let escaped = query
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "%", with: "\\%")
-            .replacingOccurrences(of: "_", with: "\\_")
-        let pattern = "%\(escaped)%"
         let selfIssueId: String? = {
             if case .issue(let id) = scope { return id }
             return nil
@@ -130,32 +129,108 @@ enum IssueRefLookup {
             let rows = try Row.fetchAll(
                 db,
                 sql: """
-                SELECT i.identifier, i.title, i.status, i.status_id FROM issues i
+                SELECT i.id, i.identifier, i.title, i.description, i.status, i.status_id,
+                       i.created_at, i.updated_at
+                FROM issues i
                 JOIN boards p ON p.id = i.board_id
                 WHERE p.team_id = ?
-                  AND i.id IS NOT ?
-                  AND (i.identifier LIKE ? ESCAPE '\\' OR i.title LIKE ? ESCAPE '\\')
-                ORDER BY i.created_at DESC
-                LIMIT ?
                 """,
-                arguments: [teamId, selfIssueId, pattern, pattern, limit]
+                arguments: [teamId]
             )
             guard !rows.isEmpty else { return [] }
+            let ranked = IssueSearch.rank(
+                rows,
+                query: query,
+                limit: limit,
+                exclude: selfIssueId.map { Set([$0]) } ?? [],
+                projection: { row in
+                    let identifier: String? = row["identifier"]
+                    let description: String? = row["description"]
+                    let createdAt: String? = row["created_at"]
+                    let updatedAt: String? = row["updated_at"]
+                    return IssueSearch.Row(
+                        id: row["id"],
+                        identifier: identifier ?? "",
+                        title: row["title"],
+                        description: description,
+                        createdAt: createdAt,
+                        updatedAt: updatedAt
+                    )
+                }
+            )
+            guard !ranked.isEmpty else { return [] }
             // EXP-581: the candidate row leads with the issue's status glyph
             // (web/Android parity), resolved in the SAME read as the search.
             let team = IssueStatusResolver.teamStatusesOrFallback(
                 try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
             )
-            return rows.map { row in
+            return ranked.compactMap { row in
+                guard let identifier: String = row["identifier"] else { return nil }
                 let statusId: String? = row["status_id"]
                 let anchor: String? = row["status"]
                 return IssueRefCandidate(
-                    identifier: row["identifier"],
+                    identifier: identifier,
                     title: row["title"],
-                    status: IssueStatusResolver.resolve(statusId: statusId, anchor: anchor, team: team)
+                    status: IssueStatusResolver.resolve(statusId: statusId, anchor: anchor, team: team),
+                    issueId: row["id"]
                 )
             }
         }) ?? []
+    }
+
+    /// EXP-892: the server's full-text hits (`issues.search` — title +
+    /// description + COMMENT bodies) turned into renderable `#`-menu rows, in
+    /// ONE read: a hit whose id is already synced renders the local row (its
+    /// live title + precise status), an unsynced one renders from the hit's own
+    /// fields with its anchor status resolved against the same team.
+    /// Keyed by issue id, which is what `IssueSearch.mergeServerHits` resolves.
+    static func candidates(
+        for hits: [SearchIssueHit],
+        scope: Scope,
+        db: DatabaseManager,
+        accountId: String
+    ) -> [String: IssueRefCandidate] {
+        guard !hits.isEmpty, let pool = try? db.pool(forAccountId: accountId) else { return [:] }
+        let ids = hits.map(\.id)
+        return (try? pool.read { db -> [String: IssueRefCandidate] in
+            guard let teamId = try teamId(for: scope, db: db) else { return [:] }
+            let team = IssueStatusResolver.teamStatusesOrFallback(
+                try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            )
+            // `issues.search` is team-scoped server-side, so a hit is in this
+            // team by construction — the local lookup needs no board join.
+            let local = try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
+            let byId = Dictionary(local.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            var table: [String: IssueRefCandidate] = [:]
+            for hit in hits {
+                if let row = byId[hit.id], let identifier = row.identifier {
+                    table[hit.id] = IssueRefCandidate(
+                        identifier: identifier,
+                        title: row.title,
+                        status: IssueStatusResolver.resolve(
+                            statusId: row.statusId, anchor: row.status, team: team),
+                        issueId: row.id
+                    )
+                } else {
+                    table[hit.id] = IssueRefCandidate(
+                        identifier: hit.identifier,
+                        title: hit.title,
+                        status: IssueStatusResolver.resolve(
+                            statusId: nil, anchor: hit.status, team: team),
+                        issueId: hit.id
+                    )
+                }
+            }
+            return table
+        }) ?? [:]
+    }
+
+    /// The team an editor's refs resolve against, as a one-shot read — what
+    /// the team-scoped `issues.search` augmentation needs before it can ask.
+    static func teamId(for scope: Scope, db: DatabaseManager, accountId: String) -> String? {
+        if case .team(let id) = scope { return id }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
+        return (try? pool.read { db in try teamId(for: scope, db: db) }) ?? nil
     }
 
     /// Both halves of a chip in ONE read. The chip decoration pass runs on

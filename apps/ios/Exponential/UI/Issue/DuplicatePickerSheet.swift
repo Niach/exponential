@@ -10,6 +10,10 @@ import SwiftUI
 struct DuplicatePickerSheet: View {
     /// Candidate canonical issues (same team, self excluded), newest first.
     let loadCandidates: () async -> [IssueEntity]
+    /// EXP-892 — the picker's server augmentation: a debounced
+    /// `issues.search` so a query that only matches a COMMENT still finds
+    /// its issue. Hits outside `loadCandidates`' pool are dropped.
+    var serverSearch: ((String) async -> [SearchIssueHit])?
     let onSelect: (IssueEntity) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -30,6 +34,7 @@ struct DuplicatePickerSheet: View {
                     searchText: searchText,
                     emptyIcon: AppIcons.statusDuplicate,
                     emptyHint: "Pick the canonical issue this one duplicates.",
+                    serverSearch: serverSearch,
                     onSelect: { issue in
                         onSelect(issue)
                         dismiss()

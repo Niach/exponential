@@ -9,6 +9,10 @@ import SwiftUI
 struct RelationPickerSheet: View {
     /// Candidate issues (same team, self excluded), newest first.
     let loadCandidates: () async -> [IssueEntity]
+    /// EXP-892 — the picker's server augmentation: a debounced
+    /// `issues.search` so a query that only matches a COMMENT still finds
+    /// its issue. Hits outside `loadCandidates`' pool are dropped.
+    var serverSearch: ((String) async -> [SearchIssueHit])?
     let onSelect: (RelationPick, IssueEntity) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -53,6 +57,7 @@ struct RelationPickerSheet: View {
                             searchText: searchText,
                             emptyIcon: pick.iconName,
                             emptyHint: "Pick the issue on the other end of this relation.",
+                            serverSearch: serverSearch,
                             onSelect: { issue in
                                 onSelect(pick, issue)
                                 dismiss()

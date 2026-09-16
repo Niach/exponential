@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -157,12 +158,9 @@ fun BlockTextField(
     )
     val mentionCandidates = mentionCandidatesFor(mentionMembers, triggers.mentionQuery)
     val refQuery = triggers.issueRefQuery
-    val refCandidates =
-        if (refQuery != null && issueRefs != null) {
-            issueRefs.search(refQuery, limit = MENTION_CANDIDATE_LIMIT)
-        } else {
-            emptyList()
-        }
+    // EXP-892: ranked by the shared engine, with the server's full-text hits
+    // spliced in behind them where the host handler can reach the network.
+    val refCandidates = rememberIssueRefCandidates(issueRefs, refQuery)
     val emojiMatch: EmojiTokenMatch? = triggers.emoji
     val emojiData = rememberEmojiData(enabled = emojiMatch != null)
     val emojiPrefs = rememberEmojiPrefs()
@@ -220,6 +218,13 @@ fun BlockTextField(
     )
     val menuOpen = autocompleteEligible &&
         (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty() || emojiCandidates.isNotEmpty())
+    // EXP-892: the highlighted row. The TOP one is selected while typing, so
+    // what Enter/Tab picks is always visible; ↑/↓ move it. A changed candidate
+    // list can never leave the highlight past its end (the `/` menu's rule).
+    val candidateCount =
+        autocompleteCandidateCount(mentionCandidates, refCandidates, emojiCandidates)
+    var menuSelected by remember(row.id) { mutableIntStateOf(0) }
+    LaunchedEffect(mentionCandidates, refCandidates, emojiCandidates) { menuSelected = 0 }
     // The regex stopped matching (caret left the token, whitespace typed, the
     // trigger was deleted) — require a fresh text change to reopen.
     val noTrigger = triggers.none
@@ -379,6 +384,37 @@ fun BlockTextField(
                 }
             }
             .onPreviewKeyEvent { event ->
+                // While the menu is up it owns ↑/↓/Enter/Tab/Escape — and only
+                // then, so Enter stays a newline the rest of the time.
+                if (event.type == KeyEventType.KeyDown && menuOpen && candidateCount > 0) {
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            menuSelected = (menuSelected - 1 + candidateCount) % candidateCount
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.DirectionDown -> {
+                            menuSelected = (menuSelected + 1) % candidateCount
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.Enter, Key.NumPadEnter, Key.Tab -> {
+                            pickAutocompleteAt(
+                                index = menuSelected.coerceIn(0, candidateCount - 1),
+                                mentionCandidates = mentionCandidates,
+                                refCandidates = refCandidates,
+                                emojiCandidates = emojiCandidates,
+                                onPickMention = ::insertMention,
+                                onPickIssueRef = ::insertIssueRef,
+                                onPickEmoji = { insertEmoji(it, trailingSpace = true) },
+                            )
+                            return@onPreviewKeyEvent true
+                        }
+                        Key.Escape -> {
+                            armed = false
+                            return@onPreviewKeyEvent true
+                        }
+                        else -> Unit
+                    }
+                }
                 if (
                     event.type == KeyEventType.KeyDown &&
                     event.key == Key.Backspace &&
@@ -519,6 +555,7 @@ fun BlockTextField(
                             mentionCandidates = mentionCandidates,
                             refCandidates = refCandidates,
                             emojiCandidates = emojiCandidates,
+                            selectedIndex = menuSelected,
                             onPickMention = ::insertMention,
                             onPickIssueRef = ::insertIssueRef,
                             onPickEmoji = { insertEmoji(it, trailingSpace = true) },

@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.IssueSearch
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetSearchField
@@ -46,6 +47,9 @@ import com.exponential.app.ui.theme.TextEmphasis
 // past 6 that a single Claude session across that many issues burns tokens.
 internal const val MAX_BATCH_ISSUES = 30
 internal const val LARGE_BATCH_HINT_THRESHOLD = 6
+
+/** Ranked matches the picker lists at most, on top of the checked rows. */
+private const val MAX_PICKER_ROWS = 50
 
 /**
  * EXP-825: the composer's `#` tool — the multi-select issue picker the
@@ -64,16 +68,14 @@ internal fun AgentIssuePickerSheet(
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
+    // EXP-892: the unchecked pool is ranked by the shared engine; the checked
+    // rows pin above it so the current batch is always in view. EXP-241:
+    // `checkedIds` is deliberately NOT a key of this remember — the pinning is
+    // recomputed when the QUERY changes, never on a toggle, because re-sorting
+    // under the finger teleported the tapped row out from under it.
     val rows = remember(issues, query) {
-        val q = query.trim()
-        issues.asSequence()
-            .filter {
-                q.isEmpty() ||
-                    it.identifier.contains(q, ignoreCase = true) ||
-                    it.title.contains(q, ignoreCase = true)
-            }
-            .take(50)
-            .toList()
+        val pinned = issues.filter { it.id in checkedIds }
+        pinned + IssueSearch.rank(issues, query, limit = MAX_PICKER_ROWS, exclude = checkedIds)
     }
     val checked = issues.filter { it.id in checkedIds }
     val multiRepo = checked.map { it.repositoryId }.toSet().size > 1

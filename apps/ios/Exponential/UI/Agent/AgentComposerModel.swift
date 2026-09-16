@@ -36,6 +36,9 @@ final class AgentComposerModel {
     /// The draft: a one-block editor so `@` members, `#` issues and `:`
     /// emoji complete here exactly as they do in a comment (EXP-802).
     let draftEditor = IssueEditorModel()
+    /// EXP-892 — the `#` menu's server half, held so its debounce outlives the
+    /// keystroke that armed it.
+    @ObservationIgnored private var issueRefAugmentor: IssueRefAugmentor?
     let launch = LaunchOptionsState()
     let startWatcher = StartedRunWatcher()
 
@@ -184,9 +187,16 @@ final class AgentComposerModel {
             IssueRefChipCache.statusInfo(
                 identifier, scope: scope, db: database, accountId: account)
         }
-        draftEditor.issueRefSearch = { query in
-            IssueRefLookup.search(query, scope: scope, db: database, accountId: account)
-        }
+        // EXP-892: the locally ranked rows render instantly; a debounced
+        // `issues.search` splices the server's full-text hits in behind them.
+        let augmentor = IssueRefAugmentor(
+            scope: scope,
+            db: database,
+            accountId: account,
+            issuesApi: deps.issuesApi
+        )
+        issueRefAugmentor = augmentor
+        augmentor.attach(to: draftEditor)
         EmojiCatalog.shared.preload()
         draftEditor.emojiSearch = { query in
             EmojiCatalog.shared.search(query, limit: EmojiCatalog.typeaheadLimit)

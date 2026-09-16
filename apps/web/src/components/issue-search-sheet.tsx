@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
 import {
@@ -19,12 +19,13 @@ import {
   conceptIcon,
 } from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
-import { trpc } from "@/lib/trpc-client"
+import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
+import type { IssueSearchRow } from "@/lib/issue-search"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { BoardGlyph } from "@/components/board-glyph"
 import { Search } from "lucide-react"
-import type { Issue, Board } from "@/db/schema"
+import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
 
@@ -37,8 +38,9 @@ interface IssueSearchSheetProps {
 
 // The minimal fields a result row needs to render + navigate. Local Electric
 // `Issue` rows satisfy this structurally; server FTS hits (issues.search)
-// provide exactly these fields.
-interface SearchResult {
+// provide exactly these fields (the engine's ranking fields stay null on a
+// stand-in — it only ever sorts local rows).
+interface SearchResult extends IssueSearchRow {
   id: string
   identifier: string
   title: string
@@ -49,13 +51,16 @@ interface SearchResult {
   statusId: string | null
 }
 
-type ServerHit = Awaited<ReturnType<typeof trpc.issues.search.query>>[number]
+const NO_ROWS: SearchResult[] = []
 
 // One search experience, two presentations: a full-screen bottom sheet on
 // mobile (reached from the topbar) and a centered cmdk dialog on desktop
-// (reached from the sidebar or Cmd/Ctrl+F). The search logic is shared; the
-// desktop container is a `Command` so keyboard users get arrow-key row
-// selection and Enter-to-open for free, while mobile stays touch-only.
+// (reached from the sidebar or Cmd/Ctrl+F). The search logic is the shared
+// engine (EXP-892, `useIssueSearchResults`: instant local ranking over the
+// synced rows, the server's full-text pass spliced in behind); the desktop
+// container is a `Command` so keyboard users get the shared list contract
+// (top row selected, ↑/↓, Enter, hover moves the selection), while mobile
+// stays touch-only.
 export function IssueSearchSheet({
   open,
   onOpenChange,
@@ -74,71 +79,37 @@ export function IssueSearchSheet({
 
   const { data: issues } = useLiveQuery(
     (q) =>
-      boardIds.length > 0
+      boardIds.length > 0 && open
         ? q
             .from({ issues: issueCollection })
             .where(({ issues }) => inArray(issues.boardId, boardIds))
         : undefined,
-    [boardIds.join(`,`)]
+    [boardIds.join(`,`), open]
   )
 
-  // Server full-text search ("search everything" path): debounced ~250ms,
-  // additive on top of the instant local substring filter. Hits are keyed by
-  // the query they answered so a stale response for an earlier keystroke
-  // never leaks into the current result list. Errors are swallowed — the
-  // search box must never block on the network.
-  const [serverHits, setServerHits] = useState<{
-    query: string
-    rows: ServerHit[]
-  }>({ query: ``, rows: [] })
-
-  useEffect(() => {
-    const trimmed = query.trim()
-    if (trimmed === ``) return
-    let cancelled = false
-    const timer = setTimeout(() => {
-      trpc.issues.search
-        .query({ teamId, query: trimmed, limit: 30 })
-        .then((rows) => {
-          if (!cancelled) setServerHits({ query: trimmed, rows })
-        })
-        .catch(() => {
-          // Fall back to local-only results on server/network errors.
-        })
-    }, 250)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [query, teamId])
-
+  const rows = (issues ?? NO_ROWS) as SearchResult[]
   const localById = useMemo(
-    () => new Map<string, Issue>((issues ?? []).map((i: Issue) => [i.id, i])),
-    [issues]
+    () => new Map<string, SearchResult>(rows.map((i) => [i.id, i])),
+    [rows]
   )
 
-  const results = useMemo(() => {
-    const q = query.trim()
-    if (!q) return [] as SearchResult[]
-    const lower = q.toLowerCase()
-    // Fast path: instant local title-substring matches.
-    const local = (issues ?? []).filter((i: Issue) =>
-      i.title.toLowerCase().includes(lower)
-    )
-    const merged: SearchResult[] = [...local]
-    const seen = new Set(local.map((i: Issue) => i.id))
-    // Merge server FTS hits (deduped by id) once they answer the CURRENT
-    // query. Prefer the local Electric row when the id is synced locally so
-    // rows render identically; otherwise render from the server fields.
-    if (serverHits.query === q) {
-      for (const hit of serverHits.rows) {
-        if (seen.has(hit.id)) continue
-        seen.add(hit.id)
-        merged.push(localById.get(hit.id) ?? hit)
-      }
-    }
-    return merged.slice(0, 30)
-  }, [issues, query, serverHits, localById])
+  const { results } = useIssueSearchResults<SearchResult>({
+    teamId,
+    query,
+    rows,
+    limit: 30,
+    // Prefer the local Electric row when the id is synced locally so rows
+    // render identically; otherwise render from the server fields.
+    resolveHit: (hit) =>
+      localById.get(hit.id) ?? {
+        ...hit,
+        description: null,
+        createdAt: null,
+        updatedAt: null,
+      },
+    server: open,
+    emptyQuery: `none`,
+  })
 
   const handleOpenChange = (o: boolean) => {
     onOpenChange(o)

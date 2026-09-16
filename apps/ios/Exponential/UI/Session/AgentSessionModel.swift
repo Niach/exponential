@@ -706,7 +706,11 @@ final class AgentSessionModel {
     private let currentUserId: String?
     private let steerApi: SteerApi
     private let attachmentsApi: AttachmentsApi
+    private let issuesApi: IssuesApi
     private let db: DatabaseManager
+    /// EXP-892 — the `#` menu's server half, held so its debounce outlives the
+    /// keystroke that armed it (the composer model keeps the same handle).
+    @ObservationIgnored private var issueRefAugmentor: IssueRefAugmentor?
 
     private var task: URLSessionWebSocketTask?
     /// EXP-796: an open viewer socket is one of `canLoadEarlier`'s inputs, so
@@ -891,6 +895,7 @@ final class AgentSessionModel {
         currentUserId: String?,
         steerApi: SteerApi,
         attachmentsApi: AttachmentsApi,
+        issuesApi: IssuesApi,
         db: DatabaseManager
     ) {
         self.accountId = accountId
@@ -898,6 +903,7 @@ final class AgentSessionModel {
         self.currentUserId = currentUserId
         self.steerApi = steerApi
         self.attachmentsApi = attachmentsApi
+        self.issuesApi = issuesApi
         self.db = db
         self.session = session
         // Snapshot-only until the devices observation lands (EXP-549).
@@ -1512,9 +1518,17 @@ final class AgentSessionModel {
             IssueRefChipCache.statusInfo(
                 identifier, scope: scope, db: database, accountId: account)
         }
-        draftEditor.issueRefSearch = { query in
-            IssueRefLookup.search(query, scope: scope, db: database, accountId: account)
-        }
+        // EXP-892: the locally ranked rows render instantly; a debounced
+        // `issues.search` splices the server's full-text hits (comment bodies
+        // included) in behind them — the same `#` menu every other editor has.
+        let augmentor = IssueRefAugmentor(
+            scope: scope,
+            db: database,
+            accountId: account,
+            issuesApi: issuesApi
+        )
+        issueRefAugmentor = augmentor
+        augmentor.attach(to: draftEditor)
         // EXP-551: decode the bundled dataset off-main once, exactly as the
         // markdown editor does on mount.
         EmojiCatalog.shared.preload()
