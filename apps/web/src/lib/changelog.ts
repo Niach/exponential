@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-fix-conflicts-everywhere`,
+    date: `2026-09-16`,
+    title: `Fix conflicts, on every Merge button`,
+    summary: `A merge refused by a real conflict now turns the Merge PR button into Fix conflicts wherever you clicked it, instead of only showing an error.`,
+    body: `- **The swap works everywhere**: on the web the issue header, the run header, the Changes faces and the review page all showed an error notification on a conflict and kept the plain Merge PR button. They now swap it for Fix conflicts with a Retry merge beside it, like the Reviews list always did.
+- **Desktop app**: a batch or chat run's header and its Changes bar make the same swap, and a merge refused for any other reason now shows its message under the button instead of only in the log.
+- **iOS**: merging a stack from the overlay on the Work screen reports a refusal instead of silently doing nothing.`,
+  },
+  {
     id: `2026-09-16-release-train`,
     date: `2026-09-16`,
     title: `Release train 2026-09-16`,

@@ -938,11 +938,17 @@ impl SessionScreenView {
             )
         };
         // EXP-895: the Changes face's bar owns the merge control while it is
-        // up; the header offers it only on the Run face.
-        if let Some(target) =
-            merge_target.filter(|_| self.run_face(cx) != crate::screens::RunFace::Diff)
-        {
-            right.push(crate::work_header::merge_pill("session-merge", &target, true, cx));
+        // up; the header offers it only on the Run face. EXP-917: the shared
+        // SLOT, so a batch run's conflict swaps to Fix conflicts here exactly
+        // like the issue tray's, and any other refusal captions the header
+        // (`extra`) instead of dying in the log.
+        let merge_target =
+            merge_target.filter(|_| self.run_face(cx) != crate::screens::RunFace::Diff);
+        let extra = merge_target
+            .as_ref()
+            .and_then(|target| crate::work_header::merge_error_caption(target, cx));
+        if let Some(target) = merge_target {
+            right.push(crate::work_header::merge_slot("session-merge", &target, true, cx));
         }
         let over = self.run_over(cx);
         if killable && !self.ended && !over {
@@ -971,7 +977,7 @@ impl SessionScreenView {
                 title,
                 right,
                 tray: None,
-                extra: None,
+                extra,
             },
             cx,
         )

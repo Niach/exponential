@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { TRPCClientError } from "@trpc/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  canOfferFixConflicts,
   SessionMergeButton,
   SessionMergePill,
 } from "@/components/session-merge-button"
@@ -118,8 +119,62 @@ describe(`SessionMergeButton`, () => {
     expect(screen.queryByRole(`button`)).toBeNull()
   })
 
+  // EXP-917: the swap gate takes only what a SYNCED issue row carries. The
+  // `issues` shape drops `team_id`, so a gate on `teamId` (the pre-EXP-917
+  // rule) was dead on every issue-fed surface — the tray, the run header, the
+  // Changes faces, the review detail all toasted a real conflict instead.
+  it(`the swap rule needs a conflict, an issue, a branch and the relay — never a team id`, () => {
+    const conflict = { message: `conflict`, conflict: true }
+    expect(
+      canOfferFixConflicts({
+        failure: conflict,
+        issueId: `i1`,
+        branch: `exp/MET-12`,
+        steerEnabled: true,
+      })
+    ).toBe(true)
+    // Every other refusal keeps the plain Merge (EXP-533).
+    expect(
+      canOfferFixConflicts({
+        failure: { message: `stale base`, conflict: false },
+        issueId: `i1`,
+        branch: `exp/MET-12`,
+        steerEnabled: true,
+      })
+    ).toBe(false)
+    // A run's own chore PR has no issue for the builtin to take (EXP-734).
+    expect(
+      canOfferFixConflicts({
+        failure: conflict,
+        issueId: undefined,
+        branch: `exp/chat-abcd1234`,
+        steerEnabled: true,
+      })
+    ).toBe(false)
+    // The run rebases the branch, so one must be recorded.
+    expect(
+      canOfferFixConflicts({
+        failure: conflict,
+        issueId: `i1`,
+        branch: null,
+        steerEnabled: true,
+      })
+    ).toBe(false)
+    // No relay, no composer to send the person to.
+    expect(
+      canOfferFixConflicts({
+        failure: conflict,
+        issueId: `i1`,
+        branch: `exp/MET-12`,
+        steerEnabled: false,
+      })
+    ).toBe(false)
+  })
+
   // EXP-706: "Fix conflicts" REPLACES Merge in its own slot, never sits
-  // beside it — and only where the caller wired the recovery run.
+  // beside it — and only where the caller wired the recovery run. The props
+  // here are EXACTLY what `mergeTargetProps` derives from a synced issue row
+  // (EXP-917: no team id — the shape never syncs one).
   it(`swaps to Fix conflicts when the merge is refused by a conflict`, async () => {
     mockState.mergeMutate.mockRejectedValue(conflictError())
     render(
@@ -129,7 +184,6 @@ describe(`SessionMergeButton`, () => {
         issueId="i1"
         label="Merge"
         branch="exp/MET-12"
-        teamId="t1"
         steerEnabled
       />
     )
@@ -165,7 +219,6 @@ describe(`SessionMergeButton`, () => {
         issueId="i1"
         label="Merge"
         branch="exp/MET-12"
-        teamId="t1"
         steerEnabled
       />
     )
@@ -199,7 +252,6 @@ describe(`SessionMergeButton`, () => {
         updatedAt="2026-09-01T10:00:00.000Z"
         label="Merge"
         branch="exp/MET-12"
-        teamId="t1"
         steerEnabled
       />
     )
@@ -216,7 +268,6 @@ describe(`SessionMergeButton`, () => {
         updatedAt="2026-09-01T10:05:00.000Z"
         label="Merge"
         branch="exp/MET-12"
-        teamId="t1"
         steerEnabled
       />
     )
@@ -243,7 +294,6 @@ describe(`SessionMergeButton`, () => {
         sessionId="s1"
         label="Merge"
         branch="exp/chat-abcd1234"
-        teamId="t1"
         steerEnabled
       />
     )
@@ -326,7 +376,6 @@ describe(`SessionMergeButton`, () => {
         issueId="i1"
         label="Merge PR"
         branch="exp/MET-12"
-        teamId="t1"
         steerEnabled
       />
     )

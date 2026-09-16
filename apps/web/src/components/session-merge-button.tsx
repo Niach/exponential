@@ -25,6 +25,26 @@ import { trpc } from "@/lib/trpc-client"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import type { VariantProps } from "class-variance-authority"
 
+/** EXP-917: the ONE gate on the "Fix conflicts" swap — a REAL conflict
+ *  (EXP-533), on an ISSUE target (the builtin action takes a representative
+ *  issue, so a run's own chore PR never qualifies), with a recorded branch
+ *  (the run rebases it) and the relay configured. Pure, so the rule is a
+ *  test; mirrors Android `canOfferFixConflicts`, iOS `canFixConflicts` and
+ *  desktop `work_header::merge_slot_swapped`. */
+export function canOfferFixConflicts({
+  failure,
+  issueId,
+  branch,
+  steerEnabled,
+}: {
+  failure: MergeFailure | null | undefined
+  issueId: string | null | undefined
+  branch: string | null | undefined
+  steerEnabled: boolean
+}): boolean {
+  return Boolean(failure?.conflict && issueId && branch && steerEnabled)
+}
+
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
 const UiBranchIcon = conceptIcon(`ui-branch`)
@@ -45,10 +65,17 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // PR's conflict just reports its refusal.
 //
 // EXP-706: when the merge is refused by a REAL conflict (EXP-533) and the
-// caller wired the recovery run (`branch` + `teamId` + `steerEnabled`), this
-// button REPLACES itself with "Fix conflicts" in the very same slot — the
-// same swap the Reviews list and the review detail make. Every other refusal
-// still reaches the user as a toast; nothing is swallowed.
+// caller wired the recovery run (`branch` + `steerEnabled`), this button
+// REPLACES itself with "Fix conflicts" in the very same slot — the same swap
+// the Reviews list and the review detail make. Every other refusal still
+// reaches the user as a toast; nothing is swallowed.
+//
+// EXP-917: the swap takes NOTHING from the caller that a synced issue row
+// cannot supply. It used to require a `teamId` too, and every surface fed it
+// `issue.teamId` — a column the board-scoped `issues` shape deliberately drops
+// (REV2-5), so the gate was dead on the property tray, the run header, the
+// Changes faces and the review detail: a real conflict fell through to the
+// toast. The team is not needed: the composer resolves it from the route.
 //
 // A refusal describes ONE snapshot of the pull request, so the swap is
 // deliberately short-lived: a newer `updatedAt` (the Electric echo of a
@@ -136,7 +163,6 @@ export function SessionMergeButton({
   className,
   label,
   branch,
-  teamId,
   steerEnabled = false,
 }: {
   /** EXP-895: `pill` = the primary glass capsule every Changes surface wears;
@@ -162,8 +188,6 @@ export function SessionMergeButton({
   label?: string
   /** The PR's branch — the recovery run rebases it, so it must be recorded. */
   branch?: string | null
-  /** The team the recovery run belongs to. */
-  teamId?: string | null
   /** Member + relay configured (`useSteerConfig`), resolved by the caller. */
   steerEnabled?: boolean
 }) {
@@ -195,9 +219,12 @@ export function SessionMergeButton({
   // Only a REAL conflict is fixable by the recovery run, and only where the
   // caller can actually launch one. The builtin action takes a representative
   // ISSUE id, so a run's own chore PR (EXP-734) never swaps.
-  const canFixConflicts = Boolean(
-    failure?.conflict && issueId && branch && teamId && steerEnabled
-  )
+  const canFixConflicts = canOfferFixConflicts({
+    failure,
+    issueId,
+    branch,
+    steerEnabled,
+  })
 
   const merge = async () => {
     setMerging(true)
@@ -226,7 +253,9 @@ export function SessionMergeButton({
       // The swap is this button's own caption for a conflict; every other
       // refusal has nowhere to live in a row this small, so it keeps the
       // global toast the link would otherwise have shown.
-      if (!(next.conflict && issueId && branch && teamId && steerEnabled)) {
+      if (
+        !canOfferFixConflicts({ failure: next, issueId, branch, steerEnabled })
+      ) {
         toast.error(`Couldn't merge the pull request`, {
           description: next.message,
         })
@@ -234,7 +263,7 @@ export function SessionMergeButton({
     }
   }
 
-  const showFix = canFixConflicts && issueId && teamId
+  const showFix = canFixConflicts && issueId
 
   return (
     <>

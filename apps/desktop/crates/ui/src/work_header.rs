@@ -523,6 +523,144 @@ pub(crate) fn merge_pill(
     button.into_any_element()
 }
 
+/// EXP-799 / EXP-917: whether an ISSUE target's Merge slot swaps to a
+/// primary "Fix conflicts" beside a glass "Retry merge". MERGE failures only:
+/// the fix run ends in a merge, so a failed CLOSE must never offer it; and
+/// only a REAL content conflict (EXP-533) — an offline or policy-refused
+/// merge has nothing an agent could rebase; and only with a recorded branch,
+/// which is what the run rebases. Pure, so the rule is a test; mirrors web
+/// `canOfferFixConflicts`, Android `canOfferFixConflicts` and iOS
+/// `canFixConflicts`.
+pub(crate) fn merge_slot_swapped(
+    pr_open: bool,
+    merge_failed: bool,
+    is_conflict: bool,
+    has_branch: bool,
+) -> bool {
+    pr_open && merge_failed && is_conflict && has_branch
+}
+
+/// The "Fix conflicts" pill (EXP-313): the primary `Sm` capsule that opens
+/// the Agent page composer with the fix-conflicts builtin and this issue's
+/// PR preselected (EXP-825). "Fixing…" while an actual fix run works the
+/// branch; disabled with the reason when this machine has no agent CLI
+/// (EXP-367) — never hidden.
+pub(crate) fn fix_conflicts_pill(
+    id: impl Into<gpui::ElementId>,
+    issue_id: &str,
+    branch: Option<&str>,
+    cx: &mut App,
+) -> AnyElement {
+    let fixing = branch.is_some_and(|branch| {
+        LocalSessions::global_ref(cx)
+            .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
+    });
+    let no_agent = crate::coding_flow::no_agent_reason(cx);
+    let issue_id = issue_id.to_string();
+    let mut button = glass_pill_button_primary(id, PillSize::Sm)
+        .icon(
+            Icon::from(ExpIcon::GitBranch)
+                .with_size(px(PillSize::Sm.glyph()))
+                .text_color(cx.theme().primary_foreground),
+        )
+        .label(if fixing { "Fixing…" } else { "Fix conflicts" })
+        .tooltip(
+            no_agent
+                .clone()
+                .unwrap_or_else(|| "Run the fix-conflicts action on this pull request".into()),
+        )
+        .on_click(move |_, window, cx| {
+            crate::navigation::navigate_to_chat(
+                window,
+                cx,
+                crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()),
+            );
+        });
+    if fixing || no_agent.is_some() {
+        button = button.disabled(true);
+    }
+    button.into_any_element()
+}
+
+/// EXP-917: the merge SLOT every Merge PR surface renders — the plain
+/// [`merge_pill`] until a merge of an ISSUE target is refused by a real
+/// conflict, then `[Fix conflicts] [Retry merge]` in that same slot (the
+/// swap [`merge_slot_swapped`] decides). ONE place, so no surface can wire
+/// the plain pill and forget the swap again: the issue tray, the run header
+/// (a batch run merges through its representative issue) and both Changes
+/// bars all come through here. A SESSION target (a run's own chore PR,
+/// EXP-734) never swaps — the builtin takes an issue — and captions its
+/// refusal instead ([`merge_error_caption`]). The swap is short-lived by
+/// construction: `MergeState` drops a failure whose row re-synced, so the
+/// next echo restores the plain pill.
+pub(crate) fn merge_slot(id: &str, target: &MergeTarget, primary: bool, cx: &mut App) -> AnyElement {
+    let swapped = match target {
+        MergeTarget::Issue { issue_id } => {
+            let issue = Store::try_global(cx).and_then(|store| {
+                store.collections().issues.read(cx).get(issue_id).cloned()
+            });
+            let (merge_failed, is_conflict) = {
+                let state = crate::pr_merge::MergeState::global(cx);
+                let state = state.read(cx);
+                (
+                    state.failed_op(issue_id) == Some(crate::pr_merge::FailedOp::Merge),
+                    state.is_conflict(issue_id),
+                )
+            };
+            issue.filter(|issue| {
+                merge_slot_swapped(
+                    issue.pr_state.as_deref() == Some("open"),
+                    merge_failed,
+                    is_conflict,
+                    issue.branch.is_some(),
+                )
+            })
+        }
+        MergeTarget::Session { .. } => None,
+    };
+    let Some(issue) = swapped else {
+        return merge_pill(SharedString::from(id.to_string()), target, primary, cx);
+    };
+    // Fix conflicts takes the primary paint; Merge steps down to the glass
+    // "Retry merge" beside it — never a dead end, the conflict may have been
+    // resolved outside that run (a teammate rebased and pushed).
+    h_flex()
+        .items_center()
+        .gap_1()
+        .child(fix_conflicts_pill(
+            SharedString::from(format!("{id}-fix")),
+            &issue.id,
+            issue.branch.as_deref(),
+            cx,
+        ))
+        .child(merge_pill(SharedString::from(id.to_string()), target, false, cx))
+        .into_any_element()
+}
+
+/// EXP-917: the refusal caption for a merge target, for a header that has no
+/// property tray to carry it (an issue-less run's — the issue tray's
+/// `agent_row` renders the same line). A merge that fails for a reason no run
+/// can fix (offline, stale base, no GitHub App, a run's own chore PR) still
+/// gets a visible message under the pill, never only a log line.
+pub(crate) fn merge_error_caption(target: &MergeTarget, cx: &mut App) -> Option<AnyElement> {
+    let state = crate::pr_merge::MergeState::global(cx);
+    let error = state.read(cx).error(&target.key())?;
+    Some(
+        v_flex()
+            .w_full()
+            .px(px(DETAIL_GUTTER))
+            .pb_2()
+            .child(
+                div()
+                    .min_w_0()
+                    .text_xs()
+                    .text_color(cx.theme().danger)
+                    .child(error),
+            )
+            .into_any_element(),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // The header frame
 // ---------------------------------------------------------------------------
@@ -614,6 +752,23 @@ pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-799 / EXP-917: the Merge slot swaps to Fix conflicts + Retry merge
+    /// on a real conflict of a failed MERGE with a recorded branch — and on
+    /// nothing else.
+    #[test]
+    fn merge_slot_swaps_only_on_a_real_merge_conflict() {
+        // A conflict-classified merge failure on an open PR with a branch.
+        assert!(merge_slot_swapped(true, true, true, true));
+        // A merge refused for another reason (offline, stale base, no App).
+        assert!(!merge_slot_swapped(true, true, false, true));
+        // A failed CLOSE, even one the server called a conflict.
+        assert!(!merge_slot_swapped(true, false, true, true));
+        // No recorded branch: nothing for the run to rebase.
+        assert!(!merge_slot_swapped(true, true, true, false));
+        // The PR is no longer open — the slot is gone anyway.
+        assert!(!merge_slot_swapped(false, true, true, true));
+    }
 
     /// EXP-889 — the tray's pills are ONE box. The reporter's Merge PR pill
     /// stood a rung taller (and a type size bigger) than the status /

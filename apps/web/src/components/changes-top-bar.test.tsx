@@ -33,7 +33,6 @@ const MERGE = {
   prState: `open`,
   prNumber: 7,
   branch: `exp/MET-12`,
-  teamId: `t1`,
   updatedAt: null,
   steerEnabled: true,
 }
