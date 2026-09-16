@@ -1009,14 +1009,45 @@ fn check_tool_with_path(tool: Tool, program: &str, path_env: &str) -> ToolCheck 
 /// `.ok()?` then fails OPEN (`authed: None`), and `check_tool_with_path`
 /// surfaces it as an ordinary "could not run" failure.
 pub(crate) fn output_with_timeout(
+    cmd: std::process::Command,
+    timeout: Duration,
+) -> std::io::Result<std::process::Output> {
+    output_with_optional_stdin(cmd, None, timeout)
+}
+
+/// [`output_with_timeout`] for a child that must be FED on stdin.
+///
+/// EXP-852: `security -i` reads `add-generic-password … -X <hex>` as a line on
+/// stdin precisely so the secret never lands in argv, where `ps` would publish
+/// it to every process on the machine. Same process-group, kill-on-deadline
+/// and drain-on-threads discipline as [`output_with_timeout`] — the only
+/// difference is that stdin is a pipe, written from its OWN thread which then
+/// drops it. That drop is the point: a child which reads less than we wrote
+/// (or nothing at all) would otherwise leave the write blocked on a full pipe
+/// buffer forever, while a child which waits for EOF needs the close to make
+/// progress at all.
+pub(crate) fn output_with_stdin_timeout(
+    cmd: std::process::Command,
+    input: &str,
+    timeout: Duration,
+) -> std::io::Result<std::process::Output> {
+    output_with_optional_stdin(cmd, Some(input.to_string()), timeout)
+}
+
+/// The one implementation behind both; `None` keeps stdin closed.
+fn output_with_optional_stdin(
     mut cmd: std::process::Command,
+    input: Option<String>,
     timeout: Duration,
 ) -> std::io::Result<std::process::Output> {
     use std::io::Read as _;
+    use std::io::Write as _;
     use std::process::Stdio;
     use wait_timeout::ChildExt as _;
 
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     // Own process group: a wedged probe may have children of its own (a
     // shell wrapper's real binary, an updater it spawned) — killing just the
     // direct child would leave them holding the pipes.
@@ -1026,6 +1057,18 @@ pub(crate) fn output_with_timeout(
         cmd.process_group(0);
     }
     let mut child = cmd.spawn()?;
+    // Write stdin on its own thread and close the pipe by dropping it. Taking
+    // the handle off the `Child` matters even when the write finishes
+    // instantly: a `Child` that still owns its stdin never lets the callee see
+    // EOF, and `security -i` reads until it does.
+    if let Some(input) = input {
+        if let Some(mut pipe) = child.stdin.take() {
+            std::thread::spawn(move || {
+                let _ = pipe.write_all(input.as_bytes());
+                let _ = pipe.flush();
+            });
+        }
+    }
     // Drain the pipes on threads: a child that fills the ~64KB pipe buffer
     // would otherwise never exit and the wait below would never return.
     let mut out_pipe = child.stdout.take().expect("stdout piped above");

@@ -1,11 +1,18 @@
 //! EXP-484 — WHO is signed in to each agent CLI on this machine, as the
 //! `devices.agentAccounts` wire map.
 //!
-//! The product never holds, copies, refreshes or uploads a credential: this
-//! module reports the *identity* an already-signed-in CLI advertises about
-//! itself (claude's `auth status` JSON, codex's app-server account) and
-//! nothing else. No token ever enters an [`AgentAccount`],
-//! and nothing here writes to an agent's credential store.
+//! The product never holds, copies or uploads a credential: this module
+//! reports the *identity* an already-signed-in CLI advertises about itself
+//! (claude's `auth status` JSON, codex's app-server account) and nothing
+//! else. No token ever enters an [`AgentAccount`], and nothing HERE writes
+//! to an agent's credential store.
+//!
+//! The ONE credential write in this tree is `coding::claude_oauth`
+//! (EXP-852): opt-in via settings.json `claudeKeepAlive` (OFF by default),
+//! it refreshes claude's OAuth token IN PLACE — under the claude CLI's own
+//! locks, written back ONLY to the store the credential came from. So the
+//! promise above reads: never holds, copies or uploads one; refreshes
+//! claude's in place only with the keep-alive switched on.
 //!
 //! The vocabulary is locked across all four clients (web, iOS, Android,
 //! desktop) — camelCase keys, `checkedAt` an ISO instant, `email`/`plan`

@@ -68,6 +68,38 @@ pub const CREDENTIAL_DENIED_BACKOFF_SECS: u64 = 3600;
 /// inside any refresh-token lifetime while staying ~1/40th of the poll rate.
 pub const CODEX_REFRESH_INTERVAL_SECS: u64 = 6 * 3600;
 
+/// EXP-852 — how long before expiry claude's keep-alive rotates the token.
+/// Three times the CLI's own 5-minute predicate (`Date.now()+300000 >= expiresAt`)
+/// so WE get there first and a CLI start inside the window finds `not_needed`
+/// instead of contending the lock. Wide enough for one device-sync beat
+/// (~30s) plus the lock backoff (≤10s) plus the POST (≤30s) plus one failed
+/// attempt's [`REFRESH_FAILED_BACKOFF_SECS`]. NOT tied to the poll floors:
+/// the refresh is looked at on every beat, not on a usage probe (a secondary
+/// profile's probe slot can be 20+ minutes apart). ~3 rotations/day on an
+/// ~8h access token.
+pub const CLAUDE_REFRESH_MARGIN_SECS: u64 = 15 * 60;
+
+/// A refresh the network (not the account) lost: retry on this cadence.
+/// Ten minutes is long enough that a flapping link cannot turn the keep-alive
+/// into a retry storm against the token endpoint, and short enough that a
+/// laptop coming back from a tunnel still rotates well inside
+/// [`CLAUDE_REFRESH_MARGIN_SECS`] — the margin budgets one of these.
+pub const REFRESH_FAILED_BACKOFF_SECS: u64 = 600;
+
+/// A store with no refresh token at all will not grow one without a relogin.
+/// Nothing this process does can change that answer, so asking again on the
+/// ordinary cadence would read the keychain (and on macOS risk an ACL prompt)
+/// every ten minutes for nothing. The hour is a re-check, not a retry: a
+/// relogin in another process rewrites the store, and this is when we notice.
+pub const REFRESH_UNSUPPORTED_BACKOFF_SECS: u64 = 3600;
+
+/// How many dead-grant markers one login remembers. A grant goes dead once,
+/// and a rotation replaces the token, so the list only ever needs to cover the
+/// handful of tokens in flight around a failure (the live one, the one the CLI
+/// rotated past us, and the one we just buried). Capped so a pathological loop
+/// cannot grow `agent-usage.json` without bound.
+pub const MAX_DEAD_REFRESH_TOKENS: usize = 4;
+
 /// EXP-792 (EXP-747 B3): entries are keyed `agent:profileId` — one poll
 /// policy per LOGIN, so a 429 on one profile never backs off its siblings.
 /// A pre-profile file's bare `agent` key is the ambient login's
@@ -127,11 +159,32 @@ pub struct AgentCacheEntry {
     /// it, so the badge never flickers on a flaky network.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<String>,
-    /// EXP-849 — when this login's codex keep-alive last ran
-    /// (`account/read` with `refreshToken: true`). Unix seconds; `None` =
-    /// never. Claude has no keep-alive here (deferred to EXP-852).
+    /// EXP-849/EXP-852 — when this login's keep-alive last ran. Unix seconds;
+    /// `None` = never. BOTH agents stamp it: codex's `account/read` with
+    /// `refreshToken: true`, and claude's own `grant_type=refresh_token` POST.
+    /// For codex it IS the cadence ([`refresh_due`]); for claude it is
+    /// diagnostic only — that cadence is expiry-driven off
+    /// [`Self::claude_expires_at_ms`] ([`claude_refresh_due`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refreshed_at_secs: Option<u64>,
+    /// EXP-852 — the `expiresAt` the last credential read for this login saw
+    /// (unix MILLIseconds, the field's own unit). The claude keep-alive's cheap
+    /// gate: it makes the cadence EXPIRY-driven rather than a timer, without a
+    /// keychain read on every beat. `None` = never read / no expiry in the
+    /// document, which the gate treats as "look now".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_expires_at_ms: Option<i64>,
+    /// EXP-852 — a refresh that failed for a reason that is NOT the account's
+    /// answer (transport, 5xx, a store we could not write, no refresh token at
+    /// all). Health is deliberately untouched by those; this is the only backoff.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_backoff_until_secs: Option<u64>,
+    /// EXP-852 — `sha256(refresh_token)[..16]` of every grant the token endpoint
+    /// answered `invalid_grant` for on this login. The CLI's own dead-token set
+    /// is in-memory; ours survives a restart, so a dead grant is never re-spent.
+    /// Newest first, capped at [`MAX_DEAD_REFRESH_TOKENS`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dead_refresh_tokens: Vec<String>,
     /// When the ENDPOINT is next owed a poll while a PARTIAL live publisher
     /// (claude's `rate_limit_event`) answers for this login. Unix seconds;
     /// `None` = owed now. Live applies stamp `fetched_at_secs` and
@@ -142,6 +195,14 @@ pub struct AgentCacheEntry {
     pub endpoint_due_at_secs: Option<u64>,
     /// Fields a newer build wrote that this one does not know — carried
     /// verbatim through every rewrite (the [`crate::run_registry`] promise).
+    ///
+    /// EXP-852: this flatten map EXISTS (confirmed against the struct above),
+    /// which is exactly why the three keep-alive fields need no wire work of
+    /// their own — a host that predates them parks them here and hands them
+    /// back on its next rewrite, so a downgrade never re-spends a dead grant
+    /// or forgets a backoff. None of them reach the heartbeat wire either:
+    /// only `usage`/`account`/`health` are published. Locked by
+    /// `a_newer_hosts_keep_alive_fields_survive_an_older_rewrite`.
     #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
     pub extra: BTreeMap<String, Value>,
 }
@@ -319,6 +380,76 @@ pub fn refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
         .is_none_or(|at| now.saturating_sub(at) >= CODEX_REFRESH_INTERVAL_SECS)
 }
 
+/// EXP-852 — is claude's keep-alive due for this login? Not inside a credential
+/// denial, not inside a refresh backoff, and the cached expiry is unknown
+/// (look once) or within [`CLAUDE_REFRESH_MARGIN_SECS`] — an already-expired
+/// token is trivially inside the margin and IS refreshed (the CLI's predicate
+/// is true for any past instant).
+///
+/// Unlike [`refresh_due`] this is NOT a rider on a usage probe: it is asked on
+/// every beat, because the thing it protects is the token's expiry, not a
+/// request budget. The two backoffs above are the whole rate limit.
+pub fn claude_refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
+    if entry
+        .credential_denied_until_secs
+        .is_some_and(|until| now < until)
+    {
+        return false;
+    }
+    if entry
+        .refresh_backoff_until_secs
+        .is_some_and(|until| now < until)
+    {
+        return false;
+    }
+    match entry.claude_expires_at_ms {
+        // Never read, or a document with no expiry in it: look now, and the
+        // read itself stamps the answer that schedules every later beat.
+        None => true,
+        // Milliseconds on both sides. `saturating_mul` keeps a hand-edited or
+        // absurd clock from wrapping the comparison into "not due".
+        Some(at) => ((now + CLAUDE_REFRESH_MARGIN_SECS) as i64).saturating_mul(1000) >= at,
+    }
+}
+
+/// Stamp what the last credential read saw (every read, setting on or off).
+///
+/// Recorded even when the keep-alive is disabled: the field is the CADENCE's
+/// input, so a user switching the setting on must not owe a blind read first,
+/// and a read that found no expiry writes `None` back — "look again".
+pub fn note_credential_expiry(entry: &mut AgentCacheEntry, expires_at_ms: Option<i64>) {
+    entry.claude_expires_at_ms = expires_at_ms;
+}
+
+/// A rotation landed: new expiry, backoff cleared, `refreshed_at_secs = now`.
+///
+/// Health is deliberately NOT touched here — it is the usage probe's fact
+/// (EXP-849), and a rotation that works while the probe 401s says something
+/// about the endpoint, not the account.
+pub fn note_refresh_ok(entry: &mut AgentCacheEntry, expires_at_ms: i64, now: u64) {
+    entry.claude_expires_at_ms = Some(expires_at_ms);
+    entry.refresh_backoff_until_secs = None;
+    entry.refreshed_at_secs = Some(now);
+}
+
+/// A refresh failed for a non-account reason: hold the keep-alive off for
+/// `backoff_secs` ([`REFRESH_FAILED_BACKOFF_SECS`] for a transport/5xx loss,
+/// [`REFRESH_UNSUPPORTED_BACKOFF_SECS`] for a store that holds no refresh
+/// token at all). The cached expiry is left ALONE: it is still the truth about
+/// the token on disk, and clearing it would make every beat retry instantly.
+pub fn note_refresh_failed(entry: &mut AgentCacheEntry, now: u64, backoff_secs: u64) {
+    entry.refresh_backoff_until_secs = Some(now + backoff_secs);
+}
+
+/// The endpoint said `invalid_grant`: remember the marker (newest first,
+/// capped, deduped) so a restart never re-spends a grant we already know is
+/// dead — re-spending one is how a refresh loop burns a working login.
+pub fn note_dead_refresh_token(entry: &mut AgentCacheEntry, marker: String) {
+    entry.dead_refresh_tokens.retain(|known| *known != marker);
+    entry.dead_refresh_tokens.insert(0, marker);
+    entry.dead_refresh_tokens.truncate(MAX_DEAD_REFRESH_TOKENS);
+}
+
 // ---------------------------------------------------------------------------
 // EXP-849: the keep-alive claim (ONE refresh actor per login, machine-wide)
 // ---------------------------------------------------------------------------
@@ -326,8 +457,15 @@ pub fn refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
 /// How long a keep-alive claim is honored before another process may take it
 /// over. A holder that was SIGKILLed mid-probe (or a laptop that slept through
 /// one) leaves its file behind, and a claim nobody releases would park the
-/// login's keep-alive forever — far longer than the probe itself can take
-/// ([`crate::codex_app_server::PROBE_TIMEOUT`] is seconds).
+/// login's keep-alive forever — far longer than the work itself can take.
+///
+/// The worst case a claim is legitimately held is EXP-852's claude step: up to
+/// ~10s waiting out the CLI's `.oauth_refresh.lock` backoff, a token POST
+/// bounded at 30s, and a few credential-store writes — well under a minute,
+/// and so still far under these 600s. (Codex's `account/read` is shorter
+/// still: [`crate::codex_app_server::PROBE_TIMEOUT`] is seconds.) The margin
+/// is deliberate — the cost of waiting too long is one skipped keep-alive, the
+/// cost of stealing a LIVE claim is two processes rotating one credential.
 pub const REFRESH_CLAIM_STALE_SECS: u64 = 600;
 
 /// EXP-849 — a held claim on ONE login's keep-alive refresh. Dropping it
@@ -863,6 +1001,234 @@ mod tests {
         entry.refreshed_at_secs = Some(now);
         assert!(!refresh_due(&entry, now + CODEX_REFRESH_INTERVAL_SECS - 1));
         assert!(refresh_due(&entry, now + CODEX_REFRESH_INTERVAL_SECS));
+    }
+
+    /// EXP-852 helper: an entry whose only interesting fact is its cached
+    /// claude expiry.
+    fn expiring_at(expires_at_ms: i64) -> AgentCacheEntry {
+        AgentCacheEntry {
+            claude_expires_at_ms: Some(expires_at_ms),
+            ..AgentCacheEntry::default()
+        }
+    }
+
+    /// Unix milliseconds `secs` seconds after `now`.
+    fn ms_after(now: u64, secs: i64) -> i64 {
+        (now as i64 + secs) * 1000
+    }
+
+    /// EXP-852 — the claude keep-alive's cadence is the token's EXPIRY, not a
+    /// timer: nothing happens until the margin opens, and everything inside it
+    /// is due. The margin is three times the CLI's own 5-minute predicate so
+    /// we rotate first and a CLI start inside the window finds `not_needed`.
+    #[test]
+    fn claude_refresh_is_due_only_inside_the_margin() {
+        let now = 1_700_000_000;
+
+        // An 8-hour token, minutes old: nowhere near due.
+        let fresh = expiring_at(ms_after(now, 8 * 3600));
+        assert!(!claude_refresh_due(&fresh, now));
+
+        // …and it becomes due exactly when the clock reaches the margin.
+        let opens = now + 8 * 3600 - CLAUDE_REFRESH_MARGIN_SECS;
+        assert!(!claude_refresh_due(&fresh, opens - 1));
+        assert!(claude_refresh_due(&fresh, opens));
+
+        // The same edge read from the expiry side: one millisecond past the
+        // margin is not due, the margin itself is.
+        let edge = ms_after(now, CLAUDE_REFRESH_MARGIN_SECS as i64);
+        assert!(claude_refresh_due(&expiring_at(edge), now));
+        assert!(!claude_refresh_due(&expiring_at(edge + 1), now));
+
+        // A hand-edited absurd expiry must not wrap the comparison into
+        // "not due" — it simply stays far away.
+        assert!(!claude_refresh_due(&expiring_at(i64::MAX), now));
+    }
+
+    /// An access token that already expired is trivially inside the margin, so
+    /// it IS refreshed (the CLI's predicate is true for any past instant) —
+    /// the laptop that slept through its own expiry rotates on the first beat
+    /// instead of waiting for a 401.
+    #[test]
+    fn an_expired_claude_token_is_due() {
+        let now = 1_700_000_000;
+        assert!(claude_refresh_due(&expiring_at(ms_after(now, -60)), now));
+        assert!(claude_refresh_due(&expiring_at(ms_after(now, -90 * 86_400)), now));
+        // A zero/absent-looking stamp is "expired in 1970", i.e. due.
+        assert!(claude_refresh_due(&expiring_at(0), now));
+    }
+
+    /// `None` = never read (or a document with no expiry): look ONCE, then let
+    /// what the read saw schedule every later beat. Without this a fresh
+    /// install would never take its first look.
+    #[test]
+    fn an_unread_login_is_due_once() {
+        let now = 1_700_000_000;
+        let mut entry = AgentCacheEntry::default();
+        assert_eq!(entry.claude_expires_at_ms, None, "never read");
+        assert!(claude_refresh_due(&entry, now));
+
+        note_credential_expiry(&mut entry, Some(ms_after(now, 8 * 3600)));
+        assert!(!claude_refresh_due(&entry, now), "the read answered the gate");
+
+        // A later read that finds no expiry puts it back to "look now".
+        note_credential_expiry(&mut entry, None);
+        assert!(claude_refresh_due(&entry, now));
+    }
+
+    /// A refresh the NETWORK lost backs the keep-alive off — the only rate
+    /// limit this path has — and a landed rotation clears it along with
+    /// stamping the new expiry. Health is untouched throughout: a flaky link
+    /// is not the account's answer.
+    #[test]
+    fn a_refresh_backoff_holds_the_keep_alive_off() {
+        let now = 1_700_000_000;
+        let mut entry = AgentCacheEntry::default();
+        assert!(claude_refresh_due(&entry, now));
+
+        note_refresh_failed(&mut entry, now, REFRESH_FAILED_BACKOFF_SECS);
+        assert!(!claude_refresh_due(&entry, now));
+        assert!(!claude_refresh_due(&entry, now + REFRESH_FAILED_BACKOFF_SECS - 1));
+        assert!(claude_refresh_due(&entry, now + REFRESH_FAILED_BACKOFF_SECS));
+        assert_eq!(entry.health, None, "a lost request says nothing about the account");
+
+        // A store with no refresh token at all waits an hour, not ten minutes.
+        note_refresh_failed(&mut entry, now, REFRESH_UNSUPPORTED_BACKOFF_SECS);
+        assert!(!claude_refresh_due(&entry, now + REFRESH_FAILED_BACKOFF_SECS));
+        assert!(claude_refresh_due(&entry, now + REFRESH_UNSUPPORTED_BACKOFF_SECS));
+
+        // A rotation lands: backoff gone, expiry recorded, stamp moved.
+        let expires = ms_after(now, 8 * 3600);
+        note_refresh_ok(&mut entry, expires, now + 10);
+        assert_eq!(entry.refresh_backoff_until_secs, None);
+        assert_eq!(entry.claude_expires_at_ms, Some(expires));
+        assert_eq!(entry.refreshed_at_secs, Some(now + 10));
+        assert!(!claude_refresh_due(&entry, now + 10));
+    }
+
+    /// A credential store that REFUSED (the macOS Keychain ACL prompt on a
+    /// headless daemon) parks the keep-alive exactly like it parks the poll:
+    /// there is nothing to refresh if we cannot read the token.
+    #[test]
+    fn a_credential_denial_holds_the_keep_alive_off() {
+        let now = 1_700_000_000;
+        let entry = AgentCacheEntry {
+            credential_denied_until_secs: Some(now + CREDENTIAL_DENIED_BACKOFF_SECS),
+            ..AgentCacheEntry::default()
+        };
+        // Due on the expiry test alone (never read), held by the denial.
+        assert!(entry.claude_expires_at_ms.is_none());
+        assert!(!claude_refresh_due(&entry, now));
+        assert!(!claude_refresh_due(&entry, now + CREDENTIAL_DENIED_BACKOFF_SECS - 1));
+        assert!(claude_refresh_due(&entry, now + CREDENTIAL_DENIED_BACKOFF_SECS));
+
+        // An EXPIRED token does not punch through the denial either.
+        let denied_and_expired = AgentCacheEntry {
+            claude_expires_at_ms: Some(ms_after(now, -60)),
+            ..entry
+        };
+        assert!(!claude_refresh_due(&denied_and_expired, now));
+    }
+
+    /// EXP-852 — the dead-grant set: newest first, capped, and re-noting a
+    /// marker MOVES it instead of duplicating (a grant the endpoint keeps
+    /// refusing must not evict the other markers by repeating itself).
+    #[test]
+    fn the_dead_refresh_token_list_is_capped_newest_first() {
+        let mut entry = AgentCacheEntry::default();
+        for n in 0..MAX_DEAD_REFRESH_TOKENS + 2 {
+            note_dead_refresh_token(&mut entry, format!("marker{n}"));
+        }
+        assert_eq!(entry.dead_refresh_tokens.len(), MAX_DEAD_REFRESH_TOKENS);
+        assert_eq!(
+            entry.dead_refresh_tokens[0],
+            format!("marker{}", MAX_DEAD_REFRESH_TOKENS + 1),
+            "newest first"
+        );
+        assert!(
+            !entry.dead_refresh_tokens.contains(&"marker0".to_string()),
+            "the oldest markers fall off the end"
+        );
+
+        // Re-noting the oldest survivor moves it to the front, once.
+        let oldest = entry.dead_refresh_tokens.last().unwrap().clone();
+        note_dead_refresh_token(&mut entry, oldest.clone());
+        assert_eq!(entry.dead_refresh_tokens[0], oldest);
+        assert_eq!(entry.dead_refresh_tokens.len(), MAX_DEAD_REFRESH_TOKENS);
+        assert_eq!(
+            entry
+                .dead_refresh_tokens
+                .iter()
+                .filter(|marker| **marker == oldest)
+                .count(),
+            1,
+            "moved, not duplicated"
+        );
+    }
+
+    /// EXP-852 — the keep-alive fields need no wire work of their own: the
+    /// struct's `#[serde(flatten)] extra` map means a host that PREDATES them
+    /// loads the row, rewrites it, and hands every value back untouched. A
+    /// downgrade therefore never re-spends a dead grant nor forgets a backoff.
+    /// Simulated with an OLD-shaped entry: the new fields absent, the flatten
+    /// map present, exactly as this struct looked before EXP-852.
+    #[test]
+    fn a_newer_hosts_keep_alive_fields_survive_an_older_rewrite() {
+        #[derive(Default, Serialize, Deserialize)]
+        #[serde(rename_all = "camelCase", default)]
+        struct OldEntry {
+            fetched_at_secs: u64,
+            next_poll_at_secs: u64,
+            unchanged_streak: u32,
+            last_windows_hash: String,
+            #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+            extra: BTreeMap<String, Value>,
+        }
+
+        let now = 1_700_000_000;
+        let mut entry = AgentCacheEntry {
+            fetched_at_secs: now,
+            next_poll_at_secs: now + 300,
+            claude_expires_at_ms: Some(ms_after(now, 8 * 3600)),
+            refresh_backoff_until_secs: Some(now + REFRESH_FAILED_BACKOFF_SECS),
+            dead_refresh_tokens: vec!["deadbeefdeadbeef".into(), "0011223344556677".into()],
+            refreshed_at_secs: Some(now - 5),
+            ..AgentCacheEntry::default()
+        };
+        // …plus a field from a build NEWER than either of them.
+        entry
+            .extra
+            .insert("futureField".into(), Value::String("keep me".into()));
+
+        let written = serde_json::to_string(&entry).unwrap();
+        for key in [
+            "claudeExpiresAtMs",
+            "refreshBackoffUntilSecs",
+            "deadRefreshTokens",
+        ] {
+            assert!(written.contains(key), "{key} must be persisted: {written}");
+        }
+
+        // The older host parses what it knows and buffers the rest…
+        let old: OldEntry = serde_json::from_str(&written).unwrap();
+        assert_eq!(old.fetched_at_secs, now, "the shared fields still parse");
+        assert!(old.extra.contains_key("claudeExpiresAtMs"));
+        assert!(old.extra.contains_key("futureField"));
+
+        // …and its rewrite hands every one of them back verbatim.
+        let rewritten = serde_json::to_string(&old).unwrap();
+        let round_tripped: AgentCacheEntry = serde_json::from_str(&rewritten).unwrap();
+        assert_eq!(round_tripped, entry);
+        assert_eq!(
+            round_tripped.extra["futureField"],
+            Value::String("keep me".into()),
+            "an unknown key survives the same way"
+        );
+
+        // A default entry writes NONE of the keep-alive keys (skip_serializing_if).
+        let bare = serde_json::to_string(&AgentCacheEntry::default()).unwrap();
+        assert!(!bare.contains("claudeExpiresAtMs"), "{bare}");
+        assert!(!bare.contains("deadRefreshTokens"), "{bare}");
     }
 
     #[test]

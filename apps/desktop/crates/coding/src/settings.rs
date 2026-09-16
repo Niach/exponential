@@ -165,6 +165,13 @@ pub struct Settings {
     /// server-side per-type prefs still decide which types may leave the
     /// app at all. ON by default — a fresh install toasts until switched off.
     pub os_notifications: bool,
+    /// EXP-852 — the claude keep-alive: our own expiry-driven OAuth refresh of
+    /// this machine's claude logins, under the CLI's `.oauth_refresh.lock`.
+    /// EXPERIMENTAL and OFF by default until the requester's strace gate
+    /// (exactly one refresh per expiry window with IDE + daemon both running)
+    /// has passed on a throwaway account. Device-local, never synced, never
+    /// remotely settable. Missing key = `false` via the manual `Default` impl.
+    pub claude_keep_alive: bool,
 }
 
 /// Deserialize [`Settings::default_agent`] leniently: any non-string or
@@ -199,6 +206,7 @@ impl Default for Settings {
             tools_setup_seen: false,
             emoji_recents: Vec::new(),
             os_notifications: true,
+            claude_keep_alive: false,
         }
     }
 }
@@ -544,6 +552,9 @@ mod tests {
         assert_eq!(settings.terminal_shell, None);
         // EXP-367: a fresh install has not seen the tools onboarding step.
         assert!(!settings.tools_setup_seen);
+        // EXP-852: the claude keep-alive is EXPERIMENTAL — opt-in only, so a
+        // fresh install never rotates anyone's OAuth token behind their back.
+        assert!(!settings.claude_keep_alive);
     }
 
     /// EXP-288: a blank/whitespace `terminalShell` degrades to None (auto)
@@ -627,6 +638,25 @@ mod tests {
         let raw: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(raw["osNotifications"], serde_json::Value::Bool(false));
+    }
+
+    /// EXP-852: the claude keep-alive is opt-IN — a file written before the
+    /// key existed (and a file that never mentions it) must never rotate a
+    /// token, and an explicit opt-in survives a merge-save.
+    #[test]
+    fn claude_keep_alive_defaults_off_and_round_trips_on() {
+        let dir = TempDir::new("claude-keep-alive");
+        let path = dir.0.join("settings.json");
+        fs::write(&path, r#"{"claudePath":"claude"}"#).unwrap();
+        assert!(!Settings::load(&path).claude_keep_alive, "missing key = OFF");
+
+        let mut settings = Settings::load(&path);
+        settings.claude_keep_alive = true;
+        settings.save(&path).unwrap();
+        assert!(Settings::load(&path).claude_keep_alive);
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(raw["claudeKeepAlive"], serde_json::Value::Bool(true));
     }
 
     #[test]
@@ -765,6 +795,7 @@ mod tests {
             tools_setup_seen: true,
             emoji_recents: vec!["🎉".to_string()],
             os_notifications: true,
+            claude_keep_alive: true,
         };
         settings.save(&path).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
@@ -776,6 +807,7 @@ mod tests {
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
+        assert!(raw.contains("\"claudeKeepAlive\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 
