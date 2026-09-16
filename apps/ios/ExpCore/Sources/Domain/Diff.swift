@@ -675,6 +675,30 @@ public enum Diff {
         return files.first ?? File(path: path, status: status)
     }
 
+    /// One GitHub PullFile → one `File` (web `fromPullFile`; the fixture's
+    /// `pullFile` form). An empty `previousFilename` is no previous path. When
+    /// the patch carries no hunks (absent, empty, or a pure rename) GitHub's own
+    /// counts are kept, clamped to `0...lineMax` — they are the only counts
+    /// there are.
+    public static func fromPullFile(
+        filename: String,
+        previousFilename: String?,
+        status: String,
+        additions: Int,
+        deletions: Int,
+        patch: String?
+    ) -> File {
+        var file = parsePatch(path: filename, status: Status.fromPullFile(status), patch: patch)
+        if let previousFilename, !previousFilename.isEmpty {
+            file.previousPath = previousFilename
+        }
+        if file.hunks.isEmpty {
+            file.additions = min(max(0, additions), lineMax)
+            file.deletions = min(max(0, deletions), lineMax)
+        }
+        return file
+    }
+
     // ── Derivations ─────────────────────────────────────────────────────────
 
     public struct Totals: Equatable, Sendable {

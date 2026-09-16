@@ -8,6 +8,9 @@ import XCTest
 // rule that moves here moves everywhere or four suites go red at once.
 //
 // How a case is parsed (the fixture's own contract):
+//   - `form: "pullFile"` → `Diff.fromPullFile(…)`: GitHub's raw PullFile
+//     (`filename`, `previous_filename`, raw `status`, `additions`, `deletions`,
+//     `patch`), the ONE mapping every client's PR diff runs.
 //   - `form: "hunks"` WITH a `path` → `Diff.parsePatch(path:status:patch:)`
 //     (GitHub's PullFile shape: the path and status arrive beside the patch).
 //   - every other case, `form: "hunks"` WITHOUT a path included →
@@ -22,13 +25,24 @@ final class DiffTests: XCTestCase {
     private struct FixtureCase: Decodable {
         let name: String
         let form: String
-        let input: String
+        let input: String?
+        let pullFile: FixturePullFile?
         let path: String?
         let status: String?
         let expected: [String]
         let expectedMerged: [String]?
         let summary: String
         let unchanged: [Int]
+    }
+
+    /// GitHub's raw PullFile keys, snake_case as the API sends them.
+    private struct FixturePullFile: Decodable {
+        let filename: String
+        let previous_filename: String?
+        let status: String
+        let additions: Int
+        let deletions: Int
+        let patch: String?
     }
 
     private struct SummaryCase: Decodable {
@@ -60,14 +74,25 @@ final class DiffTests: XCTestCase {
         return try JSONDecoder().decode([SummaryCase].self, from: data)
     }
 
-    /// The fixture's dispatch rule: a `hunks` case that carries a path is a
-    /// GitHub patch; everything else auto-detects.
+    /// The fixture's dispatch rule: a `pullFile` case is a whole GitHub
+    /// PullFile, a `hunks` case that carries a path is its patch alone;
+    /// everything else auto-detects.
     private func parse(_ entry: FixtureCase) -> Diff.Parsed {
+        if entry.form == "pullFile", let file = entry.pullFile {
+            return Diff.Parsed(files: [Diff.fromPullFile(
+                filename: file.filename,
+                previousFilename: file.previous_filename,
+                status: file.status,
+                additions: file.additions,
+                deletions: file.deletions,
+                patch: file.patch
+            )])
+        }
         if entry.form == "hunks", let path = entry.path {
             let status = Diff.Status(rawValue: entry.status ?? "modified") ?? .modified
-            return Diff.Parsed(files: [Diff.parsePatch(path: path, status: status, patch: entry.input)])
+            return Diff.Parsed(files: [Diff.parsePatch(path: path, status: status, patch: entry.input ?? "")])
         }
-        return Diff.parse(entry.input)
+        return Diff.parse(entry.input ?? "")
     }
 
     private func unchangedRun(_ parsed: Diff.Parsed) -> [Int] {
@@ -98,7 +123,7 @@ final class DiffTests: XCTestCase {
     func testTheFixtureCoversEveryInputForm() throws {
         let fixture = try cases()
         XCTAssertGreaterThanOrEqual(fixture.count, 18)
-        XCTAssertEqual(Set(fixture.map(\.form)).sorted(), ["bare", "git", "hunks", "none"])
+        XCTAssertEqual(Set(fixture.map(\.form)).sorted(), ["bare", "git", "hunks", "none", "pullFile"])
         // A `none` case is the empty parse; every other form yields files.
         for entry in fixture {
             let files = parse(entry).files

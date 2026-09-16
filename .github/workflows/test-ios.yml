@@ -15,20 +15,30 @@ name: test-ios
 # built here is shippable (EXP-405) and nothing should try; the signed archive
 # stays in build-ios.yml on the same runner image.
 #
+# EXP-912: it also RUNS the ExpCore suite. Before, nothing in CI executed a
+# Swift test, so the contract fixtures every other client replays on each PR
+# (`packages/domain-contract/fixtures/**`: diff, tool-group summary, workflow
+# caption) drifted on iOS until a release. `--no-selective-testing` because
+# tuist's selective testing can skip a suite whose inputs it does not track —
+# a fixture read through `#filePath` is exactly that — and report green.
+#
 # Path-filtered: every generated Swift file (contract, icons, design tokens) is
-# committed under apps/ios, so that one filter also covers a codegen change
-# arriving from packages/.
+# committed under apps/ios, so that filter covers a codegen change arriving
+# from packages/. The one exception is packages/domain-contract, whose JSON
+# fixtures and TS reference the ExpCore tests read straight off the checkout.
 
 on:
   push:
     branches: [master]
     paths:
       - 'apps/ios/**'
+      - 'packages/domain-contract/**'
       - '.github/workflows/test-ios.yml'
   pull_request:
     branches: [master]
     paths:
       - 'apps/ios/**'
+      - 'packages/domain-contract/**'
       - '.github/workflows/test-ios.yml'
   workflow_dispatch: {}
 
@@ -88,6 +98,7 @@ jobs:
       # A fresh checkout has no Tuist/.build SPM checkouts; `tuist generate`
       # exits 1 without this.
       - name: Resolve SPM dependencies
+        id: deps
         run: tuist install
 
       - name: Compile the app target (Release, unsigned)
@@ -108,10 +119,31 @@ jobs:
           fi
           grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
 
-      - name: Upload the build log
+      # Runs even when the Release compile failed: a red compile and a drifted
+      # fixture are two separate answers, and the second one is cheap once the
+      # dependencies are resolved.
+      - name: Run the ExpCore suite (simulator)
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+        run: |
+          if ! tuist test ExpCore --no-selective-testing \
+            > "$RUNNER_TEMP/test.log" 2>&1; then
+            echo "::group::Failing tests"
+            grep -E "error: |failed \(|Failing tests:" "$RUNNER_TEMP/test.log" | sort -u | head -60 || true
+            echo "::endgroup::"
+            echo "::group::Tail of the test log"
+            tail -80 "$RUNNER_TEMP/test.log"
+            echo "::endgroup::"
+            exit 1
+          fi
+          grep -E "Executed [0-9]+ tests?" "$RUNNER_TEMP/test.log" | tail -1 || true
+
+      - name: Upload the build and test logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ios-compile-log
-          path: ${{ runner.temp }}/build.log
+          path: |
+            ${{ runner.temp }}/build.log
+            ${{ runner.temp }}/test.log
+          if-no-files-found: ignore
           retention-days: 7

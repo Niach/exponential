@@ -7,6 +7,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,6 +20,9 @@ import org.junit.Test
  * everywhere or four suites go red at once.
  *
  * How a case is parsed (the fixture's own contract):
+ *   - `form: "pullFile"` → `Diff.fromPullFile(…)`: GitHub's raw PullFile
+ *     (`filename`, `previous_filename`, raw `status`, `additions`,
+ *     `deletions`, `patch`), the ONE mapping every client's PR diff runs.
  *   - `form: "hunks"` WITH a `path` → `Diff.parsePatch(path, status, input)`
  *     (GitHub's PullFile shape: the path and status arrive beside the patch).
  *   - every other case, `form: "hunks"` WITHOUT a path included →
@@ -37,12 +41,23 @@ class DiffTest {
         val name: String,
         val form: String,
         val input: String,
+        val pullFile: FixturePullFile?,
         val path: String?,
         val status: Diff.Status?,
         val expected: List<String>,
         val expectedMerged: List<String>?,
         val summary: String,
         val unchanged: List<Int>,
+    )
+
+    /** GitHub's raw PullFile keys, snake_case as the API sends them. */
+    private data class FixturePullFile(
+        val filename: String,
+        val previousFilename: String?,
+        val status: String,
+        val additions: Long,
+        val deletions: Long,
+        val patch: String?,
     )
 
     private data class SummaryRow(
@@ -60,7 +75,19 @@ class DiffTest {
             FixtureCase(
                 name = case.getValue("name").jsonPrimitive.content,
                 form = case.getValue("form").jsonPrimitive.content,
-                input = case.getValue("input").jsonPrimitive.content,
+                input = text("input") ?: "",
+                pullFile = case["pullFile"]?.takeUnless { it is JsonNull }?.jsonObject?.let { file ->
+                    fun field(key: String): String? =
+                        file[key]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+                    FixturePullFile(
+                        filename = file.getValue("filename").jsonPrimitive.content,
+                        previousFilename = field("previous_filename"),
+                        status = file.getValue("status").jsonPrimitive.content,
+                        additions = file.getValue("additions").jsonPrimitive.long,
+                        deletions = file.getValue("deletions").jsonPrimitive.long,
+                        patch = field("patch"),
+                    )
+                },
                 path = text("path"),
                 status = text("status")?.let { Diff.Status.fromPullFile(it) },
                 expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
@@ -83,6 +110,21 @@ class DiffTest {
         }
 
     private fun parseCase(case: FixtureCase): Diff.Parsed {
+        if (case.form == "pullFile" && case.pullFile != null) {
+            val file = case.pullFile
+            return Diff.Parsed(
+                listOf(
+                    Diff.fromPullFile(
+                        file.filename,
+                        file.previousFilename,
+                        file.status,
+                        file.additions,
+                        file.deletions,
+                        file.patch,
+                    )
+                )
+            )
+        }
         if (case.form == "hunks" && case.path != null) {
             return Diff.Parsed(
                 listOf(
@@ -120,7 +162,7 @@ class DiffTest {
         val cases = cases()
         assertTrue(cases.size >= 18)
         assertEquals(
-            listOf("bare", "git", "hunks", "none"),
+            listOf("bare", "git", "hunks", "none", "pullFile"),
             cases.map { it.form }.toSortedSet().toList(),
         )
         // A `none` case is the empty parse; every other form yields files.
