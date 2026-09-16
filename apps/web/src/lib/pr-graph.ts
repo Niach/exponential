@@ -18,8 +18,9 @@
 import { nestSessions, type SessionTreeRow, type TreeSession } from "@/lib/session-tree"
 import { stackChain, type PrStackNode } from "@/lib/pr-stack"
 import { openBlockers, type StackStartRelation } from "@/lib/stack-start"
+import { batchRunIssues, isBatchRun, type BatchRunIssue } from "@/lib/batch-run"
 
-export interface PrGraphIssue extends PrStackNode {
+export interface PrGraphIssue extends PrStackNode, BatchRunIssue {
   identifier: string
   /** The dual-written ANCHOR enum — what `openBlockers` judges. */
   status: string
@@ -29,6 +30,11 @@ export interface PrGraphIssue extends PrStackNode {
 export interface PrGraphSession extends TreeSession {
   issueId: string | null
   prUrl?: string | null
+  /** EXP-876: a BATCH run's own subject — the issues it covers. Absent on a
+   *  caller that does not carry them; such a run resolves no batch. */
+  actionName?: string | null
+  batchIssueIds?: string[] | null
+  branch?: string | null
 }
 
 /** ONE pull request: a single issue, or every issue sharing its `prUrl`. */
@@ -78,6 +84,42 @@ function groupEntries<I extends PrGraphIssue>(
     byIssueId.set(issue.id, entry)
   }
   return { entries, byIssueId }
+}
+
+/**
+ * EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
+ * `pr_url` of its own, so before this it resolved nothing at all — the pill
+ * and its sheet, the one surface built to name work that spans several
+ * issues, never appeared on the very run that spans them. Its covered set
+ * (`batch_issue_ids`, else its branch's issues) IS the entry.
+ *
+ * The PR-grouped entry wins whenever there is one: it carries the branch and
+ * the base the stack chains on, so a batch PR stacked on another still reads
+ * `stack+batch` and still offers Merge stack. The synthesized entry is what a
+ * batch wears BEFORE its PR exists — keyed by the run, since it has no url.
+ */
+function batchSessionEntry<I extends PrGraphIssue, S extends PrGraphSession>(
+  session: S | null,
+  issues: readonly I[],
+  byIssueId: Map<string, PrGraphEntry<I>>
+): PrGraphEntry<I> | null {
+  if (!session || !isBatchRun({ issueId: session.issueId, actionName: session.actionName ?? null })) {
+    return null
+  }
+  const covered = batchRunIssues(
+    {
+      issueId: session.issueId,
+      actionName: session.actionName ?? null,
+      batchIssueIds: session.batchIssueIds ?? null,
+      branch: session.branch ?? null,
+    },
+    issues
+  )
+  const first = covered[0]
+  if (!first) return null
+  const grouped = byIssueId.get(first.id)
+  if (grouped && grouped.issues.length > 1) return grouped
+  return { key: `run:${session.id}`, issue: first, issues: covered }
 }
 
 /** The subtree ids of `rootId` plus the root itself, over raw sessions. */
@@ -152,7 +194,8 @@ export function prGraph<
     (subjectIssue ? (byIssueId.get(subjectIssue.id) ?? null) : null) ??
     (input.session?.prUrl
       ? (entries.find((entry) => entry.key === input.session!.prUrl) ?? null)
-      : null)
+      : null) ??
+    batchSessionEntry(input.session ?? null, issues, byIssueId)
 
   // A stack walks over ENTRIES: the representatives carry the branch and the
   // base, and every issue of a batch PR shares them.

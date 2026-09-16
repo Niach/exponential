@@ -71,7 +71,8 @@ object PrGraph {
             issue != null -> entryIssuesFor(issue, issues)
             else -> session?.prUrl?.takeIf { it.isNotEmpty() }
                 ?.let { url -> issues.filter { it.prUrl == url } }
-                .orEmpty()
+                // EXP-876: a BATCH run's own entry — see [batchSessionIssues].
+                ?: batchSessionIssues(session, issues)
         }
         val anchor = subjectIssues.firstOrNull()
         val chain = if (anchor == null) emptyList() else PrStack.stackChain(anchor, issues)
@@ -103,6 +104,28 @@ object PrGraph {
             batched -> BadgeKind.BATCH
             else -> null
         }
+    }
+
+    /**
+     * EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
+     * `pr_url` of its own, so before this it resolved nothing at all — the
+     * pill and its sheet, the one surface built to name work that spans
+     * several issues, never appeared on the very run that spans them. Its
+     * covered set (`batch_issue_ids`, else its branch's issues) IS the entry.
+     *
+     * The PR-grouped entry wins whenever there is one: it carries the branch
+     * and the base the stack chains on, so a batch PR stacked on another still
+     * reads `stack+batch` and still offers Merge stack. The synthesized entry
+     * is what a batch wears BEFORE its PR exists.
+     */
+    private fun batchSessionIssues(
+        session: CodingSessionEntity?,
+        issues: List<IssueEntity>,
+    ): List<IssueEntity> {
+        val covered = session?.let { batchRunIssues(it, issues) }.orEmpty()
+        val first = covered.firstOrNull() ?: return emptyList()
+        val grouped = entryIssuesFor(first, issues)
+        return if (grouped.size > 1) grouped else covered
     }
 
     /** Every issue on [issue]'s pull request — itself when it has none. */

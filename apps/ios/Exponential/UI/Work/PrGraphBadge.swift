@@ -343,7 +343,17 @@ final class PrGraphModel {
     }
 
     /// The graph for a subject, ready for the badge and the overlay.
-    func graph(issue: IssueEntity?, session: CodingSessionEntity?) -> PrGraph.Graph {
+    ///
+    /// EXP-876: `batchIssues` are the covered issues of a BATCH run (the Work
+    /// screen's `WorkSubjectModel` already observes them to name the run), so
+    /// the pill and its sheet work before any pull request exists — this
+    /// model's own reads are pull requests and blockers, which a batch that is
+    /// still coding is neither.
+    func graph(
+        issue: IssueEntity?,
+        session: CodingSessionEntity?,
+        batchIssues: [IssueEntity] = []
+    ) -> PrGraph.Graph {
         var byId: [String: IssueEntity] = [:]
         for row in prIssues + blockers { byId[row.id] = row }
         if let issue { byId[issue.id] = issue }
@@ -356,6 +366,10 @@ final class PrGraphModel {
             pool.append(byId[row.id] ?? row)
         }
         if let issue, !seen.contains(issue.id) { pool.append(issue) }
+        for row in batchIssues where !seen.contains(row.id) {
+            seen.insert(row.id)
+            pool.append(row)
+        }
         return PrGraph.build(
             issue: issue, session: session, issues: pool,
             sessions: sessions, relations: relations

@@ -243,7 +243,13 @@ struct WorkScreen: View {
     }
 
     private var prGraph: PrGraph.Graph? {
-        prGraphModel?.graph(issue: issue, session: shownSession)
+        prGraphModel?.graph(
+            issue: issue,
+            session: shownSession,
+            // EXP-876: a batch run's covered issues — the pill and its sheet
+            // name it before its pull request exists.
+            batchIssues: subjectModel?.batchIssues ?? []
+        )
     }
 
     /// The header badge, when there IS a stack or a batch to name.

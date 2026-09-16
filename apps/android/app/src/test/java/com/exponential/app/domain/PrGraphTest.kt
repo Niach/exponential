@@ -33,12 +33,23 @@ class PrGraphTest {
         updatedAt = "2026-09-10T10:00:00Z",
     )
 
-    private fun session(id: String, parent: String? = null, issueId: String? = null) =
+    private fun session(
+        id: String,
+        parent: String? = null,
+        issueId: String? = null,
+        // EXP-876: what makes a run a BATCH, and what names it.
+        batchIssueIds: String? = null,
+        branch: String? = null,
+        actionName: String? = null,
+    ) =
         CodingSessionEntity(
             id = id,
             issueId = issueId,
             teamId = "team-1",
             userId = "user-1",
+            branch = branch,
+            batchIssueIds = batchIssueIds,
+            actionName = actionName,
             parentSessionId = parent,
             startedAt = "2026-09-10T10:00:00Z",
             createdAt = "2026-09-10T10:00:00Z",
@@ -98,6 +109,60 @@ class PrGraphTest {
         assertNull(PrGraph.badgeKind(built))
         assertEquals(1, built.stack.size)
         assertNull(built.batch)
+    }
+
+    // EXP-876: the pill and its sheet are the surface built to name work that
+    // spans several issues — and a batch RUN, which spans them, resolved
+    // nothing at all before this (it links no issue and stamps no pr_url).
+    // Mirrored ×4.
+    @Test
+    fun reportsABatchBadgeForABatchRunBeforeItsPr() {
+        val one = issue("one")
+        val two = issue("two")
+        val run = session("run", batchIssueIds = """["one","two"]""")
+        val built = graph(null, listOf(one, two), session = run, sessions = listOf(run))
+
+        assertEquals(PrGraph.BadgeKind.BATCH, PrGraph.badgeKind(built))
+        // The composer's order, so the sheet reads like the row that named it.
+        assertEquals(listOf("one", "two"), built.batch?.issues?.map { it.id })
+        // No pull request yet: a batch of two is not a stack of two.
+        assertEquals(1, built.stack.size)
+    }
+
+    @Test
+    fun reportsABatchRunsPullRequestOnceItOpens() {
+        // The GROUPED entry wins the moment the PR exists: it carries the
+        // branch and the base the stack chains on, so a stacked batch still
+        // reads `stack+batch` from its run.
+        val url = "https://github.com/o/r/pull/9"
+        val lower = issue("lower", branch = "exp/LOWER")
+        val one = issue("one", branch = "exp/batch-abcd1234", base = "exp/LOWER", prUrl = url)
+        val two = issue("two", branch = "exp/batch-abcd1234", base = "exp/LOWER", prUrl = url)
+        val run = session(
+            "run",
+            batchIssueIds = """["one","two"]""",
+            branch = "exp/batch-abcd1234",
+        )
+        val built = graph(null, listOf(lower, one, two), session = run, sessions = listOf(run))
+
+        assertEquals(PrGraph.BadgeKind.STACK_AND_BATCH, PrGraph.badgeKind(built))
+        assertEquals(2, built.batch?.issues?.size)
+    }
+
+    @Test
+    fun reportsNothingForABatchRunWhoseIssuesAreUnknown() {
+        // No stored ids and no PR: the row reads "Batch run" and wears no
+        // pill, rather than a pill that could say nothing.
+        val bare = session("run")
+        val built = graph(null, emptyList(), session = bare, sessions = listOf(bare))
+        assertNull(PrGraph.badgeKind(built))
+        assertNull(built.batch)
+
+        // An ACTION run is never a batch, whatever else it carries.
+        val action = session("chat", actionName = "Chat", batchIssueIds = """["one"]""")
+        val actionGraph =
+            graph(null, listOf(issue("one")), session = action, sessions = listOf(action))
+        assertNull(actionGraph.batch)
     }
 
     @Test

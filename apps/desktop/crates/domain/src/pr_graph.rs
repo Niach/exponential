@@ -170,6 +170,34 @@ pub fn pr_entries(issues: &[Issue]) -> Vec<PrEntry> {
         .collect()
 }
 
+/// EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
+/// `pr_url` of its own, so before this it resolved nothing at all — the pill
+/// and its sheet, the one surface built to name work that spans several
+/// issues, never appeared on the very run that spans them. Its covered set
+/// (`batch_issue_ids`, else its branch's issues) IS the entry.
+///
+/// The PR-grouped entry wins whenever there is one: it carries the branch and
+/// the base the stack chains on, so a batch PR stacked on another still reads
+/// `stack+batch` and still offers Merge stack. The synthesized entry is what a
+/// batch wears BEFORE its PR exists.
+fn batch_session_entry(
+    session: &CodingSession,
+    issues: &[Issue],
+    entries: &[PrEntry],
+) -> Option<PrEntry> {
+    let covered = crate::batch_run::batch_run_issues(session, issues);
+    let first = covered.first()?;
+    if let Some(grouped) = entries
+        .iter()
+        .find(|entry| entry.holds(&first.id) && entry.is_batch())
+    {
+        return Some(grouped.clone());
+    }
+    Some(PrEntry {
+        issues: covered.into_iter().cloned().collect(),
+    })
+}
+
 /// The graph for one subject. `issue` names the issue face's subject; a
 /// `session` (issue-bound, batch or issue-less) contributes the run tree and,
 /// when no issue was given, resolves the subject issue itself.
@@ -206,7 +234,9 @@ pub fn pr_graph(
                     non_empty(entry.representative().pr_url.as_deref()) == Some(url)
                 })
                 .cloned()
-        });
+        })
+        // EXP-876: a BATCH run's own entry — see [`batch_session_entry`].
+        .or_else(|| batch_session_entry(session?, issues, &entries));
 
     let batch = subject_entry
         .as_ref()
@@ -356,6 +386,77 @@ mod tests {
         // The two issues are ONE pull request, never two rows.
         assert_eq!(pr_entries(&issues).len(), 1);
         assert_eq!(pr_entries(&issues)[0].identifiers(), "EXP-20, EXP-21");
+    }
+
+    /// EXP-876: the pill and its sheet are the surface built to name work
+    /// that spans several issues — and a batch RUN, which spans them,
+    /// resolved nothing at all before this (it links no issue and stamps no
+    /// `pr_url`). Mirrored ×4.
+    #[test]
+    fn reports_a_batch_badge_for_a_batch_run_before_its_pr() {
+        let issues = vec![
+            issue("EXP-20", None, None),
+            issue("EXP-21", None, None),
+        ];
+        let mut batch = run("run-1", None);
+        batch.batch_issue_ids = Some(serde_json::json!(["id-EXP-20", "id-EXP-21"]));
+        let graph = pr_graph(None, Some(&batch), &issues, std::slice::from_ref(&batch));
+        assert_eq!(badge_kind(&graph), Some(BadgeKind::Batch));
+        // The composer's order, so the sheet reads like the row that named it.
+        assert_eq!(
+            graph.batch.as_ref().unwrap().issues.len(),
+            2,
+            "the covered set is the entry"
+        );
+        assert_eq!(
+            graph
+                .batch
+                .as_ref()
+                .unwrap()
+                .issues
+                .iter()
+                .map(|issue| issue.identifier.as_str())
+                .collect::<Vec<_>>(),
+            vec!["EXP-20", "EXP-21"]
+        );
+        // No pull request yet: a batch of two is not a stack of two.
+        assert!(graph.stack.is_empty());
+    }
+
+    #[test]
+    fn reports_a_batch_runs_pull_request_once_it_opens() {
+        // The GROUPED entry wins the moment the PR exists: it carries the
+        // branch and the base the stack chains on, so a stacked batch still
+        // reads `stack+batch` from its run.
+        let issues = vec![
+            batch_issue("EXP-20", "exp/batch-a1b2c3d4", Some("exp/EXP-11"), "u/2"),
+            batch_issue("EXP-21", "exp/batch-a1b2c3d4", Some("exp/EXP-11"), "u/2"),
+            issue("EXP-11", Some("exp/EXP-11"), Some("master")),
+        ];
+        let mut batch = run("run-1", None);
+        batch.batch_issue_ids = Some(serde_json::json!(["id-EXP-20", "id-EXP-21"]));
+        batch.branch = Some("exp/batch-a1b2c3d4".to_string());
+        let graph = pr_graph(None, Some(&batch), &issues, std::slice::from_ref(&batch));
+        assert_eq!(badge_kind(&graph), Some(BadgeKind::StackAndBatch));
+        assert_eq!(graph.stack.len(), 2);
+        assert_eq!(graph.batch.as_ref().unwrap().issues.len(), 2);
+    }
+
+    #[test]
+    fn reports_nothing_for_a_batch_run_whose_issues_are_unknown() {
+        // No stored ids and no PR: the row reads "Batch run" and wears no
+        // pill, rather than a pill that could say nothing.
+        let bare = run("run-1", None);
+        let graph = pr_graph(None, Some(&bare), &[], std::slice::from_ref(&bare));
+        assert_eq!(badge_kind(&graph), None);
+        assert!(graph.batch.is_none());
+        // An ACTION run is never a batch, whatever else it carries.
+        let issues = vec![issue("EXP-20", None, None)];
+        let mut action = run("run-2", None);
+        action.action_name = Some("Chat".to_string());
+        action.batch_issue_ids = Some(serde_json::json!(["id-EXP-20"]));
+        let graph = pr_graph(None, Some(&action), &issues, std::slice::from_ref(&action));
+        assert!(graph.batch.is_none());
     }
 
     #[test]
