@@ -1,6 +1,10 @@
+import { createRef } from "react"
 import { describe, expect, it } from "vitest"
-import { render, waitFor } from "@testing-library/react"
-import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
+import { act, fireEvent, render, waitFor } from "@testing-library/react"
+import {
+  MarkdownEditor,
+  type MarkdownEditorRef,
+} from "@/components/issue-editor/markdown-editor"
 
 // EXP-440: the agent-session feed renders every bubble through this editor, so
 // the chat knobs (compact appearance, linkify, hard breaks, aria label) are a
@@ -121,5 +125,50 @@ describe(`MarkdownEditor tables`, () => {
     ).toBeTruthy()
     // The scroll container the wide-table rule hangs off.
     expect(container.querySelector(`.tableWrapper`)).toBeTruthy()
+  })
+})
+
+// The issue detail view reuses ONE editor across issue switches and applies
+// synced descriptions through setMarkdown. That replace used to be an undo
+// step: Ctrl+Z brought back the previous document (another issue's, often
+// empty) and the next blur saved it over the real description.
+describe(`MarkdownEditor programmatic setMarkdown`, () => {
+  const undo = (container: HTMLElement) =>
+    act(() => {
+      fireEvent.keyDown(container.querySelector(`.ProseMirror`)!, {
+        key: `z`,
+        code: `KeyZ`,
+        ctrlKey: true,
+      })
+    })
+
+  it(`is not undoable and drops the replaced document's history`, async () => {
+    const ref = createRef<MarkdownEditorRef>()
+    const { container } = render(
+      <MarkdownEditor ref={ref} markdown="" onChange={() => {}} />
+    )
+    await waitFor(() => expect(ref.current?.getMarkdown()).toBe(``))
+    act(() => ref.current!.insertImage({ alt: `a`, src: `/api/attachments/a` }))
+    act(() => ref.current!.setMarkdown(`The long description`))
+
+    undo(container)
+    undo(container)
+
+    expect(ref.current!.getMarkdown()).toBe(`The long description`)
+  })
+
+  it(`keeps later local edits undoable`, async () => {
+    const ref = createRef<MarkdownEditorRef>()
+    const { container } = render(
+      <MarkdownEditor ref={ref} markdown="" onChange={() => {}} />
+    )
+    await waitFor(() => expect(ref.current?.getMarkdown()).toBe(``))
+    act(() => ref.current!.setMarkdown(`The long description`))
+    act(() => ref.current!.appendImage({ alt: `b`, src: `/api/attachments/b` }))
+    expect(ref.current!.getMarkdown()).toContain(`/api/attachments/b`)
+
+    undo(container)
+
+    expect(ref.current!.getMarkdown()).toBe(`The long description`)
   })
 })

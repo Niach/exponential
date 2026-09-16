@@ -29,7 +29,7 @@
 //! restores the prior status.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -181,6 +181,91 @@ pub(crate) fn remote_echo_blocked(
     focused && (window_active || unsaved_local_edit)
 }
 
+/// EXP-919 — description saves whose Electric echo has not landed yet.
+///
+/// A save is a tRPC round trip and the synced row only catches up with the
+/// echo. Until then the collection still holds the text the save REPLACED, and
+/// every reader that trusted it undid the save locally: an issue reopened
+/// right after a chip click (the navigation flush) came back with its old
+/// text, and any issues notify in between reverted the editor. Once the user
+/// typed into that stale buffer, the next blur wrote it over the real save.
+///
+/// Per issue: the text last saved, plus every earlier value the row may still
+/// show while saves are in flight (the pre-save row and older saves whose
+/// echoes are queued ahead of it). A row showing one of those is stale; the
+/// saved text itself is the echo, and anything else is a newer remote write.
+/// Both of the latter retire the entry.
+#[derive(Default)]
+pub(crate) struct UnechoedSaves(HashMap<String, UnechoedSave>);
+
+struct UnechoedSave {
+    saved: String,
+    stale: Vec<String>,
+}
+
+impl UnechoedSaves {
+    /// Record that `saved` (normalized) was just sent for `issue_id`, whose
+    /// synced row currently reads `synced` (normalized).
+    pub(crate) fn record(&mut self, issue_id: &str, saved: &str, synced: &str) {
+        match self.0.get_mut(issue_id) {
+            Some(entry) if entry.saved == saved => {}
+            Some(entry) if entry.stale.iter().any(|value| value == synced) => {
+                let previous = std::mem::replace(&mut entry.saved, saved.to_string());
+                entry.stale.push(previous);
+            }
+            _ if synced == saved => {
+                self.0.remove(issue_id);
+            }
+            _ => {
+                self.0.insert(
+                    issue_id.to_string(),
+                    UnechoedSave {
+                        saved: saved.to_string(),
+                        stale: vec![synced.to_string()],
+                    },
+                );
+            }
+        }
+    }
+
+    /// The text `issue_id` really holds given its synced row (`synced`,
+    /// normalized): the in-flight save while the row is stale, else `None`
+    /// (the row is the truth) — retiring the entry once the echo or a newer
+    /// remote write shows up.
+    pub(crate) fn resolve(&mut self, issue_id: &str, synced: &str) -> Option<String> {
+        let entry = self.0.get_mut(issue_id)?;
+        if let Some(ix) = entry.stale.iter().position(|value| value == synced) {
+            // Echoes arrive in save order: values queued before this one are
+            // behind the row now.
+            entry.stale.drain(..ix);
+            return Some(entry.saved.clone());
+        }
+        self.0.remove(issue_id);
+        None
+    }
+}
+
+/// The synced row's description, normalized like every save (`trim`).
+fn synced_description(issue_id: &str, cx: &App) -> Option<String> {
+    Store::global(cx)
+        .collections()
+        .issues
+        .read(cx)
+        .get(issue_id)
+        .map(|issue| issue.description.as_deref().unwrap_or_default().trim().to_string())
+}
+
+/// [`UnechoedSaves::record`] against the issue's current synced row.
+fn record_unechoed_save(
+    saves: &Rc<RefCell<UnechoedSaves>>,
+    issue_id: &str,
+    saved: &str,
+    cx: &App,
+) {
+    let synced = synced_description(issue_id, cx).unwrap_or_default();
+    saves.borrow_mut().record(issue_id, saved, &synced);
+}
+
 /// Save hook of one description editor (markdown source at save time).
 pub type OnSaveDescription = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
@@ -257,6 +342,9 @@ pub struct IssueDetailView {
     /// Last description we saved or synced — dedupes echoes (web
     /// `lastSavedDescriptionRef`). Shared with the editor's `on_save`.
     last_saved_description: Rc<RefCell<String>>,
+    /// EXP-919: saves still waiting for their echo — shared with the editor's
+    /// `on_save`, and kept ACROSS issue switches (that is the point).
+    unechoed_saves: Rc<RefCell<UnechoedSaves>>,
     /// §7.1/§4.2 header affordance: the Start-coding button (play↔stop),
     /// driven by live `repositories.forIssue` + doctor state.
     start_coding: Entity<StartCodingControl>,
@@ -366,6 +454,7 @@ impl IssueDetailView {
             editor: None,
             editor_issue: None,
             last_saved_description: Rc::new(RefCell::new(String::new())),
+            unechoed_saves: Rc::default(),
             start_coding,
             header,
             timeline,
@@ -635,8 +724,18 @@ impl IssueDetailView {
         // title) — `last_saved_description` stays stale on purpose so the
         // next accepted sync still applies the remote text.
         self.ensure_editor(&issue, window, cx);
-        let incoming = issue.description.clone().unwrap_or_default();
-        let normalized = incoming.trim().to_string();
+        let mut incoming = issue.description.clone().unwrap_or_default();
+        let mut normalized = incoming.trim().to_string();
+        // EXP-919: a row still showing what an in-flight save replaced is
+        // stale — the saved text is what this issue holds.
+        if let Some(saved) = self
+            .unechoed_saves
+            .borrow_mut()
+            .resolve(&issue.id, &normalized)
+        {
+            incoming = saved.clone();
+            normalized = saved;
+        }
         if normalized != *self.last_saved_description.borrow() {
             let (focused, dirty) = match self.editor.as_ref() {
                 // `is_dirty` defaults to `true` for a seam editor without
@@ -667,7 +766,14 @@ impl IssueDetailView {
 
         let issue_id = issue.id.clone();
         let last_saved = self.last_saved_description.clone();
-        let initial = issue.description.clone().unwrap_or_default();
+        let unechoed = self.unechoed_saves.clone();
+        let synced = issue.description.clone().unwrap_or_default();
+        // EXP-919: reopened before its last save echoed back — build from
+        // the saved text, not the stale row.
+        let initial = unechoed
+            .borrow_mut()
+            .resolve(&issue_id, synced.trim())
+            .unwrap_or(synced);
         *last_saved.borrow_mut() = initial.trim().to_string();
 
         let params = DescriptionEditorParams {
@@ -680,6 +786,7 @@ impl IssueDetailView {
                     return;
                 }
                 *last_saved.borrow_mut() = normalized.clone();
+                record_unechoed_save(&unechoed, &issue_id, &normalized, cx);
                 let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                 input.description = if normalized.is_empty() {
                     api::Patch::Null
@@ -746,6 +853,7 @@ impl IssueDetailView {
             return;
         }
         *self.last_saved_description.borrow_mut() = normalized.clone();
+        record_unechoed_save(&self.unechoed_saves, &issue_id, &normalized, cx);
         let mut input = api::issues::IssuesUpdateInput::new(issue_id);
         input.description = if normalized.is_empty() {
             api::Patch::Null
@@ -1522,21 +1630,21 @@ impl IssueDetailView {
         // leaving the view alone; if the row is gone from the collection the
         // attachment stays orphaned, like the draft-image path.
         if self.issue_id.as_deref() != Some(issue_id.as_str()) {
-            let Some(current) = Store::global(cx)
-                .collections()
-                .issues
-                .read(cx)
-                .get(&issue_id)
-                .map(|issue| issue.description.clone().unwrap_or_default())
-            else {
+            let Some(synced) = synced_description(&issue_id, cx) else {
                 return;
             };
-            let current = current.trim();
+            // EXP-919: append to the in-flight save, not the stale row.
+            let current = self
+                .unechoed_saves
+                .borrow_mut()
+                .resolve(&issue_id, &synced)
+                .unwrap_or(synced);
             let next = if current.is_empty() {
                 image_ref
             } else {
                 format!("{current}\n\n{image_ref}")
             };
+            record_unechoed_save(&self.unechoed_saves, &issue_id, &next, cx);
             let mut input = api::issues::IssuesUpdateInput::new(issue_id);
             input.description = api::Patch::Set(next);
             spawn_issue_update(cx, input);
@@ -1554,6 +1662,7 @@ impl IssueDetailView {
             editor.mark_clean(cx);
         }
         *self.last_saved_description.borrow_mut() = next.clone();
+        record_unechoed_save(&self.unechoed_saves, &issue_id, &next, cx);
         let mut input = api::issues::IssuesUpdateInput::new(issue_id);
         input.description = api::Patch::Set(next);
         spawn_issue_update(cx, input);
@@ -2764,6 +2873,98 @@ mod multi_window_tests {
         let (_, _, synced, shown) = read_floating(cx);
         assert_eq!(shown, "my draft");
         assert_eq!(synced, "second");
+    }
+
+    /// EXP-919: type in A, click a chip to B, come back to A. The flush sent
+    /// A's edit, but its Electric echo lags behind the round trip — A's
+    /// editor must come back with the SAVED text, not the stale synced row,
+    /// and a stale-row notify must not revert it either. The echo itself (and
+    /// a later remote edit) still land.
+    #[gpui::test]
+    async fn a_flushed_edit_survives_leaving_and_returning_before_its_echo(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::description_editor::install(cx);
+            seed_issue(cx, "i1", "first", "body one");
+            seed_issue(cx, "i2", "second", "body two");
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| IssueDetailView::new(window, cx));
+        let open = |cx: &mut gpui::VisualTestContext, id: &str| {
+            let id = id.to_string();
+            cx.update(|window, app| {
+                view.update(app, |view, cx| view.set_issue(id, window, cx));
+            });
+            cx.run_until_parked();
+        };
+        let shown = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|_window, app| view.read(app).editor.clone().unwrap().markdown(app))
+        };
+        open(cx, "i1");
+        cx.update(|window, app| {
+            let editor = view.read(app).editor.clone().expect("the seam editor is built");
+            editor.focus(window, app);
+        });
+        cx.run_until_parked();
+        cx.simulate_input("typed ");
+        cx.run_until_parked();
+        let typed = shown(cx);
+        assert!(typed.contains("typed"), "the keystrokes must land: {typed:?}");
+
+        // The chip: re-point at B (the flush), then straight back to A.
+        open(cx, "i2");
+        open(cx, "i1");
+        assert_eq!(shown(cx), typed, "A reopens with the flushed text, not the stale row");
+
+        // Any issues notify while the echo is still in flight (here: another
+        // row) must not revert the editor to the stale synced text.
+        cx.cx.update(|cx| seed_issue(cx, "i2", "second", "body two, edited"));
+        cx.run_until_parked();
+        assert_eq!(shown(cx), typed, "a stale-row notify must not revert the edit");
+
+        // The echo lands: nothing changes.
+        cx.cx.update(|cx| seed_issue(cx, "i1", "first", typed.trim()));
+        cx.run_until_parked();
+        assert_eq!(shown(cx), typed);
+
+        // A later remote edit still applies.
+        cx.cx.update(|cx| seed_issue(cx, "i1", "first", "remote rewrite"));
+        cx.run_until_parked();
+        assert_eq!(shown(cx), "remote rewrite");
+    }
+
+    /// EXP-919: the in-flight bookkeeping on its own — queued echoes, the
+    /// landing echo and a newer remote write.
+    #[test]
+    fn unechoed_saves_track_the_row_until_it_catches_up() {
+        let mut saves = UnechoedSaves::default();
+        // Nothing recorded: the row is the truth.
+        assert_eq!(saves.resolve("a", "old"), None);
+
+        // Two saves before either echo: the pre-save row AND the first save
+        // are both stale while the second is in flight.
+        saves.record("a", "one", "old");
+        saves.record("a", "two", "old");
+        assert_eq!(saves.resolve("a", "old").as_deref(), Some("two"));
+        assert_eq!(saves.resolve("a", "one").as_deref(), Some("two"));
+        // …and once the row reached `one`, it can never go back to `old`.
+        assert_eq!(saves.resolve("a", "old"), None);
+
+        // The echo retires the entry.
+        saves.record("a", "three", "two-ish");
+        assert_eq!(saves.resolve("a", "three"), None);
+        assert_eq!(saves.resolve("a", "two-ish"), None);
+
+        // A save equal to the row needs no tracking; a remote write retires it.
+        saves.record("b", "same", "same");
+        assert_eq!(saves.resolve("b", "old"), None);
+        saves.record("c", "mine", "old");
+        assert_eq!(saves.resolve("c", "theirs"), None);
+        assert_eq!(saves.resolve("c", "old"), None);
     }
 
     /// The FIX half. gpui never clears a window's focus when the window is

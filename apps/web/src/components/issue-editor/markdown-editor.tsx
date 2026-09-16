@@ -7,7 +7,7 @@ import {
 } from "react"
 import { createPortal } from "react-dom"
 import { type Editor, useEditor, EditorContent } from "@tiptap/react"
-import { NodeSelection, TextSelection } from "@tiptap/pm/state"
+import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state"
 import { StarterKit } from "@tiptap/starter-kit"
 import { Link } from "@tiptap/extension-link"
 import { Placeholder } from "@tiptap/extension-placeholder"
@@ -438,7 +438,23 @@ export const MarkdownEditor = forwardRef<
         editor?.commands.focus(`end`)
       },
       setMarkdown: (md: string) => {
-        editor?.commands.setContent(md)
+        if (!editor) return
+        // A programmatic replace (an issue switch in the reused detail view,
+        // a synced remote description, a reopened draft) must never be
+        // undoable: setContent is an ordinary history step, so Ctrl+Z
+        // restored the PREVIOUS document — another issue's text, often empty
+        // — and the next blur saved it over this one. Keep the replace out of
+        // history, then start a fresh history so older edits (which belong to
+        // the replaced document) cannot be undone into it either.
+        editor.chain().setMeta(`addToHistory`, false).setContent(md).run()
+        const { state } = editor.view
+        editor.view.updateState(
+          EditorState.create({
+            doc: state.doc,
+            plugins: state.plugins,
+            selection: state.selection,
+          })
+        )
       },
       getMarkdown: () => {
         return editor ? getEditorMarkdown(editor) : null
