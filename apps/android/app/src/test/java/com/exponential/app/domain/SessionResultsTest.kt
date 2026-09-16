@@ -112,6 +112,27 @@ class SessionResultsTest {
         assertEquals(200, sessionResultTileWidth(entry(1000, 1000), 200))
     }
 
+    @Test
+    fun `scales every tile down by one factor when the widest overflows the page`() {
+        val entries = listOf(
+            // 480dp wide at the 320dp base — wider than a phone.
+            SessionResultEntry("t", "web", "a1", 1800, 1200),
+            SessionResultEntry("t", "ios", "a2", 828, 1800),
+        )
+        assertEquals(480, sessionResultTileWidth(entries[0]))
+        // A 358dp phone column: floor(320 * 358 / 480).
+        val height = sessionResultTileHeightFitting(entries, 358)
+        assertEquals(238, height)
+        // Aspects survive the scale: the one factor is the page's, not a row's.
+        assertEquals(357, sessionResultTileWidth(entries[0], height))
+        assertEquals(109, sessionResultTileWidth(entries[1], height))
+        // A page that already fits — and an unmeasured one — keep the base.
+        assertEquals(320, sessionResultTileHeightFitting(entries, 1000))
+        assertEquals(320, sessionResultTileHeightFitting(entries, 0))
+        assertEquals(320, sessionResultTileHeightFitting(entries, -10))
+        assertEquals(320, sessionResultTileHeightFitting(emptyList(), 10))
+    }
+
     private fun entry(width: Int?, height: Int?) =
         SessionResultEntry("t", "l", "a", width, height)
 }

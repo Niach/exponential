@@ -148,3 +148,23 @@ public func sessionResultTileWidth(
     }
     return (height * aspect).rounded()
 }
+
+/// The height EVERY tile on the page renders at, scaled down by ONE factor
+/// when the widest tile would not fit the page's content width.
+///
+/// A phone is narrower than a single landscape tile is wide at the pinned
+/// 320pt height (a 16:9 shot is 569pt), so without this the strip would either
+/// clip or wrap to one tile per row. Scaling is applied to the whole page, not
+/// per tile: every tile keeps its probed aspect AND its shared height, which is
+/// the point of reading a row of an iOS, an Android and a web shot as one
+/// strip.
+public func sessionResultTileHeightFitting(
+    _ entries: [SessionResultEntry],
+    availableWidth: CGFloat,
+    base: CGFloat = sessionResultTileHeight
+) -> CGFloat {
+    guard availableWidth.isFinite, availableWidth > 0 else { return base }
+    let widest = entries.map { sessionResultTileWidth($0, height: base) }.max() ?? 0
+    guard widest > availableWidth else { return base }
+    return max(1, (base * availableWidth / widest).rounded(.down))
+}

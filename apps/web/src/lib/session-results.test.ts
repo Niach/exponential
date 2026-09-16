@@ -4,6 +4,7 @@ import {
   SESSION_RESULT_TILE_HEIGHT,
   groupSessionResults,
   parseSessionResults,
+  sessionResultTileHeightFitting,
   sessionResultTileWidth,
 } from "./session-results"
 
@@ -116,5 +117,26 @@ describe(`session results`, () => {
     expect(sessionResultTileWidth({ width: 1600, height: null })).toBe(427)
     expect(sessionResultTileWidth({ width: null, height: null }, 120)).toBe(160)
     expect(sessionResultTileWidth({ width: 1000, height: 1000 }, 200)).toBe(200)
+  })
+
+  it(`scales every tile down by one factor when the widest overflows the page`, () => {
+    const entries = parseSessionResults([
+      // 480px wide at the 320px base — wider than a phone.
+      { topic: `t`, label: `web`, attachmentId: `a1`, width: 1800, height: 1200 },
+      { topic: `t`, label: `ios`, attachmentId: `a2`, width: 828, height: 1800 },
+    ])
+    expect(sessionResultTileWidth(entries[0])).toBe(480)
+    // A 358px phone column: floor(320 * 358 / 480).
+    const height = sessionResultTileHeightFitting(entries, 358)
+    expect(height).toBe(238)
+    // Aspects survive the scale: the one factor is the page's, not a row's.
+    expect(sessionResultTileWidth(entries[0], height)).toBe(357)
+    expect(sessionResultTileWidth(entries[1], height)).toBe(109)
+    // A page that already fits — and an unmeasured one — keep the base.
+    expect(sessionResultTileHeightFitting(entries, 1000)).toBe(320)
+    expect(sessionResultTileHeightFitting(entries, 0)).toBe(320)
+    expect(sessionResultTileHeightFitting(entries, -10)).toBe(320)
+    expect(sessionResultTileHeightFitting(entries, Number.NaN)).toBe(320)
+    expect(sessionResultTileHeightFitting([], 10)).toBe(320)
   })
 })

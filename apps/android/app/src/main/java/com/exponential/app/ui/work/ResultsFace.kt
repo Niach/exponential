@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -37,9 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
-import com.exponential.app.domain.SESSION_RESULT_TILE_HEIGHT
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.SessionResultGroup
+import com.exponential.app.domain.sessionResultTileHeightFitting
 import com.exponential.app.domain.sessionResultTileWidth
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBottomBar
@@ -59,8 +60,8 @@ import com.exponential.app.ui.theme.TextEmphasis
 // verb (the top bar's, on Run only) nor the merge capsule (the Changes bar's)
 // — its floating bar carries the face switcher and nothing else.
 
-/** The tile height every shot renders at; the probed aspect gives the width. */
-private val TileHeight = SESSION_RESULT_TILE_HEIGHT.dp
+/** The horizontal content padding the page reserves on each side. */
+private val HorizontalPadding = 16.dp
 private val TileShape = RoundedCornerShape(10.dp)
 
 @Composable
@@ -71,12 +72,20 @@ fun ResultsFace(
 ) {
     var preview by remember { mutableStateOf<SessionResultEntry?>(null) }
 
-    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.padding(padding).fillMaxSize()) {
+        // ONE factor for the whole page: the base height unless the widest
+        // tile would overflow the column, then every tile scales by the same
+        // amount so the equal-height strip survives (shared rule ×4). An
+        // unmeasured page (zero width) renders at the base.
+        val availableDp = (maxWidth - HorizontalPadding * 2).value.toInt()
+        val tileHeight = remember(groups, availableDp) {
+            sessionResultTileHeightFitting(groups.flatMap { it.entries }, availableDp)
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize().testTag("work-results"),
             contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
+                start = HorizontalPadding,
+                end = HorizontalPadding,
                 top = 4.dp,
                 bottom = BottomBarInset,
             ),
@@ -95,7 +104,11 @@ fun ResultsFace(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             group.entries.forEach { entry ->
-                                ResultTile(entry = entry, onOpen = { preview = entry })
+                                ResultTile(
+                                    entry = entry,
+                                    tileHeight = tileHeight,
+                                    onOpen = { preview = entry },
+                                )
                             }
                         }
                     }
@@ -125,10 +138,10 @@ fun ResultsFace(
  * attachments load.
  */
 @Composable
-private fun ResultTile(entry: SessionResultEntry, onOpen: () -> Unit) {
+private fun ResultTile(entry: SessionResultEntry, tileHeight: Int, onOpen: () -> Unit) {
     Column(
         modifier = Modifier
-            .width(sessionResultTileWidth(entry).dp)
+            .width(sessionResultTileWidth(entry, tileHeight).dp)
             .testTag("work-result-${entry.attachmentId}"),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -138,7 +151,7 @@ private fun ResultTile(entry: SessionResultEntry, onOpen: () -> Unit) {
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(TileHeight)
+                .height(tileHeight.dp)
                 .clip(TileShape)
                 .background(GlassTokens.RowFill)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, TileShape)

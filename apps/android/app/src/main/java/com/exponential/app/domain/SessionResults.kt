@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlin.math.floor
 import kotlinx.serialization.json.intOrNull
 
 // EXP-879: a coding run's published RESULTS — the screenshots the agent filed
@@ -135,4 +136,32 @@ fun sessionResultTileWidth(
         4.0 / 3.0
     }
     return Math.round(height * aspect).toInt()
+}
+
+/**
+ * The tile height that makes the page FIT: on a phone a landscape shot is
+ * 480dp wide at the 320dp base and a 390dp screen clips it, so the whole page
+ * scales down by ONE factor — the widest tile's overflow — instead of letting
+ * a row clip or each row pick its own size. One factor keeps every tile's
+ * aspect (`sessionResultTileWidth(entry, thatHeight)`) AND the equal-height
+ * strip, which is the point of a fixed height: an iOS, an Android and a web
+ * shot of one screen still read as one row. Never scales UP: a wide page keeps
+ * the base so shots never look blown out.
+ *
+ * [availableWidth] is the tiles container's content width in dp; a zero or a
+ * negative one means "not measured yet" and renders at the base.
+ */
+fun sessionResultTileHeightFitting(
+    entries: List<SessionResultEntry>,
+    availableWidth: Int,
+    base: Int = SESSION_RESULT_TILE_HEIGHT,
+): Int {
+    if (availableWidth <= 0) return base
+    var widest = 0
+    for (entry in entries) {
+        val width = sessionResultTileWidth(entry, base)
+        if (width > widest) widest = width
+    }
+    if (widest <= availableWidth) return base
+    return maxOf(1, floor(base.toDouble() * availableWidth.toDouble() / widest.toDouble()).toInt())
 }

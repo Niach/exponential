@@ -4,10 +4,12 @@
 //! ONE scrolling page, byte-for-byte the web/iOS/Android shape: per topic a
 //! group band ([`crate::surface::glass_section_band`], the EXP-818 list
 //! design) over a WRAPPING row of EQUAL-HEIGHT tiles — every tile
-//! [`SESSION_RESULT_TILE_HEIGHT`] tall, its width from the probed aspect
-//! ([`session_result_tile_width`], 4:3 without one) — each with a muted
-//! one-line caption under it. A shot of the same screen on web, iOS and
-//! Android therefore reads side by side on one baseline.
+//! [`SESSION_RESULT_TILE_HEIGHT`] tall, or the one smaller height that makes
+//! the widest of them fit a narrow window
+//! ([`session_result_tile_height_fitting`], the shared ×4 rule), its width
+//! from the probed aspect ([`session_result_tile_width`], 4:3 without one) —
+//! each with a muted one-line caption under it. A shot of the same screen on
+//! web, iOS and Android therefore reads side by side on one baseline.
 //!
 //! The image is the ordinary member-gated attachment route
 //! (`/api/attachments/{id}`) fetched through the owning view's shared
@@ -25,7 +27,8 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::session_results::{
-    session_result_tile_width, SessionResultEntry, SessionResultGroup, SESSION_RESULT_TILE_HEIGHT,
+    session_result_tile_height_fitting, session_result_tile_width, SessionResultEntry,
+    SessionResultGroup, SESSION_RESULT_TILE_HEIGHT,
 };
 
 use crate::issue_detail::{centered_column, DETAIL_GUTTER};
@@ -34,11 +37,26 @@ use crate::markdown::{placeholder_box, ImageCache, ImageSlot};
 /// The whole page for one run's results, ready to drop into the pane slot
 /// under the work header. Never called with an empty `groups` — an empty
 /// Results face is not a face (the caller falls back to the transcript).
+///
+/// `available_width` is the width the TILES ROW actually gets (the centered
+/// column's inner width, gutters already taken off). The page's tile height
+/// is derived from it ONCE, by the shared ×4 rule
+/// ([`session_result_tile_height_fitting`]): a narrow window scales the whole
+/// page down by one factor rather than clipping its widest tile.
 pub(crate) fn render(
     groups: &[SessionResultGroup],
+    available_width: f32,
     images: &Entity<ImageCache>,
     cx: &mut App,
 ) -> AnyElement {
+    // ONE height for the page, not one per band — a shot's counterpart in the
+    // NEXT topic has to sit on the same baseline too. The per-group minimum
+    // IS the whole page's factor: the rule never grows a tile, so the group
+    // holding the widest tile is the one that decides.
+    let height = groups
+        .iter()
+        .map(|group| session_result_tile_height_fitting(&group.entries, available_width))
+        .fold(SESSION_RESULT_TILE_HEIGHT, f32::min);
     let mut page = v_flex()
         .w_full()
         .min_w_0()
@@ -51,7 +69,7 @@ pub(crate) fn render(
     for (group_ix, group) in groups.iter().enumerate() {
         let mut tiles = h_flex().w_full().min_w_0().flex_wrap().items_start().gap_3();
         for (tile_ix, entry) in group.entries.iter().enumerate() {
-            tiles = tiles.child(tile(entry, (group_ix, tile_ix), images, cx));
+            tiles = tiles.child(tile(entry, height, (group_ix, tile_ix), images, cx));
         }
         page = page.child(
             v_flex()
@@ -76,11 +94,12 @@ pub(crate) fn render(
         .into_any_element()
 }
 
-/// One tile: the picture at the shared height, its label under it. The
-/// loading and unavailable states paint the neutral placeholder at the SAME
-/// box, so the row never reflows when the bytes land.
+/// One tile: the picture at the page's shared `height`, its label under it.
+/// The loading and unavailable states paint the neutral placeholder at the
+/// SAME box, so the row never reflows when the bytes land.
 fn tile(
     entry: &SessionResultEntry,
+    height: f32,
     index: (usize, usize),
     images: &Entity<ImageCache>,
     cx: &mut App,
@@ -92,7 +111,6 @@ fn tile(
         (Some(width), Some(height)) => Some((width as f32, height as f32)),
         _ => None,
     };
-    let height = SESSION_RESULT_TILE_HEIGHT;
     let width = session_result_tile_width(entry, height);
     let slot = images.update(cx, |cache, cx| cache.slot(&url, cx));
     let label = entry.label.clone();

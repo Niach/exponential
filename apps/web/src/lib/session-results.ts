@@ -116,3 +116,31 @@ export function sessionResultTileWidth(
       : 4 / 3
   return Math.round(height * aspect)
 }
+
+/**
+ * The tile height that makes the page FIT: on a phone a landscape shot is
+ * 480px wide at the 320px base and a 390px screen clips it, so the whole page
+ * scales down by ONE factor — the widest tile's overflow — instead of letting
+ * a row clip or each row pick its own size. One factor keeps every tile's
+ * aspect (`sessionResultTileWidth(entry, thatHeight)`) AND the equal-height
+ * strip, which is the point of a fixed height: an iOS, an Android and a web
+ * shot of one screen still read as one row. Never scales UP: a wide page keeps
+ * the base so shots never look blown out.
+ *
+ * `availableWidth` is the tiles container's content width; a zero or a
+ * non-finite one means "not measured yet" and renders at the base.
+ */
+export function sessionResultTileHeightFitting(
+  entries: readonly SessionResultEntry[],
+  availableWidth: number,
+  base: number = SESSION_RESULT_TILE_HEIGHT
+): number {
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) return base
+  let widest = 0
+  for (const entry of entries) {
+    const width = sessionResultTileWidth(entry, base)
+    if (width > widest) widest = width
+  }
+  if (widest <= availableWidth) return base
+  return Math.max(1, Math.floor((base * availableWidth) / widest))
+}

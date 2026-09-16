@@ -2811,7 +2811,11 @@ impl SteerSessionView {
     /// No Stop/Resume and no merge bar here: the Run face owns the first and
     /// Changes the second (EXP-879's face split, mirrored on all four
     /// clients).
-    fn render_results_pane(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    fn render_results_pane(
+        &self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         if self.run_face != RunFace::Results {
             return None;
         }
@@ -2819,7 +2823,30 @@ impl SteerSessionView {
         if groups.is_empty() {
             return None;
         }
-        Some(crate::session_results::render(&groups, &self.images, cx))
+        Some(crate::session_results::render(
+            &groups,
+            self.results_row_width(window),
+            &self.images,
+            cx,
+        ))
+    }
+
+    /// The width the Results face's tiles row actually gets: the work column
+    /// ([`crate::work_header::WORK_COLUMN_W`], what
+    /// [`crate::issue_detail::centered_column`] caps the page at) narrowed by
+    /// a pane too small to hold it, minus the page's
+    /// own gutter on both sides. The measured pane width is the same
+    /// recorded-px probe the transcript's bubble cap reads; the first frame
+    /// has none, so it falls back to the window — never to a width wider than
+    /// the screen, which is the one that would clip.
+    fn results_row_width(&self, window: &Window) -> f32 {
+        let view = f32::from(self.view_width.get());
+        let pane = if view > 0. {
+            view
+        } else {
+            f32::from(window.viewport_size().width)
+        };
+        pane.min(crate::work_header::WORK_COLUMN_W) - 2. * crate::issue_detail::DETAIL_GUTTER
     }
 
     /// The Merge target this run offers, or `None` once it is over
@@ -7177,7 +7204,7 @@ impl Render for SteerSessionView {
             Some(pane) => Some(pane),
             // EXP-879: the Results face is the run's OTHER full page — same
             // slot, same rule (with one up the transcript is not rendered).
-            None => self.render_results_pane(cx),
+            None => self.render_results_pane(window, cx),
         };
         let width_probe = self.view_width.clone();
         let conversation = pane.is_none().then(|| {

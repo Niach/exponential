@@ -121,4 +121,26 @@ final class SessionResultsTests: XCTestCase {
         XCTAssertEqual(sessionResultTileWidth(entry(nil, nil), height: 120), 160)
         XCTAssertEqual(sessionResultTileWidth(entry(1000, 1000), height: 200), 200)
     }
+
+    func testScalesEveryTileDownByOneFactorWhenTheWidestOverflowsThePage() {
+        let entries = [
+            // 480pt wide at the pinned 320pt height — wider than a phone page.
+            SessionResultEntry(
+                topic: "t", label: "web", attachmentId: "a1", width: 1800, height: 1200
+            ),
+            SessionResultEntry(
+                topic: "t", label: "ios", attachmentId: "a2", width: 828, height: 1800
+            ),
+        ]
+        XCTAssertEqual(
+            sessionResultTileHeightFitting(entries, availableWidth: 358), 238
+        )
+        // It fits: nothing scales.
+        XCTAssertEqual(
+            sessionResultTileHeightFitting(entries, availableWidth: 1000), 320
+        )
+        // Unmeasured page and no entries both keep the pinned height.
+        XCTAssertEqual(sessionResultTileHeightFitting(entries, availableWidth: 0), 320)
+        XCTAssertEqual(sessionResultTileHeightFitting([], availableWidth: 358), 320)
+    }
 }

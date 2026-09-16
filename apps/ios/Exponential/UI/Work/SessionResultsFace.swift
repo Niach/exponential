@@ -37,14 +37,10 @@ struct SessionResultsFace<Trailing: View>: View {
 
     /// The widest tile at the pinned height decides the page's scale.
     private var tileHeight: CGFloat {
-        let available = contentWidth - horizontalPadding * 2
-        guard available > 0 else { return sessionResultTileHeight }
-        let widest = groups
-            .flatMap(\.entries)
-            .map { sessionResultTileWidth($0) }
-            .max() ?? 0
-        guard widest > available else { return sessionResultTileHeight }
-        return (sessionResultTileHeight * available / widest).rounded(.down)
+        sessionResultTileHeightFitting(
+            groups.flatMap(\.entries),
+            availableWidth: contentWidth - horizontalPadding * 2
+        )
     }
 
     var body: some View {

@@ -109,6 +109,40 @@ pub fn session_result_tile_width(entry: &SessionResultEntry, height: f32) -> f32
     (height * aspect).round()
 }
 
+/// The height EVERY tile on the page takes given the width the tiles row
+/// actually has: [`SESSION_RESULT_TILE_HEIGHT`] unless the WIDEST tile would
+/// overflow that width, in which case the whole page scales down by the ONE
+/// factor that makes it fit.
+///
+/// Why: a landscape shot is 480 px wide at the base height, wider than a
+/// phone's content column on iOS and Android and wider than a narrow desktop
+/// window's work column — it would clip at the right edge. Scaling each tile
+/// on its own would break the shared baseline the equal-height rule exists
+/// for (a web and an iOS shot of the same screen must line up), so the
+/// factor is computed once for the page and applied to every tile. The rule
+/// is shared ×4: same inputs, same height, on every client.
+pub fn session_result_tile_height_fitting(
+    entries: &[SessionResultEntry],
+    available_width: f32,
+) -> f32 {
+    let base = SESSION_RESULT_TILE_HEIGHT;
+    // An unmeasured or nonsense width is not a constraint — never shrink the
+    // page because the layout has not reported yet.
+    if !available_width.is_finite() || available_width <= 0.0 {
+        return base;
+    }
+    let widest = entries
+        .iter()
+        .map(|entry| session_result_tile_width(entry, base))
+        .fold(0.0_f32, f32::max);
+    if widest <= available_width {
+        return base;
+    }
+    // Floor, so the scaled tile lands INSIDE the width rather than a rounding
+    // hair outside it; at least one pixel, so a tile is never zero-sized.
+    (base * available_width / widest).floor().max(1.0)
+}
+
 /// One array element → an entry, or `None` when it is not usable.
 fn entry_from(value: &Value) -> Option<SessionResultEntry> {
     let object = value.as_object()?;
@@ -268,5 +302,37 @@ mod tests {
         let mut half = entry("Shots", "Android", "a4");
         half.width = Some(800);
         assert_eq!(session_result_tile_width(&half, 300.0), 400.0);
+    }
+
+    /// The page keeps the base height until the WIDEST tile would overflow
+    /// the row; then every tile shrinks by the SAME factor, so the shared
+    /// baseline survives a narrow window (and a phone on the other clients).
+    #[test]
+    fn session_result_tile_height_fitting_scales_every_tile_down_by_one_factor_when_the_widest_overflows_the_page(
+    ) {
+        let mut landscape = entry("Shots", "Web", "a1");
+        landscape.width = Some(1800);
+        landscape.height = Some(1200);
+        let mut phone = entry("Shots", "iOS", "a2");
+        phone.width = Some(828);
+        phone.height = Some(1800);
+        let entries = vec![landscape, phone];
+        // The landscape tile is 480 wide at the base height — too wide for a
+        // 358 px row, so the page scales down: 320 * 358 / 480, floored.
+        assert_eq!(session_result_tile_height_fitting(&entries, 358.0), 238.0);
+        // Room for the widest tile = the base height, untouched.
+        assert_eq!(
+            session_result_tile_height_fitting(&entries, 1000.0),
+            SESSION_RESULT_TILE_HEIGHT,
+        );
+        // An unmeasured width is not a constraint.
+        assert_eq!(
+            session_result_tile_height_fitting(&entries, 0.0),
+            SESSION_RESULT_TILE_HEIGHT,
+        );
+        assert_eq!(
+            session_result_tile_height_fitting(&[], 358.0),
+            SESSION_RESULT_TILE_HEIGHT,
+        );
     }
 }
