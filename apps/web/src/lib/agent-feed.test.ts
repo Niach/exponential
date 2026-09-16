@@ -31,6 +31,8 @@ import {
   createActivityCoalescer,
   failAnswer,
   groupFeedRows,
+  liveToolOutputTail,
+  LIVE_TOOL_OUTPUT_TAIL_LINES,
   liveToolRowId,
   hasPendingCard,
   isAnswerLocked,
@@ -1335,6 +1337,39 @@ describe(`liveToolRowId`, () => {
     expect(
       liveToolRowId([item(1, `tool`), item(2, `user_message`)])
     ).toBeUndefined()
+  })
+})
+
+// EXP-910: the RUNNING row's output is a TAIL, so a chatty command cannot own
+// the screen while it works. Locked ×4 (desktop `live_tool_output_tail`,
+// ExpCore and Android `liveToolOutputTail`).
+describe(`liveToolOutputTail`, () => {
+  it(`keeps a short output whole`, () => {
+    expect(liveToolOutputTail(`one\ntwo`, 3)).toBe(`one\ntwo`)
+    expect(liveToolOutputTail(`one\ntwo\nthree`, 3)).toBe(`one\ntwo\nthree`)
+    expect(liveToolOutputTail(``, 3)).toBe(``)
+  })
+
+  it(`tails a long output and marks the elision`, () => {
+    expect(liveToolOutputTail(`a\nb\nc\nd\ne`, 3)).toBe(`…\nc\nd\ne`)
+    // The marker costs a line but is not one of the n: three log lines stay.
+    expect(liveToolOutputTail(`a\nb\nc\nd\ne`, 3).split(`\n`).length).toBe(4)
+  })
+
+  it(`drops the trailing empty line`, () => {
+    // A command's output ends in a newline; a blank last row would spend one
+    // of the three on nothing.
+    expect(liveToolOutputTail(`a\nb\nc\nd\n`, 3)).toBe(`…\nb\nc\nd`)
+    expect(liveToolOutputTail(`a\nb\n`, 3)).toBe(`a\nb`)
+    // Only ONE — a command that really printed a blank line keeps it.
+    expect(liveToolOutputTail(`a\nb\n\n`, 3)).toBe(`a\nb\n`)
+  })
+
+  it(`reads the tail length off the contract`, () => {
+    expect(LIVE_TOOL_OUTPUT_TAIL_LINES).toBe(
+      contract.steerFeed.liveToolOutputTailLines
+    )
+    expect(LIVE_TOOL_OUTPUT_TAIL_LINES).toBeGreaterThan(0)
   })
 })
 

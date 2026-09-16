@@ -205,7 +205,8 @@
     "toolDiffMaxLines": 200,
     "toolDiffMaxBytes": 16384,
     "toolOutputMaxLines": 200,
-    "toolOutputMaxBytes": 16384
+    "toolOutputMaxBytes": 16384,
+    "liveToolOutputTailLines": 3
   },
   "toolKind": {
     "values": [

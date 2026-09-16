@@ -527,7 +527,16 @@ html {
    UNLAYERED, like the rest of this file: these declarations beat Tailwind's
    @layer utilities, so the component styles its LAYOUT with utilities and
    leaves the box to this class (the removable variant's tighter right padding
-   is the `data-removable` rule below, not a `pr-*`). */
+   is the `data-removable` rule below, not a `pr-*`). `display` is therefore
+   NOT here: the component is `inline-flex` and the decoration `inline-block`.
+
+   EXP-899 — the invariant both sides owe this box: a chip is ATOMIC. Its
+   padding and border must count towards the line it sits on (a plain inline
+   box's do not, and a paragraph of chips then draws each pill over the row
+   below it), and it must never break across a line (the tail renders as its
+   own bordered stub). The `nowrap` below is half of that; the other half is
+   each side's own `display` — the app's `issue-ref-pill` rule carries the
+   decoration's, and its issue-chip.test.tsx locks it. */
 .issue-chip {
   background: var(--accent);
   border: 1px solid var(--border);

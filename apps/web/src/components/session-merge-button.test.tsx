@@ -298,6 +298,25 @@ describe(`SessionMergeButton`, () => {
     )
   })
 
+  // EXP-889: in the property tray / run header the merge pill stands in a row
+  // of `sm` pills (status, priority, Stop) — the same box, not a taller one.
+  it(`the tray pill takes the sm box of its siblings`, () => {
+    render(
+      <SessionMergePill
+        prState="open"
+        prNumber={7}
+        issueId="i1"
+        label="Merge PR"
+        pillSize="sm"
+      />
+    )
+    const pill = screen.getByRole<HTMLButtonElement>(`button`, {
+      name: `Merge pull request`,
+    })
+    expect(pill.className).toContain(`h-6`)
+    expect(pill.className).not.toContain(`h-8`)
+  })
+
   it(`the pill arm swaps to Fix conflicts in the SAME slot`, async () => {
     mockState.mergeMutate.mockRejectedValue(conflictError())
     render(

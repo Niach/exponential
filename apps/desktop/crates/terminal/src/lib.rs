@@ -41,8 +41,8 @@ pub mod tab;
 pub use element::{init, GridGeometry, TerminalElement, TerminalView, TerminalViewEvent};
 pub use emulator::{
     advance_bytes, bracketed_paste_enabled, display_offset, grid_size, screen_lines,
-    scroll_to_bottom, scroll_up, Emulator, EmulatorSignal, EventProxy, GraphicsUpdate, Term,
-    TermHandle, TermMode, DEFAULT_CELL_PX,
+    scroll_to_bottom, scroll_up, ClipboardTarget, Emulator, EmulatorSignal, EventProxy,
+    GraphicsUpdate, Term, TermHandle, TermMode, DEFAULT_CELL_PX,
 };
 #[cfg(feature = "gpui")]
 pub use keys::to_esc_str;

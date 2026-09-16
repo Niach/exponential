@@ -3122,7 +3122,7 @@ private struct ToolRow: View {
                     .padding(.top, 4)
             }
             if showsDetail, let output {
-                ToolOutputBlock(output: output)
+                ToolOutputBlock(output: output, live: live)
                     .padding(.top, 4)
             }
         }
@@ -3418,6 +3418,18 @@ private struct ToolDiffBlock: View {
 /// is on the wire at all.
 private struct ToolOutputBlock: View {
     let output: String
+    /// EXP-910: the call is still RUNNING — show its TAIL
+    /// (`AgentFeed.liveToolOutputTail`), not the whole log. A command that
+    /// prints while it works owns the one open row, and an unbounded one owns
+    /// the screen. The settled row (and the reader's own tap on it) still gets
+    /// everything.
+    var live: Bool = false
+
+    private var shown: String {
+        live
+            ? AgentFeed.liveToolOutputTail(output, AgentFeed.liveToolOutputTailLines)
+            : output
+    }
 
     /// Web's `max-h-72` — tall enough to read a failure in, short enough that
     /// the prose after the call stays on screen.
@@ -3428,7 +3440,7 @@ private struct ToolOutputBlock: View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(output)
+                    Text(shown)
                         .font(.caption2.monospaced())
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .textSelection(.enabled)

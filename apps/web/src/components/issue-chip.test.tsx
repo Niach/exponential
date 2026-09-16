@@ -109,6 +109,30 @@ describe(`the chip's shared box`, () => {
     // The decoration keeps ONLY what a decoration must do itself.
     expect(css).toContain(`.tiptap-content .issue-ref-pill::before`)
   })
+
+  // EXP-899: the decoration is an ATOMIC box, like the component's
+  // `inline-flex`. A plain inline RUN put its padding and border outside the
+  // line box (a paragraph of chips drew over the row below it) and let
+  // `box-decoration-break` split one chip into two bordered fragments — the
+  // orphaned `…`-only pill. A chip that does not fit truncates instead.
+  it(`never splits across a line break and never overflows its column`, () => {
+    const block = css.slice(css.indexOf(`\n.tiptap-content .issue-ref-pill {`))
+    const rules = block.slice(0, block.indexOf(`}`))
+    for (const declaration of [
+      `display: inline-block`,
+      `max-width: 100%`,
+      `overflow: hidden`,
+      `text-overflow: ellipsis`,
+      `vertical-align: middle`,
+      `line-height: 1rem`,
+    ]) {
+      expect(rules, `missing ${declaration}`).toContain(declaration)
+    }
+    // The title inherits `.issue-chip`'s nowrap — a wrapping title is exactly
+    // what used to break the pill in two.
+    const after = css.slice(css.indexOf(`.tiptap-content .issue-ref-pill::after`))
+    expect(after.slice(0, after.indexOf(`}`))).not.toContain(`white-space`)
+  })
 })
 
 describe(`an issue the client cannot resolve`, () => {

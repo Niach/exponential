@@ -284,6 +284,16 @@ pub struct IssueDetailView {
     /// registry (a file) — cached per run id
     /// (`work_header::resume_path_cached`), cleared on every issue switch.
     resumable: Option<(String, bool)>,
+    /// EXP-889: the tab's CHANGES face is up — the issue's own open PR read
+    /// as the shared diff pane instead of the issue body. View state, like
+    /// the run's `RunFace`: it is a face of this tab, not a navigation, so
+    /// nothing goes on the history stack. Cleared on every issue switch and
+    /// the moment the PR stops being open (the web `fallbackFace`).
+    changes_open: bool,
+    /// The embedded [`crate::pr_diff::PrDiffView`] behind that face, built
+    /// the first time it opens (its fetch is `issues.prFiles`, one snapshot
+    /// per issue).
+    changes: Option<Entity<crate::pr_diff::PrDiffView>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -365,8 +375,56 @@ impl IssueDetailView {
             widget_submission: None,
             sub_issue_composer: None,
             resumable: None,
+            changes_open: false,
+            changes: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-889 — put this tab on its Changes face (the issue's open pull
+    /// request) or back on the issue. View state, exactly like a run's
+    /// `RunFace`: the faces of one tab are not navigations, so nothing lands
+    /// on the history stack. Driven by the work header's toggle.
+    pub(crate) fn set_changes_open(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
+        if self.changes_open == open {
+            return;
+        }
+        // Leaving the issue face unmounts the description editor without a
+        // blur — flush a pending edit first (`set_tab_face`'s rule, EXP-68).
+        if open {
+            self.flush_title(cx);
+            self.flush_description(cx);
+        }
+        self.changes_open = open;
+        cx.notify();
+    }
+
+    /// EXP-889 — the Changes face's pane, built on first open and re-pointed
+    /// at `issue` (a same-id `set_issue` is a no-op, so a repaint refetches
+    /// nothing). It is the review screen's own view
+    /// ([`crate::pr_diff::PrDiffView`], `issues.prFiles` through the shared
+    /// [`crate::diff_pane`]) in its EMBEDDED shape: the work header above it
+    /// already names the issue, so the pane drops its identifier link.
+    fn ensure_changes(
+        &mut self,
+        issue: &Issue,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Entity<crate::pr_diff::PrDiffView> {
+        let changes = match self.changes.clone() {
+            Some(changes) => changes,
+            None => {
+                let changes = cx.new(|cx| {
+                    let mut view = crate::pr_diff::PrDiffView::new(window, cx);
+                    view.embedded = true;
+                    view
+                });
+                self.changes = Some(changes.clone());
+                changes
+            }
+        };
+        changes.update(cx, |view, cx| view.set_issue(issue.id.clone(), cx));
+        changes
     }
 
     /// The area under the fixed header: the scrolling body. (EXP-818 retired
@@ -436,6 +494,10 @@ impl IssueDetailView {
         // would only be re-read anyway — drop it with the rest of the
         // per-issue state.
         self.resumable = None;
+        // EXP-889: every tab opens on its ISSUE face — the Changes face is
+        // the OUTGOING issue's PR. (The pane itself is kept and re-pointed
+        // when the face opens again: `set_issue` on it is the refetch.)
+        self.changes_open = false;
         // The files rail's transient state belongs to the OUTGOING issue —
         // a pending upload row or a busy marker must never leak onto the
         // incoming one (the in-flight requests themselves keep running and
@@ -1861,6 +1923,14 @@ impl IssueDetailView {
     /// coding action, then the merge-error caption. Only the body below it
     /// scrolls, so a long description never scrolls the title away.
     ///
+    /// EXP-889: the toggle's CHANGES item is offered whenever there is a
+    /// diff to read — my run's worktree diff (which opens the run's Changes
+    /// face, as before) or, with no such diff, the issue's own OPEN pull
+    /// request, which opens right here ([`Self::set_changes_open`]). The web
+    /// rule verbatim (`lib/work-faces.ts`): `hasChanges = diffStats.fileCount
+    /// > 0 || issue.prState === 'open'`, and `availableFaces` pushes
+    /// `changes` outside the `hasRun` branch.
+    ///
     /// The header entity's rows are built through `entity.update` from this
     /// render (the `render_tab_strip` precedent) — they must never call back
     /// into this view synchronously.
@@ -1890,26 +1960,60 @@ impl IssueDetailView {
         let results = run_id
             .as_deref()
             .is_some_and(|run_id| !crate::work_header::run_results(run_id, cx).is_empty());
-        let active = match face_state.as_ref().map(|state| state.active) {
-            Some(crate::screens::TabFace::Run) => Face::Run,
+        // EXP-889: the issue's own open pull request IS a Changes face, with
+        // or without a run of mine (the web `hasChanges`).
+        let pr_changes = crate::queries::is_reviewable(issue);
+        let active = match (self.changes_open, face_state.as_ref().map(|state| state.active)) {
+            (true, _) => Face::Diff,
+            (_, Some(crate::screens::TabFace::Run)) => Face::Run,
             _ => Face::Issue,
         };
         let toggle = {
             let issue_id = issue.id.clone();
             let run_id = run_id.clone();
+            // The Changes pick reaches THIS view (it owns the face), so the
+            // toggle works in an undocked issue window too, where there is
+            // no screens panel to route through.
+            let this = cx.entity().downgrade();
+            // EXP-889: a run's own diff still owns the Changes item — only a
+            // run WITHOUT one hands it to the issue's PR files (the phone's
+            // rule: `diffStats.fileCount > 0 && runTarget ? goRun(diff) :
+            // goFace(diff)`). Once THIS tab's own pane has the PR's files,
+            // its counts label the item; until then it wears the word.
+            let run_diff = diff.is_some();
+            let diff = diff.or_else(|| {
+                self.changes
+                    .as_ref()
+                    .and_then(|changes| changes.read(cx).totals(cx))
+            });
             crate::work_header::face_toggle(
                 FaceToggle {
                     issue: true,
                     run: run_id.clone(),
                     diff,
+                    pr_changes,
                     results,
                     active,
                     multiple_runs,
                 },
                 Rc::new(move |face, window, cx| {
+                    // EXP-889: the issue's own Changes face, and the way back
+                    // off it — both are THIS view's state, whether or not a
+                    // run exists. (The Issue item is otherwise a no-op here:
+                    // this toggle only renders while the tab IS on its issue
+                    // screen.)
+                    if face == Face::Issue || (face == Face::Diff && !run_diff) {
+                        let _ = this
+                            .update(cx, |this, cx| this.set_changes_open(face == Face::Diff, cx));
+                        return;
+                    }
                     let Some(run_id) = run_id.clone() else {
                         return;
                     };
+                    // Leaving for the RUN puts the issue side back on its
+                    // issue face: the session screen's own `Issue` pick must
+                    // land on the issue, never back on its PR files.
+                    let _ = this.update(cx, |this, cx| this.set_changes_open(false, cx));
                     match face {
                         Face::Issue => {}
                         Face::Run | Face::Diff | Face::Results => {
@@ -1945,7 +2049,20 @@ impl IssueDetailView {
             cx,
         );
         let title = self.render_title(cx).into_any_element();
+        let changes_open = self.changes_open;
         let (right, tray, extra) = header.update(cx, |header, cx| {
+            // EXP-895/EXP-889: while the Changes face is up its BAR owns the
+            // merge control (and the badge's overlay is the PR stack) — the
+            // tray must not offer a second Merge PR beside it.
+            header.set_merge_suppressed(changes_open);
+            header.set_badge_context(
+                if changes_open {
+                    crate::pr_graph::BadgeFace::Changes
+                } else {
+                    crate::pr_graph::BadgeFace::Issue
+                },
+                None,
+            );
             let right = header.right_cluster(issue, toggle, cx);
             let actions = header.issue_actions(issue, action, cx);
             (
@@ -2018,7 +2135,24 @@ impl Render for IssueDetailView {
             }
         }
 
+        // EXP-889: the Changes face vanishes with the PR it reads (the web
+        // `fallbackFace`) — a merged or closed PR drops the tab back onto
+        // its issue instead of leaving a dead pane up.
+        if self.changes_open && !crate::queries::is_reviewable(&issue) {
+            self.changes_open = false;
+        }
         let header = self.render_header(&issue, window, cx);
+        // EXP-889: the CHANGES face — the issue's open PR read through the
+        // SAME pane as a review and a run's diff (`pr_diff` over
+        // `issues.prFiles`), under the same work header. No run of mine is
+        // needed: the PR's files are the issue's.
+        if self.changes_open {
+            let changes = self.ensure_changes(&issue, window, cx);
+            return view
+                .child(header)
+                .child(div().flex_1().min_h_0().w_full().child(changes))
+                .into_any_element();
+        }
         let body = self.render_body(&issue, window, cx).into_any_element();
         // EXP-791: the header stays; the body (or the run slid in over it)
         // takes the rest.

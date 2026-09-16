@@ -1538,6 +1538,22 @@ impl Element for BlockTextElement {
             // to half the smaller side, so it's "as round as it gets").
             let mention_radius = px(theme.dimensions.reference_radius);
             let issue_radius = px(theme.dimensions.issue_chip_radius);
+            // EXP-899: how far the quad pulls IN from the row box before
+            // `pad_y` pushes it back out. `range_segment_bounds` hands back a
+            // whole LINE box per wrapped row (what a selection highlight
+            // wants); a pill grown from that is `line_height + 2 * pad_y`
+            // tall in a `line_height` row, so two rows of chips overdrew each
+            // other's borders. The pill is the GLYPH box instead — ascent +
+            // descent, centred in the row — which is what the host's
+            // read-only renderer, iOS and Android all paint. Subtracting
+            // `pad_y` here means the finished quad can never leave its row.
+            let row_inset = lines
+                .first()
+                .map(|line: &WrappedLine| {
+                    let glyphs = line.unwrapped_layout.ascent + line.unwrapped_layout.descent;
+                    (((line_height - glyphs) / 2.) - pad_y).max(px(0.))
+                })
+                .unwrap_or(px(0.));
             // The chip range spans the gutter, token AND title, so the pill
             // wraps all of it — reusing the scan the layout already did.
             for (index, span) in shaped.spans().iter().enumerate() {
@@ -1558,8 +1574,11 @@ impl Element for BlockTextElement {
                     text_align,
                 ) {
                     let quad_bounds = Bounds::from_corners(
-                        point(segment.left() - pad_x, segment.top() - pad_y),
-                        point(segment.right() + pad_x, segment.bottom() + pad_y),
+                        point(segment.left() - pad_x, segment.top() + row_inset - pad_y),
+                        point(
+                            segment.right() + pad_x,
+                            segment.bottom() - row_inset + pad_y,
+                        ),
                     );
                     code_quads.push({
                         let mut q = fill(quad_bounds, reference_color);

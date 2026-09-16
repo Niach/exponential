@@ -705,6 +705,12 @@ impl SessionScreenView {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
             diff: self.diff_totals(cx),
+            // EXP-889: the RUN's Changes face already falls back to the
+            // issue's PR files when the run published no worktree diff
+            // (EXP-895 `load_pr_changes`), so its counts are the item here.
+            // The issue's own PR face is the ISSUE face's
+            // (`issue_detail::set_changes_open`).
+            pr_changes: false,
             results,
             active: match self.run_face(cx) {
                 RunFace::Diff => Face::Diff,

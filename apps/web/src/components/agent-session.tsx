@@ -104,6 +104,8 @@ import {
   FEED_WINDOW,
   FEED_WINDOW_STEP,
   isAnswerLocked,
+  LIVE_TOOL_OUTPUT_TAIL_LINES,
+  liveToolOutputTail,
   liveToolRowId,
   looksLikeMarkdown,
   nestedWorkflowId,
@@ -3515,7 +3517,9 @@ function ToolRow({
         </button>
       )}
       {item.diff && <ToolDiff diff={item.diff} live={open} />}
-      {open && item.output !== undefined && <ToolOutput output={item.output} />}
+      {open && item.output !== undefined && (
+        <ToolOutput output={item.output} live={live} />
+      )}
     </div>
   )
 }
@@ -3528,18 +3532,33 @@ function ToolRow({
  *
  *  Scrolled to the BOTTOM on mount: the verdict is the last line, and it is why
  *  the output is on the wire at all. */
-const ToolOutput = memo(function ToolOutput({ output }: { output: string }) {
+const ToolOutput = memo(function ToolOutput({
+  output,
+  live = false,
+}: {
+  output: string
+  /** EXP-910: the call is still RUNNING — show its TAIL
+   *  (`liveToolOutputTail`), not the whole log. A command that prints while it
+   *  works owns the one open row, and an unbounded one owns the screen. The
+   *  settled row (and the reader's own tap on it) still gets everything. */
+  live?: boolean
+}) {
+  const shown = useMemo(
+    () =>
+      live ? liveToolOutputTail(output, LIVE_TOOL_OUTPUT_TAIL_LINES) : output,
+    [live, output]
+  )
   const box = useRef<HTMLPreElement | null>(null)
   useEffect(() => {
     const node = box.current
     if (node) node.scrollTop = node.scrollHeight
-  }, [output])
+  }, [shown])
   return (
     <pre
       ref={box}
       className="mt-1 max-h-72 overflow-auto overscroll-contain whitespace-pre-wrap break-words rounded-md border border-border/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground"
     >
-      {output}
+      {shown}
     </pre>
   )
 })

@@ -4530,6 +4530,22 @@ impl SteerSessionView {
         // live window — the output tail as the PTY writes it, the patch
         // unfolded. Every other row is compact until the reader's Show more.
         let expanded = mode == ToolRowMode::Live || self.expanded_extras.contains(&id);
+        // EXP-910: while the call RUNS its log is a TAIL — the last few lines,
+        // the way a terminal shows a running command — so a chatty `bun test`
+        // cannot own the screen for as long as it runs. The SETTLED row is
+        // untouched: folded until the reader's Show more, then the publisher's
+        // full `toolOutputMaxLines` cut. ONE number ×4
+        // (`steerFeed.liveToolOutputTailLines`).
+        let live_output = if mode == ToolRowMode::Live {
+            output.as_deref().map(|text| {
+                steer::feed::live_tool_output_tail(
+                    text,
+                    steer::feed::LIVE_TOOL_OUTPUT_TAIL_LINES,
+                )
+            })
+        } else {
+            None
+        };
         let extras = match mode {
             ToolRowMode::Live if self.source.session().is_some() => {
                 self.render_extras(id, expanded, cx)
@@ -4538,7 +4554,7 @@ impl SteerSessionView {
             // and remotely — the wire's own capped patch and tail-cut output.
             _ => crate::session_extras::render_wire_extras(
                 diff.as_deref(),
-                output.as_deref(),
+                live_output.as_deref().or(output.as_deref()),
                 id,
                 expanded,
                 Box::new(cx.listener(move |this, _: &ClickEvent, _window, cx| {
