@@ -260,6 +260,15 @@ pub(crate) struct TabOrigin {
     pub inbox_tab: Option<crate::sidebar::InboxTab>,
 }
 
+impl TabOrigin {
+    /// EXP-890: whether this origin names `screen` ITSELF — the Agent page
+    /// carrying its own sessions list. That list would sit twice (column and
+    /// centre) behind a back row that goes nowhere, so it is never carried.
+    pub(crate) fn is_list_of(&self, screen: &Screen) -> bool {
+        self.tool.origin_screen(self.board_id.clone()) == *screen
+    }
+}
+
 /// The pending origin marker a navigation leaves for the screens panel:
 /// `Derive` = run the EXP-851 breadcrumb rule ([`derive_origin`]) at consume
 /// time, which is right for every in-app click path; `Explicit` = the caller
@@ -307,12 +316,13 @@ pub(crate) fn derive_origin(
     // same board). Only when it carries none does its OWN list apply — which
     // is how the Agent page reached from the rail still lends its sessions
     // list to the run a row starts.
-    if previous.carries_list() {
-        if let Some(origin) = previous_origin {
-            return Some(origin);
-        }
-    }
-    previous.list_origin()
+    let origin = match previous_origin.filter(|_| previous.carries_list()) {
+        Some(origin) => Some(origin),
+        None => previous.list_origin(),
+    };
+    // EXP-890: back from a run to the Agent page inherits the run's sessions
+    // list — the page itself. It shows the rail instead.
+    origin.filter(|origin| !origin.is_list_of(target))
 }
 
 /// Go to `screen` the way BACK goes there: when it is already the top of the
@@ -1972,6 +1982,15 @@ mod tests {
         );
         // … and a detail with no list of its own hands on nothing.
         assert_eq!(derive_origin(Some(&issue), None, &session), None);
+        // EXP-890: a run opened from the Agent page, going back to it, never
+        // hands the page its OWN sessions list (the doubled list whose back
+        // row went nowhere); a board the run carried still comes along.
+        let sessions = Screen::Chat.list_origin().unwrap();
+        assert_eq!(derive_origin(Some(&session), Some(sessions), &Screen::Chat), None);
+        assert_eq!(
+            derive_origin(Some(&session), Some(board.clone()), &Screen::Chat),
+            Some(board.clone())
+        );
         // EXP-851's change: a context-free screen (the rail's pages, Settings,
         // Files) derives NO list — the rail stays up.
         for previous in [
