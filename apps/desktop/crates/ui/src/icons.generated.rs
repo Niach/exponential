@@ -187,6 +187,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "history" => ExpIcon::History,
         "house" => ExpIcon::House,
         "image" => ExpIcon::Image,
+        "images" => ExpIcon::Images,
         "inbox" => ExpIcon::Inbox,
         "info" => ExpIcon::Info,
         "italic" => ExpIcon::Italic,
@@ -751,3 +752,5 @@ pub const UI_WATCH: ExpIcon = ExpIcon::Eye;
 pub const UI_WIDGET: ExpIcon = ExpIcon::Megaphone;
 /// Registry concept `work-faces` -> Lucide `layers-2`.
 pub const WORK_FACES: ExpIcon = ExpIcon::Layers2;
+/// Registry concept `work-results` -> Lucide `images`.
+pub const WORK_RESULTS: ExpIcon = ExpIcon::Images;

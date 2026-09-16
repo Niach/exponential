@@ -961,6 +961,15 @@
         "result": "session"
       },
       {
+        "name": "sessions_results",
+        "title": "Publish results",
+        "blurb": "Publishes a screenshot of the run's work, grouped by topic with a label per picture.",
+        "progressive": "Publishing results",
+        "done": "Published results",
+        "subjectKey": "topic",
+        "result": "session"
+      },
+      {
         "name": "sessions_start",
         "title": "Start coding session",
         "blurb": "Starts a coding run on one of your devices for an issue or an action.",
