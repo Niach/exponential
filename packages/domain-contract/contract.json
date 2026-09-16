@@ -182,7 +182,7 @@
     "values": ["running", "in_review", "ended"]
   },
   "codingSessionEndedBy": {
-    "values": ["agent", "user", "client", "merge", "system"]
+    "values": ["agent", "user", "client", "merge", "system", "stale"]
   },
   "codingSessionBlocked": {
     "kinds": ["rate_limit"],

@@ -25,10 +25,13 @@
 //! fire). Sign-out clears the collections without marking rows `ended` —
 //! a vanished row deliberately does NOT fire (children owned by this desktop
 //! are torn down by the sign-out path itself, not by the kill-switch).
-//! The server's staleness sweep leans on the same distinction: it DELETES a
-//! `running` row whose heartbeat stopped (badge cleanup that must never kill
-//! a possibly-live child), so vanish-does-not-fire is load-bearing — only an
-//! explicit `ended` flip may ever tear a session down.
+//! The server's staleness sweep leans on the same distinction: its end of a
+//! `running` row whose heartbeat stopped must never kill a possibly-live
+//! child (a laptop that slept past the window). Since EXP-888 it ends such
+//! rows `ended_by = stale`, which this watch IGNORES (the watch stays armed;
+//! the run's next heartbeat revives the row) — but only on devices advertising
+//! the `stale-end` cap; older builds still get a DELETE, so
+//! vanish-does-not-fire stays load-bearing for them.
 
 #[cfg(feature = "gpui")]
 use std::collections::HashMap;
@@ -82,6 +85,12 @@ pub fn session_row_is_ended(row: Option<&CodingSession>) -> bool {
         .is_some_and(|status| status == CODING_SESSION_STATUS_ENDED)
 }
 
+/// EXP-888: the staleness sweep's end (`ended_by = stale`).
+pub fn session_row_is_stale_end(row: Option<&CodingSession>) -> bool {
+    row.and_then(|session| session.ended_by.as_deref())
+        == Some(domain::contract::CODING_SESSION_ENDED_BY_STALE)
+}
+
 /// Whether an ended row may actually fire the kill (EXP-105 F3). After the
 /// server's staleness sweep DELETEs a live session's row (laptop-suspend
 /// case), any team member can resurrect the id via the scoped heartbeat
@@ -93,8 +102,11 @@ pub fn session_row_is_ended(row: Option<&CodingSession>) -> bool {
 /// changing the row's owner, so they still pass. An unknowable owner on
 /// either side degrades to firing (the server always stamps `user_id`; this
 /// only covers partial/legacy rows).
+///
+/// EXP-888: a sweep end (`ended_by = stale`) never fires — it says "silent for
+/// the staleness window", not "stop", and this build is evidently alive.
 pub fn session_row_fires_kill(row: Option<&CodingSession>, own_user_id: Option<&str>) -> bool {
-    if !session_row_is_ended(row) {
+    if !session_row_is_ended(row) || session_row_is_stale_end(row) {
         return false;
     }
     match (own_user_id, row.and_then(|session| session.user_id.as_deref())) {
@@ -276,6 +288,30 @@ mod tests {
         assert_eq!(ended_facts(Some(&session("ended"))), EndedFacts::default());
         assert_eq!(ended_facts(None), EndedFacts::default());
         assert!(!EndedFacts::default().by_agent());
+    }
+
+    /// EXP-888: the sweep's end never kills; the merge end a revive turns it
+    /// into (a PR merged meanwhile) does.
+    #[test]
+    fn a_stale_sweep_end_never_fires() {
+        let stale: CodingSession = serde_json::from_value(json!({
+            "id": "sess-1",
+            "status": "ended",
+            "ended_by": "stale",
+            "user_id": "me",
+        }))
+        .unwrap();
+        assert!(session_row_is_ended(Some(&stale)));
+        assert!(!session_row_fires_kill(Some(&stale), Some("me")));
+        assert!(!session_row_fires_kill(Some(&stale), None));
+        let merged: CodingSession = serde_json::from_value(json!({
+            "id": "sess-1",
+            "status": "ended",
+            "ended_by": "merge",
+            "user_id": "me",
+        }))
+        .unwrap();
+        assert!(session_row_fires_kill(Some(&merged), Some("me")));
     }
 
     #[test]

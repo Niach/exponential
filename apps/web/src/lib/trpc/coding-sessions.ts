@@ -820,10 +820,11 @@ export const codingSessionsRouter = router({
 
   // Liveness ping from the desktop while the claude child is alive. The
   // server-side staleness sweep (lib/coding-session-sweep.ts) treats a
-  // `running` row whose updated_at stopped advancing as a crashed desktop
-  // and DELETES it — deliberately never flips it to `ended`, because that
-  // transition is the desktop's remote-kill signal (a vanished row does not
-  // fire the kill-switch), so deletion can never kill a live child.
+  // `running` row whose updated_at stopped advancing as a crashed desktop:
+  // it ends it `ended_by = stale` on a device with the `stale-end` cap (which
+  // never reads that as a kill, EXP-888 — the stale branch below REVIVES it)
+  // and DELETES it on older builds, whose kill-switch fires on any `ended`
+  // flip but never on a vanished row.
   // A ping that finds its row GONE therefore means "swept while actually
   // alive" — a laptop suspend longer than CODING_SESSION_STALE_HOURS is the
   // routine case (EXP-105) — so when the client supplies the row's original
@@ -832,7 +833,8 @@ export const codingSessionsRouter = router({
   // within one heartbeat interval (an issue-scoped re-create derives
   // running/in_review from the issue's own status so a post-PR session
   // resurfaces with the right badge). An EXISTING `ended` row is NEVER
-  // resurrected: `ended` is an explicit end/kill and must stay final.
+  // resurrected: `ended` is an explicit end/kill and must stay final
+  // (only a `stale` sweep end is not).
   // `in_review` rows (PR open, the run still alive — EXP-194) heartbeat
   // like running ones, but the ping only ever advances updated_at — it can
   // never downgrade in_review back to running.
@@ -890,6 +892,9 @@ export const codingSessionsRouter = router({
           userId: codingSessions.userId,
           hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
+          endedBy: codingSessions.endedBy,
+          issueId: codingSessions.issueId,
+          prState: codingSessions.prState,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1052,7 +1057,46 @@ export const codingSessionsRouter = router({
           message: `Only the session owner can heartbeat it`,
         })
       }
-      if (existing.status === `ended`) return { alive: false }
+      if (existing.status === `ended`) {
+        if (existing.endedBy !== `stale`) return { alive: false }
+        // EXP-888: the sweep ended this run for silence, but a beat proves it
+        // alive (the laptop slept past the window) — revive it, like the
+        // re-create above: review state re-derived from the issue (or the
+        // run's own PR for batch/action rows), and a merged PR converts the
+        // stale end into a MERGE end, which the device does act on (EXP-498).
+        let merged = existing.prState === `merged`
+        let inReview = existing.prState === `open`
+        if (existing.issueId) {
+          const [issue] = await ctx.db
+            .select({ status: issues.status, prState: issues.prState })
+            .from(issues)
+            .where(eq(issues.id, existing.issueId))
+            .limit(1)
+          merged = issue?.prState === `merged`
+          inReview = issue?.status === `in_review`
+        }
+        const revived = await ctx.db
+          .update(codingSessions)
+          .set(
+            merged
+              ? { endedBy: `merge`, updatedAt: new Date() }
+              : {
+                  status: inReview ? `in_review` : `running`,
+                  endedAt: null,
+                  endedBy: null,
+                  updatedAt: new Date(),
+                }
+          )
+          .where(
+            and(
+              eq(codingSessions.id, input.id),
+              eq(codingSessions.status, `ended`),
+              eq(codingSessions.endedBy, `stale`)
+            )
+          )
+          .returning({ id: codingSessions.id })
+        return { alive: revived.length > 0 && !merged }
+      }
 
       // Status-conditioned so a heartbeat racing a kill/end can never
       // resurrect the row's freshness after it ended. The SET touches only
@@ -1343,6 +1387,7 @@ export const codingSessionsRouter = router({
           userId: codingSessions.userId,
           hostUserId: codingSessions.hostUserId,
           status: codingSessions.status,
+          endedBy: codingSessions.endedBy,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1366,8 +1411,10 @@ export const codingSessionsRouter = router({
         })
       }
 
-      // Idempotent: ending an already-ended session is a no-op.
-      if (existing.status === `ended`) {
+      // Idempotent: ending an already-ended session is a no-op — except a
+      // sweep end (EXP-888): the run was alive all along and this is its real
+      // close-out, so it overwrites `stale` below.
+      if (existing.status === `ended` && existing.endedBy !== `stale`) {
         const [row] = await ctx.db
           .select()
           .from(codingSessions)
@@ -1398,7 +1445,13 @@ export const codingSessionsRouter = router({
           agentCaption: null,
         })
         .where(
-          and(eq(codingSessions.id, input.id), ne(codingSessions.status, `ended`))
+          and(
+            eq(codingSessions.id, input.id),
+            or(
+              ne(codingSessions.status, `ended`),
+              eq(codingSessions.endedBy, `stale`)
+            )
+          )
         )
         .returning()
 

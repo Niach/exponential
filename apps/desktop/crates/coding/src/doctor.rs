@@ -121,10 +121,15 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   `blocks` relation and the UI claimed a stack, so the server refuses a
 ///   `stack`/`stackOn` start against a device without the cap and the
 ///   composers hide the "Stacked PR" choice for such a machine.
+/// - `stale-end` (EXP-888): this build's kill-watch ignores the staleness
+///   sweep's `ended_by = stale` flip. The sweep ENDS a silent run only on a
+///   device with this cap (keeping it listed with its on-device transcript)
+///   and still DELETES it elsewhere, since older builds read any `ended` flip
+///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 12 + 7 = 19.
-pub const DEVICE_CAPS: [&str; 12] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 7 = 20.
+pub const DEVICE_CAPS: [&str; 13] = [
     "resume",
     "worktrees",
     "launch-defaults",
@@ -137,7 +142,12 @@ pub const DEVICE_CAPS: [&str; 12] = [
     "agent-usage-refresh",
     "update-now",
     STACKED_START_CAP,
+    STALE_END_CAP,
 ];
+
+/// EXP-888's stale-end cap, by name (mirrored by the server sweep's
+/// `STALE_END_CAP` in `apps/web/src/lib/coding-session-sweep.ts`).
+pub const STALE_END_CAP: &str = "stale-end";
 
 /// EXP-897's stacked-start cap, by name: the ONE place the literal lives, so
 /// a client deciding whether a machine can take a stacked start (the

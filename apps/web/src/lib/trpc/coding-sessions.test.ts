@@ -692,6 +692,68 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     expect(inserts).toHaveLength(0)
   })
 
+  // EXP-888: the sweep's `stale` end is the one end a beat undoes.
+  it(`revives a stale-swept issue row, re-deriving review state from the issue`, async () => {
+    selectResults.push([
+      { userId: `actor`, status: `ended`, endedBy: `stale`, issueId: ISSUE_ID, prState: null },
+    ])
+    selectResults.push([{ status: `in_review`, prState: `open` }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toMatchObject({
+      status: `in_review`,
+      endedAt: null,
+      endedBy: null,
+    })
+    // Fenced to a row that is STILL a stale end.
+    expect(whereShape(updateWheres[0])).toEqual([
+      `col:id`,
+      SESSION_ID,
+      `col:status`,
+      `ended`,
+      `col:ended_by`,
+      `stale`,
+    ])
+  })
+
+  it(`revives a stale-swept batch row as running`, async () => {
+    selectResults.push([
+      { userId: `actor`, status: `ended`, endedBy: `stale`, issueId: null, prState: null },
+    ])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates[0]!.values).toMatchObject({ status: `running`, endedBy: null })
+  })
+
+  it(`turns a stale end into a merge end when the PR merged meanwhile`, async () => {
+    selectResults.push([
+      { userId: `actor`, status: `ended`, endedBy: `stale`, issueId: ISSUE_ID, prState: null },
+    ])
+    selectResults.push([{ status: `done`, prState: `merged` }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: false })
+    expect(updates[0]!.values).toMatchObject({ endedBy: `merge` })
+    expect(`status` in updates[0]!.values).toBe(false)
+  })
+
+  it(`never revives a non-stale end`, async () => {
+    selectResults.push([
+      { userId: `actor`, status: `ended`, endedBy: `system`, issueId: null, prState: null },
+    ])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: false })
+    expect(updates).toHaveLength(0)
+  })
+
   it(`re-creates a swept issue-scoped row as in_review when the issue is parked in review`, async () => {
     selectResults.push([]) // session row gone (swept)
     selectResults.push([{ status: `in_review` }]) // the issue's own status
@@ -1937,6 +1999,8 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
       SESSION_ID,
       `col:status`,
       `ended`,
+      `col:ended_by`,
+      `stale`,
     ])
     // EXP-700: a vanished agent-started child must not leave its parent
     // waiting — the (internally best-effort) notify runs on every real end.
@@ -1945,6 +2009,33 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
       SESSION_ID,
       { summary: null, endedBy: `client` }
     )
+  })
+
+  // EXP-888: a run the sweep ended for silence was alive all along — its
+  // real close-out replaces the `stale` stamp.
+  it(`overwrites a stale sweep end with the client end`, async () => {
+    selectResults.push([
+      {
+        id: SESSION_ID,
+        userId: `actor`,
+        hostUserId: null,
+        status: `ended`,
+        endedBy: `stale`,
+      },
+    ])
+
+    await caller.end({ id: SESSION_ID })
+
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toMatchObject({ status: `ended`, endedBy: `client` })
+    expect(whereShape(updateWheres[0])).toEqual([
+      `col:id`,
+      SESSION_ID,
+      `col:status`,
+      `ended`,
+      `col:ended_by`,
+      `stale`,
+    ])
   })
 
   // EXP-700: the agent's own `exponential_sessions_end` fires moments before
