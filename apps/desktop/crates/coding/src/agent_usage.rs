@@ -11,10 +11,14 @@
 //! Three sources, one shape:
 //!
 //! * **claude** — the OAuth usage endpoint, read with the CLI's OWN
-//!   credential. The credential is read (never written, never refreshed,
-//!   never logged) straight from the store `claude` keeps it in, used for
-//!   exactly one GET, and dropped. An API-key/Bedrock login is not eligible
-//!   at all ([`crate::doctor::ClaudeAuthStatus::usage_eligible`]).
+//!   credential, straight from the store `claude` keeps it in. Ordinarily it
+//!   is borrowed for exactly one GET and dropped; ONLY with `claudeKeepAlive`
+//!   on (EXP-852, off by default) is it also REFRESHED in place, under the
+//!   CLI's own `.oauth_refresh.lock` ([`crate::claude_oauth`]), so the daemon
+//!   and the user's own CLI go on sharing one login. Either way it is never
+//!   logged, never copied off this machine, and never written to any store
+//!   but the one it came from. An API-key/Bedrock login is not eligible at
+//!   all ([`crate::doctor::ClaudeAuthStatus::usage_eligible`]).
 //! * **codex** — its own `codex app-server` JSON-RPC surface
 //!   ([`crate::codex_app_server`]); `~/.codex/auth.json` is never touched.
 //!
@@ -38,6 +42,7 @@ use serde_json::Value;
 
 use crate::agent::CodingAgent;
 use crate::agent_accounts::{iso_from_unix_secs, now_iso, AgentAccount, AgentAccounts};
+use crate::claude_oauth::{self, RefreshOutcome, RefreshRequest, StoreRead, WriteOutcome};
 use crate::doctor::{DoctorReport, MIN_CLAUDE_VERSION};
 use crate::settings::Settings;
 use crate::usage_cache::{self, AgentCacheEntry, PollOutcome};
@@ -495,7 +500,7 @@ pub fn parse_codex_account(value: &Value, now: &str) -> Option<crate::agent_acco
 }
 
 // ---------------------------------------------------------------------------
-// The credential (READ-ONLY, never persisted, never logged)
+// The credential (borrowed for one GET, never logged)
 // ---------------------------------------------------------------------------
 
 /// An agent's own OAuth credential, borrowed for exactly one usage GET.
@@ -520,9 +525,14 @@ impl fmt::Debug for ClaudeOauthCredential {
 }
 
 impl ClaudeOauthCredential {
-    /// Whether the token is past its own expiry — we never refresh one, so
-    /// an expired credential means "no numbers until the user's CLI renews
-    /// it" (the previous numbers stay, marked stale).
+    /// Whether the token is past its own expiry.
+    ///
+    /// With the keep-alive OFF (the default) an expired credential means "no
+    /// numbers until the user's CLI renews it" — the previous numbers stay,
+    /// marked stale. With it ON, [`claude_keep_alive_step`] has already had
+    /// its chance on this beat, so reaching here means the rotation could not
+    /// happen (a sibling held the lock, the store carried no refresh token,
+    /// the grant is dead) and the answer is the same: no numbers this pass.
     pub fn expired(&self, now_ms: i64) -> bool {
         self.expires_at_ms.is_some_and(|at| now_ms >= at)
     }
@@ -568,10 +578,10 @@ pub enum CredentialRead {
     Denied,
 }
 
-/// Read claude's OAuth credential WITHOUT touching it: the macOS keychain
-/// item first (`security find-generic-password -w`, read-only), else the
-/// `.credentials.json` file under `CLAUDE_CONFIG_DIR` (or `~/.claude`).
-/// Never written, never refreshed, never logged.
+/// Read claude's OAuth credential for the AMBIENT login, for one usage GET:
+/// the macOS keychain item first (`security find-generic-password -w`,
+/// read-only), else the `.credentials.json` file under `CLAUDE_CONFIG_DIR`
+/// (or `~/.claude`). Never logged.
 pub fn read_claude_credential() -> CredentialRead {
     read_claude_credential_in(None)
 }
@@ -582,82 +592,22 @@ pub fn read_claude_credential() -> CredentialRead {
 /// keychain item claude names after a non-default dir (the service suffixed
 /// with the dir's hash) is tried when the file is absent. `None` = the
 /// ambient login, keychain first as before.
+///
+/// EXP-852: the store itself is [`crate::claude_oauth`]'s — the module that
+/// also WRITES it — so the search order, the keychain service naming and the
+/// `Denied` rule have exactly one implementation. This is the read-only view
+/// of it: the whole document reduced to the three fields a usage GET needs.
 pub fn read_claude_credential_in(config_dir: Option<&Path>) -> CredentialRead {
-    if let Some(dir) = config_dir {
-        match read_credential_file(&dir.join(".credentials.json")) {
-            CredentialRead::Missing => {}
-            found_or_denied => return found_or_denied,
-        }
-        #[cfg(target_os = "macos")]
-        {
-            return match read_keychain_credential(&profile_keychain_service(dir)) {
-                Some(read) => read,
-                None => CredentialRead::Missing,
-            };
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            return CredentialRead::Missing;
-        }
+    match claude_oauth::read_store(config_dir) {
+        // A document with no readable OAuth branch (an API-key install) is
+        // nothing to borrow, not a refusal.
+        StoreRead::Found(store) => store
+            .credential()
+            .map(CredentialRead::Found)
+            .unwrap_or(CredentialRead::Missing),
+        StoreRead::Missing => CredentialRead::Missing,
+        StoreRead::Denied => CredentialRead::Denied,
     }
-    #[cfg(target_os = "macos")]
-    if let Some(read) = read_keychain_credential("Claude Code-credentials") {
-        return read;
-    }
-    let Some(path) = claude_credentials_path() else {
-        return CredentialRead::Missing;
-    };
-    read_credential_file(&path)
-}
-
-/// The `.credentials.json` read: absent → `Missing`, unreadable → `Denied`.
-fn read_credential_file(path: &Path) -> CredentialRead {
-    if !path.exists() {
-        return CredentialRead::Missing;
-    }
-    match std::fs::read_to_string(path) {
-        Ok(raw) => match parse_claude_credentials(&raw) {
-            Some(credential) => CredentialRead::Found(credential),
-            None => CredentialRead::Missing,
-        },
-        Err(_) => CredentialRead::Denied,
-    }
-}
-
-/// The keychain service name claude uses for a NON-default config dir:
-/// its default service plus `-<first 8 hex of sha256(dir)>`.
-#[cfg(target_os = "macos")]
-fn profile_keychain_service(dir: &Path) -> String {
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(dir.to_string_lossy().as_bytes());
-    format!("Claude Code-credentials-{}", &format!("{digest:x}")[..8])
-}
-
-/// One read-only `security find-generic-password -w` for `service`.
-/// `None` = "no such item" (fall through to the file); `Some(Denied)` = a
-/// refusal or a timeout (the ACL prompt nobody answers).
-#[cfg(target_os = "macos")]
-fn read_keychain_credential(service: &str) -> Option<CredentialRead> {
-    let mut cmd = terminal::process::background_command("/usr/bin/security");
-    cmd.args(["find-generic-password", "-s", service, "-w"]);
-    match crate::doctor::output_with_timeout(cmd, crate::doctor::PROBE_TIMEOUT) {
-        Ok(output) if output.status.success() => {
-            let raw = String::from_utf8_lossy(&output.stdout);
-            parse_claude_credentials(raw.trim()).map(CredentialRead::Found)
-        }
-        // 44 = "the item cannot be found" — a file-based install.
-        // Anything else is a refusal (ACL denial, locked keychain).
-        Ok(output) if output.status.code() == Some(44) => None,
-        Ok(_) | Err(_) => Some(CredentialRead::Denied),
-    }
-}
-
-fn claude_credentials_path() -> Option<std::path::PathBuf> {
-    let root = match std::env::var("CLAUDE_CONFIG_DIR") {
-        Ok(dir) if !dir.trim().is_empty() => std::path::PathBuf::from(dir.trim()),
-        _ => dirs::home_dir()?.join(".claude"),
-    };
-    Some(root.join(".credentials.json"))
 }
 
 /// The outcome of one usage GET.
@@ -880,8 +830,8 @@ fn collect_inner(
     let mut usage = AgentUsageMap::new();
     let mut cache = usage_cache::load(data_dir);
     let mut changed = false;
-    // EXP-849: read off the run registry at most ONCE per pass, and only when
-    // a codex keep-alive is actually in question.
+    // EXP-849/EXP-852: read off the run registry at most ONCE per pass, and
+    // only when a keep-alive (either agent's) is actually in question.
     let mut used_logins: Option<std::collections::BTreeSet<String>> = None;
 
     // EXP-862: the plan reads the cache this pass then updates — one load,
@@ -907,9 +857,6 @@ fn collect_inner(
         // recorded run used. A parked account (added, signed in, never run
         // here) is deliberately left to expire — keeping a credential warm is
         // the machine asserting it needs it, and this machine does not.
-        //
-        // Claude has NO keep-alive (EXP-852): its refresh would have to be
-        // ours, under the CLI's own lock.
         let keep_alive = agent == CodingAgent::Codex
             && usage_cache::refresh_due(&entry, now)
             && (target.active || {
@@ -917,17 +864,53 @@ fn collect_inner(
                     .get_or_insert_with(|| logins_used_on_this_machine(data_dir));
                 used.contains(&cache_id)
             });
+        // EXP-852 — claude keep-alive. SAME eligibility rule as codex's (a
+        // login this machine RUNS: the device default, or one some recorded
+        // run used — never a parked account on a machine that is not its
+        // home) and the SAME machine-wide claim, but the cadence is the
+        // TOKEN'S OWN EXPIRY, not an interval: `claude_refresh_due` reads a
+        // cached `expiresAt`, so a healthy login costs nothing on a beat.
+        // Opt-in (`claudeKeepAlive`, OFF by default) until the strace gate
+        // has passed.
+        //
+        // Deliberately NOT riding the usage probe the way codex's does:
+        // codex's is a flag on a request the poll already makes, claude's is a
+        // separate POST to another host that the usage budget does not ration
+        // — and a secondary profile's probe slot can be 20+ minutes apart
+        // (60s stagger × up to 12 profiles × 2 agents, ANDed with the poll
+        // floors), longer than any sane margin. So it runs here, every beat,
+        // before the live/poll match; on success the probe below rides the
+        // NEW token and skips a second store read.
+        let claude_keep_alive = agent == CodingAgent::Claude
+            && settings.claude_keep_alive
+            && usage_cache::claude_refresh_due(&entry, now)
+            && (target.active || {
+                let used = used_logins.get_or_insert_with(|| logins_used_on_this_machine(data_dir));
+                used.contains(&cache_id)
+            });
         // ONE refresh actor per login, MACHINE-WIDE: the shared poll floors
-        // keep the two processes from spending two requests, but a
-        // `refreshToken: true` read also ROTATES the credential — the IDE and
-        // the daemon both refreshing one profile would rotate it twice, the
-        // loser writing a token the winner already replaced. The claim is held
-        // across the spawn below and released when this iteration ends; a
-        // process that cannot take it probes WITHOUT the keep-alive.
-        let refresh_claim = keep_alive
+        // keep the two processes from spending two requests, but a refresh
+        // also ROTATES the credential — the IDE and the daemon both
+        // refreshing one profile would rotate it twice, the loser writing a
+        // token the winner already replaced. The claim is held across the
+        // work below and released when this iteration ends; a process that
+        // cannot take it probes WITHOUT the keep-alive.
+        let refresh_claim = (keep_alive || claude_keep_alive)
             .then(|| usage_cache::claim_refresh(data_dir, &id, &target.profile, now))
             .flatten();
         let keep_alive = keep_alive && refresh_claim.is_some();
+        let claude_keep_alive = claude_keep_alive && refresh_claim.is_some();
+        let fresh_token = if claude_keep_alive {
+            let token = claude_keep_alive_step(target.dir.as_deref(), &mut entry, now);
+            // Persist the backoff / dead marker / new expiry NOW, before the
+            // slow probe, so the sibling process sees the attempt as taken.
+            changed = true;
+            cache.insert(cache_id.clone(), entry.clone());
+            usage_cache::save(data_dir, &cache);
+            token
+        } else {
+            None
+        };
         // EXP-754: a live session on this machine has already been told the
         // numbers. Reading them spawns nothing, sends nothing and contends
         // with no sibling process, so this runs BEFORE (and instead of) the
@@ -985,6 +968,7 @@ fn collect_inner(
                         &mut entry,
                         now,
                         keep_alive,
+                        fresh_token.as_deref(),
                     );
                     // Only the identity: the live windows are at least as
                     // fresh as this probe's, so its outcome never dims them.
@@ -1014,6 +998,7 @@ fn collect_inner(
                     &mut entry,
                     now,
                     keep_alive,
+                    fresh_token.as_deref(),
                 );
                 if let Some(account) = probe.account {
                     // Persist the identity: the not-due beats in between re-use it
@@ -1589,10 +1574,136 @@ fn probe_names_account(agent: CodingAgent) -> bool {
     matches!(agent, CodingAgent::Codex)
 }
 
+/// EXP-852 — one claude keep-alive attempt for ONE login, under the CLI's own
+/// locks ([`claude_oauth::refresh_if_expiring`]). Returns the access token the
+/// usage GET should use, when there is one.
+fn claude_keep_alive_step(
+    config_dir: Option<&Path>,
+    entry: &mut AgentCacheEntry,
+    now: u64,
+) -> Option<String> {
+    claude_keep_alive_step_at(claude_oauth::CLAUDE_TOKEN_URL, config_dir, entry, now)
+}
+
+/// [`claude_keep_alive_step`] against ONE token endpoint — the seam the tests
+/// point at a local server, since [`claude_oauth::CLAUDE_TOKEN_URL`] is a
+/// const.
+fn claude_keep_alive_step_at(
+    endpoint: &str,
+    config_dir: Option<&Path>,
+    entry: &mut AgentCacheEntry,
+    now: u64,
+) -> Option<String> {
+    // The grants this login already knows are dead: cloned because the
+    // request borrows them while `entry` is written below.
+    let dead = entry.dead_refresh_tokens.clone();
+    let outcome = claude_oauth::refresh_if_expiring(RefreshRequest {
+        config_dir,
+        token_endpoint: endpoint,
+        now,
+        margin_secs: usage_cache::CLAUDE_REFRESH_MARGIN_SECS,
+        dead_refresh_tokens: &dead,
+        lock_options: crate::lockfile::LockOptions::oauth_refresh(),
+    });
+    // A fixed word, never a token: every arm below logs through this.
+    let label = outcome.label();
+    match outcome {
+        RefreshOutcome::Refreshed {
+            access_token,
+            expires_at_ms,
+            wrote,
+        } => {
+            usage_cache::note_refresh_ok(entry, expires_at_ms, now);
+            match wrote {
+                // The keychain refused cleanly and the rotated pair went to
+                // `<root>/.credentials.json` instead. Nothing is lost, but the
+                // login's store MOVED — worth a line at the next incident.
+                WriteOutcome::SavedToFallbackFile => log::warn!(
+                    "claude keep-alive: {label} ({wrote:?}) — the credential store refused, so the rotated token went to the fallback file"
+                ),
+                _ => log::info!("claude keep-alive: {label} ({wrote:?})"),
+            }
+            Some(access_token)
+        }
+        RefreshOutcome::NotNeeded {
+            access_token,
+            expires_at_ms,
+        } => {
+            usage_cache::note_credential_expiry(entry, expires_at_ms);
+            log::debug!("claude keep-alive: {label}");
+            Some(access_token)
+        }
+        // A store with no refresh token will not grow one without a relogin:
+        // an hour, not ten minutes, or every beat re-reads the keychain.
+        RefreshOutcome::NoRefreshToken => {
+            usage_cache::note_refresh_failed(
+                entry,
+                now,
+                usage_cache::REFRESH_UNSUPPORTED_BACKOFF_SECS,
+            );
+            log::debug!("claude keep-alive: {label}");
+            None
+        }
+        RefreshOutcome::InvalidGrant { dead_marker } => {
+            usage_cache::note_dead_refresh_token(entry, dead_marker);
+            entry.health = Some(
+                crate::agent_accounts::Health::NeedsRelogin
+                    .as_str()
+                    .to_string(),
+            );
+            // The dead marker alone would still cost a store read every beat
+            // (the precheck has to see the token to recognise it), so the
+            // same long backoff applies.
+            //
+            // ACCEPTED CONSEQUENCE: `apply_outcome` flips health back to `ok`
+            // if a later usage GET on the still-live ACCESS token succeeds —
+            // health is the probe's fact (EXP-849) and we do not fight it.
+            // The persisted dead marker is what matters; `needs_relogin`
+            // returns for good with the first 401 after the access token
+            // expires, which is the truth arriving a few hours late.
+            usage_cache::note_refresh_failed(
+                entry,
+                now,
+                usage_cache::REFRESH_UNSUPPORTED_BACKOFF_SECS,
+            );
+            log::warn!("claude keep-alive: {label} — this login needs a re-login");
+            None
+        }
+        // A sibling process or the CLI itself is refreshing right now. Nothing
+        // was spent and nothing is owed: the next beat re-reads the store and
+        // finds their token. Silent on purpose — it is the normal outcome on a
+        // machine running both the IDE and the daemon.
+        RefreshOutcome::Contended => None,
+        // EXP-849's rule: a flaky network is not a broken account, so health
+        // is untouched and only the backoff moves.
+        RefreshOutcome::Failed(reason) => {
+            usage_cache::note_refresh_failed(entry, now, usage_cache::REFRESH_FAILED_BACKOFF_SECS);
+            log::warn!("claude keep-alive: {label} ({reason})");
+            None
+        }
+        // A keychain ACL modal nobody will answer: stop asking for an hour,
+        // exactly as a refused usage read does.
+        RefreshOutcome::Denied => {
+            entry.credential_denied_until_secs =
+                Some(now + usage_cache::CREDENTIAL_DENIED_BACKOFF_SECS);
+            log::warn!("claude keep-alive: {label} — the credential store refused");
+            None
+        }
+    }
+}
+
 /// Probe ONE login's usage. EXP-808: `config_dir` is the account profile's
 /// config dir — claude reads the credential kept beside it, codex answers
 /// with that `CODEX_HOME` in its app-server's env. `None` = the ambient
 /// login.
+///
+/// EXP-852: `fresh_access_token` is the token claude's keep-alive just
+/// rotated for THIS login, when it ran on this beat.
+// One call site per match arm, and every argument is a fact the CALLER
+// already holds (the plan's target, the pass's cache entry, the keep-alive's
+// answers): bundling them into a struct would move the same fields one line
+// up and hide which of them each agent arm actually reads.
+#[allow(clippy::too_many_arguments)]
 fn probe_agent(
     agent: CodingAgent,
     settings: &Settings,
@@ -1601,10 +1712,18 @@ fn probe_agent(
     entry: &mut AgentCacheEntry,
     now: u64,
     keep_alive: bool,
+    fresh_access_token: Option<&str>,
 ) -> AgentProbe {
     match agent {
         CodingAgent::Claude => {
             let user_agent = claude_user_agent(version);
+            // EXP-852: the keep-alive put this exact token in the store a
+            // moment ago and handed us a copy. Reading it back out is a
+            // wasted keychain shell-out (and, on macOS, a second chance for
+            // an ACL prompt) for a value we are already holding.
+            if let Some(token) = fresh_access_token {
+                return fetch_and_parse(token, &user_agent);
+            }
             match read_claude_credential_in(config_dir) {
                 CredentialRead::Denied => {
                     // The keychain refused (or nobody answered its prompt):
@@ -1623,7 +1742,17 @@ fn probe_agent(
                     account: None,
                 },
                 CredentialRead::Found(credential) => {
+                    // EXP-852: stamp what this read saw on EVERY read, the
+                    // keep-alive's setting notwithstanding — the field is the
+                    // refresh cadence's input, so flipping the setting on
+                    // must not owe a blind store read first.
+                    usage_cache::note_credential_expiry(entry, credential.expires_at_ms);
                     if credential.expired(now as i64 * 1000) {
+                        // The keep-alive is off, or it could not rotate this
+                        // login (a sibling holds the lock, the store carries
+                        // no refresh token, the grant is dead). Either way
+                        // there are no numbers this pass; the old ones stay,
+                        // dimmed, until the user's own CLI renews the token.
                         return AgentProbe {
                             outcome: PollOutcome::Failed,
                             windows: None,
@@ -3105,5 +3234,332 @@ mod tests {
         );
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // -----------------------------------------------------------------
+    // EXP-852 — claude's keep-alive
+    // -----------------------------------------------------------------
+
+    /// claude installed, signed in and NAMED — the doctor row a machine with
+    /// account profiles has (a row is what makes the pass look at profiles at
+    /// all; [`DoctorReport::agent_accounts`] carries only the agents whose
+    /// check named one).
+    fn claude_named_report() -> DoctorReport {
+        let mut report = claude_ready_report();
+        report.claude.account = Some(AgentAccount {
+            signed_in: true,
+            checked_at: String::new(),
+            ..AgentAccount::default()
+        });
+        report
+    }
+
+    /// A stand-in `claude` whose `auth status` answers as a signed-in
+    /// claude.ai subscription on first-party Anthropic — what makes an account
+    /// PROFILE usage-eligible, and therefore a login a pass looks at at all.
+    #[cfg(unix)]
+    fn claude_auth_stub(dir: &std::path::Path) -> String {
+        use std::os::unix::fs::PermissionsExt as _;
+        let program = dir.join("claude-stub.sh");
+        std::fs::write(
+            &program,
+            "#!/bin/sh\necho '{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"apiProvider\":\"firstParty\",\"email\":\"dev@acme.test\",\"subscriptionType\":\"max\"}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        program.to_string_lossy().to_string()
+    }
+
+    /// A machine with one NAMED claude account beside the ambient login, both
+    /// holding numbers too fresh to be due — so the only thing a beat can
+    /// still do is the keep-alive.
+    ///
+    /// The named login's token sits inside [`usage_cache::CLAUDE_REFRESH_MARGIN_SECS`];
+    /// the ambient one's is a month out, deliberately: its config dir is this
+    /// MACHINE's own `~/.claude`, and no test may go near it.
+    #[cfg(unix)]
+    fn claude_keep_alive_fixture(
+        tag: &str,
+        now: u64,
+    ) -> (
+        std::path::PathBuf,
+        Settings,
+        crate::agent_profiles::AgentProfile,
+    ) {
+        let dir = usage_dir(tag);
+        let settings = Settings {
+            claude_path: claude_auth_stub(&dir),
+            ..Settings::default()
+        };
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Claude, "Work").unwrap();
+        // A store the step could READ but never spend: an access token and no
+        // refresh token at all. It is what keeps these tests honest — a gate
+        // that wrongly fired would answer `NoRefreshToken` and stamp
+        // `refresh_backoff_until_secs`, which `assert_never_kept_alive`
+        // refuses — and it does it without a request ever leaving the machine.
+        std::fs::write(
+            crate::agent_profiles::profile_dir(&dir, CodingAgent::Claude, &work.id)
+                .expect("the profile has a config dir")
+                .join(".credentials.json"),
+            format!(
+                r#"{{"claudeAiOauth":{{"accessToken":"at-1","expiresAt":{}}}}}"#,
+                (now as i64 + 60) * 1000
+            ),
+        )
+        .unwrap();
+        let mut cache = usage_cache::load(&dir);
+        cache.insert(
+            usage_cache::entry_key("claude", crate::agent_profiles::SYSTEM_PROFILE),
+            AgentCacheEntry {
+                claude_expires_at_ms: Some((now as i64 + 30 * 86_400) * 1000),
+                ..cached(vec![session_window(5)], now)
+            },
+        );
+        cache.insert(
+            usage_cache::entry_key("claude", &work.id),
+            AgentCacheEntry {
+                claude_expires_at_ms: Some((now as i64 + 60) * 1000),
+                ..cached(vec![session_window(9)], now)
+            },
+        );
+        usage_cache::save(&dir, &cache);
+        (dir, settings, work)
+    }
+
+    /// Nothing was taken and nothing was recorded for `profile` — the
+    /// assertion every "the keep-alive did not run" test makes.
+    #[cfg(unix)]
+    fn assert_never_kept_alive(dir: &std::path::Path, profile: &str) {
+        let config_dir = crate::agent_profiles::profile_dir(dir, CodingAgent::Claude, profile)
+            .expect("the profile has a config dir");
+        assert!(
+            !config_dir
+                .join(crate::claude_oauth::REFRESH_LOCK_NAME)
+                .exists(),
+            "no refresh lock was ever taken under {}",
+            config_dir.display()
+        );
+        let entry = usage_cache::load(dir)
+            .get(&usage_cache::entry_key("claude", profile))
+            .cloned()
+            .expect("the login's cache entry");
+        assert_eq!(entry.refresh_backoff_until_secs, None, "no refresh state");
+        assert_eq!(entry.refreshed_at_secs, None, "no rotation was stamped");
+        assert!(entry.dead_refresh_tokens.is_empty());
+        assert_eq!(entry.credential_denied_until_secs, None);
+    }
+
+    /// EXP-852 — the keep-alive is OPT-IN: with `claudeKeepAlive` off (the
+    /// default) a login whose token sits well inside the refresh margin is not
+    /// touched at all, so a build that ships the setting off ships today's
+    /// behaviour byte for byte.
+    #[cfg(unix)]
+    #[test]
+    fn the_claude_keep_alive_is_off_by_default() {
+        let _lock = live_lock();
+        live::reset();
+        let now = 1_800_000_000;
+        let (dir, settings, work) = claude_keep_alive_fixture("keep-alive-off", now);
+        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
+        assert!(!settings.claude_keep_alive, "the default is OFF");
+        assert!(
+            usage_cache::claude_refresh_due(
+                usage_cache::load(&dir)
+                    .get(&usage_cache::entry_key("claude", &work.id))
+                    .unwrap(),
+                now
+            ),
+            "…and this login would otherwise be due"
+        );
+
+        collect_if_due(&dir, &settings, &claude_named_report(), now);
+
+        assert_never_kept_alive(&dir, &work.id);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ONE refresh actor per login, machine-wide: the daemon beside the IDE
+    /// holds this login's claim, so this pass leaves the credential alone
+    /// rather than rotating a token the holder is already replacing.
+    #[cfg(unix)]
+    #[test]
+    fn a_held_refresh_claim_parks_the_claude_keep_alive() {
+        let _lock = live_lock();
+        live::reset();
+        let now = 1_800_000_000;
+        let (dir, mut settings, work) = claude_keep_alive_fixture("keep-alive-claim", now);
+        settings.claude_keep_alive = true;
+        crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
+        // The sibling process's claim, taken a moment ago (pid + when).
+        std::fs::write(
+            dir.join(format!("claude-{}.refresh.claim", work.id)),
+            format!("4242 {now}"),
+        )
+        .unwrap();
+
+        collect_if_due(&dir, &settings, &claude_named_report(), now);
+
+        assert_never_kept_alive(&dir, &work.id);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A PARKED account — added and signed in here, but not the device default
+    /// and never used by a recorded run — is deliberately left to expire.
+    /// Keeping a credential warm is this machine asserting it needs the login,
+    /// and this machine does not.
+    #[cfg(unix)]
+    #[test]
+    fn a_parked_account_is_never_kept_alive() {
+        let _lock = live_lock();
+        live::reset();
+        let now = 1_800_000_000;
+        let (dir, mut settings, work) = claude_keep_alive_fixture("keep-alive-parked", now);
+        settings.claude_keep_alive = true;
+        // The ambient login stays the device default, so `work` is a login
+        // this machine merely HOLDS…
+        assert_eq!(
+            crate::agent_profiles::active_profile(&dir, CodingAgent::Claude),
+            crate::agent_profiles::SYSTEM_PROFILE
+        );
+        // …and no recorded run ever named it.
+        assert!(crate::run_registry::all(&dir).is_empty());
+
+        collect_if_due(&dir, &settings, &claude_named_report(), now);
+
+        assert_never_kept_alive(&dir, &work.id);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-852 — the step itself, through the real `claude_oauth` machinery
+    /// against a local token endpoint: a token inside the margin is rotated
+    /// under the CLI's own locks, exactly ONE grant is spent, the rotated pair
+    /// lands in the store it came from, and the access token comes back for
+    /// the usage GET to ride (so the probe skips a second store read).
+    #[test]
+    fn a_used_profile_refreshes_through_the_step() {
+        let dir = usage_dir("keep-alive-step");
+        let now = 1_700_000_000u64;
+        seed_claude_credentials(&dir, (now as i64 + 60) * 1000);
+        let (base, requests) = crate::test_support::canned_server_recording(vec![(
+            200,
+            r#"{"access_token":"at-2","refresh_token":"rt-2","expires_in":3600}"#.to_string(),
+        )]);
+
+        let mut entry = AgentCacheEntry::default();
+        let token = claude_keep_alive_step_at(&base, Some(&dir), &mut entry, now);
+
+        assert_eq!(
+            token.as_deref(),
+            Some("at-2"),
+            "the probe rides the new token"
+        );
+        assert_eq!(requests.lock().unwrap().len(), 1, "exactly one POST");
+        assert_eq!(
+            entry.claude_expires_at_ms,
+            Some(now as i64 * 1000 + 3_600_000),
+            "the gate now schedules off the NEW expiry"
+        );
+        assert_eq!(entry.refreshed_at_secs, Some(now));
+        assert_eq!(entry.refresh_backoff_until_secs, None);
+        assert_eq!(
+            entry.health, None,
+            "a rotation is not the probe's verdict (EXP-849)"
+        );
+        assert!(
+            !usage_cache::claude_refresh_due(&entry, now),
+            "and it is done"
+        );
+
+        let stored = stored_claude_credentials(&dir);
+        assert_eq!(stored["claudeAiOauth"]["accessToken"], "at-2");
+        assert_eq!(stored["claudeAiOauth"]["refreshToken"], "rt-2");
+        assert_eq!(
+            stored["claudeAiOauth"]["subscriptionType"], "max",
+            "the keys we do not understand survive"
+        );
+        assert!(
+            !dir.join(crate::claude_oauth::REFRESH_LOCK_NAME).exists(),
+            "the lock is released"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A dead grant is the ONE failure that is the account's own answer: the
+    /// login is flagged `needs_relogin`, the marker is remembered so a restart
+    /// never re-spends it, and the backoff keeps the next beats off the store.
+    #[test]
+    fn an_invalid_grant_marks_the_login_needs_relogin() {
+        let dir = usage_dir("keep-alive-dead");
+        let now = 1_700_000_000u64;
+        seed_claude_credentials(&dir, (now as i64 + 60) * 1000);
+        let (base, requests) = crate::test_support::canned_server_recording(vec![(
+            400,
+            r#"{"error":"invalid_grant"}"#.to_string(),
+        )]);
+
+        let mut entry = AgentCacheEntry::default();
+        assert_eq!(
+            claude_keep_alive_step_at(&base, Some(&dir), &mut entry, now),
+            None
+        );
+
+        assert_eq!(
+            entry.health.as_deref(),
+            Some(crate::agent_accounts::Health::NeedsRelogin.as_str())
+        );
+        assert_eq!(
+            entry.dead_refresh_tokens,
+            vec![crate::claude_oauth::dead_marker("rt-1")]
+        );
+        assert_eq!(
+            entry.refresh_backoff_until_secs,
+            Some(now + usage_cache::REFRESH_UNSUPPORTED_BACKOFF_SECS),
+            "the dead marker alone would still cost a store read every beat"
+        );
+        assert_eq!(requests.lock().unwrap().len(), 1);
+        // The store is untouched: a dead grant never rewrites a credential.
+        assert_eq!(
+            stored_claude_credentials(&dir)["claudeAiOauth"]["accessToken"],
+            "at-1"
+        );
+
+        // The next beat recognises the grant before it reaches the endpoint.
+        assert_eq!(
+            claude_keep_alive_step_at(&base, Some(&dir), &mut entry, now + 1),
+            None
+        );
+        assert_eq!(
+            requests.lock().unwrap().len(),
+            1,
+            "a dead grant is never POSTed twice"
+        );
+        assert_eq!(entry.dead_refresh_tokens.len(), 1, "moved, not duplicated");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file-backed `.credentials.json` under `config_dir` — the store shape
+    /// an account profile keeps beside its config.
+    fn seed_claude_credentials(dir: &std::path::Path, expires_at_ms: i64) {
+        std::fs::write(
+            dir.join(".credentials.json"),
+            serde_json::json!({
+                "claudeAiOauth": {
+                    "accessToken": "at-1",
+                    "refreshToken": "rt-1",
+                    "expiresAt": expires_at_ms,
+                    "subscriptionType": "max",
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    fn stored_claude_credentials(dir: &std::path::Path) -> Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join(".credentials.json")).unwrap())
+            .unwrap()
     }
 }
