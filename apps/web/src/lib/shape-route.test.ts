@@ -577,6 +577,7 @@ describe(`shape column + trash contracts`, () => {
       `agent_busy`,
       `agent_caption`,
       `blocked`,
+      `results`,
       `started_at`,
       `ended_at`,
       `created_at`,

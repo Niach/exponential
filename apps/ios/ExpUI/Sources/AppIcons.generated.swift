@@ -182,6 +182,7 @@ public enum AppIcons {
         "history",
         "house",
         "image",
+        "images",
         "inbox",
         "info",
         "italic",
@@ -749,4 +750,6 @@ public enum AppIcons {
     public static let uiWidget: String = "megaphone"
     /// Concept `work-faces`.
     public static let workFaces: String = "layers-2"
+    /// Concept `work-results`.
+    public static let workResults: String = "images"
 }

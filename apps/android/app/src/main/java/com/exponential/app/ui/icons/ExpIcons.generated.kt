@@ -3026,6 +3026,39 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `images`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "images",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m22 11-1.296-1.296a2.4 2.4 0 0 0-3.408 0L11 16"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 8a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(addPathNodes("M12 7A1 1 0 1 0 14 7A1 1 0 1 0 12 7Z"), fill = SolidColor(Color.Black))
+            addPath(
+                addPathNodes("M10 2H20A2 2 0 0 1 22 4V14A2 2 0 0 1 20 16H10A2 2 0 0 1 8 14V4A2 2 0 0 1 10 2Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `inbox`: ImageVector by lazy {
         ImageVector.Builder(
             name = "inbox",
@@ -6538,6 +6571,7 @@ public object ExpIcons {
         "history" -> `history`
         "house" -> `house`
         "image" -> `image`
+        "images" -> `images`
         "inbox" -> `inbox`
         "info" -> `info`
         "italic" -> `italic`
@@ -7101,4 +7135,6 @@ public object ExpIcons {
     public val uiWidget: ImageVector get() = `megaphone`
     /** Concept `work-faces`. */
     public val workFaces: ImageVector get() = `layers-2`
+    /** Concept `work-results`. */
+    public val workResults: ImageVector get() = `images`
 }

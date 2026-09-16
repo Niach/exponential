@@ -32,7 +32,9 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // list keys its working spinner on it, because `running` alone says live, not
 // thinking), and `agent_caption` for EXP-850 (the device-written working
 // caption — the second line of every session list row, which otherwise only
-// says a run is live and never what it is doing) — each a
+// says a run is live and never what it is doing), and `results` for
+// EXP-879 (the screenshots a run published of its own work, the Results
+// face ×4 — a flat capped jsonb array, bytes in session_attachments) — each a
 // ONE-TIME shape-identity rotation (benign: small table, full resync; land in
 // one deploy).
 // `merged_own_pr` stays OUT: server-only like `host_user_id` (nothing on a
@@ -67,6 +69,7 @@ const CODING_SESSION_COLUMNS = [
   `agent_busy`,
   `agent_caption`,
   `blocked`,
+  `results`,
   `started_at`,
   `ended_at`,
   `created_at`,
