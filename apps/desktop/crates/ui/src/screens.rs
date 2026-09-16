@@ -1451,7 +1451,8 @@ impl ScreensPanel {
                 .filter(|(stored, _)| *stored == screen)
                 .and_then(|(_, origin)| origin.clone());
             let origin =
-                resolve_tab_origin(pending_origin.as_ref(), existing.as_ref(), derived);
+                resolve_tab_origin(pending_origin.as_ref(), existing.as_ref(), derived)
+                    .filter(|origin| !origin.is_list_of(&screen));
             self.transient_origin = Some((screen, origin));
             return;
         }
@@ -1702,14 +1703,17 @@ impl ScreensPanel {
 
     /// EXP-818: the remembered origin of `screen`'s tab, if it has one.
     pub(crate) fn origin_of(&self, screen: &Screen) -> Option<TabOrigin> {
-        if let Some(tab) = self.tabs.iter().find(|tab| tab.holds(screen)) {
-            return tab.origin.clone();
-        }
-        // EXP-851: the tab-less PR diff keeps its list in its own slot.
-        self.transient_origin
-            .as_ref()
-            .filter(|(stored, _)| stored == screen)
-            .and_then(|(_, origin)| origin.clone())
+        let origin = match self.tabs.iter().find(|tab| tab.holds(screen)) {
+            Some(tab) => tab.origin.clone(),
+            // EXP-851: the tab-less PR diff keeps its list in its own slot.
+            None => self
+                .transient_origin
+                .as_ref()
+                .filter(|(stored, _)| stored == screen)
+                .and_then(|(_, origin)| origin.clone()),
+        };
+        // EXP-890: a screen never sits beside ITSELF (whatever stamped it).
+        origin.filter(|origin| !origin.is_list_of(screen))
     }
 
     /// EXP-791: whether the bottom session bar has anything to show — it
