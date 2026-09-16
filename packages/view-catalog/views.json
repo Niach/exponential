@@ -1161,8 +1161,8 @@
         }
       },
       "notes": {
-        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card now starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor stays a line of the first card's own patch (strings.xml's added feature_topic_api_error string). The md+ column is the file TREE and it no longer folds; the phone has no column at all (the list is a sheet off the work bar), and the page's own header carries the identifier, the PR state, reject, Merge PR and GitHub.",
-        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands."
+        "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card now starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor stays a line of the first card's own patch (strings.xml's added feature_topic_api_error string). On md+ the file TREE is the SIDEBAR's panel (the review's context, beside the compact rail, the way a list sits beside any other detail — desktop parity), so the cards take the whole column; the phone has no column at all (the list is a sheet off the work bar), and the page's own header carries the identifier, the PR state, reject, Merge PR and GitHub.",
+        "desktop": "Deep-linking straight into a PR diff used to race the session bootstrap and latch \"Not signed in\"; the fetch now stays pending and retries when the session lands. EXP-916: the file tree is the window's LEFT COLUMN (`LeftOccupant::ReviewFiles`, back row → Reviews), not a card beside the diff column."
       }
     },
     {

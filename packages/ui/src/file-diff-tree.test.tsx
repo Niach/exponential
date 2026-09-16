@@ -106,6 +106,17 @@ describe(`FileDiffTree`, () => {
     ).toContain(`bg-glass-active`)
   })
 
+  // EXP-916: as the sidebar's panel the tree drops its card chrome and lets
+  // the column frame it.
+  it(`flush drops the card chrome`, () => {
+    const { rerender } = render(<FileDiffTree files={FILES} onSelect={() => {}} />)
+    expect(screen.getByTestId(`file-diff-tree`).className).toContain(`border`)
+    rerender(<FileDiffTree files={FILES} onSelect={() => {}} flush />)
+    const tree = screen.getByTestId(`file-diff-tree`)
+    expect(tree.className).not.toContain(`border`)
+    expect(tree.dataset.flush).toBe(`true`)
+  })
+
   it(`an empty diff says so through the summary label`, () => {
     render(<FileDiffTree files={[]} onSelect={vi.fn()} />)
     expect(screen.getByText(`No changes`)).toBeTruthy()

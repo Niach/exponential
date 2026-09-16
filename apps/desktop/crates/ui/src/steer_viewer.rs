@@ -2649,6 +2649,9 @@ impl SteerSessionView {
                 header: None,
                 files,
                 selected: self.diff_selected,
+                // The run's Changes face keeps its tree beside the column —
+                // the left column holds the list the run was opened from.
+                tree: true,
                 filter: Some(self.diff_filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
                 caption: None,

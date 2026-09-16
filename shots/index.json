@@ -994,8 +994,8 @@
         "file": "shots/review-diff/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 90472,
-        "sha256": "a8fde36d5fba160fdd4f95b17fcc0498cf6f58d51de26428e84b30d16fe6cc94"
+        "bytes": 80992,
+        "sha256": "70297095eb327edc772e1f4d41fe4f55b6c8ec4c6de20a5c04269a230d403018"
       },
       "ios": {
         "file": "shots/review-diff/ios.webp",
@@ -1008,8 +1008,8 @@
         "file": "shots/review-diff/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 96280,
-        "sha256": "003b0f02700304abd6f9012e73fb8c99ffb4dfddedf92945fa4b5b7a77d8c2d3"
+        "bytes": 89708,
+        "sha256": "1f1255190d1228f783134f2405746066696de4b5bdfbbca276267ed333befcfb"
       },
       "web-mobile": {
         "file": "shots/review-diff/web-mobile.webp",

@@ -43,6 +43,7 @@ import {
 } from "@/components/mobile-work-bar"
 import { useSteerConfig } from "@/components/agent-session"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { publishReviewFiles } from "@/lib/review-files-slot"
 
 // Review-detail (EXP-106): the PR/branch diff for one review, with Merge/Close
 // actions moved off the issue detail. The representative issue carries the PR;
@@ -54,6 +55,10 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // with its own confirm and the Fix-conflicts swap), so the route keeps only the
 // CLOSE mutation; on a phone the bar is the shared `MobileWorkBar` (file sheet ·
 // Merge capsule · GitHub) and Close moves into the header's `…`.
+//
+// EXP-916: on md+ the file TREE is the SIDEBAR's panel (`ReviewFilesNav`,
+// fed through `review-files-slot.ts`), a review's context where another
+// detail keeps its list — so the cards take the whole column here.
 export const Route = createFileRoute(
   `/t/$teamSlug/reviews/$issueIdentifier`
 )({
@@ -142,6 +147,21 @@ function ReviewDetailPage() {
   const { state: filesState, reload: reloadFiles } = useReviewFiles(issue)
   const files = filesState.kind === `files` ? filesState.files : []
   const [selected, setSelected] = useState<string | null>(null)
+
+  // EXP-916: hand the sidebar's tree what it draws — the files, the selection
+  // and the pick that scrolls the diff — and take it back on the way out.
+  const issueId = issue?.id ?? null
+  useEffect(() => {
+    if (!issueId) return
+    publishReviewFiles({
+      issueId,
+      status: filesState.kind,
+      files,
+      selected,
+      onSelect: setSelected,
+    })
+  }, [issueId, filesState.kind, files, selected])
+  useEffect(() => () => publishReviewFiles(null), [])
 
   // Close holds its spinner until the Electric echo flips prState away from
   // `open` (which hides the action), matching the Reviews list. Merge's own
@@ -360,10 +380,10 @@ function ReviewDetailPage() {
           ) : files.length > 0 ? (
             /* EXP-916: every card starts OPEN — a review is read top to
                bottom, and only a file past the contract's collapse threshold
-               folds itself. */
+               folds itself. The tree is the sidebar's (`nav="none"`). */
             <ChangesView
               files={files}
-              nav="auto"
+              nav="none"
               selected={selected}
               onSelect={setSelected}
             />

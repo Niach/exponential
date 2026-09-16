@@ -124,26 +124,32 @@ const PANEL_MARGIN_TOP: f32 = 0.;
 /// `mainPanelClass(docked)`).
 const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 
-/// EXP-851: who owns the window's leftmost column. Exactly THREE occupants —
-/// the rail (the default), the settings nav (Settings replaces the rail
-/// outright, EXP-456) and the `ListNav` (the list an open detail was picked
-/// from, EXP-851).
+/// EXP-851: who owns the window's leftmost column. FOUR occupants — the
+/// rail (the default), the settings nav (Settings replaces the rail
+/// outright, EXP-456), the `ListNav` (the list an open detail was picked
+/// from, EXP-851) and (EXP-916) the review's file tree
+/// ([`crate::review_files_nav`]): a review's context is the files its pull
+/// request touches, so THAT sits beside it instead of the Reviews queue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LeftOccupant {
     Rail,
     Settings,
     ListNav,
+    ReviewFiles,
 }
 
-/// EXP-851: the pure occupant rule — Settings wins, then a list origin, else
-/// the rail. `origin` is the list the ACTIVE screen carries
-/// ([`list_nav_origin`]).
+/// EXP-851: the pure occupant rule — Settings wins, then (EXP-916) the
+/// review screen's file tree, then a list origin, else the rail. `origin`
+/// is the list the ACTIVE screen carries ([`list_nav_origin`]).
 pub(crate) fn left_occupant_for(
     screen: Option<&Screen>,
     origin: Option<&crate::navigation::TabOrigin>,
 ) -> LeftOccupant {
     if matches!(screen, Some(Screen::Settings)) {
         return LeftOccupant::Settings;
+    }
+    if matches!(screen, Some(Screen::PrDiff { .. })) {
+        return LeftOccupant::ReviewFiles;
     }
     if origin.is_some() {
         return LeftOccupant::ListNav;
@@ -182,7 +188,9 @@ pub(crate) fn window_left_occupant(window: &Window, cx: &App) -> LeftOccupant {
 pub(crate) const fn left_column_width_for(occupant: LeftOccupant) -> f32 {
     match occupant {
         LeftOccupant::Rail => LEFT_COLUMN_WIDTH,
-        LeftOccupant::Settings | LeftOccupant::ListNav => COMPACT_RAIL_WIDTH + LEFT_COLUMN_WIDTH,
+        LeftOccupant::Settings | LeftOccupant::ListNav | LeftOccupant::ReviewFiles => {
+            COMPACT_RAIL_WIDTH + LEFT_COLUMN_WIDTH
+        }
     }
 }
 
@@ -198,7 +206,7 @@ pub(crate) fn window_left_column_width(window: &Window, cx: &App) -> f32 {
 pub(crate) const fn occupant_depth(occupant: LeftOccupant) -> u8 {
     match occupant {
         LeftOccupant::Rail => 0,
-        LeftOccupant::ListNav => 1,
+        LeftOccupant::ListNav | LeftOccupant::ReviewFiles => 1,
         LeftOccupant::Settings => 2,
     }
 }
@@ -313,6 +321,8 @@ pub struct Shell {
     /// EXP-851: the `ListNav` — the third occupant of that same slot, the
     /// simplified list an open detail was picked from.
     list_nav: Entity<crate::sidebar::ListPanel>,
+    /// EXP-916: the fourth — the review screen's file tree.
+    review_files: Entity<crate::review_files_nav::ReviewFilesNav>,
     /// EXP-456/EXP-851: the left column's occupant-swap transition state.
     left_anim: LeftColumnAnim,
     _left_anim_task: Option<Task<()>>,
@@ -542,6 +552,7 @@ impl Shell {
         let settings_nav = cx.new(|cx| SettingsNavPanel::new(window, cx));
         let list_nav =
             cx.new(|cx| crate::sidebar::ListPanel::new(crate::sidebar::ListMode::Nav, window, cx));
+        let review_files = cx.new(|cx| crate::review_files_nav::ReviewFilesNav::new(window, cx));
 
         // EXP-456: seed the swap state from the CURRENT screen so a window
         // that opens straight into settings (EXP_DEV_SCREEN=settings) shows
@@ -555,6 +566,7 @@ impl Shell {
             rail,
             settings_nav,
             list_nav,
+            review_files,
             left_anim,
             _left_anim_task: None,
             left_strip_should_move: false,
@@ -808,6 +820,7 @@ impl Shell {
             LeftOccupant::Rail => self.rail.clone().into_any_element(),
             LeftOccupant::Settings => self.settings_nav.clone().into_any_element(),
             LeftOccupant::ListNav => self.list_nav.clone().into_any_element(),
+            LeftOccupant::ReviewFiles => self.review_files.clone().into_any_element(),
         };
         div()
             .w(px(LEFT_COLUMN_WIDTH))
@@ -1712,6 +1725,19 @@ mod tests {
             LeftOccupant::ListNav
         );
         assert_eq!(left_occupant_for(Some(&issue), None), LeftOccupant::Rail);
+        // EXP-916: a review's context is its file tree — with or without the
+        // Reviews list it was opened from.
+        let review = Screen::PrDiff {
+            issue_id: "i1".into(),
+        };
+        assert_eq!(
+            left_occupant_for(Some(&review), Some(&board)),
+            LeftOccupant::ReviewFiles
+        );
+        assert_eq!(
+            left_occupant_for(Some(&review), None),
+            LeftOccupant::ReviewFiles
+        );
         assert_eq!(
             left_occupant_for(
                 Some(&Screen::BoardIssues {
@@ -1735,6 +1761,7 @@ mod tests {
         assert_eq!(left_column_width_for(LeftOccupant::Rail), 272.);
         assert_eq!(left_column_width_for(LeftOccupant::ListNav), 320.);
         assert_eq!(left_column_width_for(LeftOccupant::Settings), 320.);
+        assert_eq!(left_column_width_for(LeftOccupant::ReviewFiles), 320.);
         // A screen's OWN list column (Files, Source Control) is a different
         // measure and keeps its own constant.
         assert_eq!(SCREEN_LIST_WIDTH, 320.);
@@ -1745,6 +1772,11 @@ mod tests {
     fn slide_direction_follows_depth() {
         assert!(occupant_depth(LeftOccupant::ListNav) > occupant_depth(LeftOccupant::Rail));
         assert!(occupant_depth(LeftOccupant::Settings) > occupant_depth(LeftOccupant::ListNav));
+        // EXP-916: the review's tree is a panel like the ListNav — one step in.
+        assert_eq!(
+            occupant_depth(LeftOccupant::ReviewFiles),
+            occupant_depth(LeftOccupant::ListNav)
+        );
     }
 
     #[test]

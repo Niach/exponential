@@ -1700,6 +1700,12 @@ impl ScreensPanel {
         }
     }
 
+    /// EXP-916: the shared PR diff view — the review screen's, whose file
+    /// tree the window's left column paints ([`crate::review_files_nav`]).
+    pub(crate) fn pr_diff(&self) -> &Entity<crate::pr_diff::PrDiffView> {
+        &self.pr_diff
+    }
+
     /// EXP-818: the remembered origin of `screen`'s tab, if it has one.
     pub(crate) fn origin_of(&self, screen: &Screen) -> Option<TabOrigin> {
         let origin = match self.tabs.iter().find(|tab| tab.holds(screen)) {

@@ -153,11 +153,50 @@ impl PrDiffView {
     }
 
     /// Name `index` in the file list and scroll the diff to it.
-    fn select_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+    pub(crate) fn select_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
         self.selected = index;
         self.diff
             .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
         cx.notify();
+    }
+
+    /// Fold `path` in the file tree, or open it again.
+    pub(crate) fn toggle_dir(&mut self, path: String, cx: &mut gpui::Context<Self>) {
+        if !self.folded_dirs.insert(path.clone()) {
+            self.folded_dirs.remove(&path);
+        }
+        cx.notify();
+    }
+
+    /// EXP-916: the tree's inputs, for whoever paints it — this view's own
+    /// pane (embedded in an issue tab, or undocked) or the window's left
+    /// column ([`crate::review_files_nav`]) beside the review screen.
+    pub(crate) fn pane_files(&self, cx: &App) -> Vec<crate::diff_pane::PaneFile> {
+        self.diff
+            .read(cx)
+            .files()
+            .iter()
+            .map(|file| {
+                crate::diff_pane::PaneFile::from_parts(
+                    &file.filename,
+                    file.status,
+                    file.additions,
+                    file.deletions,
+                )
+            })
+            .collect()
+    }
+
+    pub(crate) fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub(crate) fn filter(&self) -> &Entity<gpui_component::input::InputState> {
+        &self.filter
+    }
+
+    pub(crate) fn folded_dirs(&self) -> &std::collections::HashSet<String> {
+        &self.folded_dirs
     }
 }
 
@@ -182,20 +221,14 @@ impl Render for PrDiffView {
 
         // The files (and with them the counts) come off the diff's own
         // summaries — nothing is counted until they are in hand.
-        let files: Vec<crate::diff_pane::PaneFile> = self
-            .diff
-            .read(cx)
-            .files()
-            .iter()
-            .map(|file| {
-                crate::diff_pane::PaneFile::from_parts(
-                    &file.filename,
-                    file.status,
-                    file.additions,
-                    file.deletions,
-                )
-            })
-            .collect();
+        let files = self.pane_files(cx);
+        // EXP-916: on the REVIEW screen the tree is the window's left
+        // column's ([`crate::review_files_nav`], the sidebar beside every
+        // detail); the pane paints its own only where no such column exists
+        // — embedded in an issue tab (the column holds the board's list) or
+        // in an undocked window (no column at all).
+        let tree_in_sidebar =
+            !self.embedded && crate::screens::screens_for_window(window, cx).is_some();
         let totals = domain::diff::Totals {
             files: files.len(),
             additions: files.iter().map(|file| file.additions).sum(),
@@ -401,6 +434,7 @@ impl Render for PrDiffView {
                 header,
                 files,
                 selected: self.selected,
+                tree: !tree_in_sidebar,
                 filter: Some(self.filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
                 caption,
@@ -409,10 +443,7 @@ impl Render for PrDiffView {
                     this.select_file(index, cx);
                 }),
                 on_toggle_dir: std::rc::Rc::new(|this: &mut Self, path: String, cx| {
-                    if !this.folded_dirs.insert(path.clone()) {
-                        this.folded_dirs.remove(&path);
-                    }
-                    cx.notify();
+                    this.toggle_dir(path, cx);
                 }),
             },
             window,

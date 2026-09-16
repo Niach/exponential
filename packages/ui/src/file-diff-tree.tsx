@@ -32,12 +32,17 @@ export function FileDiffTree({
   files,
   selected,
   onSelect,
+  flush = false,
   className,
 }: {
   files: readonly DiffFile[]
   /** The path the caller is showing — highlighted in the list. */
   selected?: string | null
   onSelect: (path: string) => void
+  /** EXP-916: no card chrome and the rows fill the height — the tree as
+   *  the sidebar's panel (a review's `ReviewFilesNav`), whose column is
+   *  the frame. Default: a bordered card beside the diff. */
+  flush?: boolean
   className?: string
 }) {
   const [filter, setFilter] = useState(``)
@@ -123,10 +128,21 @@ export function FileDiffTree({
 
   return (
     <div
-      className={cn(`rounded-md border border-glass-stroke`, className)}
+      className={cn(
+        flush
+          ? `flex h-full min-h-0 flex-col`
+          : `rounded-md border border-glass-stroke`,
+        className
+      )}
       data-testid="file-diff-tree"
+      data-flush={flush || undefined}
     >
-      <div className="flex items-center gap-2 rounded-t-md border-b border-glass-stroke bg-glass-section px-3 py-1.5 text-xs">
+      <div
+        className={cn(
+          `flex items-center gap-2 border-b border-glass-stroke bg-glass-section px-3 py-1.5 text-xs`,
+          !flush && `rounded-t-md`
+        )}
+      >
         <span className="min-w-0 truncate font-medium">{summary}</span>
       </div>
       <div className="border-b border-glass-stroke p-1.5">
@@ -139,7 +155,14 @@ export function FileDiffTree({
           data-testid="diff-nav-filter"
         />
       </div>
-      <div className="max-h-[60vh] overflow-y-auto py-1">{rows}</div>
+      <div
+        className={cn(
+          `overflow-y-auto py-1`,
+          flush ? `min-h-0 flex-1` : `max-h-[60vh]`
+        )}
+      >
+        {rows}
+      </div>
     </div>
   )
 }

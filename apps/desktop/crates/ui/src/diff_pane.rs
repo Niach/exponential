@@ -145,6 +145,12 @@ pub(crate) struct DiffPaneSpec<V: Render> {
     pub(crate) files: Vec<PaneFile>,
     /// The file the tree highlights (an index into `files`).
     pub(crate) selected: usize,
+    /// EXP-916: whether the pane draws the file tree BESIDE its column.
+    /// `false` where the window's left column carries it instead — the
+    /// review screen ([`crate::review_files_nav`]), whose tree sits in the
+    /// sidebar like every other detail's context. The selection, the filter
+    /// and the folds are still the host's, whichever side paints them.
+    pub(crate) tree: bool,
     /// The `Filter files` field's state. `None` = no filter on this surface.
     pub(crate) filter: Option<Entity<InputState>>,
     /// The directories the reader FOLDED. Every directory is open by
@@ -243,6 +249,16 @@ impl domain::diff_tree::DiffTreeRow for PaneFile {
     }
 }
 
+/// EXP-916: where the tree is painted — a glass CARD beside the diff column
+/// (the pane's own tree, [`FILE_LIST_WIDTH`] wide) or the bare PANEL that
+/// fills the window's left column ([`crate::review_files_nav`]), whose
+/// chrome is the column's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TreeChrome {
+    Card,
+    Panel,
+}
+
 /// EXP-916 — the file TREE column: the summary, the `Filter files` field and
 /// the tree itself ([`domain::diff_tree::diff_file_tree`], the ×4 mirror).
 ///
@@ -259,6 +275,7 @@ pub(crate) fn file_tree<V: Render>(
     folded: &HashSet<String>,
     on_pick: PickFile<V>,
     on_toggle_dir: ToggleDir<V>,
+    chrome: TreeChrome,
     window: &Window,
     cx: &mut Context<V>,
 ) -> AnyElement {
@@ -271,10 +288,17 @@ pub(crate) fn file_tree<V: Render>(
         .map(|state| state.read(cx).value().to_string())
         .unwrap_or_default();
     let nodes = diff_file_tree(files, &query);
-    let mut card = crate::surface::glass_card()
+    let shell = match chrome {
+        TreeChrome::Card => crate::surface::glass_card()
+            .w(px(FILE_LIST_WIDTH))
+            .flex_shrink_0(),
+        // The panel's chrome is the left column's: no card stroke, the
+        // full width and height of the slot.
+        TreeChrome::Panel => v_flex().size_full(),
+    };
+    let mut card = shell
         .id("diff-file-tree")
-        .w(px(FILE_LIST_WIDTH))
-        .flex_shrink_0()
+        .min_w_0()
         .overflow_hidden()
         .child(
             h_flex()
@@ -285,6 +309,13 @@ pub(crate) fn file_tree<V: Render>(
                 .px_2p5()
                 .py_2()
                 .text_xs()
+                // The panel's summary is a section band (web: `bg-glass-section`
+                // over a hairline) — the card's is its own top edge already.
+                .when(chrome == TreeChrome::Panel, |row| {
+                    row.bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+                        .border_b_1()
+                        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                })
                 .child(
                     div()
                         .flex_1()
@@ -516,6 +547,7 @@ pub(crate) fn render<V: Render>(
         header,
         files,
         selected,
+        tree,
         filter,
         folded_dirs,
         caption,
@@ -523,7 +555,7 @@ pub(crate) fn render<V: Render>(
         on_pick,
         on_toggle_dir,
     } = spec;
-    let tree = fits_tree(window).then(|| {
+    let tree = (tree && fits_tree(window)).then(|| {
         file_tree(
             &files,
             selected,
@@ -531,6 +563,7 @@ pub(crate) fn render<V: Render>(
             &folded_dirs,
             on_pick,
             on_toggle_dir,
+            TreeChrome::Card,
             window,
             cx,
         )
