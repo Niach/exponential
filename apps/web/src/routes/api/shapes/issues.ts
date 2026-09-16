@@ -40,6 +40,7 @@ export const ISSUE_COLUMNS = [
   `pr_state`,
   `branch`,
   `pr_merged_at`,
+  `pr_base_branch`,
   `created_at`,
   `updated_at`,
 ]

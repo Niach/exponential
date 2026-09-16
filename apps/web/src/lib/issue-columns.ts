@@ -29,6 +29,7 @@ export const issueWireColumns = {
   prState: issues.prState,
   branch: issues.branch,
   prMergedAt: issues.prMergedAt,
+  prBaseBranch: issues.prBaseBranch,
   createdAt: issues.createdAt,
   updatedAt: issues.updatedAt,
 }

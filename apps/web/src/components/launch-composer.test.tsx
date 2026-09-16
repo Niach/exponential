@@ -6,6 +6,11 @@ import type { LaunchOptions } from "@/components/launch-dialog/use-launch-option
 import type { SteerDevice } from "@/lib/steer-devices"
 import { builtinCreateAction, builtinFixConflictsAction } from "@/lib/builtin-actions"
 import { CHAT_SUGGESTION_COUNT, CHAT_SUGGESTION_POOL } from "@/lib/chat-suggestions"
+import {
+  BLOCKED_START_TITLE,
+  START_ANYWAY_LABEL,
+  STACKED_PR_LABEL,
+} from "@/lib/stack-start"
 
 // EXP-825: the composer card over a FAKE model — chips, the per-subject
 // submit label and placeholder, Enter-sends, the suggestion pills. The hook
@@ -110,6 +115,11 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     resume: true,
     setResume: vi.fn(),
     resumeActive: false,
+    blockedStart: [],
+    blockedOpen: false,
+    closeBlockedStart: vi.fn(),
+    startAnyway: vi.fn().mockResolvedValue(undefined),
+    startStacked: vi.fn().mockResolvedValue(undefined),
     launch: fakeLaunch(),
     candidateDevices: [device],
     deviceRequestNote: null,
@@ -280,5 +290,40 @@ describe(`LaunchComposer`, () => {
     expect(screen.getByTestId(`agent-options-row`).textContent).toContain(
       `No desktop online`
     )
+  })
+})
+
+// EXP-897: the blocked-start dialog the composer opens on a blocked issue.
+describe(`LaunchComposer blocked start`, () => {
+  it(`offers Cancel, Start anyway and Stacked PR over the blocker chips`, () => {
+    const startAnyway = vi.fn().mockResolvedValue(undefined)
+    const startStacked = vi.fn().mockResolvedValue(undefined)
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          subject: { kind: `issues`, ids: [`i1`] },
+          checkedIssues: [issue(`i1`, `APP-1`)],
+          blockedStart: [issue(`i2`, `APP-2`)],
+          blockedOpen: true,
+          startAnyway,
+          startStacked,
+          blocked: false,
+        })}
+        users={[]}
+      />
+    )
+    expect(screen.getByText(BLOCKED_START_TITLE)).toBeTruthy()
+    // The blocker rides an ordinary issue chip.
+    expect(screen.getByTestId(`blocked-start-chip-APP-2`)).toBeTruthy()
+    expect(screen.getByText(`Cancel`)).toBeTruthy()
+    fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
+    expect(startAnyway).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByText(STACKED_PR_LABEL))
+    expect(startStacked).toHaveBeenCalledTimes(1)
+  })
+
+  it(`stays shut while nothing blocks the subject`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    expect(screen.queryByText(BLOCKED_START_TITLE)).toBeNull()
   })
 })

@@ -86,9 +86,9 @@ use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
-    spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, HistoryPageAsk,
-    HistoryPageFn, HistoryPageReply, HistoryRequestFn, RemoteStart, RemoteStartSubject,
-    TrpcControlApi,
+    spawn_control_channel, stack_launch, ControlApi, ControlChannelHandle, DeviceIdentity,
+    HistoryPageAsk, HistoryPageFn, HistoryPageReply, HistoryRequestFn, RemoteStart,
+    RemoteStartSubject, TrpcControlApi,
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
@@ -115,7 +115,8 @@ pub use frames::{
     rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, BackgroundTask,
     BackgroundTaskKind, ClientFrame, QueuedMessage, QUEUE_MAX, QUEUE_TEXT_MAX,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
-    StartRepoGroup, SteerRole, SubagentStatus, ToolKind, ToolPreview, ToolUpdateStatus, TurnState,
+    StartRepoGroup, StartStack, StartStackIssue, SteerRole, SubagentStatus, ToolKind, ToolPreview,
+    ToolUpdateStatus, TurnState,
     ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
     CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
 };

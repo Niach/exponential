@@ -1,4 +1,5 @@
-import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -19,9 +20,15 @@ import { generateTxId } from "@/lib/trpc"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { syncDuplicateMirror } from "@/lib/issue-relations"
 import { fireAndForgetPrNotify } from "@/lib/integrations/notifications"
-import { getSteerRelayConfig, relayPostKill } from "@/lib/steer"
-import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import {
+  getSteerRelayConfig,
+  relayPostInput,
+  relayPostKill,
+} from "@/lib/steer"
+import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
+import { prUrlPattern } from "@/lib/integrations/pr-stack"
+import {
+  findStackForPull,
   listOpenPullsByBase,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
@@ -528,6 +535,7 @@ export async function applyPrMergeState(opts: {
       prUrl?: string | null
       headBranch?: string | null
       endedSessionIds?: string[]
+      stackNumber?: number | null
     }> => {
       const txId = await generateTxId(tx)
       void txId
@@ -540,6 +548,9 @@ export async function applyPrMergeState(opts: {
           status: issues.status,
           teamId: boards.teamId,
           endSessionsOnMerge: teams.endSessionsOnMerge,
+          // EXP-897: a REAL GitHub stack retargets its own members — our
+          // child-retarget heal must keep its hands off it.
+          prStackNumber: issues.prStackNumber,
         })
         .from(issues)
         .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -628,6 +639,7 @@ export async function applyPrMergeState(opts: {
         prUrl: opts.prUrl ?? current.prUrl,
         headBranch: current.branch ?? opts.headBranch ?? null,
         endedSessionIds,
+        stackNumber: current.prStackNumber,
       }
     }
   )
@@ -658,6 +670,9 @@ export async function applyPrMergeState(opts: {
       void retargetChildrenOfMergedPr({
         prUrl: result.prUrl,
         headBranch: result.headBranch,
+        // EXP-897: a real GitHub stack retargets its own members — our heal
+        // would race it (and be refused 422 anyway).
+        stackNumber: result.stackNumber ?? null,
       }).catch((err) => {
         console.error(`retargetChildrenOfMergedPr failed:`, err)
       })
@@ -879,9 +894,13 @@ export async function applySessionPrState(opts: {
 export async function retargetChildrenOfMergedPr(opts: {
   prUrl: string
   headBranch: string
+  /** EXP-897: the merged PR's GitHub stack. Set ⇒ GitHub already retargeted
+   *  the member above it (and refuses our PATCH) — stay out of the way. */
+  stackNumber?: number | null
 }): Promise<void> {
   const repo = repoFromPrUrl(opts.prUrl)
   if (!repo || !opts.headBranch) return
+  if (opts.stackNumber != null) return
   if (!githubAppConfigured()) return
   // Override-first (EXP-462): children retarget onto the branch the team
   // actually develops on. The repo row is reached through the merged PR's
@@ -937,7 +956,27 @@ export async function retargetChildrenOfMergedPr(opts: {
     opts.headBranch,
     resolved.token
   )
+  if (children.length === 0) return
+  // EXP-897: a child that is a REAL stack member is retargeted by GitHub
+  // itself; PATCHing its base is a 422. One query, by the child PR urls.
+  const stacked = new Set(
+    (
+      await db
+        .select({ prUrl: issues.prUrl })
+        .from(issues)
+        .where(
+          and(
+            inArray(
+              issues.prUrl,
+              children.map((child) => child.url)
+            ),
+            sql`${issues.prStackNumber} is not null`
+          )
+        )
+    ).map((row) => row.prUrl)
+  )
   for (const child of children) {
+    if (stacked.has(child.url)) continue
     try {
       await retargetPullRequest({
         repo,
@@ -945,6 +984,11 @@ export async function retargetChildrenOfMergedPr(opts: {
         base: defaultBranch,
         token: resolved.token,
       })
+      // EXP-897: the synced stack edge follows the base we just wrote.
+      await db
+        .update(issues)
+        .set({ prBaseBranch: defaultBranch })
+        .where(eq(issues.prUrl, child.url))
     } catch (err) {
       // One unreachable child never blocks the rest.
       console.error(
@@ -1005,4 +1049,131 @@ async function applyPrStateFlip(
         )
       )
   })
+}
+
+// ── PR stacks (EXP-897) ──────────────────────────────────────────────────────
+
+/**
+ * Re-read a PR's stack identity from GitHub and write it onto every issue on
+ * that PR: `pr_base_branch` (synced — the edge the clients nest on) and
+ * `pr_stack_number` (server-only — what routes a merge through merge-async).
+ *
+ * Called from the webhook legs that change either (`edited` with a base
+ * change, `stacked`, `unstacked`). Best-effort throughout: the base rides the
+ * payload and is cheap, the stack number needs a GitHub read that may 404 on a
+ * repo without the preview — the row then simply keeps behaving as a candidate
+ * stack.
+ */
+export async function refreshPrStackState(opts: {
+  prUrl: string
+  repoFullName?: string
+  prNumber?: number
+  baseRef?: string | null
+}): Promise<void> {
+  if (!opts.prUrl) return
+  if (opts.baseRef) {
+    await db
+      .update(issues)
+      .set({ prBaseBranch: opts.baseRef })
+      .where(eq(issues.prUrl, opts.prUrl))
+  }
+  const repo = opts.repoFullName ?? repoFromPrUrl(opts.prUrl)
+  if (!repo || opts.prNumber == null || !githubAppConfigured()) return
+  const resolved = await resolveRepoInstallationTokenInfo(repo)
+  if (!resolved) return
+  let stackNumber: number | null = null
+  try {
+    stackNumber =
+      (await findStackForPull(repo, opts.prNumber, resolved.token))?.number ??
+      null
+  } catch {
+    // An unreachable stack read leaves the recorded value alone: guessing
+    // "not stacked" would route the next merge through the endpoint GitHub
+    // refuses (FEED-43).
+    return
+  }
+  await db
+    .update(issues)
+    .set({ prStackNumber: stackNumber })
+    .where(eq(issues.prUrl, opts.prUrl))
+}
+
+/**
+ * EXP-897: the foundation moved. A `synchronize` means new commits on a PR's
+ * head branch — every LIVE run whose issue is stacked on that branch is now
+ * building on an outdated base, and the only one who can fix that is the agent
+ * inside that run. So tell it, on the same rail a human steers with.
+ *
+ * Deduped for 60s per (repo, branch, session): a force-push storm delivers one
+ * `synchronize` per push, and three identical rebase orders in a row would
+ * just derail the run.
+ */
+const foundationNotices = new Map<string, number>()
+const FOUNDATION_NOTICE_DEDUPE_MS = 60_000
+
+export function foundationChangeMessage(
+  repoFullName: string,
+  prNumber: number,
+  headRef: string
+): string {
+  return `[Exponential] foundation changed — the PR you are stacked on (${repoFullName}#${prNumber}, branch ${headRef}) got new commits. Rebase onto origin/${headRef}, push with --force-with-lease, then continue.`
+}
+
+export async function notifyStackedChildrenOfFoundationChange(opts: {
+  repoFullName: string
+  headRef: string
+  prNumber: number
+  /** The synchronized PR's html URL — only a PR we track is a foundation. */
+  prUrl: string
+}): Promise<{ notified: string[] }> {
+  if (!opts.headRef || !opts.repoFullName || !opts.prUrl) {
+    return { notified: [] }
+  }
+  const config = getSteerRelayConfig()
+  if (!config) return { notified: [] }
+  // A child is an OPEN issue PR in the SAME repository and team whose base is
+  // the foundation's head, and the foundation itself must be an issue PR we
+  // track. Without the self-join and the repo pattern, a release PR whose head
+  // is the default branch (every plain PR records `pr_base_branch = master`) or
+  // a same-named branch in another team's repo would order every live run in
+  // sight to rebase — and a live run is steerable by its owner only (EXP-312).
+  const foundation = alias(issues, `foundation_issues`)
+  const rows = await db
+    .select({ id: codingSessions.id })
+    .from(codingSessions)
+    .innerJoin(issues, eq(issues.id, codingSessions.issueId))
+    .innerJoin(
+      foundation,
+      and(eq(foundation.prUrl, opts.prUrl), eq(foundation.teamId, issues.teamId))
+    )
+    .where(
+      and(
+        eq(issues.prBaseBranch, opts.headRef),
+        eq(issues.prState, `open`),
+        ne(issues.prUrl, opts.prUrl),
+        like(issues.prUrl, prUrlPattern(opts.repoFullName)),
+        inArray(codingSessions.status, [`running`, `in_review`])
+      )
+    )
+  const now = Date.now()
+  const notified: string[] = []
+  for (const row of rows) {
+    const key = `${opts.repoFullName}|${opts.headRef}|${row.id}`
+    const last = foundationNotices.get(key)
+    if (last != null && now - last < FOUNDATION_NOTICE_DEDUPE_MS) continue
+    foundationNotices.set(key, now)
+    const { delivered } = await relayPostInput(
+      config,
+      row.id,
+      foundationChangeMessage(opts.repoFullName, opts.prNumber, opts.headRef)
+    )
+    if (delivered) notified.push(row.id)
+  }
+  // Keep the map from growing without bound on a busy instance.
+  if (foundationNotices.size > 500) {
+    for (const [key, at] of foundationNotices) {
+      if (now - at >= FOUNDATION_NOTICE_DEDUPE_MS) foundationNotices.delete(key)
+    }
+  }
+  return { notified }
 }

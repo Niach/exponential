@@ -95,11 +95,15 @@ const h = vi.hoisted(() => {
     } => ({ set: () => ({ where: async () => undefined }) })
   )
 
+  // EXP-897: the recursive session-tree walks (loadSessionChain /
+  // loadSessionDepths / loadSubtreeSessionIds) go through raw SQL.
+  const executeRows: { current: Array<Record<string, unknown>> } = { current: [] }
   const db = {
     select: vi.fn(() => queryBuilder),
     insert: vi.fn(() => ({ values: insertValues })),
     update: dbUpdate,
     transaction: vi.fn(),
+    execute: vi.fn(async () => ({ rows: executeRows.current })),
   }
 
   const membership = {
@@ -135,6 +139,7 @@ const h = vi.hoisted(() => {
   return {
     caller,
     dbRows,
+    executeRows,
     state,
     insertValues,
     db,
@@ -150,6 +155,7 @@ const h = vi.hoisted(() => {
 const {
   caller,
   dbRows,
+  executeRows,
   state,
   insertValues,
   db,
@@ -197,6 +203,18 @@ vi.mock(`@/lib/trpc/integrations`, () => ({
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrLifecycleStatusInTx: vi.fn(),
 }))
+// EXP-897: the GitHub stack calls and the lower-PR resolution; the pure
+// helpers (prUrlPattern, orderStack) stay real.
+vi.mock(`@/lib/integrations/pr-stack`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  attachToStack: vi.fn(),
+  resolveStackLower: vi.fn(),
+  loadSessionStackContext: vi.fn(async () => null),
+}))
+vi.mock(`@/lib/issue-relations`, async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  insertRelationInTx: vi.fn(),
+}))
 vi.mock(`@/lib/integrations/pr-actor-claims`, () => ({
   claimPrOpen: vi.fn(),
   releasePrOpenClaim: vi.fn(),
@@ -243,6 +261,11 @@ import { endSessionByAgent } from "@/lib/coding-session-end"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { createPullRequest } from "@/lib/integrations/github-pr"
+import {
+  attachToStack,
+  resolveStackLower,
+} from "@/lib/integrations/pr-stack"
+import { insertRelationInTx } from "@/lib/issue-relations"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { registerExponentialTools } from "@/lib/mcp/tools"
@@ -2781,7 +2804,8 @@ describe(`exponential_sessions_list`, () => {
       limit: 50,
       offset: 0,
     })
-    expect(parseOk(result)).toEqual([{ id: RUN, status: `running` }])
+    // EXP-897: every row additionally carries its depth in the run tree.
+    expect(parseOk(result)).toEqual([{ id: RUN, status: `running`, depth: 0 }])
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, WS)
 
     // The stub's select is typed without params; the tool passes the
@@ -3574,5 +3598,503 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     // duplicate entry.
     const titles = contract.expToolDisplay.tools.map((row) => row.title)
     expect(new Set(titles).size).toBe(titles.length)
+  })
+})
+
+// ── EXP-897 / FEED-43: stacks over MCP ───────────────────────────────────────
+// `pr_open` records the stack edge (and the `blocks` relation behind it),
+// `pr_merge` lands a whole chain in one call, `ask_parent` escalates past a
+// parent that cannot decide, and the session list nests.
+describe(`exponential_pr_open — stacking (EXP-897)`, () => {
+  const LOWER_ISSUE = `aaaaaaaa-1111-4111-8111-111111111111`
+  const LOWER_PR_URL = `https://github.com/acme/app/pull/241`
+
+  function armPrOpen(): Array<{ set: Record<string, unknown>; where: unknown }> {
+    const updates: Array<{ set: Record<string, unknown>; where: unknown }> = []
+    caller.repositories.forIssue.mockResolvedValue({
+      repositoryId: REPO,
+      fullName: `acme/app`,
+      defaultBranch: `main`,
+    })
+    vi.mocked(resolveRepoInstallationTokenInfo).mockResolvedValue({
+      token: `tok`,
+      installationId: 42,
+    } as never)
+    vi.mocked(isInstallationLinkedToTeam).mockResolvedValue(true)
+    vi.mocked(createPullRequest).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/242`,
+      number: 242,
+    } as never)
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const txSelect: Record<string, unknown> = {}
+      for (const method of [`from`, `where`, `limit`]) {
+        txSelect[method] = () => txSelect
+      }
+      ;(txSelect as { then: unknown }).then = (
+        resolve: (v: unknown) => unknown,
+        reject: (e: unknown) => unknown
+      ) => Promise.resolve([{ status: `backlog` }]).then(resolve, reject)
+      return fn({
+        select: () => txSelect,
+        update: () => ({
+          set: (values: Record<string, unknown>) => ({
+            where: async (cond: unknown) => {
+              updates.push({ set: values, where: cond })
+            },
+          }),
+        }),
+      })
+    })
+    return updates
+  }
+
+  const lower = {
+    issueId: LOWER_ISSUE,
+    identifier: `EXP-11`,
+    prUrl: LOWER_PR_URL,
+    prNumber: 241,
+    branch: `exp/EXP-11`,
+    prStackNumber: null as number | null,
+  }
+
+  beforeEach(() => {
+    dbRows.current = []
+    vi.mocked(resolveStackLower).mockResolvedValue(lower)
+    vi.mocked(attachToStack).mockResolvedValue({
+      stackNumber: 7,
+      created: true,
+    })
+    vi.mocked(insertRelationInTx).mockResolvedValue(null)
+  })
+
+  it(`bases the PR on the lower's branch and records the edge + the blocks relation`, async () => {
+    const updates = armPrOpen()
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      stackOnIssueId: LOWER_ISSUE,
+    })
+    expect(result.isError, result.content[0].text).toBeFalsy()
+
+    expect(vi.mocked(createPullRequest).mock.calls.at(-1)![0]).toMatchObject({
+      base: `exp/EXP-11`,
+    })
+    expect(parseOk(result)).toMatchObject({
+      number: 242,
+      base: `exp/EXP-11`,
+      stack: { number: 7, onTopOf: `EXP-11` },
+    })
+    const linkWrite = updates.find((u) => u.set.prUrl)
+    expect(linkWrite!.set).toMatchObject({
+      prBaseBranch: `exp/EXP-11`,
+      prStackNumber: 7,
+    })
+    // The stack IS a blocking relation — written once, canonically.
+    expect(insertRelationInTx).toHaveBeenCalledTimes(1)
+    expect(insertRelationInTx).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        issueId: LOWER_ISSUE,
+        relatedIssueId: UUID,
+        type: `blocks`,
+        source: `user`,
+      })
+    )
+  })
+
+  it(`degrades to a plain base-branch PR when GitHub stacks are unavailable`, async () => {
+    const updates = armPrOpen()
+    vi.mocked(attachToStack).mockResolvedValue({
+      stackNumber: null,
+      created: false,
+    })
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      stackOnIssueId: LOWER_ISSUE,
+    })
+
+    const ok = parseOk(result) as { stack: { number: null }; note: string }
+    expect(ok.stack.number).toBeNull()
+    expect(ok.note).toContain(`exponential_pr_retarget`)
+    // Our own edge is recorded either way — that is what nesting reads.
+    const linkWrite = updates.find((u) => u.set.prUrl)
+    expect(linkWrite!.set).toMatchObject({
+      prBaseBranch: `exp/EXP-11`,
+      prStackNumber: null,
+    })
+  })
+
+  it(`refuses stackOnIssueId together with base or repositoryId`, async () => {
+    armPrOpen()
+    const withBase = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `t`,
+      base: `main`,
+      stackOnIssueId: LOWER_ISSUE,
+    })
+    expect(withBase.isError).toBe(true)
+    expect(withBase.content[0].text).toContain(`stackOnIssueId replaces 'base'`)
+
+    const withRepo = await tool(`exponential_pr_open`)({
+      repositoryId: REPO,
+      title: `t`,
+      head: `chore/x`,
+      stackOnIssueId: LOWER_ISSUE,
+    })
+    expect(withRepo.isError).toBe(true)
+  })
+
+  it(`treats a raw base that IS a teammate's open PR branch as a stack`, async () => {
+    const updates = armPrOpen()
+    dbRows.current = [
+      {
+        id: LOWER_ISSUE,
+        identifier: `EXP-11`,
+        teamId: `ws-1`,
+        prNumber: 241,
+        prState: `open`,
+        prStackNumber: null,
+        prUrl: LOWER_PR_URL,
+      },
+    ]
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(parseOk(result)).toMatchObject({
+      stack: { number: 7, onTopOf: `EXP-11` },
+    })
+    expect(updates.find((u) => u.set.prUrl)!.set).toMatchObject({
+      prBaseBranch: `exp/EXP-11`,
+    })
+  })
+
+  it(`refuses a base that is the branch of an already-merged PR`, async () => {
+    armPrOpen()
+    dbRows.current = [
+      {
+        id: LOWER_ISSUE,
+        identifier: `EXP-11`,
+        teamId: `ws-1`,
+        prNumber: 241,
+        prState: `merged`,
+        prStackNumber: null,
+        prUrl: LOWER_PR_URL,
+      },
+    ]
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(
+      `'exp/EXP-11' is the branch of merged PR #241 (EXP-11). Rebase onto main and pass no base.`
+    )
+    expect(createPullRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
+  beforeEach(() => {
+    dbRows.current = []
+    caller.issues.mergePr.mockReset()
+    caller.issues.mergePr.mockResolvedValue({ merged: true })
+  })
+
+  it(`lands the whole chain in ONE call and reports it for every issue`, async () => {
+    dbRows.current = [
+      {
+        id: UUID,
+        identifier: `EXP-11`,
+        prUrl: `https://github.com/acme/app/pull/241`,
+        branch: `exp/EXP-11`,
+        prBaseBranch: `master`,
+      },
+      {
+        id: PROJ,
+        identifier: `EXP-12`,
+        prUrl: `https://github.com/acme/app/pull/242`,
+        branch: `exp/EXP-12`,
+        prBaseBranch: `exp/EXP-11`,
+      },
+    ]
+    caller.issues.mergePr.mockResolvedValue({
+      merged: true,
+      mergedPrUrls: [
+        `https://github.com/acme/app/pull/241`,
+        `https://github.com/acme/app/pull/242`,
+      ],
+      note: `Merged GitHub stack #7: 2 pull request(s), bottom-up.`,
+    })
+
+    const result = await tool(`exponential_pr_merge`)({
+      issueIds: [UUID, PROJ],
+      mergeStack: true,
+    })
+
+    expect(caller.issues.mergePr).toHaveBeenCalledTimes(1)
+    expect(caller.issues.mergePr).toHaveBeenCalledWith({
+      issueId: UUID,
+      mergeStack: true,
+    })
+    const ok = parseOk(result) as {
+      results: Array<{ merged: boolean; mergedVia: string; note: string }>
+    }
+    expect(ok.results).toHaveLength(2)
+    expect(ok.results.every((row) => row.merged && row.mergedVia === `EXP-11`)).toBe(
+      true
+    )
+  })
+
+  it(`merges a target on an unrelated PR on its own and reports only what landed`, async () => {
+    dbRows.current = [
+      {
+        id: UUID,
+        identifier: `EXP-11`,
+        prUrl: `https://github.com/acme/app/pull/241`,
+        branch: `exp/EXP-11`,
+        prBaseBranch: `master`,
+      },
+      {
+        id: PROJ,
+        identifier: `EXP-30`,
+        prUrl: `https://github.com/acme/app/pull/300`,
+        branch: `exp/EXP-30`,
+        prBaseBranch: `master`,
+      },
+    ]
+    caller.issues.mergePr
+      .mockResolvedValueOnce({
+        merged: true,
+        mergedPrUrls: [`https://github.com/acme/app/pull/241`],
+      })
+      .mockRejectedValueOnce(
+        new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `PR #300 is dirty on GitHub`,
+        })
+      )
+
+    const result = await tool(`exponential_pr_merge`)({
+      issueIds: [UUID, PROJ],
+      mergeStack: true,
+    })
+
+    expect(caller.issues.mergePr).toHaveBeenCalledTimes(2)
+    const ok = parseOk(result) as {
+      results: Array<{ issueId: string; merged: boolean; error?: string }>
+    }
+    expect(ok.results.find((row) => row.issueId === UUID)!.merged).toBe(true)
+    const other = ok.results.find((row) => row.issueId === PROJ)!
+    expect(other.merged).toBe(false)
+    expect(other.error).toContain(`dirty`)
+  })
+
+  it(`reports the stack failure once, for every requested issue`, async () => {
+    dbRows.current = [
+      {
+        id: UUID,
+        identifier: `EXP-11`,
+        prUrl: `https://github.com/acme/app/pull/241`,
+        branch: null,
+        prBaseBranch: null,
+      },
+    ]
+    caller.issues.mergePr.mockRejectedValue(
+      new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: `Cannot merge the stack: PR #242 (EXP-12) is a draft`,
+      })
+    )
+
+    const result = await tool(`exponential_pr_merge`)({
+      issueId: UUID,
+      mergeStack: true,
+    })
+    const ok = parseOk(result) as {
+      results: Array<{ merged: boolean; error: string }>
+    }
+    expect(ok.results[0]!.merged).toBe(false)
+    expect(ok.results[0]!.error).toContain(`is a draft`)
+  })
+
+  it(`refuses mergeStack on a chore PR`, async () => {
+    const result = await tool(`exponential_pr_merge`)({
+      repositoryId: REPO,
+      prNumber: 9,
+      mergeStack: true,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`issue PRs only`)
+  })
+
+  it(`tells a plain merge of a stacked PR that it also landed everything below`, async () => {
+    dbRows.current = [
+      {
+        id: UUID,
+        identifier: `EXP-12`,
+        prUrl: `https://github.com/acme/app/pull/242`,
+        branch: `exp/EXP-12`,
+        prBaseBranch: `exp/EXP-11`,
+      },
+    ]
+    const result = await tool(`exponential_pr_merge`)({ issueId: UUID })
+    const ok = parseOk(result) as { results: Array<{ note?: string }> }
+    expect(ok.results[0]!.note).toBe(
+      `Merging a stacked PR also merged every unmerged PR below it.`
+    )
+  })
+})
+
+describe(`exponential_sessions_ask_parent — escalation (EXP-897)`, () => {
+  const AGENT_CHILD = { helpdesk: true, sessionsEnd: true, askParent: true }
+  const RELAY = { url: `https://relay.test`, secret: `s` }
+  const PARENT = `77777777-7777-4777-8777-777777777777`
+  const ROOT = `55555555-5555-4555-8555-555555555555`
+
+  const childRow = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    userId: `user-1`,
+    hostUserId: null,
+    teamId: WS,
+    startedReason: `agent`,
+    parentSessionId: PARENT,
+    actionName: null,
+    issueIdentifier: `EXP-12`,
+    parentStatus: `running`,
+    ...over,
+  })
+
+  beforeEach(() => {
+    executeRows.current = []
+    vi.mocked(sendAgentMessage).mockReset()
+    vi.mocked(sendAgentMessage).mockResolvedValue({
+      delivered: [`user-1`],
+      declined: [],
+      notMembers: [],
+      deduped: [],
+    } as never)
+  })
+
+  it(`to: 'root' delivers to the highest LIVE ancestor, naming the depth`, async () => {
+    dbRows.current = [childRow({ parentStatus: `ended` })]
+    executeRows.current = [
+      { id: SESSION, depth: 0, parent_session_id: PARENT, status: `running` },
+      { id: PARENT, depth: 1, parent_session_id: ROOT, status: `ended` },
+      { id: ROOT, depth: 2, parent_session_id: null, status: `running` },
+    ]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `Is the whole plan wrong?`, to: `root` })
+
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      ROOT,
+      `[Exponential child run EXP-12 ${SESSION.slice(0, 8)} (2 levels down) asks — reply with exponential_sessions_message sessionId=${SESSION}] Is the whole plan wrong?`
+    )
+    expect(parseOk(result)).toMatchObject({ delivered: true })
+  })
+
+  it(`to: 'root' refuses when nothing above is alive`, async () => {
+    dbRows.current = [childRow()]
+    executeRows.current = [
+      { id: SESSION, depth: 0, parent_session_id: PARENT, status: `running` },
+      { id: PARENT, depth: 1, parent_session_id: null, status: `ended` },
+    ]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `q`, to: `root` })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`No run above you is still live`)
+  })
+
+  // The person is reached through the EXISTING agent_message inbox row — no
+  // new notification type, no new column. The run parks as needing input and
+  // the caption IS the question.
+  it(`to: 'user' parks the run and notifies its owner`, async () => {
+    dbRows.current = [childRow()]
+
+    const result = await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `Ship it without tests?`, to: `user` })
+
+    expect(db.update).toHaveBeenCalled()
+    expect(sendAgentMessage).toHaveBeenCalledWith({
+      teamId: WS,
+      senderUserId: `user-1`,
+      recipientIds: [`user-1`],
+      title: `EXP-12 asks`,
+      body: `Ship it without tests?`,
+    })
+    expect(parseOk(result)).toMatchObject({ delivered: true, to: `user` })
+    // The relay is not involved: the answer comes back in this run's own
+    // composer.
+    expect(relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`to: 'parent' stays byte-identical to the pre-EXP-897 message`, async () => {
+    dbRows.current = [childRow()]
+    vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
+    vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
+
+    await collectTools(USER, SESSION, AGENT_CHILD).get(
+      `exponential_sessions_ask_parent`
+    )!({ question: `Which env?` })
+
+    expect(relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      PARENT,
+      `[Exponential child run EXP-12 ${SESSION.slice(0, 8)} asks — reply with exponential_sessions_message sessionId=${SESSION}] Which env?`
+    )
+  })
+})
+
+describe(`exponential_sessions_list — subtreeOf (EXP-897)`, () => {
+  it(`narrows to the run and its descendants, and carries their depth`, async () => {
+    executeRows.current = [{ id: RUN }, { id: `child` }]
+    dbRows.current = [{ id: RUN, status: `running` }]
+
+    const result = await tool(`exponential_sessions_list`)({
+      teamId: WS,
+      subtreeOf: RUN,
+      mine: false,
+      limit: 50,
+      offset: 0,
+    })
+
+    expect(db.execute).toHaveBeenCalled()
+    expect(parseOk(result)).toEqual([{ id: RUN, status: `running`, depth: 0 }])
+  })
+
+  it(`answers an unknown subtree with nothing`, async () => {
+    executeRows.current = []
+    dbRows.current = [{ id: RUN, status: `running` }]
+    const result = await tool(`exponential_sessions_list`)({
+      teamId: WS,
+      subtreeOf: RUN,
+      mine: false,
+      limit: 50,
+      offset: 0,
+    })
+    expect(parseOk(result)).toEqual([])
   })
 })

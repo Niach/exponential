@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
@@ -107,6 +110,8 @@ private fun ReviewsListContent(
     // EXP-734: an issueless run's own PR — merged through the session, so it
     // gets its own confirm target.
     var mergeRunTarget by remember { mutableStateOf<RunReviewEntry?>(null) }
+    // EXP-897: the bottom row whose whole stack is about to be merged.
+    var mergeStackTarget by remember { mutableStateOf<ReviewRowEntry?>(null) }
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
@@ -126,14 +131,17 @@ private fun ReviewsListContent(
                 item(key = "header-${group.board.id}") {
                     BoardHeader(board = group.board)
                 }
-                items(group.entries, key = { it.groupKey }) { entry ->
+                items(group.rows, key = { it.entry.groupKey }) { row ->
+                    val entry = row.entry
                     ReviewRow(
-                        entry = entry,
+                        row = row,
                         failure = mergeErrors[entry.groupKey],
                         merging = entry.groupKey in merging,
                         onClick = { onOpenChanges(entry.representative.id) },
                         onOpenIssue = { onOpenIssue(entry.representative.id) },
                         onMerge = { mergeTarget = entry },
+                        // EXP-897: only the BOTTOM row of a real stack offers it.
+                        onMergeStack = { mergeStackTarget = row },
                         // EXP-323/EXP-825: the composer opens on the builtin
                         // with THIS pull request already picked.
                         onFixConflicts = {
@@ -172,6 +180,17 @@ private fun ReviewsListContent(
                 mergeTarget = null
             },
             onDismiss = { mergeTarget = null },
+        )
+    }
+
+    mergeStackTarget?.let { row ->
+        MergeStackConfirmDialog(
+            count = row.stackSize,
+            onConfirm = {
+                row.mergeStackIssueId?.let { viewModel.mergeStack(row.entry.groupKey, it) }
+                mergeStackTarget = null
+            },
+            onDismiss = { mergeStackTarget = null },
         )
     }
 
@@ -332,22 +351,28 @@ private fun RunReviewRow(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ReviewRow(
-    entry: ReviewEntry,
+    row: ReviewRowEntry,
     failure: MergeFailure?,
     merging: Boolean,
     onClick: () -> Unit,
     onOpenIssue: () -> Unit,
     onMerge: () -> Unit,
+    onMergeStack: () -> Unit,
     onFixConflicts: () -> Unit,
 ) {
+    val entry = row.entry
     val context = LocalContext.current
     var showActions by remember { mutableStateOf(false) }
+    // EXP-897: the batch glyph opens the issues its ONE pull request spans —
+    // the same overlay the Work screen's badge shows.
+    var showBatch by remember { mutableStateOf(false) }
     // Only a REAL conflict is something the recovery run can fix (EXP-533),
     // and it rebases the PR's branch, so it needs one recorded — desktop
     // applies the same guard on its Reviews rows.
     val canFixConflicts = canOfferFixConflicts(failure, entry.branch)
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    // EXP-897: one stack level is 14dp of indent, on every client.
+    Column(modifier = Modifier.fillMaxWidth().padding(start = (STACK_INDENT_DP * row.depth).dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -367,6 +392,24 @@ private fun ReviewRow(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (entry.isBatch) {
+                        // The batch mark (EXP-897): a tap lists the issues, in
+                        // its own hit area so the row's own tap still opens the
+                        // review.
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clickable { showBatch = true }
+                                .testTag("review-batch-glyph"),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                ExpIcons.prBatch,
+                                contentDescription = "Issues in this batch",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
                         Text(
                             entry.prNumber?.let { "#$it" } ?: "Batch",
                             style = MaterialTheme.typography.labelMedium,
@@ -400,6 +443,19 @@ private fun ReviewRow(
                             modifier = Modifier.weight(1f, fill = false),
                         )
                     }
+                }
+                // EXP-897: an upper stack member names its foundation, in the
+                // same words on every client.
+                row.stackedOn?.let { below ->
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "on top of #$below",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("review-stacked-on"),
+                    )
                 }
                 // Secondary line: the batch entry lists its issue identifiers; every
                 // entry shows its branch (parity with the web/desktop Reviews rows).
@@ -462,6 +518,10 @@ private fun ReviewRow(
         }
     }
 
+    if (showBatch) {
+        BatchIssuesSheet(entry = entry, onDismiss = { showBatch = false })
+    }
+
     if (showActions) {
         GlassSheet(
             title = if (entry.isBatch) {
@@ -489,6 +549,18 @@ private fun ReviewRow(
                 },
                 leading = { Icon(ExpIcons.prOpen, contentDescription = null, modifier = Modifier.size(18.dp)) },
             )
+            // EXP-897: the BOTTOM of a stack can take the whole chain in one
+            // go — merging it merges every pull request above it, bottom-up.
+            if (row.mergeStackIssueId != null) {
+                GlassSheetRow(
+                    label = PrStack.MERGE_STACK_LABEL,
+                    onClick = {
+                        showActions = false
+                        onMergeStack()
+                    },
+                    leading = { Icon(ExpIcons.prStack, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                )
+            }
             // The recovery run needs the PR's branch to rebase (EXP-323).
             if (!entry.branch.isNullOrBlank()) {
                 GlassSheetRow(
@@ -531,6 +603,50 @@ private fun MergeConfirmDialog(
         title = { Text("Merge pull request?") },
         text = { Text(message) },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Merge") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** EXP-897: one stack level of indent, the ×4 number. */
+private const val STACK_INDENT_DP = 14
+
+/**
+ * EXP-897: the issues a batch pull request spans — the Reviews list's half of
+ * the Work screen badge's "In batch with" section, same rows, same words.
+ */
+@Composable
+private fun BatchIssuesSheet(entry: ReviewEntry, onDismiss: () -> Unit) {
+    GlassSheet(
+        title = entry.prNumber?.let { "PR #$it" } ?: "Batch PR",
+        onDismiss = onDismiss,
+    ) {
+        entry.issues.forEach { issue ->
+            GlassSheetRow(
+                label = "${issue.identifier} · ${issue.title}",
+                onClick = onDismiss,
+                leading = {
+                    Icon(
+                        ExpIcons.navMyIssues,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                },
+            )
+        }
+    }
+}
+
+/**
+ * EXP-897: merging the bottom of a stack merges everything above it. Same
+ * title and same sentence on all four clients.
+ */
+@Composable
+private fun MergeStackConfirmDialog(count: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Merge the whole stack?") },
+        text = { Text("$count pull requests, bottom-up.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(PrStack.MERGE_STACK_LABEL) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

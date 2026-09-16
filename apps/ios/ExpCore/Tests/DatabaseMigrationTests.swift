@@ -105,7 +105,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
              "v38_drop_coding_session_summary",
-             "v39_issue_drafts"]
+             "v39_issue_drafts",
+             "v40_issue_pr_base_branch"]
         )
     }
 
@@ -137,7 +138,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
              "v38_drop_coding_session_summary",
-             "v39_issue_drafts"]
+             "v39_issue_drafts",
+             "v40_issue_pr_base_branch"]
         )
     }
 
@@ -197,7 +199,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
              "v38_drop_coding_session_summary",
-             "v39_issue_drafts"]
+             "v39_issue_drafts",
+             "v40_issue_pr_base_branch"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -277,7 +280,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v36_coding_session_agent_busy",
              "v37_coding_session_agent_caption",
              "v38_drop_coding_session_summary",
-             "v39_issue_drafts"]
+             "v39_issue_drafts",
+             "v40_issue_pr_base_branch"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -828,6 +832,46 @@ final class DatabaseMigrationTests: XCTestCase {
     // so a green migration can't silently produce the wrong shape. This pins
     // the EXP-180 rename: teams/boards/team_members/team_invites exist, the
     // workspace/project-era names do NOT.
+    // v40 (EXP-897): the PR stack edge — `issues.pr_base_branch`. A store
+    // created before it existed must gain the column via the guarded ALTER and
+    // get the issues offset reset (shape key 'issues'), or the sync apply path
+    // would keep dropping the wire column the local schema lacks and no client
+    // could ever see a stack.
+    func testIssuePrBaseBranchColumnAddedToExistingStore() throws {
+        let pool = try makePool("issue-pr-base-branch")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v39_issue_drafts")
+        try pool.write { db in
+            // Model the pre-v40 state: today's v1 create already declares the
+            // column, which is exactly the overlap the guarded ALTER tolerates.
+            if try db.columns(in: "issues").contains(where: { $0.name == "pr_base_branch" }) {
+                try db.alter(table: "issues") { t in
+                    t.drop(column: "pr_base_branch")
+                }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('issues', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let column = try pool.read { db in
+            try db.columns(in: "issues").first { $0.name == "pr_base_branch" }
+        }
+        XCTAssertNotNil(column)
+        XCTAssertFalse(column?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" WHERE \"shape\" = 'issues'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+    }
+
     func testMigratedSchemaHasSyncTables() throws {
         let pool = try makePool("schema")
         try DatabaseManager.runMigrations(on: pool)
@@ -866,6 +910,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("project_id"))
 
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
+        // EXP-897: the stack edge rides the issues shape.
+        XCTAssertTrue(try columnNames(pool, "issues").contains("pr_base_branch"))
         XCTAssertTrue(try columnNames(pool, "issue_subscribers").contains("email"))
         // issues.source ('user'|'widget') + a nullable creator_id (a
         // widget-sourced issue has no human creator).

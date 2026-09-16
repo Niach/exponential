@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import {
   GitHubMergeError,
+  STACKED_PR_REFUSAL,
   type UnmergeableDiagnosis,
 } from "@/lib/integrations/github-pr"
 
@@ -34,6 +35,21 @@ export function isNotMergeable(err: unknown): boolean {
     err instanceof GitHubMergeError &&
     err.status === 405 &&
     UNMERGEABLE_405.test(err.message)
+  )
+}
+
+/**
+ * FEED-43: GitHub's refusal to serve a STACK MEMBER through the legacy
+ * endpoints — "Merging stacked PRs via this endpoint is not supported. Use the
+ * asynchronous merge endpoint instead." (405 on merge, 422 on the base PATCH).
+ * It is a routing signal, never a user-facing failure: the merge path retries
+ * through merge-async, the retarget path says the stack owns the base.
+ */
+export function isStackedPrRefusal(err: unknown): boolean {
+  return (
+    err instanceof GitHubMergeError &&
+    (err.status === 405 || err.status === 422) &&
+    STACKED_PR_REFUSAL.test(err.message)
   )
 }
 

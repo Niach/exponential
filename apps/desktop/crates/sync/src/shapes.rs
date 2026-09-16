@@ -185,6 +185,10 @@ pub const SHAPES: [ShapeSpec; 22] = [
             "pr_state",
             "branch",
             "pr_merged_at",
+            // EXP-897: the SYNCED stack edge — the branch this issue's pull
+            // request targets. `heal_missing_columns` ALTERs it onto existing
+            // store tables and the shape-identity rotation's refetch fills it.
+            "pr_base_branch",
             "created_at",
             "updated_at",
         ],
@@ -758,6 +762,17 @@ mod tests {
         let statuses = shape_by_name("issue_statuses").unwrap();
         assert!(statuses.columns.contains(&"builtin_key"));
         assert!(statuses.columns.contains(&"category"));
+    }
+
+    #[test]
+    fn issues_sync_the_pr_stack_edge() {
+        // EXP-897: `pr_base_branch` IS the stack — without it every client
+        // renders a stack as a flat list of unrelated pull requests.
+        // `pr_stack_number` is SERVER-ONLY and must never be requested.
+        let spec = shape_by_name("issues").unwrap();
+        assert!(spec.columns.contains(&"pr_base_branch"));
+        assert!(spec.columns.contains(&"branch"), "the other half of the edge");
+        assert!(!spec.columns.contains(&"pr_stack_number"));
     }
 
     #[test]

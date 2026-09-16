@@ -179,6 +179,11 @@ interface IssueRelationDao {
     @Query("SELECT * FROM issue_relations WHERE issue_id = :issueId OR related_issue_id = :issueId")
     fun observeForIssue(issueId: String): Flow<List<IssueRelationEntity>>
 
+    // EXP-897: every synced edge — the Work screen's stack/batch badge
+    // resolves blockers across issues, not for one at a time.
+    @Query("SELECT * FROM issue_relations")
+    fun observeAll(): Flow<List<IssueRelationEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: IssueRelationEntity)
 
@@ -256,6 +261,11 @@ interface CodingSessionDao {
 
     @Query("SELECT * FROM coding_sessions WHERE team_id = :teamId")
     fun observeByTeam(teamId: String): Flow<List<CodingSessionEntity>>
+
+    // EXP-897: every synced run — the badge's overlay nests a run's whole
+    // FAMILY (its root and every descendant), which spans issues and teams.
+    @Query("SELECT * FROM coding_sessions")
+    fun observeAll(): Flow<List<CodingSessionEntity>>
 
     // Account-wide live sessions (the Agents tab + its bottom-bar dot). Takes a
     // status list so both live states (`running` + `in_review`, EXP-194) match;

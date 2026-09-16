@@ -220,6 +220,8 @@ export type GitHubFetch = (
 export interface PullDetails {
   state: `open` | `closed`
   merged: boolean
+  /** EXP-897: a draft can never be merged — the stack pre-flight refuses on it. */
+  draft: boolean
   headRef: string
   baseRef: string
   mergeable: boolean | null
@@ -243,6 +245,7 @@ export async function getPullRequest(
   const data = (await res.json()) as {
     state: string
     merged: boolean
+    draft?: boolean
     head?: { ref?: string }
     base?: { ref?: string }
     mergeable?: boolean | null
@@ -251,6 +254,7 @@ export async function getPullRequest(
   return {
     state: data.state === `closed` ? `closed` : `open`,
     merged: Boolean(data.merged),
+    draft: Boolean(data.draft),
     headRef: data.head?.ref ?? ``,
     baseRef: data.base?.ref ?? ``,
     mergeable: data.mergeable ?? null,
@@ -708,4 +712,496 @@ export async function fetchPullFiles(
       patch: f.patch,
     }))
   })
+}
+
+// ── GitHub PR stacks (EXP-897 / FEED-43) ─────────────────────────────────────
+//
+// GitHub's stacked pull requests (public preview since 2026-07-30, same-repo
+// only) are a FIRST-CLASS server object: a stack has its own number, an
+// ordered member list (bottom → top) and its own merge endpoint. Two facts
+// drive everything below.
+//   1. A stack member CANNOT be merged with the legacy `PUT …/merge` — GitHub
+//      answers "Merging stacked PRs via this endpoint is not supported. Use
+//      the asynchronous merge endpoint instead." (FEED-43: that refusal is
+//      what broke every Exponential merge path once a stack existed).
+//   2. A stack member's base is MANAGED by the stack — `PATCH /pulls/{n}`
+//      with a `{base}` is refused 422, and GitHub retargets the member above
+//      itself when the one below merges.
+// Every endpoint here may answer 404 on an instance/repo where the preview is
+// off; that degrades SILENTLY to "no stack" so a plain base-branch PR keeps
+// working (the `pr_open` degrade rule).
+const GITHUB_STACK_API_VERSION = `2026-03-10`
+
+// The stack endpoints are the ONLY calls that pin the preview API version —
+// `githubApiHeaders` stays on the stable one for every other read/write.
+export function githubStackHeaders(token?: string | null): Record<string, string> {
+  return {
+    ...githubApiHeaders(token || process.env.GITHUB_TOKEN),
+    "x-github-api-version": GITHUB_STACK_API_VERSION,
+  }
+}
+
+export interface StackMember {
+  number: number
+  state: `open` | `closed`
+  draft: boolean
+  merged: boolean
+  headRef: string
+  headSha: string | null
+}
+
+export interface PullStack {
+  id: string | number | null
+  /** The `{stack_number}` path segment of `/stacks/{n}/add|unstack`. */
+  number: number
+  /** The branch the BOTTOM member targets — where the whole stack lands. */
+  baseRef: string
+  open: boolean
+  /** Bottom → top, exactly as GitHub orders them. */
+  members: StackMember[]
+}
+
+interface RawStack {
+  id?: string | number
+  number?: number
+  base?: { ref?: string }
+  open?: boolean
+  pull_requests?: Array<{
+    number?: number
+    state?: string
+    draft?: boolean
+    merged_at?: string | null
+    head?: { ref?: string; sha?: string }
+  }>
+}
+
+function parseStack(raw: RawStack): PullStack | null {
+  if (raw.number == null) return null
+  return {
+    id: raw.id ?? null,
+    number: raw.number,
+    baseRef: raw.base?.ref ?? ``,
+    open: raw.open !== false,
+    members: (raw.pull_requests ?? [])
+      .filter((pull): pull is { number: number } & typeof pull =>
+        pull.number != null
+      )
+      .map((pull) => ({
+        number: pull.number,
+        state: pull.state === `closed` ? (`closed` as const) : (`open` as const),
+        draft: pull.draft === true,
+        merged: pull.merged_at != null,
+        headRef: pull.head?.ref ?? ``,
+        headSha: pull.head?.sha ?? null,
+      })),
+  }
+}
+
+async function githubErrorMessage(res: {
+  text: () => Promise<string>
+}): Promise<string> {
+  const text = await res.text()
+  try {
+    const parsed = JSON.parse(text) as { message?: string }
+    if (parsed.message) return parsed.message
+  } catch {
+    // Non-JSON error body — surface the raw text.
+  }
+  return text.slice(0, 300)
+}
+
+/** The stack a PR belongs to, or null (no stack / preview unavailable). */
+export async function findStackForPull(
+  repo: string,
+  prNumber: number,
+  token?: string | null,
+  fetchImpl?: GitHubFetch
+): Promise<PullStack | null> {
+  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
+    `https://api.github.com/repos/${repo}/stacks?pull_request=${prNumber}`,
+    { headers: githubStackHeaders(token) }
+  )
+  // 404 = the preview is off on this repo (or the PR is gone) — "no stack".
+  if (res.status === 404) return null
+  if (!res.ok) {
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  }
+  const data = (await res.json()) as RawStack[] | RawStack | null
+  const list = Array.isArray(data) ? data : data ? [data] : []
+  for (const raw of list) {
+    const stack = parseStack(raw)
+    if (stack) return stack
+  }
+  return null
+}
+
+/**
+ * Create a stack out of an ordered PR list (bottom → top). Null when GitHub
+ * refuses the chain (422 — each member's base must equal the previous head)
+ * or the preview is unavailable (404): the caller degrades to a plain
+ * base-branch PR.
+ */
+export async function createStack(
+  repo: string,
+  prNumbers: number[],
+  token: string,
+  fetchImpl?: GitHubFetch
+): Promise<PullStack | null> {
+  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(`https://api.github.com/repos/${repo}/stacks`, {
+    method: `POST`,
+    headers: {
+      ...githubStackHeaders(token),
+      "content-type": `application/json`,
+    },
+    body: JSON.stringify({ pull_requests: prNumbers }),
+  })
+  if (res.status === 404 || res.status === 422) return null
+  if (!res.ok) {
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  }
+  return parseStack((await res.json()) as RawStack)
+}
+
+/**
+ * Extend an existing stack with more PRs (top-most last). 409 means another
+ * writer touched the stack concurrently — retried ONCE, because the loser of
+ * that race is usually a second agent adding its own PR and the second
+ * attempt lands on the refreshed stack. Null on 404/422 (degrade).
+ */
+export async function addToStack(
+  repo: string,
+  stackNumber: number,
+  prNumbers: number[],
+  token: string,
+  fetchImpl?: GitHubFetch
+): Promise<PullStack | null> {
+  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const call = async () =>
+    doFetch(
+      `https://api.github.com/repos/${repo}/stacks/${stackNumber}/add`,
+      {
+        method: `POST`,
+        headers: {
+          ...githubStackHeaders(token),
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify({ pull_requests: prNumbers }),
+      }
+    )
+  let res = await call()
+  if (res.status === 409) res = await call()
+  if (res.status === 404 || res.status === 422 || res.status === 409) {
+    return null
+  }
+  if (!res.ok) {
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  }
+  return parseStack((await res.json()) as RawStack)
+}
+
+/**
+ * Dissolve a stack (200 = some members remain stacked, 204 = fully
+ * dissolved). False on 404/422 — nothing to dissolve, or GitHub refused.
+ */
+export async function unstack(
+  repo: string,
+  stackNumber: number,
+  token: string,
+  fetchImpl?: GitHubFetch
+): Promise<boolean> {
+  const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
+    `https://api.github.com/repos/${repo}/stacks/${stackNumber}/unstack`,
+    { method: `POST`, headers: githubStackHeaders(token) }
+  )
+  if (res.status === 404 || res.status === 422) return false
+  if (!res.ok) {
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  }
+  return true
+}
+
+/** The async merge job's state, as GitHub reports it. */
+export interface AsyncMergeStatus {
+  status: `pending` | `merged` | `enqueued` | `failed`
+  message: string | null
+  uuid: string | null
+  sha: string | null
+}
+
+function parseAsyncMerge(
+  data: {
+    status?: string
+    sha?: string
+    details?: {
+      message?: string
+      uuid?: string
+      expected_head_sha?: string
+    }
+  } | null
+): AsyncMergeStatus {
+  const raw = data?.status
+  const status =
+    raw === `merged` || raw === `enqueued` || raw === `failed`
+      ? raw
+      : (`pending` as const)
+  return {
+    status,
+    message: data?.details?.message ?? null,
+    uuid: data?.details?.uuid ?? null,
+    sha: data?.sha ?? data?.details?.expected_head_sha ?? null,
+  }
+}
+
+/**
+ * `PUT …/pulls/{n}/merge-async` — the ONLY way to merge a stack member (and a
+ * perfectly valid way to merge any PR). 202 hands back a job; 200 means the
+ * merge already happened or is already queued; 409 means a merge is already
+ * enqueued for this PR, which for our purposes IS `enqueued` (the work is
+ * underway; a second request would only duplicate it).
+ */
+export async function mergePullRequestAsync(opts: {
+  repo: string
+  prNumber: number
+  token: string
+  commitTitle?: string
+  sha?: string
+  fetchImpl?: GitHubFetch
+}): Promise<AsyncMergeStatus> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const res = await doFetch(
+    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge-async`,
+    {
+      method: `PUT`,
+      headers: {
+        ...githubStackHeaders(opts.token),
+        "content-type": `application/json`,
+      },
+      body: JSON.stringify({
+        merge_method: `squash`,
+        ...(opts.commitTitle !== undefined
+          ? { commit_title: opts.commitTitle }
+          : {}),
+        ...(opts.sha !== undefined ? { sha: opts.sha } : {}),
+      }),
+    }
+  )
+  if (res.status === 409) {
+    return {
+      status: `enqueued`,
+      message: await githubErrorMessage(res),
+      uuid: null,
+      sha: null,
+    }
+  }
+  if (!res.ok) {
+    throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  }
+  const data = (await res.json().catch(() => null)) as Parameters<
+    typeof parseAsyncMerge
+  >[0]
+  return parseAsyncMerge(data)
+}
+
+const ASYNC_MERGE_TIMEOUT_MS = 60_000
+const ASYNC_MERGE_STEP_MS = 2_000
+
+const defaultSleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Poll `GET …/pulls/{n}/merge-async/{uuid}` until GitHub stops saying
+ * `pending`. Returns the last observed state — a still-`pending` answer at the
+ * deadline is the caller's cue to keep its merge claim and tell the user the
+ * merge is still running (it is a GitHub-side job; giving up here never
+ * cancels it). `sleepImpl` is injected so tests drive the deadline without
+ * real time.
+ */
+export async function pollAsyncMerge(opts: {
+  repo: string
+  prNumber: number
+  uuid: string
+  token: string
+  timeoutMs?: number
+  stepMs?: number
+  fetchImpl?: GitHubFetch
+  sleepImpl?: (ms: number) => Promise<void>
+  nowImpl?: () => number
+}): Promise<AsyncMergeStatus> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const sleep = opts.sleepImpl ?? defaultSleep
+  const now = opts.nowImpl ?? (() => Date.now())
+  const stepMs = opts.stepMs ?? ASYNC_MERGE_STEP_MS
+  const deadline = now() + (opts.timeoutMs ?? ASYNC_MERGE_TIMEOUT_MS)
+  let last: AsyncMergeStatus = {
+    status: `pending`,
+    message: null,
+    uuid: opts.uuid,
+    sha: null,
+  }
+  for (;;) {
+    const res = await doFetch(
+      `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}/merge-async/${encodeURIComponent(opts.uuid)}`,
+      { headers: githubStackHeaders(opts.token) }
+    )
+    if (!res.ok) {
+      throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+    }
+    const data = (await res.json().catch(() => null)) as Parameters<
+      typeof parseAsyncMerge
+    >[0]
+    last = { ...parseAsyncMerge(data), uuid: opts.uuid }
+    if (last.status !== `pending`) return last
+    if (now() + stepMs > deadline) return last
+    await sleep(stepMs)
+  }
+}
+
+/**
+ * The merge-async job is still running at our deadline. NOT a failure: the
+ * merge may land seconds later, so the caller keeps its actor claim and says
+ * so instead of reporting an error GitHub never returned.
+ */
+export class GitHubAsyncMergePending extends Error {
+  constructor(
+    public prNumber: number,
+    public stackNumber: number | null,
+    public uuid: string | null
+  ) {
+    super(`GitHub is still merging PR #${prNumber}`)
+  }
+}
+
+/** GitHub's refusal to merge a stack member through the legacy endpoint. */
+export const STACKED_PR_REFUSAL = /stacked PRs?/i
+
+export interface SmartMergeResult {
+  merged: boolean
+  /** The merge is running on GitHub's merge queue — success, not yet landed. */
+  queued: boolean
+  sha: string | null
+  viaStack: boolean
+  stackNumber: number | null
+  /** Every member at-or-below the merged one (bottom → top, incl. itself). */
+  stackMemberNumbers: number[]
+}
+
+/**
+ * The ONE merge entry point for a PR that MIGHT be stacked (FEED-43).
+ *
+ * Legacy `PUT …/merge` first — it is the cheaper call and the overwhelmingly
+ * common case — unless the row already knows a stack number. GitHub's
+ * stacked-PR refusal (405/422 naming "stacked PRs") is not an error here: it
+ * is the discovery that this PR is a stack member, so the call is retried
+ * through `merge-async` + poll. Merging member k merges every unmerged member
+ * BELOW it atomically, which is why `stackMemberNumbers` comes back — the
+ * caller completes those issues too.
+ */
+export async function mergePullRequestSmart(opts: {
+  repo: string
+  prNumber: number
+  token: string
+  commitTitle?: string
+  /** `issues.pr_stack_number` — skips the legacy attempt when set. */
+  knownStackNumber?: number | null
+  fetchImpl?: GitHubFetch
+  sleepImpl?: (ms: number) => Promise<void>
+  timeoutMs?: number
+  stepMs?: number
+}): Promise<SmartMergeResult> {
+  const { repo, prNumber, token, commitTitle } = opts
+  if (opts.knownStackNumber == null) {
+    try {
+      const merged = await mergePullRequest({
+        repo,
+        prNumber,
+        token,
+        ...(commitTitle !== undefined ? { commitTitle } : {}),
+      })
+      return {
+        merged: merged.merged,
+        queued: false,
+        sha: merged.sha,
+        viaStack: false,
+        stackNumber: null,
+        stackMemberNumbers: [prNumber],
+      }
+    } catch (err) {
+      if (!isStackedRefusal(err)) throw err
+      // Fall through: this PR is a stack member after all.
+    }
+  }
+
+  const stack = await findStackForPull(
+    repo,
+    prNumber,
+    token,
+    opts.fetchImpl
+  ).catch(() => null)
+  const stackNumber = stack?.number ?? opts.knownStackNumber ?? null
+  const atOrBelow = stack
+    ? membersAtOrBelowNumber(stack, prNumber)
+    : [prNumber]
+
+  const started = await mergePullRequestAsync({
+    repo,
+    prNumber,
+    token,
+    ...(commitTitle !== undefined ? { commitTitle } : {}),
+    ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+  })
+  let state = started
+  if (state.status === `pending` && state.uuid) {
+    state = await pollAsyncMerge({
+      repo,
+      prNumber,
+      uuid: state.uuid,
+      token,
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+      ...(opts.sleepImpl ? { sleepImpl: opts.sleepImpl } : {}),
+      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      ...(opts.stepMs !== undefined ? { stepMs: opts.stepMs } : {}),
+    })
+  }
+  if (state.status === `failed`) {
+    // Same shape as a legacy refusal so `prMergeFailureError` maps it onto the
+    // conflict/precondition split every client already gates on.
+    throw new GitHubMergeError(
+      405,
+      state.message ?? `GitHub could not merge PR #${prNumber}`
+    )
+  }
+  if (state.status === `pending`) {
+    throw new GitHubAsyncMergePending(prNumber, stackNumber, state.uuid)
+  }
+  return {
+    merged: true,
+    queued: state.status === `enqueued`,
+    sha: state.sha,
+    viaStack: true,
+    stackNumber,
+    stackMemberNumbers: atOrBelow,
+  }
+}
+
+function isStackedRefusal(err: unknown): boolean {
+  return (
+    err instanceof GitHubMergeError &&
+    (err.status === 405 || err.status === 422) &&
+    STACKED_PR_REFUSAL.test(err.message)
+  )
+}
+
+/** The stack's members at or below `prNumber` (bottom → top, inclusive). */
+export function membersAtOrBelowNumber(
+  stack: PullStack,
+  prNumber: number
+): number[] {
+  const index = stack.members.findIndex(
+    (member) => member.number === prNumber
+  )
+  if (index < 0) return [prNumber]
+  return stack.members.slice(0, index + 1).map((member) => member.number)
 }

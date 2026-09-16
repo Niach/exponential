@@ -26,12 +26,18 @@ import com.exponential.app.ui.session.RunningSessionRow
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
+/** EXP-897: one nesting level is 14dp of indent, on every client and list. */
+internal const val SESSION_TREE_INDENT_DP = 14
+
 /**
  * EXP-825: the caller's OWN coding sessions — Running (live rows, EXP-312:
  * owner-only), then Recent (EXP-746: finished person-started runs) — under the
  * Agent page composer, moved here verbatim from the Devices tab, which keeps
  * machines only (web parity, EXP-818). A `LazyListScope` extension so the page
  * hosts the composer and the rows in ONE scroller.
+ *
+ * EXP-897: STATELESS — both bands nest their children (`SessionTree`) and the
+ * fold state lives on the page, so a rebuilt list never loses it.
  */
 internal fun LazyListScope.agentSessionsList(
     rows: List<AgentRow>,
@@ -39,6 +45,11 @@ internal fun LazyListScope.agentSessionsList(
     /** EXP-862: the Recent band is folded until the header is tapped. */
     pastExpanded: Boolean,
     onTogglePast: () -> Unit,
+    /** The ids whose CHILD runs are folded away, per band. */
+    collapsedRunning: Set<String>,
+    onToggleRunning: (String) -> Unit,
+    collapsedPast: Set<String>,
+    onTogglePastRun: (String) -> Unit,
     steerEnabled: Boolean,
     onOpenSteer: (String) -> Unit,
     onOpenIssue: (String) -> Unit,
@@ -59,16 +70,14 @@ internal fun LazyListScope.agentSessionsList(
         }
     } else {
         // EXP-818: a run started by another run nests under its parent,
-        // indented (`SessionTree`, the ×4 rule).
-        val tree = SessionTree.nest(
-            rows,
-            { it.session.id },
-            { it.session.parentSessionId },
-            { it.session.startedAt },
-        )
+        // indented (`SessionTree`, the ×4 rule). EXP-897: a parent folds.
+        val tree = SessionTree.visibleRows(
+            SessionTree.nest(rows, { it.session.id }, { it.session.parentSessionId }, { it.session.startedAt }),
+            collapsedRunning,
+        ) { it.session.id }
         items(tree, key = { it.session.session.id }) { entry ->
             val row = entry.session
-            Box(Modifier.padding(start = (entry.depth * 16).dp)) {
+            Box(Modifier.padding(start = (entry.depth * SESSION_TREE_INDENT_DP).dp)) {
                 // EXP-893: a row only OPENS the run — the Work screen it
                 // lands on merges (Changes face) and reaches the issue or
                 // the action from there; the trailing circles are gone.
@@ -86,6 +95,9 @@ internal fun LazyListScope.agentSessionsList(
                             row.session.issueId?.let(onOpenIssue)
                         }
                     },
+                    expandable = entry.hasChildren,
+                    expanded = row.session.id !in collapsedRunning,
+                    onToggle = { onToggleRunning(row.session.id) },
                 )
             }
         }
@@ -119,20 +131,38 @@ internal fun LazyListScope.agentSessionsList(
         }
     }
     if (pastRuns.isNotEmpty() && pastExpanded) {
-        items(pastRuns, key = { "past_${it.session.id}" }) { row ->
-            EndedRunRow(
-                // The ×4 rule (domain `pastRunTitle`): the issue's title, a
-                // sync placeholder while it is missing, the action_name
-                // snapshot (a chat run's reads "Chat"), else the batch.
-                title = pastRunTitle(row.session, row.issue),
-                identifier = row.issue?.identifier,
-                timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt),
-                byline = pastRunByline(
-                    deviceLabel = row.device.displayLabel,
+        // EXP-897: Recent nests too — a child run that finished under its
+        // parent reads as one story here as well, capped BEFORE nesting so
+        // the cap keeps meaning what it meant.
+        val tree = SessionTree.visibleRows(
+            SessionTree.nest(
+                pastRuns,
+                { it.session.id },
+                { it.session.parentSessionId },
+                { it.session.startedAt },
+            ),
+            collapsedPast,
+        ) { it.session.id }
+        items(tree, key = { "past_${it.session.session.id}" }) { entry ->
+            val row = entry.session
+            Box(Modifier.padding(start = (entry.depth * SESSION_TREE_INDENT_DP).dp)) {
+                EndedRunRow(
+                    // The ×4 rule (domain `pastRunTitle`): the issue's title, a
+                    // sync placeholder while it is missing, the action_name
+                    // snapshot (a chat run's reads "Chat"), else the batch.
+                    title = pastRunTitle(row.session, row.issue),
+                    identifier = row.issue?.identifier,
                     timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt),
-                ),
-                onOpen = { onOpenSteer(row.session.id) },
-            )
+                    byline = pastRunByline(
+                        deviceLabel = row.device.displayLabel,
+                        timeLabel = relativeTime(row.session.endedAt ?: row.session.updatedAt),
+                    ),
+                    onOpen = { onOpenSteer(row.session.id) },
+                    expandable = entry.hasChildren,
+                    expanded = row.session.id !in collapsedPast,
+                    onToggle = { onTogglePastRun(row.session.id) },
+                )
+            }
         }
     }
 }

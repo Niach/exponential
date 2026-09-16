@@ -192,6 +192,16 @@ impl Render for PrDiffView {
         let mut state: Option<SharedString> = None;
 
         if let Some(issue) = issue.as_ref() {
+            // EXP-897 §4: the review page IS a Changes face, so it carries the
+            // same stack/batch badge — its overlay lists the PR stack
+            // bottom-up, "Merge stack" on the bottom entry.
+            let spec = crate::pr_graph::issue_spec(
+                issue,
+                None,
+                crate::pr_graph::BadgeFace::Changes,
+                cx,
+            );
+            trailing.extend(crate::pr_graph::badge("review-pr-graph", spec, cx));
             let is_open = issue.pr_state.as_deref() == Some("open");
             let close_key = close_pr_key(&issue.id);
             let (merging, closing, close_armed, error, failed_op, is_conflict) = {

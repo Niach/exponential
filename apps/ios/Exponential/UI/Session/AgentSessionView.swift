@@ -111,6 +111,9 @@ struct AgentSessionView<Switcher: View>: View {
     /// it last picked.
     @State private var diffFileSheet = false
     @State private var selectedDiffPath: String?
+    /// EXP-897: the synced rows behind the stack position line — the run's
+    /// issue and every pull request around it.
+    @State private var stackModel: PrGraphModel?
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -155,6 +158,8 @@ struct AgentSessionView<Switcher: View>: View {
         // EXP-849: a resumed/switched run says it is a continuation, above
         // everything else on the screen.
         continuationNote(model)
+        // EXP-897: and where this run's pull request sits in its stack.
+        stackPositionNote(model)
         // EXP-773: an ended run's close-out sits ABOVE its transcript.
         endedHeader(model)
         feedArea(model)
@@ -255,6 +260,16 @@ struct AgentSessionView<Switcher: View>: View {
     /// chain is split at all.
     private func withLifecycle(_ content: some View) -> some View {
         content
+            // EXP-897: the stack line's rows. Keyed on the issue, so a
+            // continuation that lands on another one re-arms.
+            .task(id: (model?.session ?? session).issueId) {
+                let stack = stackModel ?? PrGraphModel(accountId: accountId, db: deps.db)
+                stackModel = stack
+                stack.start(
+                    issueId: (model?.session ?? session).issueId,
+                    teamId: (model?.session ?? session).teamId
+                )
+            }
             .photosPicker(
                 isPresented: $showPhotoPicker,
                 selection: $photoItems,
@@ -611,6 +626,65 @@ struct AgentSessionView<Switcher: View>: View {
             .padding(.top, 8)
             .accessibilityIdentifier("run-continuation")
         }
+    }
+
+    // MARK: - Stack position (EXP-897)
+
+    /// The run's issue and the pull requests around it.
+    private var stackGraph: PrGraph.Graph? {
+        guard let stackModel,
+              let issueId = (model?.session ?? session).issueId,
+              let issue = stackModel.issue(id: issueId)
+        else { return nil }
+        return stackModel.graph(issue: issue, session: nil)
+    }
+
+    /// `2 of 3 · on top of #ABC-12` — where this run's pull request sits in
+    /// its stack, with a step down to its foundation and up to what is built
+    /// on it. The ×4 line; both steps open that pull request's Changes.
+    @ViewBuilder
+    private func stackPositionNote(_ sessionModel: AgentSessionModel) -> some View {
+        if let graph = stackGraph, let label = graph.positionLabel {
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.prStack, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(stackPositionLine(label: label, below: graph.below))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if let below = graph.below {
+                    stackStep(AppIcons.uiChevronDown, label: "Open the pull request below", entry: below)
+                }
+                if let above = graph.above {
+                    stackStep(AppIcons.uiChevronUp, label: "Open the pull request above", entry: above)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .accessibilityIdentifier("run-stack-position")
+        }
+    }
+
+    private func stackPositionLine(label: String, below: PrGraph.Entry?) -> String {
+        guard let identifier = below?.representative.identifier, !identifier.isEmpty else {
+            return label
+        }
+        return "\(label) · on top of #\(identifier)"
+    }
+
+    @ViewBuilder
+    private func stackStep(_ glyph: String, label: String, entry: PrGraph.Entry) -> some View {
+        Button {
+            pushRoute(.changes(accountId: accountId, issueId: entry.representative.id))
+        } label: {
+            AppIcon(glyph, size: 12)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     // MARK: - Feed

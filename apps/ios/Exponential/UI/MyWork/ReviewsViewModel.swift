@@ -18,9 +18,33 @@ struct ReviewEntry: Identifiable {
     var prUrl: String? { representative.prUrl }
     var prNumber: Int? { representative.prNumber }
     var branch: String? { representative.branch }
+    /// EXP-897: the branch this PR is BASED on — the stack edge.
+    var prBaseBranch: String? { representative.prBaseBranch }
     /// Identifiers of every linked issue, newest first — mirrors `issues`
     /// (for the batch row subtitle).
     var identifiers: [String] { issues.compactMap { $0.identifier } }
+}
+
+/// EXP-897: one rendered Reviews row — an entry plus its place in its STACK.
+/// The list is flat; the depth is what indents it and the caption is what
+/// names the pull request it is built on.
+struct ReviewRow: Identifiable {
+    let entry: ReviewEntry
+    /// 0 for a root (a PR based on something nobody here owns), +1 per rung.
+    let depth: Int
+    /// Something is stacked on this row.
+    let hasChildren: Bool
+    /// The identifier of the entry directly BELOW — `on top of #EXP-11`.
+    let stackedOn: String?
+    /// How many pull requests the stack this row roots holds (1 = not a
+    /// stack). Only meaningful on the bottom row — the "Merge stack" copy.
+    var stackSize: Int = 1
+    var id: String { entry.id }
+
+    /// The LOWEST row of a real stack: the one that offers "Merge stack".
+    /// Its own issue id is what `mergePr({mergeStack: true})` takes — the
+    /// server resolves the top of the chain from it.
+    var isStackBottom: Bool { depth == 0 && hasChildren }
 }
 
 /// EXP-734: one AGENT RUN's own open pull request — the chore PR an action or
@@ -40,8 +64,14 @@ struct RunReviewEntry: Identifiable {
 /// cross-board lists group by status.
 struct ReviewGroup: Identifiable {
     let board: BoardEntity
-    let entries: [ReviewEntry]
+    /// EXP-897: the board's rows in NESTED order — a stack member follows the
+    /// pull request it is based on, one level deeper, and a whole stack lives
+    /// in the board of its ROOT entry (a stack spanning two boards reads as
+    /// one thing, where it starts).
+    let rows: [ReviewRow]
     var id: String { board.id }
+    /// The flat entries behind the rows — counts and pickers.
+    var entries: [ReviewEntry] { rows.map(\.entry) }
 }
 
 /// "Reviews" (EXP-131): every issue in the ACTIVE team with an open PR,
@@ -152,20 +182,63 @@ final class ReviewsViewModel {
             return ReviewEntry(id: key, issues: sorted)
         }
 
-        // Group entries by their representative's board.
-        var byBoard: [String: [ReviewEntry]] = [:]
-        for entry in entries {
-            byBoard[entry.representative.boardId, default: []].append(entry)
+        // EXP-897: order FIRST, then nest — `nestPrStacks` keeps the caller's
+        // root order and threads every stacked entry under the one it is based
+        // on, so the newest-first rule survives the nesting.
+        let ordered = entries.sorted { Self.newerFirst($0.representative, $1.representative) }
+        let nested = PrStack.nestPrStacks(
+            ordered,
+            id: { $0.id },
+            branch: { $0.branch },
+            base: { $0.prBaseBranch }
+        )
+
+        // Walk the nested list once: a row's board is its ROOT's board, and
+        // the entry directly below it is the nearest preceding row one level
+        // shallower (`ancestors`).
+        var rows: [ReviewRow] = []
+        var boardOfRow: [String] = []
+        var ancestors: [ReviewEntry] = []
+        var rootBoardId = ""
+        for nestedRow in nested {
+            let entry = nestedRow.entry
+            if ancestors.count > nestedRow.depth {
+                ancestors.removeSubrange(nestedRow.depth...)
+            }
+            let below = nestedRow.depth > 0 ? ancestors.last : nil
+            if nestedRow.depth == 0 { rootBoardId = entry.representative.boardId }
+            rows.append(ReviewRow(
+                entry: entry,
+                depth: nestedRow.depth,
+                hasChildren: nestedRow.hasChildren,
+                stackedOn: below?.representative.identifier
+            ))
+            boardOfRow.append(rootBoardId)
+            ancestors.append(entry)
+        }
+
+        // The bottom row of a stack carries its size: the contiguous run of
+        // deeper rows that follows it.
+        for index in rows.indices where rows[index].depth == 0 {
+            var size = 1
+            var cursor = index + 1
+            while cursor < rows.count, rows[cursor].depth > 0 {
+                size += 1
+                cursor += 1
+            }
+            rows[index].stackSize = size
+        }
+
+        var byBoard: [String: [ReviewRow]] = [:]
+        for (index, row) in rows.enumerated() {
+            byBoard[boardOfRow[index], default: []].append(row)
         }
 
         return teamBoards
             .sorted { ($0.sortOrder ?? 0) < ($1.sortOrder ?? 0) }
             .compactMap { board in
-                guard let boardEntries = byBoard[board.id], !boardEntries.isEmpty else { return nil }
-                let ordered = boardEntries.sorted {
-                    Self.newerFirst($0.representative, $1.representative)
-                }
-                return ReviewGroup(board: board, entries: ordered)
+                guard let boardRows = byBoard[board.id], !boardRows.isEmpty else { return nil }
+                return ReviewGroup(board: board, rows: boardRows)
             }
     }
 

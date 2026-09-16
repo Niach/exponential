@@ -3,6 +3,7 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { GitBranch, GitMerge, GitPullRequest, LoaderCircle } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import {
+  conceptIcon,
   EmptyState,
   Pill,
   Button,
@@ -22,8 +23,16 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import {
   useReviewsData,
   type ReviewEntry,
+  type ReviewRow,
   type SessionReviewEntry,
 } from "@/hooks/use-reviews-data"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
+import {
+  mergeStackBody,
+  MERGE_STACK_LABEL,
+  MERGE_STACK_TITLE,
+  stackedOnCaption,
+} from "@/lib/pr-stack"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
@@ -47,6 +56,8 @@ export const Route = createFileRoute(`/t/$teamSlug/reviews/`)({
   },
   component: ReviewsPage,
 })
+
+const StackIcon = conceptIcon(`pr-stack`)
 
 interface ExternalMergeTarget {
   repositoryId: string
@@ -75,6 +86,13 @@ function ReviewsPage() {
   // Closing without merging lives on the review-detail page (EXP-248) — list
   // rows offer merge only, matching the iOS/Android review rows.
   const [mergeTarget, setMergeTarget] = useState<ReviewEntry | null>(null)
+  // EXP-897: the stack whose "Merge the whole stack?" confirm is open. The
+  // mutation takes the TOP of the chain; the server merges every unmerged
+  // member below it, bottom-up.
+  const [stackMergeTarget, setStackMergeTarget] = useState<{
+    row: ReviewRow
+    topIssueId: string
+  } | null>(null)
   const [mergingIds, setMergingIds] = useState<Set<string>>(new Set())
   const [externalMergeTarget, setExternalMergeTarget] =
     useState<ExternalMergeTarget | null>(null)
@@ -193,6 +211,43 @@ function ReviewsPage() {
       })
   }
 
+  // EXP-897: merging a whole stack. One call, on the TOP of the chain: a real
+  // GitHub stack merges atomically, a candidate one bottom-up. The spinner
+  // and any refusal caption the BOTTOM row, which is where the control sits.
+  const confirmStackMerge = () => {
+    const target = stackMergeTarget
+    if (!target) return
+    setStackMergeTarget(null)
+    const key = target.row.entry.key
+    setMergingIds((prev) => new Set(prev).add(key))
+    setMergeErrors((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    trpc.issues.mergePr
+      .mutate(
+        { issueId: target.topIssueId, mergeStack: true },
+        { context: { skipErrorToast: true } }
+      )
+      .catch((error: unknown) => {
+        setMergeErrors((prev) => ({
+          ...prev,
+          // A stack refusal is never a rebase-and-resolve job: the recovery
+          // run takes ONE pull request.
+          [key]: {
+            ...mergeFailure(error, `The stack could not be merged`),
+            conflict: false,
+          },
+        }))
+        setMergingIds((prev) => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
+      })
+  }
+
   // EXP-734: merging a run's OWN pull request. No issue completes; the run's
   // session closes unless the team keeps sessions on merge.
   const confirmSessionMerge = () => {
@@ -294,7 +349,8 @@ function ReviewsPage() {
                 />
 
                 <div className="flex flex-col gap-0">
-                  {group.entries.map((entry) => {
+                  {group.rows.map((row) => {
+                    const entry = row.entry
                     const issue = entry.issue
                     const isBatch = entry.issues.length > 1
                     const merging = mergingIds.has(entry.key)
@@ -313,10 +369,28 @@ function ReviewsPage() {
                         key={entry.key}
                         interactive
                         className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
+                        // EXP-897: 14px per stacked level, the ×4 indent.
+                        style={
+                          row.depth > 0
+                            ? { paddingLeft: `${12 + row.depth * 14}px` }
+                            : undefined
+                        }
                         onClick={() => openReview(issue.identifier)}
                         data-testid={`review-row-${issue.identifier}`}
                       >
-                        <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                        {/* A batch PR wears the batch glyph; the overlay on it
+                            lists the issues it closes (EXP-897 Part 4). */}
+                        {isBatch ? (
+                          <PrGraphBadge
+                            teamId={team.id}
+                            teamSlug={teamSlug}
+                            face="changes"
+                            issue={issue}
+                            variant="glyph"
+                          />
+                        ) : (
+                          <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                        )}
                         <span className="truncate font-mono text-xs text-muted-foreground">
                           {isBatch && issue.prNumber
                             ? `#${issue.prNumber}`
@@ -340,11 +414,39 @@ function ReviewsPage() {
                               issue.title
                             )}
                           </div>
-                          {issue.branch && (
-                            <div className="truncate font-mono text-xs text-muted-foreground">
-                              {issue.branch}
-                            </div>
-                          )}
+                          {/* EXP-897: the caption line carries the branch, an
+                              upper row's foundation, and — on the BOTTOM row
+                              of a stack — "Merge stack", so the trailing
+                              action column still holds exactly one control. */}
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            {issue.branch && (
+                              <span className="truncate font-mono text-xs text-muted-foreground">
+                                {issue.branch}
+                              </span>
+                            )}
+                            {row.stackedOn && (
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {stackedOnCaption(row.stackedOn)}
+                              </span>
+                            )}
+                            {row.stackTopIssueId && (
+                              <Pill
+                                mode="action"
+                                disabled={merging}
+                                data-testid={`merge-stack-${issue.identifier}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setStackMergeTarget({
+                                    row,
+                                    topIssueId: row.stackTopIssueId!,
+                                  })
+                                }}
+                              >
+                                <StackIcon className="size-3" />
+                                {MERGE_STACK_LABEL}
+                              </Pill>
+                            )}
+                          </div>
                         </div>
                         {/* EXP-706: the recovery run takes the Merge button's
                             OWN slot on a real conflict — one trailing action
@@ -612,6 +714,28 @@ function ReviewsPage() {
           <DialogFooter>
             <DialogCancel onClick={() => setMergeTarget(null)} />
             <Button onClick={confirmMerge}>Merge pull request</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={stackMergeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setStackMergeTarget(null)
+        }}
+      >
+        <DialogContent mobile="alert" data-testid="merge-stack-dialog">
+          <DialogHeader>
+            <DialogTitle>{MERGE_STACK_TITLE}</DialogTitle>
+            <DialogDescription>
+              {stackMergeTarget
+                ? mergeStackBody(stackMergeTarget.row.stackSize)
+                : ``}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel onClick={() => setStackMergeTarget(null)} />
+            <Button onClick={confirmStackMerge}>{MERGE_STACK_LABEL}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

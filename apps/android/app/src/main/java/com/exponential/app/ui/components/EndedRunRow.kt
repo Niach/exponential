@@ -57,6 +57,11 @@ fun EndedRunRow(
     byline: String? = null,
     // The run is still going: "Running".
     isLive: Boolean = false,
+    // EXP-897: this row has children nested under it (the session TREE) — the
+    // same 12dp fold chevron the Running rows wear, on every client.
+    expandable: Boolean = false,
+    expanded: Boolean = true,
+    onToggle: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -67,6 +72,10 @@ fun EndedRunRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (expandable) {
+                FoldChevron(expanded = expanded, onToggle = onToggle)
+                Spacer(Modifier.width(4.dp))
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (identifier != null) {

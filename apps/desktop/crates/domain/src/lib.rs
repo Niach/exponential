@@ -19,6 +19,11 @@
 //! * [`board`] — `apps/web/src/lib/board-view.ts` grouping/sorting;
 //! * [`relations`] — EXP-736 relation picks, per-side labels and the two
 //!   timeline phrases (locked to the generated contract's label slices);
+//! * [`pr_stack`] — EXP-897 PR STACKS: the `pr_base_branch` edge, the
+//!   bottom-up chain, the nesting rule and the stack copy (web
+//!   `lib/pr-stack.ts`'s twin);
+//! * [`pr_graph`] — EXP-897 §4: stack + batch + session tree for ONE subject,
+//!   the model behind the work header's badge and its overlay;
 //! * [`session_tree`] — EXP-818 `nest_sessions`: the parent/child nesting
 //!   every session list renders (web `lib/session-tree.ts` twin);
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
@@ -40,6 +45,8 @@ pub mod enums;
 pub mod hydrate;
 pub mod image_message;
 pub mod options;
+pub mod pr_graph;
+pub mod pr_stack;
 pub mod relations;
 pub mod rows;
 pub mod session_tree;

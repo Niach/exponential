@@ -5,7 +5,7 @@ import {
   redirect,
   useNavigate,
 } from "@tanstack/react-router"
-import { useLiveQuery } from "@tanstack/react-db"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { AgentSessionView } from "@/components/agent-session"
 import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
@@ -15,10 +15,13 @@ import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PinToggleButton } from "@/components/pin-toggle-button"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { Button, useIsMobile, type SessionDotTone } from "@exp/ui"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
-import { codingSessionCollection } from "@/lib/collections"
+import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import { descendantIds, nestSessions } from "@/lib/session-tree"
+import { stackPosition, stackPositionLine } from "@/lib/pr-stack"
 import {
   CONTINUATION_COST_NOTE,
   CONTINUATION_NOTE,
@@ -337,6 +340,17 @@ function OwnSessionPage({
             origin={from}
             handlers={handlers}
             dot={dot}
+            graphBadge={
+              /* EXP-897: the same pill the md+ header wears — the face
+                 showing decides which section its sheet opens on. */
+              <PrGraphBadge
+                teamId={team.id}
+                teamSlug={teamSlug}
+                face={showingRun ? `run` : `changes`}
+                issue={issue}
+                session={session}
+              />
+            }
             action={
               showingRun ? (
                 <IssueCodingAction
@@ -366,10 +380,20 @@ function OwnSessionPage({
         identity={sessionIdentity(row)}
         mergeTarget={row.mergeTarget}
         banner={
-          // EXP-849: a run that was CONTINUED (an account switch, a resume)
-          // names the run before and after it, so the chain reads as one
-          // conversation instead of three orphans.
-          <SessionContinuationBand session={session} />
+          <>
+            {/* EXP-849: a run that was CONTINUED (an account switch, a resume)
+                names the run before and after it, so the chain reads as one
+                conversation instead of three orphans. */}
+            <SessionContinuationBand session={session} />
+            {/* EXP-897: where this run's pull request sits in its stack, and
+                what a run below it is asking the person. */}
+            {issue && <StackPositionBand issue={issue} teamSlug={teamSlug} />}
+            <EscalationBand
+              session={session}
+              teamId={team.id}
+              currentUserId={currentUserId}
+            />
+          </>
         }
         face={face}
         onFace={onFace}
@@ -380,6 +404,15 @@ function OwnSessionPage({
         onStart={onStart}
         prFiles={prFiles}
         prUrl={prUrl}
+        graphBadge={
+          <PrGraphBadge
+            teamId={team.id}
+            teamSlug={teamSlug}
+            face={face === `diff` ? `changes` : `run`}
+            issue={issue}
+            session={session}
+          />
+        }
         renderMobileHeader={renderMobileHeader}
         onBack={onBack}
       />
@@ -443,6 +476,130 @@ function SessionContinuationBand({ session }: { session: CodingSession }) {
           {`Continues in a newer run · started ${relativeTime(next.startedAt)}`}
         </button>
       )}
+    </div>
+  )
+}
+
+/** EXP-897: where this run's pull request sits in its STACK. One quiet line —
+ *  `2 of 3 · on top of #ABC-12` — with the members below and above linking to
+ *  their review pages. Absent when the issue is in no stack. Renders on the
+ *  phone too: it rides the view's `banner`, not the md+ header. */
+function StackPositionBand({
+  issue,
+  teamSlug,
+}: {
+  issue: Issue
+  teamSlug: string
+}) {
+  const { data: issueRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ i: issueCollection })
+        .where(({ i }) => eq(i.teamId, issue.teamId)),
+    [issue.teamId]
+  )
+  const at = useMemo(
+    () => stackPosition(issue, (issueRows ?? []) as Issue[]),
+    [issue, issueRows]
+  )
+  if (!at) return null
+  return (
+    <div
+      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground"
+      data-testid="stack-position-band"
+    >
+      <span>{stackPositionLine(at.position, at.size, at.below?.identifier ?? null)}</span>
+      {at.below && (
+        <Link
+          to="/t/$teamSlug/reviews/$issueIdentifier"
+          params={{ teamSlug, issueIdentifier: at.below.identifier }}
+          className="font-mono underline-offset-2 hover:underline"
+        >
+          {`↓ #${at.below.identifier}`}
+        </Link>
+      )}
+      {at.above && (
+        <Link
+          to="/t/$teamSlug/reviews/$issueIdentifier"
+          params={{ teamSlug, issueIdentifier: at.above.identifier }}
+          className="font-mono underline-offset-2 hover:underline"
+        >
+          {`↑ #${at.above.identifier}`}
+        </Link>
+      )}
+    </div>
+  )
+}
+
+/** EXP-897: a run deeper in the tree asked the PERSON a question
+ *  (`exponential_sessions_ask_parent({ to: 'user' })` sets the child's
+ *  `needs_input` + `agent_caption` and sends an `agent_message`). The ROOT run
+ *  is where the person is watching, so the question surfaces there — one row
+ *  per waiting descendant, opening that run's own composer to answer it.
+ *
+ *  Root runs only: on a child, the band would repeat its own question. */
+function EscalationBand({
+  session,
+  teamId,
+  currentUserId,
+}: {
+  session: CodingSession
+  teamId: string
+  currentUserId: string
+}) {
+  const openSession = useOpenSession()
+  const { data: sessionRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ s: codingSessionCollection })
+        .where(({ s }) =>
+          and(eq(s.teamId, teamId), eq(s.userId, currentUserId))
+        ),
+    [teamId, currentUserId]
+  )
+  const sessions = useMemo(
+    () => (sessionRows ?? []) as CodingSession[],
+    [sessionRows]
+  )
+  const waiting = useMemo(() => {
+    const ids = new Set(descendantIds(nestSessions(sessions), session.id))
+    return sessions.filter((row) => ids.has(row.id) && row.needsInput)
+  }, [sessions, session.id])
+  const askedIds = useMemo(
+    () =>
+      [...new Set(waiting.map((row) => row.issueId).filter((id): id is string => id !== null))].sort(),
+    [waiting]
+  )
+  const { data: issueRows } = useLiveQuery(
+    (query) =>
+      askedIds.length > 0
+        ? query
+            .from({ ai: issueCollection })
+            .where(({ ai }) => inArray(ai.id, askedIds))
+        : undefined,
+    [askedIds.join(`,`)]
+  )
+  if (session.parentSessionId || waiting.length === 0) return null
+  const byId = new Map(((issueRows ?? []) as Issue[]).map((row) => [row.id, row]))
+  return (
+    <div
+      className="flex shrink-0 flex-col gap-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-amber-400"
+      data-testid="escalation-band"
+    >
+      {waiting.map((child) => {
+        const issue = child.issueId ? byId.get(child.issueId) : undefined
+        const name = issue?.identifier ?? child.id.slice(0, 8)
+        return (
+          <button
+            key={child.id}
+            type="button"
+            className="min-w-0 truncate text-left underline-offset-2 hover:underline"
+            onClick={() => openSession(child)}
+          >
+            {`Run ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
+          </button>
+        )
+      })}
     </div>
   )
 }

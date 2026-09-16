@@ -12,6 +12,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.MergeFailure
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.sortableTimestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -97,10 +98,84 @@ fun buildRunEntries(sessions: List<CodingSessionEntity>): List<RunReviewEntry> {
         }
 }
 
+/**
+ * EXP-897: one row of the Reviews list — a pull request and where it sits in
+ * its STACK. The stack edge is synced (`pr_base_branch` → the lower entry's
+ * `branch`), so the nesting is pure client work like the batch collapsing
+ * above it.
+ */
+data class ReviewRowEntry(
+    val entry: ReviewEntry,
+    /** 0 for the bottom of a stack (or a lone PR), +1 per level. */
+    val depth: Int,
+    /** Whether a stacked pull request is nested right below this row. */
+    val hasChildren: Boolean,
+    /** The identifier of the entry directly below — the `on top of #X` caption. */
+    val stackedOn: String?,
+    /** The board the ROOT of this row's stack belongs to — the group it lands in. */
+    val rootBoardId: String,
+    /**
+     * Non-null on the BOTTOM row of a real stack: the issue id `Merge stack`
+     * sends (the server resolves the chain's top from it) and how many pull
+     * requests that merge would take.
+     */
+    val mergeStackIssueId: String?,
+    val stackSize: Int,
+)
+
+/**
+ * The team's review entries → rows, nested by stack: the caller's order is
+ * the ROOT order, a stacked pull request follows its foundation, and every
+ * row records the board of its ROOT so a whole stack groups under one board
+ * even when a member was moved.
+ */
+fun buildReviewRows(entries: List<ReviewEntry>): List<ReviewRowEntry> {
+    val nested = PrStack.nestPrStacks(
+        entries,
+        { it.branch },
+        { it.representative.prBaseBranch },
+    )
+    // The size of the stack each ROOT starts — the `N pull requests` count.
+    val sizeOfRootAt = HashMap<Int, Int>()
+    var rootIndex = -1
+    nested.forEachIndexed { index, row ->
+        if (row.depth == 0) rootIndex = index
+        sizeOfRootAt[rootIndex] = (sizeOfRootAt[rootIndex] ?: 0) + 1
+    }
+    val ancestors = ArrayList<ReviewEntry>()
+    var rootBoardId = ""
+    rootIndex = -1
+    return nested.mapIndexed { index, row ->
+        while (ancestors.size > row.depth) ancestors.removeAt(ancestors.size - 1)
+        val below = ancestors.lastOrNull()
+        if (row.depth == 0) {
+            rootIndex = index
+            rootBoardId = row.entry.boardId
+        }
+        ancestors.add(row.entry)
+        ReviewRowEntry(
+            entry = row.entry,
+            depth = row.depth,
+            hasChildren = row.hasChildren,
+            stackedOn = below?.representative?.identifier,
+            rootBoardId = rootBoardId,
+            mergeStackIssueId = if (row.depth == 0 && row.hasChildren) {
+                row.entry.representative.id
+            } else {
+                null
+            },
+            stackSize = sizeOfRootAt[rootIndex] ?: 1,
+        )
+    }
+}
+
 data class ReviewBoardGroup(
     val board: BoardEntity,
-    val entries: List<ReviewEntry>,
-)
+    val rows: List<ReviewRowEntry>,
+) {
+    /** The flat pull requests of this board — counts and callers that ignore nesting. */
+    val entries: List<ReviewEntry> get() = rows.map { it.entry }
+}
 
 data class ReviewsState(
     val groups: List<ReviewBoardGroup> = emptyList(),
@@ -168,19 +243,19 @@ class ReviewsViewModel @Inject constructor(
                 )
             }
 
-        // Group entries by board, newest entry first within each board, and
-        // order the boards by their sortOrder (name tiebreak) — parity with
+        // Newest entry first, then nested by stack (EXP-897): roots keep that
+        // order, a stacked pull request follows its foundation. Grouped by the
+        // ROOT's board so a stack never splits across two bands, and the
+        // boards ordered by sortOrder (name tiebreak) — parity with
         // web/iOS/desktop, which all walk boards in board order.
-        val groups = entries
-            .groupBy { it.boardId }
-            .mapNotNull { (boardId, boardEntries) ->
+        val rows = buildReviewRows(
+            entries.sortedByDescending { sortableTimestamp(it.representative.createdAt) },
+        )
+        val groups = rows
+            .groupBy { it.rootBoardId }
+            .mapNotNull { (boardId, boardRows) ->
                 val board = boardsById[boardId] ?: return@mapNotNull null
-                ReviewBoardGroup(
-                    board = board,
-                    entries = boardEntries.sortedByDescending {
-                        sortableTimestamp(it.representative.createdAt)
-                    },
-                )
+                ReviewBoardGroup(board = board, rows = boardRows)
             }
             .sortedWith(
                 compareBy({ it.board.sortOrder }, { it.board.name.lowercase() })
@@ -222,6 +297,27 @@ class ReviewsViewModel @Inject constructor(
      * server resolves it to ALL linked issues and completes them together; the
      * `done` flips arrive via Electric sync, dropping the entry off this list.
      */
+    /**
+     * EXP-897: merge the whole STACK this row starts, bottom-up. [issueId] is
+     * the BOTTOM row's representative issue — the server resolves the chain's
+     * top and merges every unmerged member below it, retargeting as it goes.
+     * Shares the merging / mergeErrors maps with the single merge.
+     */
+    fun mergeStack(groupKey: String, issueId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _mergeErrors.value = _mergeErrors.value - groupKey
+            _merging.value = _merging.value + groupKey
+            runCatching { issuesApi.mergePr(accountId, issueId, mergeStack = true) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _mergeErrors.value = _mergeErrors.value +
+                        (groupKey to MergeFailure.from(t, "The stack could not be merged"))
+                }
+            _merging.value = _merging.value - groupKey
+        }
+    }
+
     fun mergePr(groupKey: String, issueId: String) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch

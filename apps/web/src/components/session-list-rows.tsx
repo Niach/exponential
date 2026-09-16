@@ -128,13 +128,19 @@ export function RunningSessionRow({
   )
 }
 
-/** A finished run: identity + byline, a chevron, and the whole row opens it. */
+/** A finished run: identity + byline, a chevron, and the whole row opens it.
+ *  EXP-897: it nests and folds exactly like the running row — an ended
+ *  orchestrator's children are its children on every list ×4. */
 export function PastSessionRow({
   sessionId,
   title,
   identifier,
   byline,
+  depth = 0,
   active = false,
+  expandable = false,
+  expanded = true,
+  onToggle,
   onOpen,
 }: {
   sessionId: string
@@ -143,7 +149,13 @@ export function PastSessionRow({
   identifier: string | null
   /** `pastRunRowByline(row)` — `<device> · <rel time>`. */
   byline: string
+  /** Nesting depth under a parent run — 14px of indent per level. */
+  depth?: number
   active?: boolean
+  /** EXP-849: this run started others — the row carries a fold chevron. */
+  expandable?: boolean
+  expanded?: boolean
+  onToggle?: () => void
   onOpen: () => void
 }) {
   return (
@@ -152,8 +164,27 @@ export function PastSessionRow({
       active={active}
       onClick={onOpen}
       className="gap-2 px-3 py-2.5"
+      style={depth > 0 ? { paddingLeft: `${12 + depth * 14}px` } : undefined}
       data-testid={`session-row-${sessionId}`}
     >
+      {expandable && (
+        <span
+          role="button"
+          tabIndex={-1}
+          aria-label={expanded ? `Collapse child runs` : `Expand child runs`}
+          className="flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggle?.()
+          }}
+        >
+          {expanded ? (
+            <ChevronDownIcon className="size-3" />
+          ) : (
+            <ChevronRightIcon className="size-3" />
+          )}
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           {identifier && (
@@ -167,7 +198,12 @@ export function PastSessionRow({
           <div className="truncate text-xs text-muted-foreground">{byline}</div>
         )}
       </div>
-      <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
+      {/* The trailing chevron is decoration: the whole row opens the run, and
+          the LEADING one is the fold control that owns the a11y name. */}
+      <ChevronRightIcon
+        aria-hidden
+        className="size-4 shrink-0 text-muted-foreground"
+      />
     </ListRow>
   )
 }

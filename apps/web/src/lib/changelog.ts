@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-stacked-pull-requests`,
+    date: `2026-09-16`,
+    title: `Stacked pull requests`,
+    summary: `An issue blocked by another can now be started on top of it: one pull request based on the other, merged together, with the stack visible everywhere the work is.`,
+    body: `- **Start on top of a blocker**: starting an issue that something else blocks now asks whether to start anyway or open a stacked pull request. A stacked run cuts its branch from the blocker's branch, so its diff shows only its own work, and it builds the blocker first if nobody has.
+- **Merge the whole stack**: the review queue nests a stacked pull request under the one it is based on, says which one that is, and offers Merge stack on the bottom of the chain. Merging a stacked pull request through Exponential works again on GitHub, where it used to be refused outright.
+- **A badge for related work**: an issue, its run and its changes carry one small badge saying whether they are part of a stack or of a batch pull request. Hover it (or tap it on a phone) to see the blockers, the issues sharing the pull request, and the runs a run started.
+- **Every run list nests**: a run started by another run now sits under it in every list, with a twisty to fold the whole branch away, on the web, the desktop app, iOS and Android.
+- **Questions reach you**: a run several levels deep can hand a question to the person instead of to the run above it. It lands in your inbox and on the run you are watching.`,
+  },
+  {
     id: `2026-09-one-diff-view`,
     date: `2026-09-15`,
     title: `One diff view`,

@@ -456,7 +456,12 @@ fn register_device(
 /// multi-issue batch (`PrepareRequest::Batch`, EXP-106).
 fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
     match start.subject.clone() {
-        steer::RemoteStartSubject::Issue(issue_id) => remote_issue_start(issue_id, &start, cx),
+        steer::RemoteStartSubject::Issue(issue_id) => remote_issue_start(
+            issue_id,
+            &start,
+            steer::stack_launch(start.stack.as_ref()),
+            cx,
+        ),
         steer::RemoteStartSubject::Batch {
             issue_ids,
             team_id,
@@ -693,7 +698,12 @@ pub(crate) fn find_team_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
 
 /// Relay single-issue start (§08) — the button's `build_launch` sequence with
 /// `LaunchOrigin::Relay`.
-fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App) {
+fn remote_issue_start(
+    issue_id: String,
+    start: &steer::RemoteStart,
+    stack: Option<coding::StackLaunch>,
+    cx: &mut App,
+) {
     // Dedup: never launch a second session for an issue this process is
     // already coding. Without this, a relay `start_session` arriving while a
     // session is live (a phone tapping "Start on my desktop" for an issue
@@ -783,6 +793,9 @@ fn remote_issue_start(issue_id: String, start: &steer::RemoteStart, cx: &mut App
             options,
             start.resume,
             start.prompt.clone(),
+            // EXP-897: the frame's stack plan. A resume ignores it (the arm
+            // above): the recorded run already names the base it was cut from.
+            stack,
             cx,
         )
         .map(|(request, deps)| (PrepareRequest::Issue(request), deps)),

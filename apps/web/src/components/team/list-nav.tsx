@@ -15,13 +15,8 @@ import { useReviewsData } from "@/hooks/use-reviews-data"
 import { useSession } from "@/hooks/use-session"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { codingSessionCollection } from "@/lib/collections"
-import { sessionIdentity } from "@/lib/session-identity"
 import { useSessionListRows } from "@/hooks/use-agents-data"
-import { pastRunRowByline } from "@/components/agent-session-row"
-import {
-  PastSessionRow,
-  RunningSessionRow,
-} from "@/components/session-list-rows"
+import { SessionTreeList } from "@/components/session-tree-list"
 import {
   conceptIcon,
   GlassSectionHeader,
@@ -332,32 +327,14 @@ function AutomationsListNav({ team }: { team: Team }) {
   }
   return (
     <div className="flex-1 overflow-y-auto p-2">
-      <div className="flex flex-col">
-        {rows.map((row) => {
-          const { session } = row
-          const onOpen = () =>
-            openSession(session, { origin: { kind: `automations` } })
-          const active = session.id === sessionId
-          return session.status === `ended` ? (
-            <PastSessionRow
-              key={session.id}
-              sessionId={session.id}
-              title={sessionIdentity(row).subject}
-              identifier={row.issue?.identifier ?? null}
-              byline={pastRunRowByline(row)}
-              active={active}
-              onOpen={onOpen}
-            />
-          ) : (
-            <RunningSessionRow
-              key={session.id}
-              row={row}
-              active={active}
-              onOpen={onOpen}
-            />
-          )
-        })}
-      </div>
+      {/* EXP-897: nested, like every other session list. */}
+      <SessionTreeList
+        rows={rows}
+        activeSessionId={sessionId}
+        onOpen={(session) =>
+          openSession(session, { origin: { kind: `automations` } })
+        }
+      />
     </div>
   )
 }

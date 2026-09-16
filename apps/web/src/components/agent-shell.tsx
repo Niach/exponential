@@ -1,11 +1,8 @@
 import { useMemo, useState } from "react"
 import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
-import { pastRunRowByline } from "@/components/agent-session-row"
-import {
-  PastSessionRow,
-  RunningSessionRow,
-} from "@/components/session-list-rows"
+import { RunningSessionRow } from "@/components/session-list-rows"
+import { SessionTreeList } from "@/components/session-tree-list"
 import { GlassSectionHeader } from "@exp/ui"
 import { useAgentsData, usePastRuns } from "@/hooks/use-agents-data"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -122,19 +119,14 @@ export function SessionsList({
             onToggle={() => setPastOpen((open) => !open)}
           />
           {pastOpen && (
-            <div className="flex flex-col">
-              {past.map((row) => (
-                <PastSessionRow
-                  key={row.session.id}
-                  sessionId={row.session.id}
-                  title={row.title}
-                  identifier={row.identifier}
-                  byline={pastRunRowByline(row)}
-                  active={row.session.id === activeSessionId}
-                  onOpen={() => openSession(row.session, { origin })}
-                />
-              ))}
-            </div>
+            /* EXP-897: Recent nests too — `PAST_RUN_CAP` already applied to
+               the ROWS above, so an unlisted parent simply leaves its child a
+               root (session-tree rule 2). */
+            <SessionTreeList
+              rows={past}
+              activeSessionId={activeSessionId}
+              onOpen={(session) => openSession(session, { origin })}
+            />
           )}
         </div>
       )}

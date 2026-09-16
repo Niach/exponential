@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { descendantIds, nestSessions } from "./session-tree"
+import { descendantIds, nestSessions, visibleTreeRows } from "./session-tree"
 
 // EXP-818 — the session tree's four rules. Every `it` name here is mirrored by
 // iOS SessionTreeTests, Android SessionTreeTest and the desktop
@@ -47,6 +47,31 @@ describe(`nestSessions`, () => {
       `self@0`,
       `a@0+`,
       `b@1`,
+    ])
+  })
+})
+
+// EXP-897 promoted the fold to the ×4 rule — same test name on every client.
+describe(`visibleTreeRows`, () => {
+  it(`hides rows under a collapsed parent`, () => {
+    const rows = nestSessions([
+      row(`p`),
+      row(`early`, `p`, `2026-09-10T11:00:00Z`),
+      row(`grand`, `early`, `2026-09-10T13:00:00Z`),
+      row(`z`),
+    ])
+    expect(shape(visibleTreeRows(rows, new Set()))).toEqual([
+      `p@0+`,
+      `early@1+`,
+      `grand@2`,
+      `z@0`,
+    ])
+    // A collapsed parent takes its WHOLE subtree with it, not just one level.
+    expect(shape(visibleTreeRows(rows, new Set([`p`])))).toEqual([`p@0+`, `z@0`])
+    expect(shape(visibleTreeRows(rows, new Set([`early`])))).toEqual([
+      `p@0+`,
+      `early@1+`,
+      `z@0`,
     ])
   })
 })

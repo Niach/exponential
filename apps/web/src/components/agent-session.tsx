@@ -332,6 +332,7 @@ export function AgentSessionView({
   onStart,
   prFiles,
   prUrl,
+  graphBadge,
   renderMobileHeader,
   onBack,
 }: {
@@ -379,6 +380,10 @@ export function AgentSessionView({
   prFiles?: DiffFile[] | null
   /** EXP-893: the PR page, the Changes face's GitHub circle. */
   prUrl?: string | null
+  /** EXP-897: the stack/batch pill (`PrGraphBadge`) — the route builds it so
+   *  this file stays free of routing. It rides the ONE work header, and its
+   *  overlay's sections follow the face showing. */
+  graphBadge?: ReactNode
   /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
    *  route wraps it so the same bar shows on every face; `showingRun` says
    *  whether to put Stop / Resume in its trailing slot. */
@@ -1153,15 +1158,19 @@ export function AgentSessionView({
             }
             onBack={onBack}
             menu={
-              showingRun && (canKill || (sessionEnded && canResumeAny)) ? (
-                <div className="flex shrink-0 items-center">
-                  {canKill ? (
+              /* The cluster keeps the back button's width whether or not it
+                 holds anything, so the title stays optically centred. */
+              <div className="flex min-w-9 shrink-0 items-center justify-end gap-1">
+                {/* EXP-897: an issue-less run — a BATCH run above all — says
+                    what it is part of here, the same pill, the same sheet. */}
+                {graphBadge}
+                {showingRun &&
+                  (canKill ? (
                     <StopRunPill onStop={requestKill} />
-                  ) : (
+                  ) : sessionEnded && canResumeAny ? (
                     <ResumeRunPill session={session} />
-                  )}
-                </div>
-              ) : undefined
+                  ) : null)}
+              </div>
             }
           />
         )
@@ -1184,6 +1193,10 @@ export function AgentSessionView({
               {/* The toggle names the face actually SHOWING: a `?view=diff`
                   deep link before the diff replays falls back to the
                   transcript, and must not leave no segment selected. */}
+              {/* EXP-897: the stack / batch pill leads the cluster — it
+                  names what this work is PART of, before the controls that
+                  act on it. */}
+              {graphBadge}
               <WorkFaceToggle
                 face={showDiffFace ? face : `run`}
                 items={faceItems}

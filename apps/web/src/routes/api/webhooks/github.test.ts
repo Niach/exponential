@@ -89,6 +89,11 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrReopenedState: vi.fn(async () => {}),
   findIssueIdByBranch: vi.fn(async () => null),
   applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
+  // EXP-897: the stack legs.
+  refreshPrStackState: vi.fn(async () => {}),
+  notifyStackedChildrenOfFoundationChange: vi.fn(async () => ({
+    notified: [],
+  })),
 }))
 // EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
 // github-identity.test.ts — here we only assert WHICH actor the webhook hands
@@ -926,5 +931,79 @@ describe(`github webhook — GitHub actor identity (EXP-617)`, () => {
     expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
       expect.objectContaining({ githubActorUserId: null, actorUserId: null })
     )
+  })
+})
+
+// ── EXP-897: the stack legs ──────────────────────────────────────────────────
+// The stack edge can move without us doing anything (a stack built on
+// github.com, a base changed there) and a foundation can gain commits under a
+// run that is stacked on it. Both are webhook-only facts.
+describe(`github webhook — PR stacks (EXP-897)`, () => {
+  function stackPayload(action: string, extra: Record<string, unknown> = {}) {
+    return {
+      action,
+      pull_request: {
+        html_url: HTML_URL,
+        number: 7,
+        merged: false,
+        head: { ref: `exp/EXP-11` },
+        base: { ref: `exp/EXP-10` },
+      },
+      repository: { full_name: `org/repo` },
+      ...extra,
+    }
+  }
+
+  it(`refreshes the stack state when GitHub reports a stack action`, async () => {
+    for (const action of [`stacked`, `unstacked`]) {
+      vi.clearAllMocks()
+      const res = await postHandler({
+        request: webhookRequest(`pull_request`, stackPayload(action)),
+      })
+      expect(res.status).toBe(200)
+      expect(prSyncMock.refreshPrStackState).toHaveBeenCalledWith({
+        prUrl: HTML_URL,
+        repoFullName: `org/repo`,
+        prNumber: 7,
+        baseRef: `exp/EXP-10`,
+      })
+    }
+  })
+
+  it(`refreshes on an 'edited' that changed the BASE, and ignores other edits`, async () => {
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        stackPayload(`edited`, { changes: { base: { from: { ref: `master` } } } })
+      ),
+    })
+    expect(prSyncMock.refreshPrStackState).toHaveBeenCalledTimes(1)
+
+    vi.clearAllMocks()
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        stackPayload(`edited`, { changes: { title: { from: `old` } } })
+      ),
+    })
+    expect(prSyncMock.refreshPrStackState).not.toHaveBeenCalled()
+  })
+
+  it(`tells the runs stacked on a branch that their foundation moved`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(`pull_request`, stackPayload(`synchronize`)),
+    })
+    expect(res.status).toBe(200)
+    expect(
+      prSyncMock.notifyStackedChildrenOfFoundationChange
+    ).toHaveBeenCalledWith({
+      repoFullName: `org/repo`,
+      headRef: `exp/EXP-11`,
+      prNumber: 7,
+      prUrl: HTML_URL,
+    })
+    // A synchronize never touches issue PR state.
+    expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
+    expect(prSyncMock.applyPrOpenedState).not.toHaveBeenCalled()
   })
 })

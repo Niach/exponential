@@ -24,6 +24,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  like,
   lte,
   notInArray,
   or,
@@ -76,6 +77,7 @@ import {
 import { boardVisible } from "@/lib/board-visibility"
 import {
   canonicalizeRelation,
+  insertRelationInTx,
   loadIssueRelations,
 } from "@/lib/issue-relations"
 import { resolveIssueReference } from "@/lib/issue-resolver"
@@ -106,6 +108,17 @@ import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
 import type { Context } from "@/lib/trpc"
 import { createPullRequest } from "@/lib/integrations/github-pr"
+import {
+  attachToStack,
+  loadSessionStackContext,
+  loadStackRows,
+  membersAtOrBelow,
+  orderStack,
+  prUrlPattern,
+  resolveStackLower,
+  stackTopOpen,
+  type StackLower,
+} from "@/lib/integrations/pr-stack"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { isInstallationLinkedToTeam } from "@/lib/trpc/integrations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
@@ -130,9 +143,13 @@ import { endSessionByAgent } from "@/lib/coding-session-end"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import {
   formatChildQuestion,
+  formatDescendantQuestion,
   formatParentAnswer,
   formatStarterMessage,
   loadChildParentContext,
+  loadSessionChain,
+  loadSessionDepths,
+  loadSubtreeSessionIds,
   notifyParentOfChildEnd,
   PARENT_LIVE_STATUSES,
 } from "@/lib/steer-child-messages"
@@ -195,6 +212,30 @@ function buildCtx(user: McpUser, request: Request): Context {
       },
     },
   } as unknown as Context
+}
+
+/**
+ * EXP-897: `mergeStack` lands every open member at-or-below the chain's top,
+ * and those members may sit on boards an OAuth grant never named. The tRPC
+ * layer has no notion of MCP grants, so the confinement is enforced here, on
+ * the same chain the server will merge, before anything reaches GitHub.
+ */
+async function assertStackBoardsGranted(
+  access: McpAccess,
+  prUrl: string,
+  teamId: string
+): Promise<void> {
+  const repoFullName = repoFromPrUrl(prUrl)
+  if (!repoFullName) return
+  const rows = await loadStackRows(db, { teamId, repoFullName })
+  const chain = orderStack(rows, prUrl)
+  const top = stackTopOpen(chain)
+  const members = top ? membersAtOrBelow(chain, top.prUrl) : chain
+  for (const member of members) {
+    for (const issue of member.issues) {
+      if (issue.boardId) assertBoardGranted(access, issue.boardId, teamId)
+    }
+  }
 }
 
 function caller(user: McpUser, request: Request) {
@@ -1983,7 +2024,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for a PR with no issue (nothing is linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR on the linked repository via the GitHub App (no 'gh' or token) and link it to the issue(s). Pass EXACTLY ONE of 'issueId', 'issueIds' (batch: ONE combined PR for all listed issues, same repo; 'head' then REQUIRED, e.g. 'exp/batch-<id>'), or 'repositoryId' + 'head' for a PR with no issue (nothing is linked or moved). Single issue: 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>'; 'base' to the repo default branch. 'stackOnIssueId' (not with 'base') stacks your PR on that issue's open PR instead. Linked issues record prUrl/prNumber/prState/branch and move to the team's PR-open status (default 'in_review'); merging later moves them to the PR-merge status (default 'done'). Accepts UUIDs or identifiers ("MET-12").`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
@@ -1993,10 +2034,26 @@ export function registerExponentialTools(
         body: z.string().max(60_000).optional(),
         head: z.string().max(255).optional(),
         base: z.string().max(255).optional(),
+        // EXP-897: the issue whose OPEN PR this one is stacked on.
+        stackOnIssueId: z.string().min(1).optional(),
       }),
     },
-    async ({ issueId, issueIds, repositoryId, title, body, head, base }) => {
+    async ({
+      issueId,
+      issueIds,
+      repositoryId,
+      title,
+      body,
+      head,
+      base,
+      stackOnIssueId,
+    }) => {
       try {
+        if (stackOnIssueId && (base || repositoryId)) {
+          throw new Error(
+            `stackOnIssueId replaces 'base' and cannot be combined with repositoryId.`
+          )
+        }
         const subjects = [
           Boolean(issueId),
           Boolean(issueIds?.length),
@@ -2135,7 +2192,65 @@ export function registerExponentialTools(
           if (!issue) throw new Error(`Issue not found`)
           headBranch = issue.branch ?? `exp/${issue.identifier}`
         }
-        const baseBranch = base ?? repo.defaultBranch
+        // EXP-897: the stack edge. Explicit (`stackOnIssueId`) or implicit — a
+        // raw `base` that happens to be a same-team issue's PR branch IS a
+        // stack, and treating it as an opaque branch name is how a stacked PR
+        // ends up with no recorded foundation (no nesting, no "Merge stack",
+        // no retarget-on-merge).
+        let lower: StackLower | null = null
+        let lowerTeamId: string | null = null
+        if (stackOnIssueId) {
+          const lowerId = await resolveIssueId(stackOnIssueId, user.id, access)
+          const lowerCtx = await getIssueTeamContext(lowerId)
+          assertBoardGranted(access, lowerCtx.boardId, lowerCtx.teamId)
+          await resolveTeamAccess(user.id, lowerCtx.teamId)
+          lowerTeamId = lowerCtx.teamId
+          lower = await resolveStackLower(db, {
+            lowerIssueId: lowerId,
+            repoFullName: repo.fullName,
+          })
+        } else if (base && base !== repo.defaultBranch) {
+          const [candidate] = await db
+            .select({
+              id: issues.id,
+              identifier: issues.identifier,
+              teamId: issues.teamId,
+              prNumber: issues.prNumber,
+              prState: issues.prState,
+              prStackNumber: issues.prStackNumber,
+              prUrl: issues.prUrl,
+            })
+            .from(issues)
+            .where(
+              and(
+                inArray(issues.teamId, [...new Set(teamIdByIssue.values())]),
+                eq(issues.branch, base),
+                like(issues.prUrl, prUrlPattern(repo.fullName))
+              )
+            )
+            .limit(1)
+          if (candidate?.prState === `merged`) {
+            throw new Error(
+              `'${base}' is the branch of merged PR #${candidate.prNumber} (${candidate.identifier}). Rebase onto ${repo.defaultBranch} and pass no base.`
+            )
+          }
+          if (
+            candidate?.prState === `open` &&
+            candidate.prNumber != null &&
+            candidate.prUrl
+          ) {
+            lowerTeamId = candidate.teamId
+            lower = {
+              issueId: candidate.id,
+              identifier: candidate.identifier,
+              prUrl: candidate.prUrl,
+              prNumber: candidate.prNumber,
+              branch: base,
+              prStackNumber: candidate.prStackNumber,
+            }
+          }
+        }
+        const baseBranch = lower?.branch ?? base ?? repo.defaultBranch
 
         const resolved = await resolveRepoInstallationTokenInfo(repo.fullName)
         if (!resolved) {
@@ -2189,6 +2304,23 @@ export function registerExponentialTools(
           throw e
         }
 
+        // EXP-897: put the new PR on top of the lower one on GitHub too. A
+        // repo without the stack preview (404) or a chain GitHub disagrees
+        // with (422) degrades SILENTLY to the plain base-branch PR we just
+        // created — our own edge below is what everything else reads.
+        let stackNumber: number | null = null
+        let stackCreated = false
+        if (lower) {
+          const attached = await attachToStack({
+            repo: repo.fullName,
+            token,
+            lower: { prNumber: lower.prNumber, stackNumber: lower.prStackNumber },
+            upperPrNumber: created.number,
+          })
+          stackNumber = attached.stackNumber
+          stackCreated = attached.created
+        }
+
         const callerSession = await loadCallerSession()
         await db.transaction(async (tx) => {
           for (const id of ids) {
@@ -2204,6 +2336,9 @@ export function registerExponentialTools(
                 prNumber: created.number,
                 prState: `open`,
                 branch: headBranch,
+                // EXP-897: the synced stack edge + GitHub's stack identity.
+                prBaseBranch: baseBranch,
+                prStackNumber: stackNumber,
               })
               .where(eq(issues.id, id))
             await recordIssueEvent(tx, {
@@ -2242,6 +2377,27 @@ export function registerExponentialTools(
               headBranch,
             })
           }
+
+          if (lower) {
+            // The stack IS a blocking relation: the lower PR must land first.
+            // Written here so the clients nest the pair from the moment the
+            // upper PR exists (idempotent — a re-open writes nothing new).
+            if (stackCreated && stackNumber != null) {
+              await tx
+                .update(issues)
+                .set({ prStackNumber: stackNumber })
+                .where(eq(issues.prUrl, lower.prUrl))
+            }
+            for (const id of ids) {
+              if (!lowerTeamId || teamIdByIssue.get(id) !== lowerTeamId) continue
+              await insertRelationInTx(tx, {
+                ...canonicalizeRelation(lower.issueId, id, `blocks`),
+                source: `user`,
+                teamId: lowerTeamId,
+                actorUserId: user.id,
+              })
+            }
+          }
         })
 
         // Away/phone flow: "PR opened" reaches assignee + subscribers on
@@ -2256,7 +2412,20 @@ export function registerExponentialTools(
           })
         }
 
-        return ok({ url: created.url, number: created.number })
+        return ok({
+          url: created.url,
+          number: created.number,
+          base: baseBranch,
+          ...(lower
+            ? {
+                stack: { number: stackNumber, onTopOf: lower.identifier },
+                note:
+                  stackNumber != null
+                    ? `Stacked on ${lower.identifier} (GitHub stack #${stackNumber}). When ${lower.identifier}'s PR merges, yours is retargeted for you.`
+                    : `Based on ${lower.identifier}'s branch ${lower.branch}. GitHub stacks are unavailable on this repository, so merge ${lower.identifier} first, then retarget with exponential_pr_retarget if a merge is refused for a stale base.`,
+              }
+            : {}),
+        })
       } catch (e) {
         return err(e)
       }
@@ -2266,7 +2435,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off — 'endSessions' overrides that setting for this call (false keeps them running) — and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
+      description: `Squash-merge open PRs via the GitHub App (no 'gh' or token). Pass EXACTLY ONE of 'issueId', 'issueIds' (one merge per distinct prUrl, so issues sharing a batch PR merge once), or 'repositoryId' + 'prNumber' for a PR with no issue. Linked issues flip to prState='merged' and move to the team's PR-merge status (default 'done'); live coding sessions on them end unless the team's "end sessions on merge" setting is off — 'endSessions' overrides that setting for this call (false keeps them running) — and YOUR OWN session always keeps running (it ends on its own exit or close-out). Merges run sequentially; each results[] element carries 'merged' + optional 'error', plus issueId/identifier (issue path) or repositoryId/prNumber (chore path) — one unmergeable PR never blocks the rest. 'mergeStack' merges the whole stack the PR sits in, bottom-up, in one call. A merge rejected for a stale base: fix with exponential_pr_retarget first. Idempotent for already-merged PRs.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         issueId: z.string().min(1).optional(),
@@ -2274,9 +2443,18 @@ export function registerExponentialTools(
         repositoryId: uuidString.optional(),
         prNumber: z.number().int().positive().optional(),
         endSessions: z.boolean().optional(),
+        // EXP-897: merge every open PR of the stack, bottom-up.
+        mergeStack: z.boolean().optional(),
       }),
     },
-    async ({ issueId, issueIds, repositoryId, prNumber, endSessions }) => {
+    async ({
+      issueId,
+      issueIds,
+      repositoryId,
+      prNumber,
+      endSessions,
+      mergeStack,
+    }) => {
       // EXP-711: only forwarded when given, so the tRPC input stays byte-equal
       // to the pre-override shape for every caller that never passes it.
       const endSessionsInput =
@@ -2294,6 +2472,10 @@ export function registerExponentialTools(
         }
         if (Boolean(repositoryId) !== (prNumber !== undefined)) {
           throw new Error(`repositoryId and prNumber must be passed together`)
+        }
+        // EXP-897: a stack is a chain of ISSUE PRs; a chore PR has no chain.
+        if (mergeStack && repositoryId) {
+          throw new Error(`mergeStack applies to issue PRs only`)
         }
 
         // EXP-637 decision 6, corrected in EXP-639. A run that merges the PR
@@ -2420,10 +2602,12 @@ export function registerExponentialTools(
           const id = await resolveIssueId(raw, user.id, access)
           if (!ids.includes(id)) ids.push(id)
         }
+        const teamIdByIssue = new Map<string, string>()
         for (const id of ids) {
           const issueCtx = await getIssueTeamContext(id)
           assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
           await resolveTeamAccess(user.id, issueCtx.teamId)
+          teamIdByIssue.set(id, issueCtx.teamId)
         }
 
         // One merge per distinct PR: issues sharing a batch prUrl collapse
@@ -2436,6 +2620,8 @@ export function registerExponentialTools(
             // EXP-639: the own-PR test below — a batch/chore run's row carries
             // the head branch, its issues carry the same one.
             branch: issues.branch,
+            // EXP-897: non-null = this PR is stacked on another one.
+            prBaseBranch: issues.prBaseBranch,
           })
           .from(issues)
           .where(inArray(issues.id, ids))
@@ -2485,7 +2671,77 @@ export function registerExponentialTools(
           identifier: string
           merged: boolean
           error?: string
+          note?: string
+          mergedVia?: string
         }[] = []
+
+        // EXP-897: ONE call lands a whole chain (the server walks up to its
+        // topmost open member and merges from there). A later target whose PR
+        // that chain already carried reports that merge; a target on an
+        // UNRELATED PR gets its own stack merge — never a `merged: true` its
+        // PR did not earn.
+        if (mergeStack) {
+          const landed = new Map<string, string>() // prUrl → entry identifier
+          for (const target of targets) {
+            const prUrl = rowById.get(target.id)?.prUrl ?? null
+            const via = prUrl ? landed.get(prUrl) : undefined
+            if (via) {
+              results.push({
+                issueId: target.id,
+                identifier: target.identifier,
+                merged: true,
+                mergedVia: via,
+              })
+              continue
+            }
+            try {
+              // The chain may reach boards this token was never granted:
+              // refuse before GitHub sees anything.
+              if (prUrl) {
+                await assertStackBoardsGranted(
+                  access,
+                  prUrl,
+                  teamIdByIssue.get(target.id)!
+                )
+              }
+              const stackResult = await trpcCaller.issues.mergePr({
+                issueId: target.id,
+                mergeStack: true,
+                ...endSessionsInput,
+              })
+              for (const url of stackResult.mergedPrUrls ?? []) {
+                landed.set(url, target.identifier)
+              }
+              if (prUrl) landed.set(prUrl, target.identifier)
+              results.push({
+                issueId: target.id,
+                identifier: target.identifier,
+                merged: true,
+                mergedVia: target.identifier,
+                ...(stackResult.note ? { note: stackResult.note } : {}),
+              })
+            } catch (e) {
+              const error = e instanceof Error ? e.message : String(e)
+              results.push({
+                issueId: target.id,
+                identifier: target.identifier,
+                merged: false,
+                mergedVia: target.identifier,
+                error,
+              })
+            }
+          }
+          if (
+            ownTargetIds.size > 0 &&
+            !results.some(
+              (result) => result.merged && ownTargetIds.has(result.issueId)
+            )
+          ) {
+            await revertMergedOwnPr()
+          }
+          return ok({ results })
+        }
+
         for (const target of targets) {
           try {
             await trpcCaller.issues.mergePr({
@@ -2496,6 +2752,13 @@ export function registerExponentialTools(
               issueId: target.id,
               identifier: target.identifier,
               merged: true,
+              // EXP-897: merging a stack member lands every unmerged PR below
+              // it too — say so, or the caller re-merges what is already in.
+              ...(rowById.get(target.id)?.prBaseBranch
+                ? {
+                    note: `Merging a stacked PR also merged every unmerged PR below it.`,
+                  }
+                : {}),
             })
           } catch (e) {
             results.push({
@@ -2616,13 +2879,15 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_ask_parent`,
       {
-        description: `Ask the run that started this one a question only it can answer; it lands in that run's channel. Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. Act on it, then still finish with exponential_sessions_end. If delivery fails, finish anyway and note the open question in your summary.`,
+        description: `Ask the run that started this one a question only it can answer; it lands in that run's channel. 'to' picks who: 'parent' (default), 'root' (the top live run of your chain — use it when the whole plan is wrong) or 'user' (the person who owns the run; it parks yours as needing input). Non-blocking: on success STOP working and end your turn — the answer arrives later as a user message. Act on it, then still finish with exponential_sessions_end. If delivery fails, finish anyway and note the open question in your summary.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           question: z.string().min(1).max(4_000),
+          // EXP-897: escalate past a parent that cannot decide.
+          to: z.enum([`parent`, `root`, `user`]).default(`parent`),
         }),
       },
-      async ({ question }) => {
+      async ({ question, to }) => {
         const fallback = `Do not wait for an answer: finish your work, then call exponential_sessions_end and include the open question in your summary.`
         try {
           if (!sessionId) {
@@ -2642,11 +2907,72 @@ export function registerExponentialTools(
           ) {
             return err(new Error(`This run has no live starter to ask.`))
           }
+
+          // EXP-897: escalate to the PERSON. No new notification type and no
+          // new column: the run parks as needing input (every client already
+          // surfaces that, and the caption IS the question) and the owner gets
+          // the existing agent_message inbox row + push. The answer comes back
+          // as a normal user message in THIS run's own composer.
+          if (to === `user`) {
+            const caption = question.slice(0, 160)
+            await db
+              .update(codingSessions)
+              .set({
+                needsInput: true,
+                agentCaption: caption,
+                updatedAt: new Date(),
+              })
+              .where(eq(codingSessions.id, sessionId))
+            const [row] = await db
+              .select({
+                teamId: codingSessions.teamId,
+                userId: codingSessions.userId,
+              })
+              .from(codingSessions)
+              .where(eq(codingSessions.id, sessionId))
+              .limit(1)
+            if (!row?.teamId) {
+              return err(new Error(`This run has no team to notify in.`))
+            }
+            await sendAgentMessage({
+              teamId: row.teamId,
+              senderUserId: row.userId,
+              // The OWNER only: a run's question is not the team's inbox.
+              recipientIds: [row.userId],
+              title: `${child.issueIdentifier ?? sessionId.slice(0, 8)} asks`,
+              body: question,
+            })
+            return ok({
+              delivered: true,
+              to: `user`,
+              note: `Asked the person who owns this run. Stop working NOW and end your turn; their answer arrives as a user message in this session.`,
+            })
+          }
+
+          // EXP-897: `root` climbs past the immediate parent to the highest
+          // ancestor still alive — the run that owns the plan.
+          let targetSessionId = child.parentSessionId
+          let escalationDepth = 1
+          if (to === `root`) {
+            const chain = await loadSessionChain(db, sessionId)
+            if (!chain?.topLiveAncestorId) {
+              return err(
+                new Error(`No run above you is still live. ${fallback}`)
+              )
+            }
+            targetSessionId = chain.topLiveAncestorId
+            escalationDepth =
+              chain.ancestors.find((row) => row.id === targetSessionId)?.depth ??
+              1
+          }
+          // `root` already resolved a LIVE target above — only the direct ask
+          // depends on the immediate parent still being alive.
           if (
-            !child.parentStatus ||
-            !(PARENT_LIVE_STATUSES as readonly string[]).includes(
-              child.parentStatus
-            )
+            targetSessionId === child.parentSessionId &&
+            (!child.parentStatus ||
+              !(PARENT_LIVE_STATUSES as readonly string[]).includes(
+                child.parentStatus
+              ))
           ) {
             return err(
               new Error(`Your starter's session has ended. ${fallback}`)
@@ -2662,8 +2988,10 @@ export function registerExponentialTools(
           }
           const { delivered } = await relayPostInput(
             config,
-            child.parentSessionId,
-            formatChildQuestion(child, question)
+            targetSessionId,
+            escalationDepth > 1
+              ? formatDescendantQuestion(child, question, escalationDepth)
+              : formatChildQuestion(child, question)
           )
           if (!delivered) {
             return err(
@@ -2690,16 +3018,18 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, blocked (a real usage-wall refusal, see exponential_sessions_get), and once ended who ended it. mine limits to runs you started or host.`,
+      description: `List coding sessions (newest first) across your teams or one team: status, issue, action, branch, device, blocked (a real usage-wall refusal, see exponential_sessions_get), depth in its run tree, and once ended who ended it. mine limits to runs you started or host; subtreeOf to one run and everything it started, however deep.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         status: z.enum([`running`, `in_review`, `ended`]).optional(),
         mine: z.boolean().default(false),
+        // EXP-897: one run and its descendants.
+        subtreeOf: uuidString.optional(),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       }),
     },
-    async ({ teamId, status, mine, limit, offset }) => {
+    async ({ teamId, status, mine, subtreeOf, limit, offset }) => {
       try {
         let teamIds: string[]
         if (teamId) {
@@ -2723,6 +3053,13 @@ export function registerExponentialTools(
           userId: user.id,
         })
         if (grantFilter === GRANT_MATCHES_NOTHING) return ok([])
+        // EXP-897: the subtree narrows the candidate ids; the grant filter
+        // below still decides what the caller may actually see.
+        let subtreeIds: string[] | undefined
+        if (subtreeOf) {
+          subtreeIds = await loadSubtreeSessionIds(db, subtreeOf)
+          if (subtreeIds.length === 0) return ok([])
+        }
         const rows = await db
           .select(sessionColumns)
           .from(codingSessions)
@@ -2734,6 +3071,7 @@ export function registerExponentialTools(
               isNull(codingSessions.boardArchivedAt),
               grantFilter,
               status ? eq(codingSessions.status, status) : undefined,
+              subtreeIds ? inArray(codingSessions.id, subtreeIds) : undefined,
               mine
                 ? or(
                     eq(codingSessions.userId, user.id),
@@ -2745,7 +3083,16 @@ export function registerExponentialTools(
           .orderBy(desc(codingSessions.startedAt))
           .limit(limit)
           .offset(offset)
-        return ok(rows)
+        // EXP-897: every row carries how deep it sits in its run tree — ONE
+        // walk up for the whole page, so a list of nested runs reads as a tree
+        // without N lookups.
+        const depths = await loadSessionDepths(
+          db,
+          rows.map((row) => row.id)
+        )
+        return ok(
+          rows.map((row) => ({ ...row, depth: depths.get(row.id) ?? 0 }))
+        )
       } catch (e) {
         return err(e)
       }
@@ -2792,7 +3139,20 @@ export function registerExponentialTools(
           if (!row.teamId) throw new Error(`Session not found`)
           await resolveTeamAccess(user.id, row.teamId)
         }
-        return ok(session)
+        // EXP-897: where this run sits in its tree, and where its issue's PR
+        // sits in its stack — the two questions a nested/stacked run's agent
+        // (and every client's run header) has to answer.
+        const chain = await loadSessionChain(db, id)
+        const stack = await loadSessionStackContext(db, {
+          issueId: row.issueId,
+          teamId: row.teamId,
+        })
+        return ok({
+          ...session,
+          depth: chain?.depth ?? 0,
+          rootSessionId: chain?.rootSessionId ?? row.id,
+          stack,
+        })
       } catch (e) {
         return err(e)
       }
@@ -2936,7 +3296,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on an ONLINE device (exponential_devices_list, agents includes it); offline = refused, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (an ended run). prompt = free text for the run (REQUIRED for builtin:chat / builtin:create-action, extra instructions otherwise). The run gets its own worktree and PR; exponential_sessions_get tracks it: sessionId null = the device never reported it; ackedAt null for minutes = the launch died. Started from inside a run, the child is unattended: its question, finish or usage wall ('... is rate limited (<window> window) until <resetsAt>' = wait, not a failure) lands in THIS session as '[Exponential child run ...]' user input; answer with exponential_sessions_message. Read its report before merging its PR (a merge first ends it unreported).`,
+      description: `Start a coding session on an ONLINE device (exponential_devices_list, agents includes it); offline = refused, never queued. Exactly one subject: issueId (UUID or identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run). prompt = free text for the run (REQUIRED for builtin:chat / builtin:create-action, extra instructions otherwise). stackOnIssueId stacks it on that issue's PR. The run gets its own worktree and PR; track it with exponential_sessions_get (sessionId null = never reported; ackedAt null for minutes = launch died). Started from inside a run, the child is unattended: its question, finish or usage wall (wait it out) lands here as '[Exponential child run ...]' user input; answer with exponential_sessions_message. Read its report before merging its PR (a merge first ends it unreported).`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -2952,6 +3312,8 @@ export function registerExponentialTools(
         ultracode: z.boolean().optional(),
         allowRateLimited: z.boolean().optional(),
         prompt: z.string().max(MAX_START_PROMPT).optional(),
+        // EXP-897: build the new run on top of this issue's open PR.
+        stackOnIssueId: z.string().min(1).optional(),
       }),
     },
     async (input) => {
@@ -3027,10 +3389,25 @@ export function registerExponentialTools(
           )
         }
 
+        // EXP-897: flat on the wire (one string keeps this tool inside its
+        // context budget), nested in the router's input.
+        let stackOn: { issueId: string } | undefined
+        if (input.stackOnIssueId) {
+          const lowerId = await resolveIssueId(
+            input.stackOnIssueId,
+            user.id,
+            access
+          )
+          const lowerCtx = await getIssueTeamContext(lowerId)
+          assertBoardGranted(access, lowerCtx.boardId, lowerCtx.teamId)
+          stackOn = { issueId: lowerId }
+        }
+        const { stackOnIssueId: _stackOnIssueId, ...startInput } = input
         await caller(user, request).steer.startSession({
-          ...input,
+          ...startInput,
           issueId,
           issueIds,
+          ...(stackOn ? { stackOn } : {}),
           // EXP-679: a run started from inside a run is that run's child.
           ...(sessionId ? { parentSessionId: sessionId } : {}),
         })

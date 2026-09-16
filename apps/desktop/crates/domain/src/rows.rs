@@ -209,6 +209,13 @@ pub struct Issue {
     pub branch: Option<String>,
     #[serde(default)]
     pub pr_merged_at: Option<String>,
+    /// EXP-897 `issues.pr_base_branch` — the branch this issue's pull request
+    /// TARGETS. `None` (or the repo default) = an ordinary PR; another
+    /// issue's `branch` = a STACK edge, the one fact
+    /// [`crate::pr_stack`] chains. `None` on rows synced before the column
+    /// existed; `heal_missing_columns` ALTERs it in and the refetch backfills.
+    #[serde(default)]
+    pub pr_base_branch: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

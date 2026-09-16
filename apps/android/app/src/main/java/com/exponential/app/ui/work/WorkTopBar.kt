@@ -60,6 +60,11 @@ fun WorkTopBar(
      * bar's leading slot could carry the changed-files sheet.
      */
     action: (@Composable () -> Unit)? = null,
+    /**
+     * EXP-897: the stack/batch badge, right of the title — the ONE mark for
+     * everything this pull request is entangled with, on every face.
+     */
+    badge: (@Composable () -> Unit)? = null,
     /** The issue `…` menu, for an issue subject. */
     menu: (@Composable () -> Unit)?,
 ) {
@@ -76,6 +81,10 @@ fun WorkTopBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.testTag("work-title"),
                 )
+                if (badge != null) {
+                    Spacer(Modifier.width(8.dp))
+                    badge()
+                }
             }
         },
         navigationIcon = { TopBarBackButton(onClick = onBack) },

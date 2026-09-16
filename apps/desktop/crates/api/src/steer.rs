@@ -174,6 +174,13 @@ pub struct StartSessionInput {
     /// remote "switch account" is expressed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// EXP-897: START STACKED — the server resolves the target's blocker
+    /// chain and cuts the run's branch from the issue below it. SINGLE-ISSUE
+    /// starts only (the server refuses it beside `issueIds`/`actionId`/a
+    /// resume). LAST on the wire, like every option before it, so an
+    /// unstacked start keeps the byte-identical shape the fixtures lock.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -370,6 +377,50 @@ mod tests {
         assert!(
             request.ends_with(
                 r#"{"deviceId":"dev-2","resumeSessionId":"33333333-3333-4333-8333-333333333333","account":"0a1b2c3d"}"#
+            ),
+            "{request}"
+        );
+    }
+
+    /// EXP-897: the stacked-start flag rides LAST (after `account`), so every
+    /// unstacked start keeps the byte-identical wire the fixtures above lock.
+    #[test]
+    fn start_session_carries_the_stack_flag_last() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+                device_id: "dev-2".to_string(),
+                account: Some("0a1b2c3d".to_string()),
+                stack: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","account":"0a1b2c3d","stack":true}"#
+            ),
+            "{request}"
+        );
+
+        // Absent = the pre-EXP-897 shape, byte for byte.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+                device_id: "dev-2".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2"}"#
             ),
             "{request}"
         );

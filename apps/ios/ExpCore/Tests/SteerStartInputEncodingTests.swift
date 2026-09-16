@@ -18,7 +18,8 @@ final class SteerStartInputEncodingTests: XCTestCase {
     func testIssueStartOmitsPromptAndAccountWhenUnset() throws {
         let object = try json(StartSessionInput(
             issueId: "i-1", deviceId: "d-1", agent: "claude", model: "opus", effort: "",
-            ultracode: false, planMode: true, resume: nil, account: nil, prompt: nil
+            ultracode: false, planMode: true, resume: nil, account: nil, prompt: nil,
+            stack: nil
         ))
         XCTAssertEqual(object["issueId"] as? String, "i-1")
         XCTAssertEqual(object["deviceId"] as? String, "d-1")
@@ -27,13 +28,29 @@ final class SteerStartInputEncodingTests: XCTestCase {
         XCTAssertNil(object.index(forKey: "prompt"))
         XCTAssertNil(object.index(forKey: "account"))
         XCTAssertNil(object.index(forKey: "resume"))
+        // EXP-897: a plain start never mentions the stack at all.
+        XCTAssertNil(object.index(forKey: "stack"))
+    }
+
+    // EXP-897: a STACKED start is the single-issue input carrying `stack:
+    // true` — the flag is sent only when it is true, and only here (the batch
+    // and action inputs have no such field).
+    func testIssueStartCarriesTheStackFlagWhenStacked() throws {
+        let object = try json(StartSessionInput(
+            issueId: "i-1", deviceId: "d-1", agent: nil, model: nil, effort: nil,
+            ultracode: nil, planMode: nil, resume: nil, account: nil, prompt: nil,
+            stack: true
+        ))
+        XCTAssertEqual(object["stack"] as? Bool, true)
+        XCTAssertEqual(object["issueId"] as? String, "i-1")
     }
 
     func testIssueStartCarriesThePromptVerbatim() throws {
         let prompt = "Focus on the parser [Image #1]\n\n![image](/api/attachments/att-1)"
         let object = try json(StartSessionInput(
             issueId: "i-1", deviceId: "d-1", agent: nil, model: nil, effort: nil,
-            ultracode: nil, planMode: nil, resume: true, account: "profile-2", prompt: prompt
+            ultracode: nil, planMode: nil, resume: true, account: "profile-2", prompt: prompt,
+            stack: nil
         ))
         XCTAssertEqual(object["prompt"] as? String, prompt)
         XCTAssertEqual(object["account"] as? String, "profile-2")

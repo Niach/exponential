@@ -93,6 +93,8 @@ fun WorkScreen(
     // follows `codingTarget` as the issue's runs come and go.
     var pinnedByUser by rememberSaveable { mutableStateOf(subject is WorkSubject.Session) }
     var killDialogOpen by rememberSaveable { mutableStateOf(false) }
+    // EXP-897: the stack/batch overlay behind the top bar's badge.
+    var graphSheetOpen by remember { mutableStateOf(false) }
     var resumeConfirmOpen by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -287,6 +289,16 @@ fun WorkScreen(
         }
     }
 
+    // ── The stack / batch graph (EXP-897) ───────────────────────────────────
+    // ONE model for the badge and its overlay: the stack off `pr_base_branch`,
+    // the batch off a shared `pr_url`, the run family off `parent_session_id`,
+    // the blockers off the `blocks` relations.
+    val graphVm: PrGraphViewModel = hiltViewModel()
+    LaunchedEffect(issueId, shownSessionId) { graphVm.bind(issueId, shownSessionId) }
+    val graph by graphVm.graph.collectAsStateWithLifecycle()
+    val graphMerging by graphVm.merging.collectAsStateWithLifecycle()
+    val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
+
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
         issue != null -> issue.identifier
@@ -326,6 +338,7 @@ fun WorkScreen(
                     action = changesPrUrl?.takeIf { face == WorkFaceKind.Changes }?.let { url ->
                         { GithubHeaderAction(url) }
                     },
+                    badge = { PrGraphBadge(graph) { graphSheetOpen = true } },
                     menu = if (issueVm != null) {
                         { IssueMenuActions(viewModel = issueVm, controller = issueController) }
                     } else {
@@ -445,6 +458,25 @@ fun WorkScreen(
                 }
             }
         }
+    }
+
+    // EXP-897: the badge's overlay — the section follows the face on screen.
+    if (graphSheetOpen) {
+        PrGraphSheet(
+            graph = graph,
+            face = face,
+            nowMs = liveClock,
+            merging = graphMerging,
+            mergeError = graphMergeError,
+            onOpenIssue = onOpenIssue,
+            onOpenRun = { id ->
+                shownSessionId = id
+                pinnedByUser = true
+                faceName = WorkFaceKind.Run.name
+            },
+            onMergeStack = graphVm::mergeStack,
+            onDismiss = { graphSheetOpen = false },
+        )
     }
 
     // ── Confirms ────────────────────────────────────────────────────────────

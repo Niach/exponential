@@ -19,6 +19,8 @@ const mockState = vi.hoisted(() => ({
     issues: [] as unknown[],
     s: [] as unknown[],
     w: [] as unknown[],
+    r: [] as unknown[],
+    bl: [] as unknown[],
   } as Record<string, unknown[]>,
   boards: [] as unknown[],
   repos: null as { id: string; fullName: string }[] | null,
@@ -50,6 +52,7 @@ vi.mock(`@/lib/collections`, () => ({
   codingSessionCollection: {},
   deviceWorktreeCollection: {},
   issueCollection: {},
+  issueRelationCollection: {},
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamBoards: () => mockState.boards,
@@ -141,6 +144,8 @@ beforeEach(() => {
   mockState.rows.issues = [issue(`i1`, `b1`), issue(`i2`, `b1`), issue(`i3`, `b2`)]
   mockState.rows.s = []
   mockState.rows.w = []
+  mockState.rows.r = []
+  mockState.rows.bl = []
   mockState.boards = [board(`b1`, `repo-1`), board(`b2`, `repo-1`)]
   mockState.repos = [{ id: `repo-1`, fullName: `acme/app` }]
   mockState.upload.mockReset()
@@ -350,7 +355,9 @@ describe(`useLaunchComposer submit`, () => {
       device,
       expect.objectContaining({ agent: `claude`, planMode: true }),
       [`i1`, `i2`],
-      `Keep the API stable`
+      `Keep the API stable`,
+      // EXP-897: a batch never stacks.
+      undefined
     )
     expect(result.current.subject).toBeNull()
   })
@@ -607,5 +614,77 @@ describe(`useLaunchComposer seed`, () => {
       id: `bound`,
       inputs: { repo: `repo-1` },
     })
+  })
+})
+
+// EXP-897: starting a BLOCKED issue asks first — plain run, or a stacked PR
+// cut from the blocker's branch.
+describe(`useLaunchComposer blocked start`, () => {
+  const blocks = (blocker: string, blocked: string) => ({
+    type: `blocks`,
+    issueId: blocker,
+    relatedIssueId: blocked,
+  })
+
+  beforeEach(() => {
+    mockState.rows.r = [blocks(`i2`, `i1`)]
+    mockState.rows.bl = [issue(`i2`, `b1`, `in_progress`)]
+  })
+
+  it(`opens the dialog instead of starting a blocked issue`, async () => {
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStart.map((row) => row.id)).toEqual([`i2`])
+    await act(() => result.current.submit())
+    expect(result.current.blockedOpen).toBe(true)
+    expect(remote.startIssues).not.toHaveBeenCalled()
+  })
+
+  it(`Start anyway starts without a stack`, async () => {
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    await act(() => result.current.submit())
+    await act(() => result.current.startAnyway())
+    expect(result.current.blockedOpen).toBe(false)
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      device,
+      expect.anything(),
+      [`i1`],
+      undefined,
+      undefined
+    )
+  })
+
+  it(`Stacked PR starts with stack: true`, async () => {
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    await act(() => result.current.submit())
+    await act(() => result.current.startStacked())
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      device,
+      expect.anything(),
+      [`i1`],
+      undefined,
+      { stack: true }
+    )
+  })
+
+  it(`never asks for a batch, a done blocker or another subject`, async () => {
+    // Two issues: a batch has no single foundation to build on.
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    act(() => result.current.toggleIssue(`i3`))
+    await act(() => result.current.submit())
+    expect(result.current.blockedOpen).toBe(false)
+    expect(remote.startIssues).toHaveBeenCalledTimes(1)
+
+    // A blocker that is done is no blocker.
+    mockState.rows.bl = [issue(`i2`, `b1`, `done`)]
+    const second = mount()
+    act(() => second.result.current.toggleIssue(`i1`))
+    expect(second.result.current.blockedStart).toEqual([])
+    await act(() => second.result.current.submit())
+    expect(second.result.current.blockedOpen).toBe(false)
+    expect(second.remote.startIssues).toHaveBeenCalledTimes(1)
   })
 })

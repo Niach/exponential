@@ -383,6 +383,47 @@ pub fn account_extra(account: Option<&str>) -> BTreeMap<String, serde_json::Valu
     extra
 }
 
+/// EXP-897: the [`RunRecord::extra`] key carrying the STACK a run was started
+/// into ([`crate::launcher::StackLaunch`]) — the chain below it and the
+/// foundation its branch was cut from. A resume reads it to know that
+/// `base_branch` is a foundation branch rather than the board's own; the run
+/// screen reads it for the "2 of 3 · on top of #EXP-11" line. Absent on every
+/// ordinary run, so an unstacked record serializes exactly as before.
+pub const STACK_KEY: &str = "stack";
+
+impl RunRecord {
+    /// EXP-897: the recorded stack; `None` for an ordinary run (and for an
+    /// entry this build cannot parse — a stack is a hint, never a gate).
+    pub fn stack(&self) -> Option<crate::launcher::StackLaunch> {
+        let value = self.extra.get(STACK_KEY)?;
+        serde_json::from_value::<crate::launcher::StackLaunch>(value.clone())
+            .ok()
+            .filter(|stack| stack.lower.is_some() || !stack.chain.is_empty())
+    }
+
+    /// EXP-897: record (or, for `None`/an empty plan, clear) the stack.
+    pub fn set_stack(&mut self, stack: Option<&crate::launcher::StackLaunch>) {
+        self.extra.remove(STACK_KEY);
+        self.extra.extend(stack_extra(stack));
+    }
+}
+
+/// EXP-897: the `extra` entry a stacked launch writes — empty for an
+/// unstacked one (and for a degenerate plan with nothing below it).
+pub fn stack_extra(
+    stack: Option<&crate::launcher::StackLaunch>,
+) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = BTreeMap::new();
+    if let Some(stack) = stack {
+        if stack.lower.is_some() || !stack.chain.is_empty() {
+            if let Ok(value) = serde_json::to_value(stack) {
+                extra.insert(STACK_KEY.to_string(), value);
+            }
+        }
+    }
+    extra
+}
+
 /// EXP-792: everything a fresh record's `extra` carries off the launch
 /// options — the team server pick and the account profile.
 pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, serde_json::Value> {

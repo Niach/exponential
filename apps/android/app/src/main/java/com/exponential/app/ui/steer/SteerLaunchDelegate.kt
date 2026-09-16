@@ -225,12 +225,16 @@ class SteerLaunchDelegate @Inject constructor(
      * contract as [runAction]: EXP-536 waits for the desktop's row and
      * surfaces it as [startedSessionId], so the host screen opens the live
      * session.
+     *
+     * EXP-897: [stack] is the blocked-issue start mode — it rides the
+     * SINGLE-issue form only (a batch run has no one branch to stack on).
      */
     suspend fun startIssues(
         device: SteerDevice,
         issueIds: List<String>,
         options: SteerStartOptions,
         prompt: String? = null,
+        stack: Boolean = false,
     ): Boolean {
         val key = StartedRunKey.forIssues(issueIds) ?: return false
         val scope = scope ?: return false
@@ -240,7 +244,7 @@ class SteerLaunchDelegate @Inject constructor(
             if (issueIds.size >= 2) {
                 steerApi.startSession(accountId, issueIds, device.deviceId, options, prompt)
             } else {
-                steerApi.startSession(accountId, issueIds.first(), device.deviceId, options, prompt)
+                steerApi.startSession(accountId, issueIds.first(), device.deviceId, options, prompt, stack)
             }
         } catch (t: Throwable) {
             if (t is CancellationException) throw t

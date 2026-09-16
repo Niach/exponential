@@ -18,6 +18,7 @@ import {
   MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
 } from "@/components/mobile-work-bar"
+import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionMergePill } from "@/components/session-merge-button"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -139,6 +140,16 @@ export function IssueChangesFace({
         handlers={handlers}
         action={
           issue.prUrl ? <GithubGhostButton prUrl={issue.prUrl} /> : undefined
+        }
+        graphBadge={
+          /* EXP-897: the Changes face's own overlay — the PR stack bottom-up,
+             with `Merge stack` on its bottom entry. */
+          <PrGraphBadge
+            teamId={teamId}
+            teamSlug={teamSlug}
+            face="changes"
+            issue={issue}
+          />
         }
         dot={dot}
       />

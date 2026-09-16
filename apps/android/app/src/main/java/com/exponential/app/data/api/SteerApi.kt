@@ -441,6 +441,11 @@ internal data class StartSessionInput(
     @SerialName("resume") val resume: Boolean? = null,
     @SerialName("account") val account: String? = null,
     @SerialName("prompt") val prompt: String? = null,
+    // EXP-897: start this issue as a STACKED run — the launcher cuts the
+    // branch from its blocker's PR branch and the pull request is based on it
+    // (the server resolves the chain). Single-issue starts only; omitted
+    // (null) = today's plain start.
+    @SerialName("stack") val stack: Boolean? = null,
 )
 
 // The batch form of steer.startSession (EXP-156): exactly one of
@@ -551,6 +556,9 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = null,
+        // EXP-897: the third start mode — a blocked issue's run is cut from
+        // its blocker's PR branch and its pull request is based on it.
+        stack: Boolean = false,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -566,6 +574,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 resume = options.resume,
                 account = options.account,
                 prompt = prompt,
+                stack = if (stack) true else null,
             ),
             inputSerializer = StartSessionInput.serializer(),
         )

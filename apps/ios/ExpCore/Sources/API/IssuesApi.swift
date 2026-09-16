@@ -207,9 +207,15 @@ public struct ClosePrInput: Encodable, Sendable {
 /// EXP-498: merge always ends the linked live coding sessions.
 public struct MergePrInput: Encodable, Sendable {
     public let issueId: String
+    /// EXP-897: merge the WHOLE stack this issue's pull request belongs to,
+    /// bottom-up. Pass the BOTTOM row's issue id — the server resolves the top
+    /// and merges every unmerged member below it. Absent (nil) = today's
+    /// single-PR merge; the key is omitted entirely, never sent as `false`.
+    public let mergeStack: Bool?
 
-    public init(issueId: String) {
+    public init(issueId: String, mergeStack: Bool? = nil) {
         self.issueId = issueId
+        self.mergeStack = mergeStack
     }
 }
 
@@ -358,6 +364,9 @@ public struct FetchedIssue: Decodable, Sendable {
     public let prNumber: Int?
     public let prState: String?
     public let branch: String?
+    /// EXP-897: the stack edge (`issues.pr_base_branch`). Optional, so a
+    /// server that predates the column decodes as nil rather than throwing.
+    public let prBaseBranch: String?
     public let prMergedAt: String?
     public let createdAt: String
     public let updatedAt: String
@@ -447,11 +456,16 @@ public final class IssuesApi: Sendable {
     /// resolves a batch PR to every linked issue, so merging completes them all;
     /// the `prState`/`status` flips arrive through Electric sync.
     /// Merge always ends the linked coding sessions (EXP-498).
-    public func mergePr(accountId: String, issueId: String) async throws {
+    /// - Parameter mergeStack: EXP-897 — merge every unmerged pull request in
+    ///   this one's stack, bottom-up, in one call. `issueId` is the BOTTOM
+    ///   row's issue; the server resolves the top of the chain.
+    public func mergePr(
+        accountId: String, issueId: String, mergeStack: Bool? = nil
+    ) async throws {
         try await trpc.mutationVoid(
             accountId: accountId,
             path: "issues.mergePr",
-            input: MergePrInput(issueId: issueId)
+            input: MergePrInput(issueId: issueId, mergeStack: mergeStack)
         )
     }
 

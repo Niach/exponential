@@ -36,6 +36,7 @@ import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionAccountOption
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SessionConfigState
 import com.exponential.app.domain.SessionDevicePresentation
@@ -245,6 +246,19 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-897: where this run's issue sits in its PR STACK — null unless its
+     * pull request is based on another issue's branch (or another one is
+     * based on its). Derived from the synced columns alone (`PrStack`), so the
+     * run screen's position line reads the same as Reviews' nesting.
+     */
+    val stackPosition: StateFlow<PrStack.StackPosition?> = combine(
+        issue,
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+    ) { row, issues ->
+        row?.let { PrStack.stackPosition(it, issues) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage

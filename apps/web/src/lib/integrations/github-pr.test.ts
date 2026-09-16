@@ -167,6 +167,9 @@ describe(`getPullRequest`, () => {
     expect(pull).toEqual({
       state: `open`,
       merged: false,
+      // EXP-897: the stack pre-flight refuses a draft member, so the read
+      // carries it.
+      draft: false,
       headRef: `exp/EXP-320`,
       baseRef: `exp/EXP-314`,
       mergeable: false,

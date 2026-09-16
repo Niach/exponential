@@ -21,6 +21,8 @@
 //! in the `observe` callbacks ([`AutomationsView::refresh`]) into
 //! [`AutomationsDerived`], which `render` only reads.
 
+use std::collections::HashSet;
+
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, App, Entity, InteractiveElement, IntoElement, ParentElement, Render, ScrollHandle,
@@ -43,6 +45,9 @@ use crate::run_rows;
 pub struct AutomationsView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
+    /// EXP-897: the parent runs whose child runs are folded away, by session
+    /// id (the sessions lists' rule). Per view, never persisted.
+    collapsed: HashSet<String>,
     /// EXP-832: what the page shows, derived off the synced collections in
     /// [`Self::refresh`] — never in `render`.
     derived: AutomationsDerived,
@@ -61,10 +66,20 @@ struct AutomationsDerived {
     /// One per automation, in the server's list order, with its joins done.
     rows: Vec<AutomationRow>,
     /// The "Recent automated runs" log, newest first, already capped to
-    /// [`RECENT_RUNS_CAP`].
+    /// [`RECENT_RUNS_CAP`] and then NESTED (EXP-897: a run a run started sits
+    /// under its parent, the rule every session list shares).
     /// EXP-874: each run's row facts (a live run draws as a running row, an
     /// ended one as a past row).
-    recent_runs: Vec<run_rows::RunListFacts>,
+    recent_runs: Vec<RecentRun>,
+}
+
+/// One row of the recent-runs log: its facts plus its place in the session
+/// TREE (EXP-818/EXP-897 — nested ×4, 14px per level, folded by its parent).
+#[derive(Clone, Debug, PartialEq)]
+struct RecentRun {
+    facts: run_rows::RunListFacts,
+    depth: usize,
+    has_children: bool,
 }
 
 /// One automation row's data: the automation itself plus everything the
@@ -140,9 +155,22 @@ impl AutomationsDerived {
             rows,
             recent_runs: {
                 let now = chrono::Utc::now().timestamp();
-                runs.iter()
+                // EXP-897: the cap is a ROW cap — nest FIRST, so a child run
+                // is never orphaned by a parent that fell off the end, then
+                // take the first `RECENT_RUNS_CAP` rows of the tree.
+                let tree = domain::session_tree::nest_sessions(
+                    runs.clone(),
+                    |session| session.id.as_str(),
+                    |session| session.parent_session_id.as_deref(),
+                    |session| session.started_at.as_deref(),
+                );
+                tree.into_iter()
                     .take(RECENT_RUNS_CAP)
-                    .map(|session| run_rows::RunListFacts::derive(session, now, cx))
+                    .map(|row| RecentRun {
+                        facts: run_rows::RunListFacts::derive(&row.session, now, cx),
+                        depth: row.depth,
+                        has_children: row.has_children,
+                    })
                     .collect()
             },
         }
@@ -179,6 +207,7 @@ impl AutomationsView {
         Self {
             nav,
             scroll: ScrollHandle::new(),
+            collapsed: HashSet::new(),
             derived,
             _subscriptions: subscriptions,
             _tick: crate::sessions_section::tick(cx, |this: &mut Self, cx| this.tick_refresh(cx)),
@@ -187,6 +216,12 @@ impl AutomationsView {
 
     fn team_id(&self, cx: &App) -> Option<String> {
         active_team_id(&self.nav, cx)
+    }
+
+    /// EXP-897: the folded parents of the run log (the shared
+    /// [`crate::sessions_section::Collapsible`] contract).
+    pub(crate) fn collapsed_runs_mut(&mut self) -> &mut HashSet<String> {
+        &mut self.collapsed
     }
 
     /// EXP-832: re-derive the page off the collections and repaint — the
@@ -458,14 +493,30 @@ impl AutomationsView {
                     .child("Nothing has fired yet."),
             );
         }
-        for (index, facts) in runs.iter().enumerate() {
+        // EXP-897: everything under a folded parent leaves the list.
+        let visible = crate::sessions_section::drop_collapsed(
+            runs.iter().collect::<Vec<_>>(),
+            &self.collapsed,
+            |row| row.facts.session_id(),
+            |row| row.depth,
+        );
+        for (index, row) in visible.into_iter().enumerate() {
+            let facts = &row.facts;
             let open_id = facts.session_id().to_string();
+            let fold = crate::sessions_section::fold_for(
+                open_id.clone(),
+                row.has_children,
+                &self.collapsed,
+                cx,
+            );
             // EXP-874: the shared run rows — a live automated run is a running
             // row (its trailing button opens the automation), an ended one a
             // past row. Every row opens the fullscreen session view.
             let element = run_rows::render_run_list_row(
                 "run",
                 index,
+                row.depth,
+                fold,
                 facts.clone(),
                 false,
                 Box::new(move |_, window, cx| {

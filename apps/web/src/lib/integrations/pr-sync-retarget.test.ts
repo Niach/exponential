@@ -6,6 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const h = vi.hoisted(() => ({
   githubAppConfigured: vi.fn(() => true),
+  getSteerRelayConfig: vi.fn((): { url: string; secret: string } | null => null),
+  findStackForPull: vi.fn(
+    async (): Promise<{ number: number } | null> => null
+  ),
+  updates: [] as Array<Record<string, unknown>>,
+  relayPostInput: vi.fn(async () => ({ delivered: true })),
   resolveRepoDefaultBranchCached: vi.fn(
     async (): Promise<string | null> => `master`
   ),
@@ -25,22 +31,40 @@ const h = vi.hoisted(() => ({
     defaultBranch: string
     defaultBranchOverride: string | null
   }>,
+  // EXP-897: whatever the next flat (non-limit) select resolves with —
+  // stacked children, or the live sessions of a foundation's dependants.
+  awaitRows: [] as Array<Record<string, unknown>>,
 }))
 
-vi.mock(`@/db/connection`, () => ({
-  db: {
-    select: () => ({
-      from: () => ({
-        innerJoin: () => ({
-          innerJoin: () => ({
-            where: () => ({ limit: async () => h.linkedRepoRows }),
-          }),
+// One chainable builder: `.limit()` serves the linked-repo lookup, awaiting
+// the builder directly serves the flat reads (EXP-897's stacked-children and
+// live-session queries).
+vi.mock(`@/db/connection`, () => {
+  const chain: Record<string, unknown> = {}
+  Object.assign(chain, {
+    from: () => chain,
+    innerJoin: () => chain,
+    leftJoin: () => chain,
+    where: () => chain,
+    limit: async () => h.linkedRepoRows,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    then: (res: any, rej: any) => Promise.resolve(h.awaitRows).then(res, rej),
+  })
+  return {
+    db: {
+      select: () => chain,
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: async () => {
+            h.updates.push(values)
+          },
         }),
       }),
-    }),
-  },
-}))
+    },
+  }
+})
 vi.mock(`@/lib/integrations/github-pr`, () => ({
+  findStackForPull: h.findStackForPull,
   listOpenPullsByBase: h.listOpenPullsByBase,
   retargetPullRequest: h.retargetPullRequest,
 }))
@@ -54,12 +78,18 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetPrNotify: vi.fn(),
 }))
 vi.mock(`@/lib/steer`, () => ({
-  getSteerRelayConfig: () => null,
+  getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostKill: vi.fn(),
+  relayPostInput: h.relayPostInput,
 }))
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: vi.fn() }))
 
-import { retargetChildrenOfMergedPr } from "@/lib/integrations/pr-sync"
+import {
+  foundationChangeMessage,
+  notifyStackedChildrenOfFoundationChange,
+  refreshPrStackState,
+  retargetChildrenOfMergedPr,
+} from "@/lib/integrations/pr-sync"
 
 const PARENT_PR_URL = `https://github.com/owner/repo/pull/240`
 
@@ -73,7 +103,12 @@ beforeEach(() => {
     expiresAt: null,
   })
   h.listOpenPullsByBase.mockResolvedValue([])
+  h.getSteerRelayConfig.mockReturnValue(null)
+  h.relayPostInput.mockResolvedValue({ delivered: true })
   h.linkedRepoRows = []
+  h.awaitRows = []
+  h.updates.length = 0
+  h.findStackForPull.mockResolvedValue(null)
 })
 
 describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
@@ -222,6 +257,46 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
     expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
   })
 
+  // EXP-897: a real GitHub stack owns its members' bases.
+  it(`does nothing when the MERGED PR was itself a GitHub stack member`, async () => {
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `exp/EXP-314`,
+      stackNumber: 7,
+    })
+    expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
+    expect(h.retargetPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`skips a child that is a GitHub stack member and retargets the rest`, async () => {
+    h.listOpenPullsByBase.mockResolvedValue([
+      {
+        number: 241,
+        url: `https://github.com/owner/repo/pull/241`,
+        headRef: `exp/EXP-320`,
+      },
+      {
+        number: 242,
+        url: `https://github.com/owner/repo/pull/242`,
+        headRef: `exp/EXP-321`,
+      },
+    ])
+    h.awaitRows = [{ prUrl: `https://github.com/owner/repo/pull/241` }]
+
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `exp/EXP-314`,
+    })
+
+    expect(h.retargetPullRequest).toHaveBeenCalledTimes(1)
+    expect(h.retargetPullRequest).toHaveBeenCalledWith({
+      repo: `owner/repo`,
+      prNumber: 242,
+      base: `master`,
+      token: `tok`,
+    })
+  })
+
   it(`bails silently when no installation token resolves`, async () => {
     h.resolveRepoInstallationTokenInfo.mockResolvedValue(
       null as unknown as { token: string; installationId: number; expiresAt: null }
@@ -231,5 +306,128 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
       headBranch: `exp/EXP-314`,
     })
     expect(h.listOpenPullsByBase).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-897: a foundation that gains commits leaves every run stacked on it out
+// of date — and only the agent inside those runs can rebase.
+describe(`notifyStackedChildrenOfFoundationChange (EXP-897)`, () => {
+  const RELAY = { url: `https://relay.test`, secret: `s` }
+
+  it(`names the PR, the branch and the exact recovery, once per live run`, async () => {
+    h.getSteerRelayConfig.mockReturnValue(RELAY)
+    h.awaitRows = [{ id: `session-1` }, { id: `session-2` }]
+
+    const result = await notifyStackedChildrenOfFoundationChange({
+      repoFullName: `owner/repo`,
+      headRef: `exp/EXP-10`,
+      prNumber: 240,
+      prUrl: PARENT_PR_URL,
+    })
+
+    expect(result.notified).toEqual([`session-1`, `session-2`])
+    expect(h.relayPostInput).toHaveBeenCalledWith(
+      RELAY,
+      `session-1`,
+      `[Exponential] foundation changed — the PR you are stacked on (owner/repo#240, branch exp/EXP-10) got new commits. Rebase onto origin/exp/EXP-10, push with --force-with-lease, then continue.`
+    )
+  })
+
+  it(`dedupes a force-push storm within the window`, async () => {
+    h.getSteerRelayConfig.mockReturnValue(RELAY)
+    h.awaitRows = [{ id: `session-dedupe` }]
+    const args = {
+      repoFullName: `owner/repo`,
+      headRef: `exp/EXP-42`,
+      prNumber: 240,
+      prUrl: PARENT_PR_URL,
+    }
+    await notifyStackedChildrenOfFoundationChange(args)
+    h.awaitRows = [{ id: `session-dedupe` }]
+    const second = await notifyStackedChildrenOfFoundationChange(args)
+    expect(h.relayPostInput).toHaveBeenCalledTimes(1)
+    expect(second.notified).toEqual([])
+  })
+
+  it(`does nothing without a relay or without a branch`, async () => {
+    h.awaitRows = [{ id: `session-1` }]
+    await notifyStackedChildrenOfFoundationChange({
+      repoFullName: `owner/repo`,
+      headRef: `exp/EXP-10`,
+      prNumber: 240,
+      prUrl: PARENT_PR_URL,
+    })
+    expect(h.relayPostInput).not.toHaveBeenCalled()
+
+    h.getSteerRelayConfig.mockReturnValue(RELAY)
+    await notifyStackedChildrenOfFoundationChange({
+      repoFullName: `owner/repo`,
+      headRef: ``,
+      prNumber: 240,
+      prUrl: PARENT_PR_URL,
+    })
+    expect(h.relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`needs the synchronized PR itself: a PR nobody tracks is no foundation`, async () => {
+    h.getSteerRelayConfig.mockReturnValue(RELAY)
+    h.awaitRows = [{ id: `session-1` }]
+    const result = await notifyStackedChildrenOfFoundationChange({
+      repoFullName: `owner/repo`,
+      headRef: `master`,
+      prNumber: 240,
+      prUrl: ``,
+    })
+    expect(result.notified).toEqual([])
+    expect(h.relayPostInput).not.toHaveBeenCalled()
+  })
+
+  it(`byte-locks the message the agent reads`, () => {
+    expect(foundationChangeMessage(`o/r`, 9, `feat/x`)).toBe(
+      `[Exponential] foundation changed — the PR you are stacked on (o/r#9, branch feat/x) got new commits. Rebase onto origin/feat/x, push with --force-with-lease, then continue.`
+    )
+  })
+})
+
+// EXP-897: the stack edge can move on github.com alone — the webhook legs ask
+// for a re-read.
+describe(`refreshPrStackState (EXP-897)`, () => {
+  const PR_URL = `https://github.com/owner/repo/pull/241`
+
+  it(`writes the base ref and the stack number GitHub reports`, async () => {
+    h.findStackForPull.mockResolvedValue({ number: 7 })
+    await refreshPrStackState({
+      prUrl: PR_URL,
+      repoFullName: `owner/repo`,
+      prNumber: 241,
+      baseRef: `exp/EXP-10`,
+    })
+    expect(h.updates).toEqual([
+      { prBaseBranch: `exp/EXP-10` },
+      { prStackNumber: 7 },
+    ])
+  })
+
+  it(`clears the stack number when the PR is no longer stacked`, async () => {
+    await refreshPrStackState({
+      prUrl: PR_URL,
+      repoFullName: `owner/repo`,
+      prNumber: 241,
+      baseRef: `master`,
+    })
+    expect(h.updates).toContainEqual({ prStackNumber: null })
+  })
+
+  // Guessing "not stacked" would route the next merge through the endpoint
+  // GitHub refuses (FEED-43).
+  it(`leaves the recorded stack alone when the read fails`, async () => {
+    h.findStackForPull.mockRejectedValue(new Error(`boom`))
+    await refreshPrStackState({
+      prUrl: PR_URL,
+      repoFullName: `owner/repo`,
+      prNumber: 241,
+      baseRef: `master`,
+    })
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 })

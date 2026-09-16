@@ -9,7 +9,7 @@
 //
 // It lives outside `lib/trpc/coding-sessions.ts` for the same reason as
 // coding-session-end.ts: the MCP tool tests mock this one module.
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { codingSessions, issues } from "@/db/schema"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
@@ -93,6 +93,21 @@ export function formatStarterMessage(text: string): string {
   return `[Message from your starter via exponential_sessions_message] ${oneLine(text)}`
 }
 
+/**
+ * EXP-897: a question escalated PAST the immediate parent (`to: 'root'`). The
+ * receiving run is not the asker's starter, so the prefix says how far down it
+ * came from — and still names the full uuid, because the answer goes straight
+ * back to the asker with `exponential_sessions_message`.
+ */
+export function formatDescendantQuestion(
+  asker: ChildRunRef,
+  question: string,
+  depth: number
+): string {
+  const levels = depth === 1 ? `1 level down` : `${depth} levels down`
+  return `[${CHILD_RUN_TAG} ${childRunLabel(asker)} (${levels}) asks — reply with exponential_sessions_message sessionId=${asker.id}] ${oneLine(question)}`
+}
+
 /** The parent answering its own child's ask — distinct prefix so the child
  * can match the reply to its question. */
 export function formatParentAnswer(
@@ -140,6 +155,157 @@ export async function loadChildParentContext(
     .where(eq(codingSessions.id, childSessionId))
     .limit(1)
   return row ?? null
+}
+
+/** One row of a run's ancestry, `depth` counted from the run itself (0). */
+export interface SessionChainRow {
+  id: string
+  userId: string
+  hostUserId: string | null
+  teamId: string | null
+  status: string | null
+  startedReason: string | null
+  parentSessionId: string | null
+  actionName: string | null
+  issueIdentifier: string | null
+  depth: number
+}
+
+export interface SessionChain {
+  self: SessionChainRow
+  /** Nearest parent first, root last. */
+  ancestors: SessionChainRow[]
+  /** How far down the tree `self` sits (0 = a root run). */
+  depth: number
+  rootSessionId: string
+  /** The HIGHEST still-live ancestor — where `to: 'root'` delivers. */
+  topLiveAncestorId: string | null
+}
+
+/** Nested runs deeper than this are a bug, not a workflow — the CTE stops. */
+const MAX_SESSION_CHAIN_DEPTH = 20
+
+/**
+ * EXP-897: a run's whole ancestry in ONE recursive walk up
+ * `parent_session_id`. `loadChildParentContext` answers the parent question;
+ * this answers the ROOT question (escalation past a parent that cannot decide)
+ * and the depth every session list indents by.
+ */
+export async function loadSessionChain(
+  db: Context[`db`],
+  sessionId: string,
+  maxDepth = MAX_SESSION_CHAIN_DEPTH
+): Promise<SessionChain | null> {
+  const result = await db.execute(sql`
+    with recursive chain as (
+      select cs.id, cs.user_id, cs.host_user_id, cs.team_id, cs.status,
+             cs.started_reason, cs.parent_session_id, cs.action_name,
+             cs.issue_id, 0 as depth
+      from coding_sessions cs
+      where cs.id = ${sessionId}::uuid
+      union all
+      select p.id, p.user_id, p.host_user_id, p.team_id, p.status,
+             p.started_reason, p.parent_session_id, p.action_name,
+             p.issue_id, c.depth + 1
+      from coding_sessions p
+      join chain c on p.id = c.parent_session_id
+      where c.depth < ${maxDepth}
+    )
+    select chain.id, chain.user_id, chain.host_user_id, chain.team_id,
+           chain.status, chain.started_reason, chain.parent_session_id,
+           chain.action_name, chain.depth, i.identifier as issue_identifier
+    from chain
+    left join issues i on i.id = chain.issue_id
+    order by chain.depth asc
+  `)
+  const rows = (result.rows ?? []).map((row) => ({
+    id: row.id as string,
+    userId: row.user_id as string,
+    hostUserId: (row.host_user_id as string | null) ?? null,
+    teamId: (row.team_id as string | null) ?? null,
+    status: (row.status as string | null) ?? null,
+    startedReason: (row.started_reason as string | null) ?? null,
+    parentSessionId: (row.parent_session_id as string | null) ?? null,
+    actionName: (row.action_name as string | null) ?? null,
+    issueIdentifier: (row.issue_identifier as string | null) ?? null,
+    depth: Number(row.depth ?? 0),
+  }))
+  const self = rows.find((row) => row.depth === 0)
+  if (!self) return null
+  const ancestors = rows.filter((row) => row.depth > 0)
+  const live = ancestors.filter(
+    (row) =>
+      row.status && (PARENT_LIVE_STATUSES as readonly string[]).includes(row.status)
+  )
+  return {
+    self,
+    ancestors,
+    depth: ancestors.length,
+    rootSessionId: ancestors.at(-1)?.id ?? self.id,
+    // The highest live one: escalation goes as far UP as someone can still
+    // read it, never to a dead root.
+    topLiveAncestorId: live.at(-1)?.id ?? null,
+  }
+}
+
+/**
+ * EXP-897: how deep each of these runs sits in its tree (0 = a root run), in
+ * ONE walk up from all of them at once. The session lists indent by it; a row
+ * whose ancestry is unreadable simply reads 0.
+ */
+export async function loadSessionDepths(
+  db: Context[`db`],
+  sessionIds: string[],
+  maxDepth = MAX_SESSION_CHAIN_DEPTH
+): Promise<Map<string, number>> {
+  const depths = new Map<string, number>()
+  if (sessionIds.length === 0) return depths
+  const result = await db.execute(sql`
+    with recursive up as (
+      select cs.id as origin_id, cs.id, cs.parent_session_id, 0 as depth
+      from coding_sessions cs
+      where cs.id in (${sql.join(
+        sessionIds.map((id) => sql`${id}::uuid`),
+        sql`, `
+      )})
+      union all
+      select u.origin_id, p.id, p.parent_session_id, u.depth + 1
+      from coding_sessions p
+      join up u on p.id = u.parent_session_id
+      where u.depth < ${maxDepth}
+    )
+    select origin_id, max(depth) as depth from up group by origin_id
+  `)
+  for (const row of result.rows ?? []) {
+    depths.set(row.origin_id as string, Number(row.depth ?? 0))
+  }
+  return depths
+}
+
+/**
+ * EXP-897: every run in the subtree rooted at `rootSessionId`, the root
+ * INCLUDED. The caller still applies its own access filter to the rows — this
+ * only narrows the candidate set.
+ */
+export async function loadSubtreeSessionIds(
+  db: Context[`db`],
+  rootSessionId: string,
+  maxDepth = MAX_SESSION_CHAIN_DEPTH
+): Promise<string[]> {
+  const result = await db.execute(sql`
+    with recursive down as (
+      select cs.id, 0 as depth
+      from coding_sessions cs
+      where cs.id = ${rootSessionId}::uuid
+      union all
+      select c.id, d.depth + 1
+      from coding_sessions c
+      join down d on c.parent_session_id = d.id
+      where d.depth < ${maxDepth}
+    )
+    select distinct id from down
+  `)
+  return (result.rows ?? []).map((row) => row.id as string)
 }
 
 /**

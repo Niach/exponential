@@ -13,7 +13,9 @@ import {
   codingSessionCollection,
   deviceWorktreeCollection,
   issueCollection,
+  issueRelationCollection,
 } from "@/lib/collections"
+import { openBlockers } from "@/lib/stack-start"
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
@@ -158,6 +160,17 @@ export interface LaunchComposerModel {
   setResume: (value: boolean) => void
   /** True when the run will resume — plan mode hides behind it. */
   resumeActive: boolean
+
+  /** EXP-897: the SOLE checked issue's still-open blockers (`openBlockers`).
+   * Empty for a chat, an action, a batch, or an unblocked issue. */
+  blockedStart: Issue[]
+  /** The blocked-start dialog is up — the submit asked, nothing started. */
+  blockedOpen: boolean
+  closeBlockedStart: () => void
+  /** Start a PLAIN run, blockers and all. */
+  startAnyway: () => Promise<void>
+  /** Start ON TOP of the lowest blocker's pull request (`stack: true`). */
+  startStacked: () => Promise<void>
 
   launch: LaunchOptions
   /** Online machines with a runnable agent. */
@@ -544,6 +557,64 @@ export function useLaunchComposer({
       : null
   const resumeActive = resume && resumeCandidate !== null
 
+  // ── Blocked start (EXP-897) ───────────────────────────────────────────────
+
+  // Only the BLOCKED side is queried: a canonical `blocks` row is
+  // `issue_id` blocks `related_issue_id` (EXP-736), so this issue's blockers
+  // are exactly the rows naming it as the related one. One `eq` — no `or()`
+  // needed, and never `&&`/`||` (the collections' filter builder).
+  const [blockedOpen, setBlockedOpen] = useState(false)
+  const { data: relationRows } = useLiveQuery(
+    (query) =>
+      soleIssueId
+        ? query
+            .from({ r: issueRelationCollection })
+            .where(({ r }) => eq(r.relatedIssueId, soleIssueId))
+        : undefined,
+    [soleIssueId]
+  )
+  const blockerIds = useMemo(() => {
+    const ids = [
+      ...new Set(
+        ((relationRows ?? []) as { type: string; issueId: string }[])
+          .filter((row) => row.type === `blocks`)
+          .map((row) => row.issueId)
+      ),
+    ]
+    ids.sort()
+    return ids
+  }, [relationRows])
+  // The blockers' own rows: a blocker can live on a board with NO repository,
+  // which the codeable pool above never queries.
+  const { data: blockerRows } = useLiveQuery(
+    (query) =>
+      blockerIds.length > 0
+        ? query
+            .from({ bl: issueCollection })
+            .where(({ bl }) => inArray(bl.id, blockerIds))
+        : undefined,
+    [blockerIds.join(`,`)]
+  )
+  const blockedStart = useMemo(
+    () =>
+      soleIssueId
+        ? openBlockers(
+            soleIssueId,
+            (relationRows ?? []) as {
+              type: string
+              issueId: string
+              relatedIssueId: string
+            }[],
+            (blockerRows ?? []) as Issue[]
+          )
+        : [],
+    [soleIssueId, relationRows, blockerRows]
+  )
+  // A fresh subject asks again.
+  useEffect(() => {
+    setBlockedOpen(false)
+  }, [soleIssueId])
+
   // ── Gate ──────────────────────────────────────────────────────────────────
 
   const count = checkedIds.length
@@ -576,8 +647,10 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  const submit = async () => {
+  /** The actual start. `stack` only ever reaches a single-issue subject. */
+  const start = async (opts: { stack?: boolean } = {}) => {
     if (blocked || !device) return
+    setBlockedOpen(false)
     setSending(true)
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
@@ -616,7 +689,13 @@ export function useLaunchComposer({
           prompt
         )
       } else if (subject.kind === `issues`) {
-        await remote.startIssues(device, options, subject.ids, prompt || undefined)
+        await remote.startIssues(
+          device,
+          options,
+          subject.ids,
+          prompt || undefined,
+          opts.stack ? { stack: true } : undefined
+        )
       } else if (selectedAction) {
         await remote.runAction(
           device,
@@ -640,6 +719,18 @@ export function useLaunchComposer({
     } finally {
       setSending(false)
     }
+  }
+
+  // EXP-897: a single BLOCKED issue asks first — plain run, or a stacked PR
+  // cut from the blocker's branch. A batch never asks (it has no one
+  // foundation to build on), nor does an action or a chat.
+  const submit = async () => {
+    if (blocked || !device) return
+    if (blockedStart.length > 0 && subject?.kind === `issues` && subject.ids.length === 1) {
+      setBlockedOpen(true)
+      return
+    }
+    await start()
   }
 
   return {
@@ -669,6 +760,11 @@ export function useLaunchComposer({
     resume,
     setResume,
     resumeActive,
+    blockedStart,
+    blockedOpen,
+    closeBlockedStart: () => setBlockedOpen(false),
+    startAnyway: () => start(),
+    startStacked: () => start({ stack: true }),
     launch,
     candidateDevices,
     deviceRequestNote,

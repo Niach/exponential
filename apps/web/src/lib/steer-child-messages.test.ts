@@ -1,272 +1,153 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// EXP-700: the bracketed source-prefix convention is a wire contract between
-// the server and every agent reading injected messages — lock the exact
-// strings, and the notify helper's "never throws, no-ops unless a live
-// parent" rules.
+// EXP-897: the session CHAIN (one recursive walk up `parent_session_id`) and
+// the descendant-question format an escalation past the immediate parent uses.
 
-const h = vi.hoisted(() => {
-  const dbRows: { current: Array<unknown> } = { current: [] }
-  const queryBuilder: Record<string, unknown> = {}
-  for (const method of [`from`, `leftJoin`, `where`, `limit`]) {
-    queryBuilder[method] = vi.fn(() => queryBuilder)
-  }
-  ;(queryBuilder as { then: unknown }).then = (
-    resolve: (v: unknown) => unknown,
-    reject: (e: unknown) => unknown
-  ) => Promise.resolve(dbRows.current).then(resolve, reject)
-  const db = { select: vi.fn(() => queryBuilder) }
-  return { dbRows, db }
-})
+const h = vi.hoisted(() => ({
+  executeRows: [] as Record<string, unknown>[],
+  executeCalls: [] as string[],
+}))
 
-vi.mock(`@/lib/steer`, async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  getSteerRelayConfig: vi.fn(),
+vi.mock(`@/db/connection`, () => ({ db: {} }))
+vi.mock(`@/lib/steer`, () => ({
+  getSteerRelayConfig: () => null,
   relayPostInput: vi.fn(),
 }))
 
-import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import {
-  childRunLabel,
-  formatChildEndedSilently,
-  formatChildFinished,
-  formatChildQuestion,
-  formatChildRateLimited,
-  formatParentAnswer,
-  formatStarterMessage,
-  loadChildParentContext,
-  notifyParentOfChildBlocked,
-  notifyParentOfChildEnd,
+  formatDescendantQuestion,
+  loadSessionChain,
+  loadSessionDepths,
+  loadSubtreeSessionIds,
 } from "@/lib/steer-child-messages"
-import type { Context } from "@/lib/trpc"
 
-const CHILD = `66666666-6666-4666-8666-666666666666`
-const PARENT = `77777777-7777-4777-8777-777777777777`
-const RELAY = { url: `https://relay.test`, secret: `s` }
-
-const db = h.db as unknown as Context[`db`]
-
-const childRow = (over: Record<string, unknown> = {}) => ({
-  id: CHILD,
-  userId: `user-1`,
-  hostUserId: null,
-  startedReason: `agent`,
-  parentSessionId: PARENT,
-  actionName: null,
-  issueIdentifier: `EXP-12`,
-  parentStatus: `running`,
-  ...over,
+const execute = vi.fn(async (query: unknown) => {
+  h.executeCalls.push(JSON.stringify(query))
+  return { rows: h.executeRows }
 })
+const db = { execute } as never
+
+function chainRow(
+  id: string,
+  depth: number,
+  over: Record<string, unknown> = {}
+) {
+  return {
+    id,
+    user_id: `owner`,
+    host_user_id: null,
+    team_id: `ws-1`,
+    status: `running`,
+    started_reason: `agent`,
+    parent_session_id: null,
+    action_name: null,
+    issue_identifier: null,
+    depth,
+    ...over,
+  }
+}
 
 beforeEach(() => {
+  h.executeRows = []
+  h.executeCalls.length = 0
   vi.clearAllMocks()
-  h.dbRows.current = []
-  vi.mocked(getSteerRelayConfig).mockReturnValue(RELAY)
-  vi.mocked(relayPostInput).mockResolvedValue({ delivered: true })
 })
 
-describe(`childRunLabel`, () => {
-  it(`prefers the issue identifier, then the action name, then the bare id`, () => {
-    const base = { id: CHILD, issueIdentifier: null, actionName: null }
-    expect(
-      childRunLabel({ ...base, issueIdentifier: `EXP-12`, actionName: `n` })
-    ).toBe(`EXP-12 66666666`)
-    expect(childRunLabel({ ...base, actionName: `Nightly build` })).toBe(
-      `Nightly build 66666666`
-    )
-    expect(childRunLabel(base)).toBe(`66666666`)
-  })
-})
-
-describe(`message formats`, () => {
-  const child = { id: CHILD, issueIdentifier: `EXP-12`, actionName: null }
-
-  it(`locks the exact prefixes`, () => {
-    expect(formatChildFinished(child, `Shipped it.`)).toBe(
-      `[Exponential child run EXP-12 66666666 finished] Shipped it.`
-    )
-    expect(formatChildEndedSilently(child, `client`)).toBe(
-      `[Exponential child run EXP-12 66666666 ended without a report (client)]`
-    )
-    expect(formatChildQuestion(child, `Which env?`)).toBe(
-      `[Exponential child run EXP-12 66666666 asks — reply with exponential_sessions_message sessionId=${CHILD}] Which env?`
-    )
-    // EXP-804: the usage wall, pushed to the parent — the reset rides
-    // VERBATIM as the device reported it, so the parent can compare it.
-    // FEED-37: the window it belongs to is named when the device knew it.
-    expect(
-      formatChildRateLimited(child, {
-        resetsAt: `2026-09-16T09:00:00.000Z`,
-        window: `weekly`,
-      })
-    ).toBe(
-      `[Exponential child run EXP-12 66666666 is rate limited (weekly window) until 2026-09-16T09:00:00.000Z]`
-    )
-    // Unknown window (older device / empty canonical string): today's text.
-    expect(
-      formatChildRateLimited(child, { resetsAt: `2026-09-09T01:09Z`, window: `` })
-    ).toBe(
-      `[Exponential child run EXP-12 66666666 is rate limited until 2026-09-09T01:09Z]`
-    )
-    // No reset time: say so in the parenthetical shape the silent-end
-    // message uses, never a bogus timestamp — the window still leads.
-    expect(formatChildRateLimited(child, { resetsAt: null })).toBe(
-      `[Exponential child run EXP-12 66666666 is rate limited (no reset time reported)]`
-    )
-    expect(
-      formatChildRateLimited(child, { resetsAt: null, window: `session` })
-    ).toBe(
-      `[Exponential child run EXP-12 66666666 is rate limited (session window) (no reset time reported)]`
-    )
-    expect(formatStarterMessage(`Use staging.`)).toBe(
-      `[Message from your starter via exponential_sessions_message] Use staging.`
-    )
-    expect(formatParentAnswer(PARENT, `Use staging.`)).toBe(
-      `[Answer from your parent run 77777777 via exponential_sessions_message] Use staging.`
-    )
-  })
-
-  // The submit convention is a separate \r frame — a newline inside the text
-  // would submit early and fragment the message into several.
-  it(`collapses newlines so the injection lands as ONE message`, () => {
-    expect(formatChildFinished(child, `line one\n\nline two\r\nthree`)).toBe(
-      `[Exponential child run EXP-12 66666666 finished] line one line two three`
-    )
-  })
-})
-
-describe(`loadChildParentContext`, () => {
-  it(`returns the joined row, null when absent`, async () => {
-    h.dbRows.current = [childRow()]
-    expect(await loadChildParentContext(db, CHILD)).toEqual(childRow())
-    h.dbRows.current = []
-    expect(await loadChildParentContext(db, CHILD)).toBeNull()
-  })
-})
-
-describe(`notifyParentOfChildEnd`, () => {
-  it(`injects the summary message into a live parent`, async () => {
-    h.dbRows.current = [childRow()]
-    await expect(
-      notifyParentOfChildEnd(db, CHILD, { summary: `Done.`, endedBy: `agent` })
-    ).resolves.toEqual({ delivered: true })
-    expect(relayPostInput).toHaveBeenCalledWith(
-      RELAY,
-      PARENT,
-      `[Exponential child run EXP-12 66666666 finished] Done.`
-    )
-  })
-
-  it(`injects the silent-end message when there is no summary`, async () => {
-    h.dbRows.current = [childRow()]
-    await notifyParentOfChildEnd(db, CHILD, { summary: null, endedBy: `client` })
-    expect(relayPostInput).toHaveBeenCalledWith(
-      RELAY,
-      PARENT,
-      `[Exponential child run EXP-12 66666666 ended without a report (client)]`
-    )
-  })
-
-  it.each([
-    [`no row`, []],
-    [`not agent-started`, [childRow({ startedReason: `schedule` })]],
-    [`no parent linked`, [childRow({ parentSessionId: null })]],
-    [`parent ended`, [childRow({ parentStatus: `ended` })]],
-    [`parent row gone`, [childRow({ parentStatus: null })]],
-  ])(`no-ops when %s`, async (_name, rows) => {
-    h.dbRows.current = rows
-    await expect(
-      notifyParentOfChildEnd(db, CHILD, { summary: `s`, endedBy: `agent` })
-    ).resolves.toEqual({ delivered: false })
-    expect(relayPostInput).not.toHaveBeenCalled()
-  })
-
-  it(`no-ops when the relay is not configured`, async () => {
-    h.dbRows.current = [childRow()]
-    vi.mocked(getSteerRelayConfig).mockReturnValue(null)
-    await expect(
-      notifyParentOfChildEnd(db, CHILD, { summary: `s`, endedBy: `agent` })
-    ).resolves.toEqual({ delivered: false })
-    expect(relayPostInput).not.toHaveBeenCalled()
-  })
-
-  it(`never throws — a db failure reads as not-delivered`, async () => {
-    h.db.select.mockImplementationOnce(() => {
-      throw new Error(`boom`)
+describe(`loadSessionChain`, () => {
+  it(`reports depth, the root and the highest LIVE ancestor`, async () => {
+    h.executeRows = [
+      chainRow(`self`, 0, { parent_session_id: `parent` }),
+      chainRow(`parent`, 1, { parent_session_id: `root`, status: `ended` }),
+      chainRow(`root`, 2, { status: `running`, started_reason: null }),
+    ]
+    const chain = await loadSessionChain(db, `self`)
+    expect(chain).toMatchObject({
+      depth: 2,
+      rootSessionId: `root`,
+      topLiveAncestorId: `root`,
     })
-    await expect(
-      notifyParentOfChildEnd(db, CHILD, { summary: `s`, endedBy: `agent` })
-    ).resolves.toEqual({ delivered: false })
+    expect(chain!.ancestors.map((row) => row.id)).toEqual([`parent`, `root`])
+  })
+
+  it(`has no live ancestor when every one of them ended`, async () => {
+    h.executeRows = [
+      chainRow(`self`, 0, { parent_session_id: `parent` }),
+      chainRow(`parent`, 1, { status: `ended` }),
+    ]
+    const chain = await loadSessionChain(db, `self`)
+    expect(chain?.topLiveAncestorId).toBeNull()
+    expect(chain?.rootSessionId).toBe(`parent`)
+  })
+
+  it(`treats a root run as depth 0 whose root is itself`, async () => {
+    h.executeRows = [chainRow(`self`, 0)]
+    const chain = await loadSessionChain(db, `self`)
+    expect(chain).toMatchObject({
+      depth: 0,
+      rootSessionId: `self`,
+      topLiveAncestorId: null,
+    })
+  })
+
+  it(`answers null for an unknown session`, async () => {
+    h.executeRows = []
+    await expect(loadSessionChain(db, `gone`)).resolves.toBeNull()
+  })
+
+  it(`passes the depth cap into the recursive walk`, async () => {
+    h.executeRows = [chainRow(`self`, 0)]
+    await loadSessionChain(db, `self`, 5)
+    expect(h.executeCalls[0]).toContain(`5`)
   })
 })
 
-describe(`notifyParentOfChildBlocked`, () => {
-  it(`injects the rate-limit message into a live parent`, async () => {
-    h.dbRows.current = [childRow()]
-    await expect(
-      notifyParentOfChildBlocked(db, CHILD, { resetsAt: `2026-09-09T01:09Z` })
-    ).resolves.toEqual({ delivered: true })
-    expect(relayPostInput).toHaveBeenCalledWith(
-      RELAY,
-      PARENT,
-      `[Exponential child run EXP-12 66666666 is rate limited until 2026-09-09T01:09Z]`
+describe(`loadSessionDepths / loadSubtreeSessionIds`, () => {
+  it(`maps each requested id onto its depth`, async () => {
+    h.executeRows = [
+      { origin_id: `a`, depth: 0 },
+      { origin_id: `b`, depth: 2 },
+    ]
+    const depths = await loadSessionDepths(db, [`a`, `b`])
+    expect(depths.get(`a`)).toBe(0)
+    expect(depths.get(`b`)).toBe(2)
+  })
+
+  it(`never queries for an empty page`, async () => {
+    const depths = await loadSessionDepths(db, [])
+    expect(depths.size).toBe(0)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it(`returns the subtree ids, root included`, async () => {
+    h.executeRows = [{ id: `root` }, { id: `child` }]
+    await expect(loadSubtreeSessionIds(db, `root`)).resolves.toEqual([
+      `root`,
+      `child`,
+    ])
+  })
+})
+
+describe(`formatDescendantQuestion`, () => {
+  it(`names how far down the asker sits and its full session id`, () => {
+    expect(
+      formatDescendantQuestion(
+        { id: `3f2a9c1b-0000-4000-8000-000000000000`, issueIdentifier: `EXP-12`, actionName: null },
+        `Should we keep the old column?`,
+        3
+      )
+    ).toBe(
+      `[Exponential child run EXP-12 3f2a9c1b (3 levels down) asks — reply with exponential_sessions_message sessionId=3f2a9c1b-0000-4000-8000-000000000000] Should we keep the old column?`
     )
   })
 
-  // FEED-37: the canonical `blocked` object setBlocked passes carries the
-  // window — it must reach the parent, not be dropped on the way.
-  it(`names the window when the device reported one`, async () => {
-    h.dbRows.current = [childRow()]
-    await notifyParentOfChildBlocked(db, CHILD, {
-      resetsAt: `2026-09-16T09:00:00.000Z`,
-      window: `weekly`,
-    })
-    expect(relayPostInput).toHaveBeenCalledWith(
-      RELAY,
-      PARENT,
-      `[Exponential child run EXP-12 66666666 is rate limited (weekly window) until 2026-09-16T09:00:00.000Z]`
+  it(`says "1 level down" in the singular and collapses newlines`, () => {
+    const text = formatDescendantQuestion(
+      { id: `aaaaaaaa-0000-4000-8000-000000000000`, issueIdentifier: null, actionName: `Nightly` },
+      `line one\nline two`,
+      1
     )
-  })
-
-  it(`injects the no-reset wording when the agent named no reset time`, async () => {
-    h.dbRows.current = [childRow()]
-    await notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
-    expect(relayPostInput).toHaveBeenCalledWith(
-      RELAY,
-      PARENT,
-      `[Exponential child run EXP-12 66666666 is rate limited (no reset time reported)]`
-    )
-  })
-
-  it.each([
-    [`no row`, []],
-    [`not agent-started`, [childRow({ startedReason: `schedule` })]],
-    [`no parent linked`, [childRow({ parentSessionId: null })]],
-    [`parent ended`, [childRow({ parentStatus: `ended` })]],
-    [`parent row gone`, [childRow({ parentStatus: null })]],
-  ])(`no-ops when %s`, async (_name, rows) => {
-    h.dbRows.current = rows
-    await expect(
-      notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
-    ).resolves.toEqual({ delivered: false })
-    expect(relayPostInput).not.toHaveBeenCalled()
-  })
-
-  it(`no-ops when the relay is not configured`, async () => {
-    h.dbRows.current = [childRow()]
-    vi.mocked(getSteerRelayConfig).mockReturnValue(null)
-    await expect(
-      notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
-    ).resolves.toEqual({ delivered: false })
-    expect(relayPostInput).not.toHaveBeenCalled()
-  })
-
-  it(`never throws — a db failure reads as not-delivered`, async () => {
-    h.db.select.mockImplementationOnce(() => {
-      throw new Error(`boom`)
-    })
-    await expect(
-      notifyParentOfChildBlocked(db, CHILD, { resetsAt: null })
-    ).resolves.toEqual({ delivered: false })
+    expect(text).toContain(`(1 level down)`)
+    expect(text).toContain(`line one line two`)
+    expect(text).not.toContain(`\n`)
   })
 })

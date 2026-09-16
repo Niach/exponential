@@ -28,9 +28,10 @@ import {
 import {
   branchExists,
   diagnoseUnmergeablePr,
+  GitHubAsyncMergePending,
   GitHubMergeError,
   listOpenPulls,
-  mergePullRequest,
+  mergePullRequestSmart,
   type OpenPull,
 } from "@/lib/integrations/github-pr"
 import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
@@ -527,12 +528,23 @@ export async function mergeRepositoryPull(opts: {
     endSessions: opts.endSessions,
   })
   try {
-    await mergePullRequest({
+    // FEED-43: a stack member is refused by the legacy endpoint — the smart
+    // merge discovers that from GitHub's own refusal and finishes through
+    // merge-async.
+    await mergePullRequestSmart({
       repo: repo.fullName,
       prNumber,
       token,
     })
   } catch (err) {
+    if (err instanceof GitHubAsyncMergePending) {
+      // The merge is still running on GitHub — keep the claim so the webhook
+      // echo of the landing merge stays attributed.
+      throw new TRPCError({
+        code: `PRECONDITION_FAILED`,
+        message: `GitHub is still merging PR #${err.prNumber}${err.stackNumber != null ? ` (stack #${err.stackNumber})` : ``}. It did not finish within 60s — check the PR on GitHub; the issue completes when the merge lands.`,
+      })
+    }
     releasePrMergeClaim(repo.fullName, prNumber)
     if (err instanceof GitHubMergeError) {
       // "Not mergeable" is misleading on a stacked PR whose base is stale

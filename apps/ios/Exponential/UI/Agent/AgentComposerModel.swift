@@ -54,6 +54,10 @@ final class AgentComposerModel {
     private(set) var deviceId: String?
     var sending = false
     var error: String?
+    /// EXP-897: the blocked-start prompt, up while the reader chooses between
+    /// a stacked PR, an ordinary run and cancelling. Non-nil ONLY for a single
+    /// checked issue with open blockers.
+    var blockedPrompt: BlockedStartPrompt?
 
     /// The repo registry — one tRPC read; the chat picker and the `repo`
     /// inputs pick from it.
@@ -72,6 +76,12 @@ final class AgentComposerModel {
     /// The text a seed dropped into the draft — a draft that still equals
     /// it has not been typed in.
     private var seededDraft = ""
+    /// EXP-897: the sole checked issue's `blocks` rows and their issues, read
+    /// live off GRDB — `StackStart.openBlockers` applies the rules.
+    private var blockerRelations: [IssueRelationEntity] = []
+    private var blockerIssues: [IssueEntity] = []
+    private var blockerIssueId: String?
+    private var blockerTask: Task<Void, Never>?
 
     /// A batch run is deliberately loose but not unbounded — one session on
     /// one branch; past this the prompt is unwieldy and token-expensive.
@@ -130,6 +140,7 @@ final class AgentComposerModel {
     // MARK: - Load
 
     func load() async {
+        refreshBlockers()
         guard let teamId else { return }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
         // EXP-615: one repository pre-picks for a chat (web parity); the
@@ -228,6 +239,52 @@ final class AgentComposerModel {
         sessions.openPullRequests(teamId: teamId)
     }
 
+    // MARK: - Blocked start (EXP-897)
+
+    /// The sole checked issue's OPEN blockers, or empty. An action subject, a
+    /// chat and a BATCH are never stacked, so they never ask.
+    var openBlockers: [IssueEntity] {
+        guard actionId == nil, effectiveChecked.count == 1,
+              let issueId = effectiveChecked.first
+        else { return [] }
+        return StackStart.openBlockers(
+            issueId: issueId, relations: blockerRelations, issues: blockerIssues
+        )
+    }
+
+    /// Re-point the blocker observation at the sole checked issue (or tear it
+    /// down). Called from every path that can change the subject.
+    private func refreshBlockers() {
+        let issueId = (actionId == nil && checked.count == 1) ? checked.first : nil
+        guard issueId != blockerIssueId else { return }
+        blockerIssueId = issueId
+        blockerTask?.cancel()
+        blockerTask = nil
+        blockerRelations = []
+        blockerIssues = []
+        blockedPrompt = nil
+        guard let issueId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking {
+            db -> ([IssueRelationEntity], [IssueEntity]) in
+            let relations = try IssueRelationEntity
+                .filter(Column("related_issue_id") == issueId)
+                .filter(Column("type") == IssueRelationType.blocks.rawValue)
+                .fetchAll(db)
+            let issues = try IssueEntity
+                .filter(relations.map(\.issueId).contains(Column("id")))
+                .fetchAll(db)
+            return (relations, issues)
+        }
+        blockerTask = Task { [weak self] in
+            do {
+                for try await (relations, issues) in observation.values(in: pool) {
+                    self?.blockerRelations = relations
+                    self?.blockerIssues = issues
+                }
+            } catch {}
+        }
+    }
+
     // MARK: - Subject
 
     /// Checked ids that are actually in the pool. A stray (an id whose row
@@ -285,6 +342,7 @@ final class AgentComposerModel {
         } else {
             checked.append(id)
         }
+        refreshBlockers()
     }
 
     /// Pick an action. Picking one REPLACES the issue chips; a different
@@ -295,12 +353,14 @@ final class AgentComposerModel {
         actionId = action.id
         checked = []
         inputValues = [:]
+        refreshBlockers()
     }
 
     func clearAction() {
         touched = true
         actionId = nil
         inputValues = [:]
+        refreshBlockers()
     }
 
     // MARK: - Action inputs
@@ -570,12 +630,40 @@ final class AgentComposerModel {
 
     // MARK: - Submit
 
+    /// EXP-897: a start on a BLOCKED issue asks first — start anyway, or
+    /// build on the blocker's pull request. Everything else sends straight
+    /// through; a batch, an action run and a chat are never stacked.
+    func submit() {
+        guard canSubmit, !sending else { return }
+        let blockers = openBlockers
+        if !blockers.isEmpty, let issueId = effectiveChecked.first {
+            blockedPrompt = BlockedStartPrompt(
+                issueId: issueId, identifiers: blockers.map { $0.identifier ?? "" }
+            )
+            return
+        }
+        send(stack: nil)
+    }
+
+    /// The reader chose an ordinary run despite the blockers.
+    func startAnyway() {
+        blockedPrompt = nil
+        send(stack: nil)
+    }
+
+    /// The reader chose a stacked pull request: the branch is cut from the
+    /// blocker's PR branch and the pull request is based on it.
+    func startStacked() {
+        blockedPrompt = nil
+        send(stack: true)
+    }
+
     /// Upload the pending images (sequentially, stamping `uploadedId` so a
     /// retry after a mid-batch failure never uploads the same file twice),
     /// compose the `prompt`, then dispatch chat / action / issue / batch.
     /// On success the composer clears and the watcher pushes the run once
     /// its row syncs; on failure the draft, the chips and the strip stay.
-    func submit() {
+    private func send(stack: Bool?) {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
         error = nil
@@ -604,7 +692,9 @@ final class AgentComposerModel {
                 attachmentIds: pendingImages.compactMap(\.uploadedId)
             )
             do {
-                let key = try await dispatch(device: device, teamId: teamId, prompt: prompt)
+                let key = try await dispatch(
+                    device: device, teamId: teamId, prompt: prompt, stack: stack
+                )
                 startWatcher.begin(
                     key: key,
                     userId: deps.auth.userId,
@@ -620,6 +710,7 @@ final class AgentComposerModel {
                 pendingPrIssueId = nil
                 seededDraft = ""
                 touched = true
+                refreshBlockers()
             } catch {
                 self.error = error.userFacingMessage
                 startWatcher.failed(error.userFacingMessage)
@@ -630,7 +721,7 @@ final class AgentComposerModel {
     /// One `steer.startSession` per subject. Returns the watch key that
     /// recognises the desktop-inserted row (`StartedRunMatch`).
     private func dispatch(
-        device: SteerDevice, teamId: String, prompt: String?
+        device: SteerDevice, teamId: String, prompt: String?, stack: Bool? = nil
     ) async throws -> StartedRunKey {
         switch subject {
         case .none:
@@ -690,10 +781,23 @@ final class AgentComposerModel {
                     issueId: ids[0],
                     deviceId: device.deviceId,
                     options: launch.buildOptions(resume: resumeActive ? true : nil),
-                    prompt: prompt
+                    prompt: prompt,
+                    // EXP-897: single-issue only — the batch form above has no
+                    // such field, and the server refuses it there.
+                    stack: stack
                 )
             }
             return key
         }
     }
+}
+
+/// EXP-897: what the blocked-start prompt shows — the issue it is about and
+/// the identifiers of the blockers, which the alert prints monospaced inside
+/// the sentence (a UIKit alert cannot host chips; every other client renders
+/// `IssueChip`s there, a documented divergence).
+struct BlockedStartPrompt: Identifiable {
+    let issueId: String
+    let identifiers: [String]
+    var id: String { issueId }
 }

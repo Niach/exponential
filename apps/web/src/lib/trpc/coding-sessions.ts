@@ -322,6 +322,48 @@ export const codingSessionsRouter = router({
       })
     }),
 
+  // EXP-897: the stack a run on this issue would be built on — the LOCAL
+  // start's half of `steer.startSession({stack: true})` (the desktop and the
+  // CLI launch without the relay, so they ask for the same plan the relay
+  // frame would have carried), and what the clients' "Stacked PR" dialog
+  // previews. Member-gated through the issue's team, like every issue read.
+  //
+  // `stackOnIssueId` names the foundation explicitly and WRITES the missing
+  // `blocks` relation — so a plan asked for is a plan the whole product agrees
+  // with from that moment on.
+  stackPlan: authedProcedure
+    .input(
+      z.object({
+        issueId: z.string().uuid(),
+        stackOnIssueId: z.string().uuid().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const issueCtx = await getIssueTeamContext(input.issueId)
+      await assertTeamMember(ctx.session.user.id, issueCtx.teamId)
+      if (input.stackOnIssueId) {
+        const lowerCtx = await getIssueTeamContext(input.stackOnIssueId)
+        await assertTeamMember(ctx.session.user.id, lowerCtx.teamId)
+      }
+      const { resolveStackChain } = await import(`@/lib/stack-plan`)
+      try {
+        return await resolveStackChain(ctx.db, input.issueId, {
+          ...(input.stackOnIssueId
+            ? { stackOnIssueId: input.stackOnIssueId }
+            : {}),
+          actorUserId: ctx.session.user.id,
+        })
+      } catch (err) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message:
+            err instanceof Error
+              ? err.message
+              : `Could not resolve the stack for this issue`,
+        })
+      }
+    }),
+
   // EXP-403: the CLI daemon's REV2-24 one-session-per-issue probe — the
   // desktop reads its synced coding_sessions collection for this; the
   // headless daemon has no sync and asks the server instead. "Live" mirrors

@@ -18,6 +18,11 @@ public struct EndedRunRow: View {
     private let identifier: String?
     private let byline: String
     private let isLive: Bool
+    /// EXP-897: this run has child runs nested under it — the row carries the
+    /// fold chevron, in a plain Button OUTSIDE the row's own button label.
+    private let expandable: Bool
+    private let expanded: Bool
+    private let onToggle: (() -> Void)?
     private let onOpen: () -> Void
 
     /// - Parameter isLive: the run is still going — the row says so; the tap
@@ -27,26 +32,54 @@ public struct EndedRunRow: View {
         identifier: String? = nil,
         byline: String,
         isLive: Bool = false,
+        expandable: Bool = false,
+        expanded: Bool = true,
+        onToggle: (() -> Void)? = nil,
         onOpen: @escaping () -> Void
     ) {
         self.title = title
         self.identifier = identifier
         self.byline = byline
         self.isLive = isLive
+        self.expandable = expandable
+        self.expanded = expanded
+        self.onToggle = onToggle
         self.onOpen = onOpen
     }
 
     public var body: some View {
-        Button(action: onOpen) {
-            header
+        HStack(alignment: .top, spacing: 6) {
+            foldControl
+            Button(action: onOpen) {
+                header
+            }
+            .buttonStyle(.plain)
+            // The styleguide capture taps this to reach the session view
+            // (EXP-663); same tag as Android's.
+            .accessibilityIdentifier("ended-run-row")
         }
-        .buttonStyle(.plain)
-        // The styleguide capture taps this to reach the session view
-        // (EXP-663); same tag as Android's.
-        .accessibilityIdentifier("ended-run-row")
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .flatRow()
+    }
+
+    /// EXP-897: the fold. A control inside the row's own Button label would
+    /// never receive the tap — it lives beside it.
+    @ViewBuilder
+    private var foldControl: some View {
+        if expandable {
+            Button { onToggle?() } label: {
+                AppIcon(
+                    expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 12
+                )
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(width: 14, height: 20)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Collapse child runs" : "Expand child runs")
+            .accessibilityIdentifier("session-fold")
+        }
     }
 
     private var header: some View {
