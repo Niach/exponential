@@ -206,6 +206,9 @@ impl Render for PrDiffView {
         let mut leading: Vec<gpui::AnyElement> = Vec::with_capacity(4);
         let mut trailing: Vec<gpui::AnyElement> = Vec::with_capacity(4);
         let mut merge: Option<crate::diff_pane::MergeSlot> = None;
+        // EXP-916: GitHub sits AFTER the merge pill — reject · Merge PR ·
+        // GitHub, the same order the web review header wears.
+        let mut github: Option<gpui::AnyElement> = None;
 
         if let Some(issue) = issue.as_ref() {
             let is_open = issue.pr_state.as_deref() == Some("open");
@@ -348,7 +351,7 @@ impl Render for PrDiffView {
 
             // EXP-916: the ONE way out to GitHub, on every Changes surface.
             if let Some(url) = issue.pr_url.clone() {
-                trailing.push(
+                github = Some(
                     crate::controls::ghost_icon_button(
                         "pr-diff-open-github",
                         Icon::new(registry::UI_GITHUB),
@@ -395,7 +398,8 @@ impl Render for PrDiffView {
                         .items_center()
                         .gap_1()
                         .children(trailing)
-                        .children(merge.map(|merge| crate::diff_pane::render_merge_slot(merge, cx))),
+                        .children(merge.map(|merge| crate::diff_pane::render_merge_slot(merge, cx)))
+                        .children(github),
                 )
                 .into_any_element()
         });

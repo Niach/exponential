@@ -187,7 +187,6 @@ pub(crate) fn file_row(
     active: bool,
     cx: &gpui::App,
 ) -> gpui::Stateful<gpui::Div> {
-    let muted = cx.theme().muted_foreground;
     crate::surface::flat_row()
         .id(id)
         .flex()
@@ -212,23 +211,19 @@ pub(crate) fn file_row(
                 .text_color(status_color(file.status, cx))
                 .child(status_letter(file.status)),
         )
+        // EXP-916: the name alone — the tree above it IS the directory, so a
+        // dimmed dir crumb would say it twice (web `FileDiffTree` parity).
         .child(
             div()
-                .flex_shrink_0()
+                .flex_1()
+                .min_w_0()
+                .truncate()
                 .text_color(if active {
                     cx.theme().foreground
                 } else {
                     cx.theme().foreground.opacity(0.9)
                 })
                 .child(file.name.clone()),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(muted)
-                .child(file.dir.clone()),
         )
         .child(counts(file.additions, file.deletions, cx))
 }
@@ -444,15 +439,18 @@ fn dir_row(
                 .child(SharedString::from(node.name.clone())),
         )
         .child(counts(node.additions, node.deletions, cx))
-        .child(
-            Icon::new(if open {
-                registry::UI_CHEVRON_DOWN
+        // EXP-916: the ONE disclosure chevron ×4 — down when closed, flipped
+        // while open, exactly like the file card header above the diff.
+        .child({
+            let chevron = Icon::new(registry::UI_CHEVRON_DOWN).xsmall().text_color(muted);
+            if open {
+                chevron
+                    .transform(gpui::Transformation::rotate(gpui::percentage(0.5)))
+                    .into_any_element()
             } else {
-                registry::UI_CHEVRON_RIGHT
-            })
-            .xsmall()
-            .text_color(muted),
-        )
+                chevron.into_any_element()
+            }
+        })
 }
 
 /// The merge slot — exactly one primary control, plus the ghost "Retry merge"
