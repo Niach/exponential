@@ -78,6 +78,29 @@ pub fn is_system(account: Option<&str>) -> bool {
         .is_none_or(|id| id.is_empty() || id == SYSTEM_PROFILE)
 }
 
+/// EXP-909 — the PROFILE ID behind a launch's `account` slot: `system` for
+/// the ambient login (`None`, blank or the reserved id), the trimmed id
+/// otherwise.
+///
+/// The twin of [`is_system`] in the vocabulary the USAGE side speaks: the
+/// usage cache's entry key, the heartbeat's `profiles[].id`, the synced
+/// `coding_sessions.agent_account` and the live-usage registry are all keyed
+/// by this string, while [`account_dir`] is keyed by the `Option`. One
+/// function, so a run's config dir and the cache row its numbers land in can
+/// never disagree about which login it is. Note that `None` is the AMBIENT
+/// login (no `CLAUDE_CONFIG_DIR`/`CODEX_HOME` override), never the machine's
+/// active profile — those are different logins on a machine whose default
+/// was moved to a named account.
+pub fn profile_id(account: Option<&str>) -> String {
+    if is_system(account) {
+        return SYSTEM_PROFILE.to_string();
+    }
+    account
+        .map(str::trim)
+        .unwrap_or(SYSTEM_PROFILE)
+        .to_string()
+}
+
 /// The env var that relocates `agent`'s config dir; `None` for an agent with
 /// no profiles.
 pub fn config_env_var(agent: CodingAgent) -> Option<&'static str> {
@@ -291,6 +314,21 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// EXP-909: the launch slot and the usage side name the same login.
+    #[test]
+    fn a_launchs_account_slot_and_its_profile_id_name_the_same_login() {
+        for ambient in [None, Some(""), Some("  "), Some("system"), Some(" system ")] {
+            assert_eq!(profile_id(ambient), SYSTEM_PROFILE, "{ambient:?}");
+            assert!(is_system(ambient));
+        }
+        assert_eq!(profile_id(Some(" 0a1b2c3d ")), "0a1b2c3d");
+        assert!(!is_system(Some("0a1b2c3d")));
+        // The pairing is the point: the ambient slot has NO config dir.
+        let dir = temp_dir("profile-id");
+        assert_eq!(account_dir(&dir, Some(CodingAgent::Claude), None), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

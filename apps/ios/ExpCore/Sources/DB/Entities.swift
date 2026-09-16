@@ -416,6 +416,13 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // run"). nil / `[]` on every other subject and on batch rows started by
     // a client too old to send it. Parsed by `BatchRun.issueIds`.
     public let batchIssueIds: String?
+    // EXP-909: the agent ACCOUNT PROFILE this run spends — `system` for the
+    // machine's ambient login, else a device-local profile id matching
+    // `agentAccounts[agent].profiles[].id` on the host `devices` row. NULL /
+    // absent = UNKNOWN, which is NOT the same as the ambient login: never
+    // guess one, fall back through the machine's reported account instead
+    // (`SessionAccountSwitch`/the usage overlay's resolution order).
+    public let agentAccount: String?
     // Action run linkage (EXP-253): set on a session started from a team
     // action. `actionId` nulls if the action is later deleted (server FK SET
     // NULL) while `actionName` — a display snapshot — keeps labeling the run.
@@ -476,6 +483,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         blocked: String? = nil,
         results: String? = nil,
         batchIssueIds: String? = nil,
+        agentAccount: String? = nil,
         actionId: String? = nil,
         actionName: String? = nil,
         startedReason: String? = nil,
@@ -507,6 +515,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.blocked = blocked
         self.results = results
         self.batchIssueIds = batchIssueIds
+        self.agentAccount = agentAccount
         self.actionId = actionId
         self.actionName = actionName
         self.startedReason = startedReason
@@ -537,6 +546,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case blocked
         case results
         case batchIssueIds = "batch_issue_ids"
+        case agentAccount = "agent_account"
         case actionId = "action_id"
         case actionName = "action_name"
         case startedReason = "started_reason"
@@ -588,6 +598,8 @@ extension CodingSessionEntity: Codable {
         results = c.decodeWireJsonString(forKey: .results)
         // EXP-876: jsonb, same treatment — pre-EXP-876 snapshots omit the key.
         batchIssueIds = c.decodeWireJsonString(forKey: .batchIssueIds)
+        // EXP-909: plain text, not jsonb — pre-EXP-909 snapshots omit the key.
+        agentAccount = try c.decodeIfPresent(String.self, forKey: .agentAccount)
         actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)

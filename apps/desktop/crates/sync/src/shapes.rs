@@ -382,6 +382,8 @@ pub const SHAPES: [ShapeSpec; 22] = [
             // EXP-484: which agent CLI runs it — the session views caption
             // the usage bar with it (heals onto existing store tables).
             "agent",
+            // EXP-909: which login of that agent the run spends.
+            "agent_account",
             "needs_input",
             // EXP-848: the device-written turn flag. Every session list keys
             // its working spinner on it (a `running` row between turns is not
@@ -825,6 +827,14 @@ mod tests {
     fn coding_sessions_syncs_the_results() {
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"results"));
+    }
+
+    /// EXP-909: which login a run spends. Dropping it makes the usage readout
+    /// silently answer for the machine's default account instead of the run's.
+    #[test]
+    fn coding_sessions_syncs_the_agent_account() {
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"agent_account"));
     }
 
     /// EXP-876: what NAMES a batch row. Dropping it leaves this client

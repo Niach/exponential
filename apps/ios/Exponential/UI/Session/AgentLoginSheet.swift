@@ -302,41 +302,28 @@ struct AgentLoginSheet: View {
     }
 }
 
-/// EXP-862: "+ Add account" — the Accounts header's pill, and the mobile twin
-/// of web's `AddAccountDialog`: pick one of MY online machines that can take a
-/// sign-in, pick the agent, and the login runs there. A machine whose ambient
+/// EXP-862/EXP-909: "Add account" — the mobile twin of web's
+/// `AddAccountDialog`, now DEVICE-BOUND: it is opened from the row under ONE
+/// machine, so the machine is decided before the sheet exists and its picker
+/// is gone. Pick the agent, and the login runs there. A machine whose ambient
 /// login is still free takes it; otherwise the machine creates a NEW profile
 /// first (EXP-792's per-agent config dirs) and signs into that one.
 struct AddAccountSheet: View {
     let viewModel: AgentsViewModel
+    /// The machine the sign-in lands on — the row that opened this sheet only
+    /// renders on one that can actually take it.
+    let device: SteerDevice
 
     @Environment(\.dismiss) private var dismiss
 
-    @State private var deviceId = ""
     @State private var agent = ""
     @State private var loginTarget: AgentLoginTarget?
 
-    /// The caller's machines a sign-in can be queued on right now: own, online,
-    /// advertising `agent-login`, with at least one agent installed.
-    private var candidates: [SteerDevice] {
-        (viewModel.devices ?? []).filter {
-            $0.isMine && $0.isOnline && $0.canAgentLogin && !addableAgents($0).isEmpty
-        }
-    }
-
-    private var selected: SteerDevice? {
-        candidates.first { $0.deviceId == deviceId } ?? candidates.first
-    }
-
     /// Every agent INSTALLED on the machine — runnable or signed out; either
     /// can take a login.
-    private func addableAgents(_ device: SteerDevice) -> [String] {
+    private var agents: [String] {
         let set = Set(device.agentIds).union(device.unauthedAgentIds)
         return DomainContract.codingAgentValues.filter { set.contains($0) }
-    }
-
-    private var agents: [String] {
-        selected.map(addableAgents) ?? []
     }
 
     private var resolvedAgent: String {
@@ -348,64 +335,45 @@ struct AddAccountSheet: View {
             title: "Add account",
             content: {
                 VStack(spacing: 2) {
-                    if candidates.isEmpty {
-                        Text("None of your machines can take a sign-in right now. Start the Exponential desktop app or the daemon and try again.")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
-                            .glassRow()
-                    } else {
-                        GlassPickerRow(
-                            "Device",
-                            selection: Binding(
-                                get: { selected?.deviceId ?? "" },
-                                set: { deviceId = $0 }
-                            ),
-                            options: candidates.map(\.deviceId),
-                            label: { id in
-                                candidates.first { $0.deviceId == id }
-                                    .map(LaunchVocabulary.deviceCaption) ?? id
-                            },
-                            icon: { id in
-                                candidates.first { $0.deviceId == id }?.isServer == true
-                                    ? AppIcons.uiServer
-                                    : AppIcons.uiDevice
-                            }
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                        .glassRow()
-
-                        // EXP-862: the SHARED agent picker (brand mark +
-                        // chevron over marked menu rows), the same control the
-                        // composer, device settings and web's own Add-account
-                        // dialog carry — never a second picker on this client.
-                        HStack(spacing: 8) {
-                            Text("Agent")
-                                .foregroundStyle(.white.opacity(TextOpacity.primary))
-                            Spacer(minLength: 8)
-                            AgentPickerMenu(
-                                agents: agents,
-                                selection: resolvedAgent,
-                                label: { LaunchVocabulary.agentLabel($0) },
-                                mark: { AgentBrandMark.image($0) },
-                                onSelect: { agent = $0 }
-                            )
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                        .glassRow()
+                    // The machine is named, not picked: this sheet is opened
+                    // from its own row.
+                    HStack(spacing: 8) {
+                        Text("Device")
+                            .foregroundStyle(.white.opacity(TextOpacity.primary))
+                        Spacer(minLength: 8)
+                        Text(LaunchVocabulary.deviceCaption(device))
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .lineLimit(1)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .glassRow()
+
+                    // EXP-862: the SHARED agent picker (brand mark + chevron
+                    // over marked menu rows), the same control the composer,
+                    // device settings and web's own Add-account dialog carry —
+                    // never a second picker on this client.
+                    HStack(spacing: 8) {
+                        Text("Agent")
+                            .foregroundStyle(.white.opacity(TextOpacity.primary))
+                        Spacer(minLength: 8)
+                        AgentPickerMenu(
+                            agents: agents,
+                            selection: resolvedAgent,
+                            label: { LaunchVocabulary.agentLabel($0) },
+                            mark: { AgentBrandMark.image($0) },
+                            onSelect: { agent = $0 }
+                        )
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .glassRow()
                 }
                 .padding(.horizontal, GlassSheetTokens.headerHPadding)
                 .padding(.bottom, 16)
             },
             primaryAction: {
-                GlassSubmitButton("Sign in", enabled: selected != nil && !resolvedAgent.isEmpty) {
-                    guard let device = selected else { return }
+                GlassSubmitButton("Sign in", enabled: !resolvedAgent.isEmpty) {
                     let agent = resolvedAgent
                     let account = device.agentAccounts?[agent]
                     let placement = AgentAccountsRows.addAccountLoginTarget(

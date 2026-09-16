@@ -1,5 +1,6 @@
 //! EXP-481: the Device settings dialog — the desktop twin of the web's
-//! `device-settings-dialog.tsx`, opened from a machines row's "Edit…".
+//! `device-settings-dialog.tsx`, opened from a machines row's settings gear
+//! (EXP-909: the row's ONE control).
 //!
 //! EXP-694: the dialog AUTOSAVES, mirroring the web one — there is no Save
 //! button anywhere. The name settles for [`NAME_SAVE_DEBOUNCE`] (or commits
@@ -19,6 +20,10 @@
 //! |                | settings.json first through [`CodingHub::save_settings`] |
 //! | Worktrees      | `devices.createCommand` (worktree_remove / _prune) —  |
 //! |                | a DURABLE queue: an offline machine runs it on return |
+//! | Update         | `devices.requestUpdate` (EXP-909: server devices only,|
+//! |                | FEED-36's "Update now…" confirms) — NOT an autosave   |
+//! | Remove         | `devices.remove` behind a confirm (EXP-909); the      |
+//! |                | dialog closes behind it                               |
 //!
 //! Data comes from the SYNCED `devices` + `device_worktrees` collections
 //! (never relay presence): defaults stay editable while the machine is
@@ -42,7 +47,7 @@ use gpui::{
     ScrollHandle, SharedString, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
-    button::ButtonVariant,
+    button::{ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
@@ -52,7 +57,7 @@ use sync::Store;
 use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
-use crate::controls::glass_input;
+use crate::controls::{glass_input, WebControl as _};
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
     AGENT_CHOICES,
@@ -359,6 +364,20 @@ pub struct DeviceSettingsView {
     section_errors: HashMap<String, SharedString>,
     tracked: Vec<TrackedCommand>,
     polling: bool,
+    /// EXP-909: what the Update section compares this device's version
+    /// against — the instance's informational `CLIENT_LATEST_VERSION_CLI`,
+    /// fetched ONCE per dialog (instance config, not device state).
+    latest_cli: Option<String>,
+    /// The one-shot guard for [`Self::ensure_latest_loaded`].
+    latest_requested: bool,
+    /// A `devices.requestUpdate` in flight — the synced `update_requested_at`
+    /// takes the state over the moment the write lands.
+    update_busy: bool,
+    /// A `devices.remove` in flight.
+    remove_busy: bool,
+    /// EXP-909: the remove landed — the row this dialog configures is gone,
+    /// so the dialog closes on the next frame.
+    removed: bool,
     /// EXP-762: the two columns' scroll positions (view state, so a
     /// re-render — every autosave, every heartbeat resync — keeps them).
     settings_scroll: ScrollHandle,
@@ -517,6 +536,11 @@ impl DeviceSettingsView {
             section_errors: HashMap::new(),
             tracked: Vec::new(),
             polling: false,
+            latest_cli: None,
+            latest_requested: false,
+            update_busy: false,
+            remove_busy: false,
+            removed: false,
             settings_scroll: ScrollHandle::new(),
             worktrees_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -1107,6 +1131,153 @@ impl DeviceSettingsView {
         .detach();
     }
 
+    // -- EXP-909: Update + Remove ---------------------------------------------
+    // The two controls the device ROW used to carry (its ⋯ menu): a row has
+    // ONE control now, the gear that opens this dialog, so the predicates and
+    // the confirm copy moved here unchanged.
+
+    /// `devices.latestVersions` — the informational `CLIENT_LATEST_VERSION_*`
+    /// pair behind the amber nudge, fetched once per dialog. A failure just
+    /// means no nudge (the Update button itself gates on the device's own
+    /// report), which beats a render-driven retry storm.
+    fn ensure_latest_loaded(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.latest_requested {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return; // no client yet — a later render tries again
+        };
+        self.latest_requested = true;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::devices::latest_versions(&trpc) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(latest) => this.latest_cli = latest.cli,
+                    Err(err) => log::warn!("[ui] devices.latestVersions failed: {err}"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// `devices.requestUpdate` — the daemon picks the flag up off its next
+    /// heartbeat. FEED-36: `end_sessions` is "Update now…", which ends the
+    /// live sessions holding a queued update instead of waiting them out.
+    fn request_update(&mut self, end_sessions: bool, cx: &mut gpui::Context<Self>) {
+        if self.update_busy {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let device_id = self.device_id.clone();
+        self.update_busy = true;
+        self.set_error("update", None);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::devices::request_update(&trpc, &device_id, end_sessions)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.update_busy = false;
+                if let Err(err) = result {
+                    log::warn!("[ui] devices.requestUpdate failed: {err}");
+                    this.set_error("update", Some(SharedString::from(format!("{err}"))));
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// FEED-36: "Update now…" ends the machine's live sessions, so it
+    /// confirms first (the web `MyMachines` twin, copy unchanged).
+    fn prompt_update_now(
+        &mut self,
+        label: String,
+        live_sessions: i64,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let view = cx.entity().downgrade();
+        let spec = AlertSpec::new(
+            format!("Update \"{label}\" now?"),
+            format!(
+                "Ends the {live_sessions} live session(s) on this machine (repo-backed runs can be \
+                 resumed from their session page) and restarts it on the new version."
+            ),
+            "Update now",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| this.request_update(true, cx));
+            }
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
+    /// Remove behind a confirm — destructive native actions confirm first.
+    fn prompt_remove(&mut self, label: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let view = cx.entity().downgrade();
+        let spec = AlertSpec::new(
+            format!("Remove \"{label}\"?"),
+            "The machine drops off this list. One still running the daemon \
+             re-registers itself on its next heartbeat.",
+            "Remove",
+        )
+        .ok_variant(ButtonVariant::Danger)
+        .on_ok(move |_, cx| {
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |this, cx| this.remove_device(cx));
+            }
+            true
+        });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
+    /// `devices.remove`. The dialog's own window is not reachable from the
+    /// confirm's `on_ok` (that runs inside the ALERT window), so the close
+    /// rides a flag [`Render`] acts on — the row this dialog edits is gone.
+    fn remove_device(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.remove_busy {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let device_id = self.device_id.clone();
+        self.remove_busy = true;
+        self.set_error("remove", None);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::devices::remove(&trpc, &device_id) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.remove_busy = false;
+                match result {
+                    Ok(()) => this.removed = true,
+                    Err(err) => {
+                        log::warn!("[ui] devices.remove failed: {err}");
+                        this.set_error("remove", Some(SharedString::from(format!("{err}"))));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn command_pending(&self, key: &str) -> bool {
         self.tracked.iter().any(|command| command.key == key)
     }
@@ -1507,10 +1678,173 @@ impl DeviceSettingsView {
     }
 }
 
+/// FEED-36: the caption under a QUEUED update — the daemon's own rules for
+/// getting there (every session ends, or one sits idle for 2 hours). Web
+/// `QUEUED_UPDATE_TOOLTIP`, ×4.
+const QUEUED_UPDATE_TOOLTIP: &str = "Live sessions hold this update — the device restarts itself \
+     once every session ends or sits idle for 2 hours.";
+
+impl DeviceSettingsView {
+    /// EXP-909: the Update section — SERVER devices only (a desktop app
+    /// updates itself), with the row's predicates unchanged: EXP-420 offers
+    /// the request only when a newer CLI release really exists (or one is
+    /// already in flight), FEED-36 parks it behind live sessions as "Queued"
+    /// and offers "Update now…" on a daemon that advertises the cap. Up to
+    /// date or offline, the row is the version alone.
+    fn render_update_section(
+        &mut self,
+        row: Option<&domain::rows::DeviceRow>,
+        online: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> Div {
+        self.ensure_latest_loaded(cx);
+        let muted = cx.theme().muted_foreground;
+        let amber = theme::tokens::YELLOW.to_hsla();
+        let label = row
+            .and_then(|row| row.label.clone())
+            .unwrap_or_else(|| self.device_id.clone());
+        let version = row.and_then(|row| row.version.clone());
+        let latest = self.latest_cli.clone();
+        let outdated = crate::machines::update_available(version.as_deref(), latest.as_deref());
+        let requested = row.is_some_and(|row| row.update_requested_at.is_some());
+        let updating = requested || self.update_busy;
+        // EXP-411: the request is parked behind live sessions on the device —
+        // "Queued" instead of an indefinite "Updating…".
+        let live_sessions = row.and_then(|row| row.active_sessions).unwrap_or(0).max(0);
+        let queued = requested && live_sessions > 0;
+        let can_update = (online && outdated) || updating;
+        let can_update_now =
+            queued && row.is_some_and(|row| row.cap_ids().iter().any(|cap| cap == "update-now"));
+
+        let mut controls = h_flex().flex_shrink_0().items_center().gap_1();
+        if can_update {
+            let tooltip: SharedString = if queued {
+                QUEUED_UPDATE_TOOLTIP.into()
+            } else {
+                "Ask the daemon to self-update (it restarts when idle)".into()
+            };
+            controls = controls.child(
+                gpui_component::button::Button::new("device-update")
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::new(registry::UI_UPDATE))
+                    .label(if queued {
+                        "Queued"
+                    } else if updating {
+                        "Updating…"
+                    } else {
+                        "Update"
+                    })
+                    .loading(updating && !queued)
+                    .text_color(if outdated { amber } else { muted })
+                    .disabled(updating)
+                    .tooltip(tooltip)
+                    .on_click(cx.listener(|this, _, _, cx| this.request_update(false, cx))),
+            );
+        }
+        if can_update_now {
+            let confirm_label = label.clone();
+            controls = controls.child(
+                surface::glass_pill_button("device-update-now", surface::PillSize::Sm, cx)
+                    .danger()
+                    .label("Update now…")
+                    .tooltip("End this device's live sessions and restart it on the new version now.")
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.prompt_update_now(confirm_label.clone(), live_sessions, window, cx);
+                    })),
+            );
+        }
+
+        let mut version_line = v_flex().flex_1().min_w_0().gap_0p5().child(
+            div()
+                .w_full()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .child(match version.clone() {
+                    Some(version) => SharedString::from(format!("v{version}")),
+                    None => SharedString::from("Version unknown"),
+                }),
+        );
+        if outdated {
+            version_line = version_line.child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(amber)
+                    .child(SharedString::from(format!(
+                        "Update available: v{}",
+                        latest.unwrap_or_default()
+                    ))),
+            );
+        }
+
+        let mut body = v_flex()
+            .w_full()
+            .gap_2()
+            .child(surface::glass_section_header("Update", None, cx))
+            .child(surface::glass_group_rows(vec![surface::glass_row_shell()
+                .min_w_0()
+                .gap_2()
+                .child(version_line)
+                .child(controls)]));
+        if queued {
+            body = body.child(
+                div()
+                    .text_xs()
+                    .text_color(amber)
+                    .child(QUEUED_UPDATE_TOOLTIP),
+            );
+        }
+        body.children(self.error_line("update", cx))
+    }
+
+    /// EXP-909: the Remove section — the row's old "Remove…" entry, confirm
+    /// copy unchanged. The dialog closes behind a successful remove: the row
+    /// it configures is gone.
+    fn render_remove_section(
+        &self,
+        row: Option<&domain::rows::DeviceRow>,
+        cx: &mut gpui::Context<Self>,
+    ) -> Div {
+        let label = row
+            .and_then(|row| row.label.clone())
+            .unwrap_or_else(|| self.device_id.clone());
+        v_flex()
+            .w_full()
+            .gap_2()
+            .child(surface::glass_section_header("Remove", None, cx))
+            .child(surface::glass_group_rows(vec![surface::glass_row_shell()
+                .min_w_0()
+                .gap_2()
+                .child(
+                    gpui_component::button::Button::new("device-remove")
+                        .danger()
+                        .web_sm()
+                        .icon(Icon::new(registry::UI_DELETE))
+                        .label("Remove device")
+                        .disabled(self.remove_busy)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.prompt_remove(label.clone(), window, cx);
+                        })),
+                )]))
+            .children(self.error_line("remove", cx))
+    }
+}
+
 impl Render for DeviceSettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let row = self.row(cx);
         let online = self.online(cx);
+        // EXP-909: Remove lives in this dialog now — once it lands, the row
+        // this dialog configures is gone and the dialog goes with it. The
+        // close DEFERS, so calling it from a render is safe (and the confirm's
+        // `on_ok` runs inside the alert window, which cannot close this one).
+        if self.removed {
+            native_dialog::close_dialog_window(window, cx);
+        }
         let muted = cx.theme().muted_foreground;
         let server = row
             .as_ref()
@@ -1556,7 +1890,15 @@ impl Render for DeviceSettingsView {
 
         // Every group in the dialog sits on the SAME 8px rhythm (the ×4
         // parity look) — the worktrees section included.
-        let body = body.child(self.render_defaults_section(online, cx));
+        let mut body = body.child(self.render_defaults_section(online, cx));
+        // EXP-909: Update and Remove are the LAST two sections ×4 — the
+        // device row carries one control now (the gear that opened this), so
+        // these are the only place left that updates or removes a machine.
+        // Desktops update themselves: the Update section is the daemon's.
+        if server {
+            body = body.child(self.render_update_section(row.as_ref(), online, cx));
+        }
+        let body = body.child(self.render_remove_section(row.as_ref(), cx));
         let worktrees_section = self.render_worktrees_section(online, cx);
 
         // EXP-762: two columns, each its own scroll pane. The dialog is

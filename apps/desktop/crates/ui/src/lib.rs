@@ -145,7 +145,7 @@ mod undock;
 mod usage_bar;
 mod usage_sheet;
 mod work_header;
-mod accounts_section;
+mod agent_account_actions;
 mod undocked_terminal;
 mod update;
 mod user_avatar;

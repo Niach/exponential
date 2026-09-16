@@ -30,10 +30,6 @@ import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
   conceptIcon,
   DiffCounts,
   FAB_CHROME_CLASS,
@@ -45,9 +41,10 @@ import {
   Pill,
   Textarea,
   Progress,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  Meter,
+  MobilePopover,
+  MobilePopoverContent,
+  MobilePopoverTrigger,
   IssueChip as IssueChipView,
 } from "@exp/ui"
 import { availableFaces, phaseDotTone } from "@/lib/work-faces"
@@ -61,8 +58,10 @@ import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
 import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
+import { useSessionUsageRefreshOnOpen } from "@/hooks/use-session-usage-refresh"
 import { useKillSession } from "@/hooks/use-kill-session"
-import { AgentUsageCards } from "@/components/agent-usage-bar"
+import { UsageWindows } from "@/components/agent-usage-bar"
+import { AgentMark } from "@/components/agent-picker"
 import {
   ACCOUNTS_SECTION_TITLE,
   activeAccountIndex,
@@ -75,12 +74,15 @@ import {
 } from "@/components/session-account-switch"
 import {
   accountCaption,
+  agentHealth,
   blockedBadgeLabel,
   contextPercent,
   formatContextCompact,
   formatContextUsage,
   formatUsageCost,
   healthBadgeLabel,
+  severity,
+  usageState,
   CONTEXT_SECTION_TITLE,
 } from "@/lib/agent-usage"
 import type { SessionIdentity } from "@/lib/session-identity"
@@ -1006,35 +1008,50 @@ export function AgentSessionView({
    *  Gone once the run is over — a finished run's context is not a live
    *  number any more. */
   const showEmptyRing = Boolean(agentUsage) || hasAccountRows
-  const usageSlot = !usageAvailable ? null : isMobile ? (
-    // EXP-893: on a phone the overlay is a bottom SHEET rendered once below;
-    // every ring only opens it.
-    <ContextRing
-      usage={sessionUsage}
-      showEmpty={showEmptyRing}
-      onClick={() => setUsageOpen(true)}
-    />
-  ) : (
-    <Popover open={usageOpen} onOpenChange={setUsageOpen}>
-      <PopoverTrigger asChild>
-        <ContextRing usage={sessionUsage} showEmpty={showEmptyRing} />
-      </PopoverTrigger>
-      <PopoverContent
+  /** EXP-909 §1: the login this run SPENDS — the same resolution the overlay's
+   *  header draws (`activeAccountIndex`), hoisted so the open-refresh can name
+   *  it in its command. */
+  const runAccount =
+    accountSwitch.options[
+      activeAccountIndex(accountSwitch.options, agentUsage?.account?.email)
+    ] ?? null
+  // EXP-881: opening the overlay asks that login's machine for fresh numbers,
+  // once per open, inside the device's own floor.
+  useSessionUsageRefreshOnOpen(
+    usageOpen,
+    session,
+    runAccount?.row ?? null,
+    currentUserId
+  )
+  /* EXP-909: ONE overlay, not two — `MobilePopover` IS the popover on md+ and
+     the bottom sheet on a phone, so the sections cannot drift between the two
+     shells the way the hand-rolled `Popover` + `Sheet` pair did. The composer's
+     ring anchors it here; the phone's work bar anchors the same overlay around
+     its own circle (the two rings never render at once). */
+  const usageOverlay = (trigger: React.ReactElement) => (
+    <MobilePopover open={usageOpen} onOpenChange={setUsageOpen}>
+      <MobilePopoverTrigger asChild>{trigger}</MobilePopoverTrigger>
+      <MobilePopoverContent
         align="end"
         collisionPadding={8}
         className="w-80 p-0"
         aria-label="Usage"
+        mobileTitle="Usage"
         data-testid="session-usage-popover"
       >
         <SessionUsageSections
           sessionUsage={sessionUsage}
           agentUsage={agentUsage}
+          agent={session.agent}
           accountSwitch={accountSwitch}
           now={usageNow}
         />
-      </PopoverContent>
-    </Popover>
+      </MobilePopoverContent>
+    </MobilePopover>
   )
+  const usageSlot = !usageAvailable
+    ? null
+    : usageOverlay(<ContextRing usage={sessionUsage} showEmpty={showEmptyRing} />)
 
   /** EXP-893: the phone's state dot — the header title's, and the switcher
    *  badge's off the Run face. */
@@ -1116,17 +1133,18 @@ export function AgentSessionView({
   ) : (
     <MobileWorkBar
       leading={
-        sessionOpen && usageAvailable ? (
-          <ContextRing
-            usage={sessionUsage}
-            showEmpty={showEmptyRing}
-            onClick={() => setUsageOpen(true)}
-            className={cn(
-              MOBILE_WORK_CIRCLE_CLASS,
-              `[&>svg]:size-6 [&>svg]:shrink-0`
-            )}
-          />
-        ) : undefined
+        sessionOpen && usageAvailable
+          ? usageOverlay(
+              <ContextRing
+                usage={sessionUsage}
+                showEmpty={showEmptyRing}
+                className={cn(
+                  MOBILE_WORK_CIRCLE_CLASS,
+                  `[&>svg]:size-6 [&>svg]:shrink-0`
+                )}
+              />
+            )
+          : undefined
       }
       capsule={
         composerVisible ? (
@@ -1776,81 +1794,79 @@ export function AgentSessionView({
       )}
 
       {mobileBar}
-      {/* EXP-893: the phone's usage overlay — ONE bottom sheet, the same
-          sections as the desktop popover, opened by whichever ring. */}
-      {isMobile && (
-        <Sheet open={usageOpen} onOpenChange={setUsageOpen}>
-          <SheetContent
-            side="bottom"
-            className="gap-0 p-0 pb-[max(1rem,env(safe-area-inset-bottom))]"
-            data-testid="session-usage-popover"
-          >
-            <SheetHeader className="px-3 pt-2 pb-1">
-              <SheetTitle>Usage</SheetTitle>
-            </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <SessionUsageSections
-                sessionUsage={sessionUsage}
-                agentUsage={agentUsage}
-                accountSwitch={accountSwitch}
-                now={usageNow}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-      )}
 
       {killDialog}
     </div>
   )
 }
 
-/** EXP-863: the usage overlay, the SAME structure as the desktop's popover.
- *  Hairline dividers between sections, a muted section title above each:
+/** EXP-863/EXP-909: the usage overlay — the SAME layout on all four clients
+ *  (desktop `usage_sheet.rs`, iOS `AgentUsageSheet`, Android's Usage sheet),
+ *  sections separated by hairlines and every meter the same `Meter`:
  *
- *  1. header — the ACTIVE account's caption, once (the only place it appears);
- *  2. "Context" — `147k / 1000k (14%)`, the cost right-aligned, then the meter
- *     (EXP-746: THIS run's window, a sibling of the machine's cards — a token
+ *  1. header — the RUN's account: brand mark, its caption (email, else plan,
+ *     else signed in/out), and trailing either the health badge or the plan.
+ *     The plan string appears HERE and nowhere else in the overlay;
+ *  2. its windows — two lines each (title + countdown, then meter + `NN%`),
+ *     dimmed and captioned `as of …` when the report is not current
+ *     (`usageAge`), `Checking…` while that login has no windows yet. Never
+ *     hidden for staleness: aged numbers still beat no numbers;
+ *  3. "Context" — one line (`147k / 1000k (14%)` + the cost) over its meter.
+ *     EXP-746: THIS run's window, a sibling of the machine's windows — a token
  *     count has no percent window of its own, and folding it into
- *     `usageGroups` would break the ×4 fixture lock);
- *  3. the active account's windows — the three cards, as before;
- *  4. "Accounts" — ONLY the other accounts, each with its switch and its
- *     row-specific refusal; hidden when there is none;
+ *     `usageGroups` would break the ×4 fixture lock;
+ *  4. "Accounts" — ONLY the other accounts, each with its icon-only switch,
+ *     its `UsageMini` line and its row-specific refusal; hidden when none;
  *  5. ONE footer note — the run-level blocker when every other account is
  *     refused for the same one, else the one-time cost. */
 function SessionUsageSections({
   sessionUsage,
   agentUsage,
+  agent,
   accountSwitch,
   now,
 }: {
   sessionUsage: SessionUsageState | null
   agentUsage: ReturnType<typeof useSessionAgentUsage>
+  /** The run's own agent — the header's brand mark. */
+  agent: string | null
   accountSwitch: SessionAccountSwitch
   now: Date
 }) {
   const { options } = accountSwitch
-  // The desktop's `SwitchTarget.current` rule: the run's own account when
-  // the client knows it, else the login the machine's report names, else the
-  // machine's active login. Unknown = every row is another account.
+  // The desktop's `SwitchTarget.current` rule (EXP-909 §1): the run's own
+  // `agent_account` when it names a listed profile, else the login the
+  // machine's report names by email, else the machine's active login.
+  // Unknown = every row is another account.
   const activeIx = activeAccountIndex(options, agentUsage?.account?.email)
   const active = activeIx >= 0 ? options[activeIx] : null
   const others = options.filter((_, ix) => ix !== activeIx)
-  // Above the cards, without the agent prefix — the natives' Usage sheets do
-  // the same (hand-mirrored strings, EXP-484). An account row stands in when
-  // the machine's report carries no account (or is stale).
-  const header = agentUsage?.account
-    ? accountCaption(agentUsage.account)
-    : active
-      ? [
-          active.label,
-          active.plan && active.plan !== active.label ? active.plan : null,
-          healthBadgeLabel(active.row.health),
-        ]
-          .filter(Boolean)
-          .join(` · `)
+  // The run's account, as one caption. A machine that reported no profiles at
+  // all still names its ambient login through the usage report.
+  const header = active?.label ?? (agentUsage?.account ? accountCaption(agentUsage.account) : null)
+  const headerHealth = active
+    ? healthBadgeLabel(active.row.health)
+    : agentUsage?.account
+      ? healthBadgeLabel(agentHealth(agentUsage.account))
       : null
-  const activeUsage = agentUsage?.usage ?? active?.row.usage ?? null
+  const headerPlan = active?.plan ?? agentUsage?.account?.plan ?? null
+  // The plan only when the caption is the EMAIL — a plan-only caption would
+  // otherwise print it twice.
+  const showPlan =
+    !headerHealth && headerPlan !== null && headerPlan !== header && header !== null
+  // EXP-909: the windows are the RUN's login's, not the machine's active one.
+  // `deviceLoginRows` already falls the ACTIVE profile back to the top-level
+  // `agentUsage[agent]` slot (the only login a device ever puts there), so
+  // this reads the resolved row first and the hook's report only for a machine
+  // that reported no accounts at all.
+  const activeUsage = active?.row.usage ?? agentUsage?.usage ?? null
+  const windowsPending =
+    active !== null &&
+    usageState({
+      signedIn: active.row.signedIn,
+      unmonitored: active.row.unmonitored,
+      usage: active.row.usage,
+    }) === `checking`
   const cost = sessionUsage ? formatUsageCost(sessionUsage) : null
   // ONE footer sentence: the blocker every other row shares, else the cost.
   const blocker = globalSwitchBlocker(others)
@@ -1859,28 +1875,51 @@ function SessionUsageSections({
   const title = `text-[11px] uppercase tracking-wide text-muted-foreground`
   return (
     <>
-      <div className="px-3 py-2.5">
-        <p className="truncate text-xs" title={header ?? undefined}>
+      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
+        {agent && <AgentMark agent={agent} className="size-3.5" />}
+        <span className="min-w-0 flex-1 truncate text-xs" title={header ?? undefined}>
           {header ?? `Usage`}
-        </p>
+        </span>
+        {headerHealth && (
+          <span className="shrink-0 text-[10px] font-medium text-amber-500">
+            {headerHealth}
+          </span>
+        )}
+        {showPlan && (
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {headerPlan}
+          </span>
+        )}
       </div>
+      {activeUsage && !windowsPending ? (
+        <div className={section}>
+          <UsageWindows usage={activeUsage} now={now} />
+        </div>
+      ) : windowsPending ? (
+        // The login is signed in and this machine simply has not read it yet
+        // (a beat or two) — `No usage reported` would read as broken.
+        <div className={section}>
+          <p className="text-[11px] text-muted-foreground">Checking…</p>
+        </div>
+      ) : null}
       {sessionUsage && (
         <div className={cn(section, `space-y-1.5`)}>
-          <p className={title}>{CONTEXT_SECTION_TITLE}</p>
-          <div className="flex items-baseline justify-between gap-2 text-xs">
+          <div className="flex items-baseline gap-2 text-xs">
+            <span className={title}>{CONTEXT_SECTION_TITLE}</span>
             <span className="tabular-nums">{formatContextUsage(sessionUsage)}</span>
-            {cost && <span className="text-muted-foreground">{cost}</span>}
+            {cost && (
+              <span className="ml-auto text-muted-foreground">{cost}</span>
+            )}
           </div>
-          <Progress value={contextPercent(sessionUsage) ?? 0} className="h-1" />
+          <Meter
+            value={contextPercent(sessionUsage) ?? 0}
+            tone={severity(contextPercent(sessionUsage) ?? 0)}
+            className="h-1"
+          />
         </div>
       )}
-      {activeUsage && (
-        <div className={section}>
-          <AgentUsageCards usage={activeUsage} now={now} compact />
-        </div>
-      )}
-      {/* EXP-849: the OTHER accounts on this run's machine — their own bars
-          and "Switch to this account" (claude, own machine, between turns;
+      {/* EXP-849: the OTHER accounts on this run's machine — their own mini
+          bars and the icon-only switch (claude, own machine, between turns;
           disabled with the reason otherwise). A switch opens the
           continuation run's page by itself. */}
       {others.length > 0 && (

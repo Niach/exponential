@@ -8,8 +8,8 @@
 //! to an agent's credential store.
 //!
 //! The ONE credential write in this tree is `coding::claude_oauth`
-//! (EXP-852): opt-in via settings.json `claudeKeepAlive` (OFF by default),
-//! it refreshes claude's OAuth token IN PLACE — under the claude CLI's own
+//! (EXP-852/EXP-909): when a login's token comes due it refreshes claude's
+//! OAuth token IN PLACE — no setting — under the claude CLI's own
 //! locks, written back ONLY to the store the credential came from. So the
 //! promise above reads: never holds, copies or uploads one; refreshes
 //! claude's in place only with the keep-alive switched on.

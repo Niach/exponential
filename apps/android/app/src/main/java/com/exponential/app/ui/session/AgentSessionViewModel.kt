@@ -7,9 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.CodingSessionsApi
+import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
@@ -25,6 +27,7 @@ import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
@@ -91,6 +94,8 @@ data class SessionAccountSwitchState(
     /** EXP-849: the machine honours `account` on a LIVE run's resume. */
     val canSwitchAccount: Boolean = false,
     val deviceLabel: String = "",
+    /** EXP-909: the run's own `agent_account`, when the row carries one. */
+    val currentAccount: String? = null,
 ) {
     /**
      * Why [option] cannot be switched to right now, or null when it can — the
@@ -107,6 +112,7 @@ data class SessionAccountSwitchState(
             canResume = canResume,
             canSwitchAccount = canSwitchAccount,
             turnState = turnState,
+            currentAccount = currentAccount,
         )
 
     /**
@@ -136,6 +142,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val steerApi: SteerApi,
     private val issuesApi: IssuesApi,
     private val codingSessionsApi: CodingSessionsApi,
+    private val devicesApi: DevicesApi,
     private val store: SteerConnectionStore,
     private val steerLaunch: SteerLaunchDelegate,
     stats: SyncStats,
@@ -213,21 +220,33 @@ class AgentSessionViewModel @AssistedInject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
-     * EXP-484: the host machine's usage for the agent THIS run launched with —
-     * the strip above the feed. Null whenever anything is missing (an ended
-     * run, a row with no agent, a machine that never reported, numbers older
-     * than the freshness window): the rules live in
-     * [AgentUsagePresentation.sessionUsage], which the four clients share.
-     *
-     * Recomputed on the device ticker for the same reason [hostDevice] is —
-     * usage ages out on its own clock, with no write to re-emit on.
+     * EXP-909: the synced `devices` row of the machine this run is on — the
+     * ONE join the account, usage and switch flows share. They each resolved
+     * it separately before, which meant three copies of the same
+     * "prefer the row this user wrote" rule that could disagree the moment one
+     * was edited. Same rule as [AgentUsagePresentation.sessionUsage].
      */
-    val agentUsage: StateFlow<AgentUsage?> = combine(
+    private val hostDeviceRow: Flow<DeviceEntity?> = combine(
         session,
         deviceRows,
+    ) { row, devices ->
+        val deviceId = row?.deviceId ?: return@combine null
+        val matches = devices.filter { it.deviceId == deviceId }
+        matches.firstOrNull { it.userId == row.userId } ?: matches.firstOrNull()
+    }.distinctUntilChanged()
+
+    /**
+     * …and that row as the composed [SteerDevice] every capability question is
+     * asked of (online-ness, `resume-run`, `account-switch`,
+     * `agent-usage-refresh`). Recomputed on the device ticker, since presence
+     * ages out on its own clock with no write to re-emit on.
+     */
+    private val hostSteerDevice: StateFlow<SteerDevice?> = combine(
+        hostDeviceRow,
         DeviceLiveness.ticker(),
-    ) { row, devices, now ->
-        row?.let { AgentUsagePresentation.sessionUsage(it, devices, now) }
+        auth.userId,
+    ) { device, now, userId ->
+        device?.toSteerDevice(now, userId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -263,21 +282,16 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage
-     * sheet's `signed in as …` caption. Same row-resolution rule as
+     * overlay's header. Same row-resolution rule as
      * [AgentUsagePresentation.sessionUsage]; null whenever the machine never
      * reported an account for it.
      */
     val agentAccount: StateFlow<AgentAccount?> = combine(
         session,
-        deviceRows,
-    ) { row, devices ->
+        hostDeviceRow,
+    ) { row, device ->
         val agent = row?.agent?.takeIf { it.isNotBlank() } ?: return@combine null
-        val deviceId = row.deviceId ?: return@combine null
-        val matches = devices.filter { it.deviceId == deviceId }
-        val device = matches.firstOrNull { it.userId == row.userId }
-            ?: matches.firstOrNull()
-            ?: return@combine null
-        AgentUsagePresentation.parseAccounts(device.agentAccounts)?.get(agent)
+        AgentUsagePresentation.parseAccounts(device?.agentAccounts)?.get(agent)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -288,25 +302,23 @@ class AgentSessionViewModel @AssistedInject constructor(
      * and on a machine that can take the switch.
      *
      * The machine's numbers ride the options, so the rows render their usage
-     * bars without a second source.
+     * bars without a second source. EXP-909: the run's own `agent_account`
+     * rides in too, so exactly one option reads as the login the run is ON.
      */
     val accountSwitch: StateFlow<SessionAccountSwitchState> = combine(
         session,
-        deviceRows,
-        DeviceLiveness.ticker(),
+        hostDeviceRow,
+        hostSteerDevice,
         // `auth.userId` rather than [currentUserId]: the same flow, declared
         // below this one.
         auth.userId,
-    ) { row, devices, now, userId ->
+    ) { row, device, steerDevice, userId ->
         if (row == null) return@combine SessionAccountSwitchState()
-        val deviceId = row.deviceId
-        val matches = devices.filter { it.deviceId == deviceId }
-        val device = matches.firstOrNull { it.userId == row.userId } ?: matches.firstOrNull()
-        val steerDevice = device?.toSteerDevice(now, userId)
         SessionAccountSwitchState(
             options = SessionAccountSwitch.options(
-                device?.let { AgentUsagePresentation.parseAccounts(it.agentAccounts) },
+                AgentUsagePresentation.parseAccounts(device?.agentAccounts),
                 row.agent,
+                row.agentAccount,
             ),
             agent = row.agent,
             // A teammate's run is never steerable (EXP-312) and its account is
@@ -317,9 +329,83 @@ class AgentSessionViewModel @AssistedInject constructor(
             canResume = steerDevice?.canResumeRun == true,
             canSwitchAccount = steerDevice?.canSwitchAccount == true,
             deviceLabel = steerDevice?.deviceLabel?.takeIf { it.isNotBlank() }
-                ?: deviceId.orEmpty(),
+                ?: row.deviceId.orEmpty(),
+            currentAccount = row.agentAccount,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
+
+    /**
+     * EXP-484/EXP-909: the rate-limit windows the Usage overlay heads with —
+     * the numbers of the login THIS RUN spends, not the machine's ambient one.
+     * Resolution order (§1, mirrored ×4 in
+     * [SessionAccountSwitch.activeAccountIndex]): the run's synced
+     * `agent_account`, else the login the machine's top-level report names,
+     * else its active login. Only the ACTIVE login's numbers ever ride the
+     * pre-profile `agentUsage[agent]` slot, so that is the fallback exactly
+     * when the resolved login is the active one — or when it is UNKNOWN, where
+     * guessing the ambient login is the one thing this must not do.
+     *
+     * Null for a run that is over (the overlay retires with it), for a row
+     * with no agent, and for a machine that reported nothing. NOT null for
+     * numbers that have aged out: EXP-909 dims stale windows and dates them
+     * ([AgentUsagePresentation.usageAge]) rather than hiding them.
+     */
+    val agentUsage: StateFlow<AgentUsage?> = combine(
+        session,
+        hostDeviceRow,
+        accountSwitch,
+    ) { row, device, switch ->
+        if (row == null) return@combine null
+        if (row.status != DomainContract.codingSessionStatusRunning &&
+            row.status != DomainContract.codingSessionStatusInReview
+        ) {
+            return@combine null
+        }
+        val agent = row.agent?.takeIf { it.isNotBlank() } ?: return@combine null
+        val ambient = AgentUsagePresentation.parseUsageMap(device?.agentUsage)?.get(agent)
+        val current = switch.options.firstOrNull { it.current } ?: return@combine ambient
+        current.usage ?: ambient.takeIf { current.active }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-909: one on-demand usage refresh when the overlay OPENS — the same
+     * `agent_usage_refresh` command the Devices page queues, on the run's
+     * machine and for the run's own login. Once per open, never a polling
+     * loop: the machine answers by re-reporting on its next beat (~30s), which
+     * arrives through sync.
+     *
+     * Refused silently when there is nothing to ask (a teammate's machine, an
+     * offline one, a build without the cap) or when the last fetch is still
+     * inside the device's own rate-limit floor — the device would answer 429,
+     * so asking buys a round trip and nothing else.
+     */
+    fun refreshRunUsage() {
+        val row = session.value ?: return
+        val agent = row.agent?.takeIf { it.isNotBlank() } ?: return
+        val deviceId = row.deviceId ?: return
+        val switch = accountSwitch.value
+        if (!switch.mine || !switch.deviceOnline) return
+        val profileId = switch.options.firstOrNull { it.current }?.profileId
+            ?: row.agentAccount?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return
+        if (AgentAccountsRows.refreshAllowedAt(agentUsage.value, System.currentTimeMillis()) != null) {
+            return
+        }
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            if (!hostDeviceCanRefreshUsage()) return@launch
+            runCatching {
+                devicesApi.createCommand(
+                    accountId,
+                    agentUsageRefreshCommand(deviceId, agent, profileId),
+                )
+            }
+        }
+    }
+
+    /** The machine advertises `agent-usage-refresh` (EXP-817's cap). */
+    private fun hostDeviceCanRefreshUsage(): Boolean =
+        hostSteerDevice.value?.caps?.contains(AgentAccountsRows.REFRESH_CAP) == true
 
     /**
      * EXP-760 — the run's team issues, newest-first: what resolves the

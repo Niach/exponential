@@ -129,6 +129,14 @@ struct StartInput<'a> {
     /// byte-identical and an older server simply strips the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
+    /// EXP-909: the agent ACCOUNT PROFILE this run spends — `system` for the
+    /// ambient login, else a device-local profile id. The synced
+    /// `coding_sessions.agent_account`: without it no client can say WHICH
+    /// login a run's usage numbers belong to (an absent value is UNKNOWN,
+    /// never the ambient one). Behind `skip_serializing_if` like `agent`, so
+    /// an older server simply strips the key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_account: Option<&'a str>,
     /// EXP-825: pre-session image uploads (`POST
     /// /api/teams/{id}/session-files`) the composer prompt embeds — the
     /// server binds them to the new row. Skipped when empty so every
@@ -158,6 +166,9 @@ struct StartBatchInput<'a> {
     /// byte-identical and an older server simply strips the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
+    /// EXP-909 — same as [`StartInput::agent_account`], on the batch branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_account: Option<&'a str>,
     /// EXP-825 — same as [`StartInput::attachment_ids`], on the batch branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     attachment_ids: &'a [String],
@@ -207,6 +218,9 @@ struct StartActionInput<'a> {
     /// byte-identical and an older server simply strips the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
+    /// EXP-909 — same as [`StartInput::agent_account`], on the action branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_account: Option<&'a str>,
     /// EXP-825 — same as [`StartInput::attachment_ids`], on the action branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     attachment_ids: &'a [String],
@@ -262,6 +276,11 @@ pub struct HeartbeatScope {
     /// EXP-484: the agent CLI running the session, echoed so a resurrected
     /// row still says which one it is.
     pub agent: Option<String>,
+    /// EXP-909: the LOGIN the run spends (`system` = the ambient one),
+    /// echoed for the same reason as `agent` — a resurrected row must not
+    /// lose which account its usage numbers belong to, and an absent value
+    /// reads as UNKNOWN on every client, never as the ambient login.
+    pub agent_account: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -292,6 +311,10 @@ struct HeartbeatInput<'a> {
     batch_issue_ids: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     agent: Option<&'a str>,
+    /// EXP-909 — the run's login, echoed like `agent`. Skipped when absent,
+    /// so an older server sees the wire it always did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_account: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -361,6 +384,9 @@ pub fn live_for_issue(
 /// started — the server treats such a row as unattended.
 /// EXP-825: `attachment_ids` binds the composer prompt's pre-session image
 /// uploads to the row (`attachmentIds`; omitted when empty).
+/// EXP-909: `agent_account` names the LOGIN the run spends (`system` = the
+/// ambient one) — the one fact no client could derive, and without which the
+/// usage overlay shows some other account's numbers.
 #[allow(clippy::too_many_arguments)]
 pub fn start(
     trpc: &TrpcClient,
@@ -370,6 +396,7 @@ pub fn start(
     started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
     agent: Option<&str>,
+    agent_account: Option<&str>,
     attachment_ids: &[String],
 ) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation(
@@ -382,6 +409,7 @@ pub fn start(
             device_id: attribution.device_id,
             resumed_from_id,
             agent,
+            agent_account,
             attachment_ids,
         },
     )?;
@@ -401,6 +429,7 @@ pub fn start_batch(
     started_reason: Option<&str>,
     resumed_from_id: Option<&str>,
     agent: Option<&str>,
+    agent_account: Option<&str>,
     attachment_ids: &[String],
     batch_issue_ids: &[String],
 ) -> Result<CodingSession, ApiError> {
@@ -414,6 +443,7 @@ pub fn start_batch(
             device_id: attribution.device_id,
             resumed_from_id,
             agent,
+            agent_account,
             attachment_ids,
             batch_issue_ids,
         },
@@ -447,6 +477,8 @@ pub struct ActionStart<'a> {
     pub resumed_from_id: Option<&'a str>,
     /// EXP-484: the agent CLI executing the run (contract `codingAgent`).
     pub agent: Option<&'a str>,
+    /// EXP-909: the LOGIN the run spends (`system` = the ambient one).
+    pub agent_account: Option<&'a str>,
     pub attribution: Attribution<'a>,
     /// EXP-825: the composer prompt's pre-session image uploads; empty =
     /// key omitted.
@@ -470,6 +502,7 @@ pub fn start_action(
             branch: start.branch,
             resumed_from_id: start.resumed_from_id,
             agent: start.agent,
+            agent_account: start.agent_account,
             attachment_ids: start.attachment_ids,
         },
     )?;
@@ -733,6 +766,7 @@ pub fn heartbeat(
                 .map(|scope| scope.batch_issue_ids.as_slice())
                 .unwrap_or_default(),
             agent: scope.and_then(|scope| scope.agent.as_deref()),
+            agent_account: scope.and_then(|scope| scope.agent_account.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -759,7 +793,7 @@ mod tests {
     #[test]
     fn start_decodes_session_envelope_and_posts_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, &[]).unwrap();
+        let session = start(&client(&base), "issue-1", Some("testbox"), Attribution::default(), None, None, None, None, &[]).unwrap();
         assert_eq!(session.id, "sess-1");
         assert_eq!(session.status.as_deref(), Some("running"));
         assert_eq!(session.device_label.as_deref(), Some("testbox"));
@@ -825,7 +859,7 @@ mod tests {
     #[test]
     fn start_omits_absent_device_label() {
         let (base, captured) = one_shot_server(200, SESSION_BODY);
-        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, &[]).unwrap();
+        let _ = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"issueId":"issue-1"}"#));
     }
@@ -838,13 +872,66 @@ mod tests {
                 "id":"sess-b","issueId":null,"teamId":"ws-1",
                 "userId":"user-1","deviceLabel":"testbox","status":"running"}}}}"#,
         );
-        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, &[], &[]).unwrap();
+        let session = start_batch(&client(&base), "ws-1", Some("testbox"), Attribution::default(), None, None, None, None, &[], &[]).unwrap();
         assert_eq!(session.id, "sess-b");
         assert_eq!(session.team_id.as_deref(), Some("ws-1"));
         assert_eq!(session.issue_id, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/codingSessions.start HTTP/1.1"));
         assert!(request.ends_with(r#"{"teamId":"ws-1","deviceLabel":"testbox"}"#));
+    }
+
+    #[test]
+    fn start_posts_the_run_account() {
+        // EXP-909: the LOGIN the run spends rides the start, behind
+        // `skip_serializing_if` like `agent` — the two tests above lock the
+        // byte-identical wire an account-less start still sends.
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(
+            &client(&base),
+            "issue-1",
+            None,
+            Attribution::default(),
+            None,
+            None,
+            Some("claude"),
+            Some("prof-9"),
+            &[],
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"issueId":"issue-1","agent":"claude","agentAccount":"prof-9"}"#),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn heartbeat_echoes_the_run_account() {
+        // EXP-909: a resurrected row must not lose which login it spends.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: Some("issue-1".to_string()),
+            team_id: None,
+            action_id: None,
+            action_name: None,
+            started_by_id: None,
+            device_id: None,
+            started_reason: None,
+            automation_id: None,
+            branch: None,
+            batch_issue_ids: Vec::new(),
+            agent: Some("claude".to_string()),
+            agent_account: Some("system".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"id":"sess-1","issueId":"issue-1","agent":"claude","agentAccount":"system"}"#
+            ),
+            "{request}"
+        );
     }
 
     #[test]
@@ -860,6 +947,7 @@ mod tests {
             Attribution::default(),
             None,
             Some("sess-old"),
+            None,
             None,
             &[],
         )
@@ -886,6 +974,7 @@ mod tests {
             None,
             Some("sess-old"),
             None,
+            None,
             &[],
             &[],
         )
@@ -905,7 +994,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, &[]).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"issueId":"issue-1","deviceLabel":"testbox","startedById":"user-2","deviceId":"dev-1"}"#
@@ -923,7 +1012,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
         };
-        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, &[]).unwrap();
+        let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"issueId":"issue-1","deviceLabel":"testbox","deviceId":"dev-1"}"#));
@@ -946,6 +1035,7 @@ mod tests {
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -973,6 +1063,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &[],
             &ids,
         )
@@ -996,6 +1087,7 @@ mod tests {
             branch: None,
             batch_issue_ids: vec!["i-1".to_string()],
             agent: None,
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-b", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1008,7 +1100,7 @@ mod tests {
             412,
             r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
         );
-        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, &[]) {
+        match start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[]) {
             Err(ApiError::Http { status, message }) => {
                 assert_eq!(status, 412);
                 assert!(message.contains("limit"));
@@ -1042,6 +1134,7 @@ mod tests {
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1065,6 +1158,7 @@ mod tests {
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1145,6 +1239,7 @@ mod tests {
             Some("agent"),
             None,
             None,
+            None,
             &[],
         )
         .unwrap();
@@ -1169,6 +1264,7 @@ mod tests {
             Some("testbox"),
             Attribution::default(),
             Some("agent"),
+            None,
             None,
             None,
             &[],
@@ -1228,6 +1324,7 @@ mod tests {
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1255,6 +1352,7 @@ mod tests {
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1309,6 +1407,7 @@ mod tests {
             branch: Some("exp/chat-1a2b3c4d".to_string()),
             batch_issue_ids: Vec::new(),
             agent: None,
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1331,6 +1430,7 @@ mod tests {
             None,
             None,
             Some("codex"),
+            None,
             &[],
         )
         .unwrap();
@@ -1350,6 +1450,7 @@ mod tests {
             None,
             None,
             Some("codex"),
+            None,
             &[],
             &[],
         )
@@ -1389,6 +1490,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &ids,
         )
         .unwrap();
@@ -1407,6 +1509,7 @@ mod tests {
             "ws-1",
             None,
             Attribution::default(),
+            None,
             None,
             None,
             None,
@@ -1451,6 +1554,7 @@ mod tests {
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: Some("codex".to_string()),
+            agent_account: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();

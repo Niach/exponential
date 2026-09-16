@@ -1,9 +1,14 @@
-// EXP-862: the account CHIP — the one control every agent login wears, on a
-// device row ("My devices") and on an account row (Accounts) alike — plus the
-// outcome view a finished `agent_login` command renders into.
+// EXP-862: the account MENU — the one control every agent login wears — plus
+// the outcome view a finished `agent_login` command renders into.
 //
-// The chip menu is THREE states and nothing else, hand-mirrored ×4 (desktop
-// `accounts_section.rs` / `machines.rs`, iOS `DeviceAccountChips`, Android
+// EXP-909: there is exactly ONE surface left that mounts it, the login rows
+// under a device (`device-logins.tsx`), and its trigger is that row's ghost ⋯.
+// The cross-device Accounts section and its per-machine chips are gone; the
+// rules below are unchanged, because they were always about one login on one
+// machine.
+//
+// The menu is THREE states and nothing else, hand-mirrored ×4 (desktop
+// `agent_account_actions.rs` / `machines.rs`, iOS `DeviceLogins`, Android
 // `AgentAccountsRows.chipActions`):
 //
 //   - signed out, or a credential that expired here: "Sign in", alone. A dead
@@ -18,7 +23,7 @@
 // the confirm says (`removeAccountConfirmCopy`). Nothing here ever runs a
 // logout: `codex logout` revokes the account server-wide.
 //
-// A chip with no entry at all (a teammate's machine, an offline one, a build
+// A login with no entry at all (a teammate's machine, an offline one, a build
 // that takes none of the commands) is a statement, not a control — and its
 // health badge is the ONLY signed-out notice on the row.
 //
@@ -103,8 +108,8 @@ export function agentOfLoginCodeKey(key: string): string | null {
     : null
 }
 
-/** One login on ONE machine — a device row's `DeviceAccountChip` and the
- * accounts page's `AgentProfileUsageRow` both satisfy it. */
+/** One login on ONE machine — `AgentProfileUsageRow` (`deviceLoginRows`)
+ * satisfies it. */
 export interface AccountChipRow {
   agent: string
   profileId: string
@@ -211,10 +216,10 @@ export function agentLoginLanded(
   return usable(ambient ?? account)
 }
 
-/** THE chip menu. The trigger is the caller's pill (the two surfaces draw
- * different chips); everything behind it — the queued commands, the destructive
- * confirm, the failure toast — lives here so the rule cannot drift between the
- * device rows and the account rows. */
+/** THE account menu. The trigger is the caller's (the login rows draw a ghost
+ * ⋯); everything behind it — the queued commands, the destructive confirm, the
+ * failure toast — lives here so the rule cannot drift from the copy the other
+ * three clients hold. */
 export function AccountChipMenu({
   device,
   row,
@@ -226,8 +231,8 @@ export function AccountChipMenu({
   device: SteerDevice
   row: AccountChipRow
   /** What the remove confirm calls this login. Defaults to the login's own
-   *  address/label; a device row passes its chip's text (`Claude Code ·
-   *  dev@acme.test`), so the sentence names exactly what was clicked. */
+   *  address/label; a login row passes the text it rendered (`loginLabel`), so
+   *  the sentence names exactly what was clicked. */
   accountLabel?: string
   /** Open the sign-in for THIS login (`AgentLoginDialogHost` lives at the
    *  route level; the caller owns the request so this module stays off the

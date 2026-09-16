@@ -26,8 +26,8 @@
 //! fixed groups and the local `Settings.usage_window` preference is gone.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, Hsla, InteractiveElement as _,
-    IntoElement, ParentElement, SharedString, Styled,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, Hsla, IntoElement, ParentElement,
+    SharedString, Styled,
 };
 use gpui_component::{v_flex, ActiveTheme as _};
 
@@ -149,6 +149,69 @@ pub(crate) fn usage_groups(usage: &AgentUsage, now_epoch: i64) -> Vec<UsageGroup
     .filter(|(_, _, cards)| !cards.is_empty())
     .map(|(key, title, cards)| UsageGroup { key, title, cards })
     .collect()
+}
+
+/// EXP-909 — ONE window in the MINI form: the wire label, the percent and
+/// nothing else. The full form titles a window ("Current session", "Fable
+/// only") because it has a line to itself; the mini form puts three of them
+/// on ONE line, which only fits because the wire labels are short by
+/// construction (`5h`, `Week`, `Fable`; codex `5h`, `Week`, `Month`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MiniWindow {
+    pub key: String,
+    /// The WIRE label, verbatim — never [`UsageCard::title`].
+    pub label: String,
+    pub percent: u8,
+    pub resets_at: Option<String>,
+}
+
+/// EXP-909 — the ≤3 windows the mini form shows: the `session` window, the
+/// `weekly` one, then the FIRST `model:*` one, in that order. A report with
+/// none of those three (codex's `43200`, a credits-only agent) falls back to
+/// the first three windows in REPORT order, so an agent this build has no
+/// window names for still says something.
+///
+/// Mirrored ×4 (`miniWindows`), same fixture, same test names.
+pub(crate) fn mini_windows(usage: &AgentUsage) -> Vec<MiniWindow> {
+    let pick = |wanted: &dyn Fn(&UsageWindow) -> bool| usage.windows.iter().find(|w| wanted(w));
+    let picked: Vec<&UsageWindow> = [
+        pick(&|w: &UsageWindow| w.key == "session"),
+        pick(&|w: &UsageWindow| w.key == "weekly"),
+        pick(&|w: &UsageWindow| w.key.starts_with("model:")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let chosen: Vec<&UsageWindow> = if picked.is_empty() {
+        usage.windows.iter().take(3).collect()
+    } else {
+        picked
+    };
+    chosen
+        .into_iter()
+        .map(|window| MiniWindow {
+            key: window.key.clone(),
+            label: window.label.clone(),
+            percent: window.percent,
+            resets_at: window.resets_at.clone(),
+        })
+        .collect()
+}
+
+/// EXP-909 — `as of 18 minutes ago` when numbers are no longer current:
+/// either past [`USAGE_FRESH_SECS`] or flagged `stale` by the device itself.
+/// `None` while they ARE current — a caption then would say "as of now".
+///
+/// The ONE rule ×4 (`usageAge`): every surface that shows windows dims them
+/// and says this instead of hiding them, because an old number is still the
+/// best answer anyone has.
+pub(crate) fn usage_age(usage: Option<&AgentUsage>, now_epoch: i64) -> Option<String> {
+    let usage = usage?;
+    if is_fresh(&usage.fetched_at, now_epoch) && !usage.stale {
+        return None;
+    }
+    let line = as_of_label(&usage.fetched_at, now_epoch);
+    (!line.is_empty()).then_some(line)
 }
 
 fn usage_card(window: &UsageWindow, now_epoch: i64) -> UsageCard {
@@ -340,189 +403,167 @@ fn parse_window(value: &serde_json::Value) -> Option<UsageWindow> {
 /// 3px hairline, which is what made the toolbar's usage strip unreadable.
 const TRACK_H: f32 = 6.;
 
-/// Every window the machine reported, under its group heading (a group with
-/// an empty title renders none, and the session group's single card is
-/// already titled "Current session"). Renders nothing when the agent reports
-/// no windows.
-///
-/// `compact` is the grouped-stack arm (EXP-694, ×4 `compact`): the windows
-/// sit INSIDE the agent's own glass group in the device editor and the
-/// settings panes, so each one is a PLAIN row — no nested `glass_card()`,
-/// because the group around them already draws the surface. `false` keeps
-/// the standalone carded look for any surface that renders them on their own.
-pub(crate) fn render_usage_cards(
-    agent: coding::CodingAgent,
-    usage: &AgentUsage,
-    now_epoch: i64,
-    compact: bool,
-    cx: &App,
-) -> AnyElement {
-    let groups = usage_groups(usage, now_epoch);
-    if groups.is_empty() {
-        return div().into_any_element();
-    }
-    let muted = cx.theme().muted_foreground;
-    let mut body = v_flex()
-        .id(SharedString::from(format!("usage-cards-{}", agent.id())))
-        .w_full()
-        .gap(px(if compact { 12. } else { 16. }))
-        .when(usage.stale, |this| this.opacity(0.55));
-    for group in groups {
-        let mut column = v_flex().w_full().gap_2();
-        if !group.title.is_empty() && group.key != "session" {
-            column = column.child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(group.title)),
-            );
-        }
-        for card in group.cards {
-            column = column.child(render_usage_card(&card, compact, cx));
-        }
-        body = body.child(column);
-    }
-    body.into_any_element()
-}
+/// The mini form's track — thin enough that three of them fit on one line
+/// beside their labels without reading as three bars in a stack.
+const MINI_TRACK_H: f32 = 4.;
 
-fn render_usage_card(card: &UsageCard, compact: bool, cx: &App) -> gpui::Div {
-    let muted = cx.theme().muted_foreground;
-    let mut body = if compact {
-        v_flex().gap_1p5()
-    } else {
-        crate::surface::glass_card().gap_1p5().px_2p5().py_2()
-    }
-    .w_full()
-    .child(
-            gpui_component::h_flex()
-                .w_full()
-                .items_center()
-                .gap_2()
-                .text_xs()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .child(SharedString::from(card.title.clone())),
-                )
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(muted)
-                        .child(SharedString::from(format!("{}% used", card.percent))),
-                ),
-        )
+/// EXP-909 — THE bar. One primitive for every meter in the usage surfaces
+/// (the windows, the context block, the mini line), so a tone or a radius
+/// changes in one place; `height` is the only thing a caller varies. The web
+/// twin is the `@exp/ui` `Meter`, iOS `AgentUsageTrack`, Android `UsageTrack`.
+pub(crate) fn meter(percent: u8, severity: Severity, height: f32, cx: &App) -> gpui::Div {
+    div()
+        .w_full()
+        .h(px(height))
+        .rounded_full()
+        // EXP-698: the track is the glass strong stroke, not a dimmed chrome
+        // border.
+        .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
         .child(
             div()
-                .w_full()
-                .h(px(TRACK_H))
+                .h_full()
                 .rounded_full()
-                // EXP-698: the track is the glass strong stroke, not a
-                // dimmed chrome border.
-                .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
-                .child(
-                    div()
-                        .h_full()
-                        .rounded_full()
-                        .w(gpui::relative(card.percent as f32 / 100.))
-                        .bg(severity_color(card.severity, cx)),
-                ),
-        );
-    if !card.caption.is_empty() {
-        body = body.child(
-            div()
-                .text_xs()
-                .text_color(muted)
-                .child(SharedString::from(card.caption.clone())),
-        );
-    }
-    body
+                .w(gpui::relative(percent as f32 / 100.))
+                .bg(severity_color(severity, cx)),
+        )
 }
 
-/// EXP-817: [`render_usage_cards`] in the usage page's DENSE rhythm — the
-/// caption folded onto the title line (`All models   resets in 2h · 61% used`)
-/// and a thinner track, so an account card is two lines per window. The
-/// strings are the same; only the rhythm is tighter (web `dense`).
-pub(crate) fn render_usage_cards_dense(
-    agent: coding::CodingAgent,
-    usage: &AgentUsage,
-    now_epoch: i64,
-    cx: &App,
-) -> AnyElement {
-    let groups = usage_groups(usage, now_epoch);
-    if groups.is_empty() {
+/// EXP-909 — the FULL window form: every window the machine reported, TWO
+/// lines each — the title with its countdown caption right-aligned, then the
+/// meter with the percent. The group headings are gone with the cards: each
+/// window already names itself ("Current session", "All models", "Fable
+/// only", and the wire label for anything else), so a heading over them was
+/// one label too many.
+///
+/// Numbers past their freshness dim to 50 % and caption themselves
+/// [`usage_age`] — never hidden, because an old number is still the best
+/// answer anyone has. Renders nothing when the agent reported no window.
+pub(crate) fn render_usage_windows(usage: &AgentUsage, now_epoch: i64, cx: &App) -> AnyElement {
+    use crate::controls::WebText as _;
+    let cards: Vec<UsageCard> = usage_groups(usage, now_epoch)
+        .into_iter()
+        .flat_map(|group| group.cards)
+        .collect();
+    if cards.is_empty() {
         return div().into_any_element();
     }
     let muted = cx.theme().muted_foreground;
+    let age = usage_age(Some(usage), now_epoch);
     let mut body = v_flex()
-        .id(SharedString::from(format!("usage-cards-dense-{}", agent.id())))
         .w_full()
-        .gap(px(6.))
-        .when(usage.stale, |this| this.opacity(0.55));
-    for group in groups {
-        let mut column = v_flex().w_full().gap(px(4.));
-        if !group.title.is_empty() && group.key != "session" {
-            column = column.child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(group.title)),
-            );
-        }
-        for card in group.cards {
-            column = column.child(
-                v_flex()
-                    .w_full()
-                    .gap(px(4.))
-                    .child(
-                        gpui_component::h_flex()
-                            .w_full()
-                            .items_baseline()
-                            .gap_2()
-                            .text_xs()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child(SharedString::from(card.title.clone())),
-                            )
-                            .when(!card.caption.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_color(muted)
-                                        .child(SharedString::from(card.caption.clone())),
-                                )
-                            })
-                            .child(
+        .min_w_0()
+        .gap_2()
+        .when(age.is_some(), |this| this.opacity(0.5));
+    for card in cards {
+        body = body.child(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1()
+                .child(
+                    gpui_component::h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_baseline()
+                        .gap_2()
+                        .text_xs()
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .child(SharedString::from(card.title.clone())),
+                        )
+                        .when(!card.caption.is_empty(), |this| {
+                            this.child(
                                 div()
                                     .flex_shrink_0()
                                     .text_color(muted)
-                                    .child(SharedString::from(format!("{}% used", card.percent))),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .h(px(4.))
-                            .rounded_full()
-                            .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
-                            .child(
-                                div()
-                                    .h_full()
-                                    .rounded_full()
-                                    .w(gpui::relative(card.percent as f32 / 100.))
-                                    .bg(severity_color(card.severity, cx)),
-                            ),
-                    ),
-            );
-        }
-        body = body.child(column);
+                                    .child(SharedString::from(card.caption.clone())),
+                            )
+                        }),
+                )
+                .child(
+                    gpui_component::h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_2()
+                        .text_xs()
+                        .child(div().flex_1().min_w_0().child(meter(
+                            card.percent,
+                            card.severity,
+                            TRACK_H,
+                            cx,
+                        )))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_color(muted)
+                                .child(SharedString::from(format!("{}%", card.percent))),
+                        ),
+                ),
+        );
     }
-    body.into_any_element()
+    let mut block = v_flex().w_full().min_w_0().gap_1p5().child(body);
+    if let Some(age) = age {
+        block = block.child(
+            div()
+                .text_2xs()
+                .text_color(muted)
+                .child(SharedString::from(age)),
+        );
+    }
+    block.into_any_element()
+}
+
+/// EXP-909 — the MINI form: up to three `label · meter · NN%` cells on ONE
+/// line ([`mini_windows`]). The account rows of the usage overlay and the
+/// login rows of the Devices page both wear it, and EXP-872 mounts the same
+/// piece as the account picker's hover preview — so it is a standalone
+/// element that says nothing about where it sits. `None` when the login
+/// reported no window (the caller prints [`usage_caption`] instead).
+pub(crate) fn render_usage_mini(usage: &AgentUsage, cx: &App) -> Option<AnyElement> {
+    use crate::controls::WebText as _;
+    let windows = mini_windows(usage);
+    if windows.is_empty() {
+        return None;
+    }
+    let muted = cx.theme().muted_foreground;
+    let mut row = gpui_component::h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_2()
+        .text_2xs()
+        .text_color(muted);
+    for window in windows {
+        row = row.child(
+            gpui_component::h_flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .truncate()
+                        .child(SharedString::from(window.label.clone())),
+                )
+                .child(div().flex_1().min_w_0().child(meter(
+                    window.percent,
+                    severity(window.percent),
+                    MINI_TRACK_H,
+                    cx,
+                )))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .child(SharedString::from(format!("{}%", window.percent))),
+                ),
+        );
+    }
+    Some(row.into_any_element())
 }
 
 // ---------------------------------------------------------------------------
@@ -656,19 +697,21 @@ pub(crate) fn render_context_block(
 }
 
 // ---------------------------------------------------------------------------
-// EXP-807 (EXP-792 C1-C4): the cross-device usage PAGE's model
+// EXP-807 (EXP-792 C1-C4): one row per device × agent PROFILE
 // ---------------------------------------------------------------------------
 //
-// One row per device × agent PROFILE off the synced `devices` rows (mine +
-// the servers shared with the team). Profiles (`agentAccounts[agent].profiles`,
-// EXP-747 B5) carry their own usage; a device that reports none (an older
-// build) falls back to the top-level account + `agentUsage[agent]` as the
-// single `system` row, so the page never goes blank on a pre-profile machine.
+// Off the synced `devices` rows (mine + the servers shared with the team).
+// Profiles (`agentAccounts[agent].profiles`, EXP-747 B5) carry their own
+// usage; a device that reports none (an older build) falls back to the
+// top-level account + `agentUsage[agent]` as the single `system` row, so a
+// pre-profile machine still lists exactly one login per agent.
 //
 // Mirrored with the web `agent-usage.ts` bottom section — same field names,
 // same fallbacks, same ordering — so a rule changed on one side is greppable
-// from the other. [`render_usage_cards`] below is the only renderer (EXP-818
-// retired the `usage_view` page this section used to live on).
+// from the other. EXP-909: these rows are read TWICE — under their own device
+// on the Devices page ([`sort_device_logins`]) and as the accounts a run may
+// switch to (`account_switch`). The cross-device grouping that used to fold
+// them by email is gone: a login is a fact about a MACHINE.
 
 /// The ambient login's profile id — the local constant the launcher already
 /// uses, byte-identical with the web's `SYSTEM_PROFILE_ID`.
@@ -681,6 +724,12 @@ pub(crate) const SYSTEM_PROFILE_ID: &str = coding::SYSTEM_PROFILE;
 /// queueing a no-op. The twin of the web's `RATE_LIMITED_FLOOR_MS`.
 pub(crate) const RATE_LIMITED_FLOOR_SECS: i64 =
     coding::usage_cache::RATE_LIMITED_FLOOR_SECS as i64;
+
+/// The device cap a machine must advertise before a forced usage refresh is
+/// queued on it (`coding::doctor::DEVICE_CAPS`, web `deviceCanRefreshUsage`).
+/// EXP-909: the Devices list's own refresh round AND the usage overlay's
+/// refresh-on-open both ask for it, so the string lives here with the floor.
+pub(crate) const USAGE_REFRESH_CAP: &str = "agent-usage-refresh";
 
 /// One rendered line of the usage page: a machine, an agent, and ONE of that
 /// agent's account profiles on it.
@@ -742,7 +791,7 @@ pub(crate) fn is_contract_agent(agent: &str) -> bool {
 /// `is_online` is injected rather than re-derived (the desktop's
 /// `device_settings::row_is_online` needs a clock) so the derivation stays a
 /// pure function of the rows — the web passes `deviceRowIsOnline` the same
-/// way. Nothing is sorted here: [`sort_attention_first`] owns the order.
+/// way. Nothing is sorted here: [`sort_device_logins`] owns the order.
 pub(crate) fn agent_profile_usage_rows(
     devices: &[domain::rows::DeviceRow],
     current_user_id: &str,
@@ -873,81 +922,53 @@ pub(crate) fn device_profile_rows(cx: &App) -> Vec<AgentProfileUsageRow> {
     })
 }
 
-/// EXP-849 — one account a MACHINE holds, as the Devices row's chip: the
-/// repair surface's unit of work (sign in, sign in again, use this one here).
+/// EXP-909 — the per-device empty line: the machine answered, and it holds no
+/// agent login at all. Distinct from "Checking…" (it has not answered yet) and
+/// from "No usage reported" (a login whose NUMBERS are missing). Byte-identical
+/// ×4 (`NO_LOGIN_REPORTED`).
+pub(crate) const NO_LOGIN_REPORTED: &str = "No login reported";
+
+/// EXP-909 — a login's line on the Devices page: WHO it is — the email, else
+/// the plan (an agent may report a provider, never an address), else the
+/// profile's own label. Never a STATUS: the health badge beside it says
+/// "Signed out", the brand mark says which agent, and the row above says which
+/// machine. Byte-identical ×4 (`loginLabel`).
 ///
-/// The twin of the web `DeviceAccountChip`/`deviceAccountChips`: it reads the
-/// machine's own `agentAccounts` map rather than the cross-device account
-/// grouping the Accounts page uses, because a chip here is about THIS machine's
-/// login, not about the account's numbers.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DeviceAccountChip {
-    pub key: String,
-    pub agent: String,
-    pub profile_id: String,
-    pub profile_label: String,
-    pub email: Option<String>,
-    pub plan: Option<String>,
-    pub signed_in: bool,
-    /// The machine's CURRENT login for the agent.
-    pub active: bool,
-    pub health: coding::agent_accounts::Health,
+/// The `· plan` tail the row adds when an email AND a plan are both known is
+/// the CALLER's (it renders muted), so the label itself stays one identity.
+pub(crate) fn login_label(row: &AgentProfileUsageRow) -> String {
+    row.email
+        .clone()
+        .or_else(|| row.plan.clone())
+        .unwrap_or_else(|| row.profile_label.clone())
 }
 
-/// Every account one machine reported, agent by agent (the map is already in
-/// contract order — `AgentAccounts` is a `BTreeMap`), each agent's ACTIVE login
-/// first. A machine that reported no profiles yields its single ambient
-/// account, so a pre-profile machine still gets exactly one chip per agent.
-pub(crate) fn device_account_chips(
-    accounts: &coding::agent_accounts::AgentAccounts,
-) -> Vec<DeviceAccountChip> {
-    let mut out: Vec<DeviceAccountChip> = Vec::new();
-    for (agent, account) in accounts {
-        let profiles: Vec<&coding::AgentProfileEntry> = account
-            .profiles
-            .iter()
-            .filter(|profile| !profile.id.trim().is_empty())
-            .collect();
-        if profiles.is_empty() {
-            out.push(DeviceAccountChip {
-                key: format!("{agent}:{SYSTEM_PROFILE_ID}"),
-                agent: agent.clone(),
-                profile_id: SYSTEM_PROFILE_ID.to_string(),
-                profile_label: coding::agent_profiles::SYSTEM_LABEL.to_string(),
-                email: non_empty(account.email.as_deref()),
-                plan: non_empty(account.plan.as_deref()),
-                signed_in: account.signed_in,
-                active: true,
-                health: account.health(),
-            });
-            continue;
-        }
-        let mut chips: Vec<DeviceAccountChip> = profiles
-            .iter()
-            .map(|profile| DeviceAccountChip {
-                key: format!("{agent}:{}", profile.id),
-                agent: agent.clone(),
-                profile_id: profile.id.clone(),
-                profile_label: non_empty(profile.label.as_deref()).unwrap_or_else(|| {
-                    if profile.id == SYSTEM_PROFILE_ID {
-                        coding::agent_profiles::SYSTEM_LABEL.to_string()
-                    } else {
-                        profile.id.clone()
-                    }
-                }),
-                email: non_empty(profile.email.as_deref()),
-                plan: non_empty(profile.plan.as_deref()),
-                signed_in: profile.signed_in,
-                active: profile.active,
-                health: profile.health(),
-            })
-            .collect();
-        // The machine's own login leads; everything else keeps the index order
-        // the device sent (`system` first), so a heartbeat cannot reshuffle it.
-        chips.sort_by_key(|chip| !chip.active);
-        out.extend(chips);
-    }
-    out
+/// The contract position of an agent id, unknown ids last (they still sort
+/// among themselves, alphabetically, via the caller's tie-break).
+fn agent_rank(agent: &str) -> usize {
+    domain::contract::CODING_AGENT_VALUES
+        .iter()
+        .position(|known| *known == agent)
+        .unwrap_or(usize::MAX)
+}
+
+/// EXP-909 — the order one DEVICE's logins take under its row: contract agent
+/// order first (claude's logins before codex's, whatever the map iteration
+/// said), then that agent's ACTIVE login, then [`attention_rank`] (a broken
+/// login leads the rest), then the label and the id so a heartbeat can never
+/// reshuffle two otherwise equal rows. Mirrored ×4 (`sortDeviceLogins`).
+pub(crate) fn sort_device_logins(rows: Vec<AgentProfileUsageRow>) -> Vec<AgentProfileUsageRow> {
+    let mut rows = rows;
+    rows.sort_by(|a, b| {
+        agent_rank(&a.agent)
+            .cmp(&agent_rank(&b.agent))
+            .then_with(|| a.agent.cmp(&b.agent))
+            .then_with(|| b.active.cmp(&a.active))
+            .then_with(|| attention_rank(a).cmp(&attention_rank(b)))
+            .then_with(|| a.profile_label.cmp(&b.profile_label))
+            .then_with(|| a.profile_id.cmp(&b.profile_id))
+    });
+    rows
 }
 
 /// EXP-849 — the HEALTH badge an account row or chip wears, or `None` when
@@ -1153,23 +1174,6 @@ fn attention_bucket(
     }
 }
 
-/// [`attention_rank`] first, then the fuller row, then device label, agent and
-/// profile — so a heartbeat can never shuffle two otherwise equal rows.
-pub(crate) fn sort_attention_first(
-    rows: Vec<AgentProfileUsageRow>,
-) -> Vec<AgentProfileUsageRow> {
-    let mut rows = rows;
-    rows.sort_by(|a, b| {
-        attention_rank(a)
-            .cmp(&attention_rank(b))
-            .then_with(|| peak_percent(b.usage.as_ref()).cmp(&peak_percent(a.usage.as_ref())))
-            .then_with(|| a.device_label.cmp(&b.device_label))
-            .then_with(|| a.agent.cmp(&b.agent))
-            .then_with(|| a.profile_id.cmp(&b.profile_id))
-    });
-    rows
-}
-
 /// When a forced refresh is next allowed for `usage`, as an epoch SECOND.
 /// `None` = right now (no fetch on record, an unreadable stamp, or a last
 /// fetch older than the floor). A stamp in the future (the machine's clock
@@ -1179,162 +1183,6 @@ pub(crate) fn refresh_allowed_at(usage: Option<&AgentUsage>, now_epoch: i64) -> 
     let fetched = crate::comments::parse_epoch(&usage.fetched_at)?;
     let next = fetched + RATE_LIMITED_FLOOR_SECS;
     (next > now_epoch).then_some(next)
-}
-
-// ---------------------------------------------------------------------------
-// EXP-817: one card per ACCOUNT
-// ---------------------------------------------------------------------------
-//
-// The page rows above are device × profile; the same login on two machines
-// reported the same numbers twice (and, before the poll-pin fix in
-// `coding::usage_cache`, at two different ages). So the page renders one
-// card per ACCOUNT — an agent plus the email the machine named — and lists
-// the machines that hold it as chips. Mirrored with the web `agent-usage.ts`
-// (`accountUsageGroups` / `sortAccountGroupsAttentionFirst`), same tests.
-
-/// One account card of the usage page.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AgentAccountUsageGroup {
-    /// `<agent>:<email>` for a named login; a row with no email (an agent
-    /// that names a
-    /// provider, a signed-out row names nobody) can never be told apart from
-    /// another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
-    pub key: String,
-    pub agent: String,
-    pub signed_in: bool,
-    pub email: Option<String>,
-    pub plan: Option<String>,
-    /// EXP-849: the WORST health among the members — one machine reporting a
-    /// revoked credential is the account's problem, not that machine's.
-    pub health: coding::agent_accounts::Health,
-    /// The machines (× profile) holding this account: online first, then by
-    /// label, then profile — a heartbeat cannot reshuffle the chips.
-    pub rows: Vec<AgentProfileUsageRow>,
-    /// The FRESHEST member's numbers: newest `fetched_at`, a non-stale report
-    /// winning a tie, a report with windows beating one without.
-    pub usage: Option<AgentUsage>,
-    /// The newest probe stamp among the members — the "as of …" fallback.
-    pub checked_at: Option<String>,
-    /// Where a refresh is queued: the eligible member (`can_refresh`) that
-    /// reported the freshest numbers, or `None` when no member may run one.
-    pub refresh_target: Option<AgentProfileUsageRow>,
-}
-
-fn stamp_epoch(stamp: Option<&str>) -> i64 {
-    stamp
-        .and_then(crate::comments::parse_epoch)
-        .unwrap_or(i64::MIN)
-}
-
-/// Whether `candidate` is a fresher report than `current`.
-fn fresher_usage(candidate: Option<&AgentUsage>, current: Option<&AgentUsage>) -> bool {
-    let Some(candidate) = candidate else {
-        return false;
-    };
-    let Some(current) = current else {
-        return true;
-    };
-    let by_stamp = stamp_epoch(Some(&candidate.fetched_at)) - stamp_epoch(Some(&current.fetched_at));
-    if by_stamp != 0 {
-        return by_stamp > 0;
-    }
-    if candidate.stale != current.stale {
-        return current.stale;
-    }
-    !candidate.windows.is_empty() && current.windows.is_empty()
-}
-
-pub(crate) fn account_group_key(row: &AgentProfileUsageRow) -> String {
-    let email = row
-        .signed_in
-        .then(|| row.email.as_deref())
-        .flatten()
-        .map(|email| email.trim().to_ascii_lowercase())
-        .filter(|email| !email.is_empty());
-    match email {
-        Some(email) => format!("{}:{email}", row.agent),
-        None => format!("{}:{}:{}", row.agent, row.device_id, row.profile_id),
-    }
-}
-
-/// Fold the page rows into account groups. `can_refresh` decides which
-/// members may run `agent_usage_refresh` (mine + online + the cap) —
-/// injected so the derivation stays a pure function of the rows. Nothing is
-/// sorted across groups here: [`sort_account_groups_attention_first`] owns
-/// that.
-pub(crate) fn account_usage_groups(
-    rows: Vec<AgentProfileUsageRow>,
-    can_refresh: impl Fn(&AgentProfileUsageRow) -> bool,
-) -> Vec<AgentAccountUsageGroup> {
-    let mut groups: Vec<AgentAccountUsageGroup> = Vec::new();
-    for row in rows {
-        let key = account_group_key(&row);
-        let index = match groups.iter().position(|group| group.key == key) {
-            Some(index) => index,
-            None => {
-                groups.push(AgentAccountUsageGroup {
-                    key,
-                    agent: row.agent.clone(),
-                    signed_in: row.signed_in,
-                    email: row.email.clone(),
-                    plan: row.plan.clone(),
-                    health: row.health,
-                    rows: Vec::new(),
-                    usage: None,
-                    checked_at: None,
-                    refresh_target: None,
-                });
-                groups.len() - 1
-            }
-        };
-        let group = &mut groups[index];
-        if group.plan.is_none() && row.plan.is_some() {
-            group.plan = row.plan.clone();
-        }
-        // EXP-849: worst-wins. One machine answering 401 for this login is the
-        // ACCOUNT's problem — every other machine is about to hit the same
-        // wall — so it must not be averaged away by a healthier sibling.
-        group.health = group.health.worse(row.health);
-        if fresher_usage(row.usage.as_ref(), group.usage.as_ref()) {
-            group.usage = row.usage.clone();
-        }
-        if stamp_epoch(row.checked_at.as_deref()) > stamp_epoch(group.checked_at.as_deref()) {
-            group.checked_at = row.checked_at.clone();
-        }
-        if can_refresh(&row)
-            && group.refresh_target.as_ref().is_none_or(|target| {
-                fresher_usage(row.usage.as_ref(), target.usage.as_ref())
-            })
-        {
-            group.refresh_target = Some(row.clone());
-        }
-        group.rows.push(row);
-    }
-    for group in &mut groups {
-        group.rows.sort_by(|a, b| {
-            b.online
-                .cmp(&a.online)
-                .then_with(|| a.device_label.cmp(&b.device_label))
-                .then_with(|| a.profile_id.cmp(&b.profile_id))
-        });
-    }
-    groups
-}
-
-/// [`attention_rank`] over groups, then the fuller group, then agent, then
-/// the key (email or device) — the page order.
-pub(crate) fn sort_account_groups_attention_first(
-    groups: Vec<AgentAccountUsageGroup>,
-) -> Vec<AgentAccountUsageGroup> {
-    let mut groups = groups;
-    groups.sort_by(|a, b| {
-        attention_bucket(a.signed_in, a.health, a.usage.as_ref())
-            .cmp(&attention_bucket(b.signed_in, b.health, b.usage.as_ref()))
-            .then_with(|| peak_percent(b.usage.as_ref()).cmp(&peak_percent(a.usage.as_ref())))
-            .then_with(|| a.agent.cmp(&b.agent))
-            .then_with(|| a.key.cmp(&b.key))
-    });
-    groups
 }
 
 #[cfg(test)]
@@ -1350,68 +1198,6 @@ mod tests {
         }
     }
 
-    /// EXP-849 — the Devices row's chips: one per account the machine reported,
-    /// the machine's own login first, and a pre-profile machine's single
-    /// ambient account still gets exactly one chip per agent.
-    #[test]
-    fn device_account_chips_lead_with_the_active_login() {
-        use coding::agent_accounts::{AgentAccount, AgentProfileEntry, Health};
-
-        let mut accounts = coding::agent_accounts::AgentAccounts::new();
-        accounts.insert(
-            "claude".into(),
-            AgentAccount {
-                signed_in: true,
-                email: Some("work@acme.test".into()),
-                profiles: vec![
-                    AgentProfileEntry {
-                        id: "system".into(),
-                        signed_in: true,
-                        email: Some("me@acme.test".into()),
-                        ..AgentProfileEntry::default()
-                    },
-                    AgentProfileEntry {
-                        id: "0a1b2c3d".into(),
-                        label: Some("Work".into()),
-                        signed_in: true,
-                        email: Some("work@acme.test".into()),
-                        active: true,
-                        health: Some(Health::NeedsRelogin.as_str().into()),
-                        ..AgentProfileEntry::default()
-                    },
-                ],
-                ..AgentAccount::default()
-            },
-        );
-        // A machine that reported no profiles at all: the ambient login IS the
-        // account, and it is the active one by definition.
-        accounts.insert(
-            "codex".into(),
-            AgentAccount {
-                signed_in: false,
-                ..AgentAccount::default()
-            },
-        );
-
-        let chips = device_account_chips(&accounts);
-        assert_eq!(
-            chips.iter().map(|chip| chip.key.as_str()).collect::<Vec<_>>(),
-            vec!["claude:0a1b2c3d", "claude:system", "codex:system"]
-        );
-        assert_eq!(chips[0].profile_label, "Work");
-        assert_eq!(chips[0].health, Health::NeedsRelogin);
-        // `system` with no label falls back to the ×4 "Default".
-        assert_eq!(chips[1].profile_label, "Default");
-        assert!(!chips[1].active);
-        // A signed-out, never-probed account derives `signed_out` — and so a
-        // badge, which is the whole point of the chip.
-        assert!(chips[2].active && !chips[2].signed_in);
-        assert_eq!(chips[2].health, Health::SignedOut);
-        assert_eq!(chips[2].health.badge_label(), Some("Signed out"));
-    }
-
-    /// The three tones cross at 75 and 95 — the same thresholds on every
-    /// client.
     #[test]
     fn severity_thresholds() {
         assert_eq!(severity(0), Severity::Normal);
@@ -1488,6 +1274,100 @@ mod tests {
             windows: vec![window("session", "5h", 42, None)],
         };
         assert_eq!(usage_groups(&busy, now)[0].cards[0].caption, "");
+    }
+
+    /// EXP-909 (×4 `miniWindows`): the mini form picks the session window,
+    /// the weekly one and the FIRST per-model one, in that order, and labels
+    /// them with the WIRE labels — never the card titles, which are what make
+    /// the full form too wide to fit three on a line.
+    #[test]
+    fn mini_windows_pick_session_weekly_then_the_first_model_window() {
+        let usage = AgentUsage {
+            fetched_at: "2026-08-28T12:00:00.000Z".to_string(),
+            stale: false,
+            windows: vec![
+                window("session", "5h", 9, None),
+                window("weekly", "Week", 67, None),
+                window("model:fable", "Fable", 100, None),
+                window("credits", "Credits", 16, None),
+            ],
+        };
+        assert_eq!(
+            mini_windows(&usage)
+                .iter()
+                .map(|window| (window.label.as_str(), window.percent))
+                .collect::<Vec<_>>(),
+            vec![("5h", 9), ("Week", 67), ("Fable", 100)]
+        );
+        // The model window is the FIRST one, never every one of them.
+        let mut many = usage.clone();
+        many.windows
+            .insert(3, window("model:opus", "Opus", 40, None));
+        assert_eq!(
+            mini_windows(&many)
+                .iter()
+                .map(|window| window.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["session", "weekly", "model:fable"]
+        );
+        // A report with no windows at all says nothing.
+        assert!(mini_windows(&AgentUsage::default()).is_empty());
+    }
+
+    /// EXP-909: an agent that names none of the three (codex's `43200`, a
+    /// credits-only report) still says something — the first three windows in
+    /// REPORT order.
+    #[test]
+    fn mini_windows_fall_back_to_report_order() {
+        let usage = AgentUsage {
+            fetched_at: "2026-08-28T12:00:00.000Z".to_string(),
+            stale: false,
+            windows: vec![
+                window("credits", "Credits", 16, None),
+                window("43200", "Month", 30, None),
+                window("other", "Other", 44, None),
+                window("spare", "Spare", 55, None),
+            ],
+        };
+        assert_eq!(
+            mini_windows(&usage)
+                .iter()
+                .map(|window| window.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Credits", "Month", "Other"]
+        );
+    }
+
+    /// EXP-909 (×4 `usageAge`): numbers past the freshness window — or ones
+    /// the device itself flagged stale — caption their AGE instead of
+    /// claiming to be current; current ones say nothing.
+    #[test]
+    fn usage_age_says_as_of_when_not_fresh_or_stale() {
+        let now = 1_756_000_000_i64;
+        let at = |offset: i64| {
+            chrono::DateTime::from_timestamp(now + offset, 0)
+                .unwrap()
+                .to_rfc3339()
+        };
+        let usage = |offset: i64, stale: bool| AgentUsage {
+            fetched_at: at(offset),
+            stale,
+            windows: vec![window("session", "5h", 9, None)],
+        };
+        assert_eq!(usage_age(Some(&usage(-60, false)), now), None);
+        assert_eq!(
+            usage_age(Some(&usage(-18 * 60, false)), now).as_deref(),
+            Some("as of 18 minutes ago")
+        );
+        // The device's own stale flag is the second input — fresh numbers it
+        // does not vouch for still say how old they are.
+        assert_eq!(
+            usage_age(Some(&usage(-60, true)), now).as_deref(),
+            Some("as of 1 minute ago")
+        );
+        // Nothing to age, and an unreadable stamp, say nothing.
+        assert_eq!(usage_age(None, now), None);
+        assert_eq!(usage_age(Some(&AgentUsage::default()), now), None);
     }
 
     /// The countdown wording, verbatim across the four clients — including
@@ -1751,14 +1631,14 @@ mod tests {
             },
             "agent_usage_at": "2026-08-28T11:30:00.000Z",
         }));
-        let rows = sort_attention_first(agent_profile_usage_rows(&[row], "me", |_| true));
+        let rows = sort_device_logins(agent_profile_usage_rows(&[row], "me", |_| true));
 
-        // Signed-out rows lead: codex reported numbers but no account.
+        // EXP-909: one device's logins read in CONTRACT agent order.
         assert_eq!(
             rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
-            vec!["dev-1:codex:system", "dev-1:claude:system"]
+            vec!["dev-1:claude:system", "dev-1:codex:system"]
         );
-        let claude = &rows[1];
+        let claude = &rows[0];
         assert_eq!(claude.agent, "claude");
         assert_eq!(claude.profile_id, SYSTEM_PROFILE_ID);
         assert_eq!(claude.profile_label, "Default");
@@ -1773,7 +1653,7 @@ mod tests {
         // The account's own probe stamp wins over the row's usage stamp.
         assert_eq!(claude.checked_at.as_deref(), Some("2026-08-28T11:00:00.000Z"));
 
-        let codex = &rows[0];
+        let codex = &rows[1];
         assert!(!codex.signed_in);
         assert_eq!(codex.email, None);
         assert_eq!(peak_percent(codex.usage.as_ref()), 8);
@@ -1930,10 +1810,12 @@ mod tests {
         assert_eq!(peak_percent(None), 0);
     }
 
-    /// The page's order: signed-out rows first (there is something to DO),
-    /// then anything at or over the danger threshold, then the rest — the
-    /// fuller row ahead inside a bucket, and label/agent/profile after that so
-    /// a heartbeat cannot reshuffle equal rows.
+    /// EXP-849/EXP-909 — the attention BUCKETS: a row with something to DO
+    /// leads (signed out, or a credential that expired here — the CLI still
+    /// reports signed in, but every run on it fails at the first request),
+    /// then anything at or over the danger threshold, then the rest. The
+    /// order they produce is [`sort_device_logins`]'s last tie-break; the
+    /// cross-device page that used to sort by them alone is gone.
     #[test]
     fn attention_first_leads_with_the_signed_out_rows() {
         let row = |device: &str, agent: &str, profile: &str, signed_in: bool, percent: u8| {
@@ -1960,28 +1842,6 @@ mod tests {
                 unmonitored: false,
             }
         };
-        let rows = sort_attention_first(vec![
-            row("Studio", "claude", "system", true, 10),
-            row("Studio", "codex", "system", true, DANGER_PERCENT),
-            row("Air", "claude", "system", false, 100),
-            row("Air", "claude", "personal", true, 60),
-            // Same bucket AND the same fill: label, then agent, then profile.
-            row("Air", "codex", "system", true, 10),
-        ]);
-        assert_eq!(
-            rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
-            vec![
-                // Signed out leads even at 100% — it is the actionable one.
-                "Air:claude:system",
-                // Then the danger bucket.
-                "Studio:codex:system",
-                // Then the rest, fullest first, ties by label/agent/profile.
-                "Air:claude:personal",
-                "Air:codex:system",
-                "Studio:claude:system",
-            ]
-        );
-        // The buckets themselves, spelled out.
         assert_eq!(attention_rank(&row("Air", "claude", "system", false, 0)), 0);
         assert_eq!(
             attention_rank(&row("Air", "claude", "system", true, DANGER_PERCENT)),
@@ -2037,19 +1897,19 @@ mod tests {
         assert_eq!(refresh_allowed_at(None, now), None);
     }
 
-    // ── EXP-817: the usage page's ACCOUNT groups (web `accountUsageGroups`) ─
+    // ── EXP-909: one DEVICE's logins, under its Devices row ────────────────
 
-    fn page_row(device: &str, agent: &str) -> AgentProfileUsageRow {
+    fn login_row(agent: &str, profile: &str, active: bool) -> AgentProfileUsageRow {
         AgentProfileUsageRow {
-            key: format!("{device}:{agent}:system"),
-            device_id: device.to_string(),
-            device_label: device.to_string(),
+            key: format!("dev-1:{agent}:{profile}"),
+            device_id: "dev-1".to_string(),
+            device_label: "Studio".to_string(),
             mine: true,
             online: true,
             agent: agent.to_string(),
-            profile_id: SYSTEM_PROFILE_ID.to_string(),
-            profile_label: "Default".to_string(),
-            active: true,
+            profile_id: profile.to_string(),
+            profile_label: profile.to_string(),
+            active,
             signed_in: true,
             email: None,
             plan: None,
@@ -2060,6 +1920,57 @@ mod tests {
         }
     }
 
+    /// EXP-909 (×4 `sortDeviceLogins`): a device's logins group by agent in
+    /// CONTRACT order, each agent's ACTIVE login first, then whatever needs
+    /// attention, then the label — so a heartbeat can never reshuffle them.
+    #[test]
+    fn device_logins_lead_with_the_active_login_in_contract_agent_order() {
+        let mut broken = login_row("claude", "b-broken", false);
+        broken.health = coding::agent_accounts::Health::NeedsRelogin;
+        let rows = vec![
+            login_row("codex", "system", true),
+            login_row("claude", "a-quiet", false),
+            broken,
+            login_row("claude", "system", true),
+        ];
+        assert_eq!(
+            sort_device_logins(rows)
+                .iter()
+                .map(|row| (row.agent.as_str(), row.profile_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("claude", "system"),
+                ("claude", "b-broken"),
+                ("claude", "a-quiet"),
+                ("codex", "system"),
+            ]
+        );
+    }
+
+    /// EXP-909 (×4 `loginLabel`): the login line is WHO it is — the email,
+    /// else the plan, else the profile's own label. Never its status: the
+    /// badge beside it is what says "Signed out".
+    #[test]
+    fn the_login_label_is_the_identity_never_the_status() {
+        let mut row = login_row("claude", "0a1b2c3d", false);
+        row.profile_label = "Work".to_string();
+        row.plan = Some("max".to_string());
+        row.email = Some("dev@acme.test".to_string());
+        assert_eq!(login_label(&row), "dev@acme.test");
+
+        row.email = None;
+        assert_eq!(login_label(&row), "max");
+
+        row.plan = None;
+        assert_eq!(login_label(&row), "Work");
+
+        // Signed out changes nothing about the identity.
+        row.signed_in = false;
+        row.health = coding::agent_accounts::Health::SignedOut;
+        assert_eq!(login_label(&row), "Work");
+        assert_eq!(NO_LOGIN_REPORTED, "No login reported");
+    }
+
     fn weekly(fetched_at: &str, percent: u8, stale: bool) -> AgentUsage {
         AgentUsage {
             fetched_at: fetched_at.to_string(),
@@ -2068,125 +1979,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn account_groups_merge_the_same_email_across_machines_freshest_report_first() {
-        let mut server = page_row("server", "claude");
-        server.email = Some("Dev@Acme.test".into());
-        server.plan = Some("max".into());
-        server.online = false;
-        server.usage = Some(weekly("2026-08-26T10:00:00.000Z", 69, false));
-        server.checked_at = Some("2026-08-27T10:00:00.000Z".into());
-        let mut macbook = page_row("macbook", "claude");
-        macbook.email = Some("dev@acme.test".into());
-        macbook.usage = Some(weekly("2026-08-28T11:00:00.000Z", 75, false));
-        macbook.checked_at = Some("2026-08-28T11:00:00.000Z".into());
-        let mut mint = page_row("mint", "claude");
-        mint.email = Some("other@acme.test".into());
-        mint.usage = Some(weekly("2026-08-28T11:30:00.000Z", 46, false));
-
-        let groups = account_usage_groups(vec![server, macbook, mint], |_| false);
-        assert_eq!(
-            groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
-            vec!["claude:dev@acme.test", "claude:other@acme.test"]
-        );
-        let shared = &groups[0];
-        // The chips: online machines lead.
-        assert_eq!(
-            shared.rows.iter().map(|row| row.device_id.as_str()).collect::<Vec<_>>(),
-            vec!["macbook", "server"]
-        );
-        // The numbers are the FRESHEST member's, the plan the first one named.
-        assert_eq!(peak_percent(shared.usage.as_ref()), 75);
-        assert_eq!(shared.plan.as_deref(), Some("max"));
-        assert_eq!(shared.checked_at.as_deref(), Some("2026-08-28T11:00:00.000Z"));
-        assert!(shared.refresh_target.is_none());
-    }
-
-    #[test]
-    fn account_groups_keep_email_less_and_signed_out_rows_apart() {
-        let mut a = page_row("a", "codex");
-        a.plan = Some("openai-codex (oauth)".into());
-        let mut b = page_row("b", "codex");
-        b.plan = Some("openai-codex (oauth)".into());
-        let mut out_a = page_row("a", "claude");
-        out_a.signed_in = false;
-        out_a.email = Some("x@y.z".into());
-        let mut out_b = page_row("b", "claude");
-        out_b.signed_in = false;
-        let groups = account_usage_groups(vec![a, b, out_a, out_b], |_| false);
-        assert_eq!(
-            groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
-            vec!["codex:a:system", "codex:b:system", "claude:a:system", "claude:b:system"]
-        );
-        assert!(!groups[2].signed_in);
-    }
-
-    #[test]
-    fn account_groups_prefer_a_non_stale_report_on_a_tie_and_windows_over_none() {
-        let mut a = page_row("a", "claude");
-        a.email = Some("dev@acme.test".into());
-        a.usage = Some(weekly("2026-08-28T11:00:00.000Z", 10, true));
-        let mut b = page_row("b", "claude");
-        b.email = Some("dev@acme.test".into());
-        b.usage = Some(weekly("2026-08-28T11:00:00.000Z", 20, false));
-        let mut c = page_row("c", "claude");
-        c.email = Some("dev@acme.test".into());
-        let groups = account_usage_groups(vec![a, b, c], |_| false);
-        assert_eq!(groups.len(), 1);
-        assert_eq!(peak_percent(groups[0].usage.as_ref()), 20);
-    }
-
-    #[test]
-    fn account_groups_target_the_refresh_at_the_eligible_member_with_the_freshest_numbers() {
-        let mut stale = page_row("stale-but-capable", "claude");
-        stale.email = Some("dev@acme.test".into());
-        stale.usage = Some(weekly("2026-08-26T10:00:00.000Z", 69, false));
-        let mut fresh = page_row("fresh-and-capable", "claude");
-        fresh.email = Some("dev@acme.test".into());
-        fresh.usage = Some(weekly("2026-08-28T11:00:00.000Z", 75, false));
-        let mut theirs = page_row("freshest-but-not-mine", "claude");
-        theirs.email = Some("dev@acme.test".into());
-        theirs.mine = false;
-        theirs.usage = Some(weekly("2026-08-28T11:30:00.000Z", 75, false));
-        let groups = account_usage_groups(vec![stale, fresh, theirs], |row| row.mine);
-        assert_eq!(
-            groups[0].refresh_target.as_ref().map(|row| row.device_id.as_str()),
-            Some("fresh-and-capable")
-        );
-        // The group's own numbers still come from the freshest member of all.
-        assert_eq!(
-            groups[0].usage.as_ref().map(|usage| usage.fetched_at.as_str()),
-            Some("2026-08-28T11:30:00.000Z")
-        );
-    }
-
-    #[test]
-    fn account_groups_order_attention_first() {
-        let mut low = page_row("a", "claude");
-        low.email = Some("low@acme.test".into());
-        low.usage = Some(weekly("2026-08-28T11:00:00.000Z", 10, false));
-        let mut hot = page_row("a", "codex");
-        hot.email = Some("hot@acme.test".into());
-        hot.usage = Some(weekly("2026-08-28T11:00:00.000Z", 96, false));
-        let mut out = page_row("b", "claude");
-        out.signed_in = false;
-        let mut mid = page_row("a", "claude");
-        mid.email = Some("mid@acme.test".into());
-        mid.usage = Some(weekly("2026-08-28T11:00:00.000Z", 60, false));
-        let groups = sort_account_groups_attention_first(account_usage_groups(
-            vec![low, hot, out, mid],
-            |_| false,
-        ));
-        assert_eq!(
-            groups.iter().map(|group| group.key.as_str()).collect::<Vec<_>>(),
-            vec![
-                "claude:b:system",
-                "codex:hot@acme.test",
-                "claude:mid@acme.test",
-                "claude:low@acme.test",
-            ]
-        );
-    }
     /// EXP-862: the four things a login can say about its numbers. A signed-in
     /// login nobody has probed yet is CHECKING, never "no usage reported".
     #[test]

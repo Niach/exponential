@@ -129,14 +129,10 @@ final class AgentAccountHealthTests: XCTestCase {
         XCTAssertEqual(AgentAccountsRows.deviceHealth(rows, deviceId: "dev-1"), .needsRelogin)
         XCTAssertEqual(AgentAccountsRows.deviceHealth(rows, deviceId: "dev-2"), .unknown)
 
-        // A broken login leads the machine's chips, and a group folded over
-        // several machines wears the worst health.
+        // The machine's ACTIVE claude login leads its list, badge and all.
         XCTAssertEqual(
             AgentAccountsRows.deviceRows(rows, deviceId: "dev-1").first?.health, .needsRelogin
         )
-        let groups = AgentAccountsRows.accountGroups(rows) { _ in false }
-        XCTAssertEqual(groups.first { $0.email == "dev@acme.test" }?.health, .needsRelogin)
-        XCTAssertEqual(groups.first { $0.email == "work@acme.test" }?.health, .ok)
     }
 
     // A signed-IN account the agent refused sorts with the signed-out ones:

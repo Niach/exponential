@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import type { Device } from "@/db/schema"
 import {
-  conceptIcon,
   Button,
   Dialog,
   DialogContent,
@@ -10,80 +8,59 @@ import {
   DialogHeader,
   DialogTitle,
   GlassGroup,
-  GlassPickerRow,
 } from "@exp/ui"
 import { AgentPicker, agentLabel } from "@/components/agent-picker"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
-  addAccountDevices,
   addAccountLoginTarget,
   addableAgents,
   nextProfileLabel,
 } from "@/lib/agent-account-add"
-import { steerDeviceFromRow } from "@/lib/steer-devices"
+import type { SteerDevice } from "@/lib/steer-devices"
 
-const DesktopIcon = conceptIcon(`ui-device`)
-const ServerIcon = conceptIcon(`ui-server`)
-
-// EXP-827: "Add account" — pick one of MY online devices (cap `agent-login`)
-// and an agent installed there, then hand off to the shared sign-in dialog
-// (`AgentLoginDialogHost`) with a `newProfileLabel` (or the ambient login
-// while that is still free): the machine creates the profile, runs the CLI's
-// own login in it and reports it on its next probe, so the account appears
-// in the Accounts section by itself.
+// EXP-827: "Add account" — sign in with another account on a machine and hand
+// off to the shared sign-in dialog (`AgentLoginDialogHost`) with a
+// `newProfileLabel` (or the ambient login while that is still free): the
+// machine creates the profile, runs the CLI's own login in it and reports it
+// on its next probe, so the login appears under the device by itself.
+//
+// EXP-909: DEVICE-BOUND. The dialog used to pick the machine too, because it
+// hung off a cross-device Accounts section with no machine in hand; it is
+// opened from a row UNDER one now, so the only question left is which agent.
 
 export function AddAccountDialog({
   open,
   onOpenChange,
-  devices,
-  currentUserId,
-  now,
+  device,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Every synced device row; the dialog keeps the caller's own. */
-  devices: Device[]
-  currentUserId: string
-  now: Date
+  /** The machine the sign-in runs on — the caller already checked it can take
+   *  one (own, online, cap `agent-login`, an agent installed). */
+  device: SteerDevice
 }) {
-  const candidates = useMemo(
-    () => addAccountDevices(devices, { currentUserId, now }),
-    [devices, currentUserId, now]
-  )
-  const [deviceId, setDeviceId] = useState<string>(``)
+  const agents = useMemo(() => addableAgents(device), [device])
   const [agent, setAgent] = useState<string>(``)
-
-  // Defaults latch on open: the first device, its first agent.
+  // The default latches on open: the machine's first installed agent.
   useEffect(() => {
     if (!open) return
-    setDeviceId((current) =>
-      candidates.some((row) => row.deviceId === current)
-        ? current
-        : (candidates[0]?.deviceId ?? ``)
-    )
+    setAgent((current) => (agents.includes(current) ? current : (agents[0] ?? ``)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
-  const device = candidates.find((row) => row.deviceId === deviceId) ?? null
-  const agents = useMemo(() => (device ? addableAgents(device) : []), [device])
-  useEffect(() => {
-    setAgent((current) => (agents.includes(current) ? current : (agents[0] ?? ``)))
-  }, [agents])
 
-  const label = device ? device.label || device.deviceId : ``
-  const canContinue = device !== null && agent !== ``
+  const label = device.deviceLabel || device.deviceId
 
   const submit = () => {
-    if (!device || !agent) return
+    if (!agent) return
     const target = addAccountLoginTarget(
       device,
       agent,
       nextProfileLabel(device, agent, agentLabel(agent))
     )
-    const steerDevice = steerDeviceFromRow(device, { now, currentUserId })
     onOpenChange(false)
     // The sign-in dialog is hosted elsewhere in the tree; open it after this
     // one closed (the Radix close + focus return would swallow it otherwise).
-    setTimeout(() => requestAgentLogin({ device: steerDevice, agent, ...target }), 0)
+    setTimeout(() => requestAgentLogin({ device, agent, ...target }), 0)
   }
 
   return (
@@ -92,38 +69,15 @@ export function AddAccountDialog({
         <DialogHeader>
           <DialogTitle>Add account</DialogTitle>
           <DialogDescription>
-            {device
-              ? `The sign-in runs on ${label}. Sign in with the account you want to add.`
-              : `Sign in with another account on one of your devices.`}
+            {`The sign-in runs on ${label}. Sign in with the account you want to add.`}
           </DialogDescription>
         </DialogHeader>
-        {candidates.length === 0 ? (
+        {agents.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            None of your devices is online with an agent that can sign in
-            remotely. Open the desktop app or start the daemon there first.
+            {`${label} reports no agent to sign in to.`}
           </p>
         ) : (
           <GlassGroup>
-            <GlassPickerRow
-              label="Device"
-              value={deviceId}
-              onValueChange={setDeviceId}
-              placeholder="Pick a device"
-              // EXP-862: the device's KIND leads the value and every row — a
-              // picker whose value wears an icon offers it on its items.
-              options={candidates.map((row) => {
-                const KindIcon = row.kind === `server` ? ServerIcon : DesktopIcon
-                return {
-                  value: row.deviceId,
-                  label: (
-                    <span className="flex min-w-0 items-center gap-2">
-                      <KindIcon className="size-4 shrink-0" />
-                      <span className="truncate">{row.label || row.deviceId}</span>
-                    </span>
-                  ),
-                }
-              })}
-            />
             {/* EXP-862: the ONE agent picker — brand mark + chevron, the
                 label in its tooltip and its menu rows. */}
             <div className="flex items-center gap-3 px-4 py-3">
@@ -133,7 +87,6 @@ export function AddAccountDialog({
                   value={agent}
                   agents={agents}
                   onChange={setAgent}
-                  disabled={agents.length === 0}
                   align="end"
                 />
               </span>
@@ -144,7 +97,11 @@ export function AddAccountDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button disabled={!canContinue} onClick={submit} data-testid="add-account-continue">
+          <Button
+            disabled={agent === ``}
+            onClick={submit}
+            data-testid="add-account-continue"
+          >
             Continue
           </Button>
         </DialogFooter>

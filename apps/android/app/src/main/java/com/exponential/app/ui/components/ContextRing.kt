@@ -6,7 +6,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
@@ -16,7 +15,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.AgentUsageSeverity
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 
 // EXP-893: the run's context window as a RADIAL meter — the desktop
@@ -24,13 +22,14 @@ import com.exponential.app.ui.theme.GlassTokens
 // and the expanded composer's footer glyph. It opens the Usage sheet; the
 // numbers live there, the ring only says how full the window is.
 
-/** Normal / ≥75 warning / ≥95 danger — the shared thresholds, mobile's tones
- *  (the usage cards' track fill, `AgentUsageBar`). */
-fun severityColor(severity: AgentUsageSeverity): Color = when (severity) {
-    AgentUsageSeverity.Danger -> DesignTokens.Semantic.Red
-    AgentUsageSeverity.Warning -> DesignTokens.Semantic.Yellow
-    AgentUsageSeverity.Normal -> GlassTokens.UsageFill
-}
+// EXP-909: the tones live with the bar primitive ([UsageTrack.severityColor]);
+// the ring and the bar are two shapes of ONE scale.
+
+/** EXP-909: the ring's geometry, tokenised to match iOS's `ContextRing`. */
+val ContextRingSize: Dp = 16.dp
+
+/** …and its stroke. */
+val ContextRingStroke: Dp = 2.dp
 
 /**
  * A ring filled clockwise from twelve to [percent] of the way round, in the
@@ -42,8 +41,8 @@ fun severityColor(severity: AgentUsageSeverity): Color = when (severity) {
 fun ContextRing(
     percent: Int?,
     modifier: Modifier = Modifier,
-    size: Dp = 22.dp,
-    stroke: Dp = 3.dp,
+    size: Dp = ContextRingSize,
+    stroke: Dp = ContextRingStroke,
 ) {
     val fraction = ((percent ?: 0).coerceIn(0, 100)) / 100f
     val tone = severityColor(AgentUsagePresentation.severity((percent ?: 0).toDouble()))

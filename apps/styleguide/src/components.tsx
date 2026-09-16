@@ -56,6 +56,7 @@ import {
   Input,
   IssueChip,
   ListRow,
+  Meter,
   Pill,
   RichTab,
   Separator,
@@ -1527,16 +1528,40 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ].join(``),
   },
   {
-    id: `usage-bar`,
-    title: `Usage bar`,
-    kind: `Surfaces`,
-    blurb: `A label/amount line above a 6px capsule track in the strong stroke; the fill is foreground at 30%, or the yellow semantic once it is nearly spent.`,
+    id: `meter`,
+    title: `Meter`,
+    kind: `Controls`,
+    blurb: `The ONE bar every usage surface draws — the rate-limit windows, the run's context, the mini line. A capsule track in the strong stroke with a capsule fill, and exactly three tones: foreground at 30% normally, the yellow semantic from 75%, the destructive from 95%. The height is the caller's (6px full, 4px mini); the tone is the only decision. Before EXP-909 there were two bars two rows apart — a bare Progress with the primary fill, and a hand-rolled span with its own tone map — reading the same percent in different colours.`,
     status: {
-      web: ok(`AgentUsageCards`, `apps/web/src/components/agent-usage-bar.tsx`),
-      desktop: ok(`render_usage_cards`, `apps/desktop/crates/ui/src/usage_bar.rs`),
-      ios: ok(`AgentUsageCardRow`, `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`),
+      web: ok(`Meter`, `packages/ui/src/meter.tsx`),
+      desktop: ok(`usage_bar::meter`, `apps/desktop/crates/ui/src/usage_bar.rs`),
+      ios: ok(`AgentUsageTrack`, `apps/ios/ExpUI/Sources/UsageTrack.swift`),
       android: ok(
         `UsageTrack`,
+        `${ANDROID_COMPONENTS}/UsageTrack.kt`
+      ),
+    },
+    island: () => (
+      <div className="grid w-[260px] gap-3">
+        <Meter value={9} />
+        <Meter value={67} />
+        <Meter value={81} tone="warning" />
+        <Meter value={100} tone="danger" />
+        <Meter value={73} tone="normal" className="h-1" />
+      </div>
+    ),
+  },
+  {
+    id: `usage-bar`,
+    title: `Usage windows`,
+    kind: `Surfaces`,
+    blurb: `Every rate-limit window the machine reported, TWO lines each: the window's name left and its countdown right, then the meter with the percent (tabular, "NN%", never "62% used"). Stale numbers dim the whole block to 50% and add one "as of …" line — they are never hidden, because aged numbers still beat none.`,
+    status: {
+      web: ok(`UsageWindows`, `apps/web/src/components/agent-usage-bar.tsx`),
+      desktop: ok(`render_usage_windows`, `apps/desktop/crates/ui/src/usage_bar.rs`),
+      ios: ok(`UsageWindows`, `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`),
+      android: ok(
+        `UsageWindows`,
         `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentUsageBar.kt`
       ),
     },
@@ -1544,13 +1569,36 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       [
         `<div class="cmp-stack">`,
         `<div class="cmp-usage-bar">`,
-        `<div class="line"><span class="label">Session</span><span class="amount">62%</span></div>`,
+        `<div class="line"><span class="label">Current session</span><span class="amount">resets in 1h 4m</span></div>`,
         `<div class="track"><div class="fill"></div></div>`,
         `</div>`,
         `<div class="cmp-usage-bar warn">`,
-        `<div class="line"><span class="label">Weekly</span><span class="amount">88%</span></div>`,
+        `<div class="line"><span class="label">All models</span><span class="amount">resets in 1h 14m</span></div>`,
         `<div class="track"><div class="fill"></div></div>`,
         `</div>`,
+        `</div>`,
+      ].join(``),
+  },
+  {
+    id: `usage-mini`,
+    title: `Usage mini`,
+    kind: `Surfaces`,
+    blurb: `The same report in one line: up to three windows (the five-hour one, the week, the first per-model one) as wire label · 4px meter · percent. It sits under an account row that is not the one the run spends — the other accounts in the usage overlay, every login under a device, and the account picker's hover preview — where the two-line form would not fit and the long titles would not either.`,
+    status: {
+      web: ok(`UsageMini`, `apps/web/src/components/agent-usage-mini.tsx`),
+      desktop: ok(`render_usage_mini`, `apps/desktop/crates/ui/src/usage_bar.rs`),
+      ios: ok(`AgentUsageMini`, `apps/ios/Exponential/UI/Session/AgentUsageCards.swift`),
+      android: ok(
+        `AgentUsageMini`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentUsageBar.kt`
+      ),
+    },
+    render: () =>
+      [
+        `<div class="cmp-usage-mini">`,
+        `<div class="line"><span class="label">5h</span><span class="track"><span class="fill"></span></span><span class="amount">4%</span></div>`,
+        `<div class="line"><span class="label">Week</span><span class="track"><span class="fill"></span></span><span class="amount">73%</span></div>`,
+        `<div class="line"><span class="label">Fable</span><span class="track"><span class="fill"></span></span><span class="amount">100%</span></div>`,
         `</div>`,
       ].join(``),
   },

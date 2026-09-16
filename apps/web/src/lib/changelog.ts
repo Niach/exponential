@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-accounts-usage`,
+    date: `2026-09-17`,
+    title: `Accounts and usage`,
+    summary: `One usage view on every client that names the account a run is on, shows that account's numbers, keeps them current, and lists each device's logins in place.`,
+    body: `- **One usage overlay**: the context ring opens the same view on web, desktop, iOS and Android: the run's own account at the top with its three rate-limit windows, the context window below, and every other account on that machine as a compact row with a switch button beside it instead of across it.
+- **The right account**: the overlay names the login the run actually spends, so a run started on a second account no longer wears the default account's name or its re-login badge.
+- **Numbers that move**: an idle run no longer pins its last rate-limit reading, a window that has reset re-reads within a heartbeat, opening the overlay asks the machine for a fresh read, and an account nobody ran for days refreshes its own token to report instead of showing days-old numbers.
+- **Devices list their logins**: the Devices page lists each machine's accounts under the machine, with the same compact usage line and one menu per login, in place of the separate Accounts section, its tabs and its chips.`,
+  },
+  {
     id: `2026-09-fix-conflicts-everywhere`,
     date: `2026-09-16`,
     title: `Fix conflicts, on every Merge button`,

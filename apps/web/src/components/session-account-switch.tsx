@@ -35,6 +35,7 @@ import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   agentProfileUsageRows,
   healthBadgeLabel,
+  usageAge,
   type AgentProfileUsageRow,
 } from "@/lib/agent-usage"
 import {
@@ -47,7 +48,8 @@ import {
   STARTED_RUN_DEADLINE_MS,
   STARTED_RUN_SKEW_MS,
 } from "@/lib/started-run-match"
-import { AgentUsageCards } from "@/components/agent-usage-bar"
+import { UsageMini } from "@/components/agent-usage-mini"
+import { cn } from "@/lib/utils"
 
 const SwapIcon = conceptIcon(`ui-swap`)
 
@@ -110,10 +112,10 @@ export interface SessionAccountOption {
  *  fundamental refusal wins, so a codex run never reads "the machine is
  *  offline".
  *
- *  `currentAccount` is the profile this run is KNOWN to be on, when the client
- *  knows it — `coding_sessions.agent_account` is SERVER-ONLY (never in the
- *  shape allowlist), so it is normally null, and the machine's own active
- *  login is not a safe stand-in. */
+ *  `currentAccount` is the profile this run is on: `coding_sessions.agent_account`,
+ *  synced since EXP-909. Absent (an older device never stamped it) means
+ *  UNKNOWN, never the ambient login — the machine's own active login is not a
+ *  safe stand-in. */
 export function switchBlockedReason(input: {
   agent: string | null
   mine: boolean
@@ -161,9 +163,9 @@ export interface SessionAccountSwitch {
 
 /** EXP-863: which option is the account the run is ON — the desktop's
  *  `SwitchTarget.current` rule, in the order the client can know it: the
- *  synced `agent_account` (server-only, so rarely), else the login whose
- *  email the machine's usage report names for this agent, else the machine's
- *  active login for it. -1 = unknown (every row is then "another account"). */
+ *  synced `agent_account` (EXP-909), else the login whose email the machine's
+ *  usage report names for this agent, else the machine's active login for it.
+ *  -1 = unknown (every row is then "another account"). */
 export function activeAccountIndex(
   options: readonly {
     current: boolean
@@ -265,8 +267,10 @@ export function useSessionAccountSwitch(
     ? deviceCanResumeRun({ caps: deviceRow.caps ?? [] }) &&
       deviceCanSwitchAccount({ caps: deviceRow.caps ?? [] })
     : false
-  // Server-only column: normally absent on a synced row, so "which account is
-  // this run on" stays UNKNOWN rather than being guessed as the ambient one.
+  // EXP-909: the run's own account, synced on the row — the device stamps it
+  // at start (and on the continuation a switch creates). Absent only when an
+  // older device never sent one, and that stays UNKNOWN rather than being
+  // guessed as the ambient login.
   const currentAccount = session.agentAccount ?? null
 
   const options = useMemo<SessionAccountOption[]>(() => {
@@ -426,48 +430,43 @@ function SessionAccountRow({
   onSwitch: () => void
 }) {
   const health = healthBadgeLabel(option.row.health)
-  // The plan, when the identity line is the email. EXP-863: no "Active login"
-  // caption any more — the active account is the overlay's header, never a
-  // listed row.
-  const subtitle =
-    option.plan && option.plan !== option.label ? option.plan : null
+  // EXP-909: the plan is the HEADER's, said once — a row carries the identity
+  // and, when the credential is broken, the badge. (EXP-863 had already
+  // dropped the "Active login" caption: the active account is the header.)
+  const age = usageAge(option.row.usage, now)
   return (
-    <ListRow interactive className="flex-col items-stretch gap-1.5 px-3 py-2">
+    <ListRow interactive className="flex-col items-stretch gap-1 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5 text-sm">
-            <span className="min-w-0 truncate" title={option.label}>
-              {option.label}
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+          <span className="min-w-0 truncate" title={option.label}>
+            {option.label}
+          </span>
+          {health && (
+            <span className="shrink-0 text-[10px] font-medium text-amber-500">
+              {health}
             </span>
-            {health && (
-              <span className="shrink-0 text-[10px] font-medium text-amber-500">
-                {health}
-              </span>
-            )}
-          </div>
-          {subtitle && (
-            <div className="truncate text-[11px] text-muted-foreground/70">
-              {subtitle}
-            </div>
           )}
         </div>
-        {/* EXP-862: a ghost control on a flat row — the row's own fill is the
-            surface, a second bordered capsule inside it was chrome on chrome. */}
+        {/* EXP-909: ICON-ONLY. The labelled button took the whole row width on
+            a 320px popover and cut the email it was switching away from; the
+            swap glyph says the same thing in 28px, with `SWITCH_LABEL` as its
+            tooltip and its accessible name. EXP-862: ghost, never a second
+            bordered capsule inside the row's own fill. */}
         <Button
           variant="ghost"
-          size="sm"
+          size="icon"
           className="shrink-0"
           disabled={option.blockedReason !== null || busy}
           onClick={onSwitch}
+          title={SWITCH_LABEL}
+          aria-label={SWITCH_LABEL}
         >
           {switching ? <LoaderCircle className="animate-spin" /> : <SwapIcon />}
-          {SWITCH_LABEL}
         </Button>
       </div>
-      {option.row.usage && option.row.usage.windows.length > 0 && (
-        <div className="opacity-80">
-          <AgentUsageCards usage={option.row.usage} now={now} compact dense />
-        </div>
+      <UsageMini usage={option.row.usage} className={cn(age && `opacity-50`)} />
+      {age && (
+        <p className="text-[11px] text-muted-foreground/70 opacity-50">{age}</p>
       )}
       {/* The refusal sits UNDER the disabled control: it is nearly always
           something the person can change (wait for the turn, sign in on the

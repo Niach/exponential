@@ -7,20 +7,18 @@ import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceEntity
 
-// EXP-829: the Devices page's Accounts section (EXP-818 folded the Usage page
-// into Devices on web and the desktop; this is the Android third). One ROW
-// per ACCOUNT — an agent plus the login the machines named — off the synced
-// `devices` rows: own machines plus the servers teammates shared with the
-// selected team. The machines holding the account are chips on the row, a
-// chip wears a check where the account is the ACTIVE login there, and the
-// numbers are the FRESHEST machine's report (they are the account's limits,
-// so every machine reads the same ones).
+// EXP-829/EXP-909: the per-login rows the Devices page renders UNDER each
+// device (EXP-909 folded the cross-device "Accounts" section away: logins
+// belong to the machine that holds them, and merging them by email across
+// machines hid the only thing that mattered — which box needs the repair).
+// One ROW per agent × profile a machine reports, off the synced `devices`
+// rows: own machines plus the servers teammates shared with the selected team.
 //
 // Hand-mirrored against web `lib/agent-usage.ts` (`agentProfileUsageRows` /
-// `accountUsageGroups` / `sortAccountGroupsAttentionFirst` /
-// `refreshAllowedAt`) and desktop `ui/src/usage_bar.rs`, same names, same
-// tests (AgentAccountsRowsTest). Everything here is a pure function of the
-// rows: online-ness and refresh eligibility are injected, never re-derived.
+// `deviceLoginRows` / `sortDeviceLogins` / `loginLabel` / `refreshAllowedAt`)
+// and desktop `ui/src/usage_bar.rs`, same names, same tests
+// (AgentAccountsRowsTest). Everything here is a pure function of the rows:
+// online-ness and refresh eligibility are injected, never re-derived.
 
 /**
  * One device × agent × profile — what a machine reports about ONE login of
@@ -55,71 +53,6 @@ data class AgentProfileUsageRow(
     val checkedAt: String?,
 )
 
-/** One account row of the section. */
-data class AgentAccountUsageGroup(
-    /**
-     * `<agent>:<email>` for a named login; a row with no email (an agent that
-     * names a provider, a signed-out row names nobody) can never be told apart from
-     * another machine's, so it keeps its own `<agent>:<deviceId>:<profileId>`.
-     */
-    val key: String,
-    val agent: String,
-    val signedIn: Boolean,
-    /**
-     * EXP-849: the WORST health among the machines holding this account — the
-     * badge the account row carries (one machine's expired credential is a
-     * re-login, even if another machine's copy still works).
-     */
-    val health: AgentHealth,
-    val email: String?,
-    val plan: String?,
-    /**
-     * The machines (× profile) holding this account: online first, then by
-     * label, then profile — a heartbeat cannot reshuffle the chips.
-     */
-    val rows: List<AgentProfileUsageRow>,
-    /**
-     * The FRESHEST member's numbers: newest `fetchedAt`, a non-stale report
-     * winning a tie, a report with windows beating one without.
-     */
-    val usage: AgentUsage?,
-    /** The newest probe stamp among the members — the "as of …" fallback. */
-    val checkedAt: String?,
-    /**
-     * Where a refresh is queued: the eligible member (`canRefresh`) that
-     * reported the freshest numbers, or null when no member may run one.
-     */
-    val refreshTarget: AgentProfileUsageRow?,
-)
-
-/** The rows of ONE agent, in the page's order. */
-data class AgentAccountSection(
-    val agent: String,
-    val groups: List<AgentAccountUsageGroup>,
-)
-
-/**
- * EXP-849: one account a MACHINE holds, for the machine row's chips (web
- * `DeviceAccountChip`). The Devices surface is the SETUP/REPAIR surface, so
- * every chip names the agent, the login, whether it is that machine's ACTIVE
- * one and how healthy it is — the account-level view
- * ([AgentAccountsRows.agentProfileUsageRows]) groups ACROSS machines and is
- * the wrong shape for "what is wrong on this box".
- */
-data class DeviceAccountChip(
-    /** `<agent>:<profileId>` — stable within one device row. */
-    val key: String,
-    val agent: String,
-    val profileId: String,
-    /** The profile's label (`Default` for the ambient login). */
-    val profileLabel: String,
-    val signedIn: Boolean,
-    val active: Boolean,
-    val email: String?,
-    val plan: String?,
-    val health: AgentHealth,
-)
-
 object AgentAccountsRows {
 
     /**
@@ -134,35 +67,13 @@ object AgentAccountsRows {
     /** The device cap a machine must advertise before a refresh is offered. */
     const val REFRESH_CAP = "agent-usage-refresh"
 
-    /** The section's empty state, byte-identical with web and the desktop. */
-    const val EMPTY_STATE = "No device has reported an agent account yet."
-
     /** The label for the system profile when the device sent none. */
     const val SYSTEM_PROFILE_LABEL = "Default"
 
     /**
-     * Which synced rows the section reads (web `AgentAccountsSection`): the
-     * caller's own machines plus the SERVERS shared with the team being
-     * looked at — a teammate's shared server belongs to the pages of the
-     * teams it is shared with (FEED-33: possibly several), not to every team
-     * the caller is a member of. Signed out lists nothing.
-     */
-    fun sectionDevices(
-        rows: List<DeviceEntity>,
-        currentUserId: String?,
-        teamId: String?,
-    ): List<DeviceEntity> {
-        if (currentUserId == null) return emptyList()
-        return rows.filter {
-            it.userId == currentUserId ||
-                (teamId != null && it.sharedTeamIds.contains(teamId) && it.kind == SteerDevice.KIND_SERVER)
-        }
-    }
-
-    /**
-     * The rows the section renders for [devices], grouped by account later.
-     * [isOnline] is decided by the caller's clock the same way every device
-     * list does (`DeviceLiveness.isOnline`); it is passed in so the
+     * The rows the page renders for [devices] — every login every machine
+     * holds. [isOnline] is decided by the caller's clock the same way every
+     * device list does (`DeviceLiveness.isOnline`); it is passed in so the
      * derivation stays a pure function of the rows.
      */
     fun agentProfileUsageRows(
@@ -172,132 +83,161 @@ object AgentAccountsRows {
     ): List<AgentProfileUsageRow> {
         val out = mutableListOf<AgentProfileUsageRow>()
         for (device in devices) {
-            val accounts = parseAgentAccounts(device.agentAccounts).orEmpty()
-            val usageMap = parseAgentUsage(device.agentUsage).orEmpty()
-            // The union of "has an account" and "reported usage": a machine
-            // that only managed one of the two still gets its row.
-            // EXP-849: an agent this build has no name for (a retired `pi`
-            // still beating off an old daemon) is not a row, not a tab and
-            // not a chip. The jsonb parse already drops it; the set is
-            // filtered here too so a row built from a wire-decoded map can
-            // never smuggle one in.
-            val agents = LinkedHashSet<String>().apply {
-                addAll(accounts.keys)
-                addAll(usageMap.keys)
-            }.filterTo(LinkedHashSet(), AgentUsagePresentation::isContractAgent)
-            val mine = device.userId == currentUserId
-            val online = isOnline(device.lastSeenAt)
-            for (agent in agents) {
-                val account = accounts[agent]
-                val profiles = account?.profiles.orEmpty()
-                if (profiles.isEmpty()) {
-                    out += AgentProfileUsageRow(
-                        key = "${device.deviceId}:$agent:$SYSTEM_PROFILE_ID",
-                        deviceId = device.deviceId,
-                        deviceLabel = device.label,
-                        mine = mine,
-                        online = online,
-                        agent = agent,
-                        profileId = SYSTEM_PROFILE_ID,
-                        profileLabel = SYSTEM_PROFILE_LABEL,
-                        active = true,
-                        signedIn = account?.signedIn == true,
-                        health = AgentHealthRules.of(account),
-                        email = nonEmpty(account?.email),
-                        plan = nonEmpty(account?.plan),
-                        usage = usageMap[agent],
-                        // The account's own probe stamp, else the row's usage
-                        // stamp; an empty string is nothing to say.
-                        checkedAt = nonEmpty(account?.checkedAt) ?: nonEmpty(device.agentUsageAt),
-                    )
-                    continue
-                }
-                for (profile in profiles) {
-                    // The active profile's numbers ride BOTH the profile entry
-                    // and the pre-profile `agentUsage[agent]` slot; prefer the
-                    // profile's own and fall back for a device that only
-                    // populated the old slot.
-                    val usage = profile.usage ?: usageMap[agent].takeIf { profile.active }
-                    out += AgentProfileUsageRow(
-                        key = "${device.deviceId}:$agent:${profile.id}",
-                        deviceId = device.deviceId,
-                        deviceLabel = device.label,
-                        mine = mine,
-                        online = online,
-                        agent = agent,
-                        profileId = profile.id,
-                        profileLabel = nonEmpty(profile.label)
-                            ?: if (profile.id == SYSTEM_PROFILE_ID) SYSTEM_PROFILE_LABEL else profile.id,
-                        active = profile.active,
-                        signedIn = profile.signedIn,
-                        health = AgentHealthRules.of(profile),
-                        email = nonEmpty(profile.email),
-                        plan = nonEmpty(profile.plan),
-                        usage = usage,
-                        checkedAt = nonEmpty(profile.checkedAt) ?: nonEmpty(account?.checkedAt),
-                    )
-                }
-            }
+            profileRows(
+                out = out,
+                deviceId = device.deviceId,
+                deviceLabel = device.label,
+                mine = device.userId == currentUserId,
+                online = isOnline(device.lastSeenAt),
+                accounts = parseAgentAccounts(device.agentAccounts).orEmpty(),
+                usageMap = parseAgentUsage(device.agentUsage).orEmpty(),
+                usageAt = device.agentUsageAt,
+            )
         }
         return out
     }
 
     /**
-     * EXP-849: every account ONE machine holds, agent by agent in contract
-     * order, the ACTIVE login of each agent first — the chips a machine row
-     * draws in "My machines" (web `deviceAccountChips`). A machine that
-     * reported no profiles for an agent yields its single ambient account.
-     * An agent this build has no name for is dropped, never chipped.
+     * EXP-909: the logins ONE machine holds, in the order its row lists them
+     * ([sortDeviceLogins]) — the Devices page's per-device fold. The SAME core
+     * as [agentProfileUsageRows]; only the source differs (a composed
+     * [SteerDevice], which has already parsed and merged the jsonb), so a
+     * login can never read differently depending on which entry point found
+     * it. Web/iOS `deviceLoginRows`.
      */
-    fun deviceAccountChips(accounts: Map<String, AgentAccount>?): List<DeviceAccountChip> {
-        if (accounts.isNullOrEmpty()) return emptyList()
-        val out = mutableListOf<DeviceAccountChip>()
-        for (agent in DomainContract.codingAgentValues) {
-            val account = accounts[agent] ?: continue
-            val profiles = account.profiles.orEmpty().filter { it.id.isNotBlank() }
+    fun deviceLoginRows(device: SteerDevice): List<AgentProfileUsageRow> {
+        val out = mutableListOf<AgentProfileUsageRow>()
+        profileRows(
+            out = out,
+            deviceId = device.deviceId,
+            deviceLabel = device.deviceLabel,
+            mine = device.isMine,
+            online = device.online,
+            accounts = device.agentAccounts.orEmpty(),
+            usageMap = device.agentUsage.orEmpty(),
+            usageAt = device.agentUsageAt,
+        )
+        return sortDeviceLogins(out)
+    }
+
+    /**
+     * ONE machine's logins, appended to [out]. The union of "has an account"
+     * and "reported usage": a machine that only managed one of the two still
+     * gets its row.
+     *
+     * EXP-849: an agent this build has no name for (a retired `pi` still
+     * beating off an old daemon) is never a row. The jsonb parse already drops
+     * it; the set is filtered here too so a row built from a wire-decoded map
+     * can never smuggle one in.
+     */
+    private fun profileRows(
+        out: MutableList<AgentProfileUsageRow>,
+        deviceId: String,
+        deviceLabel: String,
+        mine: Boolean,
+        online: Boolean,
+        accounts: Map<String, AgentAccount>,
+        usageMap: Map<String, AgentUsage>,
+        usageAt: String?,
+    ) {
+        val agents = LinkedHashSet<String>().apply {
+            addAll(accounts.keys)
+            addAll(usageMap.keys)
+        }.filterTo(LinkedHashSet(), AgentUsagePresentation::isContractAgent)
+        for (agent in agents) {
+            val account = accounts[agent]
+            val profiles = account?.profiles.orEmpty()
             if (profiles.isEmpty()) {
-                out += DeviceAccountChip(
-                    key = "$agent:$SYSTEM_PROFILE_ID",
+                out += AgentProfileUsageRow(
+                    key = "$deviceId:$agent:$SYSTEM_PROFILE_ID",
+                    deviceId = deviceId,
+                    deviceLabel = deviceLabel,
+                    mine = mine,
+                    online = online,
                     agent = agent,
                     profileId = SYSTEM_PROFILE_ID,
                     profileLabel = SYSTEM_PROFILE_LABEL,
-                    signedIn = account.signedIn,
                     active = true,
-                    email = nonEmpty(account.email),
-                    plan = nonEmpty(account.plan),
+                    signedIn = account?.signedIn == true,
                     health = AgentHealthRules.of(account),
+                    email = nonEmpty(account?.email),
+                    plan = nonEmpty(account?.plan),
+                    usage = usageMap[agent],
+                    // The account's own probe stamp, else the row's usage
+                    // stamp; an empty string is nothing to say.
+                    checkedAt = nonEmpty(account?.checkedAt) ?: nonEmpty(usageAt),
                 )
                 continue
             }
-            out += profiles.map { profile ->
-                DeviceAccountChip(
-                    key = "$agent:${profile.id}",
+            for (profile in profiles) {
+                // The active profile's numbers ride BOTH the profile entry and
+                // the pre-profile `agentUsage[agent]` slot; prefer the
+                // profile's own and fall back for a device that only populated
+                // the old slot.
+                val usage = profile.usage ?: usageMap[agent].takeIf { profile.active }
+                out += AgentProfileUsageRow(
+                    key = "$deviceId:$agent:${profile.id}",
+                    deviceId = deviceId,
+                    deviceLabel = deviceLabel,
+                    mine = mine,
+                    online = online,
                     agent = agent,
                     profileId = profile.id,
                     profileLabel = nonEmpty(profile.label)
                         ?: if (profile.id == SYSTEM_PROFILE_ID) SYSTEM_PROFILE_LABEL else profile.id,
-                    signedIn = profile.signedIn,
                     active = profile.active,
+                    signedIn = profile.signedIn,
+                    health = AgentHealthRules.of(profile),
                     email = nonEmpty(profile.email),
                     plan = nonEmpty(profile.plan),
-                    health = AgentHealthRules.of(profile),
+                    usage = usage,
+                    checkedAt = nonEmpty(profile.checkedAt) ?: nonEmpty(account?.checkedAt),
                 )
-            }.sortedByDescending { it.active }
+            }
         }
-        return out
     }
 
     /**
-     * `Claude · dev@acme.test` — the chip's text on a MACHINE row: the agent,
-     * then the login (its email, else the bare plan an agent reports instead
-     * of an address, else the profile's label). Web `machineChipLabel`, iOS
-     * `DeviceAccountChips.caption`.
+     * EXP-909: the order ONE device's logins list in — contract agent order
+     * first (so claude's logins never interleave with codex's), then the
+     * machine's ACTIVE login for each agent, then the ones that need attention
+     * (a signed-out or expired credential), then the label and the id for a
+     * stable tail. A heartbeat can move the numbers without reshuffling the
+     * rows. Byte-identical ×4.
      */
-    fun machineChipLabel(chip: DeviceAccountChip, agentLabel: (String) -> String): String {
-        val who = chip.email
-            ?: (if (chip.signedIn) (chip.plan ?: "signed in") else chip.profileLabel)
-        return "${agentLabel(chip.agent)} · $who"
+    fun sortDeviceLogins(rows: List<AgentProfileUsageRow>): List<AgentProfileUsageRow> {
+        val order = DomainContract.codingAgentValues
+        return rows.sortedWith(
+            compareBy<AgentProfileUsageRow> {
+                order.indexOf(it.agent).let { rank -> if (rank == -1) Int.MAX_VALUE else rank }
+            }
+                .thenBy { it.agent }
+                .thenByDescending { it.active }
+                .thenBy { attentionRank(it.signedIn, it.usage, it.health) }
+                .thenBy { it.profileLabel }
+                .thenBy { it.profileId },
+        )
     }
+
+    /**
+     * EXP-909: a login row's identity line — WHO the login is: its email, else
+     * the bare plan an agent reports instead of an address, else the profile's
+     * own label.
+     *
+     * NEVER a status (EXP-862's rule, kept): the health badge beside it is the
+     * single signed-out notice, and the brand mark says which agent. The device
+     * is not in it either — the row it sits under already named the machine.
+     */
+    fun loginLabel(row: AgentProfileUsageRow): String =
+        row.email ?: row.plan ?: row.profileLabel.ifBlank { row.profileId }
+
+    /**
+     * EXP-849/EXP-909: a login row's health badge, or null when there is
+     * nothing to say. A signed-OUT row wears "Signed out" here — the label no
+     * longer carries any status, so the badge is the whole notice.
+     */
+    fun healthBadge(row: AgentProfileUsageRow): String? =
+        AgentHealthRules.badgeLabel(row.health)
 
     /** The chip menu's three entries, byte-identical ×4. */
     const val ACTION_SIGN_IN = "Sign in"
@@ -342,22 +282,6 @@ object AgentAccountsRows {
         return out
     }
 
-    /** [chipActions] for a machine row's chip. */
-    fun chipActions(
-        chip: DeviceAccountChip,
-        canSwitchAccount: Boolean,
-        canRemoveAccount: Boolean,
-        canAgentLogin: Boolean,
-    ): List<String> = chipActions(
-        signedIn = chip.signedIn,
-        health = chip.health,
-        active = chip.active,
-        profileId = chip.profileId,
-        canSwitchAccount = canSwitchAccount,
-        canRemoveAccount = canRemoveAccount,
-        canAgentLogin = canAgentLogin,
-    )
-
     /** [chipActions] for an account row's machine chip. */
     fun chipActions(
         row: AgentProfileUsageRow,
@@ -383,24 +307,6 @@ object AgentAccountsRows {
     fun removeAccountConfirm(accountLabel: String, deviceLabel: String): String =
         "Delete $accountLabel on $deviceLabel? The login is removed from this device " +
             "only; the account itself is untouched."
-
-    /**
-     * EXP-827/EXP-862: the machines a sign-in can be queued on right now — the
-     * caller's OWN, online, advertising `agent-login`, and running [agent] when
-     * one is named. [exclude] drops the machines that already hold the account
-     * (the per-account `+` chip offers the rest). Web `addAccountDevices`.
-     */
-    fun addAccountDevices(
-        devices: List<SteerDevice>,
-        agent: String? = null,
-        exclude: Set<String> = emptySet(),
-    ): List<SteerDevice> = devices.filter { device ->
-        device.isMine &&
-            device.online &&
-            device.canAgentLogin &&
-            device.deviceId !in exclude &&
-            if (agent != null) agent in addableAgents(device) else addableAgents(device).isNotEmpty()
-    }
 
     /**
      * The agents an "Add account" flow may sign in on the machine: every
@@ -530,142 +436,5 @@ object AgentAccountsRows {
     fun canRefresh(row: AgentProfileUsageRow, caps: List<String>?): Boolean =
         row.mine && row.online && caps?.contains(REFRESH_CAP) == true
 
-    fun accountGroupKey(row: AgentProfileUsageRow): String {
-        val email = if (row.signedIn) row.email?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } else null
-        return if (email != null) "${row.agent}:$email" else "${row.agent}:${row.deviceId}:${row.profileId}"
-    }
-
-    /**
-     * Fold the page rows into account groups. [canRefresh] decides which
-     * members may run `agent_usage_refresh` (mine + online + the cap) —
-     * injected so the derivation stays a pure function of the rows. Nothing
-     * is sorted across groups here: [sortAccountGroupsAttentionFirst] owns
-     * that.
-     */
-    fun accountUsageGroups(
-        rows: List<AgentProfileUsageRow>,
-        canRefresh: (AgentProfileUsageRow) -> Boolean,
-    ): List<AgentAccountUsageGroup> {
-        val byKey = LinkedHashMap<String, AgentAccountUsageGroup>()
-        for (row in rows) {
-            val key = accountGroupKey(row)
-            val group = byKey[key] ?: AgentAccountUsageGroup(
-                key = key,
-                agent = row.agent,
-                signedIn = row.signedIn,
-                health = row.health,
-                email = row.email,
-                plan = row.plan,
-                rows = emptyList(),
-                usage = null,
-                checkedAt = null,
-                refreshTarget = null,
-            )
-            byKey[key] = group.copy(
-                rows = group.rows + row,
-                // The worst health across the machines — one dead copy of the
-                // credential is a re-login even if another machine's still works.
-                health = if (AgentHealthRules.rank(row.health) < AgentHealthRules.rank(group.health)) {
-                    row.health
-                } else {
-                    group.health
-                },
-                plan = group.plan ?: row.plan,
-                usage = if (fresherUsage(row.usage, group.usage)) row.usage else group.usage,
-                checkedAt = if (stampMs(row.checkedAt) > stampMs(group.checkedAt)) row.checkedAt else group.checkedAt,
-                refreshTarget = if (
-                    canRefresh(row) &&
-                    (group.refreshTarget == null || fresherUsage(row.usage, group.refreshTarget.usage))
-                ) {
-                    row
-                } else {
-                    group.refreshTarget
-                },
-            )
-        }
-        return byKey.values.map { group ->
-            group.copy(
-                rows = group.rows.sortedWith(
-                    compareByDescending<AgentProfileUsageRow> { it.online }
-                        .thenBy { it.deviceLabel }
-                        .thenBy { it.profileId },
-                ),
-            )
-        }
-    }
-
-    /**
-     * [attentionRank] over groups, then the fuller group, then agent, then
-     * the key (email or device) — the page order.
-     */
-    fun sortAccountGroupsAttentionFirst(groups: List<AgentAccountUsageGroup>): List<AgentAccountUsageGroup> =
-        groups.sortedWith(
-            compareBy<AgentAccountUsageGroup> { attentionRank(it.signedIn, it.usage, it.health) }
-                .thenByDescending { peakPercent(it.usage) }
-                .thenBy { it.agent }
-                .thenBy { it.key },
-        )
-
-    /**
-     * Agent sections in CONTRACT order (`codingAgent` values), anything else
-     * after it alphabetically — a section only exists once a machine has
-     * reported the agent. The groups keep their attention-first order.
-     */
-    fun sections(groups: List<AgentAccountUsageGroup>): List<AgentAccountSection> {
-        val order = DomainContract.codingAgentValues
-        val byAgent = LinkedHashMap<String, MutableList<AgentAccountUsageGroup>>()
-        for (group in groups) byAgent.getOrPut(group.agent) { mutableListOf() } += group
-        val rank = { agent: String -> order.indexOf(agent).let { if (it == -1) Int.MAX_VALUE else it } }
-        return byAgent.keys
-            .sortedWith(compareBy<String> { rank(it) }.thenBy { it })
-            .map { agent -> AgentAccountSection(agent, byAgent.getValue(agent)) }
-    }
-
-    /**
-     * The `Studio · Personal` chip text: the machine, plus the profile when
-     * it is not the ambient login. A label-less machine falls back to its id.
-     */
-    fun chipLabel(row: AgentProfileUsageRow): String {
-        val device = row.deviceLabel.ifBlank { row.deviceId }
-        return if (row.profileId == SYSTEM_PROFILE_ID) device else "$device · ${row.profileLabel}"
-    }
-
-    /**
-     * The row's identity line: WHO the account is — the email, else the plan
-     * (an agent may report a provider, never an address), else the login's own
-     * label.
-     *
-     * EXP-862: never a STATUS. A signed-out account used to title itself "Not
-     * signed in", which said the same thing as the chip's badge one line down
-     * and buried the only identifying thing the row had; the chip badge is now
-     * the single signed-out notice ×4.
-     */
-    fun caption(group: AgentAccountUsageGroup): String =
-        group.email
-            ?: group.plan
-            ?: group.rows.firstOrNull()?.profileLabel
-            ?: SYSTEM_PROFILE_LABEL
-
-    /**
-     * EXP-849: the account row's health badge, or null when there is nothing
-     * to say. EXP-862: a signed-OUT row wears "Signed out" here too — the
-     * caption no longer carries any status, so the badge is the whole notice.
-     */
-    fun healthBadge(group: AgentAccountUsageGroup): String? =
-        AgentHealthRules.badgeLabel(group.health)
-
     private fun nonEmpty(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
-
-    private fun stampMs(stamp: String?): Long =
-        stamp?.let(WireTimestamps::parseEpochMs) ?: Long.MIN_VALUE
-
-    /** Whether [candidate] is a fresher report than [current]. */
-    private fun fresherUsage(candidate: AgentUsage?, current: AgentUsage?): Boolean {
-        if (candidate == null) return false
-        if (current == null) return true
-        val byStamp = stampMs(candidate.fetchedAt).compareTo(stampMs(current.fetchedAt))
-        if (byStamp != 0) return byStamp > 0
-        if (candidate.stale != current.stale) return current.stale
-        return candidate.windows.isNotEmpty() && current.windows.isEmpty()
-    }
 }

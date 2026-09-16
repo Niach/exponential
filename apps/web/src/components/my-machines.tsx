@@ -1,20 +1,28 @@
 // "My devices" (EXP-403): the caller's registered devices — desktops and
 // headless `exponential` daemon servers — with live online state, last-seen
 // fallback, and the "Add device" dialog (EXP-697: desktop download + the
-// CLI install one-liner). Since EXP-481 the rows
-// ride the synced devices shape (useRemoteStart composes them) and the ⋯
-// menu collapses to Device settings + Remove — rename, team sharing
-// (EXP-432), agent defaults and worktree management all live in the Device
+// CLI install one-liner). Since EXP-481 the rows ride the synced devices
+// shape (useRemoteStart composes them); rename, team sharing (EXP-432),
+// agent defaults, worktrees, Update and Remove all live in the Device
 // settings dialog. Teammates' shared servers render read-only under "Team
 // devices".
 //
 // EXP-862: nothing on a row SAYS anything about sign-ins any more. A login's
-// state is said once, on the chip that owns it (summarised by the row's
-// health badge) — the status line used to repeat it as "codex not signed in"
-// beside a chip already wearing the badge, and a "Sign in" pill repeated it a
-// third time.
+// state is said once, on the login row that owns it (summarised by the
+// device row's health badge) — the status line used to repeat it as "codex
+// not signed in", and a "Sign in" pill repeated it a third time.
+//
+// EXP-909: each device LISTS its logins underneath (`DeviceLogins`), editable
+// on the caller's own machines and read-only on a teammate's shared server.
+// That fold replaced the cross-device Accounts section, so this list also
+// carries the 30 s refresh loop that used to live there.
+//
+// EXP-909 follow-up: a row carries ONE control ×4 — the settings gear, on the
+// caller's own REGISTERED devices, hidden until the row is hovered (always on
+// phones). No play button (the Agent page composer's device picker is the one
+// way to start a run), no ⋯ menu, no inline update controls, and no spacers
+// standing in for them. A team device row has no control at all.
 import { useMemo, useState } from "react"
-import { LoaderCircle } from "lucide-react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   conceptIcon,
@@ -23,37 +31,21 @@ import {
   GlassSectionHeader,
   ListRow,
   Dialog,
-  DialogCancel,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   LiveDot,
 } from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
-import { trpc } from "@/lib/trpc-client"
 import {
   describeUpdateBlockers,
-  deviceCanUpdateNow,
+  deviceCanRefreshUsage,
   deviceHasRunnableAgent,
   deviceIsMine,
   deviceIsOnline,
   deviceUpdateAvailable,
   liveUpdateBlockers,
-  showDeviceUpdateButton,
   type SteerDevice,
   type UpdateBlockerSession,
 } from "@/lib/steer-devices"
@@ -66,41 +58,25 @@ import type { CodingSession, Issue, User } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { desktopDownloadHref } from "@/lib/desktop-download"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
-import { requestAgentLogin } from "@/components/agent-login-dialog"
+import { DeviceLogins } from "@/components/device-logins"
+import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 import {
-  AccountChipMenu,
-  accountChipActionable,
-} from "@/components/device-agent-account"
-import {
-  deviceAccountChips,
+  deviceLoginRows,
   deviceWorstHealth,
   healthBadgeLabel,
-  type DeviceAccountChip,
 } from "@/lib/agent-usage"
-import { agentLabel } from "@/components/agent-picker"
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
-// — concepts, never raw lucide glyphs (CLAUDE.md icon rule); the LoaderCircle
-// spinner mirrors the agents page's existing raw usage.
+// — concepts, never raw lucide glyphs (CLAUDE.md icon rule).
 const DesktopIcon = conceptIcon(`ui-device`)
-// EXP-615: starting a run is a play icon button on every client.
-const StartCodingIcon = conceptIcon(`action-run`)
 const ServerIcon = conceptIcon(`ui-server`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
-const UpdateIcon = conceptIcon(`ui-update`)
-// EXP-862: the ⋯ menu opens Device settings — the settings gear, ×4. A pencil
-// promised an inline rename, not the dialog it opens.
+// EXP-909 follow-up: the row's ONE control is the settings gear, ×4.
 const SettingsIcon = conceptIcon(`nav-settings`)
-const RemoveIcon = conceptIcon(`ui-delete`)
-const MoreIcon = conceptIcon(`ui-more`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const CheckIcon = conceptIcon(`ui-check`)
-
-/** FEED-36: the tooltip on a queued Update button — the daemon's own rules
- * for getting there (every session ends, or one sits idle for 2 hours). */
-export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
 
 /** FEED-36: the caller's LIVE sessions per machine (`running`/`in_review`
  * off the synced coding_sessions shape), with the issue identifier joined
@@ -182,98 +158,6 @@ export function CopyIconButton({ text }: { text: string }) {
   )
 }
 
-// EXP-849: the Devices surface is the SETUP/REPAIR surface — one row per
-// device with its agents, worktrees and the accounts it holds. Accounts
-// (the page's other section) decides WHICH login to run on; everything that
-// touches a device's credentials happens here: the worst health bubbles to
-// the row's title, and every account it holds is a chip whose menu signs in,
-// makes that login the device's default, or removes it from the device.
-//
-// Nothing here ever copies a credential: a chip action queues either the
-// device's OWN `agent_login` (`AgentLoginDialog`, the agent CLI's login in
-// that profile's config dir), `agent_profile_use` (point the agent at a
-// profile the device already holds) or `agent_profile_remove` (forget one).
-function MachineAccountChips({ device }: { device: SteerDevice }) {
-  const chips = deviceAccountChips({ agentAccounts: device.agentAccounts })
-  if (chips.length === 0) return null
-  return (
-    <div className="mt-1 flex flex-wrap gap-1">
-      {chips.map((chip) => (
-        <MachineAccountChip key={chip.key} device={device} chip={chip} />
-      ))}
-    </div>
-  )
-}
-
-/** `claude · dennis@…` with the active check and the health badge. */
-function machineChipLabel(chip: DeviceAccountChip): string {
-  const who =
-    chip.email ??
-    (chip.signedIn ? (chip.plan ?? `signed in`) : chip.profileLabel)
-  return `${agentLabel(chip.agent)} · ${who}`
-}
-
-function MachineAccountChip({
-  device,
-  chip,
-}: {
-  device: SteerDevice
-  chip: DeviceAccountChip
-}) {
-  const health = healthBadgeLabel(chip.health)
-  const body = (
-    <>
-      <span className="min-w-0 truncate">{machineChipLabel(chip)}</span>
-      {chip.signedIn && chip.active && (
-        <CheckIcon
-          className="size-3 text-emerald-400"
-          aria-label="Active login"
-        />
-      )}
-      {health && (
-        <span className="shrink-0 text-[10px] font-medium text-amber-500">
-          {health}
-        </span>
-      )}
-    </>
-  )
-  // EXP-862: the ONE menu per state lives in `AccountChipMenu` (Sign in /
-  // Set as default / Remove account, ×4). A chip with no entry — a teammate's
-  // device, an offline one, a build that takes none of the commands — is the
-  // statement it always was.
-  if (!accountChipActionable(device, chip)) {
-    return (
-      <Pill size="sm" className="max-w-full" title={machineChipLabel(chip)}>
-        {body}
-      </Pill>
-    )
-  }
-  return (
-    <AccountChipMenu
-      device={device}
-      row={chip}
-      accountLabel={machineChipLabel(chip)}
-      onSignIn={() =>
-        requestAgentLogin({
-          device,
-          agent: chip.agent,
-          profileId: chip.profileId,
-        })
-      }
-      trigger={
-        <Pill
-          size="sm"
-          mode="action"
-          className="max-w-full"
-          title={machineChipLabel(chip)}
-        >
-          {body}
-        </Pill>
-      }
-    />
-  )
-}
-
 // The row's second line (native `deviceStatusLine` parity): a live dot +
 // "Online", or the last-seen caption for offline devices. EXP-862: it says
 // nothing about sign-ins — the account chips own that.
@@ -301,15 +185,11 @@ export function DeviceStatusLine({
 
 export function MyMachines({
   devices,
-  onStartCoding,
   onChanged,
   latestVersions,
   teamId,
 }: {
   devices: SteerDevice[] | null
-  /** EXP-825: a navigation to the Agent page composer with this machine
-   * pre-picked — the row itself never starts anything. */
-  onStartCoding: (deviceId: string) => void
   onChanged: () => void
   latestVersions: { desktop: string | null; cli: string | null } | null
   /** EXP-432: the current team — the share toggle's target. */
@@ -317,12 +197,9 @@ export function MyMachines({
 }) {
   const [addServerOpen, setAddServerOpen] = useState(false)
   const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null)
-  const [removeTarget, setRemoveTarget] = useState<SteerDevice | null>(null)
-  // FEED-36: the "Update now" confirmation — ends the machine's live sessions.
-  const [updateNowTarget, setUpdateNowTarget] = useState<SteerDevice | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [updatingId, setUpdatingId] = useState<string | null>(null)
-  const now = useNow()
+  // EXP-909: 30 s, not the default minute — the login rows under each device
+  // age their "as of …" captions on this clock, and so does the refresh loop.
+  const now = useNow(30_000)
   const blockersFor = useUpdateBlockers()
   const { data: userRows } = useLiveQuery(
     (q) => q.from({ u: userCollection }),
@@ -336,20 +213,44 @@ export function MyMachines({
 
   const mine = devices?.filter(deviceIsMine) ?? null
   const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
+  // EXP-909: the 30 s auto-refresh the deleted Accounts section used to run,
+  // keyed by LOGIN and scoped to the caller's own machines — a teammate's
+  // server takes no commands from here.
+  const ownLogins = useMemo(
+    () =>
+      (mine ?? []).flatMap((device) =>
+        deviceLoginRows(
+          {
+            deviceId: device.deviceId,
+            deviceLabel: device.deviceLabel,
+            agentAccounts: device.agentAccounts,
+            agentUsage: device.agentUsage,
+            agentUsageAt: device.agentUsageAt,
+          },
+          { mine: true, online: deviceIsOnline(device) }
+        )
+      ),
+    [mine]
+  )
+  const capsByDevice = useMemo(
+    () => new Map((mine ?? []).map((device) => [device.deviceId, device.caps ?? []])),
+    [mine]
+  )
+  useAgentUsageRefresh(
+    ownLogins,
+    (row) =>
+      row.online &&
+      deviceCanRefreshUsage({ caps: capsByDevice.get(row.deviceId) ?? [] }),
+    now
+  )
   // Re-resolved each render so the dialog always edits the LIVE synced row.
   const settingsTarget =
     mine?.find((device) => device.deviceId === settingsTargetId) ?? null
-
-  const requestUpdate = async (device: SteerDevice) => {
-    if (updatingId) return
-    setUpdatingId(device.deviceId)
-    try {
-      await trpc.devices.requestUpdate.mutate({ deviceId: device.deviceId })
-      onChanged()
-    } finally {
-      setUpdatingId(null)
-    }
-  }
+  // FEED-36: the dialog's "Update now" confirmation counts the caller's live
+  // sessions on that machine — one query for the page, not one per row.
+  const settingsLiveSessions = settingsTarget
+    ? liveUpdateBlockers(blockersFor(settingsTarget), now).length
+    : 0
 
   const origin = useMemo(
     () =>
@@ -360,36 +261,6 @@ export function MyMachines({
   )
   const snippet = buildServerInstallSnippet(origin)
   const userAgent = typeof navigator === `undefined` ? `` : navigator.userAgent
-
-  const remove = async () => {
-    if (!removeTarget || busy) return
-    setBusy(true)
-    try {
-      await trpc.devices.remove.mutate({ deviceId: removeTarget.deviceId })
-      setRemoveTarget(null)
-      onChanged()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const updateNow = async () => {
-    if (!updateNowTarget || busy) return
-    setBusy(true)
-    try {
-      await trpc.devices.requestUpdate.mutate({
-        deviceId: updateNowTarget.deviceId,
-        endSessions: true,
-      })
-      setUpdateNowTarget(null)
-      onChanged()
-    } finally {
-      setBusy(false)
-    }
-  }
-  const updateNowLiveCount = updateNowTarget
-    ? liveUpdateBlockers(blockersFor(updateNowTarget), now).length
-    : 0
 
   return (
     <div className="mb-6">
@@ -419,13 +290,6 @@ export function MyMachines({
             // EXP-409: a device with nothing runnable greys out — EXP-862
             // leaves the WHY to the account chips.
             const runnable = deviceHasRunnableAgent(device)
-            // EXP-836: play hands this device to the Agent composer, which
-            // only starts on an online device WITH a runnable agent — so the
-            // button gates on exactly that. It used to gate on the sign-in
-            // state alone, so a device reporting no agents at all (nothing
-            // installed, an older build) opened the composer and the
-            // pre-picked device silently lost to the default one.
-            const startable = online && runnable
             const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
             const latest =
               device.kind === `server`
@@ -451,12 +315,12 @@ export function MyMachines({
               <ListRow
                 key={device.deviceId}
                 interactive
-                className={online && !runnable ? `opacity-60` : undefined}
+                // `group` = the hover scope the trailing gear fades in on.
+                className={`group${online && !runnable ? ` opacity-60` : ``}`}
               >
                 <KindIcon className="size-4 shrink-0 text-foreground/70" />
                 {/* FEED-15: the native two-line row — name + version (+ Shared)
-                    on top, live/last-seen state beneath, controls trailing —
-                    so phones never wrap the launcher onto its own line. */}
+                    on top, live/last-seen state beneath, the gear trailing. */}
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-baseline gap-1.5">
                     <span className="min-w-0 truncate text-sm font-medium">
@@ -515,125 +379,35 @@ export function MyMachines({
                       {blockerLine}
                     </div>
                   )}
-                  {/* EXP-849: the accounts this device holds — the repair
-                      controls live on these chips. */}
-                  <MachineAccountChips device={device} />
+                  {/* EXP-909: the logins this device holds — every repair
+                      control lives on these rows. */}
+                  <DeviceLogins device={device} now={now} />
                 </div>
-                {/* EXP-698: the fixed trailing column — a play slot and a ⋯
-                    slot, so the controls line up down the list. A row without
-                    a menu renders the slot as an empty spacer of the same
-                    size rather than sliding its play button over. */}
-                <div className="flex shrink-0 items-center gap-1">
-                  {/* EXP-420: only when a newer version really exists (or an
-                      update is already in flight — keep its progress visible). */}
-                  {(showDeviceUpdateButton(device, latest) ||
-                    updatingId === device.deviceId) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={outdated ? `text-amber-500` : `text-muted-foreground`}
-                      disabled={device.updateRequested || updatingId === device.deviceId}
-                      title={
-                        updateQueued
-                          ? QUEUED_UPDATE_TOOLTIP
-                          : `Ask the daemon to self-update (it restarts when idle)`
-                      }
-                      onClick={() => void requestUpdate(device)}
-                    >
-                      {updateQueued ? (
-                        // EXP-411: parked behind live sessions — say so instead
-                        // of spinning until the last one closes.
-                        <>
-                          <UpdateIcon />
-                          <span className="max-sm:sr-only">Queued</span>
-                        </>
-                      ) : device.updateRequested ||
-                        updatingId === device.deviceId ? (
-                        <>
-                          <LoaderCircle className="animate-spin" />
-                          <span className="max-sm:sr-only">Updating…</span>
-                        </>
-                      ) : (
-                        <>
-                          <UpdateIcon />
-                          <span className="max-sm:sr-only">Update</span>
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  {updateQueued && deviceCanUpdateNow(device) && (
-                    <Pill
-                      mode="action"
-                      onClick={() => setUpdateNowTarget(device)}
-                      title={`End this device's live sessions and restart it on the new version now.`}
-                    >
-                      <UpdateIcon className="size-3" />
-                      Update now…
-                    </Pill>
-                  )}
-                  <span
-                    title={
-                      online && !runnable
-                        ? `No agent is signed in on this device.`
-                        : undefined
-                    }
+                {/* EXP-909 follow-up: the ONE trailing control — a ghost
+                    settings gear (no circle, no border), on the caller's own
+                    REGISTERED devices only. ≥md it fades in on row hover or
+                    keyboard focus; on phones it is always painted. An
+                    unregistered row gets nothing at all — no spacer. */}
+                {device.registered && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+                    aria-label={`Device settings for ${device.deviceLabel || device.deviceId}`}
+                    title="Device settings"
+                    onClick={() => setSettingsTargetId(device.deviceId)}
                   >
-                    <Button
-                      variant="glass"
-                      size="icon"
-                      disabled={!startable}
-                      onClick={() => onStartCoding(device.deviceId)}
-                      aria-label="Start coding"
-                      // The wrapping span explains a sign-in block; its tooltip
-                      // must not be shadowed by this one.
-                      title={startable ? `Start coding` : undefined}
-                    >
-                      <StartCodingIcon />
-                    </Button>
-                  </span>
-                  {device.registered ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        {/* EXP-862: a ⋯ is a GHOST icon button ×4 — no
-                            circle, no border. */}
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Device menu for ${device.deviceLabel || device.deviceId}`}
-                        >
-                          <MoreIcon />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {/* EXP-481: rename, sharing, agent defaults and
-                            worktrees all live in the settings dialog. */}
-                        <DropdownMenuItem
-                          onSelect={() => setSettingsTargetId(device.deviceId)}
-                        >
-                          <SettingsIcon />
-                          Device settings
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onSelect={() => setRemoveTarget(device)}
-                        >
-                          <RemoveIcon />
-                          Remove
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <span aria-hidden className="size-8 shrink-0" />
-                  )}
-                </div>
+                    <SettingsIcon />
+                  </Button>
+                )}
               </ListRow>
             )
           })}
         </div>
       )}
-      {/* EXP-432: teammates' server devices shared with this team —
-          read-only rows (owner name shown, no rename/remove/update), but
-          fully startable. */}
+      {/* EXP-432: teammates' server devices shared with this team — read-only
+          rows (owner name in the tooltip, no rename/remove/update). The Agent
+          page composer is what aims a run at one. */}
       {teamShared.length > 0 && (
         <div className="mt-6">
           <GlassSectionHeader label="Team devices" />
@@ -663,29 +437,13 @@ export function MyMachines({
                       online={online}
                       lastSeenAt={device.lastSeenAt}
                     />
+                    {/* EXP-909: a teammate's machine lists its logins too —
+                        read-only: its credentials are theirs to repair. */}
+                    <DeviceLogins device={device} now={now} readOnly />
                   </div>
-                  {/* The same fixed trailing column as "My devices": a
-                      read-only row has no ⋯ menu, so its slot is an empty
-                      spacer and the play buttons stay in one line. */}
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="glass"
-                      size="icon"
-                      // EXP-836: same predicate as own devices — the composer
-                      // cannot start on a device with no runnable agent.
-                      disabled={!online || !runnable}
-                      onClick={() => onStartCoding(device.deviceId)}
-                      title={
-                        online && !runnable
-                          ? `No agent is signed in on this device.`
-                          : `Start coding`
-                      }
-                      aria-label="Start coding"
-                    >
-                      <StartCodingIcon />
-                    </Button>
-                    <span aria-hidden className="size-8 shrink-0" />
-                  </div>
+                  {/* EXP-909 follow-up: no trailing control at all — a
+                      teammate's machine is not ours to settle, and starting a
+                      run on it goes through the Agent page composer. */}
                 </ListRow>
               )
             })}
@@ -724,76 +482,18 @@ export function MyMachines({
         </DialogContent>
       </Dialog>
 
+      {/* EXP-909 follow-up: Update and Remove live in here now, as the
+          dialog's last two sections. */}
       <DeviceSettingsDialog
         device={settingsTarget}
         open={settingsTarget !== null}
         onOpenChange={(open) => {
           if (!open) setSettingsTargetId(null)
         }}
+        latestVersions={latestVersions}
+        liveSessionCount={settingsLiveSessions}
+        onChanged={onChanged}
       />
-
-      {/* FEED-36: Update now — the daemon ends every live session on the
-          machine and restarts on the queued version; confirmed, since it
-          interrupts work (repo-backed runs resume from their session page). */}
-      <AlertDialog
-        open={updateNowTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !busy) setUpdateNowTarget(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {`Update ${updateNowTarget?.deviceLabel || updateNowTarget?.deviceId || `this device`} now?`}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {updateNowLiveCount > 0
-                ? `Ends the ${updateNowLiveCount} live ${
-                    updateNowLiveCount === 1 ? `session` : `sessions`
-                  } on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`
-                : `Ends every live session on this device (repo-backed runs can be resumed from their session page) and restarts it on the new version.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={(event) => {
-                event.preventDefault()
-                void updateNow()
-              }}
-            >
-              {busy && <LoaderCircle className="animate-spin" />}
-              Update now
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog
-        open={removeTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !busy) setRemoveTarget(null)
-        }}
-      >
-        <DialogContent mobile="alert" className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Remove device</DialogTitle>
-            <DialogDescription>
-              Remove “{removeTarget?.deviceLabel || removeTarget?.deviceId}”
-              from your devices? A device with the daemon still running will
-              re-register itself on its next heartbeat.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogCancel disabled={busy} onClick={() => setRemoveTarget(null)} />
-            <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
-              {busy && <LoaderCircle className="animate-spin" />}
-              Remove
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

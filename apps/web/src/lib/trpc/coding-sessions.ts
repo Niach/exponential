@@ -550,8 +550,9 @@ export const codingSessionsRouter = router({
           // windows). Absent on rows from clients that predate it.
           agent: z.enum(codingAgentValues).optional(),
           // EXP-792 (EXP-747 B7): the agent account profile the run launched
-          // on (`system` = the ambient login). Server-only column, read back
-          // over tRPC for the usage page — never on the shape.
+          // on (`system` = the ambient login). EXP-909: synced, so every
+          // client's usage readout names the run's own login; a resume that
+          // switches accounts stamps the NEW one on its continuation row.
           agentAccount: z.string().min(1).max(64).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
@@ -873,6 +874,9 @@ export const codingSessionsRouter = router({
           batchIssueIds: z.array(z.string().uuid()).max(30).optional(),
           // EXP-484: echoed so a resurrected row keeps naming its agent.
           agent: z.enum(codingAgentValues).optional(),
+          // EXP-909: echoed so a resurrected row keeps naming the LOGIN it
+          // spends (the usage readout would otherwise fall back to a guess).
+          agentAccount: z.string().min(1).max(64).optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -944,6 +948,7 @@ export const codingSessionsRouter = router({
               hostUserId: attribution.hostUserId,
               ...device,
               agent: input.agent ?? null,
+              agentAccount: input.agentAccount ?? null,
               // EXP-701: a resurrecting beat IS the liveness proof — the
               // re-created row is acked from the start.
               ackedAt: new Date(),
@@ -1022,6 +1027,7 @@ export const codingSessionsRouter = router({
               hostUserId: attribution.hostUserId,
               ...device,
               agent: input.agent ?? null,
+              agentAccount: input.agentAccount ?? null,
               branch: input.branch ?? null,
               // EXP-876: only a batch echo carries these (an action scope
               // names itself off its snapshot), and they are re-scoped to

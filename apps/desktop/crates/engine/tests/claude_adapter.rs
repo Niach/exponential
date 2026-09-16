@@ -283,9 +283,16 @@ fn one_session_at_a_time() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
-/// What this machine's claude sessions have published so far.
+/// What this machine's claude sessions on the AMBIENT login have published
+/// so far (EXP-909: the registry is keyed by `(agent, profile)`, and every
+/// spec here launches account-less).
 fn live_usage() -> coding::agent_usage::live::LiveUsage {
-    coding::agent_usage::live::snapshot(coding::CodingAgent::Claude).unwrap_or_default()
+    live_usage_on(coding::SYSTEM_PROFILE)
+}
+
+/// The same, for a named account profile.
+fn live_usage_on(profile: &str) -> coding::agent_usage::live::LiveUsage {
+    coding::agent_usage::live::snapshot(coding::CodingAgent::Claude, profile).unwrap_or_default()
 }
 
 /// Poll `ready` until it holds or the budget is gone.
@@ -1595,6 +1602,142 @@ async fn a_claude_session_publishes_live_usage_and_detaches_on_end() {
     // out by their own stamp).
     settle(|| live_usage().sessions == 0).await;
     assert_eq!(live_usage().windows, during.windows);
+}
+
+/// EXP-909 — a run publishes under the LOGIN it spends, not under "claude".
+/// The machine's ambient login must not move because a run on a named
+/// account had a turn: they are different accounts with different budgets,
+/// and the bar the user reads is per login.
+#[tokio::test]
+async fn a_claude_session_publishes_under_the_account_it_runs_on() {
+    let _session = one_session_at_a_time();
+    let work = workdir("live-usage-account");
+    let mut launch = spec("rate-limit", &work.0, false);
+    launch.options.account = Some("prof-9".to_string());
+    let ambient_before = live_usage();
+    let adapter = ClaudeAgent::new(launch).expect("the adapter builds");
+    let during = Arc::new(Mutex::new(None));
+    let recorded = during.clone();
+    let permission = reject_all();
+    let elicitation = cancel_elicitations();
+
+    let driven = Client
+        .builder()
+        .name("exp909-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .on_receive_request(
+            async move |request: RequestPermissionRequest, responder, _cx| {
+                responder.respond(RequestPermissionResponse::new(permission(&request)))
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |request: CreateElicitationRequest, responder, _cx| {
+                responder.respond(CreateElicitationResponse::new(elicitation(&request)))
+            },
+            on_receive_request!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            cx.send_request(PromptRequest::new(
+                session.session_id.clone(),
+                vec![ContentBlock::Text(TextContent::new("Do the thing."))],
+            ))
+            .block_task()
+            .await?;
+            if let Ok(mut slot) = recorded.lock() {
+                *slot = Some((live_usage_on("prof-9"), live_usage()));
+            }
+            Ok::<_, Error>(())
+        });
+    tokio::time::timeout(Duration::from_secs(30), driven)
+        .await
+        .expect("the turn settles inside the budget")
+        .expect("the connection runs cleanly");
+
+    let (account, ambient) = during
+        .lock()
+        .expect("the recorded snapshot")
+        .clone()
+        .expect("a live snapshot");
+    assert!(account.sessions >= 1, "the run's own login holds the slot");
+    assert!(!account.windows.is_empty(), "and its frames land there");
+    assert_eq!(
+        ambient.sessions, ambient_before.sessions,
+        "the ambient login never knew this run existed"
+    );
+    assert_eq!(ambient.windows, ambient_before.windows, "nor its numbers");
+}
+
+/// EXP-909 — a transcript REPLAY reads history off disk: no child, no turns,
+/// nothing spent. It used to take a live-usage slot anyway and hold it for as
+/// long as the viewer stayed open, which pinned the machine's numbers "live"
+/// on a run that had ended hours ago.
+#[tokio::test]
+async fn a_transcript_replay_never_holds_a_live_usage_slot() {
+    let _session = one_session_at_a_time();
+    let work = workdir("replay-no-slot");
+    let session_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    record_transcript(&work.0, session_id, &work.0);
+
+    let mut launch = spec("basic", &work.0, false);
+    launch.replay = true;
+    let before = live_usage().sessions;
+    let adapter = ClaudeAgent::new(launch).expect("the adapter builds");
+    let listed = work.0.clone();
+    let during = Arc::new(Mutex::new(None));
+    let recorded = during.clone();
+    Client
+        .builder()
+        .name("exp909-replay-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let sessions = cx
+                .send_request(ListSessionsRequest::new().cwd(listed.clone()))
+                .block_task()
+                .await?;
+            cx.send_request(LoadSessionRequest::new(
+                sessions.sessions[0].session_id.clone(),
+                listed,
+            ))
+            .block_task()
+            .await?;
+            // Read WHILE the replayed session is loaded — the bug was a slot
+            // held for the life of the viewer, not a leak at teardown.
+            if let Ok(mut slot) = recorded.lock() {
+                *slot = Some(live_usage().sessions);
+            }
+            Ok::<_, Error>(())
+        })
+        .await
+        .expect("the connection runs cleanly");
+
+    assert_eq!(
+        during.lock().expect("the recorded count").expect("a count"),
+        before,
+        "a replay holds no live session"
+    );
 }
 
 /// EXP-784: the ACP session id is the host's STABLE handle; claude's own

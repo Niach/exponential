@@ -1,16 +1,16 @@
 import Foundation
 
-/// EXP-829: the Devices page's **Accounts** section — the rules behind it.
+/// EXP-829/EXP-909: the LOGINS under a Devices row — the rules behind them.
 ///
-/// EXP-818 folded the Usage page into Devices on web and desktop: ONE row per
-/// agent ACCOUNT (an agent plus the login the machines named) off the synced
-/// `devices` rows, the machines holding it as chips (a check where it is the
-/// ACTIVE login), the FRESHEST machine's numbers as the bars. This is the
-/// mobile mirror of that derivation, hand-mirrored against web
-/// `lib/agent-usage.ts` (`agentProfileUsageRows` / `accountUsageGroups` /
-/// `sortAccountGroupsAttentionFirst` / `refreshAllowedAt`) and desktop
-/// `ui/src/usage_bar.rs` + `accounts_section.rs` — same names, same
-/// fallbacks, same test names. Change a rule here, change it there.
+/// EXP-909 folded the cross-device "Accounts" section away on all four
+/// clients: it merged by email logins that are per MACHINE, so one account
+/// lived twice, with two orderings, two health badges and two menus. What is
+/// left is the derivation that always mattered — one row per machine × agent ×
+/// login profile, listed under the machine that holds it — hand-mirrored
+/// against web `lib/agent-usage.ts` (`agentProfileUsageRows` /
+/// `deviceLoginRows` / `sortDeviceLogins` / `loginLabel` / `refreshAllowedAt`)
+/// and desktop `ui/src/usage_bar.rs`: same names, same fallbacks, same test
+/// names. Change a rule here, change it there.
 ///
 /// Pure: nothing here reads the clock (every stamp is compared against a
 /// `now` the caller passes) and nothing fetches — the device is the only
@@ -81,73 +81,6 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
     }
 }
 
-/// One ACCOUNT: the rows above folded by login. EXP-817's rule ×4.
-public struct AgentAccountUsageGroup: Equatable, Sendable, Identifiable {
-    /// `<agent>:<email>` for a named login; a row with no email (an agent that
-    /// names a provider, a signed-out row that names nobody) can never be told
-    /// apart from another machine's, so it keeps its own
-    /// `<agent>:<deviceId>:<profileId>`.
-    public let key: String
-    public let agent: String
-    public let signedIn: Bool
-    public let email: String?
-    public var plan: String?
-    /// The machines (× profile) holding this account: online first, then by
-    /// label, then profile — a heartbeat cannot reshuffle the chips.
-    public var rows: [AgentProfileUsageRow]
-    /// The FRESHEST member's numbers: newest `fetchedAt`, a non-stale report
-    /// winning a tie, a report with windows beating one without.
-    public var usage: AgentUsage?
-    /// The newest probe stamp among the members — the "as of …" fallback.
-    public var checkedAt: String?
-    /// Where a refresh is queued: the eligible member (`canRefresh`) that
-    /// reported the freshest numbers, or nil when no member may run one.
-    public var refreshTarget: AgentProfileUsageRow?
-    /// EXP-849: the WORST health among the machines holding this account — a
-    /// login that works on one machine and is expired on another reads as
-    /// needing a re-login, because it does.
-    public var health: AgentAccountHealth
-
-    public var id: String { key }
-
-    public init(
-        key: String,
-        agent: String,
-        signedIn: Bool,
-        email: String?,
-        plan: String?,
-        rows: [AgentProfileUsageRow],
-        usage: AgentUsage?,
-        checkedAt: String?,
-        refreshTarget: AgentProfileUsageRow?,
-        health: AgentAccountHealth = .unknown
-    ) {
-        self.key = key
-        self.agent = agent
-        self.signedIn = signedIn
-        self.email = email
-        self.plan = plan
-        self.rows = rows
-        self.usage = usage
-        self.checkedAt = checkedAt
-        self.refreshTarget = refreshTarget
-        self.health = health
-    }
-}
-
-/// The section's agent bands: contract order first, anything else after.
-public struct AgentAccountSection: Equatable, Sendable, Identifiable {
-    public let agent: String
-    public let groups: [AgentAccountUsageGroup]
-
-    public var id: String { agent }
-
-    public init(agent: String, groups: [AgentAccountUsageGroup]) {
-        self.agent = agent
-        self.groups = groups
-    }
-}
-
 public enum AgentAccountsRows {
     /// The ambient login's profile id — byte-identical with web
     /// `SYSTEM_PROFILE_ID` and the desktop's `agent_profiles::SYSTEM_PROFILE`.
@@ -182,75 +115,112 @@ public enum AgentAccountsRows {
         currentUserId: String?,
         isOnline: (String?) -> Bool
     ) -> [AgentProfileUsageRow] {
-        var out: [AgentProfileUsageRow] = []
-        for device in devices {
-            let accounts = AgentUsagePresentation.parseAccounts(device.agentAccounts) ?? [:]
-            let usageMap = AgentUsagePresentation.parseMap(device.agentUsage) ?? [:]
-            // EXP-849: an agent this build has no name for (a retired `pi`
-            // still beating off an old daemon) is not a row, not a tab and
-            // not a chip. The row mapping already drops it; the set is
-            // filtered here too, so a caller that parsed the jsonb itself
-            // cannot smuggle one in.
-            let agents = orderedAgents(
-                Set(accounts.keys).union(usageMap.keys)
-                    .filter(AgentUsagePresentation.isContractAgent)
+        devices.flatMap { device in
+            rows(
+                deviceId: device.deviceId,
+                deviceLabel: device.label,
+                mine: currentUserId != nil && device.userId == currentUserId,
+                online: isOnline(device.lastSeenAt),
+                accounts: AgentUsagePresentation.parseAccounts(device.agentAccounts) ?? [:],
+                usageMap: AgentUsagePresentation.parseMap(device.agentUsage) ?? [:],
+                agentUsageAt: device.agentUsageAt
             )
-            let mine = currentUserId != nil && device.userId == currentUserId
-            let online = isOnline(device.lastSeenAt)
-            for agent in agents {
-                let account = accounts[agent]
-                let profiles = account?.profiles ?? []
-                if profiles.isEmpty {
-                    out.append(AgentProfileUsageRow(
-                        key: "\(device.deviceId):\(agent):\(systemProfileId)",
-                        deviceId: device.deviceId,
-                        deviceLabel: device.label,
-                        mine: mine,
-                        online: online,
-                        agent: agent,
-                        profileId: systemProfileId,
-                        profileLabel: systemProfileLabel,
-                        active: true,
-                        signedIn: account?.signedIn == true,
-                        email: nonEmpty(account?.email),
-                        plan: nonEmpty(account?.plan),
-                        usage: usageMap[agent],
-                        checkedAt: nonEmpty(account?.checkedAt) ?? nonEmpty(device.agentUsageAt),
-                        // EXP-849: an agent the machine reported ONLY usage
-                        // for has no account entry at all, which is `unknown`
-                        // — `AgentAccountHealth.of(nil)` says exactly that.
-                        health: AgentAccountHealth.of(account)
-                    ))
-                    continue
-                }
-                for profile in profiles {
-                    // The active profile's numbers ride BOTH the profile entry
-                    // and the pre-profile `agentUsage[agent]` slot; prefer the
-                    // profile's own and fall back for a device that only
-                    // populated the old slot.
-                    let usage = profile.usage
-                        ?? (profile.active == true ? usageMap[agent] : nil)
-                    out.append(AgentProfileUsageRow(
-                        key: "\(device.deviceId):\(agent):\(profile.id)",
-                        deviceId: device.deviceId,
-                        deviceLabel: device.label,
-                        mine: mine,
-                        online: online,
-                        agent: agent,
-                        profileId: profile.id,
-                        profileLabel: nonEmpty(profile.label)
-                            ?? (profile.id == systemProfileId ? systemProfileLabel : profile.id),
-                        active: profile.active == true,
-                        signedIn: profile.signedIn == true,
-                        email: nonEmpty(profile.email),
-                        plan: nonEmpty(profile.plan),
-                        usage: usage,
-                        checkedAt: nonEmpty(profile.checkedAt) ?? nonEmpty(account?.checkedAt),
-                        // EXP-849: the profile's own probe outcome; a profile
-                        // entry that reports none derives from its `signedIn`.
-                        health: AgentAccountHealth.of(profile)
-                    ))
-                }
+        }
+    }
+
+    /// EXP-909: the logins ONE machine reported, as its Devices-page sub-rows
+    /// — the same derivation `profileRows` runs, entered per device off the
+    /// COMPOSED row (which already parsed the jsonb), then ordered by
+    /// `sortDeviceLogins`. No new type and no second rule: the cross-device
+    /// Accounts section is gone, so this is the only caller shape left beside
+    /// the flat one. Web/Android `deviceLoginRows`, desktop
+    /// `agent_profile_usage_rows(slice::from_ref(row), …)`.
+    public static func deviceLoginRows(_ device: SteerDevice) -> [AgentProfileUsageRow] {
+        sortDeviceLogins(rows(
+            deviceId: device.deviceId,
+            deviceLabel: device.deviceLabel,
+            mine: device.isMine,
+            online: device.isOnline,
+            accounts: device.agentAccounts ?? [:],
+            usageMap: device.agentUsage ?? [:],
+            agentUsageAt: device.agentUsageAt
+        ))
+    }
+
+    /// The shared core both entry points run: one machine's reported accounts
+    /// and usage → its rows, in contract agent order, unsorted otherwise.
+    private static func rows(
+        deviceId: String,
+        deviceLabel: String,
+        mine: Bool,
+        online: Bool,
+        accounts: [String: AgentAccount],
+        usageMap: [String: AgentUsage],
+        agentUsageAt: String?
+    ) -> [AgentProfileUsageRow] {
+        var out: [AgentProfileUsageRow] = []
+        // EXP-849: an agent this build has no name for (a retired `pi`
+        // still beating off an old daemon) is not a row, not a tab and
+        // not a chip. The row mapping already drops it; the set is
+        // filtered here too, so a caller that parsed the jsonb itself
+        // cannot smuggle one in.
+        let agents = orderedAgents(
+            Set(accounts.keys).union(usageMap.keys)
+                .filter(AgentUsagePresentation.isContractAgent)
+        )
+        for agent in agents {
+            let account = accounts[agent]
+            let profiles = account?.profiles ?? []
+            if profiles.isEmpty {
+                out.append(AgentProfileUsageRow(
+                    key: "\(deviceId):\(agent):\(systemProfileId)",
+                    deviceId: deviceId,
+                    deviceLabel: deviceLabel,
+                    mine: mine,
+                    online: online,
+                    agent: agent,
+                    profileId: systemProfileId,
+                    profileLabel: systemProfileLabel,
+                    active: true,
+                    signedIn: account?.signedIn == true,
+                    email: nonEmpty(account?.email),
+                    plan: nonEmpty(account?.plan),
+                    usage: usageMap[agent],
+                    checkedAt: nonEmpty(account?.checkedAt) ?? nonEmpty(agentUsageAt),
+                    // EXP-849: an agent the machine reported ONLY usage
+                    // for has no account entry at all, which is `unknown`
+                    // — `AgentAccountHealth.of(nil)` says exactly that.
+                    health: AgentAccountHealth.of(account)
+                ))
+                continue
+            }
+            for profile in profiles {
+                // The active profile's numbers ride BOTH the profile entry
+                // and the pre-profile `agentUsage[agent]` slot; prefer the
+                // profile's own and fall back for a device that only
+                // populated the old slot.
+                let usage = profile.usage
+                    ?? (profile.active == true ? usageMap[agent] : nil)
+                out.append(AgentProfileUsageRow(
+                    key: "\(deviceId):\(agent):\(profile.id)",
+                    deviceId: deviceId,
+                    deviceLabel: deviceLabel,
+                    mine: mine,
+                    online: online,
+                    agent: agent,
+                    profileId: profile.id,
+                    profileLabel: nonEmpty(profile.label)
+                        ?? (profile.id == systemProfileId ? systemProfileLabel : profile.id),
+                    active: profile.active == true,
+                    signedIn: profile.signedIn == true,
+                    email: nonEmpty(profile.email),
+                    plan: nonEmpty(profile.plan),
+                    usage: usage,
+                    checkedAt: nonEmpty(profile.checkedAt) ?? nonEmpty(account?.checkedAt),
+                    // EXP-849: the profile's own probe outcome; a profile
+                    // entry that reports none derives from its `signedIn`.
+                    health: AgentAccountHealth.of(profile)
+                ))
             }
         }
         return out
@@ -276,22 +246,6 @@ public enum AgentAccountsRows {
         return 2
     }
 
-    /// `attentionRank`, then the fuller row, then device label, agent,
-    /// profile — so a heartbeat cannot shuffle equal rows.
-    public static func sortAttentionFirst(_ rows: [AgentProfileUsageRow]) -> [AgentProfileUsageRow] {
-        rows.sorted { a, b in
-            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
-            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
-            if rankA != rankB { return rankA < rankB }
-            let peakA = peakPercent(a.usage)
-            let peakB = peakPercent(b.usage)
-            if peakA != peakB { return peakA > peakB }
-            if let ordered = before(a.deviceLabel, b.deviceLabel) { return ordered }
-            if let ordered = before(a.agent, b.agent) { return ordered }
-            return before(a.profileId, b.profileId) ?? false
-        }
-    }
-
     /// When a forced refresh is next allowed for `usage`: nil = right now (no
     /// fetch on record, or the last one is older than the floor). A stamp in
     /// the future (the machine's clock runs ahead) is treated as "just
@@ -304,98 +258,57 @@ public enum AgentAccountsRows {
         return next > now ? next : nil
     }
 
-    // MARK: - One group per account (EXP-817)
+    // MARK: - One device's logins (EXP-909)
 
-    public static func accountGroupKey(_ row: AgentProfileUsageRow) -> String {
-        let email = row.signedIn
-            ? row.email?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            : nil
-        if let email, !email.isEmpty { return "\(row.agent):\(email)" }
-        return "\(row.agent):\(row.deviceId):\(row.profileId)"
-    }
-
-    /// Fold the rows into account groups, in first-seen order. `canRefresh`
-    /// decides which members may run `agent_usage_refresh` (mine + online +
-    /// the cap) — injected so the derivation stays pure. Nothing is sorted
-    /// across groups here: `sortGroupsAttentionFirst` owns that.
-    public static func accountGroups(
-        _ rows: [AgentProfileUsageRow],
-        canRefresh: (AgentProfileUsageRow) -> Bool
-    ) -> [AgentAccountUsageGroup] {
-        var order: [String] = []
-        var byKey: [String: AgentAccountUsageGroup] = [:]
-        for row in rows {
-            let key = accountGroupKey(row)
-            var group: AgentAccountUsageGroup
-            if let existing = byKey[key] {
-                group = existing
-            } else {
-                order.append(key)
-                group = AgentAccountUsageGroup(
-                    key: key,
-                    agent: row.agent,
-                    signedIn: row.signedIn,
-                    email: row.email,
-                    plan: row.plan,
-                    rows: [],
-                    usage: nil,
-                    checkedAt: nil,
-                    refreshTarget: nil,
-                    // Folded below as every member joins: the worst wins.
-                    health: row.health
-                )
+    /// The order a machine's logins read in under its Devices row: contract
+    /// agent order first (claude before codex, an unknown agent last), then
+    /// the machine's ACTIVE login for that agent, then `attentionRank` (a
+    /// signed-out or refused login leads the rest), then the profile label and
+    /// its id — so a heartbeat can never reshuffle equal rows.
+    ///
+    /// The active login leads DELIBERATELY, before attention: this list
+    /// answers "what is this machine running right now", and the broken
+    /// sibling below it still wears its badge. Locked ×4 by `device logins
+    /// lead with the active login, in contract agent order`.
+    public static func sortDeviceLogins(_ rows: [AgentProfileUsageRow]) -> [AgentProfileUsageRow] {
+        rows.sorted { a, b in
+            if a.agent != b.agent {
+                let rankA = agentRank(a.agent)
+                let rankB = agentRank(b.agent)
+                if rankA != rankB { return rankA < rankB }
+                return before(a.agent, b.agent) ?? false
             }
-            group.rows.append(row)
-            if group.plan == nil, let plan = row.plan { group.plan = plan }
-            group.health = AgentAccountHealth.worst([group.health, row.health]) ?? group.health
-            if fresherUsage(row.usage, than: group.usage) { group.usage = row.usage }
-            if stamp(row.checkedAt) > stamp(group.checkedAt) { group.checkedAt = row.checkedAt }
-            if canRefresh(row),
-               group.refreshTarget == nil || fresherUsage(row.usage, than: group.refreshTarget?.usage) {
-                group.refreshTarget = row
-            }
-            byKey[key] = group
-        }
-        return order.compactMap { key in
-            guard var group = byKey[key] else { return nil }
-            group.rows.sort { a, b in
-                if a.online != b.online { return a.online }
-                if let ordered = before(a.deviceLabel, b.deviceLabel) { return ordered }
-                return before(a.profileId, b.profileId) ?? false
-            }
-            return group
+            if a.active != b.active { return a.active }
+            let attentionA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
+            let attentionB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
+            if attentionA != attentionB { return attentionA < attentionB }
+            if let ordered = before(a.profileLabel, b.profileLabel) { return ordered }
+            return before(a.profileId, b.profileId) ?? false
         }
     }
 
-    /// `attentionRank` over groups, then the fuller group, then agent, then
-    /// the key (email or device) — the section order.
-    public static func sortGroupsAttentionFirst(_ groups: [AgentAccountUsageGroup]) -> [AgentAccountUsageGroup] {
-        groups.sorted { a, b in
-            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
-            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
-            if rankA != rankB { return rankA < rankB }
-            let peakA = peakPercent(a.usage)
-            let peakB = peakPercent(b.usage)
-            if peakA != peakB { return peakA > peakB }
-            if let ordered = before(a.agent, b.agent) { return ordered }
-            return before(a.key, b.key) ?? false
-        }
+    /// A login's title on its device row: who it IS — the email, else the bare
+    /// plan (an agent that names a provider instead of an address), else the
+    /// profile's own label. NEVER a status: the brand mark says which agent,
+    /// the row above says which machine, and the health badge says whether it
+    /// still works. Locked ×4 by `the login label is the identity, never the
+    /// status`.
+    public static func loginLabel(_ row: AgentProfileUsageRow) -> String {
+        row.email ?? row.plan ?? row.profileLabel
     }
 
-    /// The agent bands: contract `codingAgent` order first, an agent this
-    /// build has no name for after the known ones, alphabetically. A band
-    /// only exists when a machine reported the agent. Group order within a
-    /// band is preserved (sort the groups first).
-    public static func sections(_ groups: [AgentAccountUsageGroup]) -> [AgentAccountSection] {
-        var order: [String] = []
-        var byAgent: [String: [AgentAccountUsageGroup]] = [:]
-        for group in groups {
-            if byAgent[group.agent] == nil { order.append(group.agent) }
-            byAgent[group.agent, default: []].append(group)
-        }
-        return orderedAgents(Set(order)).map { agent in
-            AgentAccountSection(agent: agent, groups: byAgent[agent] ?? [])
-        }
+    /// The badge a LOGIN row wears, or nil when there is nothing to say —
+    /// `Needs re-login` / `Signed out`, the same two states the account rows
+    /// used to badge.
+    public static func healthBadge(_ row: AgentProfileUsageRow) -> String? {
+        row.health.badgeLabel
+    }
+
+    /// Contract `codingAgent` position; an agent this build has no name for
+    /// sorts after every known one (the caller then falls through to the name).
+    private static func agentRank(_ agent: String) -> Int {
+        DomainContract.codingAgentValues.firstIndex(of: agent)
+            ?? DomainContract.codingAgentValues.count
     }
 
     // MARK: - Per-device health (EXP-849)
@@ -413,41 +326,16 @@ public enum AgentAccountsRows {
             ?? .unknown
     }
 
-    /// The machine's logins, as the chips a Devices row draws: attention
-    /// first, then the same order the account rows use for their chips
-    /// (online, label, profile — and here agent before profile, since one
-    /// machine holds several agents).
+    /// The machine's logins, in the order its Devices row lists them
+    /// (`sortDeviceLogins`: contract agent order, its active login first).
     public static func deviceRows(
         _ rows: [AgentProfileUsageRow],
         deviceId: String
     ) -> [AgentProfileUsageRow] {
-        rows.filter { $0.deviceId == deviceId }.sorted { a, b in
-            let rankA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
-            let rankB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
-            if rankA != rankB { return rankA < rankB }
-            if let ordered = before(a.agent, b.agent) { return ordered }
-            if a.active != b.active { return a.active }
-            return before(a.profileLabel, b.profileLabel) ?? false
-        }
+        sortDeviceLogins(rows.filter { $0.deviceId == deviceId })
     }
 
     // MARK: - Row copy
-
-    /// The `Studio · Personal` chip text: the machine, plus the profile when
-    /// it is not the ambient login.
-    public static func chipLabel(_ row: AgentProfileUsageRow) -> String {
-        let device = row.deviceLabel.isEmpty ? row.deviceId : row.deviceLabel
-        return row.profileId == systemProfileId ? device : "\(device) · \(row.profileLabel)"
-    }
-
-    /// The row's title: who the account IS — the email, else the bare plan (an
-    /// agent that reports a provider, never an address), else the profile's own
-    /// label. EXP-862 dropped the "Not signed in" title: a signed-out login is
-    /// said ONCE, by its chip's badge, and a row that announced it in its title
-    /// as well had nothing left to identify the account by.
-    public static func groupCaption(_ group: AgentAccountUsageGroup) -> String {
-        group.email ?? group.plan ?? group.rows.first?.profileLabel ?? systemProfileLabel
-    }
 
     /// The `account-switch` device cap: the machine handles
     /// `agent_profile_use`. Shipped in desktop/CLI 0.14.38 — the server
@@ -529,14 +417,6 @@ public enum AgentAccountsRows {
         "Delete \(account) on \(device)? The login is removed from this device only; the account itself is untouched."
     }
 
-    /// EXP-849/EXP-862: the account row's health badge, or nil when there is
-    /// nothing to say. Since EXP-862 the title no longer announces a signed-out
-    /// account, so the badge is what says it — for BOTH attention states
-    /// (Android `healthBadge`, web `accountHealthBadge`).
-    public static func healthBadge(_ group: AgentAccountUsageGroup) -> String? {
-        group.health.badgeLabel
-    }
-
     // MARK: - Adding a login (EXP-827/EXP-862)
 
     /// The server's clamp on a profile label (web `MAX_PROFILE_LABEL`).
@@ -610,16 +490,6 @@ public enum AgentAccountsRows {
         return clampProfileLabel("\(agentLabel) account \(n)")
     }
 
-    /// EXP-862: whether an account row offers its bare "+" at all (web
-    /// `showAdd`). Only a SIGNED-IN, NAMED login can be added on another
-    /// machine: the sign-in there has to be run as somebody, and the machine
-    /// reports the result under the same email, which is what joins the new
-    /// chip to this row.
-    public static func canAddAccountElsewhere(_ group: AgentAccountUsageGroup) -> Bool {
-        guard group.signedIn, let email = group.email else { return false }
-        return !email.isEmpty
-    }
-
     /// EXP-862: has the login the sign-in sheet drove ARRIVED? The sheet
     /// closes on the TRANSITION into this, so it must be false while the flow
     /// runs — web `agentLoginLanded`, rule for rule:
@@ -663,25 +533,6 @@ public enum AgentAccountsRows {
     }
 
     // MARK: - Internals
-
-    /// Whether `candidate` is a fresher report than `current`.
-    static func fresherUsage(_ candidate: AgentUsage?, than current: AgentUsage?) -> Bool {
-        guard let candidate else { return false }
-        guard let current else { return true }
-        let byStamp = stamp(candidate.fetchedAt) - stamp(current.fetchedAt)
-        if byStamp != 0 { return byStamp > 0 }
-        if candidate.stale != current.stale { return current.stale == true }
-        return !(candidate.windows ?? []).isEmpty && (current.windows ?? []).isEmpty
-    }
-
-    /// A stamp as seconds since the epoch; nothing / unreadable = -∞, so it
-    /// never beats a real one. Two unreadable stamps differ by NaN, which
-    /// `fresherUsage` reads exactly like the web mirror does: neither is
-    /// fresher, and the tie-breaks below it do not run.
-    private static func stamp(_ value: String?) -> Double {
-        guard let value, let date = WireTimestamps.parse(value) else { return -.infinity }
-        return date.timeIntervalSince1970
-    }
 
     private static func nonEmpty(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }

@@ -282,9 +282,14 @@ import androidx.room.TypeConverters
     //      was titled "Batch run"). New column on the coding-sessions shape
     //      allowlist; destructive fallback wipes + resyncs so every row arrives
     //      carrying it.
+    // v62 (EXP-909): coding_sessions.agent_account — the account profile the
+    //      run spends, so the usage overlay can name the run's login instead
+    //      of guessing the machine's ambient one. New column on the
+    //      coding-sessions shape allowlist; destructive fallback wipes +
+    //      resyncs so every row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 61,
+    version = 62,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

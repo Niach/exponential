@@ -1,30 +1,38 @@
-//! EXP-863/EXP-877 — the per-run usage sheet (context window, the active
-//! account's rate-limit windows, the other accounts on the host) that the
-//! transcript composer's context ring opens. Moved out of `session_screen`
-//! so the viewer's footer can host it; the SAME structure the web popover
-//! builds.
+//! EXP-863/EXP-877/EXP-909 — the per-run usage sheet (the run's account, its
+//! rate-limit windows, this run's context window and the other accounts on
+//! the host) that the transcript composer's context ring opens. Moved out of
+//! `session_screen` so the viewer's footer can host it; the SAME layout the
+//! web popover, the iOS sheet and the Android sheet build, section for
+//! section.
 
 use gpui::{div, px, AnyElement, App, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, progress::ProgressCircle, v_flex, ActiveTheme as _,
+    h_flex, progress::ProgressCircle, v_flex, ActiveTheme as _, Sizable as _,
 };
 
 use crate::controls::{WebControl as _, WebText as _};
 
-/// EXP-863 — the usage sheet, the SAME structure the web popover builds:
+/// EXP-863/EXP-909 — the usage sheet, the SAME layout on all four clients:
 ///
-/// 1. the ACTIVE account's caption once (the only place it appears);
-/// 2. "Context" — the run's live window, cost right-aligned, then the meter;
-/// 3. the active account's rate-limit windows (the three cards as today);
-/// 4. "Accounts" — ONLY the other accounts on the host, each with Switch,
-///    dense cards and an account-level refusal; omitted with no other one;
-/// 5. ONE footer note: the global blocker, else the one-time cost.
+/// 1. the run's ACCOUNT, once: the agent's brand mark, the login's caption,
+///    and either its health badge or its plan (muted) — never both, never a
+///    second time further down;
+/// 2. that account's rate-limit windows, two lines each, dimming to an
+///    `as of …` caption once they are no longer current;
+/// 3. "Context" — this run's live token window, one line plus the meter;
+/// 4. "Accounts" — ONLY the OTHER logins on the host, each an identity line
+///    with an icon-only switch, a mini usage line and its own refusal;
+/// 5. ONE footer note: the global blocker, else the one-time switch cost.
 ///
-/// Sections are separated by hairlines; no sentence appears twice. The
-/// context block and the windows are two different quantities (this run's
-/// tokens on the wire vs. the machine's rate limits, up to a heartbeat
-/// stale), which is why they stay two sections and not one merged list.
+/// Sections are separated by hairlines and no sentence appears twice. The
+/// windows and the context block are two different quantities (the machine's
+/// rate limits, up to a heartbeat stale, vs. this conversation's tokens on
+/// the wire), which is why they stay two sections and not one merged list.
+///
+/// `windows` is the FALLBACK report — the caller's best guess for the agent
+/// on that machine. The run's own login wins whenever its row carries
+/// numbers: those are the limits this run actually spends (EXP-875 §2).
 pub(crate) fn render_usage_sheet(
     agent: Option<coding::CodingAgent>,
     usage: Option<&steer::SessionUsage>,
@@ -33,6 +41,7 @@ pub(crate) fn render_usage_sheet(
     cx: &App,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
+    let now_epoch = chrono::Utc::now().timestamp();
     let resolved = switch
         .as_ref()
         .and_then(|switch| switch.resolve(cx));
@@ -40,16 +49,29 @@ pub(crate) fn render_usage_sheet(
         Some((targets, blocker)) => (targets.as_slice(), blocker.as_ref()),
         None => (&[][..], None),
     };
+    let current = targets.iter().find(|target| target.current);
     let mut sections: Vec<AnyElement> = Vec::new();
 
-    // 1. The active account, once.
-    if let Some(current) = targets.iter().find(|target| target.current) {
+    // 1. The run's account, once: brand mark · caption · badge-or-plan.
+    if let Some(current) = current {
+        let badge = crate::usage_bar::health_badge(current.health, cx);
+        // The plan says itself only BEHIND an email — a caption that already
+        // IS the plan must not print it twice — and never beside a badge:
+        // a broken login's plan is not the thing to read first.
+        let plan = current
+            .plan
+            .clone()
+            .filter(|plan| badge.is_none() && plan != &current.caption);
         sections.push(
             h_flex()
                 .w_full()
                 .min_w_0()
                 .items_center()
                 .gap_1p5()
+                .children(agent.map(|agent| {
+                    crate::coding_selects::agent_mark(agent)
+                        .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                }))
                 .child(
                     div()
                         .flex_1()
@@ -59,35 +81,51 @@ pub(crate) fn render_usage_sheet(
                         .font_weight(gpui::FontWeight::MEDIUM)
                         .child(SharedString::from(current.caption.clone())),
                 )
-                .children(crate::usage_bar::health_badge(current.health, cx))
+                .children(badge)
+                .children(plan.map(|plan| {
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(plan))
+                }))
                 .into_any_element(),
         );
     }
 
-    // 2. Context.
-    let context = crate::usage_bar::render_context_block(usage, cx);
-    let has_context = context.is_some();
-    sections.extend(context);
-
-    // 3. The active account's windows.
-    let has_windows = windows.is_some_and(|windows| !windows.windows.is_empty());
-    if let (Some(agent), Some(windows)) = (agent, windows.filter(|_| has_windows)) {
-        sections.push(crate::usage_bar::render_usage_cards(
-            agent,
-            windows,
-            chrono::Utc::now().timestamp(),
-            true,
+    // 2. That account's windows — its OWN row's numbers, the caller's
+    //    fallback only when the row carries none (a machine that reported
+    //    just the top-level map, or a device row that has not synced).
+    let run_windows = current
+        .and_then(|target| target.usage.as_ref())
+        .filter(|usage| !usage.windows.is_empty())
+        .or_else(|| windows.filter(|usage| !usage.windows.is_empty()));
+    match run_windows {
+        Some(run_windows) => sections.push(crate::usage_bar::render_usage_windows(
+            run_windows,
+            now_epoch,
             cx,
-        ));
+        )),
+        None => {
+            // EXP-862: a live run's login IS signed in, so windows nothing has
+            // read yet are "Checking…" (the ×4 `usage_caption` rule) IN PLACE
+            // of the block — never a machine that looks broken, and never a
+            // silently missing section.
+            let caption =
+                crate::usage_bar::usage_caption(crate::usage_bar::UsageState::Checking, None)
+                    .unwrap_or_default();
+            sections.push(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(caption)
+                    .into_any_element(),
+            );
+        }
     }
-    if !has_context && !has_windows {
-        // EXP-862: a live run's login IS signed in, so windows that have not
-        // been read yet are "Checking…" (the ×4 `usage_caption` rule), never
-        // a machine that looks broken.
-        let caption = crate::usage_bar::usage_caption(crate::usage_bar::UsageState::Checking, None)
-            .unwrap_or_default();
-        sections.push(div().text_xs().text_color(muted).child(caption).into_any_element());
-    }
+
+    // 3. Context.
+    sections.extend(crate::usage_bar::render_context_block(usage, cx));
 
     // 4. The OTHER accounts.
     if let Some(rows) = switch
@@ -162,6 +200,48 @@ pub(crate) fn context_ring(
             ),
         )
         .tooltip(crate::usage_bar::format_context_usage(usage))
+}
+
+/// EXP-909 — the windows of ONE login on a machine, off that machine's
+/// reported accounts: the profile's own `usage` row, falling back to the
+/// top-level `agentUsage[agent]` map only when the resolved profile is the
+/// machine's ACTIVE login or no profile could be resolved at all (the device
+/// only ever puts the active login's numbers there).
+///
+/// `account` is the run's account. Resolution is the ×4 rule (§1): the named
+/// profile, else the login whose email the machine reports at the top level,
+/// else the active one — never `system` by default.
+pub(crate) fn account_windows(
+    accounts: &coding::agent_accounts::AgentAccounts,
+    usage: &coding::agent_usage::AgentUsageMap,
+    agent: coding::CodingAgent,
+    account: Option<&str>,
+) -> Option<coding::agent_usage::AgentUsage> {
+    let ambient = || usage.get(agent.id()).cloned();
+    let Some(entry) = accounts.get(agent.id()) else {
+        return ambient();
+    };
+    let named = account
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| entry.profiles.iter().find(|profile| profile.id == id));
+    let by_email = || {
+        let email = entry.email.as_deref().map(str::trim).filter(|e| !e.is_empty())?;
+        entry
+            .profiles
+            .iter()
+            .find(|profile| profile.email.as_deref().map(str::trim) == Some(email))
+    };
+    let Some(profile) = named
+        .or_else(by_email)
+        .or_else(|| entry.profiles.iter().find(|profile| profile.active))
+    else {
+        return ambient();
+    };
+    profile
+        .usage
+        .clone()
+        .or_else(|| profile.active.then(ambient).flatten())
 }
 
 /// Another machine's per-agent windows, off the synced `devices` row — the

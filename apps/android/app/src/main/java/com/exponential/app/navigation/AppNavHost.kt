@@ -468,9 +468,10 @@ private fun AuthenticatedNav(
             )
         }
         composable("agents") {
-            // Devices — machines only since EXP-825; a machine's play glyph
-            // opens the Agent page with that machine preselected.
-            AgentsScreen(onOpenAgent = openAgent)
+            // Devices — machines only since EXP-825, and since the EXP-909
+            // follow-up they carry no launcher at all: a row's ONE control is
+            // the settings gear, and runs start from the Agent page composer.
+            AgentsScreen()
         }
         composable("actions") {
             // Team actions (EXP-253, view + run only) — its own bottom-bar tab

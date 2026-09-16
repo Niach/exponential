@@ -2,9 +2,9 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-// The device settings sheet (EXP-481) — "Device settings" on a device row
-// opens it, the iOS twin of the web/IDE device-settings dialog. Five sections,
-// no Save buttons (EXP-490):
+// The device settings sheet (EXP-481) — the settings gear on a device row
+// opens it, the iOS twin of the web/IDE device-settings dialog. Seven sections,
+// no Save buttons above the last two (EXP-490):
 //   Name     — devices.rename (registry-authoritative, works offline),
 //              debounced while typing and flushed on blur/submit/close.
 //   Default  — devices.setDefault (EXP-622), the device every device picker
@@ -27,6 +27,12 @@ import SwiftUI
 //              runs on its next heartbeat (immediately when online). Progress
 //              polls devices.getCommand ~2s; the material outcome (a row
 //              disappearing) arrives via sync when the device re-reports.
+//   Update   — EXP-909, SERVER devices only (a desktop app updates itself):
+//              the version, an amber "Update available" caption, and the
+//              Update / Queued / Updating… control the device ROW used to
+//              carry. The row now carries the gear alone ×4.
+//   Remove   — EXP-909: devices.remove behind the confirm the row's menu used
+//              to raise. The sheet closes itself when the row goes away.
 // EXP-490: the sheet renders the LIVE devices-shape row (looked up by id
 // through the view model) rather than a value latched at open, so a rename or
 // a defaults edit made on another client lands here while it is open. Every
@@ -83,6 +89,15 @@ struct DeviceSettingsSheet: View {
     @State private var removeTarget: DeviceWorktreeEntity?
     /// The device-reported prune summary ("Pruned 2 worktrees"), shown once.
     @State private var commandSummary: String?
+    /// EXP-420/EXP-909: the instance's advertised latest versions — the Update
+    /// section offers its button only when a newer CLI build really exists.
+    /// Instance config, not machine state: one tRPC read when the sheet opens
+    /// on a server device, never polled.
+    @State private var latestVersions: LatestVersions?
+    /// Optimistic "Updating…" until the flag lands on the synced row.
+    @State private var updateRequested = false
+    /// EXP-909: the device removal this sheet is confirming.
+    @State private var confirmingRemove = false
 
     /// The live row off the devices shape. Own machines only — the sheet is an
     /// owner surface, so a row that stops being ours reads as gone.
@@ -115,6 +130,10 @@ struct DeviceSettingsSheet: View {
                     }
                     defaultsSection(device)
                     worktreesSection(device)
+                    if device.isServer {
+                        updateSection(device)
+                    }
+                    removeSection(device)
                     if let errorMessage {
                         Section {
                             Text(errorMessage)
@@ -137,6 +156,11 @@ struct DeviceSettingsSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-settings-sheet")
         .onAppear { seed(device) }
+        // EXP-909: only a daemon server has an Update section to gate.
+        .task {
+            guard device.isServer, latestVersions == nil else { return }
+            latestVersions = try? await deps.devicesApi.latestVersions(accountId: accountId)
+        }
         // Live echo: a rename/share/defaults change from another client (or
         // this one's own accepted save) lands in the drafts — but only while
         // the field is idle, so it can never stomp an edit in progress.
@@ -164,6 +188,25 @@ struct DeviceSettingsSheet: View {
         } message: { worktree in
             Text("Remove \(worktree.branch) on \(device.deviceLabel)? Uncommitted tracked changes make the device refuse.")
         }
+        // One presentation per node is the rule (SwiftUI drops the second),
+        // so the device removal confirms off a zero-size node of its own.
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .alert("Remove device", isPresented: $confirmingRemove) {
+                    Button("Cancel", role: .cancel) { confirmingRemove = false }
+                    Button("Remove", role: .destructive) { removeDevice() }
+                } message: {
+                    // The pinned sentence ×4 — unchanged from the row menu
+                    // this moved out of (EXP-909).
+                    Text("Remove “\(deviceName(device))” from your devices? A device with the daemon still running will re-register itself on its next heartbeat.")
+                }
+        )
+    }
+
+    private func deviceName(_ device: SteerDevice) -> String {
+        device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
     }
 
     // MARK: - Seeding
@@ -724,6 +767,134 @@ struct DeviceSettingsSheet: View {
             } catch {
                 pendingCommands[targetKey] = nil
                 commandErrors[targetKey] = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - Update (server devices only)
+
+    /// EXP-909: the update control the device ROW used to carry, in the sheet
+    /// the gear opens. Self-update is a daemon-server affordance only — the
+    /// desktop app updates itself — and EXP-420 gates the button on a newer
+    /// CLI build actually being advertised, so an up-to-date or offline server
+    /// shows its version and nothing else.
+    private func updateSection(_ device: SteerDevice) -> some View {
+        let latest = latestVersions?.cli
+        let outdated = device.updateAvailable(latest: latest)
+        return Section {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(device.version.map { "v\($0)" } ?? "Version unknown")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    if outdated, let latest {
+                        Text("Update available: v\(latest)")
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.Semantic.yellow)
+                    }
+                }
+                Spacer(minLength: 8)
+                updateControl(device, outdated: outdated)
+            }
+        } header: {
+            GlassSectionHeader("Update")
+        } footer: {
+            if isUpdateQueued(device) {
+                // EXP-411/FEED-36: parked behind the machine's live coding
+                // sessions — the daemon applies it once they close.
+                Text("Live coding sessions are holding the update. The device applies it once they end.")
+            }
+        }
+        .listRowBackground(glassFormRowFill)
+    }
+
+    @ViewBuilder
+    private func updateControl(_ device: SteerDevice, outdated: Bool) -> some View {
+        if isUpdateQueued(device) {
+            GlassPill("Queued", icon: AppIcons.uiUpdate, enabled: false)
+        } else if isUpdating(device) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Updating…")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        } else if device.isOnline, outdated {
+            GlassPill("Update", icon: AppIcons.uiUpdate, mode: .action {
+                requestUpdate()
+            })
+        }
+    }
+
+    /// The pending flag rides the server row until the daemon re-registers
+    /// (which clears it server-side); the local flag covers the gap until sync
+    /// delivers it.
+    private func isUpdating(_ device: SteerDevice) -> Bool {
+        device.updateRequested == true || updateRequested
+    }
+
+    /// EXP-411: the pending update is parked behind live coding sessions.
+    private func isUpdateQueued(_ device: SteerDevice) -> Bool {
+        device.updateRequested == true && device.updateBlocked == true
+    }
+
+    /// Ask the daemon to self-update. EXP-481: the outcome lands via sync (the
+    /// devices shape), so this only has to report a failure.
+    private func requestUpdate() {
+        errorMessage = nil
+        updateRequested = true
+        Task {
+            do {
+                try await deps.devicesApi.requestUpdate(
+                    accountId: accountId, deviceId: deviceId
+                )
+            } catch {
+                errorMessage = error.userFacingMessage
+            }
+            updateRequested = false
+        }
+    }
+
+    // MARK: - Remove
+
+    /// EXP-909: the row menu's last entry, now the sheet's last section. The
+    /// sheet closes itself once the row is gone (`liveDevice` → nil).
+    private func removeSection(_ device: SteerDevice) -> some View {
+        Section {
+            Button(role: .destructive) {
+                confirmingRemove = true
+            } label: {
+                HStack(spacing: 8) {
+                    AppIcon(AppIcons.uiDelete, size: AppIcon.Size.medium)
+                    Text("Remove device")
+                    Spacer(minLength: 0)
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(DesignTokens.Palette.destructive)
+                // .plain hit-tests opaque pixels only — the whole row taps.
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("device-remove")
+        } header: {
+            GlassSectionHeader("Remove")
+        }
+        .listRowBackground(glassFormRowFill)
+    }
+
+    private func removeDevice() {
+        confirmingRemove = false
+        errorMessage = nil
+        let api = deps.devicesApi
+        let account = accountId
+        let id = deviceId
+        // INDEPENDENT of the sheet: the row vanishing closes it, and the
+        // request must not die with the view (see `saveNameNow`).
+        Task {
+            do {
+                try await api.remove(accountId: account, deviceId: id)
+            } catch {
+                errorMessage = error.userFacingMessage
             }
         }
     }

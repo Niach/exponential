@@ -374,9 +374,9 @@ internal fun TimelineGutter(
 // RegularCommentRow can reuse it. Parses via WireTimestamps — Instant.parse
 // alone rejected Electric's Postgres text encoding, blanking every synced
 // row's time (EXP-169).
-internal fun relativeTime(wire: String): String {
+internal fun relativeTime(wire: String, nowMs: Long = System.currentTimeMillis()): String {
     val thenMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(wire) ?: return ""
-    val seconds = ((System.currentTimeMillis() - thenMs) / 1000).coerceAtLeast(0)
+    val seconds = ((nowMs - thenMs) / 1000).coerceAtLeast(0)
     return when {
         seconds < 60 -> "just now"
         seconds < 3600 -> "${seconds / 60}m ago"

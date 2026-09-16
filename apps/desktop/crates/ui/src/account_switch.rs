@@ -23,16 +23,17 @@
 //!   more**, because the other account's transcript is replayed into it. Said
 //!   once, where the switch is offered.
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, AnyElement, App, IntoElement, ParentElement, SharedString, Styled as _, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::notification::Notification;
 use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, WindowExt as _,
 };
 
-use crate::controls::WebText as _;
+use crate::controls::{WebControl as _, WebText as _};
 
 use coding::agent_accounts::Health;
 use coding::CodingAgent;
@@ -116,6 +117,10 @@ pub(crate) struct SwitchTarget {
     pub label: String,
     /// The identity caption — the email, else the plan, else the label.
     pub caption: String,
+    /// EXP-909: the login's PLAN, when the machine reported one. The sheet's
+    /// header prints it once, muted, behind an email caption (a caption that
+    /// IS the plan never repeats it); no row ever does.
+    pub plan: Option<String>,
     pub health: Health,
     pub usage: Option<coding::agent_usage::AgentUsage>,
     /// This is the account the run is ON.
@@ -153,36 +158,81 @@ pub(crate) fn footer_note(
     })
 }
 
+/// EXP-909 — WHICH of the host's logins the run is ON, in the order a client
+/// can know it (web `activeAccountIndex`, mirrored ×4):
+///
+/// 1. the run's own `agent_account` when it names one of the listed logins —
+///    the local run record for a run hosted here, the synced column otherwise;
+/// 2. else the login whose email matches the machine's TOP-LEVEL report for
+///    the agent (`agentAccounts[agent].email` — what the agent CLI answers
+///    for the config dir it is actually pointed at);
+/// 3. else the machine's ACTIVE login;
+/// 4. else none — and then every row is simply "another account".
+///
+/// Never `system` as a fallback: the ambient login is one account among
+/// several, and guessing it mis-labels the header (EXP-875 §1 — a run on
+/// dennis@ read as danny@, stale re-login badge and all).
+fn current_profile(
+    rows: &[&crate::usage_bar::AgentProfileUsageRow],
+    current_account: Option<&str>,
+    reported_email: Option<&str>,
+) -> Option<String> {
+    let named = current_account
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| rows.iter().find(|row| row.profile_id == id));
+    if let Some(row) = named {
+        return Some(row.profile_id.clone());
+    }
+    let email = reported_email.map(str::trim).filter(|email| !email.is_empty());
+    if let Some(email) = email {
+        if let Some(row) = rows
+            .iter()
+            .find(|row| row.email.as_deref().map(str::trim) == Some(email))
+        {
+            return Some(row.profile_id.clone());
+        }
+    }
+    rows.iter()
+        .find(|row| row.active)
+        .map(|row| row.profile_id.clone())
+}
+
 /// EXP-849 — the switch decision for one run: the accounts its HOST machine
 /// holds for its agent, and whether the switch may happen now.
 ///
 /// `rows` are [`crate::usage_bar::agent_profile_usage_rows`] already filtered
 /// to nothing in particular — this picks the host device's rows for `agent`
 /// out of them, so the numbers shown beside each account are the same ones the
-/// Accounts page shows.
+/// Devices page shows.
+///
+/// `current_account` is the run's own account (EXP-909) and `reported_email`
+/// the machine's top-level login for the agent; together they resolve the
+/// header's row through [`current_profile`].
 pub(crate) fn switch_targets(
     rows: &[crate::usage_bar::AgentProfileUsageRow],
     device_id: &str,
     agent: CodingAgent,
     current_account: Option<&str>,
+    reported_email: Option<&str>,
     can_switch: bool,
     working: bool,
 ) -> (Vec<SwitchTarget>, Option<SwitchBlocker>) {
-    let current_account = current_account
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(coding::SYSTEM_PROFILE);
     // One machine's rows all carry its own liveness; an empty set says nothing
     // about the host, so it falls through to "nothing to switch to".
     let host_online = rows
         .iter()
         .filter(|row| row.device_id == device_id)
         .all(|row| row.online);
-    let mut targets: Vec<SwitchTarget> = rows
+    let host_rows: Vec<&crate::usage_bar::AgentProfileUsageRow> = rows
         .iter()
         .filter(|row| row.device_id == device_id && row.agent == agent.id())
+        .collect();
+    let current_account = current_profile(&host_rows, current_account, reported_email);
+    let mut targets: Vec<SwitchTarget> = host_rows
+        .iter()
         .map(|row| {
-            let current = row.profile_id == current_account;
+            let current = Some(&row.profile_id) == current_account.as_ref();
             // The refusal ORDER is the ×4 one (`SessionAccountSwitch.refusal`):
             // the run's own facts first (agent, host, build, turn), the
             // account's own last. A broken login is still LISTED — it is an
@@ -202,6 +252,7 @@ pub(crate) fn switch_targets(
                 profile_id: row.profile_id.clone(),
                 label: row.profile_label.clone(),
                 caption: caption_of(row),
+                plan: row.plan.clone(),
                 health: row.health,
                 usage: row.usage.clone(),
                 current,
@@ -250,7 +301,7 @@ pub(crate) fn switch_targets(
 /// own label. A signed-out account used to title itself "Not signed in", which
 /// said what the refusal under the rows already says and buried the only
 /// identifying thing the row had (iOS `SessionAccountSwitch.caption`, Android
-/// `SessionAccountOption.caption`, desktop `accounts_section::group_caption`).
+/// `SessionAccountOption.caption`, desktop [`crate::usage_bar::login_label`]).
 fn caption_of(row: &crate::usage_bar::AgentProfileUsageRow) -> String {
     row.email
         .clone()
@@ -290,19 +341,54 @@ impl SwitchContext {
 }
 
 impl SwitchContext {
-    /// The run's recorded account, for a run THIS machine hosts. A remote run
-    /// is assumed to be on its machine's default login: the row carries no
-    /// account, and guessing one would mis-label the current row.
+    /// EXP-909 — the account the run SPENDS, as this client can know it: the
+    /// local run record for a run hosted here (the launcher wrote it), else
+    /// the synced `coding_sessions.agent_account` the host stamped at start.
+    ///
+    /// `None` = genuinely unknown — an older host that never stamped the
+    /// column, or a row that has not synced yet. It is NEVER guessed to be
+    /// the ambient login: [`current_profile`] falls back to the machine's own
+    /// report instead.
     fn current_account(&self, cx: &App) -> Option<String> {
-        self.local
-            .then(|| {
-                coding::run_registry::get(
-                    &crate::coding_flow::coding_data_dir(cx),
-                    &self.session_id,
-                )
-            })
-            .flatten()
-            .and_then(|record| record.account())
+        if self.local {
+            if let Some(record) = coding::run_registry::get(
+                &crate::coding_flow::coding_data_dir(cx),
+                &self.session_id,
+            ) {
+                return Some(coding::profile_id(record.account().as_deref()));
+            }
+        }
+        let store = sync::Store::try_global(cx)?;
+        let sessions = store.collections().coding_sessions.read(cx);
+        sessions
+            .iter()
+            .find(|row| row.id == self.session_id)
+            .and_then(|row| row.agent_account.as_deref())
+            .map(str::trim)
+            .filter(|account| !account.is_empty())
+            .map(str::to_string)
+    }
+
+    /// The machine's TOP-LEVEL login for the agent (`agentAccounts[agent]
+    /// .email`) — what the agent CLI answers for the config dir it is
+    /// actually pointed at. The second rung of [`current_profile`]: a run
+    /// whose account this client cannot read still lands on the right row
+    /// whenever the machine named an address.
+    fn reported_email(&self, cx: &App) -> Option<String> {
+        let device_id = self.device_id.as_deref()?;
+        let store = sync::Store::try_global(cx)?;
+        let devices = store.collections().devices.read(cx);
+        let row = devices
+            .iter()
+            .find(|row| row.device_id.as_deref() == Some(device_id))?;
+        let account = crate::device_settings::parse_agent_map::<coding::AgentAccount>(
+            row.agent_accounts.as_ref(),
+        )
+        .remove(self.agent.id())?;
+        account
+            .email
+            .map(|email| email.trim().to_string())
+            .filter(|email| !email.is_empty())
     }
 
     /// EXP-863 — the switch decision for this run: every account its host
@@ -318,17 +404,22 @@ impl SwitchContext {
             device_id,
             self.agent,
             self.current_account(cx).as_deref(),
+            self.reported_email(cx).as_deref(),
             self.can_switch(cx),
             self.working,
         );
         (!targets.is_empty()).then_some((targets, blocker))
     }
 
-    /// EXP-863 — the rows of the sheet's "Accounts" section: ONLY the accounts
-    /// the run is NOT on (the active one is the sheet's header), each with its
-    /// caption + health, the Switch control, its dense usage cards and — for
-    /// an account-level refusal only — the reason. `None` when there is no
-    /// other account, so the caller omits the section.
+    /// EXP-863/EXP-909 — the rows of the sheet's "Accounts" section: ONLY the
+    /// accounts the run is NOT on (the one it is on is the sheet's header),
+    /// each with its caption + health, an ICON-ONLY switch control, its mini
+    /// usage line and — for an account-level refusal only — the reason.
+    /// `None` when there is no other account, so the caller omits the section.
+    ///
+    /// EXP-909 dropped the full-width "Switch to this account" button: at
+    /// 320 px it pushed every email into an ellipsis, and the sentence still
+    /// rides the control as its tooltip.
     pub(crate) fn render_account_rows(
         &self,
         targets: &[SwitchTarget],
@@ -340,6 +431,7 @@ impl SwitchContext {
             return None;
         }
         let muted = cx.theme().muted_foreground;
+        let now_epoch = chrono::Utc::now().timestamp();
         let mut block = v_flex().w_full().min_w_0().gap_2p5();
         for (index, target) in others.into_iter().enumerate() {
             let session_id = self.session_id.clone();
@@ -365,12 +457,14 @@ impl SwitchContext {
                     // EXP-849: the control is DISABLED with its reason, never
                     // hidden — a switch that silently disappears mid-run
                     // reads as a bug, and the reason is the whole point.
+                    // EXP-909: icon-only (the ×4 swap concept), the sentence
+                    // on its tooltip.
                     .child(
                         Button::new(("session-use-account", index))
                             .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .label(SWITCH_LABEL)
+                            .web_icon_xs()
+                            .icon(crate::icons::registry::UI_SWAP)
+                            .tooltip(SWITCH_LABEL)
                             .disabled(!offerable)
                             .on_click(move |_, window, cx| {
                                 switch_to(
@@ -384,13 +478,28 @@ impl SwitchContext {
                             }),
                     ),
             );
-            if let Some(usage) = target.usage.as_ref().filter(|usage| !usage.windows.is_empty()) {
-                row = row.child(crate::usage_bar::render_usage_cards_dense(
-                    self.agent,
-                    usage,
-                    chrono::Utc::now().timestamp(),
-                    cx,
-                ));
+            // EXP-909: the mini line — three tiny meters under the identity,
+            // dimmed and captioned with their age when they are no longer
+            // current (never hidden: an old number still answers the
+            // question the reader opened the sheet with).
+            if let Some(usage) = target.usage.as_ref() {
+                let age = crate::usage_bar::usage_age(Some(usage), now_epoch);
+                if let Some(mini) = crate::usage_bar::render_usage_mini(usage, cx) {
+                    row = row.child(
+                        v_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_0p5()
+                            .when(age.is_some(), |this| this.opacity(0.5))
+                            .child(mini)
+                            .children(age.map(|line| {
+                                div()
+                                    .text_2xs()
+                                    .text_color(muted)
+                                    .child(SharedString::from(line))
+                            })),
+                    );
+                }
             }
             // EXP-863: only the ACCOUNT's own refusal sits on its row; a
             // run-level one (busy, offline, agent, build) is the footer's,
@@ -606,7 +715,7 @@ mod tests {
         // Idle claude on the ambient login: the other healthy account is
         // offerable, the broken ones are listed with their own sentence.
         let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, true, false);
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(blocker, None);
         assert_eq!(targets.len(), 4);
         assert!(targets[0].current, "the run's own account leads");
@@ -625,7 +734,7 @@ mod tests {
         // Mid-turn: every target is disabled and the sheet says why, in the
         // ×4 sentence.
         let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, true, true);
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
         assert_eq!(blocker, Some(SwitchBlocker::Working));
         assert_eq!(
             SwitchBlocker::Working.message(),
@@ -646,7 +755,7 @@ mod tests {
             })
             .collect();
         let (targets, blocker) =
-            switch_targets(&codex, "dev-1", CodingAgent::Codex, None, true, false);
+            switch_targets(&codex, "dev-1", CodingAgent::Codex, None, None, true, false);
         assert_eq!(blocker, Some(SwitchBlocker::Agent));
         assert_eq!(
             SwitchBlocker::Agent.message(),
@@ -668,7 +777,7 @@ mod tests {
             })
             .collect();
         let (targets, blocker) =
-            switch_targets(&offline, "dev-1", CodingAgent::Claude, None, true, false);
+            switch_targets(&offline, "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(blocker, Some(SwitchBlocker::Offline));
         assert_eq!(SwitchBlocker::Offline.message(), "The machine is offline.");
         assert_eq!(
@@ -678,7 +787,7 @@ mod tests {
                 .and_then(|target| target.blocked.as_deref()),
             Some("The machine is offline.")
         );
-        let (_, blocker) = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, false, false);
+        let (_, blocker) = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, false, false);
         assert_eq!(blocker, Some(SwitchBlocker::NoCap));
         assert_eq!(
             SwitchBlocker::NoCap.message(),
@@ -687,23 +796,95 @@ mod tests {
 
         // One login only: nothing to switch to.
         let (_, blocker) =
-            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, true, false);
+            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(blocker, Some(SwitchBlocker::NoOtherAccount));
 
         // Another machine's rows are never offered here.
-        let (targets, _) = switch_targets(&rows, "dev-2", CodingAgent::Claude, None, true, false);
+        let (targets, _) = switch_targets(&rows, "dev-2", CodingAgent::Claude, None, None, true, false);
         assert!(targets.is_empty());
 
         // The run's CURRENT account is the one it records, not the default.
+        let (targets, _) = switch_targets(&rows, "dev-1", CodingAgent::Claude, Some("0a1b2c3d"), None, true, false);
+        assert!(targets[0].current && targets[0].profile_id == "0a1b2c3d");
+    }
+
+    /// EXP-909 (web `activeAccountIndex`, mirrored ×4): which login the run is
+    /// ON — its own account when it names one, else the machine's reported
+    /// email, else the machine's active login, else NONE. Never `system` by
+    /// default: that is what made a run on one account wear another's address
+    /// and its stale re-login badge (EXP-875 §1).
+    #[test]
+    fn the_runs_account_is_resolved_never_guessed() {
+        let rows = vec![
+            row(coding::SYSTEM_PROFILE, true, Health::Ok),
+            row("0a1b2c3d", true, Health::Ok),
+        ];
+        let current = |targets: &[SwitchTarget]| {
+            targets
+                .iter()
+                .find(|target| target.current)
+                .map(|target| target.profile_id.clone())
+        };
+
+        // 1. The run's own account, when it names a listed login.
         let (targets, _) = switch_targets(
             &rows,
             "dev-1",
             CodingAgent::Claude,
             Some("0a1b2c3d"),
+            None,
             true,
             false,
         );
-        assert!(targets[0].current && targets[0].profile_id == "0a1b2c3d");
+        assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
+
+        // An account this machine does not hold falls through to the next
+        // rung rather than leaving the header on a row that is not there.
+        let (targets, _) = switch_targets(
+            &rows,
+            "dev-1",
+            CodingAgent::Claude,
+            Some("gone"),
+            Some("0a1b2c3d@acme.test"),
+            true,
+            false,
+        );
+        assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
+
+        // 2. The machine's top-level email, when the run says nothing.
+        let (targets, _) = switch_targets(
+            &rows,
+            "dev-1",
+            CodingAgent::Claude,
+            None,
+            Some("0a1b2c3d@acme.test"),
+            true,
+            false,
+        );
+        assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
+
+        // 3. The machine's ACTIVE login, when neither is known.
+        let (targets, _) =
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
+        assert_eq!(current(&targets).as_deref(), Some(coding::SYSTEM_PROFILE));
+
+        // 4. Nothing to go on at all: no row claims to be the run's, and the
+        //    ambient login is NOT assumed.
+        let named_only = vec![
+            row("0a1b2c3d", true, Health::Ok),
+            row("deadbeef", true, Health::Ok),
+        ];
+        let (targets, _) = switch_targets(
+            &named_only,
+            "dev-1",
+            CodingAgent::Claude,
+            None,
+            None,
+            true,
+            false,
+        );
+        assert_eq!(current(&targets), None);
+        assert!(targets.iter().all(|target| !target.current));
     }
 
     /// EXP-863: a refusal is said ONCE. An account-level reason (signed out,
@@ -725,7 +906,7 @@ mod tests {
         // Idle: the broken accounts carry their own sentence, the healthy one
         // none, and the footer is the cost note.
         let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, true, false);
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(
             by_id(&targets, "deadbeef").row_refusal(),
             Some("Sign in to this account on that machine first.")
@@ -739,7 +920,7 @@ mod tests {
 
         // Mid-turn: the footer says busy ONCE and no row repeats it.
         let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, true, true);
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
         assert_eq!(
             footer_note(&targets, blocker.as_ref()),
             Some("The agent is working — switching waits for the turn to finish.")
@@ -748,14 +929,14 @@ mod tests {
 
         // One login only: nothing to switch to, nothing to say.
         let (targets, blocker) =
-            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, true, false);
+            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(footer_note(&targets, blocker.as_ref()), None);
 
         // Only broken other accounts: their rows say why, the footer names
         // the machine's state — two different sentences.
         let broken = vec![rows[0].clone(), rows[2].clone()];
         let (targets, blocker) =
-            switch_targets(&broken, "dev-1", CodingAgent::Claude, None, true, false);
+            switch_targets(&broken, "dev-1", CodingAgent::Claude, None, None, true, false);
         let footer = footer_note(&targets, blocker.as_ref()).unwrap();
         assert_eq!(footer, SwitchBlocker::NoOtherAccount.message());
         assert_ne!(Some(footer), by_id(&targets, "deadbeef").row_refusal());
@@ -784,7 +965,7 @@ mod tests {
     /// — the refusal under the row already says a signed-out account cannot
     /// be switched to, and "Not signed in" as a title threw away the only
     /// identifying thing the row had (iOS + Android `caption`, desktop
-    /// `accounts_section::group_caption`).
+    /// [`crate::usage_bar::login_label`]).
     #[test]
     fn a_signed_out_account_still_says_who_it_is() {
         let mut signed_out = row("deadbeef", false, Health::SignedOut);

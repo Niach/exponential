@@ -195,6 +195,16 @@ pub struct AgentCacheEntry {
     /// froze for the whole run. See [`live_endpoint_due`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint_due_at_secs: Option<u64>,
+    /// EXP-881 — when the ENDPOINT last produced a report for this login.
+    /// Unix seconds; `None` = never (or an older host's row).
+    ///
+    /// Distinct from [`Self::fetched_at_secs`], which a LIVE apply moves too:
+    /// this one only ever moves when a real fetch answered. It is what lets
+    /// [`crate::agent_usage::live_probe`] tell a live frame that is NEWER than
+    /// the last report (lay it over) from one that is OLDER (the report
+    /// already contains it — re-laying it would drag the numbers backwards).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_fetched_at_secs: Option<u64>,
     /// Fields a newer build wrote that this one does not know — carried
     /// verbatim through every rewrite (the [`crate::run_registry`] promise).
     ///
@@ -334,6 +344,12 @@ pub fn forget_profile(data_dir: &Path, agent: &str, profile: &str) {
 /// Whether this agent may be polled right now: past its scheduled next poll,
 /// past the machine-wide shared TTL, and not inside a credential-refusal
 /// backoff.
+///
+/// EXP-881: this answers "may we SPEND a request", nothing else. Whether the
+/// numbers we already hold still answer is
+/// [`crate::agent_usage::live_probe`]'s question, and the two are independent:
+/// a login can be due a poll and still have a current live frame, and a login
+/// that is not due can hold a frame that has gone stale.
 pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
     if entry
         .credential_denied_until_secs
@@ -348,10 +364,18 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
 /// While a live session reports only SOME windows, how often the endpoint is
 /// still read for the rest. Slower than [`MIN_POLL_SECS`]: the frames already
 /// keep the session and weekly numbers moving.
+///
+/// EXP-881: it is ALSO the currency window of a live frame published by an
+/// ATTACHED session. A live run refreshes its own numbers every turn, so a
+/// frame younger than the endpoint's own cadence is worth at least as much as
+/// a fetch; an older one is not, attached or not (an idle run publishes
+/// nothing, and "a session is open" is not "the numbers are current").
 pub const LIVE_ENDPOINT_POLL_SECS: u64 = 600;
 
 /// Whether a login a PARTIAL live publisher answers for is owed an endpoint
-/// poll for the windows the frames never carry.
+/// poll for the windows the frames never carry. `endpoint_due_at_secs` is
+/// stamped by [`schedule_live_endpoint`] alone, never by a live apply — see
+/// [`AgentCacheEntry::endpoint_due_at_secs`].
 pub fn live_endpoint_due(entry: &AgentCacheEntry, now: u64) -> bool {
     entry.endpoint_due_at_secs.is_none_or(|due| now >= due)
 }
@@ -436,6 +460,40 @@ pub fn note_refresh_ok(entry: &mut AgentCacheEntry, expires_at_ms: i64, now: u64
     entry.claude_expires_at_ms = Some(expires_at_ms);
     entry.refresh_backoff_until_secs = None;
     entry.refreshed_at_secs = Some(now);
+}
+
+/// EXP-881 — is this login's claude token ALREADY expired (not merely inside
+/// the refresh margin [`claude_refresh_due`] answers for)?
+///
+/// The distinction is the whole point: an expiring token is a keep-alive's
+/// business and may be left alone when the user turned the keep-alive off, but
+/// an EXPIRED one makes every usage read 401 and paints `Needs re-login` on a
+/// perfectly good account. So the collector refreshes an expired one whatever
+/// the setting says. `None` (never read, or a document with no expiry) is NOT
+/// expired: we have no evidence, and guessing would mean a POST on every beat.
+pub fn claude_token_expired(entry: &AgentCacheEntry, now: u64) -> bool {
+    match entry.claude_expires_at_ms {
+        None => false,
+        Some(at) => (now as i64).saturating_mul(1000) >= at,
+    }
+}
+
+/// EXP-881 — a rotation landed on a login whose numbers are dimmed: release
+/// the FAILED backoff so the probe can run on THIS beat rather than waiting
+/// out a wall that the new token has just taken down.
+///
+/// Only the failure backoff moves. The 429 floor
+/// ([`AgentCacheEntry::rate_limited_until_secs`]) is the SERVER's instruction
+/// and survives any rotation of ours; inside it the schedule is left exactly
+/// where it stood.
+pub fn note_token_rotated(entry: &mut AgentCacheEntry, now: u64) {
+    if entry
+        .rate_limited_until_secs
+        .is_some_and(|until| now < until)
+    {
+        return;
+    }
+    entry.next_poll_at_secs = entry.next_poll_at_secs.min(now);
 }
 
 /// A refresh failed for a non-account reason: hold the keep-alive off for
@@ -1049,6 +1107,13 @@ mod tests {
         // A hand-edited absurd expiry must not wrap the comparison into
         // "not due" — it simply stays far away.
         assert!(!claude_refresh_due(&expiring_at(i64::MAX), now));
+
+        // EXP-881 — the two predicates are NOT the same question. Inside the
+        // margin the token is due a refresh but still WORKS, so nothing is
+        // forced: only an already-dead one overrides the keep-alive setting.
+        assert!(claude_refresh_due(&expiring_at(edge), now));
+        assert!(!claude_token_expired(&expiring_at(edge), now));
+        assert!(!claude_token_expired(&fresh, opens));
     }
 
     /// An access token that already expired is trivially inside the margin, so
@@ -1062,6 +1127,13 @@ mod tests {
         assert!(claude_refresh_due(&expiring_at(ms_after(now, -90 * 86_400)), now));
         // A zero/absent-looking stamp is "expired in 1970", i.e. due.
         assert!(claude_refresh_due(&expiring_at(0), now));
+
+        // EXP-881: all three are also EXPIRED, the stronger fact (the
+        // refresh has one expiry-driven path since EXP-909). An entry that
+        // was never read is not expired — we have no evidence either way.
+        assert!(claude_token_expired(&expiring_at(ms_after(now, -60)), now));
+        assert!(claude_token_expired(&expiring_at(0), now));
+        assert!(!claude_token_expired(&AgentCacheEntry::default(), now));
     }
 
     /// `None` = never read (or a document with no expiry): look ONCE, then let
@@ -1206,6 +1278,7 @@ mod tests {
             refresh_backoff_until_secs: Some(now + REFRESH_FAILED_BACKOFF_SECS),
             dead_refresh_tokens: vec!["deadbeefdeadbeef".into(), "0011223344556677".into()],
             refreshed_at_secs: Some(now - 5),
+            endpoint_fetched_at_secs: Some(now - 30),
             ..AgentCacheEntry::default()
         };
         // …plus a field from a build NEWER than either of them.
@@ -1218,6 +1291,8 @@ mod tests {
             "claudeExpiresAtMs",
             "refreshBackoffUntilSecs",
             "deadRefreshTokens",
+            // EXP-881: the endpoint's own stamp rides the same flatten map.
+            "endpointFetchedAtSecs",
         ] {
             assert!(written.contains(key), "{key} must be persisted: {written}");
         }
@@ -1226,6 +1301,7 @@ mod tests {
         let old: OldEntry = serde_json::from_str(&written).unwrap();
         assert_eq!(old.fetched_at_secs, now, "the shared fields still parse");
         assert!(old.extra.contains_key("claudeExpiresAtMs"));
+        assert!(old.extra.contains_key("endpointFetchedAtSecs"));
         assert!(old.extra.contains_key("futureField"));
 
         // …and its rewrite hands every one of them back verbatim.
@@ -1242,6 +1318,64 @@ mod tests {
         let bare = serde_json::to_string(&AgentCacheEntry::default()).unwrap();
         assert!(!bare.contains("claudeExpiresAtMs"), "{bare}");
         assert!(!bare.contains("deadRefreshTokens"), "{bare}");
+        assert!(!bare.contains("endpointFetchedAtSecs"), "{bare}");
+    }
+
+    /// EXP-881 — the two stamps answer different questions. `fetched_at_secs`
+    /// says "when did anything last land" and a LIVE apply moves it;
+    /// `endpoint_fetched_at_secs` says "when did the ENDPOINT last answer",
+    /// which is the only stamp a live frame may be compared against.
+    #[test]
+    fn an_endpoint_read_is_stamped_apart_from_a_live_apply() {
+        let now = 1_700_000_000;
+        let mut entry = AgentCacheEntry::default();
+        assert_eq!(entry.endpoint_fetched_at_secs, None, "never polled");
+
+        // A real endpoint read: the collector stamps both.
+        entry.endpoint_fetched_at_secs = Some(now);
+        apply_outcome(&mut entry, PollOutcome::Changed, Some(Vec::new()), now, "poll");
+        assert_eq!(entry.fetched_at_secs, now);
+        assert_eq!(entry.endpoint_fetched_at_secs, Some(now));
+
+        // A live frame, a minute later: `apply_outcome` moves the shared
+        // stamp and leaves the endpoint's own where the poll left it.
+        apply_outcome(&mut entry, PollOutcome::Changed, Some(Vec::new()), now + 60, "live");
+        assert_eq!(entry.fetched_at_secs, now + 60);
+        assert_eq!(
+            entry.endpoint_fetched_at_secs,
+            Some(now),
+            "a live apply is not an endpoint read"
+        );
+    }
+
+    /// EXP-881 — a rotation takes down the wall the FAILED refresh put up, so
+    /// the dimmed numbers can be re-read on this beat. The 429 floor is the
+    /// server's instruction and outlives any token of ours.
+    #[test]
+    fn a_rotation_releases_only_the_failed_backoff() {
+        let now = 1_700_000_000;
+
+        let mut failed = AgentCacheEntry::default();
+        apply_outcome(&mut failed, PollOutcome::Failed, None, now, "s");
+        assert!(failed.next_poll_at_secs > now, "the failure backed off");
+        note_token_rotated(&mut failed, now);
+        assert_eq!(failed.next_poll_at_secs, now, "the new token may be tried now");
+        assert!(poll_due(&failed, now + SHARED_TTL_SECS));
+
+        let mut limited = AgentCacheEntry {
+            rate_limited_until_secs: Some(now + 600),
+            next_poll_at_secs: now + 600,
+            ..AgentCacheEntry::default()
+        };
+        note_token_rotated(&mut limited, now);
+        assert_eq!(
+            limited.next_poll_at_secs,
+            now + 600,
+            "a 429 floor is not ours to lift"
+        );
+        // Past the floor a rotation releases the schedule like any other.
+        note_token_rotated(&mut limited, now + 600);
+        assert_eq!(limited.next_poll_at_secs, now + 600);
     }
 
     #[test]

@@ -1,60 +1,61 @@
 package com.exponential.app.ui.session
 
 import com.exponential.app.domain.AgentHealth
-import com.exponential.app.domain.DeviceAccountChip
+import com.exponential.app.domain.AgentProfileUsageRow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
  * The Devices page's per-machine command slots. EXP-862 retired the Accounts
- * scroll index this file was named for: the device-settings sheet carries no
- * accounts (and so no Usage button) any more, so nothing counts list items.
+ * scroll index this file was named for (the device-settings sheet carries no
+ * accounts, and so no Usage button, any more), and EXP-909 retired the
+ * cross-device Accounts section itself — a command is fired from ONE login row
+ * under ONE machine now, so the slot is keyed off that row.
  */
 class AccountsHeaderIndexTest {
 
+    private fun login(deviceId: String, agent: String, profileId: String) = AgentProfileUsageRow(
+        key = "$deviceId:$agent:$profileId",
+        deviceId = deviceId,
+        deviceLabel = deviceId,
+        mine = true,
+        online = true,
+        agent = agent,
+        profileId = profileId,
+        profileLabel = "Default",
+        active = true,
+        signedIn = true,
+        health = AgentHealth.Ok,
+        email = "a@acme.test",
+        plan = null,
+        usage = null,
+        checkedAt = null,
+    )
+
     @Test
-    fun `a machine chip's command slot is scoped to its machine`() {
-        // EXP-849: the chip key is only `<agent>:<profileId>`, so two machines
-        // holding the SAME login would share one spinner and one error caption
-        // without the device scope.
-        val chip = DeviceAccountChip(
-            key = "claude:system",
-            agent = "claude",
-            profileId = "system",
-            profileLabel = "Default",
-            signedIn = true,
-            active = true,
-            email = "a@acme.test",
-            plan = null,
-            health = AgentHealth.Ok,
-        )
-        assertEquals("studio:claude:system", deviceAccountCommandKey("studio", chip))
+    fun `a login row's command slot is scoped to its machine`() {
+        // EXP-849: two machines holding the SAME login would share one spinner
+        // and one error caption without the device scope.
+        val studio = login("studio", "claude", "system")
+        assertEquals("studio:claude:system", deviceLoginCommandKey(studio))
         assertNotEquals(
-            deviceAccountCommandKey("studio", chip),
-            deviceAccountCommandKey("buildbox", chip),
+            deviceLoginCommandKey(studio),
+            deviceLoginCommandKey(login("buildbox", "claude", "system")),
+        )
+        // …and two logins on ONE machine never share one either.
+        assertNotEquals(
+            deviceLoginCommandKey(studio),
+            deviceLoginCommandKey(login("studio", "claude", "work")),
         )
     }
 
     @Test
-    fun `an account row's chip lands in the same slot as the machine row's`() {
-        // EXP-862: both surfaces carry the same chip menu, so a command fired
-        // from either must caption in ONE place.
+    fun `a login row lands in the same slot as its parts`() {
+        // Both spellings address ONE slot, so a command fired from either
+        // captions in one place.
         assertEquals(
-            deviceAccountCommandKey(
-                "studio",
-                DeviceAccountChip(
-                    key = "claude:work",
-                    agent = "claude",
-                    profileId = "work",
-                    profileLabel = "Work",
-                    signedIn = true,
-                    active = false,
-                    email = null,
-                    plan = null,
-                    health = AgentHealth.Ok,
-                ),
-            ),
+            deviceLoginCommandKey(login("studio", "claude", "work")),
             accountCommandKey("studio", "claude", "work"),
         )
     }

@@ -31,6 +31,14 @@ data class SessionAccountOption(
     val health: AgentHealth,
     /** The machine's CURRENT login for the agent. */
     val active: Boolean,
+    /**
+     * EXP-909: the login THIS RUN is on — resolved once in
+     * [SessionAccountSwitch.options] from the synced `agent_account`, else the
+     * machine's reported email, else its active login. Exactly one option ever
+     * carries it, and none does when the run's account is unknowable (which is
+     * NOT the same as "the ambient login").
+     */
+    val current: Boolean,
     /** This login's own rate-limit windows, when the machine reported them. */
     val usage: AgentUsage?,
 ) {
@@ -98,13 +106,21 @@ object SessionAccountSwitch {
      * machine: every profile the machine reported, or the single ambient
      * account for a pre-profile machine. Empty when the machine said nothing
      * about the agent — there is then nothing to switch between.
+     *
+     * EXP-909: [currentAccount] is the run's synced `coding_sessions.
+     * agent_account`, and [activeAccountIndex] marks exactly one option (or
+     * none) as the login the run is ON.
      */
-    fun options(accounts: Map<String, AgentAccount>?, agent: String?): List<SessionAccountOption> {
+    fun options(
+        accounts: Map<String, AgentAccount>?,
+        agent: String?,
+        currentAccount: String? = null,
+    ): List<SessionAccountOption> {
         val id = agent?.takeIf { it.isNotBlank() } ?: return emptyList()
         val account = accounts?.get(id) ?: return emptyList()
         val profiles = account.profiles.orEmpty()
-        if (profiles.isEmpty()) {
-            return listOf(
+        val listed = if (profiles.isEmpty()) {
+            listOf(
                 SessionAccountOption(
                     profileId = SYSTEM_PROFILE_ID,
                     label = "Default",
@@ -113,32 +129,75 @@ object SessionAccountSwitch {
                     signedIn = account.signedIn,
                     health = AgentHealthRules.of(account),
                     active = true,
+                    current = false,
                     usage = null,
                 ),
             )
+        } else {
+            profiles.map { profile ->
+                SessionAccountOption(
+                    profileId = profile.id,
+                    label = profile.label?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: if (profile.id == SYSTEM_PROFILE_ID) "Default" else profile.id,
+                    email = profile.email?.trim()?.takeIf { it.isNotEmpty() },
+                    plan = profile.plan?.trim()?.takeIf { it.isNotEmpty() },
+                    signedIn = profile.signedIn,
+                    health = AgentHealthRules.of(profile),
+                    active = profile.active,
+                    current = false,
+                    usage = profile.usage,
+                )
+            }
         }
-        return profiles.map { profile ->
-            SessionAccountOption(
-                profileId = profile.id,
-                label = profile.label?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: if (profile.id == SYSTEM_PROFILE_ID) "Default" else profile.id,
-                email = profile.email?.trim()?.takeIf { it.isNotEmpty() },
-                plan = profile.plan?.trim()?.takeIf { it.isNotEmpty() },
-                signedIn = profile.signedIn,
-                health = AgentHealthRules.of(profile),
-                active = profile.active,
-                usage = profile.usage,
-            )
+        val index = activeAccountIndex(
+            listed,
+            currentAccount,
+            account.email?.trim()?.takeIf { it.isNotEmpty() },
+        )
+        if (index < 0) return listed
+        return listed.mapIndexed { at, option -> option.copy(current = at == index) }
+    }
+
+    /**
+     * EXP-909: WHICH listed login the run is on, in the only order a client
+     * can know it (web `activeAccountIndex`, the desktop's `SwitchTarget.
+     * current` rule):
+     *  1. the synced `agent_account`, when it names a login this machine lists;
+     *  2. else the login whose email matches the machine's top-level report for
+     *     the agent (the device only ever puts its ACTIVE login's identity
+     *     there);
+     *  3. else the machine's active login.
+     *
+     * -1 = unknown, and unknown is NOT `system`: guessing the ambient login is
+     * exactly the bug EXP-875 §1 was (a run on dennis@ headed danny@, with a
+     * stale "Needs re-login" badge borrowed from the wrong account).
+     */
+    fun activeAccountIndex(
+        options: List<SessionAccountOption>,
+        currentAccount: String?,
+        reportedEmail: String?,
+    ): Int {
+        val named = currentAccount?.trim()?.takeIf { it.isNotEmpty() }
+        if (named != null) {
+            val byId = options.indexOfFirst { it.profileId == named }
+            if (byId >= 0) return byId
         }
+        val email = reportedEmail?.trim()?.takeIf { it.isNotEmpty() }
+        if (email != null) {
+            val byEmail = options.indexOfFirst { it.email == email }
+            if (byEmail >= 0) return byEmail
+        }
+        return options.indexOfFirst { it.active }
     }
 
     /**
      * Why [option] cannot be switched to right now, or null when it can.
      * Display gating only — the server and the machine re-check everything.
      *
-     * [currentAccount] is the profile this run is KNOWN to be on, when the
-     * client knows it (`coding_sessions.agent_account` is server-only, so it is
-     * usually null and the machine's own active login is not a safe stand-in).
+     * [currentAccount] is the profile this run is KNOWN to be on. EXP-909 put
+     * `coding_sessions.agent_account` on the shape, so it is usually the run's
+     * own stamp; it stays nullable because a pre-EXP-909 row carries none, and
+     * the machine's active login is not a safe stand-in for it.
      */
     fun refusal(
         option: SessionAccountOption,

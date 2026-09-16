@@ -13,7 +13,6 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentProfileRemoveCommand
 import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
-import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
@@ -24,10 +23,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
-import com.exponential.app.domain.AgentAccountSection
-import com.exponential.app.domain.AgentAccountUsageGroup
 import com.exponential.app.domain.AgentAccountsRows
-import com.exponential.app.domain.DeviceAccountChip
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.batchRunIssues
@@ -167,24 +163,22 @@ class AgentsViewModel @Inject constructor(
     private val _deviceBusy = MutableStateFlow<Set<String>>(emptySet())
     val deviceBusy: StateFlow<Set<String>> = _deviceBusy
 
-    // ── EXP-829: the Accounts section (EXP-818's Devices → Accounts) ────────
-    // One row per agent ACCOUNT off the synced devices rows — own machines
-    // plus the selected team's shared servers — recomputed on the same 30s
-    // ticker the machine list's online-ness rides. null until the shape's
-    // initial snapshot has landed (the section says "Loading…", never a
-    // flash of "nothing reported yet").
-    val accountSections: StateFlow<List<AgentAccountSection>?> = combine(
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
-        dbFlow.scopedQuery(null as Boolean?) { it.electricOffsetDao().observeIsLive("devices") },
-        combine(auth.userId, selection.selectedId) { userId, teamId -> userId to teamId },
-        DeviceLiveness.ticker(),
-    ) { rows, snapshotLive, (userId, teamId), now ->
-        if (snapshotLive != true && rows.isEmpty()) null else accountSections(rows, userId, teamId, now)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    // ── EXP-829/EXP-909: the logins under each machine row ─────────────────
+    // EXP-909 folded the cross-device "Accounts" section away: a login belongs
+    // to the machine that holds it, so the Devices page lists each device's
+    // own logins beneath its row. null until the composed device list has
+    // landed (the rows then render "Checking…", never a flash of "none").
+    val deviceLogins: StateFlow<Map<String, List<AgentProfileUsageRow>>?> = devices
+        .map { rows ->
+            rows?.associate { device ->
+                device.deviceId to AgentAccountsRows.deviceLoginRows(device)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    // Refreshes in flight, keyed by account: the usage stamp the account
-    // carried when it was queued — the device's re-report MOVES it, and that
-    // is what clears the spinner (web `refreshing`, desktop `RefreshMark`).
+    // Refreshes in flight, keyed by LOGIN row: the usage stamp it carried when
+    // the command was queued — the device's re-report MOVES it, and that is
+    // what clears the mark (web `refreshing`, desktop `RefreshMark`).
     private data class RefreshMark(val fetchedAt: String?, val at: Long)
 
     private val _refreshingAccounts = MutableStateFlow<Map<String, RefreshMark>>(emptyMap())
@@ -192,68 +186,63 @@ class AgentsViewModel @Inject constructor(
         .map { it.keys }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    // EXP-817: when the section's OWN refresh last tried each account.
+    // EXP-817: when the page's OWN refresh last tried each login.
     private val autoAttempts = mutableMapOf<String, Long>()
 
-    // The last failed MANUAL queue attempt, rendered under the header (the
-    // desktop's treatment — a snackbar hides behind the bottom nav pill).
-    private val _accountsError = MutableStateFlow<String?>(null)
-    val accountsError: StateFlow<String?> = _accountsError
-
     /**
-     * Queue `agent_usage_refresh` on the account's refresh target. The answer
-     * arrives as a synced `agent_usage` write, never as a command result, so
-     * the only local state is the in-flight mark. [silent] is the section's
-     * own round: a refusal (a command still queued from the last round is a
-     * CONFLICT) is swallowed, the next tick simply looks again.
+     * Queue `agent_usage_refresh` on [row]'s machine. The answer arrives as a
+     * synced `agent_usage` write, never as a command result, so the only local
+     * state is the in-flight mark.
+     *
+     * EXP-862 retired the by-hand refresh and EXP-909 the section that carried
+     * its error line, so this is only ever the page's OWN round: a refusal (a
+     * command still queued from the last round is a CONFLICT) is swallowed and
+     * the next tick simply looks again.
      */
-    fun refreshAccount(group: AgentAccountUsageGroup, silent: Boolean = false) {
-        val target = group.refreshTarget ?: return
+    private fun refreshAccount(row: AgentProfileUsageRow) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            if (!silent) _accountsError.value = null
             _refreshingAccounts.value = _refreshingAccounts.value +
-                (group.key to RefreshMark(group.usage?.fetchedAt, System.currentTimeMillis()))
+                (row.key to RefreshMark(row.usage?.fetchedAt, System.currentTimeMillis()))
             runCatching {
                 devicesApi.createCommand(
                     accountId,
-                    agentUsageRefreshCommand(target.deviceId, target.agent, target.profileId),
+                    agentUsageRefreshCommand(row.deviceId, row.agent, row.profileId),
                 )
             }.onFailure { t ->
                 if (t is CancellationException) throw t
-                _refreshingAccounts.value = _refreshingAccounts.value - group.key
-                if (!silent) {
-                    _accountsError.value =
-                        trpcErrorMessage(t, "The refresh could not be queued on the device.")
-                }
+                _refreshingAccounts.value = _refreshingAccounts.value - row.key
             }
         }
     }
 
     /**
-     * EXP-817: keep the section current while it is open — the screen calls
-     * this on every sections emission and on a 30s tick (web `useNow`).
+     * EXP-817: keep the machines list current while it is open — the screen
+     * calls this on every login emission and on a 30s tick (web `useNow`).
      * First the in-flight marks the synced rows have answered (the stamp
      * moved) or that waited past [REFRESH_PENDING_MS] are dropped; then every
-     * account with an eligible machine and a freshest report past the floor
+     * ELIGIBLE login (mine + online + the cap) whose report is past the floor
      * gets ONE refresh queued — never while one is in flight, never twice
      * inside [AUTO_REFRESH_RETRY_MS]. The floor is the device's own 429
      * budget, so this can never out-poll what the machine allows itself.
      */
     fun autoRefreshAccounts() {
-        val groups = accountSections.value?.flatMap { it.groups } ?: return
+        val byDevice = deviceLogins.value ?: return
+        val caps = devices.value.orEmpty().associate { it.deviceId to it.caps }
+        val rows = byDevice.values.flatten()
         val nowMs = System.currentTimeMillis()
         _refreshingAccounts.value = _refreshingAccounts.value.filter { (key, mark) ->
-            val group = groups.firstOrNull { it.key == key } ?: return@filter false
-            group.usage?.fetchedAt == mark.fetchedAt && nowMs - mark.at <= REFRESH_PENDING_MS
+            val row = rows.firstOrNull { it.key == key } ?: return@filter false
+            row.usage?.fetchedAt == mark.fetchedAt && nowMs - mark.at <= REFRESH_PENDING_MS
         }
-        for (group in groups) {
-            if (group.refreshTarget == null || group.key in _refreshingAccounts.value) continue
-            if (AgentAccountsRows.refreshAllowedAt(group.usage, nowMs) != null) continue
-            val last = autoAttempts[group.key] ?: Long.MIN_VALUE
+        for (row in rows) {
+            if (!AgentAccountsRows.canRefresh(row, caps[row.deviceId])) continue
+            if (row.key in _refreshingAccounts.value) continue
+            if (AgentAccountsRows.refreshAllowedAt(row.usage, nowMs) != null) continue
+            val last = autoAttempts[row.key] ?: Long.MIN_VALUE
             if (nowMs - last < AUTO_REFRESH_RETRY_MS) continue
-            autoAttempts[group.key] = nowMs
-            refreshAccount(group, silent = true)
+            autoAttempts[row.key] = nowMs
+            refreshAccount(row)
         }
     }
 
@@ -262,7 +251,7 @@ class AgentsViewModel @Inject constructor(
     // `agent_profile_use` points the agent at a login the device ALREADY
     // holds. Sign-ins are NOT here — they round-trip a link and a code, which
     // the device-settings sheet owns (one implementation, not one per
-    // surface). Keyed by machine × chip ([deviceAccountCommandKey]), so two
+    // surface). Keyed by machine × login ([deviceLoginCommandKey]), so two
     // logins — or two machines holding the same one — caption independently.
     private val _accountCommandStates = MutableStateFlow<Map<String, DeviceCommandUiState>>(emptyMap())
     val accountCommandStates: StateFlow<Map<String, DeviceCommandUiState>> = _accountCommandStates
@@ -277,8 +266,8 @@ class AgentsViewModel @Inject constructor(
      * and never a logout: signing codex out would revoke the account
      * server-wide.
      */
-    fun useAccountHere(device: SteerDevice, chip: DeviceAccountChip) {
-        setAccountDefault(device, chip.agent, chip.profileId)
+    fun useAccountHere(device: SteerDevice, row: AgentProfileUsageRow) {
+        setAccountDefault(device, row.agent, row.profileId)
     }
 
     /**
@@ -601,44 +590,18 @@ const val REFRESH_PENDING_MS = 45_000L
 const val AUTO_REFRESH_RETRY_MS = 60_000L
 
 /**
- * EXP-829: the Accounts section's rows — the synced devices rows the section
- * reads ([AgentAccountsRows.sectionDevices]) folded into one row per account,
- * attention first, under agent bands in contract order. Online-ness and the
- * refresh eligibility (mine + online + the `agent-usage-refresh` cap) come
- * off the same [SteerDevice] mapping every machine row renders from. Signed
- * out lists nothing.
+ * EXP-849/EXP-909: one LOGIN row's command slot in
+ * [AgentsViewModel.accountCommandStates]. The row already carries its device
+ * ([AgentProfileUsageRow.key] is `<deviceId>:<agent>:<profileId>`), which is
+ * the whole point: two machines holding the same login must not share one
+ * spinner and one error.
  */
-fun accountSections(
-    rows: List<DeviceEntity>,
-    currentUserId: String?,
-    teamId: String?,
-    nowMs: Long,
-): List<AgentAccountSection> {
-    if (currentUserId == null) return emptyList()
-    val devices = AgentAccountsRows.sectionDevices(rows, currentUserId, teamId)
-    val capsByDevice = devices.associate { it.deviceId to it.toSteerDevice(nowMs, currentUserId).caps }
-    val profileRows = AgentAccountsRows.agentProfileUsageRows(devices, currentUserId) { seen ->
-        DeviceLiveness.isOnline(seen, nowMs)
-    }
-    val groups = AgentAccountsRows.accountUsageGroups(profileRows) { row ->
-        AgentAccountsRows.canRefresh(row, capsByDevice[row.deviceId])
-    }
-    return AgentAccountsRows.sections(AgentAccountsRows.sortAccountGroupsAttentionFirst(groups))
-}
+internal fun deviceLoginCommandKey(row: AgentProfileUsageRow): String =
+    accountCommandKey(row.deviceId, row.agent, row.profileId)
 
 /**
- * EXP-849: one machine chip's command slot in
- * [AgentsViewModel.accountCommandStates]. DEVICE-scoped: a chip key is only
- * `<agent>:<profileId>`, so two machines holding the same login would
- * otherwise share one spinner and one error.
- */
-internal fun deviceAccountCommandKey(deviceId: String, chip: DeviceAccountChip): String =
-    accountCommandKey(deviceId, chip.agent, chip.profileId)
-
-/**
- * EXP-862: the same slot, addressed by its parts — an ACCOUNT row's machine
- * chip names a device × agent × profile without ever building a
- * [DeviceAccountChip], and both surfaces must caption in one place.
+ * EXP-862: the same slot, addressed by its parts — a caller that names a
+ * device × agent × profile without holding a row.
  */
 internal fun accountCommandKey(deviceId: String, agent: String, profileId: String): String =
     "$deviceId:$agent:$profileId"

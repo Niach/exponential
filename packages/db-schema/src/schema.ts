@@ -825,8 +825,11 @@ export const codingSessions = pgTable(
     agent: varchar({ length: 16 }),
     // EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE the run was launched
     // on (`system` = the ambient login, else a device-local profile id).
-    // SERVER-ONLY — never in the shape allowlist (an unknown column bricks
-    // older native sync); read back through tRPC for the usage page.
+    // EXP-909: SYNCED (on the coding-sessions shape allowlist) so every
+    // client can point the run's usage readout at the run's OWN login and
+    // the account switch knows the current one; NULL on rows written before
+    // the desktop stamped it, which reads as "unknown", never as the
+    // ambient login. Old native builds drop unknown columns safely.
     agentAccount: varchar(`agent_account`, { length: 64 }),
     status: codingSessionStatusEnum().notNull().default(`running`),
     // EXP-545: the batch↔PR linkage. Stamped with the PR's head branch

@@ -2,11 +2,11 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-829: the Devices page's Accounts section rules, locked against the same
-// fixtures and the same test names as web `lib/agent-usage.test.ts`
-// (`accountUsageGroups`) and desktop `ui/src/usage_bar.rs` /
-// `accounts_section.rs`. One row per ACCOUNT, the freshest machine's numbers,
-// chips online-first, attention-first ordering, the refresh floor.
+// EXP-829/EXP-909: the Devices page's per-device LOGIN rules, locked against
+// the same fixtures and the same test names as web `lib/agent-usage.test.ts`
+// (`deviceLoginRows` / `sortDeviceLogins` / `loginLabel`) and desktop
+// `ui/src/usage_bar.rs`. One row per login under its machine, the active
+// login first, attention-first ordering, the refresh floor.
 final class AgentAccountsRowsTests: XCTestCase {
     private func row(
         deviceId: String,
@@ -21,7 +21,8 @@ final class AgentAccountsRowsTests: XCTestCase {
         email: String? = nil,
         plan: String? = nil,
         usage: AgentUsage? = nil,
-        checkedAt: String? = nil
+        checkedAt: String? = nil,
+        health: AgentAccountHealth = .unknown
     ) -> AgentProfileUsageRow {
         AgentProfileUsageRow(
             key: "\(deviceId):\(agent):\(profileId)",
@@ -37,7 +38,8 @@ final class AgentAccountsRowsTests: XCTestCase {
             email: email,
             plan: plan,
             usage: usage,
-            checkedAt: checkedAt
+            checkedAt: checkedAt,
+            health: health
         )
     }
 
@@ -51,6 +53,82 @@ final class AgentAccountsRowsTests: XCTestCase {
 
     private func usageJson(_ fetchedAt: String, _ key: String, _ percent: Int) -> String {
         #"{"fetchedAt":"\#(fetchedAt)","stale":false,"windows":[{"key":"\#(key)","label":"Week","percent":\#(percent)}]}"#
+    }
+
+    // MARK: - One device's logins (EXP-909)
+
+    // The Devices page lists a machine's logins under its row: claude before
+    // codex (contract order), and inside an agent the machine's ACTIVE login
+    // leads — this list answers "what is this machine running", and the broken
+    // sibling below it still wears its badge. Then attention, then the labels.
+    func testDeviceLoginsLeadWithTheActiveLoginInContractAgentOrder() {
+        let rows = [
+            row(deviceId: "d1", agent: "codex", profileId: "codex-a", profileLabel: "Work"),
+            row(
+                deviceId: "d1", agent: "claude", profileId: "p2", profileLabel: "Second",
+                active: false, signedIn: false, health: .signedOut
+            ),
+            row(
+                deviceId: "d1", agent: "claude", profileId: "p3", profileLabel: "Third",
+                active: false
+            ),
+            row(deviceId: "d1", agent: "claude", profileId: "system", profileLabel: "Default"),
+        ]
+        XCTAssertEqual(
+            AgentAccountsRows.sortDeviceLogins(rows).map(\.profileId),
+            ["system", "p2", "p3", "codex-a"]
+        )
+    }
+
+    // `deviceLoginRows` is the same derivation `profileRows` runs, entered per
+    // COMPOSED device row — one entry point, one rule, already ordered.
+    func testDeviceLoginRowsDeriveFromTheComposedRow() throws {
+        let device = SteerDevice(
+            deviceId: "d1",
+            deviceLabel: "Studio",
+            lastSeenAt: "2026-08-28T09:59:00Z",
+            agentAccounts: try XCTUnwrap(AgentUsagePresentation.parseAccounts("""
+                {"claude":{"signedIn":true,"email":"dev@acme.test","plan":"max","profiles":[
+                {"id":"p2","label":"Second","signedIn":true,"active":false,"email":"two@acme.test"},
+                {"id":"system","label":"Default","signedIn":true,"active":true,
+                 "email":"dev@acme.test","plan":"max"}]}}
+                """)),
+            agentUsage: [:],
+            agentUsageAt: "2026-08-28T09:59:00Z"
+        )
+        let rows = AgentAccountsRows.deviceLoginRows(device)
+        XCTAssertEqual(rows.map(\.profileId), ["system", "p2"])
+        XCTAssertEqual(rows.map(\.key), ["d1:claude:system", "d1:claude:p2"])
+        XCTAssertTrue(rows.allSatisfy { $0.mine && $0.online })
+        XCTAssertTrue(AgentAccountsRows.deviceLoginRows(
+            SteerDevice(deviceId: "d2", deviceLabel: "Bare")
+        ).isEmpty)
+    }
+
+    // The login row's title says WHO, never how it is doing: the brand mark
+    // names the agent, the device row above names the machine, and the badge
+    // says whether the login still works.
+    func testTheLoginLabelIsTheIdentityNeverTheStatus() {
+        XCTAssertEqual(
+            AgentAccountsRows.loginLabel(
+                row(deviceId: "d1", agent: "claude", email: "dev@acme.test", plan: "max")
+            ),
+            "dev@acme.test"
+        )
+        // No email: the bare plan (an agent that names a provider).
+        XCTAssertEqual(
+            AgentAccountsRows.loginLabel(row(deviceId: "d1", agent: "zed", plan: "anthropic (oauth)")),
+            "anthropic (oauth)"
+        )
+        // Neither: the profile's own label — and a SIGNED-OUT login still
+        // reads as itself, with the badge carrying the state.
+        let out = row(
+            deviceId: "d1", agent: "claude", profileId: "p2", profileLabel: "Second",
+            signedIn: false, health: .signedOut
+        )
+        XCTAssertEqual(AgentAccountsRows.loginLabel(out), "Second")
+        XCTAssertEqual(AgentAccountsRows.healthBadge(out), "Signed out")
+        XCTAssertNil(AgentAccountsRows.healthBadge(row(deviceId: "d1", agent: "claude", health: .ok)))
     }
 
     // MARK: - Rows off the devices shape
@@ -75,13 +153,14 @@ final class AgentAccountsRowsTests: XCTestCase {
             agentUsageAt: "2026-08-28T11:30:00.000Z",
             lastSeenAt: "2026-08-28T11:59:00.000Z"
         )
-        let rows = AgentAccountsRows.sortAttentionFirst(
+        let rows = AgentAccountsRows.sortDeviceLogins(
             AgentAccountsRows.profileRows(devices: [device], currentUserId: "me", isOnline: { _ in true })
         )
-        // Signed-out rows lead: codex reported numbers but no account.
-        XCTAssertEqual(rows.map(\.key), ["dev-1:codex:system", "dev-1:claude:system"])
+        // Contract agent order: claude, then the codex row that reported
+        // numbers but no account at all.
+        XCTAssertEqual(rows.map(\.key), ["dev-1:claude:system", "dev-1:codex:system"])
 
-        let claude = rows[1]
+        let claude = rows[0]
         XCTAssertEqual(claude.agent, "claude")
         XCTAssertEqual(claude.profileId, AgentAccountsRows.systemProfileId)
         XCTAssertEqual(claude.profileLabel, "Default")
@@ -96,7 +175,7 @@ final class AgentAccountsRowsTests: XCTestCase {
         // The account's own probe stamp wins over the row's usage stamp.
         XCTAssertEqual(claude.checkedAt, "2026-08-28T11:00:00.000Z")
 
-        let codex = rows[0]
+        let codex = rows[1]
         XCTAssertFalse(codex.signedIn)
         XCTAssertNil(codex.email)
         XCTAssertEqual(AgentAccountsRows.peakPercent(codex.usage), 8)
@@ -186,21 +265,6 @@ final class AgentAccountsRowsTests: XCTestCase {
         XCTAssertEqual(AgentAccountsRows.peakPercent(report), 78)
     }
 
-    func testAttentionFirstLeadsWithTheSignedOutRows() {
-        let rows = AgentAccountsRows.sortAttentionFirst([
-            row(deviceId: "b", agent: "claude", email: "low@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 10)),
-            row(deviceId: "a", agent: "codex", email: "hot@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 96)),
-            row(deviceId: "a", agent: "claude", signedIn: false),
-            row(deviceId: "a", agent: "claude", profileId: "work", email: "mid@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 60)),
-        ])
-        XCTAssertEqual(rows.map(\.key), [
-            "a:claude:system",
-            "a:codex:system",
-            "a:claude:work",
-            "b:claude:system",
-        ])
-    }
-
     // The floor: a fetch younger than five minutes names the next allowed
     // time; an older one (or none at all) allows a refresh right now; a
     // stamp from the future counts as just fetched.
@@ -222,219 +286,14 @@ final class AgentAccountsRowsTests: XCTestCase {
 
     // MARK: - One group per account (EXP-817)
 
-    func testMergesTheSameEmailAcrossMachinesFreshestReportFirst() throws {
-        let groups = AgentAccountsRows.accountGroups(
-            [
-                row(
-                    deviceId: "server", agent: "claude", online: false,
-                    email: "Dev@Acme.test", plan: "max",
-                    usage: usage("2026-08-26T10:00:00.000Z", 69),
-                    checkedAt: "2026-08-27T10:00:00.000Z"
-                ),
-                row(
-                    deviceId: "macbook", agent: "claude",
-                    email: "dev@acme.test",
-                    usage: usage("2026-08-28T11:00:00.000Z", 75),
-                    checkedAt: "2026-08-28T11:00:00.000Z"
-                ),
-                row(
-                    deviceId: "mint", agent: "claude",
-                    email: "other@acme.test",
-                    usage: usage("2026-08-28T11:30:00.000Z", 46)
-                ),
-            ],
-            canRefresh: { _ in false }
-        )
-        XCTAssertEqual(groups.map(\.key), ["claude:dev@acme.test", "claude:other@acme.test"])
-        let shared = try XCTUnwrap(groups.first)
-        // The chips: online machines lead.
-        XCTAssertEqual(shared.rows.map(\.deviceId), ["macbook", "server"])
-        // The numbers are the FRESHEST member's, the plan the first one named.
-        XCTAssertEqual(shared.usage?.windows?.first?.percent, 75)
-        XCTAssertEqual(shared.plan, "max")
-        XCTAssertEqual(shared.checkedAt, "2026-08-28T11:00:00.000Z")
-        XCTAssertNil(shared.refreshTarget)
-    }
-
-    func testKeepsEmailLessAndSignedOutRowsApart() throws {
-        let groups = AgentAccountsRows.accountGroups(
-            [
-                row(deviceId: "a", agent: "zed", plan: "openai-codex (oauth)"),
-                row(deviceId: "b", agent: "zed", plan: "openai-codex (oauth)"),
-                row(deviceId: "a", agent: "claude", signedIn: false, email: "x@y.z"),
-                row(deviceId: "b", agent: "claude", signedIn: false),
-            ],
-            canRefresh: { _ in false }
-        )
-        XCTAssertEqual(groups.map(\.key), [
-            "zed:a:system",
-            "zed:b:system",
-            "claude:a:system",
-            "claude:b:system",
-        ])
-        XCTAssertFalse(groups[2].signedIn)
-    }
-
-    func testPrefersANonStaleReportOnATieAndAReportWithWindowsOverNone() throws {
-        let groups = AgentAccountsRows.accountGroups(
-            [
-                row(deviceId: "a", agent: "claude", email: "dev@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 10, stale: true)),
-                row(deviceId: "b", agent: "claude", email: "dev@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 20)),
-                row(deviceId: "c", agent: "claude", email: "dev@acme.test"),
-            ],
-            canRefresh: { _ in false }
-        )
-        XCTAssertEqual(groups.count, 1)
-        XCTAssertEqual(groups[0].usage?.windows?.first?.percent, 20)
-
-        // Same stamp, both current: the one with windows beats the empty one.
-        let empty = AgentUsage(fetchedAt: "2026-08-28T11:00:00.000Z", stale: false, windows: [])
-        let withWindows = AgentAccountsRows.accountGroups(
-            [
-                row(deviceId: "a", agent: "claude", email: "dev@acme.test", usage: empty),
-                row(deviceId: "b", agent: "claude", email: "dev@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 5)),
-            ],
-            canRefresh: { _ in false }
-        )
-        XCTAssertEqual(withWindows[0].usage?.windows?.first?.percent, 5)
-    }
-
-    func testTargetsTheRefreshAtTheEligibleMemberWithTheFreshestNumbers() throws {
-        let groups = AgentAccountsRows.accountGroups(
-            [
-                row(deviceId: "stale-but-capable", agent: "claude", email: "dev@acme.test", usage: usage("2026-08-26T10:00:00.000Z", 69)),
-                row(deviceId: "fresh-and-capable", agent: "claude", email: "dev@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 75)),
-                row(deviceId: "freshest-but-not-mine", agent: "claude", mine: false, email: "dev@acme.test", usage: usage("2026-08-28T11:30:00.000Z", 75)),
-            ],
-            canRefresh: { $0.mine }
-        )
-        XCTAssertEqual(groups[0].refreshTarget?.deviceId, "fresh-and-capable")
-        // The group's own numbers still come from the freshest member of all.
-        XCTAssertEqual(groups[0].usage?.fetchedAt, "2026-08-28T11:30:00.000Z")
-    }
-
-    func testOrdersGroupsAttentionFirst() throws {
-        let groups = AgentAccountsRows.sortGroupsAttentionFirst(
-            AgentAccountsRows.accountGroups(
-                [
-                    row(deviceId: "a", agent: "claude", email: "low@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 10)),
-                    row(deviceId: "a", agent: "codex", email: "hot@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 96)),
-                    row(deviceId: "b", agent: "claude", signedIn: false),
-                    row(deviceId: "a", agent: "claude", profileId: "work", email: "mid@acme.test", usage: usage("2026-08-28T11:00:00.000Z", 60)),
-                ],
-                canRefresh: { _ in false }
-            )
-        )
-        XCTAssertEqual(groups.map(\.key), [
-            "claude:b:system",
-            "codex:hot@acme.test",
-            "claude:mid@acme.test",
-            "claude:low@acme.test",
-        ])
-    }
-
-    func testFoldsTheSyncedDeviceRowsEndToEnd() throws {
-        // Two machines, one login: the section shows ONE row with two chips.
-        let devices = ["macbook", "server"].map { id in
-            DeviceEntity(
-                id: "row-\(id)",
-                userId: "me",
-                deviceId: id,
-                label: id,
-                agentAccounts: #"{"claude":{"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:00:00.000Z"}}"#,
-                agentUsage: #"{"claude":\#(usageJson("2026-08-28T11:00:00.000Z", "weekly", 75))}"#,
-                lastSeenAt: "2026-08-28T11:59:00.000Z"
-            )
-        }
-        let rows = AgentAccountsRows.profileRows(devices: devices, currentUserId: "me", isOnline: { _ in true })
-        let groups = AgentAccountsRows.accountGroups(rows, canRefresh: { _ in true })
-        XCTAssertEqual(groups.count, 1)
-        XCTAssertEqual(groups[0].rows.count, 2)
-        XCTAssertEqual(groups[0].refreshTarget?.deviceId, "macbook")
-    }
-
     // MARK: - The section's layout rules
 
-    private func group(_ agent: String, _ key: String) -> AgentAccountUsageGroup {
-        AgentAccountUsageGroup(
-            key: key, agent: agent, signedIn: true, email: nil, plan: nil,
-            rows: [row(deviceId: "dev-1", agent: agent)],
-            usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-    }
-
-    // The agent headings follow the CONTRACT order, never the group order or
-    // the alphabet; an agent this build has no name for still gets its own
-    // section, after the known ones.
-    func testSectionsFollowTheContractAgentOrder() {
-        let sections = AgentAccountsRows.sections([
-            group("aider", "aider:a"),
-            group("zed", "zed:a"),
-            group("codex", "codex:a"),
-            group("claude", "claude:a"),
-            group("codex", "codex:b"),
-        ])
-        XCTAssertEqual(
-            sections.map { ($0.agent, $0.groups.count) }.map { "\($0.0):\($0.1)" },
-            ["claude:1", "codex:2", "aider:1", "zed:1"]
-        )
-        XCTAssertEqual(sections[1].groups.map(\.key), ["codex:a", "codex:b"])
-    }
-
-    // The chip names the machine, and the profile only when it is not the
-    // ambient login; the row title is the login, or that there is none.
-    func testChipsNameTheMachineAndANamedProfile() {
-        XCTAssertEqual(AgentAccountsRows.chipLabel(row(deviceId: "dev-1", agent: "claude", deviceLabel: "Studio")), "Studio")
-        XCTAssertEqual(
-            AgentAccountsRows.chipLabel(row(deviceId: "dev-1", agent: "claude", deviceLabel: "Studio", profileId: "0a1b2c3d", profileLabel: "Personal")),
-            "Studio · Personal"
-        )
-        XCTAssertEqual(
-            AgentAccountsRows.chipLabel(row(deviceId: "dev-1", agent: "claude", deviceLabel: "", profileId: "0a1b2c3d", profileLabel: "Personal")),
-            "dev-1 · Personal"
-        )
-
-        // EXP-862: the title names the ACCOUNT, never its sign-in state — a
-        // signed-out login is said once, by its chip's badge. A group with
-        // nothing to name itself by falls back to its profile's label (the
-        // ambient login's is "Default"), which is also the last resort.
-        let anonymous = group("claude", "claude:a")
-        XCTAssertEqual(AgentAccountsRows.groupCaption(anonymous), "Default")
-        let empty = AgentAccountUsageGroup(
-            key: "claude:a", agent: "claude", signedIn: true, email: nil, plan: nil,
-            rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-        XCTAssertEqual(
-            AgentAccountsRows.groupCaption(empty), AgentAccountsRows.systemProfileLabel
-        )
-        let signedOut = AgentAccountUsageGroup(
-            key: "claude:a", agent: "claude", signedIn: false, email: "x@y.z", plan: "max",
-            rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-        XCTAssertEqual(AgentAccountsRows.groupCaption(signedOut), "x@y.z")
-        let labelled = AgentAccountUsageGroup(
-            key: "claude:dev-1:work", agent: "claude", signedIn: false, email: nil, plan: nil,
-            rows: [row(deviceId: "dev-1", agent: "claude", profileId: "work", profileLabel: "Work")],
-            usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-        XCTAssertEqual(AgentAccountsRows.groupCaption(labelled), "Work")
-        let named = AgentAccountUsageGroup(
-            key: "claude:dev@acme.test", agent: "claude", signedIn: true, email: "dev@acme.test", plan: "max",
-            rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-        XCTAssertEqual(AgentAccountsRows.groupCaption(named), "dev@acme.test")
-        let provider = AgentAccountUsageGroup(
-            key: "zed:a:system", agent: "zed", signedIn: true, email: nil, plan: "anthropic (oauth)",
-            rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-        XCTAssertEqual(AgentAccountsRows.groupCaption(provider), "anthropic (oauth)")
-    }
     // MARK: - EXP-849: a retired agent id never renders
 
     // A desktop below the version floor keeps heart-beating `pi` in every one
     // of these columns; nothing this build draws may name an agent it has no
     // label, glyph or launcher for — not a row, not a tab, not a chip.
-    func testAnAgentOutsideTheContractIsNeverARowOrASection() throws {
+    func testAnAgentOutsideTheContractIsNeverARow() throws {
         let stale = DeviceEntity(
             id: "row-9",
             userId: "me",
@@ -448,11 +307,7 @@ final class AgentAccountsRowsTests: XCTestCase {
             devices: [stale], currentUserId: "me", isOnline: { _ in true }
         )
         XCTAssertEqual(rows.map(\.key), ["old-box:claude:system"])
-        let sections = AgentAccountsRows.sections(
-            AgentAccountsRows.accountGroups(rows, canRefresh: { _ in false })
-        )
-        XCTAssertEqual(sections.map(\.agent), ["claude"])
-        // The machine row draws the same filtered set of chips.
+        // The machine row draws the same filtered set of logins.
         XCTAssertEqual(
             AgentAccountsRows.deviceRows(rows, deviceId: "old-box").map(\.agent), ["claude"]
         )
@@ -748,24 +603,6 @@ final class AgentAccountsRowsTests: XCTestCase {
             ),
             "Claude Code account 2"
         )
-    }
-
-    // Web `showAdd`: only a signed-in, NAMED account can be added elsewhere —
-    // a signed-out one, or one the machines reported with no email, has no
-    // identity to sign in as.
-    func testOnlyANamedSignedInAccountCanBeAddedElsewhere() {
-        // The helper's group is signed in with NO email: nothing to add.
-        XCTAssertFalse(AgentAccountsRows.canAddAccountElsewhere(group("claude", "claude:dev-1")))
-        let withEmail = AgentAccountUsageGroup(
-            key: "claude:a@b.c", agent: "claude", signedIn: true, email: "a@b.c",
-            plan: nil, rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-        XCTAssertTrue(AgentAccountsRows.canAddAccountElsewhere(withEmail))
-        let signedOut = AgentAccountUsageGroup(
-            key: "claude:a@b.c", agent: "claude", signedIn: false, email: "a@b.c",
-            plan: nil, rows: [], usage: nil, checkedAt: nil, refreshTarget: nil
-        )
-        XCTAssertFalse(AgentAccountsRows.canAddAccountElsewhere(signedOut))
     }
 
     // The sign-in sheet closes on the TRANSITION into "landed", so a new

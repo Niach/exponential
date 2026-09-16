@@ -1,16 +1,12 @@
 package com.exponential.app.ui.session
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,98 +18,72 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.domain.AgentUsagePresentation
-import com.exponential.app.domain.AgentUsageSeverity
 import com.exponential.app.domain.UsageCard
-import com.exponential.app.ui.issue.relativeTime
-import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.components.UsageTrack
+import com.exponential.app.ui.components.UsageTrackMiniHeight
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.delay
 
-// EXP-484/EXP-688: the agent's rate-limit usage, rendered the same way on all
-// four clients (web `components/agent-usage-bar.tsx`, iOS `AgentUsageBar.swift`,
-// desktop `ui/src/usage_bar.rs`) — one card per reported window, grouped into
-// Current session / the untitled weekly limits / Other. Every rule (grouping, titles,
-// captions, the severity thresholds, the stale treatment) comes from the
-// shared `AgentUsagePresentation.usageGroups`; nothing is decided here.
+// EXP-484/EXP-688/EXP-909: the agent's rate-limit usage, rendered the same way
+// on all four clients (web `components/agent-usage-bar.tsx` `UsageWindows` +
+// `agent-usage-mini.tsx` `UsageMini`, iOS `UsageWindows`/`AgentUsageMini`,
+// desktop `usage_bar::render_usage_windows` / `render_usage_mini`). Every rule
+// (grouping, titles, captions, the severity thresholds, the "as of" line)
+// comes from the shared `AgentUsagePresentation`; nothing is decided here.
 //
-// EXP-688 deleted the collapsed hairline strip and the pinned-window radio
-// rows with it: usage lives in the session's Usage sheet and in each agent's
-// tab of Device settings, never as chrome over the feed.
+// EXP-909 replaced the three-line glass CARDS with two forms and ONE bar
+// primitive ([UsageTrack]): the FULL form (two lines per window) for the login
+// the overlay is about, and the MINI form (three tiny meters abreast) for
+// every OTHER login — on an account row in the overlay and on a device's
+// login row on the Devices page.
 
 /**
- * Every reported window as cards. Only a group that carries a title renders a
- * header (EXP-694 dropped the weekly one; the session group's single card
- * already says "Current session").
- * Stale numbers — the last good ones after a failed refresh — render at half
- * opacity with an "as of …" footer rather than vanishing.
- *
- * [compact] is the Device-settings rendering: the cards sit INSIDE that
- * agent's card there, so they drop the nested glass surface and tighten up.
+ * The FULL form: every reported window as two lines — the limit's name and its
+ * countdown, then the meter and the percentage. Nothing is hidden for being
+ * old: a report past its freshness window (or flagged stale by the machine)
+ * DIMS and carries an "as of …" line, because the last good numbers still say
+ * more than a blank.
  */
 @Composable
-internal fun AgentUsageCards(
-    usage: AgentUsage,
-    modifier: Modifier = Modifier,
-    compact: Boolean = false,
-) {
+internal fun UsageWindows(usage: AgentUsage, modifier: Modifier = Modifier) {
     val nowMs = rememberUsageClock()
     val groups = remember(usage, nowMs) { AgentUsagePresentation.usageGroups(usage, nowMs) }
     if (groups.isEmpty()) return
+    val age = remember(usage, nowMs) { AgentUsagePresentation.usageAge(usage, nowMs) }
 
     Column(
-        modifier = modifier.fillMaxWidth().alpha(if (usage.stale) 0.5f else 1f),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp),
+        modifier = modifier.fillMaxWidth().alpha(if (age != null) 0.5f else 1f),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         groups.forEach { group ->
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                // A group renders a header only when it has one to render: the
-                // weekly group's title is empty since EXP-694 (its windows are
-                // plain rows) and the session group's single card is already
-                // titled "Current session".
-                if (group.title.isNotEmpty() &&
-                    group.key != AgentUsagePresentation.GROUP_SESSION
-                ) {
-                    Text(
-                        group.title,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Secondary,
-                        ),
-                    )
-                }
-                group.cards.forEach { card -> UsageCardRow(card = card, compact = compact) }
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // EXP-909: no group headings ×4 — every window names itself
+                // ("Current session" / "All models" / "<Label> only", or its
+                // wire label), so the groups only order the rows.
+                group.cards.forEach { card -> UsageWindowRow(card) }
             }
         }
-        // Stale = a refresh failed and these are the last good numbers, so the
-        // cards say when they were true instead of pretending to be live.
-        if (usage.stale) {
-            usage.fetchedAt?.let { fetchedAt ->
-                Text(
-                    "as of ${relativeTime(fetchedAt)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            }
+        if (age != null) {
+            Text(
+                age,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
         }
     }
 }
 
-/** One window: title + `n% used`, its track, and the countdown under it. */
+/** One window: title + countdown, then the meter + `NN%`. */
 @Composable
-private fun UsageCardRow(card: UsageCard, compact: Boolean) {
-    // One announcement per card instead of three fragments — the title, the
+private fun UsageWindowRow(card: UsageCard) {
+    // One announcement per window instead of three fragments — the title, the
     // percentage and the countdown only mean anything together.
     val description = buildString {
         append("${card.title} ${card.percent}% used")
@@ -122,11 +92,6 @@ private fun UsageCardRow(card: UsageCard, compact: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (compact) Modifier else Modifier.glassRow())
-            .padding(
-                horizontal = if (compact) 0.dp else 12.dp,
-                vertical = if (compact) 0.dp else 10.dp,
-            )
             .semantics(mergeDescendants = true) { contentDescription = description },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -139,57 +104,87 @@ private fun UsageCardRow(card: UsageCard, compact: Boolean) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false),
             )
-            Spacer(Modifier.weight(1f))
-            Text(
-                "${card.percent}% used",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
+            if (card.caption.isNotEmpty()) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    card.caption,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    maxLines = 1,
+                )
+            }
         }
         Spacer(Modifier.height(6.dp))
-        UsageTrack(percent = card.percent.toDouble(), severity = card.severity, height = 6.dp)
-        if (card.caption.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            UsageTrack(
+                percent = card.percent.toDouble(),
+                severity = card.severity,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            // EXP-909: "NN%", never "NN% used" — the meter beside it already
+            // says what the number is a share of.
             Text(
-                card.caption,
-                style = MaterialTheme.typography.labelSmall,
+                "${card.percent}%",
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = 1,
             )
         }
     }
 }
 
-/** The filled track every usage card renders. */
+/**
+ * EXP-909: the MINI form — up to three tiny meters in ONE line, each the
+ * window's WIRE label, its bar and `NN%`. The other accounts in the usage
+ * overlay and every login on the Devices page wear it, and EXP-872 will mount
+ * the same piece as the account picker's hover preview, so it stays a
+ * standalone composable with no surrounding chrome.
+ *
+ * Renders nothing when the login reported no windows — the caller then says
+ * `Checking…` or `No usage reported`, which are different statements.
+ */
 @Composable
-internal fun UsageTrack(percent: Double, severity: AgentUsageSeverity, height: Dp) {
-    val fraction = (percent / 100.0).coerceIn(0.0, 1.0).toFloat()
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(height)
-            .clip(RoundedCornerShape(height / 2))
-            .background(GlassTokens.StrokeStrong),
+internal fun AgentUsageMini(usage: AgentUsage?, modifier: Modifier = Modifier) {
+    val windows = remember(usage) { AgentUsagePresentation.miniWindows(usage) }
+    if (windows.isEmpty()) return
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (fraction > 0f) {
-            // The fill takes the track's own capsule (EXP-698) — a square-ended
-            // bar inside a rounded track left two corner slivers of track
-            // showing at 100%.
-            Box(
+        windows.forEach { window ->
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth(fraction)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(height / 2))
-                    .background(severityColor(severity)),
-            )
+                    .weight(1f)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "${window.label} ${window.percent}% used"
+                    },
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    window.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                UsageTrack(
+                    percent = window.percent.toDouble(),
+                    severity = window.severity,
+                    modifier = Modifier.weight(1f),
+                    height = UsageTrackMiniHeight,
+                )
+                Text(
+                    "${window.percent}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                )
+            }
         }
     }
-}
-
-/** Normal / ≥75 warning / ≥95 danger — the shared thresholds, mobile's tones. */
-private fun severityColor(severity: AgentUsageSeverity): Color = when (severity) {
-    AgentUsageSeverity.Danger -> DesignTokens.Semantic.Red
-    AgentUsageSeverity.Warning -> DesignTokens.Semantic.Yellow
-    AgentUsageSeverity.Normal -> GlassTokens.UsageFill
 }
 
 /**

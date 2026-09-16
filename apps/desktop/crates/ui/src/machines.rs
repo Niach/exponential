@@ -18,15 +18,28 @@
 //! instance config, not device state: it is fetched ONCE per section
 //! lifetime (the first render) rather than polled.
 //!
-//! EXP-849/EXP-862: this is the SETUP surface for agent logins. A row carries
-//! the worst health among the accounts its device reported and one chip per
-//! account, whose menu is the ×4 rule (`usage_bar::chip_actions`): sign in,
-//! set as default (`agent_profile_use`: a device-local pointer, never a logout
-//! and never a credential copy), remove this device's copy of the login
-//! (`agent_profile_remove`). The chip's BADGE is the only signed-out notice on
-//! the row — EXP-862 retired the status-line annotations and the "Sign in to
-//! <agent>" pill that said the same thing twice. Deciding WHICH account a run
-//! should spend is the Accounts section's job (`accounts_section`).
+//! EXP-849/EXP-862/EXP-909: this is THE surface for agent logins. Each device
+//! row carries the worst health among the logins it reported and lists those
+//! logins beneath itself, one flat sub-row each: the brand mark, the login's
+//! identity (`usage_bar::login_label`), its health badge, its mini usage line
+//! and a `⋯` menu — the ×4 rule (`usage_bar::chip_actions`, the shared login
+//! menu): sign in, set as
+//! default (`agent_profile_use`: a device-local pointer, never a logout and
+//! never a credential copy), remove this device's copy of the login
+//! (`agent_profile_remove`). A team device's logins are read-only: they belong
+//! to their owner.
+//!
+//! EXP-909: a device row carries ONE control — a settings GEAR revealed on
+//! hover, opening [`crate::device_settings`]. No ▶ (a run starts from the
+//! Agent page composer, which preselects a device), no ⋯ row menu, and no
+//! inline update controls: Update and Remove are sections of that dialog.
+//!
+//! EXP-909 folded the cross-device Accounts section (EXP-818) INTO these rows.
+//! One account held by three machines is three logins on three machines —
+//! which is what a person repairing one needs to see — so the email-merged
+//! groups, their per-agent tabs and their device chips are gone, and with them
+//! the page's only place where a login was not under its machine. The 30 s
+//! refresh round the section ran came along.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -34,18 +47,18 @@ use gpui::{
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariant},
+    button::{Button, ButtonVariants as _},
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
-    ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
 };
 
-use crate::accounts_section::DEVICE_SETTINGS;
-use crate::controls::WebControl as _;
+use crate::agent_account_actions::DEVICE_SETTINGS;
+use crate::controls::{WebControl as _, WebText as _};
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
-use crate::usage_bar::{chip_actions, ChipAction, DeviceAccountChip};
+use crate::usage_bar::{chip_actions, AgentProfileUsageRow, ChipAction};
 
 /// EXP-832: how often the section re-derives its rows without a shape delta.
 /// Online-ness is a CLOCK question (`last_seen_at` against the contract
@@ -54,8 +67,36 @@ use crate::usage_bar::{chip_actions, ChipAction, DeviceAccountChip};
 /// one pass and no frame.
 const LIVENESS_TICK: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// EXP-909: the hover group a device row shares with its ONE control — the
+/// settings gear only renders under the pointer (`drafts_view`'s idiom).
+const MACHINE_ROW_GROUP: &str = "machine-row";
+
+/// EXP-909 (moved from the retired Accounts section): how long a queued usage
+/// refresh shows as in flight before the list gives up on the device
+/// answering — it answers by RE-REPORTING on its next beat, and the synced
+/// stamp moving is what really clears the mark. Web parity
+/// (`REFRESH_PENDING_MS`).
+const REFRESH_PENDING_SECS: i64 = 45;
+
+/// The list's own refresh never re-tries one login faster than this: a
+/// command the device has not answered yet is a CONFLICT on the server, and
+/// hammering it buys nothing (web `AUTO_REFRESH_RETRY_MS`).
+const AUTO_REFRESH_RETRY_SECS: i64 = 60;
+
+/// The auto-refresh tick (web `useNow(30_000)`).
+const AUTO_REFRESH_TICK_SECS: u64 = 30;
+
+/// One refresh in flight, keyed by [`AgentProfileUsageRow::key`].
+struct RefreshMark {
+    /// The usage stamp the login carried when the refresh was queued: the
+    /// device's re-report MOVES it, and that is what clears the mark.
+    fetched_at: Option<String>,
+    /// Epoch second it was queued — the [`REFRESH_PENDING_SECS`] give-up clock.
+    at: i64,
+}
+
 /// EXP-832 — one device row, fully derived: every string the row renders and
-/// the account chips already parsed out of the row's `agent_accounts` jsonb.
+/// its logins already derived out of the row's `agent_accounts` jsonb.
 /// `PartialEq` is what keeps a heartbeat that changed nothing off the frame.
 #[derive(Clone, Debug, PartialEq)]
 struct DeviceCard {
@@ -79,15 +120,20 @@ struct DeviceCard {
     version: Option<String>,
     update_requested: bool,
     update_blocked: bool,
-    active_sessions: u32,
     last_seen_at: Option<String>,
-    /// Runnable agents (signed in) and installed-but-signed-out ones — the ▶
-    /// gate reads both.
+    /// Runnable agents (signed in) and installed-but-signed-out ones — the
+    /// Accounts sub-rows read both (EXP-909 retired the row's ▶ gate).
     agents: Vec<String>,
     unauthed_agents: Vec<String>,
     caps: Vec<String>,
-    /// EXP-849: the accounts this device holds, one chip each.
-    chips: Vec<DeviceAccountChip>,
+    /// EXP-909: the logins this device holds, one sub-row each, already in
+    /// the ×4 order ([`crate::usage_bar::sort_device_logins`]).
+    logins: Vec<AgentProfileUsageRow>,
+    /// Whether the device has reported its `agentAccounts` map AT ALL. An
+    /// empty map means "no login here" ([`crate::usage_bar::
+    /// NO_LOGIN_REPORTED`]); a missing one means the device simply has not
+    /// answered yet ("Checking…"), and the two must not read the same.
+    accounts_reported: bool,
     /// The WORST health among them — the row's badge.
     health: coding::agent_accounts::Health,
 }
@@ -97,7 +143,7 @@ impl DeviceCard {
         self.caps.iter().any(|have| have == cap)
     }
 
-    /// The same gate the chips' menus apply: mine, and either this very
+    /// The same gate the login menus apply: mine, and either this very
     /// install (the login runs in a tab right here) or an online device on a
     /// build that takes the command.
     fn actionable(&self) -> bool {
@@ -116,11 +162,12 @@ pub(crate) struct MachinesSection {
     latest: api::devices::LatestVersions,
     /// The one-shot guard for [`Self::ensure_latest_loaded`].
     latest_requested: bool,
-    /// Device with an in-flight `requestUpdate` — holds "Updating…" until the
-    /// synced row carries the server's own `update_requested_at`.
-    updating: Option<String>,
     /// EXP-832: the rows on screen. `None` while the shape is still Waiting.
     derived: Option<DerivedDevices>,
+    /// EXP-909: the usage refreshes in flight, keyed by login row key.
+    refreshing: std::collections::HashMap<String, RefreshMark>,
+    /// When the list's OWN refresh last tried each login.
+    auto_attempts: std::collections::HashMap<String, i64>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -140,13 +187,161 @@ impl MachinesSection {
             }
         })
         .detach();
+        // EXP-909: the usage refresh round the Accounts section used to run —
+        // a coarse clock (and one pass right away), like the web's `useNow`.
+        cx.spawn(async move |this, cx| loop {
+            if this
+                .update(cx, |this, cx| {
+                    this.auto_refresh(cx);
+                    cx.notify();
+                })
+                .is_err()
+            {
+                return;
+            }
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(AUTO_REFRESH_TICK_SECS))
+                .await;
+        })
+        .detach();
         Self {
             latest: api::devices::LatestVersions::default(),
             latest_requested: false,
-            updating: None,
             derived: None,
+            refreshing: std::collections::HashMap::new(),
+            auto_attempts: std::collections::HashMap::new(),
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-909 — whether a login's device may run the refresh at all: one of
+    /// MY devices, online, on a build that runs the command (web
+    /// `deviceCanRefreshUsage`). Pure, so the rule is unit-tested rather than
+    /// asserted by reading the render.
+    fn can_refresh(row: &AgentProfileUsageRow, caps: &[String]) -> bool {
+        row.mine
+            && row.online
+            && caps
+                .iter()
+                .any(|cap| cap == crate::usage_bar::USAGE_REFRESH_CAP)
+    }
+
+    /// Drop the in-flight marks the synced rows have answered (the stamp
+    /// moved) or that have waited past [`REFRESH_PENDING_SECS`]. A pure
+    /// prune, so it never notifies.
+    fn prune_refreshing(&mut self, logins: &[&AgentProfileUsageRow], now_epoch: i64) {
+        self.refreshing.retain(|key, mark| {
+            let Some(row) = logins.iter().find(|row| &row.key == key) else {
+                return false;
+            };
+            let stamp = row
+                .usage
+                .as_ref()
+                .map(|usage| usage.fetched_at.clone())
+                .filter(|stamp| !stamp.is_empty());
+            stamp == mark.fetched_at && now_epoch - mark.at <= REFRESH_PENDING_SECS
+        });
+    }
+
+    /// EXP-909 (EXP-817's round, moved here with the logins): every login
+    /// whose device may run the command and whose numbers are past the
+    /// device's own floor gets ONE `agent_usage_refresh` queued — never while
+    /// one is in flight, never twice inside [`AUTO_REFRESH_RETRY_SECS`]. The
+    /// floor is the device's own 429 budget, so this can never out-poll what
+    /// the device allows itself.
+    fn auto_refresh(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.derived.is_none() {
+            self.derived = Self::derive(cx);
+        }
+        let Some(derived) = self.derived.clone() else {
+            return;
+        };
+        let cards: Vec<&DeviceCard> = derived.mine.iter().chain(derived.team.iter()).collect();
+        let logins: Vec<&AgentProfileUsageRow> =
+            cards.iter().flat_map(|card| card.logins.iter()).collect();
+        let now_epoch = chrono::Utc::now().timestamp();
+        self.prune_refreshing(&logins, now_epoch);
+        for card in &cards {
+            for row in &card.logins {
+                if !Self::can_refresh(row, &card.caps) || self.refreshing.contains_key(&row.key) {
+                    continue;
+                }
+                if crate::usage_bar::refresh_allowed_at(row.usage.as_ref(), now_epoch).is_some() {
+                    continue;
+                }
+                let last = self
+                    .auto_attempts
+                    .get(&row.key)
+                    .copied()
+                    .unwrap_or(i64::MIN);
+                if now_epoch.saturating_sub(last) < AUTO_REFRESH_RETRY_SECS {
+                    continue;
+                }
+                self.auto_attempts.insert(row.key.clone(), now_epoch);
+                self.refresh(row, cx);
+            }
+        }
+    }
+
+    /// Queue `agent_usage_refresh` on one login's device. The answer arrives
+    /// as a synced `agent_usage` write, never as a command result — so the
+    /// only local state is the in-flight mark. A refusal (a command still
+    /// queued from the last round is a CONFLICT) is swallowed: nobody asked
+    /// for this round, and the next tick simply looks again.
+    fn refresh(&mut self, row: &AgentProfileUsageRow, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let key = row.key.clone();
+        self.refreshing.insert(
+            key.clone(),
+            RefreshMark {
+                fetched_at: row
+                    .usage
+                    .as_ref()
+                    .map(|usage| usage.fetched_at.clone())
+                    .filter(|stamp| !stamp.is_empty()),
+                at: chrono::Utc::now().timestamp(),
+            },
+        );
+        let device_id = row.device_id.clone();
+        let agent = row.agent.clone();
+        let profile_id = row.profile_id.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::devices::create_agent_usage_refresh_command(
+                        &trpc,
+                        &device_id,
+                        &agent,
+                        &profile_id,
+                    )
+                })
+                .await;
+            let queued = this
+                .update(cx, |this, _| {
+                    if result.is_err() {
+                        this.refreshing.remove(&key);
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false);
+            if !queued {
+                return;
+            }
+            // The give-up tick: the mark is pruned on the next render past
+            // the window, so the list needs ONE notify to get there even if
+            // no heartbeat lands meanwhile.
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(
+                    REFRESH_PENDING_SECS as u64 + 1,
+                ))
+                .await;
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
     }
 
     // -- data ----------------------------------------------------------------
@@ -190,120 +385,6 @@ impl MachinesSection {
             });
         })
         .detach();
-    }
-
-    /// Run a `devices.*` mutation on the background executor. There is no
-    /// refetch: every one of these writes a row the `devices` shape streams
-    /// back as a delta.
-    fn mutate(
-        &mut self,
-        what: &'static str,
-        op: impl FnOnce(&api::TrpcClient) -> Result<(), api::ApiError> + Send + 'static,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { op(&trpc) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if let Err(err) = result {
-                    log::warn!("[ui] {what} failed: {err}");
-                }
-                this.updating = None;
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn remove(&mut self, device_id: String, cx: &mut gpui::Context<Self>) {
-        self.mutate(
-            "devices.remove",
-            move |trpc| api::devices::remove(trpc, &device_id),
-            cx,
-        );
-    }
-
-    fn request_update(&mut self, device_id: String, cx: &mut gpui::Context<Self>) {
-        if self.updating.is_some() {
-            return;
-        }
-        self.updating = Some(device_id.clone());
-        cx.notify();
-        self.mutate(
-            "devices.requestUpdate",
-            move |trpc| api::devices::request_update(trpc, &device_id, false),
-            cx,
-        );
-    }
-
-    /// FEED-36: "Update now…" — a queued update is parked behind live
-    /// sessions; this ends them (the daemon's `update_now` command) so the
-    /// update applies right away. Destructive for the sessions, so it
-    /// confirms first (web `MyMachines` twin).
-    fn prompt_update_now(
-        &mut self,
-        device_id: String,
-        label: String,
-        live_sessions: u32,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let section = cx.entity().downgrade();
-        let spec = AlertSpec::new(
-            format!("Update \"{label}\" now?"),
-            format!(
-                "Ends the {live_sessions} live session(s) on this machine (repo-backed runs can be \
-                 resumed from their session page) and restarts it on the new version."
-            ),
-            "Update now",
-        )
-        .ok_variant(ButtonVariant::Danger)
-        .on_ok(move |_, cx| {
-            if let Some(section) = section.upgrade() {
-                let device_id = device_id.clone();
-                section.update(cx, |this, cx| {
-                    this.mutate(
-                        "devices.requestUpdate",
-                        move |trpc| api::devices::request_update(trpc, &device_id, true),
-                        cx,
-                    );
-                });
-            }
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
-    }
-
-    // -- dialogs -------------------------------------------------------------
-
-    /// Remove behind a confirm — destructive native actions confirm first.
-    fn prompt_remove(
-        &mut self,
-        device_id: String,
-        label: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let section = cx.entity().downgrade();
-        let spec = AlertSpec::new(
-            format!("Remove \"{label}\"?"),
-            "The machine drops off this list. One still running the daemon \
-             re-registers itself on its next heartbeat.",
-            "Remove",
-        )
-        .ok_variant(ButtonVariant::Danger)
-        .on_ok(move |_, cx| {
-            if let Some(section) = section.upgrade() {
-                section.update(cx, |this, cx| this.remove(device_id.clone(), cx));
-            }
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
     }
 
     /// EXP-481/EXP-832: the rows from the SYNCED devices shape as
@@ -362,7 +443,6 @@ impl MachinesSection {
                 version: row.version.clone(),
                 update_requested,
                 update_blocked: update_requested && row.active_sessions.unwrap_or(0) > 0,
-                active_sessions: row.active_sessions.unwrap_or(0).max(0) as u32,
                 // EXP-642: only an OWN row wears the chip — the Team devices
                 // section is shared by definition.
                 shared: owned && !row.shared_team_ids.is_empty(),
@@ -372,7 +452,22 @@ impl MachinesSection {
                 unauthed_agents: row.unauthed_agent_ids(),
                 caps: row.cap_ids(),
                 health: coding::agent_accounts::worst_health(&accounts),
-                chips: crate::usage_bar::device_account_chips(&accounts),
+                // EXP-909: ONE device's logins, through the same per-profile
+                // derivation the rest of the app reads (the usage rows), so a
+                // login says the same thing here as in the run's own sheet.
+                logins: crate::usage_bar::sort_device_logins(
+                    crate::usage_bar::agent_profile_usage_rows(
+                        std::slice::from_ref(row),
+                        &me,
+                        |last_seen| {
+                            crate::device_settings::row_is_online(last_seen, now_ms)
+                        },
+                    ),
+                ),
+                accounts_reported: row
+                    .agent_accounts
+                    .as_ref()
+                    .is_some_and(|value| !value.is_null()),
                 device_id,
             };
             if owned {
@@ -425,147 +520,46 @@ impl MachinesSection {
             self.latest.desktop.as_deref()
         };
         let outdated = update_available(device.version.as_deref(), latest);
-        let updating =
-            device.update_requested || self.updating.as_deref() == Some(&device.device_id);
+        // EXP-909: the request lives on the SYNCED row (the dialog writes it);
+        // the row only reports it.
+        let updating = device.update_requested;
         // EXP-411: the request is parked behind live sessions on the device —
         // "Update queued" instead of an indefinite "Updating…".
         let queued = device.update_requested && device.update_blocked;
-        // A teammate's shared row has nothing here to rename, remove or update.
-        let menu = device.mine.then(|| {
-            let section = cx.entity().downgrade();
-            let device_id = device.device_id.clone();
-            let row_id = device.row_id.clone();
-            let menu_label = label.clone();
-            // EXP-420: offer the update only when a newer CLI version really
-            // exists (or one is already in flight — keep its state visible).
-            let can_update = device.server && device.online && (outdated || updating);
-            // FEED-36: the parked update can be forced on a build that runs
-            // `update_now` — it ends the sessions holding it.
-            let can_update_now = queued && device.has_cap("update-now");
-            let live_sessions = device.active_sessions;
-            // EXP-862: a row action is a GHOST glyph — the circle is for the
-            // primary ▶ beside it.
-            crate::controls::ghost_icon_button(
-                ("machine-menu", index),
-                Icon::new(registry::UI_MORE),
-                cx,
-            )
-            .dropdown_menu(move |menu, _window, cx| {
-                let remove_section = section.clone();
-                let remove_id = device_id.clone();
-                let remove_label = menu_label.clone();
-                let update_section = section.clone();
-                let update_id = device_id.clone();
-                let update_now_section = section.clone();
-                let update_now_id = device_id.clone();
-                let update_now_label = menu_label.clone();
-                let settings_row_id = row_id.clone();
-                // EXP-481: rename and sharing live INSIDE the Device settings
-                // dialog (with the defaults editor and the worktree list);
-                // EXP-862 renamed the entry from "Edit…" and swapped the
-                // pencil for the settings gear ×4.
-                menu.item(
-                    PopupMenuItem::new(DEVICE_SETTINGS)
-                        .icon(Icon::new(registry::NAV_SETTINGS))
-                        .on_click(move |_, window, cx| {
-                            crate::device_settings::open(window, cx, settings_row_id.clone());
-                        }),
-                )
-                .when(can_update, |menu| {
-                    menu.item(
-                        PopupMenuItem::new(if queued {
-                            "Update queued"
-                        } else if updating {
-                            "Updating…"
-                        } else {
-                            "Update"
-                        })
-                        .icon(Icon::new(registry::UI_UPDATE))
-                        .disabled(updating)
-                        .on_click(move |_, _window, cx| {
-                            let Some(section) = update_section.upgrade() else {
-                                return;
-                            };
-                            let id = update_id.clone();
-                            section.update(cx, |this, cx| this.request_update(id, cx));
-                        }),
-                    )
-                })
-                .when(can_update_now, |menu| {
-                    menu.item(
-                        crate::controls::danger_menu_item(
-                            "Update now…",
-                            Icon::new(registry::UI_UPDATE),
-                            cx,
-                        )
-                        .on_click(move |_, window, cx| {
-                            let Some(section) = update_now_section.upgrade() else {
-                                return;
-                            };
-                            let id = update_now_id.clone();
-                            let label = update_now_label.to_string();
-                            section.update(cx, |this, cx| {
-                                this.prompt_update_now(id, label, live_sessions, window, cx);
-                            });
-                        }),
-                    )
-                })
-                .item(
-                    crate::controls::danger_menu_item(
-                        "Remove…",
-                        Icon::new(registry::UI_DELETE),
+        // EXP-909: the row carries ONE control — the settings gear, revealed
+        // on hover (the drafts list's idiom: the group lives on the row, the
+        // reveal on the button). Starting a run on a device is the composer's
+        // device picker, not a row affordance; a teammate's shared row has
+        // nothing here to rename, remove or update, so it carries no control
+        // at all — not even a spacer.
+        let settings_row_id = device.row_id.clone();
+        let gear = device.mine.then(|| {
+            div()
+                .invisible()
+                .group_hover(MACHINE_ROW_GROUP, |style| style.visible())
+                .flex_shrink_0()
+                .child(
+                    // EXP-862: a row action is GHOST chrome, never a circle.
+                    crate::controls::ghost_icon_button(
+                        ("machine-settings", index),
+                        Icon::new(registry::NAV_SETTINGS),
                         cx,
                     )
+                    .tooltip(DEVICE_SETTINGS)
                     .on_click(move |_, window, cx| {
-                        let Some(section) = remove_section.upgrade() else {
-                            return;
-                        };
-                        let id = remove_id.clone();
-                        let label = remove_label.to_string();
-                        section.update(cx, |this, cx| {
-                            this.prompt_remove(id, label, window, cx);
-                        });
+                        crate::device_settings::open(window, cx, settings_row_id.clone());
                     }),
                 )
-            })
         });
-
-        // EXP-615: the web row's ▶ Start-coding button, icon-only. EXP-696:
-        // the composer opens with THIS row's device preselected, so the local
-        // doctor gates the row only for this install — another device is gated
-        // on its OWN advertisement, which is what keeps the button honest.
-        let no_agent = match device.own {
-            true => crate::coding_flow::no_agent_reason(cx),
-            false => remote_start_reason(device).map(SharedString::from),
-        };
-        let start_device_id = device.device_id.clone();
-        // EXP-686: the shared round glass affordance (web/mobile parity) —
-        // the same shape the action rows' ▶ Run carries.
-        let start_coding = crate::controls::glass_icon_button(
-            ("machine-start-coding", index),
-            Icon::new(registry::ACTION_RUN),
-            cx,
-        )
-        .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
-        .disabled(no_agent.is_some())
-        .on_click(
-            move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {
-                // EXP-825: the composer opens with THIS device preselected.
-                crate::navigation::navigate_to_chat(
-                    window,
-                    cx,
-                    crate::navigation::ChatSeed::device(start_device_id.clone()),
-                );
-            },
-        );
 
         // EXP-642: one row per device, the web `GlassRow` two-line shape —
         // icon · (name · version · default star · "Shared") over the status
-        // line · ▶ · ⋯ — `min_w_0` down the name side so only the NAME gives
-        // way.
+        // line · the gear — `min_w_0` down the name side so only the NAME
+        // gives way.
         let row_hover = theme.list_hover;
-        crate::surface::flat_row()
+        let line = crate::surface::flat_row()
             .id(SharedString::from(format!("machine-{}", device.device_id)))
+            .group(MACHINE_ROW_GROUP)
             .flex()
             .w_full()
             .min_w_0()
@@ -699,7 +693,7 @@ impl MachinesSection {
                             // logins — a revoked credential leaves the device
                             // looking fine while every run on it fails at the
                             // first request. One badge, the ×4 strings; the
-                            // repair is in the chip's own menu (EXP-862).
+                            // repair is in the login row's own menu (EXP-909).
                             .children(crate::usage_bar::health_badge(device.health, cx))
                             .when(updating, |this| {
                                 this.child(div().child(if queued {
@@ -708,185 +702,306 @@ impl MachinesSection {
                                     "Updating…"
                                 }))
                             }),
-                    )
-                    // EXP-849: the accounts this DEVICE holds, one chip each.
-                    .children(Self::render_account_chips(index, device, cx)),
+                    ),
             )
-            // EXP-698: a FIXED trailing COLUMN — ▶ and ⋯ each own a 32px
-            // slot, so the two actions line up down the list. A row without a
-            // menu (a teammate's shared device) keeps an empty placeholder
-            // instead of sliding its ▶ under the ⋯ column.
-            .child(
-                gpui_component::h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1()
-                    .child(start_coding)
-                    .child(match menu {
-                        Some(menu) => div().flex_shrink_0().child(menu),
-                        None => div()
-                            .flex_shrink_0()
-                            .w(px(theme::tokens::size::CONTROL_MD)),
-                    }),
-            )
+            // EXP-909: ONE trailing control — the gear, on my own rows only.
+            // The ▶/⋯ pair and the 32px placeholder that kept them lined up
+            // are gone with them, so a team row ends at its status line.
+            .children(gear);
+        // EXP-909: the device's own logins hang UNDER its line, so a login is
+        // always read beside the machine that holds it.
+        gpui_component::v_flex()
+            .w_full()
+            .min_w_0()
+            .child(line)
+            .children(self.render_login_rows(index, device, cx))
             .into_any_element()
     }
 
-    /// EXP-849/EXP-862 — the account chips on one Devices row and the menu
-    /// each carries: the ×4 rule ([`chip_actions`]) and nothing else. A login
-    /// that is missing or broken is signed in again (the agent CLI's own
-    /// device-code flow — in a tab here for THIS device, as an `agent_login`
-    /// command for another of mine), a healthy one becomes the device's
-    /// default (`agent_profile_use`, a device-local pointer) or is removed
-    /// from it (`agent_profile_remove`, behind the pinned confirm).
+    /// EXP-909 — the logins one device holds, as flat sub-rows under its
+    /// device line: the agent's brand mark, the login's IDENTITY
+    /// ([`crate::usage_bar::login_label`] — never its status), the plan
+    /// behind it when both are known, the health badge, and the `⋯` menu
+    /// carrying the ×4 rule ([`chip_actions`]). Under that, the mini usage
+    /// line, or the caption ladder for a login with no numbers yet.
     ///
-    /// Never a logout: signing codex out would revoke the account server-wide,
-    /// and never a credential copy either — the files stay where the CLI wrote
-    /// them. A teammate's shared device is read-only: that login belongs to
-    /// its owner.
-    fn render_account_chips(
+    /// A device that has not reported its accounts says "Checking…"; one that
+    /// reported none says so ([`crate::usage_bar::NO_LOGIN_REPORTED`]) — the
+    /// two are different facts and must not read alike. A teammate's shared
+    /// device is READ-ONLY: its logins belong to its owner, so they carry no
+    /// menu and no add row.
+    fn render_login_rows(
+        &self,
         index: usize,
         device: &DeviceCard,
-        cx: &gpui::App,
-    ) -> Option<gpui::AnyElement> {
-        if device.chips.is_empty() {
-            return None;
-        }
+        cx: &mut gpui::Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
         let muted = cx.theme().muted_foreground;
+        let now_epoch = chrono::Utc::now().timestamp();
+        // The sub-rows hang under the device NAME, not under its icon.
+        let indent = |element: gpui::Div| element.w_full().min_w_0().pl_9().pr_3();
+        if device.logins.is_empty() {
+            let line = if device.accounts_reported {
+                crate::usage_bar::NO_LOGIN_REPORTED
+            } else {
+                // The ×4 "signed in, nothing read yet" caption — a machine
+                // still working must not read as a broken one.
+                "Checking…"
+            };
+            let mut rows = vec![indent(div())
+                .pb_1()
+                .text_xs()
+                .text_color(muted)
+                .child(line)
+                .into_any_element()];
+            rows.extend(self.render_add_account_row(index, device, cx));
+            return rows;
+        }
         let actionable = device.actionable();
         let can_switch = device.own || device.has_cap(coding::doctor::ACCOUNT_SWITCH_CAP);
         let can_remove = device.has_cap(coding::doctor::ACCOUNT_REMOVE_CAP);
-        let mut row = gpui_component::h_flex().w_full().min_w_0().flex_wrap().gap_1();
-        for (slot, chip) in device.chips.iter().enumerate() {
-            let Some(agent) = coding::CodingAgent::parse(&chip.agent) else {
+        let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        for (slot, login) in device.logins.iter().enumerate() {
+            let Some(agent) = coding::CodingAgent::parse(&login.agent) else {
                 continue;
             };
-            let label = SharedString::from(chip_label(chip, agent));
-            let check = (chip.signed_in && chip.active).then(|| {
-                Icon::new(registry::UI_CHECK)
-                    .with_size(px(crate::surface::PillSize::Sm.glyph()))
-                    .text_color(theme::tokens::GREEN.to_hsla())
-            });
-            let badge = crate::usage_bar::health_badge(chip.health, cx);
-            let id = ("machine-account-chip", index * 64 + slot);
+            let label = SharedString::from(crate::usage_bar::login_label(login));
+            // The plan rides BEHIND an address only: a label that already is
+            // the plan must not print it twice.
+            let plan_tail = match (login.email.as_ref(), login.plan.as_ref()) {
+                (Some(_), Some(plan)) => Some(SharedString::from(format!(" · {plan}"))),
+                _ => None,
+            };
+            let badge = crate::usage_bar::health_badge(login.health, cx);
             let actions = if actionable {
                 chip_actions(
-                    chip.signed_in,
-                    chip.health,
-                    chip.active,
-                    &chip.profile_id,
+                    login.signed_in,
+                    login.health,
+                    login.active,
+                    &login.profile_id,
                     can_switch,
                     can_remove,
                 )
             } else {
                 Vec::new()
             };
-            if actions.is_empty() {
-                row = row.child(
-                    crate::surface::glass_pill(
-                        id,
-                        crate::surface::PillSize::Sm,
-                        crate::surface::PillMode::Readonly,
-                        cx,
-                    )
-                    .when(!device.online, |this| this.text_color(muted))
-                    .child(label)
-                    .children(check)
-                    .children(badge),
-                );
-                continue;
-            }
-            let device_id = device.device_id.clone();
-            let device_label = device.label.clone();
-            let own = device.own;
-            let profile_id = chip.profile_id.clone();
-            let account_label = SharedString::from(
-                chip.email
-                    .clone()
-                    .or_else(|| chip.plan.clone())
-                    .unwrap_or_else(|| chip.profile_label.clone()),
-            );
-            row = row.child(
-                crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
-                    .when(!device.online, |this| this.text_color(muted))
-                    .child(label)
-                    .children(check)
-                    .children(badge)
-                    .dropdown_menu(move |menu, _window, cx| {
-                        let mut menu = menu;
-                        for action in &actions {
-                            let action = *action;
-                            let device_id = device_id.clone();
-                            let device_label = device_label.clone();
-                            let profile_id = profile_id.clone();
-                            let account_label = account_label.clone();
-                            let click = move |_: &gpui::ClickEvent,
-                                              window: &mut Window,
-                                              cx: &mut App| match action {
-                                ChipAction::SignIn => crate::agent_login::sign_in_on_device(
+            let menu = (!actions.is_empty()).then(|| {
+                let device_id = device.device_id.clone();
+                let device_label = device.label.clone();
+                let own = device.own;
+                let profile_id = login.profile_id.clone();
+                let account_label = label.clone();
+                crate::controls::ghost_icon_button(
+                    ("machine-login-menu", index * 64 + slot),
+                    Icon::new(registry::UI_MORE),
+                    cx,
+                )
+                .dropdown_menu(move |menu, _window, cx| {
+                    let mut menu = menu;
+                    for action in &actions {
+                        let action = *action;
+                        let device_id = device_id.clone();
+                        let device_label = device_label.clone();
+                        let profile_id = profile_id.clone();
+                        let account_label = account_label.clone();
+                        let click = move |_: &gpui::ClickEvent,
+                                          window: &mut Window,
+                                          cx: &mut App| match action {
+                            ChipAction::SignIn => crate::agent_login::sign_in_on_device(
+                                device_id.clone(),
+                                device_label.clone(),
+                                own,
+                                agent,
+                                coding::agent_login::LoginTarget::Profile(profile_id.clone()),
+                                window,
+                                cx,
+                            ),
+                            ChipAction::SetDefault => {
+                                crate::agent_account_actions::use_account_here(
                                     device_id.clone(),
-                                    device_label.clone(),
-                                    own,
-                                    agent,
-                                    coding::agent_login::LoginTarget::Profile(profile_id.clone()),
-                                    window,
-                                    cx,
-                                ),
-                                ChipAction::SetDefault => {
-                                    crate::accounts_section::use_account_here(
-                                        device_id.clone(),
-                                        device_label.to_string(),
-                                        own,
-                                        agent,
-                                        profile_id.clone(),
-                                        window,
-                                        cx,
-                                    )
-                                }
-                                ChipAction::Remove => crate::accounts_section::remove_account(
-                                    device_id.clone(),
-                                    device_label.clone(),
+                                    device_label.to_string(),
                                     own,
                                     agent,
                                     profile_id.clone(),
-                                    account_label.clone(),
                                     window,
                                     cx,
-                                ),
-                            };
-                            menu = menu.item(match action {
-                                ChipAction::Remove => crate::controls::danger_menu_item(
-                                    action.label(),
-                                    Icon::new(action.icon()),
-                                    cx,
                                 )
+                            }
+                            ChipAction::Remove => crate::agent_account_actions::remove_account(
+                                device_id.clone(),
+                                device_label.clone(),
+                                own,
+                                agent,
+                                profile_id.clone(),
+                                account_label.clone(),
+                                window,
+                                cx,
+                            ),
+                        };
+                        menu = menu.item(match action {
+                            ChipAction::Remove => crate::controls::danger_menu_item(
+                                action.label(),
+                                Icon::new(action.icon()),
+                                cx,
+                            )
+                            .on_click(click),
+                            _ => PopupMenuItem::new(action.label())
+                                .icon(Icon::new(action.icon()))
                                 .on_click(click),
-                                _ => PopupMenuItem::new(action.label())
-                                    .icon(Icon::new(action.icon()))
-                                    .on_click(click),
-                            });
-                        }
-                        menu
-                    }),
+                        });
+                    }
+                    menu
+                })
+            });
+            // The numbers: the mini line when there are any, else the ×4
+            // caption ladder ("Checking…" for a login nothing has read yet,
+            // "No usage reported · as of …" for one that reports none).
+            let as_of = login
+                .usage
+                .as_ref()
+                .map(|usage| usage.fetched_at.clone())
+                .filter(|stamp| !stamp.is_empty())
+                .or_else(|| login.checked_at.clone())
+                .map(|stamp| crate::usage_bar::as_of_label(&stamp, now_epoch))
+                .filter(|line| !line.is_empty());
+            let state = crate::usage_bar::usage_state(
+                login.signed_in,
+                login.unmonitored,
+                login.usage.as_ref(),
+            );
+            let caption = crate::usage_bar::usage_caption(state, as_of.as_deref());
+            let age = crate::usage_bar::usage_age(login.usage.as_ref(), now_epoch);
+            let mini = caption
+                .is_none()
+                .then(|| {
+                    login
+                        .usage
+                        .as_ref()
+                        .and_then(|usage| crate::usage_bar::render_usage_mini(usage, cx))
+                })
+                .flatten();
+            let numbers = gpui_component::h_flex()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_2()
+                .when(age.is_some(), |this| this.opacity(0.5))
+                .children(mini.map(|mini| div().flex_1().min_w_0().child(mini)))
+                .children(caption.map(|line| {
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(line))
+                }))
+                .children(age.map(|line| {
+                    div()
+                        .flex_shrink_0()
+                        .text_2xs()
+                        .text_color(muted)
+                        .child(SharedString::from(line))
+                }));
+            rows.push(
+                indent(gpui_component::h_flex())
+                    .id(("machine-login", index * 64 + slot))
+                    .items_center()
+                    .gap_2()
+                    .py_1()
+                    .when(!device.online, |this| this.opacity(0.6))
+                    .child(
+                        div().flex_shrink_0().child(
+                            crate::coding_selects::agent_mark(agent)
+                                .with_size(px(crate::surface::PillSize::Sm.glyph())),
+                        ),
+                    )
+                    .child(
+                        gpui_component::v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
+                            .child(
+                                gpui_component::h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .items_center()
+                                    .gap_1p5()
+                                    .text_xs()
+                                    .child(
+                                        gpui_component::h_flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .items_center()
+                                            .child(div().min_w_0().truncate().child(label))
+                                            .children(plan_tail.map(|tail| {
+                                                div()
+                                                    .flex_shrink_0()
+                                                    .text_color(muted)
+                                                    .child(tail)
+                                            })),
+                                    )
+                                    .children(badge),
+                            )
+                            .child(numbers),
+                    )
+                    .child(match menu {
+                        Some(menu) => div().flex_shrink_0().child(menu),
+                        None => div()
+                            .flex_shrink_0()
+                            .w(px(theme::tokens::size::CONTROL_MD)),
+                    })
+                    .into_any_element(),
             );
         }
-        Some(row.into_any_element())
+        rows.extend(self.render_add_account_row(index, device, cx));
+        rows
     }
-}
 
-/// `Claude Code · dev@acme.test` — a chip's text on a DEVICE row: the agent,
-/// then the login (its email, else the bare plan an agent reports instead of
-/// an address, else the profile's label). Byte-identical ×4
-/// (`machineChipLabel`).
-fn chip_label(chip: &DeviceAccountChip, agent: coding::CodingAgent) -> String {
-    let who = chip.email.clone().unwrap_or_else(|| {
-        if chip.signed_in {
-            chip.plan.clone().unwrap_or_else(|| "signed in".to_string())
-        } else {
-            chip.profile_label.clone()
+    /// EXP-909 — "Add account" under a device's logins: sign in with ANOTHER
+    /// account on THAT machine (the dialog is device-bound — it keeps the
+    /// agent picker and drops the device picker).
+    ///
+    /// This REVERSES EXP-845's visible-but-disabled control: the row is only
+    /// rendered where the sign-in can actually happen — one of MY machines,
+    /// listening, on a build that runs `agent_login`, with at least one agent
+    /// installed there — and is simply absent otherwise. A control that can
+    /// only ever explain why it is dead is worse than no control; a
+    /// teammate's shared device never gets one at all.
+    fn render_add_account_row(
+        &self,
+        index: usize,
+        device: &DeviceCard,
+        _cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let installed = !device.agents.is_empty() || !device.unauthed_agents.is_empty();
+        if !device.actionable() || !installed {
+            return None;
         }
-    });
-    format!("{} · {who}", agent.label())
+        let device_id = device.device_id.clone();
+        Some(
+            div()
+                .w_full()
+                .min_w_0()
+                .pl_9()
+                .pr_3()
+                .pb_1()
+                .child(
+                    Button::new(("machine-add-account", index))
+                        .ghost()
+                        .web_xs()
+                        .icon(Icon::new(registry::UI_ADD))
+                        .label("Add account")
+                        .on_click(move |_, window, cx| {
+                            crate::agent_login::open_add_account_dialog_for(
+                                device_id.clone(),
+                                window,
+                                cx,
+                            );
+                        }),
+                )
+                .into_any_element(),
+        )
+    }
 }
 
 /// Where the desktop app's builds live — the "Download desktop app" target.
@@ -989,32 +1104,6 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
     native_dialog::open_alert(window, cx, spec);
 }
 
-/// EXP-409: online with NOTHING runnable — every installed agent is signed
-/// out, so a start on this device would fail at the first request. EXP-862
-/// dropped it from the row's status LINE (the chip badge says it once); the ▶
-/// gate still asks.
-fn sign_in_needed(device: &DeviceCard) -> bool {
-    device.online && device.agents.is_empty() && !device.unauthed_agents.is_empty()
-}
-
-/// EXP-696: why ANOTHER device's ▶ is dead. A start is a `steer.startSession`
-/// the device has to pick up off its heartbeat and run with a CLI it
-/// advertises — offline or agentless, it can do neither, and the preselect
-/// would be dropped by the composer. Pure (unit-tested); this device's own row
-/// gates on the local doctor (`no_agent_reason`) instead.
-fn remote_start_reason(device: &DeviceCard) -> Option<String> {
-    if !device.online {
-        return Some("Offline — this machine can't take a run".to_string());
-    }
-    if sign_in_needed(device) {
-        return Some(format!("{} not signed in", device.unauthed_agents.join(", ")));
-    }
-    if device.agents.is_empty() {
-        return Some("No agent CLI available on this machine".to_string());
-    }
-    None
-}
-
 /// `Online` / `Last seen 5m` / `Offline` — the web row's caption, in the
 /// desktop's relative-time wording.
 ///
@@ -1033,7 +1122,7 @@ fn status_line(device: &DeviceCard) -> String {
 
 /// The web row's amber nudge: this device's version compares below its
 /// platform's `CLIENT_LATEST_VERSION_*`. Unknown on either side = no nudge.
-fn update_available(version: Option<&str>, latest: Option<&str>) -> bool {
+pub(crate) fn update_available(version: Option<&str>, latest: Option<&str>) -> bool {
     match (version, latest) {
         (Some(version), Some(latest)) => crate::update::is_newer(latest, version),
         _ => false,
@@ -1059,13 +1148,34 @@ mod tests {
             version: None,
             update_requested: false,
             update_blocked: false,
-            active_sessions: 0,
             last_seen_at: last_seen.map(str::to_string),
             agents: Vec::new(),
             unauthed_agents: Vec::new(),
             caps: Vec::new(),
-            chips: Vec::new(),
+            logins: Vec::new(),
+            accounts_reported: false,
             health: coding::agent_accounts::Health::Unknown,
+        }
+    }
+
+    fn login_row(mine: bool, online: bool) -> AgentProfileUsageRow {
+        AgentProfileUsageRow {
+            key: "dev-1:claude:system".to_string(),
+            device_id: "dev-1".to_string(),
+            device_label: "Studio".to_string(),
+            mine,
+            online,
+            agent: "claude".to_string(),
+            profile_id: crate::usage_bar::SYSTEM_PROFILE_ID.to_string(),
+            profile_label: "Default".to_string(),
+            active: true,
+            signed_in: true,
+            email: None,
+            plan: None,
+            usage: None,
+            checked_at: None,
+            health: coding::agent_accounts::Health::Ok,
+            unmonitored: false,
         }
     }
 
@@ -1087,47 +1197,16 @@ mod tests {
     fn status_line_never_names_signed_out_agents() {
         let mut nothing_runnable = device(true, None);
         nothing_runnable.unauthed_agents = vec!["claude".to_string()];
-        assert!(sign_in_needed(&nothing_runnable));
         assert_eq!(status_line(&nothing_runnable), "Online");
 
         let mut partly = device(true, None);
         partly.agents = vec!["codex".to_string()];
         partly.unauthed_agents = vec!["claude".to_string()];
-        assert!(!sign_in_needed(&partly));
         assert_eq!(status_line(&partly), "Online");
 
         let mut offline = device(false, None);
         offline.unauthed_agents = vec!["claude".to_string()];
-        assert!(!sign_in_needed(&offline));
         assert_eq!(status_line(&offline), "Offline");
-    }
-
-    /// EXP-696: a FOREIGN row's ▶ is only live when that device could
-    /// actually take the run — offline or with nothing runnable it is
-    /// disabled with the reason, instead of dropping the preselect and
-    /// starting here.
-    #[test]
-    fn remote_start_needs_an_online_device_with_an_agent() {
-        let mut ready = device(true, None);
-        ready.agents = vec!["claude".to_string()];
-        assert_eq!(remote_start_reason(&ready), None);
-
-        let mut offline = ready.clone();
-        offline.online = false;
-        assert!(remote_start_reason(&offline).is_some_and(|reason| reason.starts_with("Offline")));
-
-        let mut signed_out = device(true, None);
-        signed_out.unauthed_agents = vec!["claude".to_string()];
-        assert_eq!(
-            remote_start_reason(&signed_out).as_deref(),
-            Some("claude not signed in")
-        );
-
-        // Online, nothing installed at all.
-        assert_eq!(
-            remote_start_reason(&device(true, None)).as_deref(),
-            Some("No agent CLI available on this machine")
-        );
     }
 
     #[test]
@@ -1140,39 +1219,23 @@ mod tests {
         assert!(!update_available(Some("0.4.1"), None));
     }
 
-    /// EXP-862: a device row's chip menu is the shared rule — a healthy,
-    /// non-default login on a device that takes both commands offers the two
-    /// writes; an offline device's chips are statements.
+    /// EXP-909 (ported from the retired Accounts section): the refresh round
+    /// only ever queues on MY machine, only while it is online, and only on a
+    /// build that advertises the command (web `deviceCanRefreshUsage`).
     #[test]
-    fn chip_label_names_the_agent_and_the_login() {
-        let chip = DeviceAccountChip {
-            key: "claude:0a1b".to_string(),
-            agent: "claude".to_string(),
-            profile_id: "0a1b".to_string(),
-            profile_label: "Work".to_string(),
-            email: Some("dev@acme.test".to_string()),
-            plan: Some("max".to_string()),
-            signed_in: true,
-            active: false,
-            health: coding::agent_accounts::Health::Ok,
-        };
-        assert_eq!(
-            chip_label(&chip, coding::CodingAgent::Claude),
-            "Claude Code · dev@acme.test"
-        );
-        // No address: the plan, then the profile's own label.
-        let mut plan_only = chip.clone();
-        plan_only.email = None;
-        assert_eq!(
-            chip_label(&plan_only, coding::CodingAgent::Claude),
-            "Claude Code · max"
-        );
-        let mut signed_out = plan_only.clone();
-        signed_out.signed_in = false;
-        assert_eq!(
-            chip_label(&signed_out, coding::CodingAgent::Claude),
-            "Claude Code · Work"
-        );
+    fn refresh_needs_my_own_online_machine_with_the_cap() {
+        let caps = vec![crate::usage_bar::USAGE_REFRESH_CAP.to_string()];
+        assert!(MachinesSection::can_refresh(&login_row(true, true), &caps));
+        // A teammate's shared server is not mine to poll.
+        assert!(!MachinesSection::can_refresh(&login_row(false, true), &caps));
+        // Offline: the command would sit queued until it came back.
+        assert!(!MachinesSection::can_refresh(&login_row(true, false), &caps));
+        // An older build that never advertised the cap.
+        assert!(!MachinesSection::can_refresh(&login_row(true, true), &[]));
+        assert!(!MachinesSection::can_refresh(
+            &login_row(true, true),
+            &["agent-login".to_string()]
+        ));
     }
 
     /// EXP-832: a heartbeat that changes nothing must not repaint the list —

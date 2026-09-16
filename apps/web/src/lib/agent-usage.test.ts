@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
   accountCaption,
-  accountUsageGroups,
   agentHealth,
   agentProfileUsageRows,
   attentionRank,
-  deviceAccountChips,
+  deviceLoginRows,
   deviceWorstHealth,
   healthBadgeLabel,
+  loginLabel,
+  miniWindows,
   worstHealth,
-  sortAccountGroupsAttentionFirst,
+  sortDeviceLogins,
   type AgentProfileUsageRow,
   contextPercent,
   formatContextUsage,
@@ -21,10 +22,12 @@ import {
   parseAgentUsageMap,
   sessionAgentUsage,
   severity,
+  usageAge,
   usageGroups,
   usageIsFresh,
   usageState,
   CONTEXT_SECTION_TITLE,
+  NO_LOGIN_REPORTED,
   USAGE_FRESH_MS,
 } from "./agent-usage"
 import type { CodingSession, Device, DeviceAgentUsage } from "@/db/schema"
@@ -245,6 +248,70 @@ describe(`usageGroups`, () => {
   it(`is empty without windows`, () => {
     expect(usageGroups({ windows: [] }, NOW)).toEqual([])
     expect(usageGroups(null, NOW)).toEqual([])
+  })
+})
+
+// EXP-909: the SHORT form of the same fixture — three windows, wire labels,
+// one line. Mirrored ×4 under these exact names (desktop `mini_windows`, iOS
+// `testMiniWindowsPickSessionWeeklyThenTheFirstModelWindow`, Android).
+describe(`miniWindows`, () => {
+  it(`mini windows pick session, weekly, then the first model window`, () => {
+    expect(miniWindows(USAGE).map((window) => window.label)).toEqual([
+      `5h`,
+      `Week`,
+      `Fable`,
+    ])
+    // The WIRE labels, and the percents ride along untouched — the mini line
+    // has no room for `Fable only` and no business re-deriving a number.
+    expect(miniWindows(USAGE).map((window) => window.percent)).toEqual([
+      42, 81, 96,
+    ])
+    // Only the FIRST model window: three bars is the whole format.
+    const many = miniWindows({
+      ...USAGE,
+      windows: [
+        ...USAGE.windows,
+        { key: `model:sonnet`, label: `Sonnet`, percent: 5, resetsAt: null },
+      ],
+    })
+    expect(many.map((window) => window.key)).toEqual([
+      `session`,
+      `weekly`,
+      `model:fable`,
+    ])
+  })
+
+  it(`mini windows fall back to report order`, () => {
+    // A report that names none of the three still gets a line: its first
+    // three windows, as reported.
+    const windows = [
+      { key: `credits`, label: `Credits`, percent: 12, resetsAt: null },
+      { key: `monthly`, label: `Month`, percent: 40, resetsAt: null },
+      { key: `daily`, label: `Day`, percent: 3, resetsAt: null },
+      { key: `hourly`, label: `Hour`, percent: 1, resetsAt: null },
+    ]
+    expect(miniWindows({ windows }).map((window) => window.label)).toEqual([
+      `Credits`,
+      `Month`,
+      `Day`,
+    ])
+    expect(miniWindows({ windows: [] })).toEqual([])
+    expect(miniWindows(null)).toEqual([])
+  })
+})
+
+describe(`usageAge`, () => {
+  it(`usage age says as-of when not fresh or stale`, () => {
+    // Fresh and not flagged: the numbers speak for themselves.
+    expect(usageAge(USAGE, NOW)).toBeNull()
+    // Past the freshness window…
+    const old = new Date(NOW.getTime() - USAGE_FRESH_MS - 1).toISOString()
+    expect(usageAge({ ...USAGE, fetchedAt: old }, NOW)).toMatch(/^as of /)
+    // …or the device's own stale flag on an otherwise current report.
+    expect(usageAge({ ...USAGE, stale: true }, NOW)).toMatch(/^as of /)
+    // Nothing to date, nothing to say.
+    expect(usageAge({ windows: [] }, NOW)).toBeNull()
+    expect(usageAge(null, NOW)).toBeNull()
   })
 })
 
@@ -536,204 +603,6 @@ describe(`session context usage`, () => {
   })
 })
 
-// EXP-817: the usage page's ACCOUNT groups — mirrored on the desktop
-// (`usage_bar.rs`) under the same test names.
-describe(`accountUsageGroups`, () => {
-  const row = (
-    overrides: Partial<AgentProfileUsageRow> & {
-      deviceId: string
-      agent: string
-    }
-  ): AgentProfileUsageRow => ({
-    key: `${overrides.deviceId}:${overrides.agent}:${overrides.profileId ?? `system`}`,
-    deviceLabel: overrides.deviceId,
-    mine: true,
-    online: true,
-    profileId: `system`,
-    profileLabel: `Default`,
-    active: true,
-    signedIn: true,
-    health: overrides.signedIn === false ? `signed_out` : `ok`,
-    email: null,
-    plan: null,
-    usage: null,
-    unmonitored: false,
-    checkedAt: null,
-    ...overrides,
-  })
-  const usage = (
-    fetchedAt: string,
-    percent: number,
-    stale = false
-  ): DeviceAgentUsage => ({
-    fetchedAt,
-    stale,
-    windows: [{ key: `weekly`, label: `Week`, percent, resetsAt: null }],
-  })
-
-  it(`merges the same email across machines, freshest report first`, () => {
-    const groups = accountUsageGroups(
-      [
-        row({
-          deviceId: `server`,
-          agent: `claude`,
-          email: `Dev@Acme.test`,
-          plan: `max`,
-          online: false,
-          usage: usage(`2026-08-26T10:00:00.000Z`, 69),
-          checkedAt: `2026-08-27T10:00:00.000Z`,
-        }),
-        row({
-          deviceId: `macbook`,
-          agent: `claude`,
-          email: `dev@acme.test`,
-          usage: usage(`2026-08-28T11:00:00.000Z`, 75),
-          checkedAt: `2026-08-28T11:00:00.000Z`,
-        }),
-        row({
-          deviceId: `mint`,
-          agent: `claude`,
-          email: `other@acme.test`,
-          usage: usage(`2026-08-28T11:30:00.000Z`, 46),
-        }),
-      ],
-      () => false
-    )
-    expect(groups.map((group) => group.key)).toEqual([
-      `claude:dev@acme.test`,
-      `claude:other@acme.test`,
-    ])
-    const shared = groups[0]!
-    // The chips: online machines lead.
-    expect(shared.rows.map((member) => member.deviceId)).toEqual([
-      `macbook`,
-      `server`,
-    ])
-    // The numbers are the FRESHEST member's, the plan the first one named.
-    expect(shared.usage?.windows[0]?.percent).toBe(75)
-    expect(shared.plan).toBe(`max`)
-    expect(shared.checkedAt).toBe(`2026-08-28T11:00:00.000Z`)
-    expect(shared.refreshTarget).toBeNull()
-  })
-
-  it(`keeps email-less and signed-out rows apart — nothing to merge on`, () => {
-    const groups = accountUsageGroups(
-      [
-        row({ deviceId: `a`, agent: `codex`, plan: `openai-codex (oauth)` }),
-        row({ deviceId: `b`, agent: `codex`, plan: `openai-codex (oauth)` }),
-        row({ deviceId: `a`, agent: `claude`, signedIn: false, email: `x@y.z` }),
-        row({ deviceId: `b`, agent: `claude`, signedIn: false }),
-      ],
-      () => false
-    )
-    expect(groups.map((group) => group.key)).toEqual([
-      `codex:a:system`,
-      `codex:b:system`,
-      `claude:a:system`,
-      `claude:b:system`,
-    ])
-    expect(groups[2]!.signedIn).toBe(false)
-  })
-
-  it(`prefers a non-stale report on a tie and a report with windows over none`, () => {
-    const groups = accountUsageGroups(
-      [
-        row({
-          deviceId: `a`,
-          agent: `claude`,
-          email: `dev@acme.test`,
-          usage: usage(`2026-08-28T11:00:00.000Z`, 10, true),
-        }),
-        row({
-          deviceId: `b`,
-          agent: `claude`,
-          email: `dev@acme.test`,
-          usage: usage(`2026-08-28T11:00:00.000Z`, 20),
-        }),
-        row({ deviceId: `c`, agent: `claude`, email: `dev@acme.test` }),
-      ],
-      () => false
-    )
-    expect(groups).toHaveLength(1)
-    expect(groups[0]!.usage?.windows[0]?.percent).toBe(20)
-  })
-
-  it(`targets the refresh at the eligible member with the freshest numbers`, () => {
-    const groups = accountUsageGroups(
-      [
-        row({
-          deviceId: `stale-but-capable`,
-          agent: `claude`,
-          email: `dev@acme.test`,
-          usage: usage(`2026-08-26T10:00:00.000Z`, 69),
-        }),
-        row({
-          deviceId: `fresh-and-capable`,
-          agent: `claude`,
-          email: `dev@acme.test`,
-          usage: usage(`2026-08-28T11:00:00.000Z`, 75),
-        }),
-        row({
-          deviceId: `freshest-but-not-mine`,
-          agent: `claude`,
-          email: `dev@acme.test`,
-          mine: false,
-          usage: usage(`2026-08-28T11:30:00.000Z`, 75),
-        }),
-      ],
-      (member) => member.mine
-    )
-    expect(groups[0]!.refreshTarget?.deviceId).toBe(`fresh-and-capable`)
-    // The group's own numbers still come from the freshest member of all.
-    expect(groups[0]!.usage?.fetchedAt).toBe(`2026-08-28T11:30:00.000Z`)
-  })
-
-  it(`orders groups attention first — signed out, then danger, then the rest`, () => {
-    const groups = sortAccountGroupsAttentionFirst(
-      accountUsageGroups(
-        [
-          row({ deviceId: `a`, agent: `claude`, email: `low@acme.test`, usage: usage(`2026-08-28T11:00:00.000Z`, 10) }),
-          row({ deviceId: `a`, agent: `codex`, email: `hot@acme.test`, usage: usage(`2026-08-28T11:00:00.000Z`, 96) }),
-          row({ deviceId: `b`, agent: `claude`, signedIn: false }),
-          row({ deviceId: `a`, agent: `claude`, email: `mid@acme.test`, usage: usage(`2026-08-28T11:00:00.000Z`, 60) }),
-        ],
-        () => false
-      )
-    )
-    expect(groups.map((group) => group.key)).toEqual([
-      `claude:b:system`,
-      `codex:hot@acme.test`,
-      `claude:mid@acme.test`,
-      `claude:low@acme.test`,
-    ])
-  })
-
-  it(`folds the synced device rows end to end`, () => {
-    // Two machines, one login: the page shows ONE card with two chips.
-    const devices = [`macbook`, `server`].map((id) => ({
-      deviceId: id,
-      label: id,
-      userId: `me`,
-      agentAccounts: {
-        claude: {
-          signedIn: true,
-          email: `dev@acme.test`,
-          plan: `max`,
-          checkedAt: `2026-08-28T11:00:00.000Z`,
-        },
-      },
-      agentUsage: { claude: usage(`2026-08-28T11:00:00.000Z`, 75) },
-      agentUsageAt: null,
-      lastSeenAt: new Date(`2026-08-28T11:59:00.000Z`),
-    }))
-    const rows = agentProfileUsageRows(devices, `me`, () => true)
-    const groups = accountUsageGroups(rows, () => true)
-    expect(groups).toHaveLength(1)
-    expect(groups[0]!.rows).toHaveLength(2)
-    expect(groups[0]!.refreshTarget?.deviceId).toBe(`macbook`)
-  })
-})
-
 // EXP-849: account health — the device's probe verdict, its fallback and the
 // two badge strings. Hand-mirrored with the desktop's `usage_bar.rs` and the
 // natives' account rows.
@@ -839,14 +708,6 @@ describe(`retired agent ids (EXP-849)`, () => {
     expect(rows.map((row) => row.agent)).toEqual([`claude`])
   })
 
-  it(`yields no account chip for a retired agent`, () => {
-    expect(
-      deviceAccountChips({ agentAccounts: piDevice.agentAccounts }).map(
-        (chip) => chip.agent
-      )
-    ).toEqual([`claude`])
-  })
-
   it(`never badges a device off a retired agent's health`, () => {
     // Without the filter the retired `pi` login would drag the whole machine
     // to "Needs re-login" with no row to act on.
@@ -862,9 +723,6 @@ describe(`retired agent ids (EXP-849)`, () => {
       agentUsage: { pi: piDevice.agentUsage.pi },
     }
     expect(agentProfileUsageRows([onlyPi], `me`, () => true)).toEqual([])
-    expect(deviceAccountChips({ agentAccounts: onlyPi.agentAccounts })).toEqual(
-      []
-    )
     expect(deviceWorstHealth({ agentAccounts: onlyPi.agentAccounts })).toBeNull()
   })
 })
@@ -920,5 +778,93 @@ describe(`usageState (EXP-862)`, () => {
   it(`says nothing at all for a signed-out login`, () => {
     expect(usageState(row({ signedIn: false }))).toBe(`none`)
     expect(usageState(row({ signedIn: false, unmonitored: true }))).toBe(`none`)
+  })
+})
+
+// EXP-909: the logins listed UNDER one device row — the Devices page's fold.
+// Same names, same test names ×4 (desktop `sort_device_logins` / `login_label`,
+// iOS/Android `AgentAccountsRows`).
+describe(`device logins (EXP-909)`, () => {
+  const device = {
+    deviceId: `macbook`,
+    deviceLabel: `MacBook`,
+    agentAccounts: {
+      codex: {
+        signedIn: true,
+        email: `dev@acme.test`,
+        profiles: [
+          { id: `system`, signedIn: true, active: true, email: `dev@acme.test` },
+        ],
+      },
+      claude: {
+        signedIn: true,
+        profiles: [
+          {
+            id: `work`,
+            label: `Claude account 2`,
+            signedIn: true,
+            active: false,
+            email: `work@acme.test`,
+            plan: `max`,
+          },
+          {
+            id: `system`,
+            label: `Default`,
+            signedIn: true,
+            active: true,
+            email: `dev@acme.test`,
+            plan: `max`,
+          },
+          {
+            id: `dead`,
+            label: `Claude account 3`,
+            signedIn: true,
+            active: false,
+            health: `needs_relogin` as const,
+          },
+        ],
+      },
+    },
+    agentUsage: {},
+    agentUsageAt: null,
+  }
+
+  it(`device logins lead with the active login, in contract agent order`, () => {
+    const rows = sortDeviceLogins(
+      deviceLoginRows(device, { mine: true, online: true })
+    )
+    expect(rows.map((row) => `${row.agent}:${row.profileId}`)).toEqual([
+      // claude before codex (contract order), the machine's ACTIVE login
+      // first, then the expired credential, then the healthy spare.
+      `claude:system`,
+      `claude:dead`,
+      `claude:work`,
+      `codex:system`,
+    ])
+    // The rows are one machine's: every one carries its label and verdicts.
+    expect(rows.every((row) => row.deviceLabel === `MacBook`)).toBe(true)
+    expect(rows.every((row) => row.mine && row.online)).toBe(true)
+  })
+
+  it(`the login label is the identity, never the status`, () => {
+    expect(
+      loginLabel({ email: `dev@acme.test`, plan: `max`, profileLabel: `Default` })
+    ).toBe(`dev@acme.test`)
+    expect(
+      loginLabel({ email: null, plan: `openai-codex (oauth)`, profileLabel: `Default` })
+    ).toBe(`openai-codex (oauth)`)
+    expect(
+      loginLabel({ email: null, plan: null, profileLabel: `Claude account 2` })
+    ).toBe(`Claude account 2`)
+  })
+
+  it(`says a machine reported no login at all`, () => {
+    expect(
+      deviceLoginRows(
+        { deviceId: `mint`, deviceLabel: `mint`, agentAccounts: {} },
+        { mine: true, online: false }
+      )
+    ).toEqual([])
+    expect(NO_LOGIN_REPORTED).toBe(`No login reported`)
   })
 })

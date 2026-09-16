@@ -430,4 +430,74 @@ class AgentUsagePresentationTest {
     fun `the context section title is the one every client shows`() {
         assertEquals("Context", AgentUsagePresentation.CONTEXT_SECTION_TITLE)
     }
+
+    // ── EXP-909: the MINI form + the "as of" line (×4, same fixture) ─────────
+
+    @Test
+    fun `mini windows pick session, weekly, then the first model window`() {
+        val usage = AgentUsagePresentation.parseUsage(groupsJson)!!
+        val mini = AgentUsagePresentation.miniWindows(usage)
+        // The WIRE labels, never the card titles — three "Current session" /
+        // "Fable only" titles abreast would each truncate to nothing.
+        assertEquals(listOf("5h", "Week", "Fable"), mini.map { it.label })
+        assertEquals(listOf("session", "weekly", "model:fable"), mini.map { it.key })
+        assertEquals(listOf(42, 78, 96), mini.map { it.percent })
+        // The severity rides along, so the mini meters take the same tones.
+        assertEquals(AgentUsageSeverity.Danger, mini[2].severity)
+        assertEquals("2026-08-28T12:10:30Z", mini[0].resetsAt)
+        // `credits` is in the report but never in the mini form: three is the cap.
+        assertEquals(3, mini.size)
+    }
+
+    @Test
+    fun `mini windows fall back to report order`() {
+        // A report with none of the three named windows (codex's credits +
+        // month, or a future agent naming its own) still shows numbers.
+        val usage = AgentUsagePresentation.parseUsage(
+            """
+            {
+              "fetchedAt": "2026-08-28T09:58:00Z",
+              "stale": false,
+              "windows": [
+                {"key": "credits", "label": "Credits", "percent": 16, "resetsAt": null},
+                {"key": "month", "label": "Month", "percent": 40, "resetsAt": null},
+                {"key": "other", "label": "Other", "percent": 3, "resetsAt": null},
+                {"key": "extra", "label": "Extra", "percent": 1, "resetsAt": null}
+              ]
+            }
+            """.trimIndent(),
+        )!!
+        val mini = AgentUsagePresentation.miniWindows(usage)
+        assertEquals(listOf("Credits", "Month", "Other"), mini.map { it.label })
+        // Nothing reported = nothing to render, never an empty bar.
+        assertEquals(emptyList<UsageMiniWindow>(), AgentUsagePresentation.miniWindows(null))
+    }
+
+    @Test
+    fun `usage age says as-of when not fresh or stale`() {
+        val fresh = AgentUsagePresentation.parseUsage(usageJson)!!
+        // Two minutes old and not flagged: the numbers are live, so no line.
+        assertNull(AgentUsagePresentation.usageAge(fresh, nowMs))
+        // The machine's own flag wins over the age — a failed refresh left
+        // these as the last good numbers.
+        assertEquals("as of 2m ago", AgentUsagePresentation.usageAge(fresh.copy(stale = true), nowMs))
+        // …and so does simply ageing past the freshness window.
+        val old = AgentUsagePresentation.parseUsage(
+            """{"fetchedAt": "2026-08-28T09:00:00Z", "stale": false, "windows": []}""",
+        )!!
+        assertEquals("as of 1h ago", AgentUsagePresentation.usageAge(old, nowMs))
+        // Nothing to date it by = no line at all.
+        assertNull(AgentUsagePresentation.usageAge(null, nowMs))
+        assertNull(
+            AgentUsagePresentation.usageAge(
+                AgentUsagePresentation.parseUsage("""{"stale": true, "windows": []}""")!!,
+                nowMs,
+            ),
+        )
+    }
+
+    @Test
+    fun `the per-device empty line is the one every client shows`() {
+        assertEquals("No login reported", AgentUsagePresentation.NO_LOGIN_REPORTED)
+    }
 }
