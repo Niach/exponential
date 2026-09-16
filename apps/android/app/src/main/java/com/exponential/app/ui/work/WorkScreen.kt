@@ -38,7 +38,9 @@ import com.exponential.app.domain.availableFaces
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingTarget
 import com.exponential.app.domain.fallbackFace
+import com.exponential.app.domain.groupSessionResults
 import com.exponential.app.domain.isSessionLive
+import com.exponential.app.domain.parseSessionResults
 import com.exponential.app.domain.switcherBadge
 import com.exponential.app.domain.switcherMode
 import com.exponential.app.domain.switcherTargets
@@ -198,10 +200,16 @@ fun WorkScreen(
     // shown run's OWN issue-less one (EXP-734). It wears the header's action
     // slot now, because the bar's leading slot opens the changed-files sheet.
     val changesPrUrl = (issue?.prUrl ?: shownSession?.prUrl)?.takeIf { it.isNotBlank() }
+    // EXP-879: the run's published screenshots, parsed off the synced blob.
+    // Results is a SUB-FACE of Run — no shown run, no results — which the
+    // `shownSession` read gives for free.
+    val sessionResults = remember(shownSession?.results) { parseSessionResults(shownSession?.results) }
+    val resultGroups = remember(sessionResults) { groupSessionResults(sessionResults) }
     val faces = availableFaces(
         hasIssue = issueId != null,
         hasRun = shownSessionId != null,
         hasChanges = hasChanges,
+        hasResults = resultGroups.isNotEmpty(),
     )
     val wantedFace = faceName?.let { name -> WorkFaceKind.entries.firstOrNull { it.name == name } }
         ?: if (subject is WorkSubject.Session) WorkFaceKind.Run else WorkFaceKind.Issue
@@ -456,6 +464,11 @@ fun WorkScreen(
                         trailingBarSlot = trailingSlot,
                     )
                 }
+                WorkFaceKind.Results -> ResultsFace(
+                    padding = padding,
+                    groups = resultGroups,
+                    trailingBarSlot = trailingSlot,
+                )
             }
         }
     }

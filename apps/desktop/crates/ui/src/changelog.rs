@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-session-results",
+    date: "2026-09-16",
+    title: "Results, right on the run",
+    summary: "A coding run can now publish screenshots of what it built, grouped by topic and labelled per platform, as a Results face beside Issue, Run and Changes on every client.",
+    body: r#"- **A fourth face**: when a run has published pictures, the header toggle gains Results next to Issue, Run and Changes, on the web, the desktop app, iOS and Android.
+- **Grouped by topic**: pictures sit under the topic the agent filed them in, one row of equal-height tiles with a label under each, so an iOS, Android and web shot of the same screen read side by side. Tap one to see it full size.
+- **The agent publishes them**: a run asks Exponential for an upload link, uploads the screenshot with one command, and can replace or remove a picture later. The playbook every run gets now asks for a screenshot of UI work before it finishes."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-stacked-pull-requests",
     date: "2026-09-16",
     title: "Stacked pull requests",
@@ -55,19 +67,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **A badge for related work**: an issue, its run and its changes carry one small badge saying whether they are part of a stack or of a batch pull request. Hover it (or tap it on a phone) to see the blockers, the issues sharing the pull request, and the runs a run started.
 - **Every run list nests**: a run started by another run now sits under it in every list, with a twisty to fold the whole branch away, on the web, the desktop app, iOS and Android.
 - **Questions reach you**: a run several levels deep can hand a question to the person instead of to the run above it. It lands in your inbox and on the run you are watching."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-one-diff-view",
-    date: "2026-09-15",
-    title: "One diff view",
-    summary: "Every diff in Exponential now reads the same, on the web, the desktop app, iOS and Android: the same colours, the same line numbers, the same way to open the unchanged lines around a change.",
-    body: r#"- **The same diff everywhere**: a pull request's files, a run's changes and the edit cards in a transcript all render through one diff view now, with one shared palette and one set of line numbers.
-- **Unchanged lines on request**: the gap above and between changes says how many lines it hides, and opens them where you want to read around an edit.
-- **Renames, copies and binaries**: a renamed or copied file names where it came from, and a binary file says so instead of showing an empty body.
-- **Cut output is marked**: when a run's tool output or diff is too long to send whole, the transcript says how many lines were dropped rather than ending mid line."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

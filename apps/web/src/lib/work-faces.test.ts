@@ -41,17 +41,41 @@ function run(
 }
 
 describe(`work faces`, () => {
-  it(`lists the available faces in issue, run, changes order`, () => {
+  it(`lists the available faces in issue, run, changes, results order`, () => {
     expect(
-      availableFaces({ hasIssue: true, hasRun: true, hasChanges: true })
-    ).toEqual([`issue`, `run`, `changes`])
+      availableFaces({
+        hasIssue: true,
+        hasRun: true,
+        hasChanges: true,
+        hasResults: true,
+      })
+    ).toEqual([`issue`, `run`, `changes`, `results`])
     expect(
-      availableFaces({ hasIssue: false, hasRun: true, hasChanges: false })
+      availableFaces({
+        hasIssue: false,
+        hasRun: true,
+        hasChanges: false,
+        hasResults: false,
+      })
     ).toEqual([`run`])
     // Changes is independent of Run: an open PR with no run of mine.
     expect(
-      availableFaces({ hasIssue: true, hasRun: false, hasChanges: true })
+      availableFaces({
+        hasIssue: true,
+        hasRun: false,
+        hasChanges: true,
+        hasResults: false,
+      })
     ).toEqual([`issue`, `changes`])
+    // EXP-879: results come LAST, after the changes face.
+    expect(
+      availableFaces({
+        hasIssue: true,
+        hasRun: true,
+        hasChanges: false,
+        hasResults: true,
+      })
+    ).toEqual([`issue`, `run`, `results`])
   })
 
   it(`labels the faces, Runs once there are several`, () => {
@@ -59,6 +83,7 @@ describe(`work faces`, () => {
     expect(faceLabel(`run`)).toBe(`Run`)
     expect(faceLabel(`run`, true)).toBe(`Runs`)
     expect(faceLabel(`changes`)).toBe(`Changes`)
+    expect(faceLabel(`results`)).toBe(`Results`)
     expect(STEER_COMPOSER_PLACEHOLDER).toBe(`Type / for commands`)
     expect(PLAN_MODE_LABEL).toBe(`Plan mode`)
   })
@@ -192,6 +217,11 @@ describe(`work faces`, () => {
     expect(fallbackFace(`run`, [`issue`, `run`])).toBe(`run`)
     expect(fallbackFace(`issue`, [`run`])).toBe(`run`)
     expect(fallbackFace(`run`, [])).toBeNull()
+    // EXP-879: the results face walks the same ladder.
+    expect(fallbackFace(`results`, [`issue`, `run`])).toBe(`run`)
+    expect(fallbackFace(`results`, [`issue`])).toBe(`issue`)
+    expect(fallbackFace(`results`, [`issue`, `run`, `results`])).toBe(`results`)
+    expect(fallbackFace(`results`, [])).toBeNull()
   })
 
   it(`reads the session model off the config option`, () => {

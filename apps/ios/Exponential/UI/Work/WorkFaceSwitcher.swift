@@ -66,12 +66,15 @@ struct WorkFaceSwitcher: View {
         withTransaction(transaction) { menuOpen.toggle() }
     }
 
-    /// A direct switch names its destination: Issue, Run, Changes, Start.
+    /// A direct switch names its destination: Issue, Run, Changes, Results,
+    /// Start.
     static func icon(_ target: WorkFaces.SwitcherTarget) -> String {
         switch target {
         case .face(.issue): AppIcons.uiIssue
         case .face(.run), .run: AppIcons.navDevices
         case .face(.changes): AppIcons.codingDiff
+        // EXP-879: the run's published screenshots.
+        case .face(.results): AppIcons.workResults
         case .startCoding: AppIcons.actionRun
         }
     }

@@ -33,6 +33,9 @@ export const GATED_ALWAYS_LOAD_TOOLS = [
   `exponential_sessions_end`,
   // EXP-700: a child run must know it CAN ask before it ever searches.
   `exponential_sessions_ask_parent`,
+  // EXP-879: a run that never learns it can publish a screenshot never does —
+  // the instructions ask for one, so the tool has to be there when it looks.
+  `exponential_sessions_results`,
 ] as const
 
 /** Spread into a `registerTool` config to mark it always-loaded. */

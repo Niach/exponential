@@ -32,16 +32,24 @@ class WorkFacesTest {
     )
 
     @Test
-    fun `lists the available faces in issue, run, changes order`() {
+    fun `lists the available faces in issue, run, changes, results order`() {
         assertEquals(
-            listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Changes),
-            availableFaces(hasIssue = true, hasRun = true, hasChanges = true),
+            listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Changes, WorkFaceKind.Results),
+            availableFaces(hasIssue = true, hasRun = true, hasChanges = true, hasResults = true),
         )
-        assertEquals(listOf(WorkFaceKind.Run), availableFaces(hasIssue = false, hasRun = true, hasChanges = false))
+        assertEquals(
+            listOf(WorkFaceKind.Run),
+            availableFaces(hasIssue = false, hasRun = true, hasChanges = false, hasResults = false),
+        )
         // Changes is independent of Run: an open PR with no run of mine.
         assertEquals(
             listOf(WorkFaceKind.Issue, WorkFaceKind.Changes),
-            availableFaces(hasIssue = true, hasRun = false, hasChanges = true),
+            availableFaces(hasIssue = true, hasRun = false, hasChanges = true, hasResults = false),
+        )
+        // EXP-879: Results comes LAST, and only ever beside a Run of mine.
+        assertEquals(
+            listOf(WorkFaceKind.Issue, WorkFaceKind.Run, WorkFaceKind.Results),
+            availableFaces(hasIssue = true, hasRun = true, hasChanges = false, hasResults = true),
         )
     }
 
@@ -51,6 +59,7 @@ class WorkFacesTest {
         assertEquals("Run", faceLabel(WorkFaceKind.Run))
         assertEquals("Runs", faceLabel(WorkFaceKind.Run, multipleRuns = true))
         assertEquals("Changes", faceLabel(WorkFaceKind.Changes))
+        assertEquals("Results", faceLabel(WorkFaceKind.Results))
         assertEquals("Type / for commands", STEER_COMPOSER_PLACEHOLDER)
         assertEquals("Plan mode", PLAN_MODE_LABEL)
     }
@@ -199,6 +208,13 @@ class WorkFacesTest {
     fun `falls back changes to run to issue`() {
         assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Changes, listOf(WorkFaceKind.Issue, WorkFaceKind.Run)))
         assertEquals(WorkFaceKind.Issue, fallbackFace(WorkFaceKind.Changes, listOf(WorkFaceKind.Issue)))
+        // EXP-879: results falls the same way — run first, then the issue.
+        assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Results, listOf(WorkFaceKind.Issue, WorkFaceKind.Run)))
+        assertEquals(WorkFaceKind.Issue, fallbackFace(WorkFaceKind.Results, listOf(WorkFaceKind.Issue)))
+        assertEquals(
+            WorkFaceKind.Results,
+            fallbackFace(WorkFaceKind.Results, listOf(WorkFaceKind.Issue, WorkFaceKind.Results)),
+        )
         assertEquals(WorkFaceKind.Issue, fallbackFace(WorkFaceKind.Run, listOf(WorkFaceKind.Issue)))
         assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Run, listOf(WorkFaceKind.Issue, WorkFaceKind.Run)))
         assertEquals(WorkFaceKind.Run, fallbackFace(WorkFaceKind.Issue, listOf(WorkFaceKind.Run)))

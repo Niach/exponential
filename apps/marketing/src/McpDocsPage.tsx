@@ -147,6 +147,7 @@ const TOOL_GROUPS: {
       { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, any usage wall, and who ended an ended run.` },
       { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended.` },
       { name: `exponential_sessions_message`, desc: `Send text into a live session you own or host — it arrives as user input to that agent.` },
+      { name: `exponential_sessions_results`, desc: `Publish a screenshot of this run's work: it hands back a short-lived upload link and a curl line, filed under a topic with one label per picture, and shows up on the run's Results face everywhere.` },
       { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own run.` },
       { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Registered only inside an unattended (automation- or agent-started) run.` },
       { name: `exponential_sessions_ask_parent`, desc: `Registered only in a run another run started: ask the starting run a question and end your turn; its answer arrives as a user message.` },

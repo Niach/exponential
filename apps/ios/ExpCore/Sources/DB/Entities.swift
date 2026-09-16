@@ -404,6 +404,12 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // killable, so ignoring this would render a silently walled run healthy.
     // Parsed for display by `AgentUsagePresentation.blockedBadgeLabel`.
     public let blocked: String?
+    // EXP-879: the run's PUBLISHED RESULTS — the screenshots the agent filed
+    // with `exponential_sessions_results`, stored as the raw jsonb TEXT off
+    // the wire exactly like `blocked`: a FLAT ORDERED array of
+    // `{topic, label, attachmentId, width, height}`. nil / `[]` = nothing to
+    // show, and the Results face is absent. Parsed by `parseSessionResults`.
+    public let results: String?
     // Action run linkage (EXP-253): set on a session started from a team
     // action. `actionId` nulls if the action is later deleted (server FK SET
     // NULL) while `actionName` — a display snapshot — keeps labeling the run.
@@ -462,6 +468,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         agentBusy: Bool = false,
         agentCaption: String? = nil,
         blocked: String? = nil,
+        results: String? = nil,
         actionId: String? = nil,
         actionName: String? = nil,
         startedReason: String? = nil,
@@ -491,6 +498,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.agentBusy = agentBusy
         self.agentCaption = agentCaption
         self.blocked = blocked
+        self.results = results
         self.actionId = actionId
         self.actionName = actionName
         self.startedReason = startedReason
@@ -519,6 +527,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case agentBusy = "agent_busy"
         case agentCaption = "agent_caption"
         case blocked
+        case results
         case actionId = "action_id"
         case actionName = "action_name"
         case startedReason = "started_reason"
@@ -565,6 +574,9 @@ extension CodingSessionEntity: Codable {
         // EXP-804: jsonb — raw text off the wire, a native object from
         // fixtures; pre-EXP-804 snapshots omit the key entirely.
         blocked = c.decodeWireJsonString(forKey: .blocked)
+        // EXP-879: jsonb, same treatment as `blocked` — raw text off the wire,
+        // a native array from fixtures; pre-EXP-879 snapshots omit the key.
+        results = c.decodeWireJsonString(forKey: .results)
         actionId = try c.decodeIfPresent(String.self, forKey: .actionId)
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)

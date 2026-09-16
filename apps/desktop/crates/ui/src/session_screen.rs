@@ -492,15 +492,27 @@ impl SessionScreenView {
         self.inner.read(cx).diff_totals()
     }
 
-    /// Whether the viewer's full-page diff is up (= the Diff face).
-    pub(crate) fn diff_open(&self, cx: &App) -> bool {
-        self.inner.read(cx).diff_open()
+    /// EXP-879: which sub-face of the run is up — its transcript, its
+    /// changes or its published results.
+    pub(crate) fn run_face(&self, cx: &App) -> crate::screens::RunFace {
+        self.inner.read(cx).run_face()
     }
 
-    /// Show or hide the full-page diff — the toggle's Diff / Run picks, and
-    /// the detail's Diff pick after it flips the tab to this face.
-    pub(crate) fn set_diff_open(&mut self, open: bool, cx: &mut gpui::Context<Self>) {
-        self.inner.update(cx, |view, cx| view.set_diff_open(open, cx));
+    /// EXP-879: how many pictures the run has published — 0 hides the
+    /// Results item (the face is not offered on a run with nothing to show).
+    pub(crate) fn results_count(&self, cx: &App) -> usize {
+        self.inner.read(cx).results_entries().len()
+    }
+
+    /// Put the run on one of its sub-faces — the toggle's Run / Changes /
+    /// Results picks, and the detail's pick after it flips the tab to this
+    /// face.
+    pub(crate) fn set_run_face(
+        &mut self,
+        face: crate::screens::RunFace,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.inner.update(cx, |view, cx| view.set_run_face(face, cx));
         cx.notify();
     }
 
@@ -672,10 +684,12 @@ impl SessionScreenView {
     }
 
     /// The face toggle for this screen: `Issue` when the run is issue-bound,
-    /// `Run`, and the diff item when the run has changes; active = Diff while
-    /// the full-page diff is up, else Run. Issue → the tab's issue face;
-    /// Run / Diff → hide / show the diff in place.
+    /// `Run`, the diff item when the run has changes and (EXP-879) `Results`
+    /// when it has published pictures; active follows the sub-face on show.
+    /// Issue → the tab's issue face; Run / Changes / Results → swap the page
+    /// in place.
     fn face_toggle(&self, issue_id: Option<String>, cx: &App) -> Option<AnyElement> {
+        use crate::screens::RunFace;
         use crate::work_header::{Face, FaceToggle};
         let inner = self.inner.clone();
         // EXP-886: "Runs" once the issue has several runs of mine — the
@@ -683,14 +697,19 @@ impl SessionScreenView {
         let multiple_runs = issue_id
             .as_deref()
             .is_some_and(|issue_id| issue_runs_of(issue_id, cx).len() > 1);
+        // EXP-879: a Results face whose pictures went away is not a face —
+        // the run reads as its transcript again, exactly like the viewer's
+        // own fallback.
+        let results = self.results_count(cx) > 0;
         let spec = FaceToggle {
             issue: issue_id.is_some(),
             run: Some(self.session_id.clone()),
             diff: self.diff_totals(cx),
-            active: if self.diff_open(cx) {
-                Face::Diff
-            } else {
-                Face::Run
+            results,
+            active: match self.run_face(cx) {
+                RunFace::Diff => Face::Diff,
+                RunFace::Results if results => Face::Results,
+                _ => Face::Run,
             },
             multiple_runs,
         };
@@ -708,8 +727,11 @@ impl SessionScreenView {
                         );
                     }
                 }
-                Face::Run => inner.update(cx, |view, cx| view.set_diff_open(false, cx)),
-                Face::Diff => inner.update(cx, |view, cx| view.set_diff_open(true, cx)),
+                Face::Run => inner.update(cx, |view, cx| view.set_run_face(RunFace::Run, cx)),
+                Face::Diff => inner.update(cx, |view, cx| view.set_run_face(RunFace::Diff, cx)),
+                Face::Results => {
+                    inner.update(cx, |view, cx| view.set_run_face(RunFace::Results, cx))
+                }
             }),
             cx,
         )
@@ -839,7 +861,7 @@ impl SessionScreenView {
             let header = self.ensure_header(&issue.id, window, cx);
             // EXP-895: while the Changes face is up its BAR owns the merge
             // control — the tray must not offer a second one.
-            let diff_open = self.diff_open(cx);
+            let diff_open = self.run_face(cx) == crate::screens::RunFace::Diff;
             // The header entity's rows are built through `entity.update` from
             // this render (the detail view's precedent) — they never call
             // back into this view synchronously.
@@ -884,7 +906,9 @@ impl SessionScreenView {
         // EXP-897 §4: the same badge an issue-bound header carries — a batch
         // run's PR closes several issues, and a chat run can be stacked.
         if let Some(row) = row.as_ref() {
-            let face = if self.diff_open(cx) {
+            // EXP-879: the Results face is a face OF the run, so the badge
+            // keeps the run tree there (`BadgeFace::Run`).
+            let face = if self.run_face(cx) == crate::screens::RunFace::Diff {
                 crate::pr_graph::BadgeFace::Changes
             } else {
                 crate::pr_graph::BadgeFace::Run
@@ -904,7 +928,9 @@ impl SessionScreenView {
         };
         // EXP-895: the Changes face's bar owns the merge control while it is
         // up; the header offers it only on the Run face.
-        if let Some(target) = merge_target.filter(|_| !self.diff_open(cx)) {
+        if let Some(target) =
+            merge_target.filter(|_| self.run_face(cx) != crate::screens::RunFace::Diff)
+        {
             right.push(crate::work_header::merge_pill("session-merge", &target, true, cx));
         }
         let over = self.run_over(cx);

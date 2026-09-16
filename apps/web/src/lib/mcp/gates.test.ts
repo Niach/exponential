@@ -57,6 +57,7 @@ describe(`resolveMcpToolGates`, () => {
       helpdesk: false,
       sessionsEnd: false,
       askParent: false,
+      sessionResults: false,
     })
     expect(h.db.select).not.toHaveBeenCalled()
   })
@@ -68,6 +69,7 @@ describe(`resolveMcpToolGates`, () => {
       helpdesk: true,
       sessionsEnd: false,
       askParent: false,
+      sessionResults: false,
     })
     const { sql, params } = renderWhere()
     expect(sql).toContain(`"id" in`)
@@ -81,6 +83,7 @@ describe(`resolveMcpToolGates`, () => {
       helpdesk: false,
       sessionsEnd: false,
       askParent: false,
+      sessionResults: false,
     })
   })
 
@@ -97,6 +100,7 @@ describe(`resolveMcpToolGates`, () => {
       helpdesk: true,
       sessionsEnd: false,
       askParent: false,
+      sessionResults: false,
     })
     const { params } = renderWhere()
     expect(params).toContain(WS)
@@ -117,6 +121,7 @@ describe(`resolveMcpToolGates`, () => {
       helpdesk: false,
       sessionsEnd: false,
       askParent: false,
+      sessionResults: false,
     })
     expect(h.db.select).not.toHaveBeenCalled()
   })
@@ -232,5 +237,45 @@ describe(`resolveMcpToolGates — askParent (EXP-700)`, () => {
     ]
     const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
     expect(gates.askParent).toBe(false)
+  })
+})
+
+// EXP-879: sessionResults opens for ANY run of the caller's — attended or
+// not. The only questions are "is there a run" and "is it mine".
+describe(`resolveMcpToolGates — sessionResults (EXP-879)`, () => {
+  const RUN = `44444444-4444-4444-4444-444444444444`
+
+  it(`is off without a session header, and never queries`, async () => {
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, null)
+    expect(gates.sessionResults).toBe(false)
+    expect(h.db.select).not.toHaveBeenCalled()
+  })
+
+  it(`is on for the caller's own PERSON-started run`, async () => {
+    h.dbRows.current = [{ userId: `u`, hostUserId: null, startedReason: null }]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    // The close-out stays shut for an attended run; publishing does not.
+    expect(gates).toMatchObject({ sessionsEnd: false, sessionResults: true })
+  })
+
+  it(`is on for a run the caller only hosts`, async () => {
+    h.dbRows.current = [
+      { userId: `owner`, hostUserId: `u`, startedReason: `schedule` },
+    ]
+    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
+    expect(gates.sessionResults).toBe(true)
+  })
+
+  it(`is off for someone else's run and for a header naming no row`, async () => {
+    h.dbRows.current = [
+      { userId: `other`, hostUserId: `other-host`, startedReason: null },
+    ]
+    expect(
+      (await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).sessionResults
+    ).toBe(false)
+    h.dbRows.current = []
+    expect(
+      (await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).sessionResults
+    ).toBe(false)
   })
 })

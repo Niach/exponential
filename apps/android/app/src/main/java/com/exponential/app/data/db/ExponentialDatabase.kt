@@ -271,9 +271,15 @@ import androidx.room.TypeConverters
     //      lower.branch`); without it every stacked PR reads as a lone one.
     //      New column on the issues shape allowlist; destructive fallback
     //      wipes + resyncs so every issue row arrives carrying it.
+    // v60 (EXP-879): coding_sessions.results — the run's published screenshots
+    //      (`exponential_sessions_results`), a flat ordered jsonb array kept as
+    //      raw text; NULL/`[]` = nothing to show, which is what gates the Work
+    //      screen's Results face. New column on the coding-sessions shape
+    //      allowlist; destructive fallback wipes + resyncs so every row arrives
+    //      carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 59,
+    version = 60,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

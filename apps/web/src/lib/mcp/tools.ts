@@ -11,6 +11,8 @@ import {
   hexColorSchema,
   MAX_ISSUE_DESCRIPTION,
   MAX_START_PROMPT,
+  SESSION_RESULT_TEXT_MAX,
+  SESSION_RESULTS_MAX,
   UUID_RE,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
@@ -45,6 +47,7 @@ import {
   labels,
   notifications,
   boards,
+  sessionAttachments,
   supportThreads,
   users,
   teamInvites,
@@ -103,6 +106,11 @@ import {
   isProbeableVideoContentType,
 } from "@/lib/storage/video-metadata"
 import { mintAttachmentToken } from "@/lib/storage/attachment-token"
+import { mintSessionResultToken } from "@/lib/storage/session-result-token"
+import {
+  removeSessionResults,
+  resultsSummary,
+} from "@/lib/session-result-writes"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { appRouter } from "@/routes/api/trpc/$"
@@ -3011,6 +3019,151 @@ export function registerExponentialTools(
     )
   }
 
+  // EXP-879: the run publishes PICTURES of its own work. Same header-run
+  // ownership as the close-out (owner or host), but no started_reason
+  // condition — an attended run's screenshots are exactly as useful as an
+  // automation's. Bytes never come through MCP: the tool mints a signed,
+  // ten-minute upload URL bound to (session, topic, label, user) and hands the
+  // agent a curl line, so a 3 MB PNG never lands in the context window.
+  if (gates.sessionResults) {
+    server.registerTool(
+      `exponential_sessions_results`,
+      {
+        description: `Publish a screenshot of your work on this run: it shows up on the Results face in every Exponential client. Pictures group by topic (one screen or flow), one label each, so ios/android/web shots of one screen read side by side. Without remove, label is required: you get an uploadUrl, its 10-minute expiry and a ready curl line for your PNG/JPEG/WebP (10 MB max). The same topic and label REPLACES that picture, a new label appends; remove: true deletes that label, or the whole topic without one. Every call returns this run current topic/label list.`,
+        _meta: ALWAYS_LOAD_META,
+        inputSchema: strictInput({
+          topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
+          label: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX).optional(),
+          remove: z.boolean().optional(),
+        }),
+      },
+      async ({ topic, label, remove }) => {
+        try {
+          if (!sessionId) {
+            return err(
+              new Error(
+                `No coding session: exponential_sessions_results only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+              )
+            )
+          }
+          const [row] = await db
+            .select({
+              id: codingSessions.id,
+              userId: codingSessions.userId,
+              hostUserId: codingSessions.hostUserId,
+              status: codingSessions.status,
+              results: codingSessions.results,
+            })
+            .from(codingSessions)
+            .where(eq(codingSessions.id, sessionId))
+            .limit(1)
+          if (!row) return err(new Error(`Session not found`))
+          if (row.userId !== user.id && row.hostUserId !== user.id) {
+            return err(new Error(`This is not your run.`))
+          }
+
+          // Removal works at ANY status: a run that already ended still owns
+          // its pictures, and a wrong one has to be retractable.
+          if (remove) {
+            const { results, removedAttachmentIds } = removeSessionResults(
+              row.results,
+              { topic, label: label ?? null }
+            )
+            if (removedAttachmentIds.length === 0) {
+              return ok({
+                removed: 0,
+                topic,
+                label: label ?? null,
+                results: resultsSummary(row.results),
+              })
+            }
+            // The column first: it is what every client renders, so a picture
+            // is off the wire before its bytes go. Rows and objects follow.
+            await db
+              .update(codingSessions)
+              .set({ results, updatedAt: new Date() })
+              .where(eq(codingSessions.id, sessionId))
+            const gone = await db
+              .delete(sessionAttachments)
+              .where(inArray(sessionAttachments.id, removedAttachmentIds))
+              .returning({ storageKey: sessionAttachments.storageKey })
+            for (const attachment of gone ?? []) {
+              if (!attachment?.storageKey) continue
+              try {
+                await deleteObject(attachment.storageKey)
+              } catch (deleteError) {
+                console.error(
+                  `Failed to delete a removed session result object`,
+                  deleteError
+                )
+              }
+            }
+            return ok({
+              removed: removedAttachmentIds.length,
+              topic,
+              label: label ?? null,
+              results: resultsSummary(results),
+            })
+          }
+
+          if (!label) {
+            return err(
+              new Error(
+                `label is required to publish a picture (it names this one picture inside the topic, e.g. web/ios/android). Pass remove: true to delete the whole topic instead.`
+              )
+            )
+          }
+          // The STATUS gate lives here, not on the upload route: a token
+          // minted while the run was live stays good for its ten minutes, so
+          // a screenshot in flight survives the run ending.
+          if (row.status === `ended`) {
+            return err(
+              new Error(
+                `This run has ended, so it can no longer publish results.`
+              )
+            )
+          }
+          // Fail here rather than after the agent took (and uploaded) a
+          // screenshot; the upload route re-checks under its row lock.
+          const published = row.results ?? []
+          const replaces = published.some(
+            (result) => result?.topic === topic && result?.label === label
+          )
+          if (!replaces && published.length >= SESSION_RESULTS_MAX) {
+            return err(
+              new Error(
+                `This run already published ${SESSION_RESULTS_MAX} results. Remove one first (remove: true with its topic and label).`
+              )
+            )
+          }
+          const { token, expiresAt } = mintSessionResultToken({
+            sessionId,
+            topic,
+            label,
+            userId: user.id,
+          })
+          // Same origin rule as attachments_get: behind a TLS-terminating
+          // proxy the request origin is plain http, which a bare `curl -F`
+          // would post to a redirect.
+          const origin = process.env.BETTER_AUTH_URL
+            ? appBaseUrl()
+            : new URL(request.url).origin
+          const uploadUrl = `${origin}/api/session-results/${token}`
+          return ok({
+            uploadUrl,
+            expiresAt: expiresAt.toISOString(),
+            curl: `curl -sS -F file=@screenshot.png "${uploadUrl}"`,
+            topic,
+            label,
+            results: resultsSummary(row.results),
+          })
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
   // EXP-660: the session read side. No tRPC list/get exists (clients read the
   // Electric shape), so these are direct reads over the SAME predicate the
   // shape uses: the caller's teams minus trashed/archived boards.
@@ -3114,6 +3267,9 @@ export function registerExponentialTools(
           .select({
             ...sessionColumns,
             hostUserId: codingSessions.hostUserId,
+            // EXP-879: the pictures THIS run published. Read here only — the
+            // list tool would ship every run's whole array on every page.
+            results: codingSessions.results,
           })
           .from(codingSessions)
           .leftJoin(issues, eq(issues.id, codingSessions.issueId))
@@ -3134,7 +3290,12 @@ export function registerExponentialTools(
         if (!isRowGranted(access, row, user.id)) {
           throw new Error(`Session not found`)
         }
-        const { hostUserId: _hostUserId, ...session } = row
+        const { hostUserId: _hostUserId, results, ...session } = row
+        // Published pictures come back as readable URLs, never as the raw
+        // attachment ids the column stores.
+        const resultsOrigin = process.env.BETTER_AUTH_URL
+          ? appBaseUrl()
+          : new URL(request.url).origin
         if (row.userId !== user.id) {
           if (!row.teamId) throw new Error(`Session not found`)
           await resolveTeamAccess(user.id, row.teamId)
@@ -3152,6 +3313,11 @@ export function registerExponentialTools(
           depth: chain?.depth ?? 0,
           rootSessionId: chain?.rootSessionId ?? row.id,
           stack,
+          results: (results ?? []).map((result) => ({
+            topic: result.topic,
+            label: result.label,
+            url: `${resultsOrigin}/api/attachments/${result.attachmentId}`,
+          })),
         })
       } catch (e) {
         return err(e)

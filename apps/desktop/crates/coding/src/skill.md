@@ -43,11 +43,15 @@ Your branch may be stacked on another issue's PR. The prompt names the issue bel
 
 ## Subagents and workflows
 
-A running workflow agent is never messaged. `SendMessage` to its id resumes a SECOND copy from its transcript, and that copy edits the same files as the live one. Pin every cross-lane decision in every lane prompt before launch; a question a lane raises mid-run is answered in the next phase, never by messaging the lane. Lanes in one shared tree own disjoint files and never run `git stash`, `git checkout`, `git reset` or `git clean`. A finished lane is only ever continued by messaging it after its completion notice.
+A running workflow agent is never messaged: `SendMessage` to its id resumes a SECOND copy from its transcript onto the same files. Pin every cross-lane decision in the lane prompts before launch; a question raised mid-run waits for the next phase. Lanes in one tree own disjoint files and never run `git stash`, `git checkout`, `git reset` or `git clean`. Message a lane only after its completion notice.
 
 ## Pull requests
 
 One branch `exp/<IDENT>` and one PR per issue; a batch shares one branch and one PR (`issueIds` plus `head`). The PR body names the issue and every related one as `#IDENT`. Open with `exponential_pr_open`; merge with `exponential_pr_merge` only when the user asks. A merge refused for a stale base: `exponential_pr_retarget`, rebase, `--force-with-lease`, merge again. Never use `gh`.
+
+## Results
+
+`exponential_sessions_results` returns an upload link and a `curl` line for a screenshot of what you changed: file it under a `topic` (one screen or flow) with a `label` per picture (`web`, `ios`, `android`). The same topic and label again replaces it.
 
 ## Comments and actions
 

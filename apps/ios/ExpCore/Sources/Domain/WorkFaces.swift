@@ -1,19 +1,23 @@
 import Foundation
 
 // EXP-893: the PHONE's Work screen — one screen per subject (an issue, or a
-// session) with up to three FACES held as screen state, never as navigation:
-// `issue`, `run` and `changes`. The desktop's face toggle (EXP-877) becomes a
-// floating bottom-right circle that either switches straight to the one other
-// face or opens a menu above itself; Stop / Resume sit in the nav bar's
-// trailing slot only while the Run face shows. These are the PURE rules every
+// session) with up to four FACES held as screen state, never as navigation:
+// `issue`, `run`, `changes` and (EXP-879) `results`. The desktop's face toggle
+// (EXP-877) becomes a floating bottom-right circle that either switches
+// straight to the one other face or opens a menu above itself; Stop / Resume
+// sit in the nav bar's trailing slot only while the Run face shows, and the
+// merge bar only on Changes. These are the PURE rules every
 // phone client mirrors byte for byte: web `lib/work-faces.ts` (the spec),
 // Android `domain/WorkFaces.kt` — same names, same cases, same test names.
 
-/// The three faces. `changes` is the run's diff, else the issue's open PR.
+/// The four faces. `changes` is the run's diff, else the issue's open PR;
+/// `results` (EXP-879) is the shown RUN's published screenshots, so — like the
+/// run's own diff — it is a sub-face of Run: no run of mine, no results.
 public enum WorkFaceKind: String, Equatable, Sendable, CaseIterable {
     case issue
     case run
     case changes
+    case results
 }
 
 /// EXP-862: the ONE session-dot mapping, hand-mirrored with web
@@ -35,6 +39,8 @@ public enum WorkFaces {
     /// EXP-886: the Run face's label with MORE THAN ONE own run on the issue.
     public static let runsFaceLabel = "Runs"
     public static let changesFaceLabel = "Changes"
+    /// EXP-879: the run's published screenshots.
+    public static let resultsFaceLabel = "Results"
     /// The switcher menu's extra row once the shown run ended for good.
     public static let startCodingLabel = "Start coding"
 
@@ -49,19 +55,22 @@ public enum WorkFaces {
         case .issue: return issueFaceLabel
         case .run: return multipleRuns ? runsFaceLabel : runFaceLabel
         case .changes: return changesFaceLabel
+        case .results: return resultsFaceLabel
         }
     }
 
     /// The faces a subject can show, in their fixed order. Changes is
     /// independent of Run: an issue with an open PR and no run of mine still
-    /// has its PR files.
+    /// has its PR files. Results (EXP-879) goes LAST and is not: it belongs to
+    /// the shown run's own row.
     public static func availableFaces(
-        hasIssue: Bool, hasRun: Bool, hasChanges: Bool
+        hasIssue: Bool, hasRun: Bool, hasChanges: Bool, hasResults: Bool
     ) -> [WorkFaceKind] {
         var faces: [WorkFaceKind] = []
         if hasIssue { faces.append(.issue) }
         if hasRun { faces.append(.run) }
         if hasChanges { faces.append(.changes) }
+        if hasResults { faces.append(.results) }
         return faces
     }
 
@@ -195,13 +204,15 @@ public enum WorkFaces {
     }
 
     /// Where a face lands when it vanishes under the reader (the diff cleared,
-    /// the run row went): changes → run → issue. `nil` = nothing left.
+    /// the results went with the run row): changes → run → issue, and results
+    /// the same way — both are the run's. `nil` = nothing left.
     public static func fallbackFace(
         shown: WorkFaceKind, available: [WorkFaceKind]
     ) -> WorkFaceKind? {
         if available.contains(shown) { return shown }
         let order: [WorkFaceKind] = switch shown {
         case .changes: [.run, .issue]
+        case .results: [.run, .issue]
         case .run: [.issue]
         case .issue: []
         }

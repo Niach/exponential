@@ -1885,6 +1885,11 @@ impl IssueDetailView {
                 .into_iter()
                 .find_map(|view| view.read(cx).diff_totals(cx))
         });
+        // EXP-879: the Results item reads the SYNCED row, not an open view —
+        // a run whose screen this window never built still has its pictures.
+        let results = run_id
+            .as_deref()
+            .is_some_and(|run_id| !crate::work_header::run_results(run_id, cx).is_empty());
         let active = match face_state.as_ref().map(|state| state.active) {
             Some(crate::screens::TabFace::Run) => Face::Run,
             _ => Face::Issue,
@@ -1897,6 +1902,7 @@ impl IssueDetailView {
                     issue: true,
                     run: run_id.clone(),
                     diff,
+                    results,
                     active,
                     multiple_runs,
                 },
@@ -1906,7 +1912,7 @@ impl IssueDetailView {
                     };
                     match face {
                         Face::Issue => {}
-                        Face::Run | Face::Diff => {
+                        Face::Run | Face::Diff | Face::Results => {
                             crate::screens::set_tab_face(
                                 &issue_id,
                                 crate::screens::TabFace::Run,
@@ -1914,18 +1920,18 @@ impl IssueDetailView {
                                 window,
                                 cx,
                             );
-                            // Picking Diff = the Run face with the viewer's
-                            // full-page diff open. Routed through the panel
-                            // rather than over `session_views`: the face flip
-                            // above only notifies the navigation, and the
-                            // observer that BUILDS a background run's view
-                            // has not run yet (EXP-877).
-                            crate::screens::set_run_diff_open(
-                                &run_id,
-                                face == Face::Diff,
-                                window,
-                                cx,
-                            );
+                            // EXP-879: Changes and Results are SUB-FACES of
+                            // the run. Routed through the panel rather than
+                            // over `session_views`: the face flip above only
+                            // notifies the navigation, and the observer that
+                            // BUILDS a background run's view has not run yet
+                            // (EXP-877).
+                            let run_face = match face {
+                                Face::Diff => crate::screens::RunFace::Diff,
+                                Face::Results => crate::screens::RunFace::Results,
+                                _ => crate::screens::RunFace::Run,
+                            };
+                            crate::screens::set_run_face(&run_id, run_face, window, cx);
                         }
                     }
                 }),

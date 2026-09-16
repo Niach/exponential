@@ -397,6 +397,11 @@ pub const SHAPES: [ShapeSpec; 22] = [
             // this the IDE shows a silently stalled run as healthy. Heals
             // onto existing store tables like the rest.
             "blocked",
+            // EXP-879: the run's published RESULTS (jsonb, NULL/[] = none) —
+            // the ONLY input to the Results face, so dropping it silently
+            // removes a face every other client still shows. Heals onto
+            // existing store tables like the rest.
+            "results",
             // EXP-545/EXP-698: the head branch `pr_open` stamped on the row.
             // It is what ties a BATCH run (no issue linkage at all) to its
             // OWN pull request, which is how the steer viewer's Merge pill
@@ -806,6 +811,15 @@ mod tests {
         // silently walled run from a healthy one.
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"blocked"));
+    }
+
+    /// EXP-879: the Results face's ONE input. Dropping it silently hides a
+    /// face on this client alone — the run still has pictures, the desktop
+    /// just cannot see them.
+    #[test]
+    fn coding_sessions_syncs_the_results() {
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"results"));
     }
 
     #[test]
