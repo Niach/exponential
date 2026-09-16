@@ -13,11 +13,17 @@
 //! element. The headless CLI never enables graphics, so it parses image
 //! streams without retaining a single pixel.
 //!
-//! OSC-52 clipboard stays off (§6.15): rio has no config gate for it, so the
-//! drain ignoring `ClipboardStore`/`ClipboardLoad` IS the gate.
+//! OSC-52 is **asymmetric** (§6.15, EXP-896): rio has no config gate for it,
+//! so this drain IS the gate. WRITE is allowed — `ClipboardStore` leaves as
+//! an [`EmulatorSignal::ClipboardWrite`] the gpui layer puts on the system
+//! clipboard (ghostty's `clipboard-write = allow` default; a CLI printing
+//! "link copied" must actually copy). READ (`ClipboardLoad`, the `52;c;?`
+//! query) stays DENIED and silent: a child process must never siphon the
+//! user's clipboard, and we have no ask-the-user prompt to fall back on.
 
 use rio_graphics::{atlas_image_key, kitty_image_key, GraphicData};
 use rio_vt::ansi::CursorShape;
+use rio_vt::clipboard::ClipboardType;
 use rio_vt::config::colors::ColorRgb;
 use rio_vt::crosswords::grid::Scroll;
 use rio_vt::crosswords::pos::{Column, Line, Pos};
@@ -92,6 +98,19 @@ pub enum EmulatorSignal {
     Title(Option<String>),
     /// Terminal bell — optional subtle visual bell, no audio in v1 (§6.6).
     Bell,
+    /// OSC-52 clipboard WRITE (§6.15, EXP-896): the child asked to copy
+    /// `text` (already base64-decoded by rio) into `target`. The gpui layer
+    /// puts it on the real clipboard; headless consumers ignore the signal.
+    ClipboardWrite { target: ClipboardTarget, text: String },
+}
+
+/// Which clipboard an OSC-52 write names: `52;c` → the system clipboard,
+/// `52;p`/`52;s` → the X11 primary selection (Linux only; elsewhere the
+/// paint side drops it rather than clobbering the real clipboard).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardTarget {
+    Clipboard,
+    Primary,
 }
 
 /// Decoded image pixels the paint side must upload, plus texture keys to
@@ -226,10 +245,30 @@ impl Emulator {
                     };
                     write(formatter(window_size).as_bytes());
                 }
-                // §6.15: OSC-52 gated off — never bridge the child and the
-                // system clipboard in v1.
-                RioEvent::ClipboardStore(..) | RioEvent::ClipboardLoad(..) => {
-                    log::debug!("ignoring OSC-52 clipboard event (disabled, §6.15)");
+                // §6.15 write half (EXP-896): rio hands the payload over
+                // already base64-decoded and UTF-8 validated (undecodable
+                // payloads never reach us), so the signal carries plain
+                // text. An empty payload is xterm's "clear the clipboard" —
+                // we drop it rather than let a stray sequence wipe what the
+                // user copied.
+                RioEvent::ClipboardStore(kind, text) => {
+                    if text.is_empty() {
+                        log::debug!("ignoring empty OSC-52 clipboard write");
+                    } else {
+                        signals.push(EmulatorSignal::ClipboardWrite {
+                            target: match kind {
+                                ClipboardType::Clipboard => ClipboardTarget::Clipboard,
+                                ClipboardType::Selection => ClipboardTarget::Primary,
+                            },
+                            text,
+                        });
+                    }
+                }
+                // §6.15 read half: DENIED, and silently — answering the
+                // `52;c;?` query would hand the user's clipboard to the
+                // child, and we have no prompt to ask for consent.
+                RioEvent::ClipboardLoad(..) => {
+                    log::debug!("refusing OSC-52 clipboard read (denied, §6.15)");
                 }
                 // rio reports an OSC title reset as an empty title.
                 RioEvent::Title(title) if title.is_empty() => {
@@ -536,13 +575,76 @@ mod tests {
     }
 
     #[test]
-    fn osc52_store_is_swallowed_by_the_drain() {
+    fn osc52_store_surfaces_as_a_decoded_clipboard_write() {
+        // EXP-896: the write half of OSC-52 is allowed, and rio hands the
+        // payload over already base64-decoded.
         let mut emulator = Emulator::new(20, 4);
-        // OSC 52 copy: emits ClipboardStore, which the drain drops (§6.15).
-        emulator.advance_bytes(b"\x1b]52;c;aGVsbG8=\x07");
+        emulator.advance_bytes(b"\x1b]52;c;aGVsbG8=\x07"); // "hello"
         let (signals, written) = drain(&mut emulator);
-        assert!(written.is_empty());
-        assert!(!signals.iter().any(|s| matches!(s, EmulatorSignal::Title(_))));
+        assert!(written.is_empty(), "OSC-52 writes never answer the child");
+        assert_eq!(
+            signals
+                .iter()
+                .find(|s| matches!(s, EmulatorSignal::ClipboardWrite { .. })),
+            Some(&EmulatorSignal::ClipboardWrite {
+                target: ClipboardTarget::Clipboard,
+                text: "hello".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn osc52_primary_selection_is_tagged_primary() {
+        // `p` and `s` both name the X11 primary selection.
+        for sequence in [&b"\x1b]52;p;aGk=\x07"[..], &b"\x1b]52;s;aGk=\x07"[..]] {
+            let mut emulator = Emulator::new(20, 4);
+            emulator.advance_bytes(sequence);
+            let (signals, _) = drain(&mut emulator);
+            assert!(
+                signals.contains(&EmulatorSignal::ClipboardWrite {
+                    target: ClipboardTarget::Primary,
+                    text: "hi".into(),
+                }),
+                "signals: {signals:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn osc52_read_query_is_denied_silently() {
+        // A `?` payload is the clipboard READ query: no reply to the child
+        // (it must never see the user's clipboard) and no signal out.
+        let mut emulator = Emulator::new(20, 4);
+        emulator.advance_bytes(b"\x1b]52;c;?\x07");
+        let (signals, written) = drain(&mut emulator);
+        assert!(written.is_empty(), "never answer an OSC-52 read: {written:?}");
+        assert!(
+            !signals.iter().any(|s| matches!(s, EmulatorSignal::ClipboardWrite { .. })),
+            "signals: {signals:?}"
+        );
+    }
+
+    #[test]
+    fn osc52_empty_or_invalid_payloads_are_ignored() {
+        // Empty = xterm's "clear the clipboard" (never wipe what the user
+        // copied); `!!!!` is not base64 (rio drops it before the event);
+        // `/w==` decodes to a byte that is not UTF-8. None may panic.
+        for sequence in [
+            &b"\x1b]52;c;\x07"[..],
+            &b"\x1b]52;c;!!!!\x07"[..],
+            &b"\x1b]52;c;/w==\x07"[..],
+            &b"\x1b]52;c\x07"[..],
+            &b"\x1b]52\x07"[..],
+        ] {
+            let mut emulator = Emulator::new(20, 4);
+            emulator.advance_bytes(sequence);
+            let (signals, written) = drain(&mut emulator);
+            assert!(written.is_empty());
+            assert!(
+                !signals.iter().any(|s| matches!(s, EmulatorSignal::ClipboardWrite { .. })),
+                "{sequence:?} produced {signals:?}"
+            );
+        }
     }
 
     #[test]

@@ -132,6 +132,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.domain.LIVE_TOOL_OUTPUT_TAIL_LINES
+import com.exponential.app.domain.liveToolOutputTail
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentHealthRules
@@ -3778,7 +3780,7 @@ private fun ToolRow(
             }
         }
         if (detailOpen && diff != null) ToolDiff(diff)
-        if (detailOpen && output != null) ToolOutput(output)
+        if (detailOpen && output != null) ToolOutput(output, live)
     }
 }
 
@@ -3793,11 +3795,18 @@ private fun ToolRow(
  * is on the wire at all.
  */
 @Composable
-private fun ToolOutput(output: String) {
+private fun ToolOutput(output: String, live: Boolean = false) {
+    // EXP-910: the call is still RUNNING — show its TAIL, not the whole log. A
+    // command that prints while it works owns the one open row, and an
+    // unbounded one owns the screen. The settled row (and the reader's own tap
+    // on it) still gets everything.
+    val shown = remember(output, live) {
+        if (live) liveToolOutputTail(output, LIVE_TOOL_OUTPUT_TAIL_LINES) else output
+    }
     val scroll = rememberScrollState()
-    LaunchedEffect(output) { scroll.scrollTo(scroll.maxValue) }
+    LaunchedEffect(shown) { scroll.scrollTo(scroll.maxValue) }
     Text(
-        output,
+        shown,
         style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         modifier = Modifier

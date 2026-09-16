@@ -285,6 +285,31 @@
    from `.issue-chip`, which the decoration also carries; only what a
    decoration cannot do in React lives here. */
 .tiptap-content .issue-ref-pill {
+  /* EXP-899 — the decoration is an ATOMIC inline box, exactly like the React
+     `<IssueChip>` beside it (`inline-flex`). As a plain inline RUN it had the
+     two defects the bug report shows:
+       · an inline box's vertical padding and border sit OUTSIDE the line box,
+         so a paragraph of chips drew each pill over the row below it;
+       · `box-decoration-break: slice` split a chip that did not fit into two
+         separately-bordered fragments — the orphaned `…`-only pill at the
+         start of a line.
+     `inline-block` makes the box count for its line's height and keeps a chip
+     whole; `max-width` + `text-overflow` then TRUNCATE it (identifier first,
+     so it always survives) instead of letting it break — which is also what
+     keeps a chip inside a narrow `td` instead of crossing into the next
+     column. */
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* `middle`, the React chip's `align-middle`: an inline-block whose overflow
+     is not `visible` takes its BOTTOM MARGIN EDGE as its baseline, which would
+     hang the whole pill above the prose it sits in. */
+  vertical-align: middle;
+  /* The chip owns its measure rather than inheriting the document's 1.625 (or
+     the transcript's 22px) — `1rem` is the React chip's `text-xs` line height,
+     so decoration and component are the same height to the pixel. */
+  line-height: 1rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
   /* The identifier recedes; the title below carries the weight. */
@@ -315,8 +340,11 @@
 /* The chip shows the issue title next to the identifier (EXP-307). The title
    rides a data attribute rendered here, so the editable document text stays
    exactly the `#IDENTIFIER` token and the markdown round-trip is untouched.
-   The title portion may wrap (long titles must not overflow narrow columns);
-   the mono identifier itself stays unbreakable via the nowrap above. */
+   EXP-899: the title keeps `.issue-chip`'s `white-space: nowrap` — it used to
+   be `normal` so a long one could wrap inside a narrow column, but a wrapping
+   title BREAKS THE PILL (the tail renders as its own bordered stub on the next
+   line). A title that does not fit now truncates against the box's
+   `text-overflow` above, which is the same trade the natives already make. */
 .tiptap-content .issue-ref-pill::after {
   content: attr(data-issue-title);
   margin-left: 0.35em;
@@ -324,7 +352,6 @@
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--foreground);
-  white-space: normal;
 }
 
 /* Inline `@email` mention pills (a decoration — the underlying text stays the

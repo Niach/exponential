@@ -87,6 +87,8 @@ import com.exponential.app.domain.completeSubagent
 import com.exponential.app.domain.currentStepperStep
 import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.groupFeedRows
+import com.exponential.app.domain.LIVE_TOOL_OUTPUT_TAIL_LINES
+import com.exponential.app.domain.liveToolOutputTail
 import com.exponential.app.domain.liveToolRowId
 import com.exponential.app.domain.localAnswerSummary
 import com.exponential.app.domain.lockAnswer
@@ -1137,6 +1139,39 @@ class AgentFeedTest {
         assertNull(
             liveToolRowId(listOf(tool(1, false), AgentFeedItem.UserMessage(id = 3, text = "stop"))),
         )
+    }
+
+    // EXP-910: the RUNNING row's output is a TAIL, so a chatty command cannot
+    // own the screen while it works. Locked ×4 (web `liveToolOutputTail`,
+    // desktop `live_tool_output_tail`, ExpCore `AgentFeed.liveToolOutputTail`).
+    @Test
+    fun `liveToolOutputTail keeps a short output whole`() {
+        assertEquals("one\ntwo", liveToolOutputTail("one\ntwo", 3))
+        assertEquals("one\ntwo\nthree", liveToolOutputTail("one\ntwo\nthree", 3))
+        assertEquals("", liveToolOutputTail("", 3))
+    }
+
+    @Test
+    fun `liveToolOutputTail tails a long output and marks the elision`() {
+        assertEquals("…\nc\nd\ne", liveToolOutputTail("a\nb\nc\nd\ne", 3))
+        // The marker costs a line but is not one of the n: three log lines stay.
+        assertEquals(4, liveToolOutputTail("a\nb\nc\nd\ne", 3).split("\n").size)
+    }
+
+    @Test
+    fun `liveToolOutputTail drops the trailing empty line`() {
+        // A command's output ends in a newline; a blank last row would spend
+        // one of the three on nothing.
+        assertEquals("…\nb\nc\nd", liveToolOutputTail("a\nb\nc\nd\n", 3))
+        assertEquals("a\nb", liveToolOutputTail("a\nb\n", 3))
+        // Only ONE — a command that really printed a blank line keeps it.
+        assertEquals("a\nb\n", liveToolOutputTail("a\nb\n\n", 3))
+    }
+
+    @Test
+    fun `liveToolOutputTail reads the tail length off the contract`() {
+        assertEquals(DomainContract.steerFeedLiveToolOutputTailLines, LIVE_TOOL_OUTPUT_TAIL_LINES)
+        assertTrue(LIVE_TOOL_OUTPUT_TAIL_LINES > 0)
     }
 
     @Test

@@ -58,14 +58,20 @@ const UiBranchIcon = conceptIcon(`ui-branch`)
 // recomputes mergeability) would hide Merge for the life of the open PR.
 
 /** EXP-895: the two SHAPES the one merge control comes in. `pill` is the
- *  `Pill size="md" mode="action" primary` every Changes surface uses (the
- *  review's top bar, the run's, the phone capsule); `button` is the shadcn
- *  Button the list rows and the icon-only slots keep. */
+ *  `Pill mode="action" primary` every Changes surface uses (the review's top
+ *  bar, the run's, the phone capsule); `button` is the shadcn Button the list
+ *  rows and the icon-only slots keep. */
 export type MergeControlShape = `button` | `pill`
+
+/** EXP-889: the pill arm's size. `md` = the Changes surfaces' capsule; `sm`
+ *  = the property tray / run header, where it stands in a row of `sm`
+ *  pills (status, priority, Stop) and must be the SAME box as its siblings. */
+export type MergePillSize = `sm` | `md`
 
 /** One control, either shape — so the merge logic below never branches twice. */
 function MergeControl({
   as,
+  pillSize = `md`,
   variant,
   size,
   className,
@@ -76,6 +82,7 @@ function MergeControl({
   children,
 }: {
   as: MergeControlShape
+  pillSize?: MergePillSize
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
   className?: string
@@ -88,7 +95,7 @@ function MergeControl({
   if (as === `pill`) {
     return (
       <Pill
-        size="md"
+        size={pillSize}
         mode="action"
         primary
         className={className}
@@ -118,6 +125,7 @@ function MergeControl({
 
 export function SessionMergeButton({
   as = `button`,
+  pillSize = `md`,
   prState,
   prNumber,
   issueId,
@@ -134,6 +142,8 @@ export function SessionMergeButton({
   /** EXP-895: `pill` = the primary glass capsule every Changes surface wears;
    *  `button` (the default) = the shadcn Button of the list rows. */
   as?: MergeControlShape
+  /** EXP-889: the pill arm's size; `sm` beside the tray's `sm` pills. */
+  pillSize?: MergePillSize
   prState: string | null
   prNumber: number | null
   /** The issue whose PR this merges. Pass this OR `sessionId`, never both. */
@@ -232,6 +242,7 @@ export function SessionMergeButton({
         <>
           <FixConflictsButton
             as={as}
+            pillSize={pillSize}
             issueId={issueId}
             variant={variant}
             size={size}
@@ -263,6 +274,7 @@ export function SessionMergeButton({
       ) : (
         <MergeControl
           as={as}
+          pillSize={pillSize}
           variant={variant}
           size={size}
           className={className}
@@ -325,6 +337,7 @@ export function SessionMergeButton({
 // and this PR pre-filled — no dialog, no device lookup here.
 function FixConflictsButton({
   as,
+  pillSize,
   issueId,
   variant,
   size,
@@ -333,6 +346,7 @@ function FixConflictsButton({
   message,
 }: {
   as: MergeControlShape
+  pillSize?: MergePillSize
   issueId: string
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
@@ -345,6 +359,7 @@ function FixConflictsButton({
   return (
     <MergeControl
       as={as}
+      pillSize={pillSize}
       variant={variant}
       size={size}
       className={className}

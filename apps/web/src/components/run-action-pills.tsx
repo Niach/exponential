@@ -122,6 +122,9 @@ export function MergePrPill({
   return (
     <SessionMergePill
       {...target}
+      // EXP-889: this pill stands in the property tray / run header beside
+      // `sm` pills (status, priority, Stop) — one box for the whole row.
+      pillSize="sm"
       label={MERGE_PR_LABEL}
       className={cn(`shrink-0`, className)}
       steerEnabled={steerEnabled}

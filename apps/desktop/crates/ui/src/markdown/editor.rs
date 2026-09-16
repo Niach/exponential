@@ -2618,6 +2618,18 @@ fn render_view_table(
                 .when(fits, |this| this.w(gpui::relative(width / natural_width)))
                 .when(!fits, |this| this.w(px(width)))
                 .min_w_0()
+                // EXP-899: a cell is a CLIP. Its width is measured off the
+                // shaped display text and then clamped to
+                // `TABLE_MAX_COLUMN_WIDTH`, so a cell naming two issue chips
+                // is routinely wider than the column it gets — and an
+                // unclipped text element painted its glyphs AND its chip
+                // quads straight over the neighbouring column (the reported
+                // "Parent | Children" table, where both columns' chips drew
+                // on top of each other).
+                .overflow_hidden()
+                .debug_selector(|| {
+                    format!("{}-table-{block_index}-cell-{row_index}-{column}", view.id)
+                })
                 .px_2()
                 .py_1()
                 .flex()
@@ -2632,7 +2644,24 @@ fn render_view_table(
                 TableAlignment::Right => cell_div.justify_end(),
                 TableAlignment::None | TableAlignment::Left => cell_div.justify_start(),
             };
-            row = row.child(cell_div.child(text_element));
+            // EXP-899: `min_w_0` on the TEXT's own box, not just the cell's —
+            // a flex item's automatic minimum is its min-content width, which
+            // for a chip (NBSP-joined, unbreakable) is the whole chip. Zeroing
+            // it lets the cell hand the text its real width, so the line
+            // wrapper wraps inside the cell instead of overflowing it.
+            row = row.child(
+                cell_div.child(
+                    div()
+                        .min_w_0()
+                        .debug_selector(|| {
+                            format!(
+                                "{}-table-{block_index}-text-{row_index}-{column}",
+                                view.id
+                            )
+                        })
+                        .child(text_element),
+                ),
+            );
         }
         grid_rows.push(row.into_any_element());
     }
@@ -3056,14 +3085,20 @@ impl gpui::Element for PillText {
             (&self.mention_pills, px(999.)),
             (&self.issue_pills, px(ISSUE_PILL_RADIUS)),
         ];
+        // EXP-899: how far the quad pulls IN from the row box before
+        // `PILL_PAD_Y` pushes it back out — see `pill_row_inset`.
+        let row_inset = pill_row_inset(&self.layout);
         for (pills, radius) in kinds {
             for range in pills {
                 for segment in pill_segment_bounds(&self.layout, range.clone()) {
                     let quad_bounds = Bounds::from_corners(
-                        point(segment.left() - px(PILL_PAD_X), segment.top() - px(PILL_PAD_Y)),
+                        point(
+                            segment.left() - px(PILL_PAD_X),
+                            segment.top() + row_inset - px(PILL_PAD_Y),
+                        ),
                         point(
                             segment.right() + px(PILL_PAD_X),
-                            segment.bottom() + px(PILL_PAD_Y),
+                            segment.bottom() - row_inset + px(PILL_PAD_Y),
                         ),
                     );
                     let mut quad = gpui::fill(quad_bounds, self.background);
@@ -3251,6 +3286,27 @@ impl gpui::Element for SelectableLineText {
         }
         self.child.paint(window, cx);
     }
+}
+
+/// EXP-899 — how far a chip quad pulls IN from its row box.
+///
+/// [`pill_segment_bounds`] hands back a whole LINE box per wrapped row, which
+/// is what a selection highlight wants. A pill grown from that by
+/// `PILL_PAD_Y` is `line_height + 2` tall in a `line_height` row, so two rows
+/// of chips (a paragraph that wraps, a table cell) overdrew each other's
+/// borders. The pill is the GLYPH box instead — ascent + descent, centred in
+/// the row — which is what iOS (`insetBy(dy: 1)`) and Android (an 8% line-box
+/// inset) already paint. The `PILL_PAD_Y` the caller adds back is subtracted
+/// here, so the finished quad can never leave its own row: at a line height
+/// too tight to hold even the glyphs the inset is zero and the pill is
+/// exactly the row, never more.
+fn pill_row_inset(layout: &gpui::TextLayout) -> Pixels {
+    let Some(line) = layout.line_layout_for_index(0) else {
+        return px(0.);
+    };
+    let glyph_height = line.unwrapped_layout.ascent + line.unwrapped_layout.descent;
+    let half_leading = (layout.line_height() - glyph_height) / 2.;
+    (half_leading - px(PILL_PAD_Y)).max(px(0.))
 }
 
 fn pill_segment_bounds(layout: &gpui::TextLayout, range: Range<usize>) -> Vec<Bounds<Pixels>> {
@@ -4106,6 +4162,74 @@ mod tests {
         // The narrow table (block 1 after "before") fits and has neither.
         assert!(cx.debug_bounds("table-paint-test-table-1-scroll").is_none());
         assert!(cx.debug_bounds("table-paint-test-table-1-scrollbar").is_none());
+    }
+
+    /// EXP-899: a table cell is a CLIP. Its column width is measured off the
+    /// shaped display text and then clamped to `TABLE_MAX_COLUMN_WIDTH`, so a
+    /// cell naming an issue chip is routinely wider than the column it gets —
+    /// and its text used to paint straight over the neighbouring column
+    /// (chips drawing on top of chips, the reported "Parent | Children"
+    /// table). The text now takes the cell's width and wraps inside it.
+    #[gpui::test]
+    async fn table_cells_never_overflow_into_the_next_column(cx: &mut gpui::TestAppContext) {
+        struct Host;
+        impl Render for Host {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                div().size_full().child(
+                    MarkdownView::new(
+                        SharedString::from("cell-clip-test"),
+                        // Both cells resolve a chip whose injected title runs
+                        // far past the 480px column ceiling.
+                        "| Parent | Children |\n| --- | --- |\n\
+                         | #EXP-42 | #EXP-42 #EXP-42 #EXP-42 |",
+                    )
+                    .resolver(test_resolver()),
+                )
+            }
+        }
+
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_view, cx) = cx.add_window_view(|_window, _cx| Host);
+        cx.simulate_resize(gpui::size(px(480.), px(640.)));
+        for _ in 0..3 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+        }
+
+        // Body row of the table. A document that OPENS with a table gets an
+        // empty text block 0 in front of it, so the table is block 1.
+        for (cell_key, text_key) in [
+            (
+                "cell-clip-test-table-1-cell-1-0",
+                "cell-clip-test-table-1-text-1-0",
+            ),
+            (
+                "cell-clip-test-table-1-cell-1-1",
+                "cell-clip-test-table-1-text-1-1",
+            ),
+        ] {
+            let cell = cx
+                .debug_bounds(cell_key)
+                .unwrap_or_else(|| panic!("{cell_key} renders"));
+            let text = cx
+                .debug_bounds(text_key)
+                .unwrap_or_else(|| panic!("{text_key} renders"));
+            assert!(
+                text.right() <= cell.right() + px(0.5),
+                "{text_key} ({text:?}) runs past its cell ({cell:?})"
+            );
+            assert!(
+                text.left() >= cell.left() - px(0.5),
+                "{text_key} ({text:?}) starts before its cell ({cell:?})"
+            );
+        }
     }
 
     /// EXP-521: a pointer sweep across two selectable [`MarkdownView`]s

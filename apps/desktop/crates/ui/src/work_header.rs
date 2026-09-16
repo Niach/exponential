@@ -4,8 +4,9 @@
 //!
 //! Row 1: the title (the detail's editable input, a static [`title_row`]
 //! elsewhere) with the right cluster on the SAME line, top-aligned — the
-//! [`face_toggle`] (`Issue | Run | +N -M`), then, for an issue, its pin and
-//! `…` menu. Row 2 (issue-bound only): the property tray, trailing
+//! [`face_toggle`] (`Issue | Run | Changes | Results`, the changes item
+//! wearing `+N −M` once its counts are known), then, for an issue, its pin
+//! and `…` menu. Row 2 (issue-bound only): the property tray, trailing
 //! `[Merge PR] [the ONE coding action]` at its right edge. The coding action
 //! is derived from the run STATE ([`coding_action`]), never from the face on
 //! show: an own live run → Stop, an own ended resumable run → Resume, else
@@ -38,10 +39,10 @@ pub(crate) const WORK_COLUMN_W: f32 = 896.;
 // Face toggle
 // ---------------------------------------------------------------------------
 
-/// Which face of a top tab is up. `Diff` = the Run face with the viewer's
-/// full-page diff open; `Results` (EXP-879) = the same slot holding the
-/// run's published pictures. Both are SUB-FACES of the run: no run of mine,
-/// neither exists.
+/// Which face of a top tab is up. `Diff` = the CHANGES face — the run's
+/// worktree diff while a run of mine has one, else (EXP-889) the issue's own
+/// open pull request; `Results` (EXP-879) = the run's published pictures, a
+/// sub-face of the run: no run of mine, no Results.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Face {
     Issue,
@@ -51,16 +52,25 @@ pub(crate) enum Face {
 }
 
 /// What the toggle offers: an `Issue` item for an issue-bound tab, a `Run`
-/// item when a run exists (its id), a diff item when that run has changes
-/// (`+N -M`). Unavailable items are HIDDEN, never disabled.
+/// item when a run exists (its id), a Changes item when there is a diff to
+/// read. Unavailable items are HIDDEN, never disabled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct FaceToggle {
     pub issue: bool,
     pub run: Option<String>,
+    /// The RUN's worktree diff (`+N −M`) when it has changes. `Some` also
+    /// means the Changes item OPENS that run's diff face.
     pub diff: Option<(u32, u32)>,
+    /// EXP-889: the ISSUE has an open pull request, so its FILES are a
+    /// Changes face of their own — independent of any run (the web
+    /// `work-faces.ts`: `hasChanges = diffStats.fileCount > 0 || prState ===
+    /// 'open'`, `availableFaces` pushes `changes` outside the `hasRun`
+    /// branch). Counts are not known until the files are fetched, so the
+    /// item wears the word [`CHANGES_FACE_LABEL`] until `diff` is `Some`.
+    pub pr_changes: bool,
     /// EXP-879: the run has published at least one picture, so the Results
-    /// item exists. Like `diff`, it needs `run` — a result without a run is
-    /// not a face.
+    /// item exists. Unlike the Changes item it needs `run` — a result
+    /// without a run is not a face.
     pub results: bool,
     pub active: Face,
     /// EXP-886: the issue has MORE THAN ONE run of mine, so the Run item
@@ -72,6 +82,10 @@ pub(crate) struct FaceToggle {
 /// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
 pub(crate) const RUN_FACE_LABEL: &str = "Run";
 pub(crate) const RUNS_FACE_LABEL: &str = "Runs";
+/// EXP-889, byte-identical with the web `CHANGES_FACE_LABEL` (`work-faces.ts`)
+/// and the natives — the Changes face's ONE name, worn whenever its counts
+/// are not (yet) known.
+pub(crate) const CHANGES_FACE_LABEL: &str = "Changes";
 /// EXP-879, byte-identical with the web `RESULTS_FACE_LABEL` and with the
 /// iOS/Android strings — the fourth face's ONE name on every client.
 pub(crate) const RESULTS_FACE_LABEL: &str = "Results";
@@ -86,7 +100,18 @@ pub(crate) fn run_face_label(multiple_runs: bool) -> &'static str {
 }
 
 impl FaceToggle {
-    /// The items in web order, pure so the visibility rule can be pinned.
+    /// EXP-889: is there a Changes face at all? The web rule verbatim
+    /// (`hasChanges = diffStats.fileCount > 0 || issue.prState === 'open'`):
+    /// the run's worktree diff OR the issue's open PR.
+    pub(crate) fn has_changes(&self) -> bool {
+        self.diff.is_some() || self.pr_changes
+    }
+
+    /// The items in web order, pure so the visibility rule can be pinned —
+    /// the web `availableFaces` (`lib/work-faces.ts`) one for one: issue,
+    /// run, changes, results. Changes is INDEPENDENT of the run (EXP-889:
+    /// "an issue with an open PR and no run of mine still has its PR
+    /// files"); Results stays a sub-face of the run.
     pub(crate) fn items(&self) -> Vec<Face> {
         let mut items = Vec::with_capacity(4);
         if self.issue {
@@ -94,13 +119,13 @@ impl FaceToggle {
         }
         if self.run.is_some() {
             items.push(Face::Run);
-            if self.diff.is_some() {
-                items.push(Face::Diff);
-            }
-            // EXP-879: Results comes LAST — issue, run, changes, results.
-            if self.results {
-                items.push(Face::Results);
-            }
+        }
+        if self.has_changes() {
+            items.push(Face::Diff);
+        }
+        // EXP-879: Results comes LAST — issue, run, changes, results.
+        if self.run.is_some() && self.results {
+            items.push(Face::Results);
         }
         items
     }
@@ -136,12 +161,17 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
             .map(|item| match face {
                 Face::Issue => item.child("Issue"),
                 Face::Run => item.child(run_face_label(spec.multiple_runs)),
-                Face::Diff => {
-                    let (additions, deletions) = spec.diff.unwrap_or_default();
+                Face::Diff => match spec.diff {
                     // EXP-895: the ONE counts renderer — the contract's
                     // labels (`+N` / `−M`, U+2212) in the shared tints.
-                    item.child(crate::diff_pane::counts(additions, deletions, cx))
-                }
+                    Some((additions, deletions)) => {
+                        item.child(crate::diff_pane::counts(additions, deletions, cx))
+                    }
+                    // EXP-889: the issue's PR files are fetched when the face
+                    // opens, so the item names itself until they land — the
+                    // web's own `CHANGES_FACE_LABEL` row.
+                    None => item.child(CHANGES_FACE_LABEL),
+                },
                 Face::Results => item.child(RESULTS_FACE_LABEL),
             })
             .when(!active, |item| {
@@ -585,6 +615,118 @@ pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
 mod tests {
     use super::*;
 
+    /// EXP-889 — the tray's pills are ONE box. The reporter's Merge PR pill
+    /// stood a rung taller (and a type size bigger) than the status /
+    /// priority / label / Stop pills beside it, so this DRAWS the tray and
+    /// measures every capsule in it: the merge pill must be exactly
+    /// [`PillSize::Sm`] tall, like every sibling.
+    ///
+    /// The probe is a `canvas` sized `absolute().size_full()` inside a
+    /// wrapper around each pill: it reports the wrapper's laid-out box, i.e.
+    /// the pill's own.
+    #[gpui::test]
+    async fn every_tray_pill_is_the_same_box(cx: &mut gpui::TestAppContext) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        #[derive(Default)]
+        struct Measured {
+            chip: Rc<Cell<f32>>,
+            stop: Rc<Cell<f32>>,
+            merge: Rc<Cell<f32>>,
+        }
+
+        struct Tray(Measured);
+
+        fn probe(out: Rc<Cell<f32>>, child: AnyElement) -> AnyElement {
+            div()
+                .relative()
+                .flex_shrink_0()
+                .child(child)
+                .child(
+                    gpui::canvas(
+                        move |bounds, _, _| out.set(f32::from(bounds.size.height)),
+                        |_, _: (), _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .into_any_element()
+        }
+
+        impl gpui::Render for Tray {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                let target = MergeTarget::Issue {
+                    issue_id: "issue-1".to_string(),
+                };
+                // The real tray, the real chips, the real trailing cluster
+                // (`issue_header::chip_row`).
+                crate::surface::glass_tray()
+                    .child(probe(
+                        self.0.chip.clone(),
+                        crate::pickers::chip_button("prop-status", cx)
+                            .label("In Review")
+                            .into_any_element(),
+                    ))
+                    .child(
+                        h_flex()
+                            .ml_auto()
+                            .flex_shrink_0()
+                            .items_center()
+                            .gap_1()
+                            .child(probe(
+                                self.0.merge.clone(),
+                                merge_pill("header-merge-pr", &target, true, cx),
+                            ))
+                            .child(probe(
+                                self.0.stop.clone(),
+                                crate::session_screen::stop_session_pill("work-stop", cx)
+                                    .into_any_element(),
+                            )),
+                    )
+            }
+        }
+
+        let measured = Measured::default();
+        let (chip, stop, merge) = (
+            measured.chip.clone(),
+            measured.stop.clone(),
+            measured.merge.clone(),
+        );
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_view, cx) = cx.add_window_view(|_, _| Tray(measured));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let expected = PillSize::Sm.height();
+        assert!(
+            (chip.get() - expected).abs() < 2.,
+            "a property chip is the Sm rung: {} vs {expected}",
+            chip.get()
+        );
+        assert!(
+            (stop.get() - expected).abs() < 2.,
+            "the Stop pill is the Sm rung: {} vs {expected}",
+            stop.get()
+        );
+        assert_eq!(
+            merge.get(),
+            stop.get(),
+            "EXP-889: the Merge pill is the SAME box as the Stop pill beside it",
+        );
+        assert!(
+            (merge.get() - expected).abs() < 2.,
+            "EXP-889: the Merge pill is the Sm rung: {} vs {expected}",
+            merge.get()
+        );
+    }
+
     /// EXP-895: the Diff face item prints the CONTRACT's labels through the
     /// ONE counts renderer ([`crate::diff_pane::counts`]) — `+N` and a U+2212
     /// MINUS SIGN, never an ASCII hyphen, on every desktop surface.
@@ -734,6 +876,7 @@ mod tests {
             issue,
             run: run.map(str::to_string),
             diff,
+            pr_changes: false,
             results: false,
             active,
             multiple_runs: false,
@@ -746,14 +889,62 @@ mod tests {
         assert_eq!(with_run.items(), vec![Face::Issue, Face::Run]);
         let with_diff = toggle(false, Some("r"), Some((3, 1)), Face::Diff);
         assert_eq!(with_diff.items(), vec![Face::Run, Face::Diff]);
-        // A diff without a run is not a face.
+        // EXP-889: a run's diff carries the Changes item on its own, and so
+        // does an issue with an open PR and NO run of mine — the item is
+        // never gated on the run.
         let orphan_diff = toggle(true, None, Some((3, 1)), Face::Issue);
-        assert_eq!(orphan_diff.items(), vec![Face::Issue]);
+        assert_eq!(orphan_diff.items(), vec![Face::Issue, Face::Diff]);
+    }
+
+    /// EXP-889 — the reporter's tab: an issue whose PR is open, with no run
+    /// of mine (or a live run whose worktree is clean, everything pushed),
+    /// showed NO diff at all. Changes is a face of its OWN: the web
+    /// `availableFaces` pushes it outside the `hasRun` branch, off
+    /// `hasChanges = diffStats.fileCount > 0 || prState === 'open'`.
+    #[test]
+    fn an_open_pr_is_a_changes_face_without_a_run() {
+        let toggle = |run: Option<&str>, diff: Option<(u32, u32)>, pr_changes: bool| FaceToggle {
+            issue: true,
+            run: run.map(str::to_string),
+            diff,
+            pr_changes,
+            results: false,
+            active: Face::Issue,
+            multiple_runs: false,
+        };
+        // No run at all: Issue | Changes.
+        let pr_only = toggle(None, None, true);
+        assert!(pr_only.has_changes());
+        assert_eq!(pr_only.items(), vec![Face::Issue, Face::Diff]);
+        // A live run with an EMPTY worktree diff still reaches the PR files.
+        assert_eq!(
+            toggle(Some("r"), None, true).items(),
+            vec![Face::Issue, Face::Run, Face::Diff],
+        );
+        // The run's own diff wins the item (its counts label it) and never
+        // doubles it up.
+        assert_eq!(
+            toggle(Some("r"), Some((3, 1)), true).items(),
+            vec![Face::Issue, Face::Run, Face::Diff],
+        );
+        // No PR, no diff: no Changes item.
+        assert!(!toggle(Some("r"), None, false).has_changes());
+        assert_eq!(
+            toggle(Some("r"), None, false).items(),
+            vec![Face::Issue, Face::Run],
+        );
+    }
+
+    /// EXP-889: the Changes item's label — the counts once they are known,
+    /// the web's own word until then. Byte-identical with `work-faces.ts`.
+    #[test]
+    fn the_changes_face_label_is_changes() {
+        assert_eq!(CHANGES_FACE_LABEL, "Changes");
     }
 
     /// EXP-879: Results is the FOURTH face, always last — issue, run,
-    /// changes, results — and, like the diff, a sub-face of the run: with no
-    /// run of mine it is not offered at all.
+    /// changes, results — and a sub-face of the run: with no run of mine it
+    /// is not offered at all (unlike Changes since EXP-889).
     #[test]
     fn the_results_face_comes_last_and_needs_a_run() {
         let toggle = |issue: bool, run: Option<&str>, diff: Option<(u32, u32)>, results: bool| {
@@ -761,6 +952,7 @@ mod tests {
                 issue,
                 run: run.map(str::to_string),
                 diff,
+                pr_changes: false,
                 results,
                 active: Face::Run,
                 multiple_runs: false,

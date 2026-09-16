@@ -29,7 +29,7 @@
 //!   and painted as textured quads under (sixel, kitty `z < 0`) or over
 //!   (kitty `z >= 0`) the text, clipped to the element.
 
-use crate::emulator::{EmulatorSignal, GraphicsUpdate, Term, TermMode};
+use crate::emulator::{ClipboardTarget, EmulatorSignal, GraphicsUpdate, Term, TermMode};
 use crate::keys;
 use crate::mouse::{self, MouseEventKind, ViewportCell};
 use crate::pty::ChildExit;
@@ -228,6 +228,9 @@ impl TerminalView {
                     cx.emit(TerminalViewEvent::TitleChanged);
                 }
                 EmulatorSignal::Bell => cx.emit(TerminalViewEvent::Bell),
+                EmulatorSignal::ClipboardWrite { target, text } => {
+                    write_osc52_clipboard(target, text, cx)
+                }
                 EmulatorSignal::Redraw => {}
             }
         }
@@ -312,7 +315,8 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Selection → clipboard (local only — never OSC-52, §6.9/§6.15).
+    /// Selection → clipboard (§6.9). The child's own OSC-52 writes take the
+    /// separate [`write_osc52_clipboard`] path (§6.15).
     fn copy_selection(&mut self, cx: &mut Context<Self>) -> bool {
         let text = {
             let term = self.session.borrow().term();
@@ -540,6 +544,25 @@ impl Render for TerminalView {
                 cursor_bounds_slot: self.cursor_bounds.clone(),
                 images: self.images.clone(),
             })
+    }
+}
+
+/// OSC-52 clipboard WRITE (§6.15, EXP-896): a child that printed "copied"
+/// really did copy. `text` arrives base64-decoded from the emulator drain;
+/// the READ query is denied there, so nothing here ever reads back.
+///
+/// The primary selection exists only on Linux/BSD (gpui cfg-gates
+/// `write_to_primary`); on macOS/Windows a `52;p` write is DROPPED rather
+/// than silently overwriting the real clipboard the user didn't ask about.
+fn write_osc52_clipboard(target: ClipboardTarget, text: String, cx: &App) {
+    match target {
+        ClipboardTarget::Clipboard => cx.write_to_clipboard(ClipboardItem::new_string(text)),
+        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        ClipboardTarget::Primary => cx.write_to_primary(ClipboardItem::new_string(text)),
+        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        ClipboardTarget::Primary => {
+            log::debug!("ignoring OSC-52 primary-selection write (no primary on this platform)");
+        }
     }
 }
 

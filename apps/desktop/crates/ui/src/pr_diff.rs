@@ -64,6 +64,12 @@ pub struct PrDiffView {
     /// `build_screen_content` creates — an undocked window must not offer
     /// undocking itself.
     pub(crate) show_undock: bool,
+    /// EXP-889: this pane is the CHANGES FACE of an issue tab, not a screen
+    /// of its own — the work header above it already names the issue and
+    /// carries its `…` menu, so the bar drops the identifier link back to it.
+    /// Everything else (counts, file list, GitHub, close, the merge slot) is
+    /// the same pane a review shows.
+    pub(crate) embedded: bool,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -106,6 +112,7 @@ impl PrDiffView {
             list_open: true,
             filter,
             show_undock: false,
+            embedded: false,
             _subscriptions: subscriptions,
         }
     }
@@ -133,6 +140,20 @@ impl PrDiffView {
         MergeState::clear_error(cx);
         self.diff
             .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
+    }
+
+    /// EXP-889 — the counts the pane is showing (`+N −M`), for the work
+    /// header's Changes item above an EMBEDDED pane. `None` until the files
+    /// land (and for a pull request with none): the item then wears the word
+    /// `Changes`, exactly like the web's switcher row without `diffStats`.
+    pub(crate) fn totals(&self, cx: &App) -> Option<(u32, u32)> {
+        let files = self.diff.read(cx).files();
+        let totals = domain::diff::Totals {
+            files: files.len(),
+            additions: files.iter().map(|file| file.additions).sum(),
+            deletions: files.iter().map(|file| file.deletions).sum(),
+        };
+        (totals.files > 0).then_some((totals.additions, totals.deletions))
     }
 
     /// Name `index` in the file list and scroll the diff to it.
@@ -194,14 +215,17 @@ impl Render for PrDiffView {
         if let Some(issue) = issue.as_ref() {
             // EXP-897 §4: the review page IS a Changes face, so it carries the
             // same stack/batch badge — its overlay lists the PR stack
-            // bottom-up, "Merge stack" on the bottom entry.
-            let spec = crate::pr_graph::issue_spec(
-                issue,
-                None,
-                crate::pr_graph::BadgeFace::Changes,
-                cx,
-            );
-            trailing.extend(crate::pr_graph::badge("review-pr-graph", spec, cx));
+            // bottom-up, "Merge stack" on the bottom entry. Embedded in an
+            // issue tab the work header carries that badge already.
+            if !self.embedded {
+                let spec = crate::pr_graph::issue_spec(
+                    issue,
+                    None,
+                    crate::pr_graph::BadgeFace::Changes,
+                    cx,
+                );
+                trailing.extend(crate::pr_graph::badge("review-pr-graph", spec, cx));
+            }
             let is_open = issue.pr_state.as_deref() == Some("open");
             let close_key = close_pr_key(&issue.id);
             let (merging, closing, close_armed, error, failed_op, is_conflict) = {
@@ -221,30 +245,34 @@ impl Render for PrDiffView {
             state = issue.pr_state.as_deref().map(capitalize);
 
             // The way back: the row click lands HERE now, so the identifier
-            // is what reopens the issue.
+            // is what reopens the issue. (EXP-889: embedded in an issue tab
+            // the face toggle is the way back — the link would only reopen
+            // the tab it is already in.)
             let nav_id = issue.id.clone();
-            trailing.push(
-                div()
-                    .id("pr-diff-open-issue")
-                    .flex_shrink_0()
-                    .px_1()
-                    .text_xs()
-                    .cursor_pointer()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .text_color(cx.theme().muted_foreground)
-                    .hover(|this| this.text_color(theme::tokens::PRIMARY.to_hsla()))
-                    .on_click(cx.listener(move |_, _, window, cx| {
-                        navigate(
-                            window,
-                            cx,
-                            Screen::IssueDetail {
-                                issue_id: nav_id.clone(),
-                            },
-                        );
-                    }))
-                    .child(SharedString::from(issue.identifier.clone()))
-                    .into_any_element(),
-            );
+            if !self.embedded {
+                trailing.push(
+                    div()
+                        .id("pr-diff-open-issue")
+                        .flex_shrink_0()
+                        .px_1()
+                        .text_xs()
+                        .cursor_pointer()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .text_color(cx.theme().muted_foreground)
+                        .hover(|this| this.text_color(theme::tokens::PRIMARY.to_hsla()))
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            navigate(
+                                window,
+                                cx,
+                                Screen::IssueDetail {
+                                    issue_id: nav_id.clone(),
+                                },
+                            );
+                        }))
+                        .child(SharedString::from(issue.identifier.clone()))
+                        .into_any_element(),
+                );
+            }
 
             // The reject path — a quiet round `×` that only grows into a
             // labeled danger confirm once armed (EXP-100). EXP-862: the glyph

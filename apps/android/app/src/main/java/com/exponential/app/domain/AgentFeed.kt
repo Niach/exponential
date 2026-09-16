@@ -912,6 +912,33 @@ fun liveToolRowId(feed: List<AgentFeedItem>): Long? {
     return if (last is AgentFeedItem.Tool && !last.settled) last.id else null
 }
 
+/** EXP-910: how many lines of a STILL-RUNNING call's output the live row shows.
+ *  The contract's number, so the tail is the same length ×4. */
+const val LIVE_TOOL_OUTPUT_TAIL_LINES = DomainContract.steerFeedLiveToolOutputTailLines
+
+/** EXP-910 — the tail of a RUNNING tool call's output: its last [n] lines, the
+ *  way a terminal shows a running command's last words. The live row is the one
+ *  row that opens itself ([liveToolRowId]), so without this a chatty `bun test`
+ *  pushes the conversation off screen for as long as it runs. A SETTLED row is
+ *  untouched — folded until the reader opens it, then the publisher's full
+ *  `toolOutputMaxLines` cut.
+ *
+ *  One trailing empty line is dropped first (a command's output ends in a
+ *  newline, and a blank last row would spend one of the three on nothing). When
+ *  earlier lines were dropped the result OPENS with a lone `…` line — the same
+ *  shape the wire's `\ N more lines truncated` marker has, and it reads as part
+ *  of the log rather than as chrome.
+ *
+ *  Pure, mirrored ×4 (web `liveToolOutputTail`, desktop
+ *  `steer::feed::live_tool_output_tail`, ExpCore `AgentFeed.liveToolOutputTail`). */
+fun liveToolOutputTail(text: String, n: Int): String {
+    if (n <= 0) return ""
+    val body = if (text.endsWith("\n")) text.dropLast(1) else text
+    val lines = body.split("\n")
+    if (lines.size <= n) return body
+    return (listOf("…") + lines.takeLast(n)).joinToString("\n")
+}
+
 /** Render-time projection of the flat feed — a pure function: the feed itself
  *  (and [activeQuestionIds] over it) is never restructured.
  *  - a subagent's markers and its tagged tool calls collapse into ONE row by

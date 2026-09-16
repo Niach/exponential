@@ -379,7 +379,14 @@ pub(crate) fn render_extras(
         ));
     }
     if let Some(output) = tool.output.as_ref() {
-        column = column.child(render_output_card(output, item, expanded, on_kill, cx));
+        // EXP-910: this renderer serves the RUNNING row only (steer_viewer's
+        // `ToolRowMode::Live`), so its log is a TAIL — the last few lines, the
+        // way a terminal shows a running command, instead of the whole 200-row
+        // buffer under the reader's eye. The SETTLED row is
+        // `render_wire_extras`' and is untouched.
+        column = column.child(render_output_card(
+            output, item, expanded, true, on_kill, cx,
+        ));
     }
     // EXP-895: an edit card collapses to its HEADER, so any patch at all is
     // worth a toggle (the output card still folds only when it overflows).
@@ -522,12 +529,18 @@ fn render_output_card(
     output: &OutputCard,
     item: FeedItemId,
     expanded: bool,
+    // EXP-910: the call is still RUNNING — the card is bounded to the
+    // contract's `steerFeed.liveToolOutputTailLines`, whatever `expanded`
+    // says, and opens with a lone `…` when there was more.
+    live_tail: bool,
     on_kill: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
     cx: &App,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let rows = output.rows();
-    let shown = if expanded {
+    let shown = if live_tail {
+        rows.len().min(steer::feed::LIVE_TOOL_OUTPUT_TAIL_LINES)
+    } else if expanded {
         rows.len()
     } else {
         rows.len().min(DIFF_PREVIEW_ROWS)
@@ -535,6 +548,21 @@ fn render_output_card(
     // The TAIL is what matters, so a collapsed card shows the last rows.
     let skip = rows.len().saturating_sub(shown);
     let mut lines = v_flex().w_full().min_w_0();
+    // EXP-910: the live tail says so — a lone `…` where the earlier lines are,
+    // the same shape the wire's `\ N more lines truncated` marker has, so it
+    // reads as the log's first line rather than as chrome. Mirrored ×4
+    // (`steer::feed::live_tool_output_tail`).
+    if live_tail && skip > 0 {
+        lines = lines.child(
+            div()
+                .w_full()
+                .min_w_0()
+                .text_2xs()
+                .text_color(muted)
+                .font_family(theme::terminal::FONT_FAMILY)
+                .child("…"),
+        );
+    }
     for line in rows.iter().skip(skip) {
         lines = lines.child(
             div()
@@ -675,6 +703,7 @@ pub(crate) fn render_wire_extras(
                 &OutputCard::from_wire(printed),
                 item,
                 true,
+                false,
                 None,
                 cx,
             ));

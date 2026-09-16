@@ -977,6 +977,41 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertNil(AgentFeed.liveToolRowId([tool(1, false), .userMessage(id: 2, text: "stop")]))
     }
 
+    // EXP-910: the RUNNING row's output is a TAIL, so a chatty command cannot
+    // own the screen while it works. Locked ×4 (web `liveToolOutputTail`,
+    // desktop `live_tool_output_tail`, Android `liveToolOutputTail`).
+    func testLiveToolOutputTailKeepsAShortOutputWhole() {
+        XCTAssertEqual(AgentFeed.liveToolOutputTail("one\ntwo", 3), "one\ntwo")
+        XCTAssertEqual(AgentFeed.liveToolOutputTail("one\ntwo\nthree", 3), "one\ntwo\nthree")
+        XCTAssertEqual(AgentFeed.liveToolOutputTail("", 3), "")
+    }
+
+    func testLiveToolOutputTailTailsALongOutputAndMarksTheElision() {
+        XCTAssertEqual(AgentFeed.liveToolOutputTail("a\nb\nc\nd\ne", 3), "…\nc\nd\ne")
+        // The marker costs a line but is not one of the n: three log lines stay.
+        XCTAssertEqual(
+            AgentFeed.liveToolOutputTail("a\nb\nc\nd\ne", 3).components(separatedBy: "\n").count,
+            4
+        )
+    }
+
+    func testLiveToolOutputTailDropsTheTrailingEmptyLine() {
+        // A command's output ends in a newline; a blank last row would spend
+        // one of the three on nothing.
+        XCTAssertEqual(AgentFeed.liveToolOutputTail("a\nb\nc\nd\n", 3), "…\nb\nc\nd")
+        XCTAssertEqual(AgentFeed.liveToolOutputTail("a\nb\n", 3), "a\nb")
+        // Only ONE — a command that really printed a blank line keeps it.
+        XCTAssertEqual(AgentFeed.liveToolOutputTail("a\nb\n\n", 3), "a\nb\n")
+    }
+
+    func testLiveToolOutputTailReadsTheTailLengthOffTheContract() {
+        XCTAssertEqual(
+            AgentFeed.liveToolOutputTailLines,
+            DomainContract.steerFeedLiveToolOutputTailLines
+        )
+        XCTAssertGreaterThan(AgentFeed.liveToolOutputTailLines, 0)
+    }
+
     func testToolUpdateForAnUnknownIdIsDroppedAndTheNewestRowWins() {
         let feed: [AgentFeedItem] = [
             .tool(id: 1, name: "Edit", detail: nil, subagentId: nil, callId: "tc-1"),

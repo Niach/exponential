@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 use terminal::rio_vt::config::colors::{AnsiColor, NamedColor};
-use terminal::{SpawnSpec, Terminal, TermMode};
+use terminal::{ClipboardTarget, EmulatorSignal, SpawnSpec, Terminal, TermMode};
 
 // Generous: these tests spawn real children (`bash`, `vim`) and a full
 // `cargo test --team` runs them alongside every other binary — under
@@ -234,6 +234,35 @@ fn osc_title_is_tracked() {
         pump_until(&mut term, LONG, |t| t.title() == Some("headless-title")),
         "title never tracked; title={:?}",
         term.title()
+    );
+}
+
+/// EXP-896: a real child's OSC-52 copy reaches the session as a decoded
+/// clipboard-write signal (the gpui layer then puts it on the system
+/// clipboard); the read query stays unanswered on the same run.
+#[test]
+fn osc52_copy_surfaces_a_clipboard_write_signal() {
+    let mut term = Terminal::spawn(&bash_spec(), 80, 24).expect("spawn bash");
+    term.write(b"printf '\\033]52;c;bGluayBjb3BpZWQ=\\007\\033]52;c;?\\007'\n");
+    let wake = term.wake_rx();
+    let deadline = Instant::now() + LONG;
+    let mut writes = Vec::new();
+    loop {
+        for signal in term.pump() {
+            if let EmulatorSignal::ClipboardWrite { target, text } = signal {
+                writes.push((target, text));
+            }
+        }
+        if !writes.is_empty() || Instant::now() >= deadline {
+            break;
+        }
+        let _ = wake.recv_timeout(Duration::from_millis(50));
+    }
+    assert_eq!(
+        writes,
+        vec![(ClipboardTarget::Clipboard, "link copied".to_string())],
+        "OSC-52 write never surfaced (or the read query leaked one):\n{}",
+        dump(&term)
     );
 }
 
