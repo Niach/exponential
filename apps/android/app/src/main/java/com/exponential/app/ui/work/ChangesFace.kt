@@ -31,7 +31,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BarCircle
@@ -41,11 +40,9 @@ import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.ChangesRefusalNotice
-import com.exponential.app.ui.issue.ChangesViewModel
 import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.DiffFileListSheet
 import com.exponential.app.ui.issue.diffOpensByDefault
-import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.launch
@@ -74,30 +71,20 @@ data class ChangesMergeControl(
 @Composable
 fun ChangesFace(
     padding: PaddingValues,
-    /** Source A: the shown session's live diff, wins when present. */
-    diff: Diff.Parsed?,
-    /** Source B: the issue's PR files — keyed per issue by the host. */
-    changesViewModel: ChangesViewModel?,
+    /**
+     * EXP-932: the ONE list both sources land in — the shown session's live
+     * diff, else the issue's PR files parsed into the shared model. The HOST
+     * resolves it, because the face switcher's `+A −M` has to count exactly
+     * these files; two derivations meant two different numbers for one run.
+     */
+    files: List<Diff.File>,
+    /** Source B's load state — what captions an empty [files]. */
+    prLoad: ChangesLoadState?,
     merge: ChangesMergeControl?,
     trailingBarSlot: @Composable () -> Unit,
 ) {
     var mergeConfirmOpen by remember { mutableStateOf(false) }
     var sheetOpen by remember { mutableStateOf(false) }
-    val prLoad: ChangesLoadState? = if (changesViewModel != null) {
-        val state by changesViewModel.load.collectAsStateWithLifecycle()
-        state
-    } else {
-        null
-    }
-    // The ONE list both sources land in — GitHub's PullFile is parsed into the
-    // shared model here, exactly like the Review page does.
-    val files: List<Diff.File> = remember(diff, prLoad) {
-        when {
-            diff != null -> diff.files
-            prLoad is ChangesLoadState.Loaded -> prLoad.files.map { it.toDiffFile() }
-            else -> emptyList()
-        }
-    }
     val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -139,6 +140,18 @@ fun AgentsScreen(
     var removeTargetAccount by remember {
         mutableStateOf<Pair<SteerDevice, AgentProfileUsageRow>?>(null)
     }
+    // EXP-944: which machines are UNFOLDED. Collapsed is the default — the
+    // list answers "which machines do I have and are they up" first, and three
+    // machines' worth of logins, usage bars and Add-account pills made that
+    // unreadable. View state: a fold is not a setting.
+    var expandedDeviceIds by remember { mutableStateOf(emptySet<String>()) }
+    val toggleDeviceExpanded: (String) -> Unit = { deviceId ->
+        expandedDeviceIds = if (deviceId in expandedDeviceIds) {
+            expandedDeviceIds - deviceId
+        } else {
+            expandedDeviceIds + deviceId
+        }
+    }
 
     val steerOn = state.steerEnabled == true
     val listState = rememberLazyListState()
@@ -181,6 +194,8 @@ fun AgentsScreen(
                                 latestVersions = latestVersions,
                                 commandStates = accountCommandStates,
                                 onOpenSettings = { settingsTargetId = device.deviceId },
+                                expanded = device.deviceId in expandedDeviceIds,
+                                onToggleExpanded = { toggleDeviceExpanded(device.deviceId) },
                                 logins = deviceLogins?.get(device.deviceId),
                                 onSetAccountDefault = { row -> viewModel.useAccountHere(device, row) },
                                 onRemoveAccount = { row -> removeTargetAccount = device to row },
@@ -210,6 +225,8 @@ fun AgentsScreen(
                                 latestVersions = latestVersions,
                                 commandStates = accountCommandStates,
                                 onOpenSettings = {},
+                                expanded = device.deviceId in expandedDeviceIds,
+                                onToggleExpanded = { toggleDeviceExpanded(device.deviceId) },
                                 logins = deviceLogins?.get(device.deviceId),
                                 // A teammate's machine renders its logins
                                 // READ-ONLY: seeing that a shared server's
@@ -404,6 +421,9 @@ private fun MachineRow(
     commandStates: Map<String, DeviceCommandUiState>,
     /** The gear: opens this machine's settings sheet (own registered rows). */
     onOpenSettings: () -> Unit,
+    /** EXP-944: collapsed by default; the logins hang off the fold. */
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     /** EXP-909: the logins this machine holds — null while the list is still
      *  loading, which is what makes the row say "Checking…". */
     logins: List<AgentProfileUsageRow>?,
@@ -434,6 +454,13 @@ private fun MachineRow(
     // EXP-849: the row is a COLUMN — its machine line, then the account chips
     // (the repair surface). The row itself is inert: it used to take a start,
     // and a device list is not where runs begin.
+    //
+    // EXP-944: and it FOLDS. The list answers "which machines do I have and
+    // are they up" first; a machine's logins, their usage bars and its "Add
+    // account" are the second question, and three machines' worth of them made
+    // the first one unreadable. The whole machine line is the toggle, so the
+    // chevron is an affordance rather than a second target, and the gear stays
+    // where it was.
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -442,9 +469,23 @@ private fun MachineRow(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClickLabel = if (expanded) "Collapse" else "Expand") {
+                    onToggleExpanded()
+                },
+            // Expanded, the logins hang below this line, so the icon and the
+            // gear sit level with the NAME instead of centring themselves
+            // against a block that is no longer there.
+            verticalAlignment = if (expanded) Alignment.Top else Alignment.CenterVertically,
         ) {
+            Icon(
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Spacer(Modifier.width(6.dp))
             Icon(
                 if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
                 contentDescription = null,
@@ -591,20 +632,24 @@ private fun MachineRow(
                 )
             }
         }
-        DeviceLoginRows(
-            device = device,
-            logins = logins,
-            // A repair only runs on one of MY machines that is listening and
-            // new enough to advertise the cap — the server refuses the
-            // commands without it, and an offline machine would hold them
-            // until it wakes, which reads as a dead tap.
-            actionable = device.isMine && online && device.canAgentLogin,
-            commandStates = commandStates,
-            onSetDefault = onSetAccountDefault,
-            onRemove = onRemoveAccount,
-            onSignIn = onSignInAccount,
-            onAddAccount = onAddAccount,
-        )
+        // EXP-944: the logins live in the FOLD now, inset under the name.
+        if (expanded) {
+            DeviceLoginRows(
+                device = device,
+                logins = logins,
+                // A repair only runs on one of MY machines that is listening
+                // and new enough to advertise the cap — the server refuses the
+                // commands without it, and an offline machine would hold them
+                // until it wakes, which reads as a dead tap.
+                actionable = device.isMine && online && device.canAgentLogin,
+                commandStates = commandStates,
+                onSetDefault = onSetAccountDefault,
+                onRemove = onRemoveAccount,
+                onSignIn = onSignInAccount,
+                onAddAccount = onAddAccount,
+                modifier = Modifier.padding(start = 20.dp),
+            )
+        }
     }
 }
 
@@ -630,6 +675,7 @@ private fun DeviceLoginRows(
     onRemove: (AgentProfileUsageRow) -> Unit,
     onSignIn: (AgentProfileUsageRow) -> Unit,
     onAddAccount: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     // EXP-909: the "Add account" control is OFFERED or ABSENT, never visible
     // and disabled — this deliberately reverses EXP-845, which showed a dead
@@ -639,7 +685,7 @@ private fun DeviceLoginRows(
         device.online &&
         device.canAgentLogin &&
         AgentAccountsRows.addableAgents(device).isNotEmpty()
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         when {
             // Still loading the device list: say so rather than claiming the
             // machine holds nothing.
@@ -823,7 +869,9 @@ private fun DeviceLoginRow(
         ) {
             if (row.usage?.windows?.isNotEmpty() == true) {
                 Column(modifier = Modifier.alpha(if (age != null) 0.5f else 1f)) {
-                    AgentUsageMini(usage = row.usage)
+                    // EXP-944: the device list is where a limit is actually
+                    // planned around, so its bars say WHEN they reset.
+                    AgentUsageMini(usage = row.usage, nowMs = nowMs)
                 }
                 if (age != null) LoginHint(age)
             } else if (row.signedIn && asOf == null) {

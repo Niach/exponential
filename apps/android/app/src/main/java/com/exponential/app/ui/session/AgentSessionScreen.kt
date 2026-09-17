@@ -327,6 +327,12 @@ fun RunFace(
     onOpenIssue: (String) -> Unit,
     /** The bar's right circle — the host's face switcher. */
     trailingBarSlot: @Composable () -> Unit,
+    /**
+     * EXP-931: the same switcher in the expanded composer's control row. The
+     * expanded composer covers the bar, so without this Issue / Changes /
+     * Results become unreachable while it is open.
+     */
+    composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -1295,6 +1301,7 @@ fun RunFace(
                 hasUsage = hasUsage,
                 onOpenUsage = { usageSheetOpen = true },
                 trailing = trailingBarSlot,
+                switcherSlot = composerSwitcherSlot,
             )
         } else {
             FloatingBottomBar(right = trailingBarSlot) { Spacer(Modifier.weight(1f)) }
@@ -4360,6 +4367,18 @@ private fun SteerComposer(
     onOpenUsage: () -> Unit,
     /** The collapsed bar's right circle — the host's face switcher. */
     trailing: @Composable () -> Unit,
+    /**
+     * EXP-931: the SAME face switcher, the composer's size. While this
+     * composer is expanded it covers the work bar, and with it the bar's
+     * switcher circle — so the way to the linked Issue / Changes / Results
+     * moves in here, beside the usage ring, rather than disappearing. Exactly
+     * one of the two is mounted at a time.
+     *
+     * The lambda it is handed reports its MENU's open state: a menu opened
+     * from inside the composer takes focus out of the field, and that must not
+     * collapse the composer under its own open menu.
+     */
+    switcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
 ) {
     // EXP-893: ONE placeholder ×4 (`STEER_COMPOSER_PLACEHOLDER`); typing is
     // always allowed while the stream is down, the message just waits for it
@@ -4378,10 +4397,17 @@ private fun SteerComposer(
     // period, only with an empty draft and no queued image (never lose one),
     // and only while resumed (the photo picker backgrounds the activity).
     var fieldFocused by remember { mutableStateOf(false) }
+    // EXP-931: a menu opened from INSIDE this composer — the model picker, the
+    // inline face switcher — portals itself out and takes focus with it. That
+    // is not the reader leaving the composer, so neither collapse rule below
+    // may fire on it: the trigger would unmount under its own open menu.
+    var innerMenuOpen by remember { mutableStateOf(false) }
+    val innerMenuState = rememberUpdatedState(innerMenuOpen)
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val imeVisibleState = rememberUpdatedState(imeVisible)
     val draftState = rememberUpdatedState(value.text)
     val pendingState = rememberUpdatedState(pendingImages)
+    val workingState = rememberUpdatedState(working)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(expanded) {
         if (!expanded) return@LaunchedEffect
@@ -4394,7 +4420,29 @@ private fun SteerComposer(
             if (!hadFocus || ime) return@collectLatest
             delay(200)
             val empty = draftState.value.isBlank() && pendingState.value.isEmpty()
-            if (empty && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            if (empty && !innerMenuState.value &&
+                lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            ) {
+                onExpandedChange(false)
+            }
+        }
+    }
+    // EXP-931: once the agent picks the turn up, an expanded composer with
+    // nothing in it and nobody typing in it is just a lid over the work bar —
+    // it stands down so the bar, and the face switcher on it, come back. A
+    // focused field, a draft, a pending image or one of this composer's own
+    // menus all keep it open; the moment the reader taps the capsule (or a
+    // draft arrives) it expands again.
+    LaunchedEffect(expanded) {
+        if (!expanded) return@LaunchedEffect
+        snapshotFlow {
+            workingState.value && !fieldFocused && !imeVisibleState.value &&
+                draftState.value.isBlank() && pendingState.value.isEmpty() &&
+                !innerMenuState.value
+        }.collectLatest { idle ->
+            if (!idle) return@collectLatest
+            delay(200)
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                 onExpandedChange(false)
             }
         }
@@ -4434,6 +4482,8 @@ private fun SteerComposer(
                 contextPercent = contextPercent,
                 hasUsage = hasUsage,
                 onOpenUsage = onOpenUsage,
+                switcherSlot = switcherSlot,
+                onMenuOpenChange = { innerMenuOpen = it },
             )
         } else {
             // EXP-893: the folded composer IS the Work screen's bar — the
@@ -4481,6 +4531,10 @@ private fun ExpandedSteerComposer(
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
+    /** EXP-931: the face switcher, the usage ring's neighbour. */
+    switcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
+    /** EXP-931: this composer's own menus, so the host never collapses under one. */
+    onMenuOpenChange: (Boolean) -> Unit = {},
 ) {
     val canSend = (value.text.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
     // EXP-790: nothing to send and the agent mid-turn — the glyph is a Stop.
@@ -4568,12 +4622,19 @@ private fun ExpandedSteerComposer(
                         GlassPill(
                             modelLabel(model),
                             size = PillSize.Sm,
-                            onClick = { modelMenuOpen = true },
+                            onClick = {
+                                modelMenuOpen = true
+                                // EXP-931: an open menu is not a blur.
+                                onMenuOpenChange(true)
+                            },
                             modifier = Modifier.testTag("steer-model"),
                         )
                         GlassDropdownMenu(
                             expanded = modelMenuOpen,
-                            onDismissRequest = { modelMenuOpen = false },
+                            onDismissRequest = {
+                                modelMenuOpen = false
+                                onMenuOpenChange(false)
+                            },
                         ) {
                             modelChoices.forEach { alias ->
                                 GlassMenuItem(
@@ -4585,6 +4646,7 @@ private fun ExpandedSteerComposer(
                                     },
                                     onClick = {
                                         modelMenuOpen = false
+                                        onMenuOpenChange(false)
                                         if (live && alias != model) onPickModel(alias)
                                     },
                                 )
@@ -4607,6 +4669,9 @@ private fun ExpandedSteerComposer(
                     ContextRing(percent = contextPercent, size = 20.dp)
                 }
             }
+            // EXP-931: the face switcher, the ring's neighbour — the bar it
+            // normally rides is under this composer.
+            switcherSlot?.invoke(onMenuOpenChange)
             ComposerSubmitButton(
                 if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
                 contentDescription = if (stop) "Stop" else "Send",

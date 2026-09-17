@@ -82,6 +82,15 @@ class PrGraphViewModel @Inject constructor(
         session?.let { batchRunIssues(it, issues) } ?: emptyList()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * EXP-930: the synced issue pool the overlay NAMES its rows from — a run
+     * row used to render with no issue joined at all, so a batch's own sheet
+     * said `Issue not synced yet` about issues that were already in the store.
+     */
+    val issues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private val _merging = MutableStateFlow(false)
     val merging: StateFlow<Boolean> = _merging
 

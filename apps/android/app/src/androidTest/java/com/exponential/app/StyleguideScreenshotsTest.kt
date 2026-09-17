@@ -348,6 +348,10 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasTestTag("tab-devices")).performClick()
         flow.waitFor(hasText("Devices"), NAV_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
+        // EXP-944: device rows are collapsed by default; the shot opens the
+        // demo device so its logins and their usage are in frame.
+        composeRule.onAllNodes(hasText(DEMO_DEVICE_NAME, substring = true)).onFirst().performClick()
+        flow.waitFor(hasTestTag("device-login-row"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
 

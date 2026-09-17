@@ -30,6 +30,7 @@ import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkFaceKind
+import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
@@ -109,6 +110,13 @@ fun PrGraphBadge(graph: PrGraph.Graph, onOpen: () -> Unit) {
 fun PrGraphSheet(
     graph: PrGraph.Graph,
     face: WorkFaceKind,
+    /**
+     * EXP-930: the team's synced issues — what a run row in the tree is NAMED
+     * after. The overlay used to title every row with no issue at all, so a
+     * batch's own sheet read `Issue not synced yet` for a run whose issue was
+     * sitting right there in the store.
+     */
+    issues: List<IssueEntity>,
     nowMs: Long,
     merging: Boolean,
     mergeError: MergeFailure?,
@@ -144,6 +152,16 @@ fun PrGraphSheet(
             // EXP-879: Results is a SUB-FACE of Run, so its overlay is the
             // run family too — there is no results-shaped graph.
             WorkFaceKind.Run, WorkFaceKind.Results -> {
+                // EXP-930: the pill on a BATCH run says `3 issues`, so the
+                // first thing behind it is those three issues — the run tree
+                // alone answered a question nobody asked. The Issue face lists
+                // the subject's siblings; this is the run's own subject, so
+                // the WHOLE covered set is here, not "everything but me".
+                val covered = graph.batch?.issues.orEmpty()
+                if (covered.isNotEmpty()) {
+                    SectionHeader("Issues")
+                    IssueChipRow(covered) { onDismiss(); onOpenIssue(it) }
+                }
                 SectionHeader("Runs")
                 if (graph.tree.isEmpty()) {
                     EmptyNote("No runs on this work yet.")
@@ -167,7 +185,13 @@ fun PrGraphSheet(
                         SessionToneDot(tone, busy = session.agentBusy)
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            sessionRowTitle(session, null),
+                            // EXP-930: named off the SYNCED rows — its own
+                            // issue, or (on a batch) the issues it covers.
+                            sessionRowTitle(
+                                session,
+                                session.issueId?.let { id -> issues.firstOrNull { it.id == id } },
+                                batchRunIssues(session, issues),
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,

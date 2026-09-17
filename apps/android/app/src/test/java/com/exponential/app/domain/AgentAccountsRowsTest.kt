@@ -329,11 +329,12 @@ class AgentAccountsRowsTest {
             active = active,
             profileLabel = "Work",
         )
-        // EXP-862: signed out or expired = a sign-in and nothing else. A dead
-        // credential is never "set as default": it would not work.
+        // EXP-862: a dead credential is never "set as default" — it would not
+        // work. EXP-944: it IS removable, though; the removal deletes a profile
+        // dir and the credential's state never decided whether that is possible.
         val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
         assertEquals(
-            listOf("Sign in"),
+            listOf("Sign in", "Remove account"),
             AgentAccountsRows.chipActions(
                 signedOut,
                 canSwitchAccount = true,
@@ -343,9 +344,25 @@ class AgentAccountsRowsTest {
         )
         val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
         assertEquals(
-            listOf("Sign in"),
+            listOf("Sign in", "Remove account"),
             AgentAccountsRows.chipActions(
                 expired,
+                canSwitchAccount = true,
+                canRemoveAccount = true,
+                canAgentLogin = true,
+            ),
+        )
+        // The AMBIENT login still ends at its sign-in: its config dir is the
+        // agent CLI's own, which Exponential never created.
+        assertEquals(
+            listOf("Sign in"),
+            AgentAccountsRows.chipActions(
+                chip(
+                    signedIn = false,
+                    active = true,
+                    health = AgentHealth.SignedOut,
+                    profileId = "system",
+                ),
                 canSwitchAccount = true,
                 canRemoveAccount = true,
                 canAgentLogin = true,

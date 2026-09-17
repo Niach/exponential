@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.AgentUsage
@@ -145,43 +146,75 @@ private fun UsageWindowRow(card: UsageCard) {
  * `Checking…` or `No usage reported`, which are different statements.
  */
 @Composable
-internal fun AgentUsageMini(usage: AgentUsage?, modifier: Modifier = Modifier) {
+internal fun AgentUsageMini(
+    usage: AgentUsage?,
+    modifier: Modifier = Modifier,
+    /**
+     * EXP-944: a clock captions the 5h and Week bars with when they reset
+     * (`resets in 2h 14m`, the wording the full form already uses). Null =
+     * bars only, which is what the tight surfaces want — the usage overlay's
+     * other logins and the account picker's preview.
+     */
+    nowMs: Long? = null,
+) {
     val windows = remember(usage) { AgentUsagePresentation.miniWindows(usage) }
     if (windows.isEmpty()) return
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         windows.forEach { window ->
-            Row(
+            val reset = nowMs?.let { AgentUsagePresentation.miniWindowReset(window, it) }
+            Column(
                 modifier = Modifier
                     .weight(1f)
                     .semantics(mergeDescendants = true) {
-                        contentDescription = "${window.label} ${window.percent}% used"
+                        contentDescription = buildString {
+                            append("${window.label} ${window.percent}% used")
+                            reset?.let { append(", $it") }
+                        }
                     },
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(1.dp),
             ) {
-                Text(
-                    window.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                UsageTrack(
-                    percent = window.percent.toDouble(),
-                    severity = window.severity,
-                    modifier = Modifier.weight(1f),
-                    height = UsageTrackMiniHeight,
-                )
-                Text(
-                    "${window.percent}%",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        window.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    UsageTrack(
+                        percent = window.percent.toDouble(),
+                        severity = window.severity,
+                        modifier = Modifier.weight(1f),
+                        height = UsageTrackMiniHeight,
+                    )
+                    Text(
+                        "${window.percent}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                }
+                // EXP-944: under the bar it belongs to, centred — the device
+                // list is where a limit is actually planned around.
+                if (reset != null) {
+                    Text(
+                        reset,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         }
     }

@@ -246,10 +246,18 @@ object AgentAccountsRows {
 
     /**
      * EXP-862: what a login's chip menu offers, on a machine row or on an
-     * account row — the SAME three rules on every client:
-     *  - signed out, or a credential that expired here: a sign-in, nothing else;
-     *  - healthy and not the machine's login: make it the default, or remove it;
-     *  - healthy and already the default: remove it.
+     * account row — the SAME rules on every client:
+     *  - signed out, or a credential that expired here: a sign-in first;
+     *  - healthy and not the machine's login: make it the default;
+     *  - any NAMED login: remove it.
+     *
+     * EXP-944: being signed OUT no longer ends the menu at its sign-in. A dead
+     * profile is the thing people most want gone, the removal is a profile-dir
+     * delete that never touches the account (no `codex logout`, ever), and the
+     * server has always taken it — it gates on the ambient id, the caps and the
+     * reported profile, never on the credential's state. Codex logins, which
+     * expire far more often than claude's, were left with a menu of one. Only
+     * the AMBIENT login still offers just the sign-in.
      *
      * An empty list means the chip is a statement, not a control (a machine
      * that is offline, a teammate's, or too old to take any of the commands).
@@ -271,9 +279,10 @@ object AgentAccountsRows {
         canRemoveAccount: Boolean,
         canAgentLogin: Boolean,
     ): List<String> {
-        if (!signedIn || health == AgentHealth.NeedsRelogin) return listOf(ACTION_SIGN_IN)
+        val signsIn = !signedIn || health == AgentHealth.NeedsRelogin
         val out = mutableListOf<String>()
-        if (!active && canSwitchAccount) out += ACTION_SET_DEFAULT
+        if (signsIn) out += ACTION_SIGN_IN
+        if (!signsIn && !active && canSwitchAccount) out += ACTION_SET_DEFAULT
         if (canRemoveAccount && canAgentLogin && profileId.isNotBlank() &&
             profileId != SYSTEM_PROFILE_ID
         ) {
