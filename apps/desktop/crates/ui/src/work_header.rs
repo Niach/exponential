@@ -92,10 +92,24 @@ pub(crate) struct FaceToggle {
     /// without a run is not a face.
     pub results: bool,
     pub active: Face,
-    /// EXP-886: the issue has MORE THAN ONE run of mine, so the Run item
-    /// reads "Runs" ([`run_face_label`]). It still opens the tab's run; the
-    /// session screen's switcher is where the others are picked.
-    pub multiple_runs: bool,
+    /// EXP-886 / EXP-950: the issue's runs of mine
+    /// ([`crate::run_rows::issue_run_entries`]; empty for an issue-less run).
+    /// With MORE THAN ONE the Run item reads "Runs" ([`run_face_label`]) and
+    /// carries a caret: the label still opens the tab's run, the caret's
+    /// menu picks between them — and the toggle shows for that caret alone.
+    pub runs: Vec<RunEntry>,
+    /// The run the menu checks: the one on show (session screen) or the one
+    /// the Run face opens (issue face).
+    pub checked_run: Option<String>,
+}
+
+/// EXP-950: one row of the Run item's menu — `<device> · <when>`
+/// ([`crate::run_rows::issue_run_label`]), live runs marked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunEntry {
+    pub id: String,
+    pub label: String,
+    pub live: bool,
 }
 
 /// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
@@ -119,6 +133,19 @@ pub(crate) fn run_face_label(multiple_runs: bool) -> &'static str {
 }
 
 impl FaceToggle {
+    /// EXP-886: several runs of mine — the plural label and (EXP-950) the
+    /// caret's menu.
+    pub(crate) fn multiple_runs(&self) -> bool {
+        self.runs.len() > 1
+    }
+
+    /// EXP-950: is there a control at all? Two faces make a toggle; a lone
+    /// Run item still shows while it carries the run menu.
+    pub(crate) fn is_shown(&self) -> bool {
+        let items = self.items();
+        items.len() > 1 || (self.multiple_runs() && items.contains(&Face::Run))
+    }
+
     /// EXP-889: is there a Changes face at all? The web rule verbatim
     /// (`hasChanges = diffStats.fileCount > 0 || issue.prState === 'open'`):
     /// the run's worktree diff OR the issue's open PR.
@@ -152,14 +179,23 @@ impl FaceToggle {
 
 /// The callback a toggle pick lands on.
 pub(crate) type OnPickFace = Rc<dyn Fn(Face, &mut Window, &mut App)>;
+/// EXP-950: the callback a run-menu pick lands on (the picked run's id). The
+/// caller decides what picking the checked run means.
+pub(crate) type OnPickRun = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
 /// The `Issue | Run | +N -M` segmented control. `None` below two items — a
-/// one-item toggle names nothing to switch to.
-pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Option<AnyElement> {
-    let items = spec.items();
-    if items.len() < 2 {
+/// one-item toggle names nothing to switch to — unless (EXP-950) the lone
+/// Run item carries the run menu ([`FaceToggle::is_shown`]).
+pub(crate) fn face_toggle(
+    spec: FaceToggle,
+    on_pick: OnPickFace,
+    on_pick_run: OnPickRun,
+    cx: &App,
+) -> Option<AnyElement> {
+    if !spec.is_shown() {
         return None;
     }
+    let items = spec.items();
     // The web `TabsList` capsule as-is (h-9, 3px inset, `px-3 text-sm`
     // triggers) — `controls::segmented` already mirrors it; only the width
     // changes from full to content.
@@ -167,6 +203,31 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
     for face in items {
         let active = spec.active == face;
         let on_pick = on_pick.clone();
+        if face == Face::Run && spec.multiple_runs() {
+            // EXP-950: the capsule holds TWO siblings — the label (the face
+            // pick) and the caret (the run menu) — so a caret click never
+            // reaches the label's handler.
+            let label = div()
+                .id("tab-face-run")
+                .h_full()
+                .flex()
+                .items_center()
+                .pl_3()
+                .pr_1()
+                .child(run_face_label(true))
+                .when(!active, |label| {
+                    label.on_click(move |_, window, cx| on_pick(face, window, cx))
+                });
+            let item = crate::controls::segmented_item(active, cx)
+                .flex_none()
+                .px_0()
+                .gap_0()
+                .text_sm()
+                .child(label)
+                .child(run_menu(&spec, on_pick_run.clone(), cx));
+            control = control.child(item);
+            continue;
+        }
         let item = crate::controls::segmented_item(active, cx)
             .id(match face {
                 Face::Issue => "tab-face-issue",
@@ -179,7 +240,7 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
             .text_sm()
             .map(|item| match face {
                 Face::Issue => item.child("Issue"),
-                Face::Run => item.child(run_face_label(spec.multiple_runs)),
+                Face::Run => item.child(run_face_label(false)),
                 Face::Diff => match spec.diff {
                     // EXP-895: the ONE counts renderer — the contract's
                     // labels (`+N` / `−M`, U+2212) in the shared tints.
@@ -199,6 +260,47 @@ pub(crate) fn face_toggle(spec: FaceToggle, on_pick: OnPickFace, cx: &App) -> Op
         control = control.child(item);
     }
     Some(control.into_any_element())
+}
+
+/// EXP-950: the Run item's caret over the issue's runs of mine (EXP-886's
+/// switcher, folded into the toggle): each `<device> · <when>`, the checked
+/// run wearing the check, a live one the running glyph. Web
+/// `IssueRunMenuContent`.
+fn run_menu(spec: &FaceToggle, on_pick_run: OnPickRun, cx: &App) -> AnyElement {
+    use gpui_component::button::ButtonVariants as _;
+    use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+    let entries = spec.runs.clone();
+    let checked = spec.checked_run.clone();
+    let muted = cx.theme().muted_foreground;
+    Button::new("tab-face-run-menu")
+        .ghost()
+        .xsmall()
+        .rounded_full()
+        .cursor_pointer()
+        .mr_1()
+        .icon(
+            Icon::new(registry::UI_CHEVRON_DOWN)
+                .with_size(px(12.))
+                .text_color(muted),
+        )
+        .tooltip("Switch run")
+        .dropdown_menu(move |mut menu, _window, _cx| {
+            for entry in entries.clone() {
+                let is_checked = checked.as_deref() == Some(entry.id.as_str());
+                let on_pick_run = on_pick_run.clone();
+                let mut item = PopupMenuItem::new(entry.label).checked(is_checked);
+                if entry.live && !is_checked {
+                    // The running glyph marks a live run; the checked entry
+                    // wears the check in that slot instead.
+                    item = item.icon(Icon::new(registry::CODING_RUNNING));
+                }
+                menu = menu.item(
+                    item.on_click(move |_, window, cx| on_pick_run(&entry.id, window, cx)),
+                );
+            }
+            menu
+        })
+        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------
@@ -1101,8 +1203,10 @@ mod tests {
                         pr_changes: false,
                         results: false,
                         active: Face::Run,
-                        multiple_runs: false,
+                        runs: Vec::new(),
+                        checked_run: None,
                     },
+                    Rc::new(|_, _, _| {}),
                     Rc::new(|_, _, _| {}),
                     cx,
                 )
@@ -1311,7 +1415,8 @@ mod tests {
             pr_changes: false,
             results: false,
             active,
-            multiple_runs: false,
+            runs: Vec::new(),
+                        checked_run: None,
         };
         let issue_only = toggle(true, None, None, Face::Issue);
         assert_eq!(issue_only.items(), vec![Face::Issue]);
@@ -1342,7 +1447,8 @@ mod tests {
             pr_changes,
             results: false,
             active: Face::Issue,
-            multiple_runs: false,
+            runs: Vec::new(),
+                        checked_run: None,
         };
         // No run at all: Issue | Changes.
         let pr_only = toggle(None, None, true);
@@ -1387,7 +1493,8 @@ mod tests {
                 pr_changes: false,
                 results,
                 active: Face::Run,
-                multiple_runs: false,
+                runs: Vec::new(),
+                        checked_run: None,
             }
         };
         assert_eq!(
@@ -1412,6 +1519,41 @@ mod tests {
 
     /// EXP-886: the Run item reads "Runs" once the issue has several runs of
     /// mine — byte-identical with the web `RUN_FACE_LABEL`/`RUNS_FACE_LABEL`.
+    /// EXP-950: the run menu rides the Run item, so several runs keep a lone
+    /// Run item on show — and nothing else does.
+    #[test]
+    fn a_lone_run_item_shows_only_for_its_run_menu() {
+        let entry = |id: &str| RunEntry {
+            id: id.to_string(),
+            label: format!("macbook · {id}"),
+            live: false,
+        };
+        let mut spec = FaceToggle {
+            issue: false,
+            run: Some("run-1".to_string()),
+            diff: None,
+            pr_changes: false,
+            results: false,
+            active: Face::Run,
+            runs: vec![entry("run-1")],
+            checked_run: Some("run-1".to_string()),
+        };
+        assert!(!spec.multiple_runs());
+        assert!(!spec.is_shown(), "one face, one run: no control");
+        spec.runs.push(entry("run-2"));
+        assert!(spec.multiple_runs());
+        assert_eq!(spec.items(), vec![Face::Run]);
+        assert!(spec.is_shown(), "the caret keeps the lone Run item up");
+        // Runs without a Run item (no run of mine bound) carry no caret.
+        spec.run = None;
+        assert!(!spec.is_shown());
+        // Two faces are a toggle with or without runs.
+        spec.issue = true;
+        spec.run = Some("run-1".to_string());
+        spec.runs.clear();
+        assert!(spec.is_shown());
+    }
+
     #[test]
     fn the_run_face_reads_runs_with_several_runs() {
         assert_eq!(run_face_label(false), "Run");

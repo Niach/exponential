@@ -1,16 +1,21 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import {
-  IssueRunSwitcher,
   issueRunEntryLabel,
   issueRunWhen,
 } from "@/components/issue-run-switcher"
+import {
+  ISSUE_FACE_LABEL,
+  runFaceLabel,
+  WorkFaceToggle,
+} from "@/components/team/work-face-toggle"
 import { LIVE_RUN_LABEL } from "@/lib/past-runs"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import type { CodingSession } from "@/db/schema"
 
-// EXP-886: the run switcher — absent under two runs, names the run on show,
-// lists every run (live first) and opens the picked one.
+// EXP-886 / EXP-950: the run menu behind the `Runs` segment's caret — no
+// caret under two runs, a lone `Runs` item still shown for it, every run
+// listed (live first) and the picked one opened.
 
 function row(over: Partial<CodingSession> & { id: string }): PastRunRow {
   const session = {
@@ -46,15 +51,47 @@ function openMenu() {
   })
 }
 
-describe(`IssueRunSwitcher`, () => {
-  it(`renders nothing under two runs`, () => {
-    const { container } = render(
-      <IssueRunSwitcher runs={[row({ id: `a` })]} viewedRunId="a" onOpen={vi.fn()} />
-    )
-    expect(container.innerHTML).toBe(``)
+function toggle(
+  runs: PastRunRow[],
+  onOpen: (session: CodingSession) => void,
+  checkedRunId?: string,
+  withIssue = true
+) {
+  return (
+    <WorkFaceToggle
+      face="run"
+      runMenu={{ runs, checkedRunId, onOpen }}
+      items={[
+        ...(withIssue
+          ? [{ face: `issue` as const, label: ISSUE_FACE_LABEL, onSelect: vi.fn() }]
+          : []),
+        { face: `run`, label: runFaceLabel(runs.length > 1), onSelect: vi.fn() },
+      ]}
+    />
+  )
+}
+
+describe(`the Runs segment's run menu`, () => {
+  it(`has no caret under two runs`, () => {
+    render(toggle([row({ id: `a` })], vi.fn(), `a`))
+    expect(screen.getByTestId(`work-face-toggle`)).toBeTruthy()
+    expect(screen.queryByTestId(`issue-run-switcher`)).toBeNull()
   })
 
-  it(`names the run on show and lists every run, the live one marked`, () => {
+  it(`shows a lone Runs item when the issue has several runs`, () => {
+    // One run, one face: no control at all.
+    const { container, unmount } = render(
+      toggle([row({ id: `a` })], vi.fn(), `a`, false)
+    )
+    expect(container.innerHTML).toBe(``)
+    unmount()
+    // Several runs: the toggle shows for its caret alone.
+    render(toggle([row({ id: `a` }), row({ id: `b` })], vi.fn(), `a`, false))
+    expect(screen.getByTestId(`work-face-toggle`).textContent).toBe(`Runs`)
+    expect(screen.getByTestId(`issue-run-switcher`)).toBeTruthy()
+  })
+
+  it(`lists every run, the live one marked and the one on show checked`, () => {
     const live = row({
       id: `live`,
       status: `running`,
@@ -62,36 +99,38 @@ describe(`IssueRunSwitcher`, () => {
       updatedAt: new Date(),
     })
     const ended = row({ id: `ended` })
-    render(
-      <IssueRunSwitcher runs={[live, ended]} viewedRunId="live" onOpen={vi.fn()} />
-    )
-    // The trigger carries the viewed run's `<when>` — `Live` here.
-    expect(screen.getByTestId(`issue-run-switcher`).textContent).toBe(`Live`)
+    render(toggle([live, ended], vi.fn(), `live`))
     openMenu()
     const options = document.querySelectorAll(`[data-testid^="issue-run-option-"]`)
     expect(options).toHaveLength(2)
     expect(options[0]?.textContent).toBe(`macbook · Live`)
     expect(options[1]?.textContent).toMatch(/^macbook · .+ago$/)
-    // The run on show is the checked entry.
     expect(options[0]?.getAttribute(`data-state`)).toBe(`checked`)
     expect(options[1]?.getAttribute(`data-state`)).toBe(`unchecked`)
   })
 
-  it(`opens the picked run and never re-opens the one on show`, () => {
+  it(`opens the picked run without selecting a face`, () => {
     const onOpen = vi.fn()
+    const onRun = vi.fn()
     const a = row({ id: `a` })
     const b = row({ id: `b`, endedAt: new Date(`2026-08-01T10:00:00Z`) })
-    render(<IssueRunSwitcher runs={[a, b]} viewedRunId="a" onOpen={onOpen} />)
+    render(
+      <WorkFaceToggle
+        face="issue"
+        runMenu={{ runs: [a, b], checkedRunId: `a`, onOpen }}
+        items={[
+          { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: vi.fn() },
+          { face: `run`, label: runFaceLabel(true), onSelect: onRun },
+        ]}
+      />
+    )
     openMenu()
-    act(() => {
-      fireEvent.click(screen.getByTestId(`issue-run-option-a`))
-    })
-    expect(onOpen).not.toHaveBeenCalled()
-    openMenu()
+    expect(onRun).not.toHaveBeenCalled()
     act(() => {
       fireEvent.click(screen.getByTestId(`issue-run-option-b`))
     })
     expect(onOpen).toHaveBeenCalledWith(b.session)
+    expect(onRun).not.toHaveBeenCalled()
   })
 })
 

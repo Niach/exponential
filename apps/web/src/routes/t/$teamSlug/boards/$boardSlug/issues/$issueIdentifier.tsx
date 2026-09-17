@@ -130,7 +130,7 @@ function IssueDetailPage() {
     [runRows, issue, boundRunId, currentUserId, now]
   )
   // EXP-886: with MORE THAN ONE run of mine on the issue the segment reads
-  // "Runs" — the session view it opens carries the switcher between them.
+  // "Runs" — and (EXP-950) carries the caret to the menu between them.
   const multipleRuns = useMemo(
     () =>
       selectIssueRuns(
@@ -142,13 +142,10 @@ function IssueDetailPage() {
   )
 
   // EXP-893: the phone's Work screen — the issue's runs of mine for the
-  // switcher's run rows, the target run's live diff (so the Changes face is
-  // known without mounting the view), and the faces on offer.
-  const { runs: issueRuns } = useIssueRuns(
-    isMobile ? issue?.id : undefined,
-    team?.id,
-    currentUserId
-  )
+  // switcher's run rows (EXP-950: and the wide toggle's run menu), the target
+  // run's live diff (so the Changes face is known without mounting the
+  // view), and the faces on offer.
+  const { runs: issueRuns } = useIssueRuns(issue?.id, team?.id, currentUserId)
   // EXP-889: every width — the wide toggle's diff item reads it too.
   // EXP-875: but it DIALS only for a run whose diff is still a live thing —
   // running, PR open, or freshly merged — and never with steering off. An
@@ -330,6 +327,11 @@ function IssueDetailPage() {
       faceToggle={
         <WorkFaceToggle
           face="issue"
+          runMenu={{
+            runs: issueRuns,
+            checkedRunId: runTarget?.id,
+            onOpen: (target) => goRun(target.id),
+          }}
           items={[
             { face: `issue`, label: ISSUE_FACE_LABEL, onSelect: () => {} },
             ...(runTarget

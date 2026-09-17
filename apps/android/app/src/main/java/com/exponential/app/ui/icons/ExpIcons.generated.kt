@@ -6887,8 +6887,6 @@ public object ExpIcons {
     public val relationSubIssue: ImageVector get() = `corner-down-right`
     /** Concept `run-resume`. */
     public val runResume: ImageVector get() = `rotate-ccw`
-    /** Concept `run-switcher`. */
-    public val runSwitcher: ImageVector get() = `history`
     /** Concept `sc-push`. */
     public val scPush: ImageVector get() = `upload`
     /** Concept `session-shell`. */

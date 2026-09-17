@@ -2204,7 +2204,13 @@ impl IssueDetailView {
         let face_state = crate::screens::screens_for_window(window, cx)
             .map(|panel| panel.read(cx).face_state(&issue.id, cx));
         let run_id = face_state.as_ref().and_then(|state| state.run_id.clone());
-        let multiple_runs = face_state.as_ref().is_some_and(|state| state.multiple_runs);
+        // EXP-950: the Runs segment's caret — the rows only once there are
+        // several.
+        let runs = if face_state.as_ref().is_some_and(|state| state.multiple_runs) {
+            crate::run_rows::issue_run_entries(&issue.id, cx)
+        } else {
+            Vec::new()
+        };
         let diff = run_id.as_deref().and_then(|run_id| {
             crate::screens::session_views(run_id, cx)
                 .into_iter()
@@ -2241,6 +2247,7 @@ impl IssueDetailView {
                     .as_ref()
                     .and_then(|changes| changes.read(cx).totals(cx))
             });
+            let (menu_this, menu_issue_id) = (this.clone(), issue_id.clone());
             crate::work_header::face_toggle(
                 FaceToggle {
                     issue: true,
@@ -2249,7 +2256,8 @@ impl IssueDetailView {
                     pr_changes,
                     results,
                     active,
-                    multiple_runs,
+                    runs,
+                    checked_run: run_id.clone(),
                 },
                 Rc::new(move |face, window, cx| {
                     // EXP-889: the issue's own Changes face, and the way back
@@ -2293,6 +2301,18 @@ impl IssueDetailView {
                             crate::screens::set_run_face(&run_id, run_face, window, cx);
                         }
                     }
+                }),
+                // EXP-950: the caret's pick opens THAT run on the tab's Run
+                // face — the checked one too, since none is on show here.
+                Rc::new(move |run_id, window, cx| {
+                    let _ = menu_this.update(cx, |this, cx| this.set_changes_open(false, cx));
+                    crate::screens::set_tab_face(
+                        &menu_issue_id,
+                        crate::screens::TabFace::Run,
+                        Some(run_id.to_string()),
+                        window,
+                        cx,
+                    );
                 }),
                 cx,
             )
