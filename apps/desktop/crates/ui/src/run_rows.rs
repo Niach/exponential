@@ -677,6 +677,35 @@ pub(crate) fn issue_run_label(
     byline_parts(device_label, issue_run_when(session, now_epoch))
 }
 
+/// EXP-950: the Run item's menu rows for `issue_id` — my runs of the issue
+/// ([`crate::queries::issue_runs`]: live first, then newest end first), each
+/// labelled [`issue_run_label`]. Empty when signed out or before the store
+/// exists.
+pub(crate) fn issue_run_entries(issue_id: &str, cx: &App) -> Vec<crate::work_header::RunEntry> {
+    let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else {
+        return Vec::new();
+    };
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let now = chrono::Utc::now().timestamp();
+    let sessions = store.collections().coding_sessions.read(cx);
+    let devices = store.collections().devices.read(cx);
+    crate::queries::issue_runs(sessions.iter(), &me, issue_id)
+        .into_iter()
+        .map(|session| {
+            let label =
+                crate::queries::session_device_presentation(session, devices.iter(), now * 1_000)
+                    .label;
+            crate::work_header::RunEntry {
+                id: session.id.clone(),
+                label: issue_run_label(session, label.as_deref(), now),
+                live: crate::queries::is_live_run_status(session),
+            }
+        })
+        .collect()
+}
+
 /// When a past run finished: its `ended_at`, else the last `updated_at` (a
 /// row the server swept never got an `ended_at`) — the same key
 /// [`crate::queries::own_ended_runs`] orders by.

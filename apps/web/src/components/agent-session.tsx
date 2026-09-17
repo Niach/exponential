@@ -21,7 +21,6 @@ import {
   MobileFaceSwitcher,
   type MobileFaceSwitcherProps,
 } from "@/components/mobile-face-switcher"
-import { IssueRunSwitcher } from "@/components/issue-run-switcher"
 import {
   MOBILE_WORK_BAR_CLEARANCE,
   MOBILE_WORK_CIRCLE_CLASS,
@@ -377,8 +376,8 @@ export function AgentSessionView({
     tray?: ReactNode
   }
   /** EXP-886: the issue's runs of mine (`useIssueRuns`), switcher order —
-   *  the Run/Runs label, the md+ `IssueRunSwitcher` and the phone switcher's
-   *  run rows all read it. */
+   *  the Run/Runs label, the md+ toggle's run menu (EXP-950) and the phone
+   *  switcher's run rows all read it. */
   issueRuns?: readonly PastRunRow[]
   /** EXP-886: open another of the issue's runs (the view swaps in place). */
   onOpenRun?: (session: CodingSession) => void
@@ -1252,19 +1251,25 @@ export function AgentSessionView({
                   names what this work is PART of, before the controls that
                   act on it. */}
               {graphBadge}
+              {/* EXP-950: with several runs the "Runs" segment carries the
+                  caret to the issue's other runs — and shows alone when the
+                  issue face is out of reach. */}
               <WorkFaceToggle
                 face={showDiffFace || showResultsFace ? face : `run`}
                 items={faceItems}
+                runMenu={
+                  issueRuns && onOpenRun
+                    ? {
+                        runs: issueRuns,
+                        checkedRunId: session.id,
+                        // The run on show never re-opens.
+                        onOpen: (target) => {
+                          if (target.id !== session.id) onOpenRun(target)
+                        },
+                      }
+                    : undefined
+                }
               />
-              {/* EXP-886: the switcher between the issue's runs, right after
-                  the toggle whose "Runs" segment announces it. */}
-              {issueRuns && onOpenRun && (
-                <IssueRunSwitcher
-                  runs={issueRuns}
-                  viewedRunId={session.id}
-                  onOpen={onOpenRun}
-                />
-              )}
               {runTrailing}
             </>
           }

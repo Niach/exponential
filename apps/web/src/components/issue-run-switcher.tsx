@@ -2,13 +2,9 @@ import type { CodingSession } from "@/db/schema"
 import { relativeTime } from "@/components/comment-rows/format"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
-  conceptIcon,
   SESSION_DOT_CLASS,
-  DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuTrigger,
-  Pill,
 } from "@exp/ui"
 import {
   isLiveRun,
@@ -18,23 +14,18 @@ import {
 } from "@/lib/past-runs"
 import { cn } from "@/lib/utils"
 
-// EXP-886: the run SWITCHER — the session view's select between an issue's
-// runs of mine, shown only once there are two or more (`selectIssueRuns`, live
-// first then newest end first). It lives on the session view alone, ×4: the
-// issue page keeps its Issue | Run toggle (whose Run segment reads "Runs" in
-// the same case), and the switcher is where a reader of ONE run reaches the
-// others. Picking a run opens it the way every list does — the tab's Run
-// face follows the URL, and the work-tab reconcile never rebinds a run being
-// read (`viewedRunId`).
+// EXP-886 / EXP-950: the run MENU — the select between an issue's runs of
+// mine (`selectIssueRuns`, live first then newest end first). EXP-950 folded
+// the separate switcher pill into the work header's face toggle: with two or
+// more runs the `Runs` segment carries a caret (`WorkFaceToggle` `runMenu`)
+// and this is the menu it opens, on the issue face and the run face alike.
+// Picking a run opens it the way every list does — the tab's Run face
+// follows the URL, and the work-tab reconcile never rebinds a run being read.
 //
 // Entries are the Recent byline (`<device> · <when>`) with the ended relative
 // time, or the word `Live` in its place for a live-status run, which also
-// wears the running dot. The trigger names the run on show by its `<when>`.
-// Desktop `session_screen::run_switcher`, iOS `AgentSessionView.runSwitcher`,
-// Android `AgentSessionScreen` twin.
-
-const RunSwitcherIcon = conceptIcon(`run-switcher`)
-const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
+// wears the running dot. Desktop `work_header::face_toggle`'s run menu; the
+// phones list the same rows in the face switcher (`mobile-face-switcher`).
 
 /** The `<when>` segment of a run's entry: `Live` for a live-status run, else
  *  when it ended (empty when the row stamped no honest time). */
@@ -60,62 +51,47 @@ export function issueRunEntryLabel(row: {
   })
 }
 
-export function IssueRunSwitcher({
+/** The caret's menu: one checkbox row per run, the one on show checked. */
+export function IssueRunMenuContent({
   runs,
-  viewedRunId,
+  checkedRunId,
   onOpen,
 }: {
   /** `useIssueRuns` rows — the issue's runs of mine, in switcher order. */
   runs: readonly PastRunRow[]
-  /** The run the session view shows. */
-  viewedRunId: string
+  /** The run on show (the session view's), or the one the tab's Run face
+   *  opens (the issue face). */
+  checkedRunId?: string
   onOpen: (session: CodingSession) => void
 }) {
-  if (runs.length < 2) return null
-  const viewed = runs.find((row) => row.session.id === viewedRunId)
-  const triggerLabel = viewed ? issueRunWhen(viewed.session) : ``
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Pill
-          size="sm"
-          mode="action"
-          className="shrink-0"
-          title="Switch run"
-          aria-label="Switch run"
-          leading={<RunSwitcherIcon className="size-3" />}
-          data-testid="issue-run-switcher"
-        >
-          {triggerLabel || `${runs.length} runs`}
-          <UiChevronDownIcon className="size-3 opacity-70" />
-        </Pill>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" data-testid="issue-run-switcher-menu">
-        {runs.map((row) => {
-          const live = isLiveRun(row.session)
-          return (
-            <DropdownMenuCheckboxItem
-              key={row.session.id}
-              checked={row.session.id === viewedRunId}
-              onSelect={() => {
-                if (row.session.id !== viewedRunId) onOpen(row.session)
-              }}
-              data-testid={`issue-run-option-${row.session.id}`}
-            >
-              <span
-                aria-hidden
-                className={cn(
-                  `size-1.5 shrink-0 rounded-full`,
-                  live ? SESSION_DOT_CLASS.running : SESSION_DOT_CLASS.muted
-                )}
-              />
-              <span className="min-w-0 truncate">
-                {issueRunEntryLabel(row)}
-              </span>
-            </DropdownMenuCheckboxItem>
-          )
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    // Wider than the stock menu: a long device name must not push the
+    // `<when>` (`Live`) out of sight.
+    <DropdownMenuContent
+      align="end"
+      className="max-w-[360px]"
+      data-testid="issue-run-switcher-menu"
+    >
+      {runs.map((row) => {
+        const live = isLiveRun(row.session)
+        return (
+          <DropdownMenuCheckboxItem
+            key={row.session.id}
+            checked={row.session.id === checkedRunId}
+            onSelect={() => onOpen(row.session)}
+            data-testid={`issue-run-option-${row.session.id}`}
+          >
+            <span
+              aria-hidden
+              className={cn(
+                `size-1.5 shrink-0 rounded-full`,
+                live ? SESSION_DOT_CLASS.running : SESSION_DOT_CLASS.muted
+              )}
+            />
+            <span className="min-w-0 truncate">{issueRunEntryLabel(row)}</span>
+          </DropdownMenuCheckboxItem>
+        )
+      })}
+    </DropdownMenuContent>
   )
 }
