@@ -125,9 +125,12 @@ notifications the CLI dropped (before EXP-927 every lane older than ten
 minutes lost its tab and lived on in the strip alone).
 
 **Alignment.** The tab row and every strip block (task list, tasks, waits,
-queue) sit in the transcript's reading column (`WORK_COLUMN_CLASS`, 896 px,
-with the transcript's gutter), not the panel's full width; only a hairline
-may span the panel.
+queue) sit in the transcript's reading column, not the panel's full width;
+only a hairline may span the panel. The column is each client's OWN
+transcript measure, reused and never restated: web `TRANSCRIPT_COLUMN`
+(`WORK_COLUMN_CLASS`, 896 px, plus the gutter), desktop `work_column_row`
+(`WORK_COLUMN_W`), iOS `transcriptColumn()` and Android `ReadingColumn`
+(`DesignTokens.Transcript` max width).
 
 ## 3. `workflow` (latest-wins per workflow id)
 
