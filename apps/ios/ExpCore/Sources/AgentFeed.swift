@@ -625,7 +625,8 @@ public struct AgentAskGroup: Equatable, Sendable, Identifiable {
 }
 
 /// One render row over the flat feed: a single item, a run of ≥2 CONSECUTIVE
-/// tool calls (EXP-97), a run of consecutive EDIT calls (EXP-916), a subagent's
+/// tool calls (EXP-97), a run of consecutive EDIT calls (EXP-916), a run of
+/// consecutive calls to the same Exponential MCP tool (EXP-948), a subagent's
 /// run, or a multi-question ask.
 public enum AgentFeedRow: Equatable, Sendable, Identifiable {
     case single(AgentFeedItem)
@@ -634,6 +635,10 @@ public enum AgentFeedRow: Equatable, Sendable, Identifiable {
     /// calls, however many (a lone edit is a card too). `EditCard` turns the
     /// members into its rows.
     case edits([AgentFeedItem])
+    /// EXP-948: a run of ≥2 consecutive same-lane calls to the SAME Exponential
+    /// MCP tool, captioned from the contract ("Read 3 issues") —
+    /// `ExpToolGroup.caption`. A LONE call of ours stays a `.single` row.
+    case expRun([AgentFeedItem])
     case subagentRun(AgentSubagentRun)
     case ask(AgentAskGroup)
 
@@ -642,6 +647,7 @@ public enum AgentFeedRow: Equatable, Sendable, Identifiable {
         case let .single(item): item.id
         case let .toolRun(items): items.first?.id ?? -1
         case let .edits(items): items.first?.id ?? -1
+        case let .expRun(items): items.first?.id ?? -1
         case let .subagentRun(run): run.id
         case let .ask(group): group.id
         }
@@ -666,7 +672,7 @@ extension AgentFeedRow {
     /// The row's class in the gap ladder.
     public var rowClass: AgentRowClass {
         switch self {
-        case .toolRun, .edits, .subagentRun: .tool
+        case .toolRun, .edits, .expRun, .subagentRun: .tool
         case .ask: .prose
         case let .single(item):
             switch item {
@@ -1591,7 +1597,7 @@ public enum AgentFeed {
             return !question.resolved && !question.dismissed
         case let .ask(group):
             return group.questions.contains { !$0.resolved && !$0.dismissed }
-        case .toolRun, .edits, .subagentRun:
+        case .toolRun, .edits, .expRun, .subagentRun:
             return false
         }
     }
@@ -1615,6 +1621,16 @@ public enum AgentFeed {
                 if !EditCard.card(run).rows.isEmpty { rows.append(.edits(run)) }
                 i = end + 1
                 continue
+            }
+            // EXP-948: a lane groups ITS own Exponential calls exactly like the
+            // main transcript — ≥2 of the same tool are one captioned row.
+            if ExpToolGroup.isExpToolCall(items[i], workflowIds: workflowIds) {
+                let end = ExpToolGroup.runEnd(items, start: i, workflowIds: workflowIds)
+                if end > i {
+                    rows.append(.expRun(Array(items[i...end])))
+                    i = end + 1
+                    continue
+                }
             }
             rows.append(.single(items[i]))
             i += 1
@@ -1675,15 +1691,32 @@ public enum AgentFeed {
                 continue
             }
 
+            // EXP-948: one of OUR OWN MCP calls never hides inside a collapsed
+            // run — ≥2 consecutive calls to the SAME tool are their own
+            // captioned row, and a lone one stays the single row it always was.
+            if ExpToolGroup.isExpToolCall(item, workflowIds: workflowIds) {
+                let end = ExpToolGroup.runEnd(feed, start: i, workflowIds: workflowIds)
+                if end > i {
+                    builders.append(RowBuilder(kind: .expRun, items: Array(feed[i...end])))
+                    i = end + 1
+                    continue
+                }
+                builders.append(RowBuilder(kind: .single, items: [item]))
+                i += 1
+                continue
+            }
+
             if item.isTool, !isWorkflowTool(item, workflowIds: workflowIds) {
                 var end = i + 1
                 // A tool tagged with a subagent belongs to that group, never to
                 // a main-thread run; a WORKFLOW call is its own card row and
                 // never collapses into one either (EXP-850 §3). EXP-916: an
                 // edit call ENDS the run — the card that follows is its own row.
+                // EXP-948: so does one of our own MCP calls.
                 while end < feed.count, feed[end].isTool, feed[end].subagentKey == nil,
                       !isWorkflowTool(feed[end], workflowIds: workflowIds),
-                      !EditCard.isEditCall(feed[end], workflowIds: workflowIds) {
+                      !EditCard.isEditCall(feed[end], workflowIds: workflowIds),
+                      !ExpToolGroup.isExpToolCall(feed[end], workflowIds: workflowIds) {
                     end += 1
                 }
                 if end - i >= 2 {
@@ -1753,6 +1786,8 @@ public enum AgentFeed {
             case toolRun
             /// EXP-916: a run of consecutive edit calls — one card.
             case edits
+            /// EXP-948: a run of consecutive calls to the same Exponential tool.
+            case expRun
             case ask(String)
             case subagent(String)
         }
@@ -1772,6 +1807,8 @@ public enum AgentFeed {
             return .toolRun(builder.items)
         case .edits:
             return .edits(builder.items)
+        case .expRun:
+            return .expRun(builder.items)
         case let .ask(askId):
             // Step order, submit step last; the local id breaks ties so the
             // order never depends on the sort's stability.

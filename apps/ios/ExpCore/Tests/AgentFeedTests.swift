@@ -359,6 +359,11 @@ final class AgentFeedTests: XCTestCase {
         case let .toolRun(items):
             let ids = items.map { String($0.id) }.joined(separator: ",")
             return "run@\(row.id)[\(ids)]"
+        // EXP-948: an Exponential run has its own fixture
+        // (`ExpToolGroupTests`); the edit fixture never produces one.
+        case let .expRun(items):
+            let ids = items.map { String($0.id) }.joined(separator: ",")
+            return "expRun@\(row.id)[\(ids)]: \(ExpToolGroup.caption(items))"
         case let .subagentRun(run):
             return "subagent@\(run.id)(\(run.subagentId))"
         case let .ask(group):

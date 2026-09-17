@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import editCardCases from "@exp/domain-contract/fixtures/feed/edit-cards.json" with { type: "json" }
+import expToolGroupCases from "@exp/domain-contract/fixtures/feed/exp-tool-groups.json" with { type: "json" }
+import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import {
   editCard,
   renderEditCard,
@@ -782,6 +784,11 @@ describe(`edited-files cards (EXP-916)`, () => {
       if (row.kind === `toolRun`) {
         return `run@${row.id}[${row.items.map((m) => m.id).join(`,`)}]`
       }
+      // EXP-948: no case of this fixture calls one of OUR tools, so the row
+      // kind is here for exhaustiveness alone.
+      if (row.kind === `expRun`) {
+        return `expRun@${row.id}[${row.items.map((m) => m.id).join(`,`)}]`
+      }
       if (row.kind === `subagent`) return `subagent@${row.id}(${row.subagentId})`
       if (row.kind === `ask`) return `ask@${row.id}`
       const kind = row.item.kind
@@ -823,6 +830,82 @@ describe(`edited-files cards (EXP-916)`, () => {
       { id: 1, kind: `tool`, toolKind: `edit`, detail: `a.ts`, workflowId: `w` },
     ]
     expect(groupFeedRows(feed).map((row) => row.kind)).toEqual([`single`])
+  })
+})
+
+// EXP-948: our own MCP calls never hide. `fixtures/feed/exp-tool-groups.json`
+// is replayed through the REAL `groupFeedRows`/`groupLaneRows` and the real
+// `expToolGroupCaption`, projected into the fixture's own row strings — the
+// same replay the desktop, iOS and Android feed tests run.
+describe(`Exponential tool groups (EXP-948)`, () => {
+  interface ExpCase {
+    name: string
+    feed: Record<string, unknown>[]
+    start?: number
+    lane?: string
+    expected: string[]
+  }
+  const cases = expToolGroupCases as unknown as ExpCase[]
+
+  const project = (item: ExpCase): string[] => {
+    const rows =
+      item.lane === undefined
+        ? groupFeedRows(item.feed as never, item.start ?? 0)
+        : groupLaneRows(
+            item.feed.filter((row) => row.subagentId === item.lane) as never
+          )
+    return rows.map((row) => {
+      if (row.kind === `expRun`) {
+        const ids = row.items.map((m) => m.id).join(`,`)
+        return `expRun@${row.id}[${ids}]: ${expToolGroupCaption(row.items as never)}`
+      }
+      if (row.kind === `toolRun`) {
+        return `run@${row.id}[${row.items.map((m) => m.id).join(`,`)}]`
+      }
+      if (row.kind === `edits`) {
+        return `card@${row.id}[${row.items.map((m) => m.id).join(`,`)}]`
+      }
+      if (row.kind === `subagent`) return `subagent@${row.id}(${row.subagentId})`
+      if (row.kind === `ask`) return `ask@${row.id}`
+      const kind = row.item.kind
+      return `${kind === `user_message` ? `user` : kind}@${row.item.id}`
+    })
+  }
+
+  it(`every fixture case projects byte-exact through groupFeedRows`, () => {
+    for (const item of cases) {
+      expect({ name: item.name, rows: project(item) }).toEqual({
+        name: item.name,
+        rows: item.expected,
+      })
+    }
+  })
+
+  it(`one of ours BREAKS a command run and never joins it`, () => {
+    const feed = [
+      { id: 1, kind: `tool`, name: `Bash`, toolKind: `execute` },
+      { id: 2, kind: `tool`, name: `Bash`, toolKind: `execute` },
+      { id: 3, kind: `tool`, name: `exponential_issues_get`, toolKind: `other` },
+      { id: 4, kind: `tool`, name: `exponential_issues_get`, toolKind: `other` },
+      { id: 5, kind: `tool`, name: `Bash`, toolKind: `execute` },
+    ]
+    const rows = groupFeedRows(feed)
+    expect(rows.map((row) => row.kind)).toEqual([`toolRun`, `expRun`, `single`])
+    // The group rides the ladder as a machine row, and it is never a card the
+    // run is BLOCKED on.
+    expect(rowClass(rows[1])).toBe(`tool`)
+    expect(rowIsPendingCard(rows[1])).toBe(false)
+  })
+
+  it(`a lone call of ours stays a single visible row`, () => {
+    const feed = [
+      { id: 1, kind: `tool`, name: `exponential_issues_get`, toolKind: `other` },
+      { id: 2, kind: `tool`, name: `exponential_issues_list`, toolKind: `other` },
+    ]
+    expect(groupFeedRows(feed).map((row) => row.kind)).toEqual([
+      `single`,
+      `single`,
+    ])
   })
 })
 

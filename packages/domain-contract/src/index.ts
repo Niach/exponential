@@ -268,6 +268,12 @@ export interface DomainContract {
       blurb: string
       progressive: string
       done: string
+      /** EXP-948: the captions a RUN of consecutive calls to this tool reads
+       *  ("Reading {n} issues" / "Read {n} issues"), `{n}` = the member
+       *  count. Our tools group by themselves and never hide inside a
+       *  generic "N other tools" fold. */
+      progressiveMany: string
+      doneMany: string
       subjectKey: string
       result: string
     }[]
@@ -358,3 +364,16 @@ export {
   renderDiffTree,
   type DiffTreeNode,
 } from "./diff-tree"
+
+// EXP-948: our OWN MCP calls never hide inside a generic collapsed run — the
+// rule that keeps them visible and the caption a run of the SAME tool reads,
+// locked by `fixtures/feed/exp-tool-groups.json`.
+export {
+  expToolGroupCaption,
+  expToolIndex,
+  expToolRowName,
+  expToolRunEnd,
+  isExpToolCall,
+  EXP_TOOL_PREFIX,
+  type ExpToolFeedItem,
+} from "./exp-tool-group"

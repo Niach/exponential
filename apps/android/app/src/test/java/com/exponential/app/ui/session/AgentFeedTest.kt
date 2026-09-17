@@ -2272,6 +2272,10 @@ class AgentFeedTest {
                     EditCard.renderEditCard(EditCard.editCard(row.items, case.live))
                 is AgentFeedRow.ToolRun ->
                     "run@${row.id}[${row.items.joinToString(",") { it.id.toString() }}]"
+                // EXP-948: no edit-card case produces one — `ExpToolGroupTest`
+                // owns that fixture — but the `when` is exhaustive.
+                is AgentFeedRow.ExpRun ->
+                    "expRun@${row.id}[${row.items.joinToString(",") { it.id.toString() }}]"
                 is AgentFeedRow.SubagentRun -> "subagent@${row.id}(${row.subagentId})"
                 is AgentFeedRow.QuestionStepper -> "ask@${row.id}"
                 is AgentFeedRow.Single -> when (val item = row.item) {

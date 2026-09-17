@@ -3482,6 +3482,19 @@ pub(crate) fn tool_group_caption(items: &[&FeedItem]) -> String {
     steer::tool_group_summary(&calls)
 }
 
+/// EXP-948 — the caption a run of OUR OWN calls renders: the contract's plural
+/// copy for the group's tool ("Reading 3 issues" while any call is in flight,
+/// "Read 3 issues" once they all settled, plus "· N failed"). The shared
+/// [`steer::exp_tool_group_caption`], fed the group's calls, ×4.
+pub(crate) fn exp_tool_group_caption(items: &[&FeedItem]) -> String {
+    let calls: Vec<steer::ExpToolGroupCall<'_>> = items
+        .iter()
+        .filter(|item| item.is_tool())
+        .map(|item| item.exp_tool_group_call())
+        .collect();
+    steer::exp_tool_group_caption(&calls)
+}
+
 /// EXP-847 — what a subagent chip is NAMED: the spawning `Agent` call's own
 /// `title` (what the model said this subagent is FOR) when it carried one,
 /// else the agent TYPE, which is all codex, an external agent and every
@@ -3952,6 +3965,9 @@ impl SteerSessionView {
             FeedRow::ToolRun { id, items } => self.render_tool_run(*id, items, live_tail, cx),
             // EXP-916: a run of edits is the ONE edited-files card.
             FeedRow::Edits { id, items } => self.render_edits_card(*id, items, cx),
+            // EXP-948: a run of the SAME Exponential tool is its own captioned
+            // row — our work is never folded away as "N other tools".
+            FeedRow::ExpRun { id, items } => self.render_exp_tool_run(*id, items, cx),
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => {
                 self.render_subagent(*id, items, window, cx)
@@ -4691,6 +4707,66 @@ impl SteerSessionView {
                         .py_0p5()
                         .child(self.render_tool_item(item, ToolRowMode::Live, cx)),
                 );
+            }
+        }
+        column.into_any_element()
+    }
+
+    /// EXP-948 — a run of ≥2 consecutive calls to the SAME Exponential MCP
+    /// tool. Our own work never hides inside a generic "N other tools" fold:
+    /// the run wears the brand mark every single call of ours carries and the
+    /// contract's own plural caption, and it opens to the individual rows
+    /// ("Read issue EXP-901") like any tool group.
+    fn render_exp_tool_run(
+        &self,
+        id: FeedItemId,
+        items: &[&FeedItem],
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let expanded = self.expanded_groups.contains(&id);
+        let mut column = v_flex().w_full().min_w_0().child(
+            tool_text(h_flex())
+                .id(("steer-exp-tool-run", id as usize))
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .items_center()
+                .cursor_pointer()
+                .text_color(muted)
+                .child(
+                    Icon::new(if expanded {
+                        registry::UI_CHEVRON_DOWN
+                    } else {
+                        registry::UI_CHEVRON_RIGHT
+                    })
+                    .xsmall(),
+                )
+                // The app's own mark, exactly as a single call of ours draws it.
+                .child(Icon::from(crate::icons::ExpIcon::Logo).xsmall())
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .child(SharedString::from(exp_tool_group_caption(items))),
+                )
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    if !this.expanded_groups.insert(id) {
+                        this.expanded_groups.remove(&id);
+                    }
+                    cx.notify();
+                })),
+        );
+        if expanded {
+            for item in items {
+                if item.is_tool() {
+                    column = column.child(
+                        div()
+                            .pl_5()
+                            .py_0p5()
+                            .child(self.render_tool_item(item, self.tool_row_mode(item), cx)),
+                    );
+                }
             }
         }
         column.into_any_element()

@@ -12,6 +12,7 @@ import {
 } from "react"
 import { parseDiff, totals, type DiffFile } from "@exp/domain-contract/diff"
 import { editCard } from "@exp/domain-contract/edit-card"
+import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
@@ -1386,6 +1387,18 @@ export function AgentSessionView({
                         />
                       )
                     }
+                    // EXP-948: a run of the SAME Exponential tool is its own
+                    // captioned row — ours are never folded away as "N other
+                    // tools".
+                    if (row.kind === `expRun`) {
+                      return wrap(
+                        <ExpToolGroupRow
+                          items={
+                            row.items as Extract<FeedItem, { kind: `tool` }>[]
+                          }
+                        />
+                      )
+                    }
                     if (row.kind === `toolRun`) {
                       return wrap(
                         <ToolGroupRow
@@ -2042,6 +2055,15 @@ function LaneRows({ items, gaps = false }: { items: FeedItem[]; gaps?: boolean }
           return (
             <div key={row.id} className={gap ?? `py-0.5`}>
               <EditsCardRow items={row.items as ToolItem[]} liveRowId={null} />
+            </div>
+          )
+        }
+        // EXP-948: a lane folds a run of OUR tools into the same captioned
+        // row the transcript draws.
+        if (row.kind === `expRun`) {
+          return (
+            <div key={row.id} className={gap ?? `py-0.5`}>
+              <ExpToolGroupRow items={row.items as ToolItem[]} />
             </div>
           )
         }
@@ -3836,6 +3858,50 @@ function ToolGroupRow({
             <ToolRow item={latest} live />
           </div>
         )
+      )}
+    </div>
+  )
+}
+
+/** EXP-948: a run of ≥2 consecutive calls to the SAME Exponential MCP tool.
+ *  Our own work never hides inside a generic "N other tools" fold: the run
+ *  wears the contract's own plural caption ("Reading 3 issues" while any call
+ *  is in flight, "Read 3 issues" once they all settled, plus "· N failed"),
+ *  the brand mark every single call of ours already carries, and it opens to
+ *  the individual rows ("Read issue EXP-901") like any tool group. */
+function ExpToolGroupRow({ items }: { items: ToolItem[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const caption = useMemo(() => expToolGroupCaption(items), [items])
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className={cn(
+          `flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground hover:text-foreground`,
+          TRANSCRIPT_TOOL_TEXT
+        )}
+      >
+        {expanded ? (
+          <ChevronDown className="size-3 shrink-0" />
+        ) : (
+          <ChevronRight className="size-3 shrink-0" />
+        )}
+        <ExponentialLogo
+          variant="light"
+          size={12}
+          className="size-3 shrink-0 text-muted-foreground/60"
+        />
+        <span className="min-w-0 truncate font-medium" title={caption}>
+          {caption}
+        </span>
+      </button>
+      {expanded && (
+        <div className="ml-5">
+          {items.map((item) => (
+            <ToolRow key={item.id} item={item} />
+          ))}
+        </div>
       )}
     </div>
   )

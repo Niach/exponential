@@ -144,6 +144,7 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ExpToolDisplay
+import com.exponential.app.domain.ExpToolGroup
 import com.exponential.app.domain.ExpToolRow
 import com.exponential.app.domain.ToolResultPreview
 import com.exponential.app.domain.ToolGroupSummary
@@ -1884,6 +1885,10 @@ private fun ActivityFeed(
                             items = row.items,
                             liveItemId = liveRowId,
                         )
+                        // EXP-948: a run of consecutive calls to ONE of our own
+                        // MCP tools is ONE captioned row ("Read 3 issues") —
+                        // our tools never hide inside "N other tools".
+                        is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items)
                         is AgentFeedRow.SubagentRun -> SubagentGroupRow(
                             run = row,
                             liveTail = live && row.id == rows.last().id,
@@ -3802,13 +3807,15 @@ private fun SubagentGroupRow(
 
 /**
  * EXP-916: one row of a LANE's projection ([projectLaneRows]) — an
- * edited-files card, or the single item's own row. A lane holds no tool runs
- * and no nested subagents, so those never reach here.
+ * edited-files card, a run of our own MCP calls (EXP-948), or the single item's
+ * own row. A lane holds no generic tool runs and no nested subagents, so those
+ * never reach here.
  */
 @Composable
 private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, nested: Boolean = false) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
+        is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
         is AgentFeedRow.Single -> SubagentItemRow(row.item, nested = nested)
         else -> Unit
     }
@@ -4217,6 +4224,53 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
             liveTail -> Column(modifier = Modifier.padding(start = 22.dp)) {
                 val latest = items.last()
                 ToolRow(latest, nested = true, live = true)
+            }
+        }
+    }
+}
+
+/**
+ * EXP-948: a run of consecutive calls to ONE of our own MCP tools, as ONE row.
+ * The generic group's fold — chevron, caption, expands to the individual rows —
+ * but under the Exponential mark the single call rows already wear, and
+ * captioned from the contract ("Reading 3 issues" → "Read 3 issues", plus
+ * ` · N failed`): our tools are the most meaningful rows a transcript has, and
+ * a pile of them used to disappear inside "N other tools".
+ */
+@Composable
+private fun ExpToolGroupRow(items: List<AgentFeedItem.Tool>, nested: Boolean = false) {
+    var expanded by remember { mutableStateOf(false) }
+    val caption = remember(items) { ExpToolGroup.expToolGroupCaption(items) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            ExponentialMark(size = 12.dp)
+            Text(
+                caption,
+                style = transcriptToolStyle(),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (expanded) {
+            Column(modifier = Modifier.padding(start = 22.dp)) {
+                items.forEach { ToolRow(it, nested = true) }
             }
         }
     }

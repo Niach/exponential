@@ -13,6 +13,7 @@
     "./contract": "./contract.json",
     "./diff": "./src/diff.ts",
     "./edit-card": "./src/edit-card.ts",
+    "./exp-tool-group": "./src/exp-tool-group.ts",
     "./diff-tree": "./src/diff-tree.ts",
     "./fixtures/*": "./fixtures/*"
   }

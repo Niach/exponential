@@ -324,6 +324,56 @@ impl FeedItem {
         )
     }
 
+    /// EXP-948 — this row's tool NAME, when it is a tool call. The
+    /// Exponential-group rule reads it (and nothing else about the call).
+    pub fn tool_name(&self) -> Option<&str> {
+        match &self.kind {
+            FeedKind::Tool { name, .. } => Some(name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// EXP-948 — whether this row is a call to one of OUR MCP tools
+    /// ([`crate::exp_tool_group::is_exp_tool_call`]): a tool call whose name
+    /// resolves to an `expToolDisplay` row and that is not a workflow's own
+    /// `Workflow` call.
+    pub fn is_exp_tool_call(&self, workflow_ids: &[&str]) -> bool {
+        crate::exp_tool_group::is_exp_tool_call(
+            self.is_tool(),
+            self.tool_name(),
+            self.is_workflow_call(workflow_ids),
+        )
+    }
+
+    /// EXP-948 — the contract row this call belongs to (`issues_get`), or
+    /// `None` for anything that is not one of ours. Two consecutive calls
+    /// group only when their rows are EQUAL.
+    pub fn exp_tool_row(&self, workflow_ids: &[&str]) -> Option<&'static str> {
+        if !self.is_exp_tool_call(workflow_ids) {
+            return None;
+        }
+        self.tool_name().and_then(crate::exp_tool::exp_tool_row)
+    }
+
+    /// EXP-948: this item as a member of an Exponential group — the fields
+    /// the caption reads (a non-tool is an unnamed, settled member).
+    pub fn exp_tool_group_call(&self) -> crate::exp_tool_group::ExpToolGroupCall<'_> {
+        let (name, settled, failed) = match &self.kind {
+            FeedKind::Tool {
+                name,
+                settled,
+                failed,
+                ..
+            } => (name.as_str(), *settled, *failed),
+            _ => ("", true, false),
+        };
+        crate::exp_tool_group::ExpToolGroupCall {
+            name,
+            settled,
+            failed,
+        }
+    }
+
     /// EXP-938: this item as a member of an edited-files card — the fields
     /// [`domain::edit_card::edit_card`] reads (a non-tool is an empty member).
     pub fn edit_card_member(&self) -> domain::edit_card::EditCardMember<'_> {
@@ -1674,6 +1724,14 @@ pub enum FeedRow<'a> {
         id: FeedItemId,
         items: Vec<&'a FeedItem>,
     },
+    /// EXP-948 — a maximal run of ≥2 consecutive same-lane calls to the SAME
+    /// Exponential MCP tool, rendered as its own captioned, foldable row
+    /// ([`crate::exp_tool_group`]). Our tools never disappear into a generic
+    /// "N other tools" fold.
+    ExpRun {
+        id: FeedItemId,
+        items: Vec<&'a FeedItem>,
+    },
 }
 
 impl FeedRow<'_> {
@@ -1684,6 +1742,7 @@ impl FeedRow<'_> {
             FeedRow::ToolRun { id, .. }
             | FeedRow::Ask { id, .. }
             | FeedRow::Edits { id, .. }
+            | FeedRow::ExpRun { id, .. }
             | FeedRow::Subagent { id, .. } => *id,
         }
     }
@@ -1695,9 +1754,10 @@ impl FeedRow<'_> {
             // A collapsed run of calls, an edited-files card and a subagent's
             // group are machine work, exactly like the single tool row they
             // collapse.
-            FeedRow::ToolRun { .. } | FeedRow::Edits { .. } | FeedRow::Subagent { .. } => {
-                RowClass::Tool
-            }
+            FeedRow::ToolRun { .. }
+            | FeedRow::Edits { .. }
+            | FeedRow::ExpRun { .. }
+            | FeedRow::Subagent { .. } => RowClass::Tool,
             // A stepper card is a question the reader answers — prose.
             FeedRow::Ask { .. } => RowClass::Prose,
         }
@@ -1876,6 +1936,11 @@ pub enum FeedRowSpec {
         id: FeedItemId,
         items: Vec<usize>,
     },
+    /// EXP-948 — [`FeedRow::ExpRun`] as indices.
+    ExpRun {
+        id: FeedItemId,
+        items: Vec<usize>,
+    },
 }
 
 impl FeedRowSpec {
@@ -1886,6 +1951,7 @@ impl FeedRowSpec {
             | FeedRowSpec::ToolRun { id, .. }
             | FeedRowSpec::Ask { id, .. }
             | FeedRowSpec::Edits { id, .. }
+            | FeedRowSpec::ExpRun { id, .. }
             | FeedRowSpec::Subagent { id, .. } => *id,
         }
     }
@@ -1902,6 +1968,7 @@ impl FeedRowSpec {
             }
             FeedRowSpec::ToolRun { .. }
             | FeedRowSpec::Edits { .. }
+            | FeedRowSpec::ExpRun { .. }
             | FeedRowSpec::Subagent { .. } => RowClass::Tool,
             FeedRowSpec::Ask { .. } => RowClass::Prose,
         }
@@ -1914,6 +1981,7 @@ impl FeedRowSpec {
             FeedRowSpec::ToolRun { items, .. }
             | FeedRowSpec::Ask { items, .. }
             | FeedRowSpec::Edits { items, .. }
+            | FeedRowSpec::ExpRun { items, .. }
             | FeedRowSpec::Subagent { items, .. } => items,
         }
     }
@@ -1929,6 +1997,10 @@ impl FeedRowSpec {
                 items: pick(ixs),
             },
             FeedRowSpec::Edits { id, items: ixs } => FeedRow::Edits {
+                id: *id,
+                items: pick(ixs),
+            },
+            FeedRowSpec::ExpRun { id, items: ixs } => FeedRow::ExpRun {
                 id: *id,
                 items: pick(ixs),
             },
@@ -2059,12 +2131,36 @@ pub fn group_feed_row_specs_into(
             i = end + 1;
             continue;
         }
+        // EXP-948: one of OURS opens a group of its own — a lone call is the
+        // single visible row it always was, ≥2 consecutive calls to the SAME
+        // contract row are ONE captioned run (`exp_tool_group`, ×4).
+        if let Some(row) = item.exp_tool_row(workflow_ids) {
+            let end = crate::exp_tool_group::exp_tool_run_end(i, items.len(), |ix| {
+                items[ix].subagent_id().is_none()
+                    && items[ix].exp_tool_row(workflow_ids) == Some(row)
+            });
+            if end == i {
+                rows.push(FeedRowSpec::Single {
+                    id: item.id,
+                    item: i,
+                });
+            } else {
+                rows.push(FeedRowSpec::ExpRun {
+                    id: item.id,
+                    items: (i..=end).collect(),
+                });
+            }
+            i = end + 1;
+            continue;
+        }
         let mut end = i;
         while end + 1 < items.len()
             && items[end + 1].is_tool()
             && items[end + 1].subagent_id().is_none()
             && !items[end + 1].is_workflow_call(workflow_ids)
             && !items[end + 1].is_edit_call(workflow_ids)
+            // EXP-948: one of our own calls BREAKS the run and never joins it.
+            && !items[end + 1].is_exp_tool_call(workflow_ids)
         {
             end += 1;
         }
@@ -2132,6 +2228,11 @@ pub fn group_subagent_row_specs_into(
         // ride along (EXP-850 §3, web/iOS/Android thread them here too): a
         // workflow call is its own CARD, never a member of an edits row.
         let edits = item.is_edit_call(workflow_ids);
+        // EXP-948: inside the lane our own calls follow the SAME rule — a run
+        // of the same contract row is one captioned group, and a call of ours
+        // never joins the generic run beside it (nor a generic call one of
+        // ours), because the rows differ.
+        let exp_row = item.exp_tool_row(workflow_ids);
         let mut run = vec![i];
         let mut j = i + 1;
         while j < items.len() {
@@ -2140,6 +2241,7 @@ pub fn group_subagent_row_specs_into(
                 if !next.is_tool()
                     || next.is_workflow_call(workflow_ids)
                     || next.is_edit_call(workflow_ids) != edits
+                    || next.exp_tool_row(workflow_ids) != exp_row
                 {
                     break;
                 }
@@ -2155,6 +2257,11 @@ pub fn group_subagent_row_specs_into(
                     items: run,
                 });
             }
+        } else if exp_row.is_some() && run.len() > 1 {
+            rows.push(FeedRowSpec::ExpRun {
+                id: item.id,
+                items: run,
+            });
         } else if run.len() == 1 {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
@@ -4789,6 +4896,9 @@ mod edit_card_fixture_tests {
                 )
             }
             FeedRowSpec::ToolRun { id, items: ixs } => format!("run@{id}[{}]", ids(ixs)),
+            // EXP-948: no case of this fixture calls one of OUR tools, so the
+            // row kind is here for exhaustiveness alone.
+            FeedRowSpec::ExpRun { id, items: ixs } => format!("expRun@{id}[{}]", ids(ixs)),
             FeedRowSpec::Subagent {
                 id, subagent_id, ..
             } => format!("subagent@{id}({subagent_id})"),
@@ -4881,5 +4991,180 @@ mod edit_card_fixture_tests {
             seq: None,
         };
         assert!(!prose.is_edit_call(&[]));
+    }
+}
+
+/// EXP-948 — our own MCP calls never hide, replayed through the REAL
+/// projection.
+///
+/// `packages/domain-contract/fixtures/feed/exp-tool-groups.json` is the
+/// contract: every client feeds it to ITS OWN row projection plus its group
+/// caption and compares one list of row strings (web `agent-feed.test.ts`,
+/// iOS, Android, and this). The reference projection lives in
+/// `@exp/domain-contract`'s own test; here the rows come out of
+/// [`group_feed_row_specs_from`] and [`group_subagent_row_specs_into`]
+/// themselves, so the desktop's grouping cannot drift from the fixture.
+#[cfg(test)]
+mod exp_tool_group_fixture_tests {
+    use super::*;
+    use crate::exp_tool_group::exp_tool_group_caption;
+    use serde::Deserialize;
+
+    const CASES: &str =
+        include_str!("../../../../../packages/domain-contract/fixtures/feed/exp-tool-groups.json");
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureItem {
+        id: FeedItemId,
+        kind: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        tool_kind: Option<String>,
+        #[serde(default)]
+        workflow_id: Option<String>,
+        #[serde(default)]
+        subagent_id: Option<String>,
+        #[serde(default)]
+        detail: Option<String>,
+        #[serde(default)]
+        settled: bool,
+        #[serde(default)]
+        failed: bool,
+        #[serde(default)]
+        text: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureCase {
+        name: String,
+        feed: Vec<FixtureItem>,
+        #[serde(default)]
+        start: usize,
+        #[serde(default)]
+        lane: Option<String>,
+        expected: Vec<String>,
+    }
+
+    fn cases() -> Vec<FixtureCase> {
+        serde_json::from_str(CASES).expect("the Exponential-group fixture parses")
+    }
+
+    /// The fixture's `workflowId` rides the desktop's `call_id`, like the
+    /// edit-card replay: a row IS a workflow call when the feed holds a card
+    /// for its id, which is exactly what the field means.
+    fn item_of(raw: &FixtureItem) -> FeedItem {
+        let kind = match raw.kind.as_str() {
+            "tool" => FeedKind::Tool {
+                name: raw.name.clone().unwrap_or_default(),
+                detail: raw.detail.clone(),
+                subagent_id: raw.subagent_id.clone(),
+                call_id: raw.workflow_id.clone(),
+                tool_kind: raw.tool_kind.as_deref().and_then(ToolKind::parse),
+                settled: raw.settled,
+                failed: raw.failed,
+                diff: None,
+                output: None,
+                preview: None,
+            },
+            "user_message" => FeedKind::UserMessage {
+                text: raw.text.clone().unwrap_or_default(),
+                subagent_id: raw.subagent_id.clone(),
+            },
+            "subagent" => FeedKind::Subagent {
+                subagent_id: raw.subagent_id.clone().unwrap_or_default(),
+                agent_type: "general-purpose".to_string(),
+                status: SubagentStatus::Started,
+                detail: None,
+                title: None,
+                workflow_id: None,
+                tool_calls: None,
+            },
+            other => {
+                assert_eq!(other, "narration", "the fixture uses four kinds");
+                FeedKind::Narration {
+                    text: raw.text.clone().unwrap_or_default(),
+                    message_id: None,
+                    subagent_id: raw.subagent_id.clone(),
+                }
+            }
+        };
+        FeedItem {
+            id: raw.id,
+            kind,
+            seq: None,
+        }
+    }
+
+    fn row_string(spec: &FeedRowSpec, items: &[FeedItem]) -> String {
+        let ids = |ixs: &[usize]| {
+            ixs.iter()
+                .map(|&ix| items[ix].id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        match spec {
+            FeedRowSpec::ExpRun { id, items: ixs } => {
+                let calls: Vec<_> = ixs
+                    .iter()
+                    .map(|&ix| items[ix].exp_tool_group_call())
+                    .collect();
+                format!(
+                    "expRun@{id}[{}]: {}",
+                    ids(ixs),
+                    exp_tool_group_caption(&calls)
+                )
+            }
+            FeedRowSpec::ToolRun { id, items: ixs } => format!("run@{id}[{}]", ids(ixs)),
+            FeedRowSpec::Edits { id, items: ixs } => format!("card@{id}[{}]", ids(ixs)),
+            FeedRowSpec::Subagent {
+                id, subagent_id, ..
+            } => format!("subagent@{id}({subagent_id})"),
+            FeedRowSpec::Ask { id, .. } => format!("ask@{id}"),
+            FeedRowSpec::Single { id, item } => match &items[*item].kind {
+                FeedKind::Tool { .. } => format!("tool@{id}"),
+                FeedKind::UserMessage { .. } => format!("user@{id}"),
+                FeedKind::Subagent { .. } => format!("subagent@{id}"),
+                _ => format!("narration@{id}"),
+            },
+        }
+    }
+
+    fn project(case: &FixtureCase) -> Vec<String> {
+        let items: Vec<FeedItem> = case.feed.iter().map(item_of).collect();
+        let workflow_ids: Vec<&str> = case
+            .feed
+            .iter()
+            .filter_map(|raw| raw.workflow_id.as_deref())
+            .collect();
+        let mut rows = Vec::new();
+        match case.lane.as_deref() {
+            Some(lane) => {
+                group_subagent_row_specs_into(&items, case.start, lane, &workflow_ids, &mut rows)
+            }
+            None => group_feed_row_specs_into(&items, case.start, &workflow_ids, &mut rows),
+        }
+        rows.iter().map(|spec| row_string(spec, &items)).collect()
+    }
+
+    #[test]
+    fn every_fixture_case_projects_byte_exact() {
+        for case in cases() {
+            assert_eq!(project(&case), case.expected, "fixture case: {}", case.name);
+        }
+    }
+
+    #[test]
+    fn the_fixture_covers_a_split_a_run_break_a_failure_a_lane_and_a_window() {
+        let names = cases()
+            .iter()
+            .map(|case| case.name.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for needle in ["splits", "single", "running", "failed", "subagent", "window"] {
+            assert!(names.contains(needle), "the fixture covers `{needle}`");
+        }
     }
 }

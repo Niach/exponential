@@ -120,6 +120,8 @@ interface Contract {
       blurb: string
       progressive: string
       done: string
+      progressiveMany: string
+      doneMany: string
       subjectKey: string
       result: string
     }[]
@@ -232,12 +234,19 @@ const steerCommandConfirm = steerCommands.map((c) => c.confirm)
 // EXP-862: `titles`/`blurbs` are the SETTINGS copy of the same rows — the
 // built-in tools group of the MCP servers page (web + desktop) lists one row
 // per tool as its title over a muted blurb, the wire name only as a tooltip.
+//
+// EXP-948: `progressiveMany`/`doneMany` are the same two captions for a RUN of
+// consecutive calls to the SAME tool ("Reading {n} issues" / "Read {n} issues"),
+// with `{n}` the member count — our tools group by themselves and never
+// disappear into a generic "N other tools" fold.
 const expTools = contract.expToolDisplay.tools
 const expToolNames = expTools.map((t) => t.name)
 const expToolTitles = expTools.map((t) => t.title)
 const expToolBlurbs = expTools.map((t) => t.blurb)
 const expToolProgressive = expTools.map((t) => t.progressive)
 const expToolDone = expTools.map((t) => t.done)
+const expToolProgressiveMany = expTools.map((t) => t.progressiveMany)
+const expToolDoneMany = expTools.map((t) => t.doneMany)
 const expToolSubjectKeys = expTools.map((t) => t.subjectKey)
 const expToolResults = expTools.map((t) => t.result)
 
@@ -388,6 +397,8 @@ ${swiftStringArray("expToolTitles", expToolTitles)}
 ${swiftStringArray("expToolBlurbs", expToolBlurbs)}
 ${swiftStringArray("expToolProgressive", expToolProgressive)}
 ${swiftStringArray("expToolDone", expToolDone)}
+${swiftStringArray("expToolProgressiveMany", expToolProgressiveMany)}
+${swiftStringArray("expToolDoneMany", expToolDoneMany)}
 ${swiftStringArray("expToolSubjectKeys", expToolSubjectKeys)}
 ${swiftStringArray("expToolResults", expToolResults)}
 ${swiftStringArray("turnStateValues", contract.turnState.values)}
@@ -499,6 +510,8 @@ ${kotlinStringArray("expToolTitles", expToolTitles)}
 ${kotlinStringArray("expToolBlurbs", expToolBlurbs)}
 ${kotlinStringArray("expToolProgressive", expToolProgressive)}
 ${kotlinStringArray("expToolDone", expToolDone)}
+${kotlinStringArray("expToolProgressiveMany", expToolProgressiveMany)}
+${kotlinStringArray("expToolDoneMany", expToolDoneMany)}
 ${kotlinStringArray("expToolSubjectKeys", expToolSubjectKeys)}
 ${kotlinStringArray("expToolResults", expToolResults)}
 ${kotlinStringArray("turnStateValues", contract.turnState.values)}
@@ -612,6 +625,8 @@ ${rustStrSlice("expToolTitles", expToolTitles)}
 ${rustStrSlice("expToolBlurbs", expToolBlurbs)}
 ${rustStrSlice("expToolProgressive", expToolProgressive)}
 ${rustStrSlice("expToolDone", expToolDone)}
+${rustStrSlice("expToolProgressiveMany", expToolProgressiveMany)}
+${rustStrSlice("expToolDoneMany", expToolDoneMany)}
 ${rustStrSlice("expToolSubjectKeys", expToolSubjectKeys)}
 ${rustStrSlice("expToolResults", expToolResults)}
 ${rustStrSlice("turnStateValues", contract.turnState.values)}

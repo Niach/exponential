@@ -373,6 +373,8 @@
         "blurb": "Adds a reusable action to a team, with its prompt body and its inputs.",
         "progressive": "Creating action",
         "done": "Created action",
+        "progressiveMany": "Creating {n} actions",
+        "doneMany": "Created {n} actions",
         "subjectKey": "name",
         "result": "action"
       },
@@ -382,6 +384,8 @@
         "blurb": "Removes an action from the team for good.",
         "progressive": "Deleting action",
         "done": "Deleted action",
+        "progressiveMany": "Deleting {n} actions",
+        "doneMany": "Deleted {n} actions",
         "subjectKey": "id",
         "result": "none"
       },
@@ -391,6 +395,8 @@
         "blurb": "Lists the team's actions, the builtins included.",
         "progressive": "Listing actions",
         "done": "Listed actions",
+        "progressiveMany": "Listing actions {n} times",
+        "doneMany": "Listed actions {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -400,6 +406,8 @@
         "blurb": "Edits an action's name, prompt body, repository or inputs.",
         "progressive": "Updating action",
         "done": "Updated action",
+        "progressiveMany": "Updating {n} actions",
+        "doneMany": "Updated {n} actions",
         "subjectKey": "id",
         "result": "action"
       },
@@ -409,6 +417,8 @@
         "blurb": "Removes an uploaded file and the blob behind it.",
         "progressive": "Deleting attachment",
         "done": "Deleted attachment",
+        "progressiveMany": "Deleting {n} attachments",
+        "doneMany": "Deleted {n} attachments",
         "subjectKey": "id",
         "result": "none"
       },
@@ -418,6 +428,8 @@
         "blurb": "Reads one attachment: its metadata and its contents.",
         "progressive": "Reading attachment",
         "done": "Read attachment",
+        "progressiveMany": "Reading {n} attachments",
+        "doneMany": "Read {n} attachments",
         "subjectKey": "id",
         "result": "none"
       },
@@ -427,6 +439,8 @@
         "blurb": "Uploads a file and returns the link to embed in an issue or a comment.",
         "progressive": "Uploading attachment",
         "done": "Uploaded attachment",
+        "progressiveMany": "Uploading {n} attachments",
+        "doneMany": "Uploaded {n} attachments",
         "subjectKey": "filename",
         "result": "none"
       },
@@ -436,6 +450,8 @@
         "blurb": "Binds an action to a device on a schedule or an event trigger.",
         "progressive": "Creating automation",
         "done": "Created automation",
+        "progressiveMany": "Creating {n} automations",
+        "doneMany": "Created {n} automations",
         "subjectKey": "name",
         "result": "automation"
       },
@@ -445,6 +461,8 @@
         "blurb": "Removes an automation and stops its runs.",
         "progressive": "Deleting automation",
         "done": "Deleted automation",
+        "progressiveMany": "Deleting {n} automations",
+        "doneMany": "Deleted {n} automations",
         "subjectKey": "id",
         "result": "none"
       },
@@ -454,6 +472,8 @@
         "blurb": "Lists the team's automations with their triggers and their runners.",
         "progressive": "Listing automations",
         "done": "Listed automations",
+        "progressiveMany": "Listing automations {n} times",
+        "doneMany": "Listed automations {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -463,6 +483,8 @@
         "blurb": "Switches an automation on or off without deleting it.",
         "progressive": "Toggling automation",
         "done": "Toggled automation",
+        "progressiveMany": "Toggling {n} automations",
+        "doneMany": "Toggled {n} automations",
         "subjectKey": "id",
         "result": "automation"
       },
@@ -472,6 +494,8 @@
         "blurb": "Edits an automation's action, device, trigger or agent defaults.",
         "progressive": "Updating automation",
         "done": "Updated automation",
+        "progressiveMany": "Updating {n} automations",
+        "doneMany": "Updated {n} automations",
         "subjectKey": "id",
         "result": "automation"
       },
@@ -481,6 +505,8 @@
         "blurb": "Adds a board to a team, optionally linked to a repository.",
         "progressive": "Creating board",
         "done": "Created board",
+        "progressiveMany": "Creating {n} boards",
+        "doneMany": "Created {n} boards",
         "subjectKey": "name",
         "result": "board"
       },
@@ -490,6 +516,8 @@
         "blurb": "Moves a board to the trash; an owner can restore it for 48 hours.",
         "progressive": "Deleting board",
         "done": "Deleted board",
+        "progressiveMany": "Deleting {n} boards",
+        "doneMany": "Deleted {n} boards",
         "subjectKey": "id",
         "result": "none"
       },
@@ -499,6 +527,8 @@
         "blurb": "Reads one board with its settings and its repository link.",
         "progressive": "Reading board",
         "done": "Read board",
+        "progressiveMany": "Reading {n} boards",
+        "doneMany": "Read {n} boards",
         "subjectKey": "id",
         "result": "board"
       },
@@ -508,6 +538,8 @@
         "blurb": "Lists the boards you can see across your teams.",
         "progressive": "Listing boards",
         "done": "Listed boards",
+        "progressiveMany": "Listing boards {n} times",
+        "doneMany": "Listed boards {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -517,6 +549,8 @@
         "blurb": "Points a board at a repository so its issues can start coding runs.",
         "progressive": "Linking repository to board",
         "done": "Linked repository to board",
+        "progressiveMany": "Linking repository to {n} boards",
+        "doneMany": "Linked repository to {n} boards",
         "subjectKey": "id",
         "result": "board"
       },
@@ -526,6 +560,8 @@
         "blurb": "Edits a board's name, icon, colour or default branch.",
         "progressive": "Updating board",
         "done": "Updated board",
+        "progressiveMany": "Updating {n} boards",
+        "doneMany": "Updated {n} boards",
         "subjectKey": "id",
         "result": "board"
       },
@@ -535,6 +571,8 @@
         "blurb": "Posts a comment on an issue, or a reply under an existing one.",
         "progressive": "Commenting on issue",
         "done": "Commented on issue",
+        "progressiveMany": "Commenting on {n} issues",
+        "doneMany": "Commented on {n} issues",
         "subjectKey": "issueId",
         "result": "comment"
       },
@@ -544,6 +582,8 @@
         "blurb": "Removes a comment from its issue.",
         "progressive": "Deleting comment",
         "done": "Deleted comment",
+        "progressiveMany": "Deleting {n} comments",
+        "doneMany": "Deleted {n} comments",
         "subjectKey": "id",
         "result": "none"
       },
@@ -553,6 +593,8 @@
         "blurb": "Reads an issue's comment thread, oldest first.",
         "progressive": "Reading comments",
         "done": "Read comments",
+        "progressiveMany": "Reading comments {n} times",
+        "doneMany": "Read comments {n} times",
         "subjectKey": "issueId",
         "result": "list"
       },
@@ -562,6 +604,8 @@
         "blurb": "Rewrites the body of a comment.",
         "progressive": "Updating comment",
         "done": "Updated comment",
+        "progressiveMany": "Updating {n} comments",
+        "doneMany": "Updated {n} comments",
         "subjectKey": "id",
         "result": "comment"
       },
@@ -571,6 +615,8 @@
         "blurb": "Lists the machines that can run coding sessions for you.",
         "progressive": "Listing machines",
         "done": "Listed machines",
+        "progressiveMany": "Listing machines {n} times",
+        "doneMany": "Listed machines {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -580,6 +626,8 @@
         "blurb": "Closes a support thread once the reporter has an answer.",
         "progressive": "Closing support thread",
         "done": "Closed support thread",
+        "progressiveMany": "Closing {n} support threads",
+        "doneMany": "Closed {n} support threads",
         "subjectKey": "id",
         "result": "none"
       },
@@ -589,6 +637,8 @@
         "blurb": "Turns a support thread into a linked issue on a board.",
         "progressive": "Escalating support thread",
         "done": "Escalated support thread",
+        "progressiveMany": "Escalating {n} support threads",
+        "doneMany": "Escalated {n} support threads",
         "subjectKey": "id",
         "result": "issue"
       },
@@ -598,6 +648,8 @@
         "blurb": "Adds a note only the team sees, never the reporter.",
         "progressive": "Adding support note",
         "done": "Added support note",
+        "progressiveMany": "Adding {n} support notes",
+        "doneMany": "Added {n} support notes",
         "subjectKey": "id",
         "result": "none"
       },
@@ -607,6 +659,8 @@
         "blurb": "Puts a closed support thread back in the queue.",
         "progressive": "Reopening support thread",
         "done": "Reopened support thread",
+        "progressiveMany": "Reopening {n} support threads",
+        "doneMany": "Reopened {n} support threads",
         "subjectKey": "id",
         "result": "none"
       },
@@ -616,6 +670,8 @@
         "blurb": "Answers the reporter and mails the reply to them.",
         "progressive": "Replying to support thread",
         "done": "Replied to support thread",
+        "progressiveMany": "Replying to {n} support threads",
+        "doneMany": "Replied to {n} support threads",
         "subjectKey": "id",
         "result": "none"
       },
@@ -625,6 +681,8 @@
         "blurb": "Reads one support thread with its whole message history.",
         "progressive": "Reading support thread",
         "done": "Read support thread",
+        "progressiveMany": "Reading {n} support threads",
+        "doneMany": "Read {n} support threads",
         "subjectKey": "id",
         "result": "none"
       },
@@ -634,6 +692,8 @@
         "blurb": "Lists a team's support threads, open or closed.",
         "progressive": "Listing support threads",
         "done": "Listed support threads",
+        "progressiveMany": "Listing support threads {n} times",
+        "doneMany": "Listed support threads {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -643,6 +703,8 @@
         "blurb": "Creates an invite link for a team, optionally mailed to an address.",
         "progressive": "Creating invite",
         "done": "Created invite",
+        "progressiveMany": "Creating {n} invites",
+        "doneMany": "Created {n} invites",
         "subjectKey": "email",
         "result": "none"
       },
@@ -652,6 +714,8 @@
         "blurb": "Lists a team's outstanding invites.",
         "progressive": "Listing invites",
         "done": "Listed invites",
+        "progressiveMany": "Listing invites {n} times",
+        "doneMany": "Listed invites {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -661,6 +725,8 @@
         "blurb": "Kills an invite link before anyone uses it.",
         "progressive": "Revoking invite",
         "done": "Revoked invite",
+        "progressiveMany": "Revoking {n} invites",
+        "doneMany": "Revoked {n} invites",
         "subjectKey": "id",
         "result": "none"
       },
@@ -670,6 +736,8 @@
         "blurb": "Puts one of the team's labels on an issue.",
         "progressive": "Adding labels",
         "done": "Added labels",
+        "progressiveMany": "Adding labels to {n} issues",
+        "doneMany": "Added labels to {n} issues",
         "subjectKey": "issueId",
         "result": "issue"
       },
@@ -679,6 +747,8 @@
         "blurb": "Takes a label back off an issue.",
         "progressive": "Removing labels",
         "done": "Removed labels",
+        "progressiveMany": "Removing labels from {n} issues",
+        "doneMany": "Removed labels from {n} issues",
         "subjectKey": "issueId",
         "result": "issue"
       },
@@ -688,6 +758,8 @@
         "blurb": "Relates two issues: blocks, parent, duplicate or related.",
         "progressive": "Linking issues",
         "done": "Linked issues",
+        "progressiveMany": "Linking issues {n} times",
+        "doneMany": "Linked issues {n} times",
         "subjectKey": "issueId",
         "result": "issue"
       },
@@ -697,6 +769,8 @@
         "blurb": "Drops a relation between two issues.",
         "progressive": "Unlinking issues",
         "done": "Unlinked issues",
+        "progressiveMany": "Unlinking issues {n} times",
+        "doneMany": "Unlinked issues {n} times",
         "subjectKey": "issueId",
         "result": "issue"
       },
@@ -706,6 +780,8 @@
         "blurb": "Files an issue on a board, with description, labels and assignee.",
         "progressive": "Creating issue",
         "done": "Created issue",
+        "progressiveMany": "Creating {n} issues",
+        "doneMany": "Created {n} issues",
         "subjectKey": "title",
         "result": "issue"
       },
@@ -715,6 +791,8 @@
         "blurb": "Removes an issue and everything on it.",
         "progressive": "Deleting issue",
         "done": "Deleted issue",
+        "progressiveMany": "Deleting {n} issues",
+        "doneMany": "Deleted {n} issues",
         "subjectKey": "id",
         "result": "none"
       },
@@ -724,6 +802,8 @@
         "blurb": "Reads one issue in full, with its latest comments.",
         "progressive": "Reading issue",
         "done": "Read issue",
+        "progressiveMany": "Reading {n} issues",
+        "doneMany": "Read {n} issues",
         "subjectKey": "id",
         "result": "issue"
       },
@@ -733,6 +813,8 @@
         "blurb": "Lists issues across your teams or one board, open work by default.",
         "progressive": "Listing issues",
         "done": "Listed issues",
+        "progressiveMany": "Listing issues {n} times",
+        "doneMany": "Listed issues {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -742,6 +824,8 @@
         "blurb": "Lists the files an issue's pull request changes.",
         "progressive": "Reading PR files",
         "done": "Read PR files",
+        "progressiveMany": "Reading PR files {n} times",
+        "doneMany": "Read PR files {n} times",
         "subjectKey": "id",
         "result": "none"
       },
@@ -751,6 +835,8 @@
         "blurb": "Follows an issue so its activity reaches your inbox.",
         "progressive": "Subscribing to issue",
         "done": "Subscribed to issue",
+        "progressiveMany": "Subscribing to {n} issues",
+        "doneMany": "Subscribed to {n} issues",
         "subjectKey": "id",
         "result": "issue"
       },
@@ -760,6 +846,8 @@
         "blurb": "Stops following an issue.",
         "progressive": "Unsubscribing from issue",
         "done": "Unsubscribed from issue",
+        "progressiveMany": "Unsubscribing from {n} issues",
+        "doneMany": "Unsubscribed from {n} issues",
         "subjectKey": "id",
         "result": "issue"
       },
@@ -769,6 +857,8 @@
         "blurb": "Edits an issue's title, description, assignee, priority or due date.",
         "progressive": "Updating issue",
         "done": "Updated issue",
+        "progressiveMany": "Updating {n} issues",
+        "doneMany": "Updated {n} issues",
         "subjectKey": "id",
         "result": "issue"
       },
@@ -778,6 +868,8 @@
         "blurb": "Moves an issue to another status on its team's board.",
         "progressive": "Updating issue status",
         "done": "Updated issue status",
+        "progressiveMany": "Updating {n} issue statuses",
+        "doneMany": "Updated {n} issue statuses",
         "subjectKey": "id",
         "result": "issue"
       },
@@ -787,6 +879,8 @@
         "blurb": "Adds a label to a team, with its name and its colour.",
         "progressive": "Creating label",
         "done": "Created label",
+        "progressiveMany": "Creating {n} labels",
+        "doneMany": "Created {n} labels",
         "subjectKey": "name",
         "result": "none"
       },
@@ -796,6 +890,8 @@
         "blurb": "Removes a label from the team and from every issue wearing it.",
         "progressive": "Deleting label",
         "done": "Deleted label",
+        "progressiveMany": "Deleting {n} labels",
+        "doneMany": "Deleted {n} labels",
         "subjectKey": "id",
         "result": "none"
       },
@@ -805,6 +901,8 @@
         "blurb": "Reads one label with its name and its colour.",
         "progressive": "Reading label",
         "done": "Read label",
+        "progressiveMany": "Reading {n} labels",
+        "doneMany": "Read {n} labels",
         "subjectKey": "id",
         "result": "none"
       },
@@ -814,6 +912,8 @@
         "blurb": "Lists a team's labels.",
         "progressive": "Listing labels",
         "done": "Listed labels",
+        "progressiveMany": "Listing labels {n} times",
+        "doneMany": "Listed labels {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -823,6 +923,8 @@
         "blurb": "Renames a label or changes its colour.",
         "progressive": "Updating label",
         "done": "Updated label",
+        "progressiveMany": "Updating {n} labels",
+        "doneMany": "Updated {n} labels",
         "subjectKey": "id",
         "result": "none"
       },
@@ -832,6 +934,8 @@
         "blurb": "Lists a team's members with their roles.",
         "progressive": "Listing members",
         "done": "Listed members",
+        "progressiveMany": "Listing members {n} times",
+        "doneMany": "Listed members {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -841,6 +945,8 @@
         "blurb": "Reads your inbox, newest first.",
         "progressive": "Reading notifications",
         "done": "Read notifications",
+        "progressiveMany": "Reading notifications {n} times",
+        "doneMany": "Read notifications {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -850,6 +956,8 @@
         "blurb": "Clears notifications out of your inbox.",
         "progressive": "Marking notifications read",
         "done": "Marked notifications read",
+        "progressiveMany": "Marking notifications read {n} times",
+        "doneMany": "Marked notifications read {n} times",
         "subjectKey": "",
         "result": "none"
       },
@@ -859,6 +967,8 @@
         "blurb": "Sends a message to the team's inbox and pushes it to their devices.",
         "progressive": "Sending notification",
         "done": "Sent notification",
+        "progressiveMany": "Sending {n} notifications",
+        "doneMany": "Sent {n} notifications",
         "subjectKey": "title",
         "result": "none"
       },
@@ -868,6 +978,8 @@
         "blurb": "Squash-merges an open pull request and moves its issues on.",
         "progressive": "Merging pull request",
         "done": "Merged pull request",
+        "progressiveMany": "Merging {n} pull requests",
+        "doneMany": "Merged {n} pull requests",
         "subjectKey": "issueId",
         "result": "pr"
       },
@@ -877,6 +989,8 @@
         "blurb": "Opens a pull request on the repository and links it to the issues.",
         "progressive": "Opening pull request",
         "done": "Opened pull request",
+        "progressiveMany": "Opening {n} pull requests",
+        "doneMany": "Opened {n} pull requests",
         "subjectKey": "title",
         "result": "pr"
       },
@@ -886,6 +1000,8 @@
         "blurb": "Points an open pull request at another base branch.",
         "progressive": "Retargeting pull request",
         "done": "Retargeted pull request",
+        "progressiveMany": "Retargeting {n} pull requests",
+        "doneMany": "Retargeted {n} pull requests",
         "subjectKey": "issueId",
         "result": "pr"
       },
@@ -895,6 +1011,8 @@
         "blurb": "Files a bug about Exponential itself with the people who build it.",
         "progressive": "Reporting bug to Exponential",
         "done": "Reported bug to Exponential",
+        "progressiveMany": "Reporting {n} bugs to Exponential",
+        "doneMany": "Reported {n} bugs to Exponential",
         "subjectKey": "title",
         "result": "none"
       },
@@ -904,6 +1022,8 @@
         "blurb": "Registers a GitHub repository with the team.",
         "progressive": "Adding repository",
         "done": "Added repository",
+        "progressiveMany": "Adding {n} repositories",
+        "doneMany": "Added {n} repositories",
         "subjectKey": "fullName",
         "result": "none"
       },
@@ -913,6 +1033,8 @@
         "blurb": "Compares a branch with its base and lists what changed.",
         "progressive": "Reading branch diff",
         "done": "Read branch diff",
+        "progressiveMany": "Reading {n} branch diffs",
+        "doneMany": "Read {n} branch diffs",
         "subjectKey": "",
         "result": "none"
       },
@@ -922,6 +1044,8 @@
         "blurb": "Lists the repositories the team has registered.",
         "progressive": "Listing repositories",
         "done": "Listed repositories",
+        "progressiveMany": "Listing repositories {n} times",
+        "doneMany": "Listed repositories {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -931,6 +1055,8 @@
         "blurb": "Asks the run that started this one a question, without blocking on it.",
         "progressive": "Asking parent session",
         "done": "Asked parent session",
+        "progressiveMany": "Asking parent session {n} times",
+        "doneMany": "Asked parent session {n} times",
         "subjectKey": "question",
         "result": "none"
       },
@@ -940,6 +1066,8 @@
         "blurb": "Closes out this coding run and reports back to whoever started it.",
         "progressive": "Ending session",
         "done": "Ended session",
+        "progressiveMany": "Ending {n} sessions",
+        "doneMany": "Ended {n} sessions",
         "subjectKey": "",
         "result": "none"
       },
@@ -949,6 +1077,8 @@
         "blurb": "Reads one coding session: its status, its pull request, its device.",
         "progressive": "Reading session",
         "done": "Read session",
+        "progressiveMany": "Reading {n} sessions",
+        "doneMany": "Read {n} sessions",
         "subjectKey": "id",
         "result": "session"
       },
@@ -958,6 +1088,8 @@
         "blurb": "Ends a running coding session on its device.",
         "progressive": "Killing session",
         "done": "Killed session",
+        "progressiveMany": "Killing {n} sessions",
+        "doneMany": "Killed {n} sessions",
         "subjectKey": "id",
         "result": "none"
       },
@@ -967,6 +1099,8 @@
         "blurb": "Lists coding sessions across your teams, newest first.",
         "progressive": "Listing sessions",
         "done": "Listed sessions",
+        "progressiveMany": "Listing sessions {n} times",
+        "doneMany": "Listed sessions {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -976,6 +1110,8 @@
         "blurb": "Sends a message into a live coding session, the way a person steers it.",
         "progressive": "Messaging session",
         "done": "Messaged session",
+        "progressiveMany": "Messaging {n} sessions",
+        "doneMany": "Messaged {n} sessions",
         "subjectKey": "id",
         "result": "session"
       },
@@ -985,6 +1121,8 @@
         "blurb": "Publishes a screenshot of the run's work, grouped by topic with a label per picture.",
         "progressive": "Publishing results",
         "done": "Published results",
+        "progressiveMany": "Publishing results {n} times",
+        "doneMany": "Published results {n} times",
         "subjectKey": "topic",
         "result": "session"
       },
@@ -994,6 +1132,8 @@
         "blurb": "Starts a coding run on one of your devices for an issue or an action.",
         "progressive": "Starting session",
         "done": "Started session",
+        "progressiveMany": "Starting {n} sessions",
+        "doneMany": "Started {n} sessions",
         "subjectKey": "issueId",
         "result": "session"
       },
@@ -1003,6 +1143,8 @@
         "blurb": "Adds a custom status to a team inside one of the six categories.",
         "progressive": "Creating status",
         "done": "Created status",
+        "progressiveMany": "Creating {n} statuses",
+        "doneMany": "Created {n} statuses",
         "subjectKey": "name",
         "result": "none"
       },
@@ -1012,6 +1154,8 @@
         "blurb": "Removes a custom status once its issues have somewhere else to go.",
         "progressive": "Deleting status",
         "done": "Deleted status",
+        "progressiveMany": "Deleting {n} statuses",
+        "doneMany": "Deleted {n} statuses",
         "subjectKey": "id",
         "result": "none"
       },
@@ -1021,6 +1165,8 @@
         "blurb": "Lists a team's statuses in board order.",
         "progressive": "Listing statuses",
         "done": "Listed statuses",
+        "progressiveMany": "Listing statuses {n} times",
+        "doneMany": "Listed statuses {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -1030,6 +1176,8 @@
         "blurb": "Renames a status, recolours it or moves it within its category.",
         "progressive": "Updating status",
         "done": "Updated status",
+        "progressiveMany": "Updating {n} statuses",
+        "doneMany": "Updated {n} statuses",
         "subjectKey": "id",
         "result": "none"
       },
@@ -1039,6 +1187,8 @@
         "blurb": "Creates a team and makes you its owner.",
         "progressive": "Creating team",
         "done": "Created team",
+        "progressiveMany": "Creating {n} teams",
+        "doneMany": "Created {n} teams",
         "subjectKey": "name",
         "result": "none"
       },
@@ -1048,6 +1198,8 @@
         "blurb": "Reads one team with its settings.",
         "progressive": "Reading team",
         "done": "Read team",
+        "progressiveMany": "Reading {n} teams",
+        "doneMany": "Read {n} teams",
         "subjectKey": "id",
         "result": "none"
       },
@@ -1057,6 +1209,8 @@
         "blurb": "Lists the teams you belong to.",
         "progressive": "Listing teams",
         "done": "Listed teams",
+        "progressiveMany": "Listing teams {n} times",
+        "doneMany": "Listed teams {n} times",
         "subjectKey": "",
         "result": "list"
       },
@@ -1066,6 +1220,8 @@
         "blurb": "Edits a team's name, slug or feature settings.",
         "progressive": "Updating team",
         "done": "Updated team",
+        "progressiveMany": "Updating {n} teams",
+        "doneMany": "Updated {n} teams",
         "subjectKey": "id",
         "result": "none"
       }
