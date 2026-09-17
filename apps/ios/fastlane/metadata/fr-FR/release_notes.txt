@@ -1,3 +1,5 @@
+- Stop dans une session en cours est maintenant un simple bouton de la barre, à la même hauteur que le bouton retour, au lieu d'une pilule au contour cassé
+- Les lignes du journal d'un run ne se chevauchent plus, et le chat défile en dehors de la carte au-dessus du champ de saisie
 - Un run de chat prend le nom de ce sur quoi l'agent travaille, au lieu d'afficher « Chat » partout
 - Un seul diff partout : les fichiers d'un diff tiennent dans une arborescence où vous sautez, et les modifications d'un agent dans un tour se rassemblent dans une carte « Edited files »
 - L'usage au même endroit : un volet montre le compte du run, ses fenêtres de limite et la fenêtre de contexte, plus les autres comptes de cette machine

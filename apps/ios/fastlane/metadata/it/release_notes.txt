@@ -1,3 +1,5 @@
+- Stop in una sessione dal vivo ora è un semplice pulsante della barra, alto quanto il pulsante indietro, invece di una pillola dal contorno spezzato
+- Le righe del registro di un'esecuzione non si sovrappongono più, e la chat scorre libera dalla scheda sopra il campo di scrittura
 - Un run di chat prende il nome da ciò su cui l'agente sta lavorando, invece di leggere «Chat» ovunque
 - Un solo diff ovunque: i file di un diff stanno in un albero in cui salti, e le modifiche di un agente in un turno si raccolgono in una scheda «Edited files»
 - L'uso in un unico posto: un pannello mostra l'account dell'esecuzione, le sue finestre di limite e la finestra di contesto, più gli altri account di quella macchina

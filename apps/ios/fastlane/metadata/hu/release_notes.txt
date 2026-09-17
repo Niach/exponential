@@ -1,3 +1,5 @@
+- A futó munkamenetben a Stop mostantól sima sávgomb, ugyanolyan magas, mint a vissza gomb, nem pedig tabletta törött kerettel
+- Egy futás naplójának sorai már nem csúsznak egymásra, és a beszélgetés elgördül a szerkesztőmező fölötti kártya mellől
 - A csevegőfutás arról kapja a nevét, amin az ügynök dolgozik, ahelyett hogy mindenhol „Chat” állna
 - Egy diff mindenhol: a diff fájljai fában állnak, amelyben ugrálhatsz, az ügynök egy körben tett módosításai pedig egyetlen „Edited files” kártyára gyűlnek
 - A használat egy helyen: egy panel mutatja a futás saját fiókját, a korlátablakait és a kontextusablakot, valamint a gép többi bejelentkezését

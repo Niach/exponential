@@ -1,3 +1,5 @@
+- Stop in een lopende sessie is nu een gewone knop in de balk, even hoog als de terugknop, in plaats van een pil met een gebroken rand
+- Regels in het verslag van een run overlappen elkaar niet meer, en de chat scrolt vrij langs de kaart boven het invoerveld
 - Een chat-run krijgt de naam van waar de agent aan werkt, in plaats van overal „Chat” te heten
 - Eén diff overal: de bestanden van een diff staan in een boom waarin je springt, en de wijzigingen van een agent in één beurt komen samen op één kaart „Edited files”
 - Verbruik op één plek: een venster toont het account van de run, zijn limietvensters en het contextvenster, plus de andere logins op die machine
