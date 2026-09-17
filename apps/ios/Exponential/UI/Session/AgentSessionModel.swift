@@ -168,6 +168,9 @@ final class AgentSessionModel {
     private(set) var backgroundTasks: [AgentBackgroundTask] = [] {
         didSet { rebuildStripLines() }
     }
+    /// EXP-927 §2c: the agent's own task list — a latest-wins slot (the FULL
+    /// list in order; an empty one hides the block above the strip).
+    private(set) var taskList: [AgentTaskListEntry] = []
     /// EXP-861: the messages the device is holding until the current turn or
     /// compaction ends — a latest-wins slot (the FULL queue, oldest first; an
     /// empty list closes the strip above the composer). Lives on the device,
@@ -665,6 +668,10 @@ final class AgentSessionModel {
     /// §1/§2: what the strip above the composer actually draws — nothing at
     /// all once the run is over.
     var visibleStripLines: [AgentStripLine] { isOver ? [] : stripLines }
+
+    /// EXP-927 §2c: the strip's FIRST block — the agent's own task list, gone
+    /// once the run is over, exactly like the lines below it.
+    var visibleTaskList: [AgentTaskListEntry] { isOver ? [] : taskList }
 
     private func rebuildStripLines() {
         stripLines = AgentFeed.stripLines(backgroundTasks: backgroundTasks, feed: feed)
@@ -2110,6 +2117,8 @@ final class AgentSessionModel {
         // EXP-850: the two §1-§3 slots are live work too — a replay swap or an
         // ended run must not leave a strip or a running card standing.
         backgroundTasks = []
+        // EXP-927: the task list is the same kind of live state.
+        taskList = []
         workflows = []
         // EXP-861: the queue is device state that only a live run can hold —
         // the join replay carries the current one right after `turn`.
@@ -2472,6 +2481,11 @@ final class AgentSessionModel {
             // closes the strip above the composer.
             guard !prependingPage else { return }
             backgroundTasks = tasks
+        case let .taskList(entries):
+            // EXP-927 §2c: the FULL list, latest-wins — an empty array hides
+            // the block. Present-tense state, like the tasks beside it.
+            guard !prependingPage else { return }
+            taskList = entries
         case let .queue(messages):
             // EXP-861: the FULL current queue, latest-wins (replace whole) —
             // an empty array clears the strip. Present-tense state, so an

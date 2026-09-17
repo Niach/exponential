@@ -34,6 +34,51 @@ public struct AgentBackgroundTask: Equatable, Sendable, Identifiable {
     }
 }
 
+// MARK: - task_list (§2c)
+
+/// Contract `taskListStatus` — where one entry of the agent's own task list
+/// stands.
+public enum AgentTaskListStatus: String, Sendable, CaseIterable {
+    case pending
+    case inProgress = "in_progress"
+    case completed
+
+    /// A wire status, defaulting to `pending` — an entry this build cannot
+    /// read is still work the agent has not reported done (never fatal).
+    public static func parse(_ raw: Any?) -> AgentTaskListStatus {
+        guard let value = raw as? String, let status = AgentTaskListStatus(rawValue: value)
+        else { return .pending }
+        return status
+    }
+}
+
+/// EXP-927 §2c: one entry of the agent's OWN task list (claude's TodoWrite and
+/// its `Task*` hooks, codex's plan) — the FIRST block of the bottom strip.
+public struct AgentTaskListEntry: Equatable, Sendable {
+    public let content: String
+    public let status: AgentTaskListStatus
+
+    public init(content: String, status: AgentTaskListStatus) {
+        self.content = content
+        self.status = status
+    }
+}
+
+/// EXP-927 §2c: what the COLLAPSED task-list line says — the current entry and
+/// its `{completed}/{total}` count. Byte-identical ×4 (web `TaskListSummary`,
+/// desktop `session_rows::task_list_summary`).
+public struct AgentTaskListSummary: Equatable, Sendable {
+    public let current: String
+    public let completed: Int
+    public let total: Int
+
+    public init(current: String, completed: Int, total: Int) {
+        self.current = current
+        self.completed = completed
+        self.total = total
+    }
+}
+
 // MARK: - workflow (§3)
 
 /// Contract `workflowStatus`.
@@ -278,15 +323,43 @@ extension AgentFeed {
     /// The lead of an open wait row's line. Byte-identical ×4.
     public static let waitingOnPrefix = "Waiting on "
 
+    /// EXP-927: the `backgroundTaskKind` of a SUBAGENT. A subagent is a
+    /// conversation TAB (Main + one per running lane), so the strip never
+    /// lists it.
+    public static let backgroundTaskKindAgent = "agent"
+
+    /// The relay's `TASK_LIST_MAX`, re-applied because the wire is a device's
+    /// word, not ours.
+    public static let taskListMax = 50
+
+    /// EXP-927 §2c: the collapsed task-list line, or nil when the block is
+    /// hidden — no entries at all, or every one completed. `current` = the
+    /// first `in_progress` entry, else the first `pending` one.
+    public static func taskListSummary(
+        _ entries: [AgentTaskListEntry]
+    ) -> AgentTaskListSummary? {
+        let open = entries.filter { $0.status != .completed }
+        guard let first = open.first else { return nil }
+        let current = open.first { $0.status == .inProgress } ?? first
+        return AgentTaskListSummary(
+            current: current.content,
+            completed: entries.count - open.count,
+            total: entries.count
+        )
+    }
+
     /// The strip above the composer: one line per background task, then one
     /// per UNSETTLED `wait` tool row, in feed order. Empty = no strip at all.
     ///
     /// A wait row whose publisher named no detail falls back to the tool's own
     /// name — `Waiting on ` alone says nothing.
+    ///
+    /// EXP-927: tasks of kind `agent` are left out — those are the
+    /// conversation tabs.
     public static func stripLines(
         backgroundTasks: [AgentBackgroundTask], feed: [AgentFeedItem]
     ) -> [AgentStripLine] {
-        var lines = backgroundTasks.map { task in
+        var lines = backgroundTasks.filter { $0.kind != backgroundTaskKindAgent }.map { task in
             AgentStripLine(
                 id: "task:\(task.id)",
                 kind: .backgroundTask,

@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -83,6 +84,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -107,6 +109,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -153,12 +156,18 @@ import com.exponential.app.domain.BackgroundTask
 import com.exponential.app.domain.QUEUE_REMOVE_LABEL
 import com.exponential.app.domain.QUEUE_STRIP_TITLE
 import com.exponential.app.domain.QueuedMessage
+import com.exponential.app.domain.TASK_LIST_STATUS_COMPLETED
+import com.exponential.app.domain.TASK_LIST_STATUS_IN_PROGRESS
+import com.exponential.app.domain.TaskListEntry
+import com.exponential.app.domain.TaskListSummary
 import com.exponential.app.domain.WorkflowAgent
 import com.exponential.app.domain.WorkflowState
 import com.exponential.app.domain.backgroundTaskLabel
 import com.exponential.app.domain.caption
 import com.exponential.app.domain.openWaitLabels
 import com.exponential.app.domain.runningWorkflow
+import com.exponential.app.domain.stripBackgroundTasks
+import com.exponential.app.domain.taskListSummary
 import com.exponential.app.domain.waitingLabel
 import com.exponential.app.domain.workflowAgentRuns
 import com.exponential.app.domain.workflowDuplicates
@@ -480,7 +489,16 @@ fun RunFace(
     val workingAgent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
     // EXP-850 (S1/S2): the strip above the composer — one line per background
     // task the machine is running, plus one per still-open `wait` tool row.
+    // EXP-927: a task of kind `agent` is a subagent, and a subagent is a
+    // conversation TAB — the strip never lists it.
     val openWaits = remember(feed) { openWaitLabels(feed) }
+    val stripTasks = remember(activity.backgroundTasks) {
+        stripBackgroundTasks(activity.backgroundTasks)
+    }
+    // EXP-927: the agent's own task list, the strip's FIRST block — hidden
+    // while it is empty or every entry is done. The collapsed line is all
+    // [taskListSummary] needs; expanding is view state, never persisted.
+    val taskList = remember(activity.taskList) { taskListSummary(activity.taskList) }
     // EXP-790: the composer folds to the bar's capsule while it is unfocused
     // and empty (the issue's comment bar rule); a restored draft opens it.
     var composerExpanded by rememberSaveable {
@@ -1094,14 +1112,24 @@ fun RunFace(
                 Spacer(Modifier.height(8.dp))
             }
 
+            // EXP-927: the strip's FIRST block — the agent's own plan, one
+            // collapsed line until somebody opens it. Same live gate as the
+            // blocks below: a finished run has no plan left to work.
+            if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
+                ReadingColumn {
+                    TaskListBlock(summary = taskList, entries = activity.taskList)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
             // EXP-850 (S1/S2): what the machine is doing BESIDE the turn —
             // one line per background task it is running, plus one per open
             // `wait` call the agent is parked on. Absent when there is
             // neither, and never while the run is over.
             if (phase == AgentPhase.Live && !sessionEnded &&
-                (activity.backgroundTasks.isNotEmpty() || openWaits.isNotEmpty())
+                (stripTasks.isNotEmpty() || openWaits.isNotEmpty())
             ) {
-                BackgroundWorkStrip(tasks = activity.backgroundTasks, waits = openWaits)
+                ReadingColumn { BackgroundWorkStrip(tasks = stripTasks, waits = openWaits) }
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -1110,7 +1138,9 @@ fun RunFace(
             // Never while the run is over: an ended run delivers nothing. The
             // composer stays live beneath it.
             if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
-                QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
+                ReadingColumn {
+                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
+                }
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -1626,10 +1656,21 @@ private val TranscriptMaxWidth = DesignTokens.Transcript.MaxWidth.dp
  */
 @Composable
 private fun TranscriptRow(gap: TranscriptGap, content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier.fillMaxWidth().padding(top = gap.dp),
-        contentAlignment = Alignment.TopCenter,
-    ) {
+    ReadingColumn(modifier = Modifier.padding(top = gap.dp), content = content)
+}
+
+/**
+ * EXP-927: the transcript's reading column, on its own — [TranscriptMaxWidth]
+ * centred in whatever width is left, inside the face's own horizontal inset.
+ * The conversation tabs and every strip block above the composer (task list,
+ * background tasks, waits, queue) take it too, so on a tablet they sit in the
+ * SAME column as the rows they describe instead of running the panel's width.
+ * On a phone it is a no-op: nothing is wider than the measure anyway, and the
+ * gutter is the face's.
+ */
+@Composable
+private fun ReadingColumn(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Box(modifier = Modifier.widthIn(max = TranscriptMaxWidth).fillMaxWidth()) { content() }
     }
 }
@@ -2078,24 +2119,29 @@ private fun AgentTabStrip(
     selected: String?,
     onSelect: (String?) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AgentTabChip(label = "Main", running = false, selected = selected == null) {
-            onSelect(null)
-        }
-        agents.forEach { run ->
-            AgentTabChip(
-                label = run.label,
-                running = !run.completed,
-                selected = selected == run.subagentId,
-            ) {
-                onSelect(run.subagentId)
+    // EXP-927: the tabs read in the transcript's own column — they name the
+    // conversations the rows below belong to, so they may not start anywhere
+    // else (their horizontal inset is the face's, like every row's).
+    ReadingColumn {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AgentTabChip(label = "Main", running = false, selected = selected == null) {
+                onSelect(null)
+            }
+            agents.forEach { run ->
+                AgentTabChip(
+                    label = run.label,
+                    running = !run.completed,
+                    selected = selected == run.subagentId,
+                ) {
+                    onSelect(run.subagentId)
+                }
             }
         }
     }
@@ -2234,6 +2280,145 @@ private fun WorkingIndicatorRow(
  *  pulse (1.4s each way, ease-in-out — the ×4 number). */
 private const val WORKING_CLOCK_TICK_MS = 1_000L
 private const val WORKING_PULSE_MS = 1_400
+
+/** EXP-927: the task list opens to at most eight lines and then scrolls — a
+ *  fifty-entry plan may not eat the transcript. */
+private val TaskListEntryHeight = 20.dp
+private const val TASK_LIST_VISIBLE_ROWS = 8
+
+/** EXP-927: one full turn of the `ui-loading` glyph beside the running entry. */
+private const val TASK_LIST_SPIN_MS = 1_200
+
+/**
+ * EXP-927 (wire doc §2c): the agent's OWN task list — the FIRST block of the
+ * strip above the composer, above the background tasks and the waits.
+ * Collapsed (the default) it is ONE line: the checklist glyph, the current
+ * entry and `{completed}/{total}`, with the chevron that says it opens; the
+ * whole line toggles. Expanded it is one line per entry in wire order. The
+ * expansion is view state, never persisted — a rejoin opens collapsed.
+ */
+@Composable
+private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>) {
+    var expanded by remember { mutableStateOf(false) }
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassRow()
+            .testTag("task-list-block"),
+    ) {
+        // The header is the toggle, so its own tag is the one a test may read:
+        // a clickable row MERGES its children's semantics into this node.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(role = Role.Button) { expanded = !expanded }
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("task-list-toggle"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = ExpIcons.uiChecklist,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = tertiary,
+            )
+            Text(
+                summary.current,
+                style = MaterialTheme.typography.labelSmall,
+                color = secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                "${summary.completed}/${summary.total}",
+                style = MaterialTheme.typography.labelSmall,
+                color = tertiary,
+                maxLines = 1,
+            )
+            Icon(
+                imageVector = if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronUp,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = tertiary,
+            )
+        }
+        if (expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = TaskListEntryHeight * TASK_LIST_VISIBLE_ROWS)
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+            ) {
+                entries.forEach { entry -> TaskListEntryLine(entry) }
+            }
+        }
+    }
+}
+
+/** EXP-927: one expanded entry — done is struck through and dim, the running
+ *  one spins its glyph and reads at full strength, a pending one waits. */
+@Composable
+private fun TaskListEntryLine(entry: TaskListEntry) {
+    val running = entry.status == TASK_LIST_STATUS_IN_PROGRESS
+    val done = entry.status == TASK_LIST_STATUS_COMPLETED
+    Row(
+        // A MINIMUM, not a fixed height: at a large font scale the line grows
+        // rather than clipping, and the eight-line cap simply shows fewer.
+        modifier = Modifier.fillMaxWidth().heightIn(min = TaskListEntryHeight),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val tint = MaterialTheme.colorScheme.onSurface.copy(
+            alpha = if (done) TextEmphasis.Quaternary else TextEmphasis.Tertiary,
+        )
+        if (running) {
+            // The ONLY animated line — the transition is built here and not
+            // per entry, so a fifty-item plan does not schedule fifty of them.
+            val spin by rememberInfiniteTransition(label = "task-list").animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    tween(TASK_LIST_SPIN_MS, easing = LinearEasing),
+                ),
+                label = "taskListSpin",
+            )
+            Icon(
+                imageVector = ExpIcons.uiLoading,
+                contentDescription = null,
+                modifier = Modifier
+                    .size(12.dp)
+                    .then(if (LocalReduceMotion.current) Modifier else Modifier.rotate(spin)),
+                tint = tint,
+            )
+        } else {
+            Icon(
+                imageVector = if (done) ExpIcons.uiSelected else ExpIcons.uiUnselected,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = tint,
+            )
+        }
+        Text(
+            entry.content,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = when {
+                    done -> TextEmphasis.Quaternary
+                    running -> TextEmphasis.Primary
+                    else -> TextEmphasis.Secondary
+                },
+            ),
+            textDecoration = if (done) TextDecoration.LineThrough else null,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
 
 /**
  * EXP-850 (S1/S2): the compact strip above the composer — what the machine is

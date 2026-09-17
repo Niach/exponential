@@ -547,6 +547,17 @@ pub enum ActivityEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         at: Option<i64>,
     },
+    /// EXP-927 (wire doc §2c): the agent's OWN task list — claude's
+    /// `TodoWrite` / `Task*` list, codex's plan — in FULL and in order.
+    /// LATEST-WINS state like [`ActivityEvent::BackgroundTasks`], never a
+    /// transcript row: clients draw it as the first block of the bottom
+    /// strip, hidden while it is empty or every entry is completed.
+    #[serde(rename_all = "camelCase")]
+    TaskList {
+        entries: Vec<TaskListEntry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        at: Option<i64>,
+    },
     /// EXP-850 §3: a claude `Workflow` run's live card. LATEST-WINS PER ID
     /// (the relay keys its slot `workflow:{id}`, the journal and the on-disk
     /// history fold by id, the feed keeps a side map): the publisher always
@@ -653,6 +664,44 @@ impl BackgroundTaskKind {
 /// EXP-850 §2: how many background tasks one frame may carry (the relay's
 /// zod cap). A machine running more than this has other problems.
 pub const BACKGROUND_TASKS_MAX: usize = 32;
+
+/// EXP-927: one entry of the [`ActivityEvent::TaskList`] list.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskListEntry {
+    /// Cut to the contract's `steerWorking.previewMax` by the publisher; an
+    /// `in_progress` entry carries the agent's active form.
+    pub content: String,
+    pub status: TaskListStatus,
+}
+
+/// Contract `taskListStatus`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskListStatus {
+    #[default]
+    Pending,
+    InProgress,
+    Completed,
+}
+
+impl TaskListStatus {
+    /// Every value, in contract order.
+    pub const ALL: [TaskListStatus; 3] =
+        [TaskListStatus::Pending, TaskListStatus::InProgress, TaskListStatus::Completed];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TaskListStatus::Pending => "pending",
+            TaskListStatus::InProgress => "in_progress",
+            TaskListStatus::Completed => "completed",
+        }
+    }
+}
+
+/// EXP-927: how many entries one `task_list` frame may carry (the relay's
+/// zod cap); the publisher cuts the tail.
+pub const TASK_LIST_MAX: usize = 50;
 
 /// EXP-846: what an Exponential MCP call settled on, as the tool itself
 /// reported it. Every field optional and independently meaningful — a
@@ -986,6 +1035,11 @@ impl ActivityEvent {
         ActivityEvent::BackgroundTasks { tasks, at: None }
     }
 
+    /// EXP-927: the task-list slot — the agent's whole list, latest-wins.
+    pub fn task_list(entries: Vec<TaskListEntry>) -> Self {
+        ActivityEvent::TaskList { entries, at: None }
+    }
+
     /// EXP-861: the queue slot; an EMPTY list is the engine saying nothing
     /// is held any more (the bar closes), never silence.
     pub fn queue(messages: Vec<QueuedMessage>) -> Self {
@@ -1123,6 +1177,10 @@ impl ActivityEvent {
             ActivityEvent::BackgroundTasks { tasks, .. } => {
                 tasks.iter_mut().map(|task| &mut task.description).collect()
             }
+            // EXP-927: the entries are the agent's free text.
+            ActivityEvent::TaskList { entries, .. } => {
+                entries.iter_mut().map(|entry| &mut entry.content).collect()
+            }
             // EXP-861: the person's own words, still through the redactor
             // (a pasted token is a pasted token); the ids are machine fields.
             ActivityEvent::Queue { messages, .. } => {
@@ -1166,6 +1224,7 @@ impl ActivityEvent {
             | ActivityEvent::ToolUpdate { at, .. }
             | ActivityEvent::RateLimit { at, .. }
             | ActivityEvent::BackgroundTasks { at, .. }
+            | ActivityEvent::TaskList { at, .. }
             | ActivityEvent::Queue { at, .. }
             | ActivityEvent::Turn { at, .. } => at,
             ActivityEvent::Workflow(workflow) => &mut workflow.at,
@@ -3670,6 +3729,30 @@ mod exp850_tests {
 
     /// EXP-850 §2: the background-task slot, including the empty list that
     /// closes the strip.
+    /// EXP-927: the `task_list` slot, byte for byte the relay's zod shape.
+    #[test]
+    fn a_task_list_serializes_to_the_relay_schema() {
+        assert_eq!(
+            serde_json::to_string(&ActivityEvent::task_list(Vec::new())).unwrap(),
+            r#"{"kind":"task_list","entries":[]}"#
+        );
+        let event = ActivityEvent::task_list(vec![
+            TaskListEntry { content: "Read the issue".to_string(), status: TaskListStatus::Completed },
+            TaskListEntry { content: "Running the tests".to_string(), status: TaskListStatus::InProgress },
+            TaskListEntry { content: "Open the PR".to_string(), status: TaskListStatus::Pending },
+        ]);
+        let wire = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            wire,
+            r#"{"kind":"task_list","entries":[{"content":"Read the issue","status":"completed"},{"content":"Running the tests","status":"in_progress"},{"content":"Open the PR","status":"pending"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&wire).unwrap(), event);
+        assert_eq!(
+            TaskListStatus::ALL.map(TaskListStatus::as_str).as_slice(),
+            domain::contract::TASK_LIST_STATUS_VALUES
+        );
+    }
+
     #[test]
     fn background_tasks_serialize_to_the_relay_schema() {
         assert_eq!(

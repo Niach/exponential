@@ -65,8 +65,8 @@ use gpui::{
     bounce, div, ease_in_out, list, prelude::FluentBuilder as _, px, relative,
     AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
     Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
-    ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _,
-    Styled, Subscription, Task, Window,
+    ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
@@ -436,6 +436,13 @@ pub(crate) struct SteerSessionView {
     subagents: Vec<steer::SubagentSummary>,
     /// EXP-884: the §1/§2 strip lines, a whole-feed walk for open wait rows.
     strip_lines: Vec<crate::session_rows::StripLine>,
+    /// EXP-927 §2c: whether the task-list block at the head of the strip is
+    /// unfolded. VIEW state — never persisted, and never on the wire: the
+    /// block opens collapsed on every run, on every client.
+    task_list_expanded: bool,
+    /// EXP-927 §2c: the unfolded block scrolls past eight entries; the
+    /// handle keeps its offset across frames.
+    task_list_scroll: ScrollHandle,
     /// EXP-884: the §4 duplicate edges, asked per workflow row.
     duplicates: Vec<crate::session_rows::DuplicateWarning>,
     /// EXP-916: the edited-files cards whose `{n} more` half is unfolded,
@@ -686,6 +693,8 @@ impl SteerSessionView {
             derived_for: None,
             subagents: Vec::new(),
             strip_lines: Vec::new(),
+            task_list_expanded: false,
+            task_list_scroll: ScrollHandle::new(),
             duplicates: Vec::new(),
             expanded_cards: HashSet::new(),
             expanded_agents: HashSet::new(),
@@ -3908,36 +3917,12 @@ impl SteerSessionView {
     /// list's full width (the list measures it that way), so only the reading
     /// column is clamped.
     ///
-    /// The gutters are flex SPACERS, not padding: on a pane wide enough for
-    /// the whole measure they hold the token GUTTER (minus the list's own
-    /// 12px inset) either side of a 736px column, and on a narrow IDE split
-    /// they give way in proportion with the column instead of eating 96px of
-    /// a 400px pane — the web's `sm:` fallback, done the way gpui can.
+    /// EXP-927 moved that clamp into [`work_column_row`] — the tabs above the
+    /// transcript and the strip blocks below it take the same one now, so a
+    /// row here is the ladder gap and nothing else.
     fn transcript_row(&self, ix: usize, element: AnyElement) -> AnyElement {
-        let gutter = || {
-            div()
-                .flex_basis(px(transcript::GUTTER - 12.))
-                .flex_shrink(1.)
-                .min_w_0()
-        };
-        h_flex()
-            .w_full()
-            .justify_center()
+        work_column_row(element)
             .pt(self.row_gap(ix))
-            .child(gutter())
-            .child(
-                // EXP-877: the transcript is the SAME work column as the run
-                // header, the issue body and the diff page
-                // ([`crate::work_header::WORK_COLUMN_W`]) — the three faces of
-                // one tab must not each have their own measure, or switching
-                // between them shifts the text sideways.
-                div()
-                    .flex_basis(px(crate::work_header::WORK_COLUMN_W))
-                    .flex_shrink(1.)
-                    .min_w_0()
-                    .child(element),
-            )
-            .child(gutter())
             .into_any_element()
     }
 
@@ -5288,6 +5273,116 @@ impl SteerSessionView {
             .into_any_element()
     }
 
+    /// EXP-927 §2c — the agent's OWN task list, the FIRST block of the strip
+    /// (claude's `TodoWrite`, codex's plan — whatever the adapters hand the
+    /// engine as an ACP `Plan`). Hidden while it is empty or every entry is
+    /// done; collapsed by default to ONE line naming the current entry, and
+    /// unfolded to one line per entry, eight of them before it scrolls.
+    fn render_task_list_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        // The visibility rule and the collapsed read are ONE function ×4 (web
+        // `taskListSummary`), so a run says the same thing on every client.
+        let entries = self.feed.task_list();
+        let summary = crate::session_rows::task_list_summary(entries)?;
+        let muted = cx.theme().muted_foreground;
+        let foreground = cx.theme().foreground;
+        let expanded = self.task_list_expanded;
+        // The WHOLE line toggles; the chevron beside it only says so, it is
+        // not a second target.
+        let header = tool_text(h_flex())
+            .id("steer-task-list-toggle")
+            .w_full()
+            .min_w_0()
+            .gap_1p5()
+            .items_center()
+            .cursor_pointer()
+            .text_color(muted)
+            .child(
+                Icon::new(registry::UI_CHECKLIST)
+                    .xsmall()
+                    .text_color(muted.opacity(0.7)),
+            )
+            // The header names the current entry folded AND unfolded (wire
+            // doc §2c, the same line ×4).
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(SharedString::from(summary.current.clone())),
+            )
+            .child(div().flex_shrink_0().child(SharedString::from(format!(
+                "{}/{}",
+                summary.completed, summary.total
+            ))))
+            .child(
+                Icon::new(if expanded {
+                    registry::UI_CHEVRON_DOWN
+                } else {
+                    registry::UI_CHEVRON_UP
+                })
+                .xsmall()
+                .text_color(muted.opacity(0.7)),
+            )
+            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                this.task_list_expanded = !this.task_list_expanded;
+                cx.notify();
+            }));
+        let mut column = v_flex().w_full().min_w_0().gap_0p5().child(header);
+        if expanded {
+            let mut rows = v_flex().w_full().min_w_0().gap_0p5();
+            for entry in entries {
+                let done = entry.status == steer::TaskListStatus::Completed;
+                let running = entry.status == steer::TaskListStatus::InProgress;
+                let line = tool_text(h_flex())
+                    .w_full()
+                    .min_w_0()
+                    .gap_1p5()
+                    .items_center()
+                    // Only the entry the agent is ON reads at full strength.
+                    .text_color(if running { foreground } else { muted });
+                // A running entry gets the SPINNING `ui-loading`; the other
+                // two states are the static check and the empty circle.
+                let line = if running {
+                    line.child(Spinner::new().xsmall().icon(registry::UI_LOADING))
+                } else {
+                    let glyph = if done {
+                        registry::UI_SELECTED
+                    } else {
+                        registry::UI_UNSELECTED
+                    };
+                    line.child(Icon::new(glyph).xsmall().text_color(muted.opacity(0.7)))
+                };
+                rows = rows.child(
+                    line.child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            // A done entry reads struck through and dimmer
+                            // still: it is the list's progress, not a line to
+                            // read again.
+                            .when(done, |this| {
+                                this.line_through().text_color(muted.opacity(0.7))
+                            })
+                            .child(SharedString::from(entry.content.clone())),
+                    ),
+                );
+            }
+            // §2c: eight lines tall at most, then it scrolls — a fifty-entry
+            // list must not push the composer off the pane.
+            column = column.child(
+                div()
+                    .id("steer-task-list-entries")
+                    .w_full()
+                    .min_w_0()
+                    .max_h(px(TASK_LIST_MAX_ROWS * (transcript::TOOL_LINE_HEIGHT + 2.)))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.task_list_scroll)
+                    .child(rows),
+            );
+        }
+        Some(strip_block(column.into_any_element()).into_any_element())
+    }
+
     /// §1/§2 — the strip directly above the composer: one line per background
     /// task, one per OPEN wait row. `None` when there is neither.
     fn render_task_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
@@ -5297,14 +5392,7 @@ impl SteerSessionView {
             return None;
         }
         let muted = cx.theme().muted_foreground;
-        let mut column = v_flex()
-            .w_full()
-            .flex_shrink_0()
-            .gap_0p5()
-            .px_3()
-            .py_1p5()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
+        let mut column = v_flex().w_full().min_w_0().gap_0p5();
         for line in lines {
             let glyph = match line {
                 crate::session_rows::StripLine::Task(_) => registry::UI_REPEAT,
@@ -5326,7 +5414,7 @@ impl SteerSessionView {
                     ),
             );
         }
-        Some(column.into_any_element())
+        Some(strip_block(column.into_any_element()).into_any_element())
     }
 
     /// EXP-861: the messages the agent has not read yet — held behind an
@@ -5345,12 +5433,8 @@ impl SteerSessionView {
         let mut column = v_flex()
             .id("steer-queue-strip")
             .w_full()
-            .flex_shrink_0()
+            .min_w_0()
             .gap_0p5()
-            .px_3()
-            .py_1p5()
-            .border_t_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
             .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new(QUEUE_STRIP_TITLE).build(window, cx));
         for (index, message) in queued.iter().enumerate() {
             let id = message.id.clone();
@@ -5389,7 +5473,7 @@ impl SteerSessionView {
             }
             column = column.child(row);
         }
-        Some(column.into_any_element())
+        Some(strip_block(column.into_any_element()).into_any_element())
     }
 
     /// EXP-861: the × on a queued line. Local run → the engine drops it;
@@ -6137,11 +6221,10 @@ impl SteerSessionView {
         }
         let mut strip = h_flex()
             .w_full()
-            .flex_shrink_0()
+            .min_w_0()
             .flex_wrap()
             .gap_1()
             .items_center()
-            .px_2()
             .py_1()
             .child(
                 crate::surface::glass_pill(
@@ -6180,11 +6263,12 @@ impl SteerSessionView {
         let summary = active
             .as_deref()
             .and_then(|id| self.subagents.iter().find(|agent| agent.subagent_id == id));
+        // EXP-927: the tabs sit in the transcript's reading column, like
+        // every strip block ([`work_column_row`]); only the hairline under
+        // them still spans the panel.
         let column = v_flex()
             .w_full()
-            .flex_shrink_0()
-            .border_b_1()
-            .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+            .min_w_0()
             .child(strip)
             .when_some(summary, |this, summary| {
                 this.child(
@@ -6193,7 +6277,6 @@ impl SteerSessionView {
                         .min_w_0()
                         .gap_2()
                         .items_center()
-                        .px_3()
                         .pb_1p5()
                         .text_color(muted)
                         .child(Icon::new(registry::CODING_SUBAGENT).xsmall())
@@ -6244,7 +6327,16 @@ impl SteerSessionView {
                         }),
                 )
             });
-        Some(column.into_any_element())
+        Some(
+            div()
+                .w_full()
+                .flex_shrink_0()
+                .px_3()
+                .border_b_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                .child(work_column_row(column.into_any_element()))
+                .into_any_element(),
+        )
     }
 
     /// EXP-831: whether the status stack currently shows a rate-limit wall
@@ -7027,6 +7119,64 @@ fn body_text<E: Styled>(element: E) -> E {
         .line_height(px(transcript::BODY_LINE_HEIGHT))
 }
 
+/// EXP-927 §2c — how many task-list entries the unfolded block shows before
+/// it scrolls.
+const TASK_LIST_MAX_ROWS: f32 = 8.;
+
+/// EXP-927 — one block of the strip above the composer (the task list, the
+/// background tasks and waits, the queue bar): a hairline and the pane's
+/// padding spanning the PANEL, its content in the reading column
+/// ([`work_column_row`]). Every block shares the recipe, so they stack into
+/// one surface instead of three.
+fn strip_block(content: AnyElement) -> gpui::Div {
+    div()
+        .w_full()
+        .flex_shrink_0()
+        .px_3()
+        .py_1p5()
+        .border_t_1()
+        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .child(work_column_row(content))
+}
+
+/// EXP-787/EXP-927 — the reading column every part of the conversation takes:
+/// the work column ([`crate::work_header::WORK_COLUMN_W`], the same measure as
+/// the run header, the issue body and the diff page) centred between the
+/// transcript's two gutters, inside the pane's own 12px inset.
+///
+/// The gutters are flex SPACERS, not padding: on a pane wide enough for the
+/// whole measure they hold the token GUTTER (minus that inset) either side of
+/// the column, and on a narrow IDE split they give way in proportion with it
+/// instead of eating 96px of a 400px pane — the web's `sm:` fallback, done the
+/// way gpui can.
+///
+/// EXP-927 (§2c "Alignment"): the transcript rows
+/// ([`SteerSessionView::transcript_row`]) were the only thing that took it.
+/// The conversation TABS and every strip block (task list, tasks and waits,
+/// the queue bar) ran edge to edge under an 896px transcript and read as a
+/// different surface; they wrap their CONTENT in this now. Only the hairline
+/// borders and the backgrounds still span the panel.
+fn work_column_row(element: AnyElement) -> gpui::Div {
+    let gutter = || {
+        div()
+            .flex_basis(px(transcript::GUTTER - 12.))
+            .flex_shrink(1.)
+            .min_w_0()
+    };
+    h_flex()
+        .w_full()
+        .justify_center()
+        .child(gutter())
+        .child(
+            div()
+                .flex_basis(px(crate::work_header::WORK_COLUMN_W))
+                .flex_shrink(1.)
+                .min_w_0()
+                .child(element),
+        )
+        .child(gutter())
+}
+
 /// EXP-787 — the transcript's TOOL rung: tool rows, group captions, permission
 /// rows, the compaction divider, "Working…". 12/18. The 11px `text_2xs`
 /// captions that hang UNDER one of these (a tool's argument, a subagent's
@@ -7305,6 +7455,9 @@ impl Render for SteerSessionView {
         // EXP-850 §1/§2: the background-task / waiting strip sits directly
         // above the composer, under everything else. EXP-861: the queue bar
         // goes between it and the composer — the last thing above the field.
+        // EXP-927 §2c: the agent's own task list is the FIRST block of that
+        // strip, above the tasks and waits.
+        let task_list = self.render_task_list_strip(cx);
         let tasks = self.render_task_strip(cx);
         // The strip follows the RUN, not the composer: with a question or
         // plan card pending (EXP-820 hides the field) a held message is still
@@ -7336,6 +7489,7 @@ impl Render for SteerSessionView {
                 .children(banners)
                 .children(compacting)
                 .children(rate_limit)
+                .children(task_list)
                 .children(tasks)
                 .children(queue)
                 .children(composer)

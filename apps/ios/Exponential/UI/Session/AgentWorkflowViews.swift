@@ -88,12 +88,18 @@ struct WorkingIndicatorRow: View {
 /// background task (`↻ {description}`) and one per OPEN wait row (`Waiting on
 /// {detail}`). Absent when both are empty; the wait row itself stays an
 /// ordinary tool row in the transcript.
+///
+/// EXP-927 §2c: the agent's own task list is the FIRST block of the same strip,
+/// above those lines — and a background task of kind `agent` is a conversation
+/// TAB, so `stripLines` never hands one down.
 struct AgentBottomStrip: View {
     let lines: [AgentStripLine]
+    let taskList: [AgentTaskListEntry]
 
     var body: some View {
-        if !lines.isEmpty {
+        if !lines.isEmpty || AgentFeed.taskListSummary(taskList) != nil {
             VStack(alignment: .leading, spacing: 4) {
+                AgentTaskListBlock(entries: taskList)
                 ForEach(lines) { line in
                     HStack(spacing: 8) {
                         AppIcon(glyph(line), size: 11)
@@ -110,8 +116,12 @@ struct AgentBottomStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .glassRow()
-            .padding(.horizontal, 14)
-            .accessibilityElement(children: .combine)
+            // EXP-927 §2c "Alignment": the strip reads in the transcript's
+            // column, not the panel's full width.
+            .transcriptColumn()
+            // EXP-927: `.contain`, not `.combine` — the task-list line is a
+            // control now, and combining would swallow it.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("agent-background-strip")
         }
     }
@@ -121,6 +131,128 @@ struct AgentBottomStrip: View {
         case .backgroundTask: AppIcons.uiRepeat
         case .wait: AppIcons.uiClock
         }
+    }
+}
+
+/// EXP-927 §2c: the agent's OWN task list (claude's TodoWrite, codex's plan) —
+/// the first block of the bottom strip. Hidden while the list is empty or every
+/// entry is done. Collapsed by default: ONE line with the current entry and a
+/// trailing `{completed}/{total}`, the whole line toggling it open; expanded:
+/// one line per entry in wire order, eight tall at most and then it scrolls.
+/// The expansion is view state, never persisted.
+struct AgentTaskListBlock: View {
+    let entries: [AgentTaskListEntry]
+
+    /// A place in the strip, not session state (web `useState`, desktop the
+    /// same): a fresh screen opens collapsed.
+    @State private var expanded = false
+    @Environment(\.motion) private var motion
+
+    /// One expanded line, and how many of them the block shows before it
+    /// scrolls (§2c: "at most 8 lines tall").
+    private static let rowHeight: CGFloat = 20
+    private static let maxVisibleRows = 8
+
+    var body: some View {
+        if let summary = AgentFeed.taskListSummary(entries) {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    expanded.toggle()
+                } label: {
+                    collapsedLine(summary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("agent-task-list-toggle")
+                if expanded {
+                    expandedList
+                }
+            }
+            .animation(motion.standard, value: expanded)
+            .accessibilityIdentifier("agent-task-list")
+        }
+    }
+
+    private func collapsedLine(_ summary: AgentTaskListSummary) -> some View {
+        HStack(spacing: 8) {
+            AppIcon(AppIcons.uiChecklist, size: 11)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            Text(summary.current)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Text("\(summary.completed)/\(summary.total)")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronUp, size: 10)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+        .frame(height: Self.rowHeight)
+        .contentShape(Rectangle())
+    }
+
+    private var expandedList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // The list is positional — the agent rewrites it whole.
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    entryLine(entry)
+                }
+            }
+        }
+        .frame(height: Self.rowHeight * CGFloat(min(entries.count, Self.maxVisibleRows)))
+        .scrollDisabled(entries.count <= Self.maxVisibleRows)
+    }
+
+    private func entryLine(_ entry: AgentTaskListEntry) -> some View {
+        HStack(spacing: 8) {
+            glyph(entry)
+            Text(entry.content)
+                .font(.caption)
+                .strikethrough(entry.status == .completed)
+                .foregroundStyle(.white.opacity(
+                    entry.status == .inProgress ? TextOpacity.primary : TextOpacity.tertiary
+                ))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .frame(height: Self.rowHeight)
+    }
+
+    @ViewBuilder
+    private func glyph(_ entry: AgentTaskListEntry) -> some View {
+        switch entry.status {
+        case .completed:
+            AppIcon(AppIcons.uiSelected, size: 11)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        case .inProgress:
+            SpinningGlyph()
+        case .pending:
+            AppIcon(AppIcons.uiUnselected, size: 11)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+    }
+}
+
+/// EXP-927: the `ui-loading` concept, turning — what an `in_progress` task-list
+/// entry wears (web spins the same glyph). Static under Reduce Motion.
+private struct SpinningGlyph: View {
+    @Environment(\.motion) private var motion
+    @State private var turning = false
+
+    var body: some View {
+        AppIcon(AppIcons.uiLoading, size: 11)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .rotationEffect(.degrees(turning ? 360 : 0))
+            .onAppear {
+                guard !motion.reduceMotion else { return }
+                withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
+                    turning = true
+                }
+            }
     }
 }
 
@@ -165,7 +297,9 @@ struct AgentQueueStrip: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .glassRow()
-        .padding(.horizontal, 14)
+        // EXP-927 §2c "Alignment": the same reading column as the strip above
+        // it and the transcript above that.
+        .transcriptColumn()
         .accessibilityElement(children: .contain)
         .accessibilityLabel(AgentFeed.queueStripTitle)
         .accessibilityIdentifier("agent-queue-strip")

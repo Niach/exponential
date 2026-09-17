@@ -63,6 +63,7 @@ pub const SUBAGENT_STATUS_VALUES: &[&str] = &["started", "completed", "duplicate
 pub const WORKFLOW_AGENT_STATE_VALUES: &[&str] = &["queued", "running", "done", "error"];
 pub const WORKFLOW_STATUS_VALUES: &[&str] = &["running", "completed", "failed", "stopped"];
 pub const BACKGROUND_TASK_KIND_VALUES: &[&str] = &["shell", "workflow", "agent", "other"];
+pub const TASK_LIST_STATUS_VALUES: &[&str] = &["pending", "in_progress", "completed"];
 pub const STEER_WORKING_VERBS: &[&str] = &["Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating", "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling", "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling", "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating"];
 pub const STEER_WORKING_TOKEN_TICK_MS: i64 = 2000;
 pub const STEER_WORKING_PREVIEW_MAX: usize = 160;

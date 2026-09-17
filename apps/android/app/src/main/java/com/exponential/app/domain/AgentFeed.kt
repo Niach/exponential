@@ -410,6 +410,49 @@ fun openWaitLabels(feed: List<AgentFeedItem>): List<String> = feed
     .filter { it.toolKind == TOOL_KIND_WAIT && !it.settled }
     .map { it.detail?.takeIf { d -> d.isNotBlank() } ?: it.name }
 
+// ── EXP-927: the agent's own task list, as a latest-wins slot ───────────────
+//
+// claude's `TodoWrite` / `Task*` hooks and codex's plan, main thread only —
+// everything the adapters already hand the engine as an ACP `Plan` update. The
+// device publishes the WHOLE list in order; it renders as the FIRST block of
+// the strip above the composer. Mirrored ×4 (web `lib/agent-feed.ts`, iOS
+// `AgentFeed`, desktop `session_rows::task_list_summary`).
+
+/** The relay's `TASK_LIST_MAX`, re-applied here: the wire is a device's word,
+ *  not ours. */
+const val TASK_LIST_MAX = 50
+
+/** EXP-927: one entry of the list — [status] is a contract `taskListStatus`
+ *  value, anything else reading as [TASK_LIST_STATUS_PENDING]. */
+data class TaskListEntry(val content: String, val status: String)
+
+const val TASK_LIST_STATUS_PENDING = "pending"
+const val TASK_LIST_STATUS_IN_PROGRESS = "in_progress"
+const val TASK_LIST_STATUS_COMPLETED = "completed"
+
+/** EXP-927 (wire doc §2c): what the COLLAPSED task-list line says.
+ *  [current] = the first `in_progress` entry, else the first `pending` one. */
+data class TaskListSummary(val current: String, val completed: Int, val total: Int)
+
+/** EXP-927: the collapsed line, or null when the block is HIDDEN — no entries,
+ *  or every one of them completed. Byte-identical rule ×4. */
+fun taskListSummary(entries: List<TaskListEntry>): TaskListSummary? {
+    val open = entries.filter { it.status != TASK_LIST_STATUS_COMPLETED }
+    if (open.isEmpty()) return null
+    val current = open.firstOrNull { it.status == TASK_LIST_STATUS_IN_PROGRESS } ?: open.first()
+    return TaskListSummary(
+        current = current.content,
+        completed = entries.size - open.size,
+        total = entries.size,
+    )
+}
+
+/** EXP-927: the background tasks the STRIP lists. A task of kind `agent` is a
+ *  subagent, and a subagent is a conversation TAB (Main + one per running
+ *  lane) — the strip never lists it. The waits stay. */
+fun stripBackgroundTasks(tasks: List<BackgroundTask>): List<BackgroundTask> =
+    tasks.filter { it.kind != BACKGROUND_TASK_KIND_AGENT }
+
 /**
  * EXP-846: what an EXPONENTIAL MCP tool call returned, as the engine read it
  * out of the tool's JSON result and published on the call's `tool_update`
@@ -1380,6 +1423,9 @@ data class ActivityFeedState(
     /** EXP-850 (S2): what the machine is running in the background, as ONE
      *  latest-wins list — an empty one closes the strip above the composer. */
     val backgroundTasks: List<BackgroundTask> = emptyList(),
+    /** EXP-927: the agent's OWN task list, the same latest-wins rule — an
+     *  empty one (or an all-completed one) closes the block above the tasks. */
+    val taskList: List<TaskListEntry> = emptyList(),
     /** EXP-861: what the device holds for the agent's next turn, as ONE
      *  latest-wins list — an empty one closes the queue bar above the
      *  composer. Reset with the other slots: replay swap, session end. */
@@ -1759,6 +1805,32 @@ fun ActivityFeedState.applyActivityEvent(
                         toolId = task.str("toolId")?.takeIf { it.isNotBlank() },
                     )
                 },
+            )
+        }
+    }
+    // EXP-927: the agent's own task list, folded exactly like
+    // `background_tasks` — an EMPTY array closes the block, only a payload
+    // that is not an array at all leaves the previous list standing. An entry
+    // with no text cannot be rendered, and a status this build cannot name
+    // reads as pending rather than dropping the line.
+    "task_list" -> {
+        val raw = event["entries"] as? JsonArray
+        if (raw == null) {
+            this
+        } else {
+            copy(
+                taskList = raw.orEmptyList { entry ->
+                    val content = entry.str("content")?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.take(DomainContract.steerWorkingPreviewMax)
+                        ?: return@orEmptyList null
+                    TaskListEntry(
+                        content = content,
+                        status = entry.str("status")
+                            ?.takeIf { it in DomainContract.taskListStatusValues }
+                            ?: TASK_LIST_STATUS_PENDING,
+                    )
+                }.take(TASK_LIST_MAX),
             )
         }
     }

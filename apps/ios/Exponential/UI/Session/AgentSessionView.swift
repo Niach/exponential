@@ -21,9 +21,11 @@ import UniformTypeIdentifiers
 /// (`.changes`, `SessionDiffList` + the Merge bar).
 /// The feed's scroll constants — outside the view because it is generic over
 /// its switcher slot (EXP-893) and a generic type cannot hold stored statics.
-private enum AgentSessionLayout {
+enum AgentSessionLayout {
     static let bottomAnchor = "feed-bottom"
     static let feedCoordSpace = "feed-scroll"
+    /// EXP-787: the transcript's own inset, INSIDE the reading column.
+    static let gutter: CGFloat = 16
     /// Within this many points of the bottom still counts as pinned (Android
     /// carries 96dp, EXP-529): a pixel-tight slack made the "Jump to bottom"
     /// pill hard to dismiss — a short drag had to land on the exact bottom to
@@ -32,6 +34,26 @@ private enum AgentSessionLayout {
     /// only appear after a deliberate scroll-up and hide again well before
     /// the finger reaches the true end.
     static let followSlack: CGFloat = 120
+}
+
+// EXP-927 (wire doc §2c "Alignment"): the transcript is a reading measure, and
+// everything stacked with it above the composer — the conversation tab row and
+// every strip block — sits in the SAME column. One helper, the shared
+// `DesignTokens.Transcript.maxWidth` cap: a second constant is how a phone's
+// gutters and an iPad's column drift apart.
+extension View {
+    /// Gutter + cap, centred in whatever is wider.
+    func transcriptColumn() -> some View {
+        padding(.horizontal, AgentSessionLayout.gutter).transcriptColumnWidth()
+    }
+
+    /// The cap alone — for a row that must carry its gutter INSIDE itself (a
+    /// horizontally scrolling tab strip: the padding belongs to the content,
+    /// not to the scroll view).
+    func transcriptColumnWidth() -> some View {
+        frame(maxWidth: DesignTokens.Transcript.maxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
+    }
 }
 
 struct AgentSessionView<Switcher: View>: View {
@@ -164,7 +186,8 @@ struct AgentSessionView<Switcher: View>: View {
         compactionStrip(model)
         // EXP-850 §1/§2: the monitors and background shell commands,
         // directly above the composer. Absent when there is nothing running.
-        AgentBottomStrip(lines: model.visibleStripLines)
+        // EXP-927 §2c: the agent's own task list is the strip's first block.
+        AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
         // EXP-861: the messages the device holds until the turn ends, each
         // with an X that revokes it. Absent when nothing is queued or the run
         // is over.
@@ -791,9 +814,12 @@ struct AgentSessionView<Switcher: View>: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, AgentSessionLayout.gutter)
                 .padding(.vertical, 6)
             }
+            // EXP-927 §2c "Alignment": the tabs read in the transcript's
+            // column — the gutter rides inside the scrolling content.
+            .transcriptColumnWidth()
         }
     }
 
@@ -927,15 +953,14 @@ struct AgentSessionView<Switcher: View>: View {
                             .frame(height: 1)
                             .id(AgentSessionLayout.bottomAnchor)
                     }
-                    .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     // EXP-787: a transcript is a reading measure. The 16pt
                     // screen inset stays, but the column caps at the shared
                     // `maxWidth` and centres inside whatever is wider — a
                     // landscape phone or an iPad must not stretch prose edge
-                    // to edge.
-                    .frame(maxWidth: DesignTokens.Transcript.maxWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity)
+                    // to edge. EXP-927: the tab row and the strips above the
+                    // composer take the same column.
+                    .transcriptColumn()
                     .frame(minHeight: geo.size.height, alignment: .bottom)
                     .background(
                         GeometryReader { content in

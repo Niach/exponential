@@ -10,6 +10,12 @@ import com.exponential.app.domain.QUEUE_REMOVE_LABEL
 import com.exponential.app.domain.QUEUE_STRIP_TITLE
 import com.exponential.app.domain.QueuedMessage
 import com.exponential.app.domain.clearQueue
+import com.exponential.app.domain.TASK_LIST_MAX
+import com.exponential.app.domain.TASK_LIST_STATUS_COMPLETED
+import com.exponential.app.domain.TASK_LIST_STATUS_PENDING
+import com.exponential.app.domain.TaskListEntry
+import com.exponential.app.domain.stripBackgroundTasks
+import com.exponential.app.domain.taskListSummary
 import com.exponential.app.domain.TOOL_KIND_WAIT
 import com.exponential.app.domain.WORKFLOW_AGENT_STATE_DONE
 import com.exponential.app.domain.WORKFLOW_AGENT_STATE_ERROR
@@ -1796,6 +1802,107 @@ class AgentFeedTest {
             event("""{"kind":"tool","name":"Monitor","id":"toolu_2","toolKind":"wait"}"""),
         )
         assertEquals(listOf("Monitor"), openWaitLabels(state.feed))
+    }
+
+    // ── EXP-927: the task list and the strip without agents ─────────────────
+
+    @Test
+    fun `the task list is a latest-wins slot an empty list closes`() {
+        val state = ActivityFeedState().applying(
+            event(
+                """{"kind":"task_list","entries":[{"content":"Read the spec","status":"completed"},""" +
+                    """{"content":"Running the tests","status":"in_progress"},""" +
+                    """{"content":"Open the PR","status":"pending"}]}""",
+            ),
+        )
+        assertTrue(state.feed.isEmpty())
+        assertEquals(
+            listOf("Read the spec", "Running the tests", "Open the PR"),
+            state.taskList.map { it.content },
+        )
+        val summary = taskListSummary(state.taskList)!!
+        assertEquals("Running the tests", summary.current)
+        assertEquals(1, summary.completed)
+        assertEquals(3, summary.total)
+        val closed = state.applying(event("""{"kind":"task_list","entries":[]}"""))
+        assertTrue(closed.taskList.isEmpty())
+        assertNull(taskListSummary(closed.taskList))
+    }
+
+    @Test
+    fun `a task entry with no text is dropped and an unknown status reads as pending`() {
+        val state = ActivityFeedState().applying(
+            event(
+                """{"kind":"task_list","entries":[{"content":"  ","status":"pending"},""" +
+                    """{"status":"in_progress"},{"content":"Ship it","status":"quantum"}]}""",
+            ),
+        )
+        val entry = state.taskList.single()
+        assertEquals("Ship it", entry.content)
+        assertEquals(TASK_LIST_STATUS_PENDING, entry.status)
+        // No `entries` array at all: the previous list survives.
+        val kept = state.applying(event("""{"kind":"task_list"}"""))
+        assertEquals(1, kept.taskList.size)
+    }
+
+    @Test
+    fun `the task list is capped and its content clamped to the preview max`() {
+        val long = "x".repeat(400)
+        val entries = (0 until TASK_LIST_MAX + 12).joinToString(",") {
+            """{"content":"$long","status":"pending"}"""
+        }
+        val state = ActivityFeedState()
+            .applying(event("""{"kind":"task_list","entries":[$entries]}"""))
+        assertEquals(TASK_LIST_MAX, state.taskList.size)
+        assertEquals(
+            DomainContract.steerWorkingPreviewMax,
+            state.taskList.first().content.length,
+        )
+    }
+
+    @Test
+    fun `an all-completed task list hides the block`() {
+        val state = ActivityFeedState().applying(
+            event(
+                """{"kind":"task_list","entries":[{"content":"One","status":"completed"},""" +
+                    """{"content":"Two","status":"completed"}]}""",
+            ),
+        )
+        assertEquals(2, state.taskList.size)
+        assertNull(taskListSummary(state.taskList))
+    }
+
+    @Test
+    fun `the current entry falls back to the first pending one`() {
+        val summary = taskListSummary(
+            listOf(
+                TaskListEntry("Done", TASK_LIST_STATUS_COMPLETED),
+                TaskListEntry("Next", TASK_LIST_STATUS_PENDING),
+                TaskListEntry("Later", TASK_LIST_STATUS_PENDING),
+            ),
+        )!!
+        assertEquals("Next", summary.current)
+        assertEquals(1, summary.completed)
+        assertEquals(3, summary.total)
+    }
+
+    @Test
+    fun `the strip skips subagent tasks and keeps the rest`() {
+        val state = ActivityFeedState().applying(
+            event(
+                """{"kind":"background_tasks","tasks":[{"id":"b1","kind":"agent",""" +
+                    """"description":"slowpoke"},{"id":"b2","kind":"shell",""" +
+                    """"description":"Sleep in the background"},{"id":"b3","kind":"workflow",""" +
+                    """"description":"Release train"}]}""",
+            ),
+        )
+        // The slot itself keeps every task — only the STRIP drops the lanes,
+        // which are conversation tabs instead.
+        assertEquals(3, state.backgroundTasks.size)
+        assertEquals(
+            listOf("b2", "b3"),
+            stripBackgroundTasks(state.backgroundTasks).map { it.id },
+        )
     }
 
     @Test

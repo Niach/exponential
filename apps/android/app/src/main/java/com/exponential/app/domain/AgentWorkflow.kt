@@ -23,6 +23,10 @@ data class BackgroundTask(
 
 const val BACKGROUND_TASK_KIND_OTHER = "other"
 
+/** EXP-927: a background task of this kind is a SUBAGENT — a conversation tab,
+ *  never a strip line (see [stripBackgroundTasks]). */
+const val BACKGROUND_TASK_KIND_AGENT = "agent"
+
 /** EXP-850 (S3): one phase of a workflow — latest-wins per [index]. */
 data class WorkflowPhase(val index: Int, val title: String)
 

@@ -712,6 +712,19 @@ fn blocking_tasks(state: &State) -> impl Iterator<Item = (&String, &TaskEntry)> 
     })
 }
 
+/// The live tasks [`ClaudeAgent::expire_tasks`] retires: past
+/// [`TASK_MAX_LIFETIME`] AND absent from the CLI's latest `background_tasks`
+/// list (EXP-927 — a listed task is running, however old).
+fn expired_tasks(state: &State) -> Vec<String> {
+    state
+        .tasks
+        .iter()
+        .filter(|(_, task)| task.live && task.started_at.elapsed() >= TASK_MAX_LIFETIME)
+        .filter(|(task_id, _)| !state.background_tasks.iter().any(|listed| listed.id == **task_id))
+        .map(|(task_id, _)| task_id.clone())
+        .collect()
+}
+
 /// How long the defer timer sleeps: until the YOUNGEST blocking task — the
 /// last one to reach [`TASK_MAX_LIFETIME`] — has expired, plus a second so
 /// the sleep lands strictly past the expiry it is meant to observe. With no
@@ -1380,14 +1393,16 @@ impl ClaudeSession {
     /// `failed` edge for each: the client's subagent card stops spinning and
     /// the mapper drops its per-subagent bookkeeping, which otherwise only
     /// ever clears on a terminal edge the CLI may never send.
+    ///
+    /// EXP-927: never a task the CLI's latest `background_tasks` list still
+    /// NAMES. The lifetime exists so a dropped notification cannot defer a
+    /// settle forever ([`blocking_tasks`] ages a task out on its own); it says
+    /// nothing about whether the task runs. A background lane that works for
+    /// longer than the lifetime used to get this `failed` edge mid-run, which
+    /// closed its conversation tab on every client while the strip went on
+    /// listing it. Such a task is retired the moment the list drops it.
     fn expire_tasks(&self, cx: &ConnectionTo<Client>, state: &mut State) {
-        let expired: Vec<String> = state
-            .tasks
-            .iter()
-            .filter(|(_, task)| task.live && task.started_at.elapsed() >= TASK_MAX_LIFETIME)
-            .map(|(task_id, _)| task_id.clone())
-            .collect();
-        for task_id in expired {
+        for task_id in expired_tasks(state) {
             let Some(task) = state.tasks.get_mut(&task_id) else { continue };
             task.live = false;
             if task.last_status.as_deref() == Some("failed") {
@@ -2403,6 +2418,9 @@ impl ClaudeSession {
                         return;
                     }
                     state.background_tasks = tasks;
+                    // EXP-927: an overdue task the list just DROPPED is over,
+                    // whether or not its notification ever arrives.
+                    self.expire_tasks(cx, &mut state);
                 }
                 self.publish_background_tasks(cx);
             }
@@ -2815,7 +2833,9 @@ impl ClaudeSession {
         // entries when their results arrive — neither surfaces a tool call.
         if name == "TodoWrite" {
             let entries = todo_entries(&input);
-            if !entries.is_empty() {
+            // EXP-927: the plan lane is the MAIN thread's list (the strip's
+            // first block ×4); a subagent's own list never replaces it.
+            if !entries.is_empty() && parent.is_none() {
                 self.notify(cx, SessionUpdate::Plan(Plan::new(entries)));
             }
             return;
@@ -5269,6 +5289,32 @@ mod tests {
         state.tasks.clear();
         state.tasks.insert("t-done".to_string(), task(4, false, Duration::ZERO));
         assert_eq!(blocking_tasks(&state).count(), 0);
+    }
+
+    /// EXP-927: a lane that outlives the lifetime keeps its tab for as long as
+    /// the CLI's own list names it — it stops DEFERRING the settle, nothing
+    /// more — and is retired the moment the list drops it.
+    #[test]
+    fn an_overdue_task_the_cli_still_lists_is_not_retired() {
+        let mut state = State { turn_seq: 4, ..State::default() };
+        let overdue = TASK_MAX_LIFETIME + Duration::from_secs(1);
+        state.tasks.insert("lane".to_string(), task(4, true, overdue));
+        state.tasks.insert("lost".to_string(), task(4, true, overdue));
+        state.tasks.insert("young".to_string(), task(4, true, Duration::ZERO));
+        state.background_tasks = vec![steer::BackgroundTask {
+            id: "lane".to_string(),
+            kind: steer::BackgroundTaskKind::Agent,
+            description: "web lane".to_string(),
+            tool_id: None,
+        }];
+        assert_eq!(expired_tasks(&state), vec!["lost".to_string()]);
+        // Neither overdue task defers the settle any more.
+        assert_eq!(blocking_tasks(&state).count(), 1);
+
+        state.background_tasks.clear();
+        let mut expired = expired_tasks(&state);
+        expired.sort();
+        assert_eq!(expired, vec!["lane".to_string(), "lost".to_string()]);
     }
 
     /// The defer timer is sized for the LAST blocking task to expire: an

@@ -298,6 +298,17 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
     ],
   },
   { kind: `usage`, contextUsed: 122_000, contextSize: 200_000, costUsd: 1.42 },
+  // EXP-927: the agent's own task list — the bottom strip's first block
+  // (collapsed: the current entry + `2/4`).
+  {
+    kind: `task_list`,
+    entries: [
+      { content: `Profile the cold start`, status: `completed` },
+      { content: `Defer the snapshot cache warm-up`, status: `completed` },
+      { content: `Measuring on the Galaxy A54`, status: `in_progress` },
+      { content: `Open the PR`, status: `pending` },
+    ],
+  },
   {
     kind: `question`,
     id: `q-lazy-markdown`,

@@ -144,6 +144,9 @@ import {
   type SessionRateLimitState,
   type SessionUsageState,
   type BackgroundStripLine,
+  type TaskListEntry,
+  type TaskListSummary,
+  taskListSummary,
   type SubagentSummary,
   type TranscriptGapToken,
   type WorkflowState,
@@ -217,6 +220,9 @@ const UiPermissionIcon = conceptIcon(`ui-permission`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
+const UiChecklistIcon = conceptIcon(`ui-checklist`)
+const UiChevronUpIcon = conceptIcon(`ui-chevron-up`)
+const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
 const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
@@ -425,6 +431,7 @@ export function AgentSessionView({
     turnStartedAt,
     turnTokens,
     backgroundTasks,
+    taskList,
     queue,
     workflows,
     runningWorkflow,
@@ -1329,7 +1336,15 @@ export function AgentSessionView({
           {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
               (ended tabs are dropped, EXP-387). */}
           {visibleTabs.length > 0 && (
-            <div className="flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1">
+            // EXP-927: in the transcript's reading column, like the strips
+            // below — never the panel's full width.
+            <div className="shrink-0 py-1" data-testid="session-agent-tabs">
+            <div
+              className={cn(
+                TRANSCRIPT_COLUMN,
+                `flex items-center gap-1 overflow-x-auto`
+              )}
+            >
               <AgentTab
                 label="Main"
                 active={activeAgent === null}
@@ -1344,6 +1359,7 @@ export function AgentSessionView({
                   onClick={() => setAgentTab(agent.subagentId)}
                 />
               ))}
+            </div>
             </div>
           )}
           {/* The activity feed (bottom-anchored, follow-scroll) */}
@@ -1747,9 +1763,16 @@ export function AgentSessionView({
             />
           )}
           {phase.kind === `starting` && !paused && feed.length > 0 && (
-            <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-              <UiLoadingIcon className="size-3 animate-spin" />
-              The agent is starting. Waiting for the live stream…
+            <div className="border-t border-border/60 py-2">
+              <div
+                className={cn(
+                  TRANSCRIPT_COLUMN,
+                  `flex items-center gap-1.5 text-xs text-muted-foreground`
+                )}
+              >
+                <UiLoadingIcon className="size-3 animate-spin" />
+                The agent is starting. Waiting for the live stream…
+              </div>
             </div>
           )}
 
@@ -1758,8 +1781,9 @@ export function AgentSessionView({
               version renders inside the scroll wrapper above. */}
 
           {/* EXP-850 §1/§2: monitors and background shell commands, right
-              above the composer. */}
-          <BackgroundStrip lines={stripLines} />
+              above the composer. EXP-927: led by the agent's own task list;
+              background AGENTS are the tabs above, never lines here. */}
+          <BackgroundStrip lines={stripLines} taskList={taskList} />
 
           {/* EXP-861: the messages the agent has not read yet — held behind a
               compaction (an X revokes one and hands the text back to an
@@ -2013,35 +2037,121 @@ function WorkingIndicatorRow({
   )
 }
 
-/** EXP-850 §1/§2: the strip directly above the composer — one line per
- *  background task the CLI is running (`↻`, the repeat concept) and one per
- *  OPEN `wait` tool row ("Waiting on …"). Absent when both are empty; the
- *  wait row itself stays an ordinary tool row in the transcript. */
-function BackgroundStrip({ lines }: { lines: BackgroundStripLine[] }) {
-  if (lines.length === 0) return null
+/** EXP-850 §1/§2: the strip directly above the composer — the agent's own
+ *  task list first (EXP-927, wire doc §2c), then one line per background task
+ *  the CLI is running (`↻`, the repeat concept; never an AGENT — a subagent
+ *  is a conversation tab) and one per OPEN `wait` tool row ("Waiting on …").
+ *  Absent when all three are empty; the wait row itself stays an ordinary
+ *  tool row in the transcript. The content sits in the transcript's reading
+ *  column; only the hairline spans the panel. */
+function BackgroundStrip({
+  lines,
+  taskList,
+}: {
+  lines: BackgroundStripLine[]
+  taskList: TaskListEntry[]
+}) {
+  const summary = useMemo(() => taskListSummary(taskList), [taskList])
+  if (lines.length === 0 && summary === null) return null
   return (
     <div
-      className="flex flex-col gap-0.5 border-t border-border/60 px-3 py-1.5"
+      className="border-t border-border/60 py-1.5"
       data-testid="session-background-strip"
     >
-      {lines.map((line) => (
-        <div
-          key={line.key}
-          className={cn(
-            `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
-            TRANSCRIPT_TOOL_TEXT
-          )}
-        >
-          {line.kind === `task` ? (
-            <UiRepeatIcon className="size-3 shrink-0" />
-          ) : (
-            <UiLoadingIcon className="size-3 shrink-0 motion-safe:animate-spin" />
-          )}
-          <span className="min-w-0 truncate" title={line.text}>
-            {line.text}
-          </span>
+      <div className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
+        {summary !== null && (
+          <TaskListBlock entries={taskList} summary={summary} />
+        )}
+        {lines.map((line) => (
+          <div
+            key={line.key}
+            className={cn(
+              `flex min-w-0 items-center gap-1.5 text-muted-foreground`,
+              TRANSCRIPT_TOOL_TEXT
+            )}
+          >
+            {line.kind === `task` ? (
+              <UiRepeatIcon className="size-3 shrink-0" />
+            ) : (
+              <UiLoadingIcon className="size-3 shrink-0 motion-safe:animate-spin" />
+            )}
+            <span className="min-w-0 truncate" title={line.text}>
+              {line.text}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** EXP-927 (wire doc §2c): the agent's OWN task list. Collapsed (the default)
+ *  it is ONE line — the current entry and `done/total`; the whole line toggles
+ *  the full list, at most eight lines tall. View state, never persisted. */
+function TaskListBlock({
+  entries,
+  summary,
+}: {
+  entries: TaskListEntry[]
+  summary: TaskListSummary
+}) {
+  const [open, setOpen] = useState(false)
+  const Chevron = open ? UiChevronDownIcon : UiChevronUpIcon
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5" data-testid="session-task-list">
+      <Button
+        variant="ghost"
+        className={cn(
+          `h-auto w-full min-w-0 justify-start gap-1.5 rounded-sm p-0 text-left font-normal has-[>svg]:px-0 text-muted-foreground hover:bg-transparent hover:text-foreground`,
+          TRANSCRIPT_TOOL_TEXT
+        )}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <UiChecklistIcon className="size-3 shrink-0" />
+        <span className="min-w-0 flex-1 truncate" title={summary.current}>
+          {summary.current}
+        </span>
+        <span className="shrink-0 tabular-nums">
+          {summary.completed}/{summary.total}
+        </span>
+        <Chevron className="size-3 shrink-0" />
+      </Button>
+      {open && (
+        <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto overscroll-contain">
+          {entries.map((entry, index) => (
+            <div
+              // The list is positional: the agent rewrites it whole.
+              key={index}
+              className={cn(
+                `flex min-w-0 items-center gap-1.5`,
+                TRANSCRIPT_TOOL_TEXT,
+                entry.status === `in_progress`
+                  ? `text-foreground`
+                  : `text-muted-foreground`,
+                entry.status === `completed` && `opacity-60`
+              )}
+            >
+              {entry.status === `completed` ? (
+                <UiSelectedIcon className="size-3 shrink-0" />
+              ) : entry.status === `in_progress` ? (
+                <UiLoadingIcon className="size-3 shrink-0 motion-safe:animate-spin" />
+              ) : (
+                <UiUnselectedIcon className="size-3 shrink-0" />
+              )}
+              <span
+                className={cn(
+                  `min-w-0 truncate`,
+                  entry.status === `completed` && `line-through`
+                )}
+                title={entry.content}
+              >
+                {entry.content}
+              </span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   )
 }
@@ -2061,10 +2171,12 @@ function QueueStrip({
   if (messages.length === 0) return null
   return (
     <div
-      className="flex flex-col gap-0.5 border-t border-border/60 px-3 py-1.5"
+      className="border-t border-border/60 py-1.5"
       aria-label={QUEUE_STRIP_TITLE}
       data-testid="session-queue-strip"
     >
+      {/* EXP-927: the transcript's reading column, like the strip above. */}
+      <div className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-0.5`)}>
       {messages.map((entry) => (
         <div
           key={entry.id}
@@ -2091,6 +2203,7 @@ function QueueStrip({
           )}
         </div>
       ))}
+      </div>
     </div>
   )
 }

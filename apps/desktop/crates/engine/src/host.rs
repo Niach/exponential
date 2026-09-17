@@ -646,6 +646,8 @@ struct FeedState {
     /// EXP-850 §2: the bottom strip's list — the FULL current set every time,
     /// so only the newest frame matters.
     background_tasks: Option<LocalFeedEvent>,
+    /// EXP-927: the agent's own task list — whole every time, newest only.
+    task_list: Option<LocalFeedEvent>,
     /// EXP-861: the queue slot — the held messages, whole, newest frame only.
     queue: Option<LocalFeedEvent>,
     /// EXP-850 §3: the `workflow` cards, latest-wins PER ID and kept in
@@ -671,6 +673,7 @@ impl FeedState {
             steer::ActivityEvent::Turn { .. } => Some(&mut self.turn),
             steer::ActivityEvent::Queue { .. } => Some(&mut self.queue),
             steer::ActivityEvent::BackgroundTasks { .. } => Some(&mut self.background_tasks),
+            steer::ActivityEvent::TaskList { .. } => Some(&mut self.task_list),
             steer::ActivityEvent::Diff { .. } => Some(&mut self.diff),
             _ => None,
         }
@@ -819,7 +822,7 @@ impl LocalFeed {
         for (_, event) in state.workflows.iter() {
             let _ = tx.send(event.clone());
         }
-        for event in [&state.background_tasks, &state.diff].into_iter().flatten() {
+        for event in [&state.background_tasks, &state.task_list, &state.diff].into_iter().flatten() {
             let _ = tx.send(event.clone());
         }
         // EXP-758: the failure first, then the phase, in the same order the

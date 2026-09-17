@@ -83,6 +83,55 @@ last `queue` frame lists them, so a client can rescue the text on the
 `ended` edge (the same hand-back). Every run seeds `messages: []` at start,
 so a resumed run never replays its predecessor's bar.
 
+## 2c. `task_list` (latest-wins slot, EXP-927) and the strip without agents
+
+```
+{ kind: "task_list", entries: [{ content, status }], at }
+```
+The agent's OWN task list, in full and in order: claude's `TodoWrite` and its
+`TaskCreate`/`TaskUpdate` hooks, codex's plan — everything the adapters
+already hand the engine as an ACP `Plan` update (main thread only; a
+subagent's list is never published). `status` ∈ contract `taskListStatus`
+(`pending` | `in_progress` | `completed`); `content` ≤ 160 chars (an
+`in_progress` entry carries the agent's active form, "Running the tests");
+≤ 50 entries (`TASK_LIST_MAX`, the tail is cut). Latest-wins everywhere (relay
+`LATEST_WINS_KINDS`, journal slot, history fold); replay order right after
+`background_tasks`. An identical list is not republished.
+
+Clients render it as the FIRST block of the bottom strip (section 2), above
+the task and wait lines:
+
+- hidden while `entries` is empty or EVERY entry is `completed`;
+- collapsed (the default): ONE line, the `ui-checklist` glyph, the CURRENT
+  entry (the first `in_progress`, else the first `pending`) truncated, and a
+  trailing `{completed}/{total}` count; a chevron (`ui-chevron-up` collapsed,
+  `ui-chevron-down` expanded) says it opens; the whole line toggles;
+- expanded: one line per entry in wire order, `ui-selected` for `completed`
+  (dimmed, struck through), a spinning `ui-loading` for `in_progress`
+  (foreground text), `ui-unselected` for `pending`; at most 8 lines tall, then
+  it scrolls. The expansion is view state, never persisted.
+
+**Agents leave the strip (EXP-927).** A `background_tasks` entry of kind
+`agent` is a subagent, and a subagent is a conversation TAB (Main + one per
+running subagent) — the strip never lists it. The strip's lines are: the task
+list block, one `↻ {description}` per task of kind `shell` | `workflow` |
+`other`, one `Waiting on {detail}` per open `wait` row.
+
+The publisher keeps those tabs honest: a subagent task older than the
+engine's `TASK_MAX_LIFETIME` stops deferring its turn's settle, but it is
+retired with a terminal edge ONLY once the CLI's latest `background_tasks`
+list no longer names it. While the list names it, it is running, whatever
+notifications the CLI dropped (before EXP-927 every lane older than ten
+minutes lost its tab and lived on in the strip alone).
+
+**Alignment.** The tab row and every strip block (task list, tasks, waits,
+queue) sit in the transcript's reading column, not the panel's full width;
+only a hairline may span the panel. The column is each client's OWN
+transcript measure, reused and never restated: web `TRANSCRIPT_COLUMN`
+(`WORK_COLUMN_CLASS`, 896 px, plus the gutter), desktop `work_column_row`
+(`WORK_COLUMN_W`), iOS `transcriptColumn()` and Android `ReadingColumn`
+(`DesignTokens.Transcript` max width).
+
 ## 3. `workflow` (latest-wins per workflow id)
 
 ```
