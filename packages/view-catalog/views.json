@@ -837,6 +837,9 @@
         "drive": {
           "kind": "screen",
           "value": "devices"
+        },
+        "env": {
+          "EXP_DEV_EXPAND_DEVICES": "1"
         }
       }
     },

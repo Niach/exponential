@@ -567,7 +567,7 @@ impl MachinesSection {
         });
         // EXP-944: the whole line folds, so the chevron is an AFFORDANCE, not
         // a second target — the same fold glyph the session tree wears.
-        let expanded = self.expanded.contains(&device.device_id);
+        let expanded = self.expanded.contains(&device.device_id) || dev_expand_devices();
         let toggle_id = device.device_id.clone();
 
         // EXP-642: one row per device, the web `GlassRow` two-line shape —
@@ -1393,4 +1393,12 @@ impl Render for MachinesSection {
                 )
             })
     }
+}
+
+/// DEV-ONLY `EXP_DEV_EXPAND_DEVICES=1` (EXP-944): device rows are collapsed by
+/// default and the screenshot lane has no pointer, so the catalog's Devices
+/// shot opens every row this way. Never document for users.
+fn dev_expand_devices() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("EXP_DEV_EXPAND_DEVICES").is_ok_and(|v| v == "1"))
 }
