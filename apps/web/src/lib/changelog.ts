@@ -25,7 +25,7 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    id: `diff-ui-one-design`,
+    id: `2026-09-diff-ui-one-design`,
     date: `2026-09-17`,
     title: `One diff design, everywhere`,
     summary: `Every diff in Exponential is now built from the same file card, the files a run edits appear in the transcript itself, and the file list beside a diff is a tree.`,
