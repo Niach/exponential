@@ -3,7 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
-import { useIsMobile, type SessionDotTone } from "@exp/ui"
+import { DiffCounts, useIsMobile, type SessionDotTone } from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useIssueRuns } from "@/hooks/use-agents-data"
@@ -145,7 +145,8 @@ function IssueDetailPage() {
     team?.id,
     currentUserId
   )
-  const diffStats = useSessionDiffStats(isMobile ? runTarget?.id : null)
+  // EXP-889: every width — the wide toggle's diff item reads it too.
+  const diffStats = useSessionDiffStats(runTarget?.id, { connect: true })
   const hasChanges = diffStats.fileCount > 0 || issue?.prState === `open`
   const openComposer = useOpenComposer()
 
@@ -320,6 +321,22 @@ function IssueDetailPage() {
                     face: `run` as const,
                     label: runFaceLabel(multipleRuns),
                     onSelect: () => goRun(runTarget.id),
+                  },
+                ]
+              : []),
+            // EXP-889: the run's diff, as on the run face (and the IDE's
+            // issue toggle) — opens the run on its Changes sub-face.
+            ...(runTarget && diffStats.fileCount > 0
+              ? [
+                  {
+                    face: `diff` as const,
+                    label: (
+                      <DiffCounts
+                        additions={diffStats.additions}
+                        deletions={diffStats.deletions}
+                      />
+                    ),
+                    onSelect: () => goRun(runTarget.id, `diff`),
                   },
                 ]
               : []),
