@@ -371,18 +371,29 @@ final class AgentAccountsRowsTests: XCTestCase {
                 health: health
             )
         }
+        // EXP-944: a signed-out or expired NAMED login keeps its Sign in AND
+        // offers Remove account — the removal deletes a profile dir, and the
+        // credential's state never decided whether that is possible.
         let signedOut = chip(false, true, .signedOut)
         XCTAssertTrue(AgentAccountsRows.chipSignsIn(signedOut))
         XCTAssertFalse(AgentAccountsRows.chipSetsDefault(signedOut, canSwitchAccount: true))
-        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
+        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
             signedOut, canAgentLogin: true, canRemoveAccount: true
         ))
 
         let expired = chip(true, false, .needsRelogin)
         XCTAssertTrue(AgentAccountsRows.chipSignsIn(expired))
         XCTAssertFalse(AgentAccountsRows.chipSetsDefault(expired, canSwitchAccount: true))
-        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
+        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
             expired, canAgentLogin: true, canRemoveAccount: true
+        ))
+
+        // ...but never the AMBIENT login, however dead it is.
+        let deadAmbient = chip(
+            false, true, .signedOut, profileId: AgentAccountsRows.systemProfileId
+        )
+        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
+            deadAmbient, canAgentLogin: true, canRemoveAccount: true
         ))
 
         let current = chip(true, true, .ok)

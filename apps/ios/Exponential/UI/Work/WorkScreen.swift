@@ -63,6 +63,10 @@ struct WorkScreen: View {
     /// face.
     @State private var prGraphModel: PrGraphModel?
     @State private var prGraphOpen = false
+    /// EXP-932: the counts the switcher's Changes row prints — `Diff.totals`
+    /// over the files the Changes face itself draws, re-derived on the diff
+    /// EDGE (never per frame), so the menu and the face can never disagree.
+    @State private var changesTotals: Diff.Totals?
     /// EXP-917: a refused stack merge from the overlay. The sheet is gone by
     /// the time the server answers, so the refusal is an alert — it used to be
     /// swallowed (`try?`), the one merge on this screen that reported nothing.
@@ -119,7 +123,24 @@ struct WorkScreen: View {
 
     /// The run's live diff outranks the issue's PR files.
     private var hasChanges: Bool {
-        (hasRun && runChrome.hasDiff) || issueHasChanges
+        (hasRun && runHasDiff) || issueHasChanges
+    }
+
+    /// EXP-932: the shown run's CURRENT worktree diff, read straight off its
+    /// retained model — the socket outlives the session VIEW, so this is right
+    /// on the Issue face too, where that view (and the `RunChrome` it reports)
+    /// is unmounted and its last snapshot would be a stale, partial count.
+    private var shownDiff: String? {
+        guard let shownSessionId else { return nil }
+        return deps.steerSessions.peek(accountId: accountId, sessionId: shownSessionId)?.latestDiff
+    }
+
+    /// EXP-932: whether the run HAS a diff — the mounted view's report, else
+    /// the retained model's own answer. Both, because either can be the only
+    /// one there is: the view knows while it is up, the model while it is not
+    /// (and a model the store already reaped leaves the last report standing).
+    private var runHasDiff: Bool {
+        runChrome.hasDiff || shownDiff != nil
     }
 
     /// EXP-879: the shown run's PUBLISHED results, off its synced row. Like
@@ -237,9 +258,12 @@ struct WorkScreen: View {
         )
     }
 
-    /// The `…` menu belongs to issue subjects.
+    /// The `…` menu belongs to issue subjects — and, EXP-934, to the ISSUE
+    /// face alone (`WorkFaces.faceShowsContextMenu`): Share, Move to board and
+    /// Delete issue act on a subject the Run, Changes and Results faces are
+    /// not even showing, and those keep the run's own verb instead.
     private var hasIssueMenu: Bool {
-        issue != nil
+        issue != nil && WorkFaces.faceShowsContextMenu(face)
     }
 
     // MARK: - The PR graph (EXP-897 Part 4)
@@ -256,6 +280,18 @@ struct WorkScreen: View {
             // name it before its pull request exists.
             batchIssues: subjectModel?.batchIssues ?? []
         )
+    }
+
+    /// EXP-930: the issue rows the overlay names its runs from — the graph's
+    /// own pool (pull requests + blockers), the batch's covered set and the
+    /// subject itself, in that order of authority.
+    private var graphIssuePool: [IssueEntity] {
+        var pool = prGraphModel?.knownIssues ?? []
+        var seen = Set(pool.map(\.id))
+        for row in (subjectModel?.batchIssues ?? []) + (issue.map { [$0] } ?? []) {
+            if seen.insert(row.id).inserted { pool.append(row) }
+        }
+        return pool
     }
 
     /// The header badge, when there IS a stack or a batch to name.
@@ -293,7 +329,7 @@ struct WorkScreen: View {
             // EXP-879: BEFORE the session-view branch — a run with a live diff
             // would otherwise swallow its own Results face.
             resultsFace
-        } else if let shownSession, face == .run || runChrome.hasDiff {
+        } else if let shownSession, face == .run || runHasDiff {
             sessionView(shownSession, face: face)
         } else if face == .changes {
             changesFace
@@ -517,6 +553,7 @@ struct WorkScreen: View {
                             PrGraphSheet(
                                 graph: graph,
                                 face: face,
+                                issues: graphIssuePool,
                                 onOpenIssue: { id in
                                     prGraphOpen = false
                                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
@@ -617,15 +654,14 @@ struct WorkScreen: View {
         }
     }
 
-    /// `+A -D` beside the Changes row, only from a live diff.
+    /// `+A −D` beside the Changes row — BOTH halves, off the very files the
+    /// Changes face draws (`changesTotals`).
     @ViewBuilder
     private var diffCounts: some View {
-        if hasRun, runChrome.hasDiff {
-            DiffCountsLabel(
-                additions: runChrome.additions, deletions: runChrome.deletions
-            )
-            .padding(.trailing, GlassMenuTokens.itemHPadding)
-            .allowsHitTesting(false)
+        if let totals = changesTotals, totals.files > 0 {
+            DiffCountsLabel(additions: totals.additions, deletions: totals.deletions)
+                .padding(.trailing, GlassMenuTokens.itemHPadding)
+                .allowsHitTesting(false)
         }
     }
 
@@ -678,6 +714,11 @@ struct WorkScreen: View {
             // A face that vanished under the reader lands on its fallback.
             .onChange(of: availableFaces) { _, faces in
                 facesChanged(faces)
+            }
+            // EXP-932: the switcher's `+N −M`, off the diff edge — the ONE
+            // parse the Changes face runs, read from every face.
+            .onChange(of: shownDiff, initial: true) { _, diff in
+                changesTotals = diff.map { Diff.totals(Diff.parse($0).files) }
             }
             // EXP-893: the session view's report, held across the Issue face
             // (where the emitter is unmounted and the preference resets).
@@ -840,6 +881,8 @@ struct WorkScreen: View {
 
     private func switchFace(_ next: WorkFaceKind) {
         UIApplication.endEditing()
+        // EXP-934: the `…` is the Issue face's, so its overlay leaves with it.
+        menuOpen = false
         face = next
     }
 

@@ -813,6 +813,7 @@
           "text": "Alex's MacBook Pro",
           "timeoutMs": 30000
         },
+        "recipe": "expandFirstDevice",
         "settleMs": 1200
       },
       "webMobile": {
@@ -821,6 +822,7 @@
           "text": "Alex's MacBook Pro",
           "timeoutMs": 30000
         },
+        "recipe": "expandFirstDevice",
         "settleMs": 1200
       },
       "ios": {

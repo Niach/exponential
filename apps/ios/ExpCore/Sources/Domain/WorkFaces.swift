@@ -120,6 +120,16 @@ public enum WorkFaces {
         return newest(live) ?? newest(mine)
     }
 
+    /// EXP-934: the header's `…` CONTEXT MENU (Share · Move to board · Unmark
+    /// duplicate · Delete issue) belongs to the issue, so it shows on the
+    /// ISSUE face alone. On Run, Changes and Results the trailing slot carries
+    /// the run's own verb (Stop / Resume) and nothing else — a Delete issue
+    /// sitting beside a running agent acts on a subject that face is not even
+    /// showing.
+    public static func faceShowsContextMenu(_ face: WorkFaceKind) -> Bool {
+        face == .issue
+    }
+
     public enum PrimaryAction: Equatable, Sendable {
         case stop
         case resume

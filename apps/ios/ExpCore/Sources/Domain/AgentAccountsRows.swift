@@ -378,10 +378,16 @@ public enum AgentAccountsRows {
 
     /// EXP-862: why "Remove account" is NOT offered for this login on this
     /// machine, or nil when it is — the web `removeAccountBlockReason` twin,
-    /// same three refusals in the same order: the ambient login (the agent
-    /// CLI's own config dir, which Exponential never created), a machine whose
-    /// build cannot run the command, and a login that is signed out or expired
-    /// here (its chip's one repair is a sign-in).
+    /// TWO refusals in the order a person would hit them: the ambient login
+    /// (the agent CLI's own config dir, which Exponential never created and
+    /// must not delete), and a machine whose build cannot run the command.
+    ///
+    /// EXP-944: being signed OUT is no longer one of them. A dead profile is
+    /// the thing people most want gone, the removal is a profile-dir delete
+    /// that never touches the account (no `codex logout`, ever), and the
+    /// server has always taken it — it gates on the ambient id, the caps and
+    /// the reported profile, never on the credential's state. So a signed-out
+    /// named login offers "Sign in" AND "Remove account".
     public static func removeAccountBlockReason(
         _ row: AgentProfileUsageRow,
         canAgentLogin: Bool,
@@ -391,9 +397,6 @@ public enum AgentAccountsRows {
             return "That is the machine's own agent login, not one Exponential can remove."
         }
         if !canAgentLogin || !canRemoveAccount { return removeAccountOldApp }
-        if chipSignsIn(row) {
-            return "That account is signed out on that machine, so its chip offers a sign-in instead."
-        }
         return nil
     }
 

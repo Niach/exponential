@@ -21,10 +21,11 @@ struct RunChrome: Equatable {
     var over = false
     /// A question or plan card is pending — the composer band is gone.
     var cardPending = false
-    /// The latest worktree diff, when there is one.
+    /// The latest worktree diff, when there is one. EXP-932: the +/− COUNTS
+    /// are not reported here — the screen reads them off the run's retained
+    /// model (`SteerSessionStore.peek`), which knows them on the faces this
+    /// view is unmounted on too.
     var hasDiff = false
-    var additions = 0
-    var deletions = 0
     /// An open PR this run can merge.
     var canMerge = false
     /// This viewer may Stop the run (own + live row).

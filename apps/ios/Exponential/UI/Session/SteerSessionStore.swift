@@ -76,6 +76,15 @@ final class SteerSessionStore {
         return entry.model
     }
 
+    /// EXP-932: READ a live model without claiming it — no attach, no kick, no
+    /// model created. The Work screen's face switcher needs the run's current
+    /// diff from every face, including the ones where the session VIEW (and
+    /// with it the chrome it reports) is unmounted; the socket outlives that
+    /// view here, so its model still knows.
+    func peek(accountId: String, sessionId: String) -> AgentSessionModel? {
+        entries[Key(accountId: accountId, sessionId: sessionId)]?.model
+    }
+
     /// The view showing this session went away. The socket stays up — only a
     /// finished session (or one pushed past the retention cap) is torn down.
     func detach(accountId: String, sessionId: String) {
