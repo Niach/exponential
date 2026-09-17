@@ -156,6 +156,9 @@ public enum AgentActivityEvent: Equatable, Sendable {
     case compaction(AgentCompactionEdge)
     /// EXP-850 §2: the FULL current list — an empty array closes the strip.
     case backgroundTasks([AgentBackgroundTask])
+    /// EXP-927 §2c: the agent's OWN task list, in full and in order — an empty
+    /// array hides the block.
+    case taskList([AgentTaskListEntry])
     /// EXP-861: the FULL current queue, latest-wins — an empty array clears
     /// the strip.
     case queue([QueuedMessage])
@@ -237,6 +240,8 @@ public enum AgentActivityDecoder {
             return .compaction(compaction(event))
         case "background_tasks":
             return .backgroundTasks(backgroundTasks(event))
+        case "task_list":
+            return .taskList(taskList(event))
         case "queue":
             return .queue(queue(event))
         case "workflow":
@@ -386,6 +391,24 @@ public enum AgentActivityDecoder {
         }
     }
 
+    /// EXP-927 §2c: the agent's whole task list, in wire order. An entry with
+    /// no text is dropped, a status this build cannot read is `pending`, and
+    /// both the preview length and the entry count are re-applied here — the
+    /// wire is a device's word, not ours. A frame without a readable `entries`
+    /// array reads as empty (the device's "no list"), never as "keep".
+    static func taskList(_ event: [String: Any]) -> [AgentTaskListEntry] {
+        guard let rows = event["entries"] as? [[String: Any]] else { return [] }
+        var entries: [AgentTaskListEntry] = []
+        for row in rows {
+            guard entries.count < AgentFeed.taskListMax else { break }
+            guard let content = string(row["content"]) else { continue }
+            entries.append(AgentTaskListEntry(
+                content: clamp(content), status: AgentTaskListStatus.parse(row["status"])
+            ))
+        }
+        return entries
+    }
+
     /// EXP-861: the whole queue, oldest first. A row without an id or a text
     /// cannot be revoked or drawn, so it is skipped; a frame without a
     /// readable `messages` array reads as empty (the device's "nothing
@@ -450,6 +473,14 @@ public enum AgentActivityDecoder {
     private static func string(_ value: Any?) -> String? {
         guard let text = value as? String, !blank(text) else { return nil }
         return text
+    }
+
+    /// EXP-927: a wire preview, cut at the contract's `steerWorking.previewMax`
+    /// (web `clampText`). The publisher already cuts; this build does not take
+    /// its word for it.
+    private static func clamp(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmed.prefix(DomainContract.steerWorkingPreviewMax))
     }
 
     private static func blank(_ text: String) -> Bool {

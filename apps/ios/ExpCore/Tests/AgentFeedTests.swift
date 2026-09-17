@@ -1789,6 +1789,62 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertTrue(AgentFeed.stripLines(backgroundTasks: [], feed: [tool(1)]).isEmpty)
     }
 
+    /// EXP-927 §2c: a background task of kind `agent` is a SUBAGENT, and a
+    /// subagent is a conversation tab — the strip never lists it. The waits
+    /// stay.
+    func testTheStripLeavesSubagentTasksToTheTabs() {
+        let feed: [AgentFeedItem] = [
+            .tool(
+                id: 1, name: "TaskOutput", detail: "Watch the build",
+                subagentId: nil, callId: "toolu_1", toolKind: "wait"
+            )
+        ]
+        let tasks = [
+            AgentBackgroundTask(id: "b1", kind: "agent", description: "code-reviewer"),
+            AgentBackgroundTask(id: "b2", kind: "shell", description: "Sleep in the background"),
+            AgentBackgroundTask(id: "b3", kind: "workflow", description: "Ship it"),
+        ]
+        let lines = AgentFeed.stripLines(backgroundTasks: tasks, feed: feed)
+        XCTAssertEqual(
+            lines.map(\.text),
+            ["Sleep in the background", "Ship it", "Waiting on Watch the build"]
+        )
+        // A run whose only task is a subagent has no strip at all.
+        XCTAssertTrue(
+            AgentFeed.stripLines(backgroundTasks: [tasks[0]], feed: []).isEmpty
+        )
+    }
+
+    /// EXP-927 §2c: the collapsed task-list line — the current entry and its
+    /// `{completed}/{total}`, or nothing at all when the list is empty or done.
+    func testTheTaskListSummaryNamesTheCurrentEntry() {
+        XCTAssertNil(AgentFeed.taskListSummary([]))
+        XCTAssertNil(AgentFeed.taskListSummary([
+            AgentTaskListEntry(content: "Read the issue", status: .completed)
+        ]))
+
+        let entries = [
+            AgentTaskListEntry(content: "Read the issue", status: .completed),
+            AgentTaskListEntry(content: "Write the code", status: .completed),
+            AgentTaskListEntry(content: "Running the tests", status: .inProgress),
+            AgentTaskListEntry(content: "Open the PR", status: .pending),
+        ]
+        XCTAssertEqual(
+            AgentFeed.taskListSummary(entries),
+            AgentTaskListSummary(current: "Running the tests", completed: 2, total: 4)
+        )
+        // Nothing in progress: the FIRST pending entry is the current one,
+        // wherever the completed ones sit.
+        XCTAssertEqual(
+            AgentFeed.taskListSummary([
+                AgentTaskListEntry(content: "Plan", status: .pending),
+                AgentTaskListEntry(content: "Read the issue", status: .completed),
+                AgentTaskListEntry(content: "Open the PR", status: .pending),
+            ]),
+            AgentTaskListSummary(current: "Plan", completed: 1, total: 3)
+        )
+    }
+
     func testTheWorkflowCardsPhaseAndAgentCaptions() {
         XCTAssertEqual(
             AgentFeed.workflowPhaseCaption(

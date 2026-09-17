@@ -234,6 +234,61 @@ final class AgentActivityDecoderTests: XCTestCase {
         )
     }
 
+    // MARK: - EXP-927 §2c: task_list
+
+    func testTaskListDecodesTheFullListInOrderAndItsClose() throws {
+        let event = try decode(#"""
+        {"kind":"task_list","entries":[{"content":"Read the issue","status":"completed"},
+         {"content":"Running the tests","status":"in_progress"},
+         {"content":"Open the PR","status":"pending"}],"at":123}
+        """#)
+        guard case let .taskList(entries) = try XCTUnwrap(event)
+        else { return XCTFail("not task_list") }
+        XCTAssertEqual(entries, [
+            AgentTaskListEntry(content: "Read the issue", status: .completed),
+            AgentTaskListEntry(content: "Running the tests", status: .inProgress),
+            AgentTaskListEntry(content: "Open the PR", status: .pending),
+        ])
+        // An empty array hides the block; an unreadable payload reads as empty
+        // too (the frame said "list", so it is the device's word).
+        guard case let .taskList(empty) = try XCTUnwrap(
+            try decode(#"{"kind":"task_list","entries":[]}"#)
+        ) else { return XCTFail("not task_list") }
+        XCTAssertTrue(empty.isEmpty)
+    }
+
+    func testTaskListToleratesEmptyEntriesUnknownStatusesAndAnOverlongList() throws {
+        let long = String(repeating: "x", count: 400)
+        let event = try decode(#"""
+        {"kind":"task_list","entries":[{"content":"  ","status":"pending"},
+         {"status":"in_progress"},{"content":"Ponder","status":"telepathy"},
+         {"content":"\#(long)","status":"completed"}]}
+        """#)
+        guard case let .taskList(entries) = try XCTUnwrap(event)
+        else { return XCTFail("not task_list") }
+        // A text-less entry is dropped, an unknown status is work still to do,
+        // and the preview is cut at the contract's max.
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0], AgentTaskListEntry(content: "Ponder", status: .pending))
+        XCTAssertEqual(entries[1].content.count, DomainContract.steerWorkingPreviewMax)
+        XCTAssertEqual(
+            DomainContract.taskListStatusValues, ["pending", "in_progress", "completed"]
+        )
+        XCTAssertEqual(
+            AgentTaskListStatus.allCases.map(\.rawValue), DomainContract.taskListStatusValues
+        )
+
+        // The tail past `taskListMax` is cut.
+        let many = (0..<80)
+            .map { #"{"content":"t\#($0)","status":"pending"}"# }
+            .joined(separator: ",")
+        guard case let .taskList(capped) = try XCTUnwrap(
+            try decode(#"{"kind":"task_list","entries":[\#(many)]}"#)
+        ) else { return XCTFail("not task_list") }
+        XCTAssertEqual(capped.count, AgentFeed.taskListMax)
+        XCTAssertEqual(capped.last?.content, "t49")
+    }
+
     // MARK: - EXP-861: queue
 
     func testQueueDecodesTheFullQueueInOrderAndItsClear() throws {
