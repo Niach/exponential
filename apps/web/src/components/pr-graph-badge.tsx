@@ -9,8 +9,9 @@ import {
   Pill,
   useIsMobile,
 } from "@exp/ui"
-import type { CodingSession, Issue } from "@/db/schema"
+import type { Board, CodingSession, Issue } from "@/db/schema"
 import {
+  boardCollection,
   codingSessionCollection,
   issueCollection,
   issueRelationCollection,
@@ -99,6 +100,19 @@ export function PrGraphBadge({
             )
         : undefined,
     [subjectId]
+  )
+
+  // EXP-930: a batch's issue rows are only useful if they OPEN — and an issue
+  // URL is board-scoped, so the badge resolves the team's board slugs once.
+  const { data: boardRows } = useLiveQuery(
+    (query) =>
+      query.from({ b: boardCollection }).where(({ b }) => eq(b.teamId, teamId)),
+    [teamId]
+  )
+  const boardSlugById = useMemo(
+    () =>
+      new Map(((boardRows ?? []) as Board[]).map((row) => [row.id, row.slug])),
+    [boardRows]
   )
 
   const issues = useMemo(() => (issueRows ?? []) as Issue[], [issueRows])
@@ -190,6 +204,7 @@ export function PrGraphBadge({
           face={face}
           graph={graph}
           issues={issues}
+          boardSlugById={boardSlugById}
           subjectIssue={issue}
           teamSlug={teamSlug}
           onMergeStack={onMergeStack}
@@ -217,6 +232,7 @@ export function PrGraphOverlay({
   face,
   graph,
   issues,
+  boardSlugById,
   subjectIssue,
   teamSlug,
   onMergeStack,
@@ -226,12 +242,45 @@ export function PrGraphOverlay({
   graph: ReturnType<typeof prGraph<Issue, CodingSession>>
   /** The team's synced issues — a tree row's own issue, for its identity. */
   issues: readonly Issue[]
+  /** EXP-930: board slug per board id — what turns a chip into a real link.
+   *  Absent (or missing the issue's board) = an inert chip, as before. */
+  boardSlugById?: ReadonlyMap<string, string>
   subjectIssue: Issue | null
   teamSlug: string
   onMergeStack?: (topIssueId: string) => void
   onClose: () => void
 }) {
   const openSession = useOpenSession()
+
+  // EXP-930: EVERY issue the overlay lists opens — a batch's "3 issues" that
+  // only prints three names is the bug this fixes. A real `<Link>`, so
+  // ⌘-click and middle-click work like anywhere else.
+  const chip = (row: Issue) => {
+    const boardSlug = boardSlugById?.get(row.boardId)
+    return (
+      <IssueChip
+        key={row.id}
+        issue={row}
+        preview={false}
+        link={
+          boardSlug
+            ? (props) => (
+                <Link
+                  to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                  params={{
+                    teamSlug,
+                    boardSlug,
+                    issueIdentifier: row.identifier,
+                  }}
+                  onClick={onClose}
+                  {...props}
+                />
+              )
+            : undefined
+        }
+      />
+    )
+  }
 
   if (face === `issue`) {
     const inBatch = (graph.batch?.issues ?? []).filter(
@@ -242,19 +291,13 @@ export function PrGraphOverlay({
         {graph.blockedBy.length > 0 && (
           <Section label="Blocked by">
             <div className="flex flex-wrap gap-1.5">
-              {graph.blockedBy.map((row) => (
-                <IssueChip key={row.id} issue={row} preview={false} />
-              ))}
+              {graph.blockedBy.map(chip)}
             </div>
           </Section>
         )}
         {inBatch.length > 0 && (
           <Section label="In batch with">
-            <div className="flex flex-wrap gap-1.5">
-              {inBatch.map((row) => (
-                <IssueChip key={row.id} issue={row} preview={false} />
-              ))}
-            </div>
+            <div className="flex flex-wrap gap-1.5">{inBatch.map(chip)}</div>
           </Section>
         )}
         {graph.blockedBy.length === 0 && inBatch.length === 0 && (
@@ -268,7 +311,20 @@ export function PrGraphOverlay({
 
   if (face === `run`) {
     return (
-      <Section label="Runs">
+      <div className="flex flex-col gap-3">
+        {/* EXP-930: the pill on a BATCH run says `3 issues`, so the first
+            thing behind it is those three issues — the run tree alone
+            answered a question nobody asked. The Issue face's batch section
+            has the same rows; this is the run's own subject, so the whole
+            covered set is listed, not "everything but me". */}
+        {graph.batch && (
+          <Section label="Issues">
+            <div className="flex flex-wrap gap-1.5">
+              {graph.batch.issues.map(chip)}
+            </div>
+          </Section>
+        )}
+        <Section label="Runs">
         <div className="flex flex-col">
           {graph.tree.map(({ session, depth }) => {
             const issue = session.issueId
@@ -304,7 +360,8 @@ export function PrGraphOverlay({
             )
           })}
         </div>
-      </Section>
+        </Section>
+      </div>
     )
   }
 
@@ -348,9 +405,7 @@ export function PrGraphOverlay({
               </Link>
               {entry.issues.length > 1 && (
                 <div className="flex flex-wrap gap-1.5 pl-5">
-                  {entry.issues.map((row) => (
-                    <IssueChip key={row.id} issue={row} preview={false} />
-                  ))}
+                  {entry.issues.map(chip)}
                 </div>
               )}
             </div>

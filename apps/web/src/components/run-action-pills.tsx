@@ -21,28 +21,63 @@ export const STOP_LABEL = `Stop`
 export const RESUME_LABEL = `Resume`
 export const MERGE_PR_LABEL = contract.diffUi.mergePr
 
+// EXP-926 / FEED-45: a run pill has exactly TWO placements, and one size rule
+// each — a `sm` Stop sitting beside a 36px face toggle read as an afterthought
+// next to it.
+//
+//   `tray`   — inside the issue's properties card, so it is a CHIP: the `sm`
+//              Pill the status / priority / label pickers are (h-6, 12px).
+//   `header` — the work header's right cluster, beside the face toggle
+//              (`SEGMENTED_LIST`, h-9) and the 36px GitHub circle: the `md`
+//              Pill stretched to the toggle's own height.
+//
+// Nothing else may hand these pills a height.
+export type RunPillPlacement = `tray` | `header`
+
+const PLACEMENT_SIZE: Record<RunPillPlacement, `sm` | `md`> = {
+  tray: `sm`,
+  header: `md`,
+}
+/** The face toggle's height — `SEGMENTED_LIST` is `h-9`. */
+const HEADER_PILL_CLASS = `h-9`
+/** `md` pills draw 16px glyphs, `sm` ones 12px. */
+const PLACEMENT_GLYPH: Record<RunPillPlacement, string> = {
+  tray: `size-3`,
+  header: `size-4`,
+}
+
+function placementClass(placement: RunPillPlacement): string | undefined {
+  return placement === `header` ? HEADER_PILL_CLASS : undefined
+}
+
 /** EXP-818: the ONE Stop — a small red-tinted glass pill, identical on the
  * machine that hosts the run and on one that only watches it (the IDE's
  * `stop_session_pill`). Presentational: the caller owns the confirm
  * (`useKillSession`) and renders its dialog. */
 export function StopRunPill({
   onStop,
+  placement = `tray`,
   className,
 }: {
   onStop: () => void
+  placement?: RunPillPlacement
   className?: string
 }) {
   return (
     <Pill
-      size="sm"
+      size={PLACEMENT_SIZE[placement]}
       mode="action"
-      className={cn(`shrink-0 text-destructive`, className)}
+      className={cn(
+        `shrink-0 text-destructive`,
+        placementClass(placement),
+        className
+      )}
       onClick={onStop}
       aria-label="Stop the agent and end the session"
       title="Stop the agent and end the session"
       data-testid="run-stop-pill"
     >
-      <CodingStopIcon className="size-3" />
+      <CodingStopIcon className={PLACEMENT_GLYPH[placement]} />
       {STOP_LABEL}
     </Pill>
   )
@@ -81,17 +116,19 @@ export function SessionStopRunPill({
  * until the new row syncs in and opens (`useResumeRun`). */
 export function ResumeRunPill({
   session,
+  placement = `tray`,
   className,
 }: {
   session: CodingSession
+  placement?: RunPillPlacement
   className?: string
 }) {
   const { resuming, resume } = useResumeRun(session)
   return (
     <Pill
-      size="sm"
+      size={PLACEMENT_SIZE[placement]}
       mode="action"
-      className={cn(`shrink-0`, className)}
+      className={cn(`shrink-0`, placementClass(placement), className)}
       disabled={resuming}
       onClick={() => void resume()}
       aria-label="Resume this run"
@@ -99,9 +136,11 @@ export function ResumeRunPill({
       data-testid="run-resume-pill"
     >
       {resuming ? (
-        <UiLoadingIcon className="size-3 animate-spin" />
+        <UiLoadingIcon
+          className={cn(PLACEMENT_GLYPH[placement], `animate-spin`)}
+        />
       ) : (
-        <RunResumeIcon className="size-3" />
+        <RunResumeIcon className={PLACEMENT_GLYPH[placement]} />
       )}
       {RESUME_LABEL}
     </Pill>
@@ -115,19 +154,21 @@ export function ResumeRunPill({
 export function MergePrPill({
   className,
   steerEnabled,
+  placement = `tray`,
   ...target
 }: SessionMergeTargetProps & {
   className?: string
   steerEnabled: boolean
+  placement?: RunPillPlacement
 }) {
   return (
     <SessionMergePill
       {...target}
-      // EXP-889: this pill stands in the property tray / run header beside
-      // `sm` pills (status, priority, Stop) — one box for the whole row.
-      pillSize="sm"
+      // EXP-889/EXP-926: the placement decides the box — a chip among the
+      // tray's chips, the toggle's own height in the work header.
+      pillSize={PLACEMENT_SIZE[placement]}
       label={MERGE_PR_LABEL}
-      className={cn(`shrink-0`, className)}
+      className={cn(`shrink-0`, placementClass(placement), className)}
       steerEnabled={steerEnabled}
     />
   )

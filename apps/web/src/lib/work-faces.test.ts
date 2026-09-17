@@ -3,6 +3,7 @@ import {
   availableFaces,
   codingTarget,
   faceLabel,
+  faceShowsContextMenu,
   fallbackFace,
   phaseDotTone,
   primaryAction,
@@ -255,5 +256,13 @@ describe(`work faces`, () => {
       phaseDotTone({ ...base, live: false, connecting: true, paused: true })
         .connecting
     ).toBe(false)
+  })
+
+  // EXP-934 — mirrored by iOS `WorkFacesTests` and Android `WorkFacesTest`.
+  it(`shows the context menu on the issue face alone`, () => {
+    expect(faceShowsContextMenu(`issue`)).toBe(true)
+    expect(faceShowsContextMenu(`run`)).toBe(false)
+    expect(faceShowsContextMenu(`changes`)).toBe(false)
+    expect(faceShowsContextMenu(`results`)).toBe(false)
   })
 })

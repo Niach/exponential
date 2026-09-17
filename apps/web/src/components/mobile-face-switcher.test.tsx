@@ -163,4 +163,29 @@ describe(`MobileFaceSwitcher`, () => {
     fireEvent.click(start)
     expect(onStart).toHaveBeenCalled()
   })
+
+  // EXP-931: inside the EXPANDED composer the switcher is the usage ring's
+  // neighbour, not a 52px bar circle — same menu, smaller box.
+  it(`wears the composer's chrome in the inline variant`, () => {
+    const onFace = vi.fn()
+    const props = {
+      faces: [`issue`, `run`, `changes`] as const,
+      face: `run` as const,
+      hasChanges: true,
+      onFace,
+    }
+    const circle = render(<MobileFaceSwitcher {...props} />)
+    const bar = screen.getByTestId(`mobile-face-switcher`).className
+    expect(bar).toContain(`size-[52px]`)
+    circle.unmount()
+
+    render(<MobileFaceSwitcher {...props} variant="inline" />)
+    const inline = screen.getByTestId(`mobile-face-switcher`)
+    expect(inline.className).not.toContain(`size-[52px]`)
+    expect(inline.className).toContain(`size-6`)
+    // Still the same menu behind it.
+    openMenu()
+    fireEvent.click(screen.getByTestId(`mobile-face-option-changes`))
+    expect(onFace).toHaveBeenCalledWith(`changes`)
+  })
 })

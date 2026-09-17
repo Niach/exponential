@@ -70,7 +70,7 @@ const board = { id: `b1`, slug: `met` } as unknown as Board
 const lower = issue(`lower`)
 const upper = issue(`upper`, { prBaseBranch: `exp/LOWER`, prNumber: 2 })
 
-function renderHeader(subject: Issue) {
+function renderHeader(subject: Issue, face?: `issue` | `run` | `changes`) {
   return render(
     <IssueMobileHeader
       issue={subject}
@@ -78,6 +78,7 @@ function renderHeader(subject: Issue) {
       teamSlug="acme"
       teamId="t1"
       readOnly={false}
+      face={face}
       handlers={{
         handleBoardChange: vi.fn(),
         handleUnmarkDuplicate: vi.fn(),
@@ -108,5 +109,22 @@ describe(`IssueMobileHeader`, () => {
     expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
     // The header itself is untouched — identifier centred, `…` on the right.
     expect(screen.getByText(`LOWER`)).toBeTruthy()
+  })
+
+  // EXP-934: Share / Move to board / Delete act on the ISSUE, so they belong
+  // to the Issue face alone. Every other face keeps the run's own verb.
+  it(`carries the context menu on the issue face alone`, () => {
+    rows.value = [lower]
+    const issueFace = renderHeader(lower, `issue`)
+    expect(screen.getByText(`More`)).toBeTruthy()
+    expect(screen.getByText(`Pin`)).toBeTruthy()
+    issueFace.unmount()
+
+    for (const face of [`run`, `changes`] as const) {
+      const other = renderHeader(lower, face)
+      expect(screen.queryByText(`More`), face).toBeNull()
+      expect(screen.queryByText(`Pin`), face).toBeNull()
+      other.unmount()
+    }
   })
 })

@@ -281,6 +281,31 @@ describe(`sidebarOccupant`, () => {
     expect(sidebarOccupant(`/t/acme/reviews`, null)).toEqual({ kind: `main` })
   })
 
+  // EXP-945: a RUN's Changes face fills the very same panel — its diff is the
+  // same kind of context a review's is. Only `?view=diff` does it; the run
+  // face and the results face keep the list they were opened from.
+  it(`gives the run's changes face the same file tree`, () => {
+    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, `diff`)).toEqual({
+      kind: `review`,
+    })
+    expect(sidebarOccupant(`/t/acme/sessions/s1`, null, `diff`)).toEqual({
+      kind: `review`,
+    })
+    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, `results`)).toEqual({
+      kind: `list`,
+      origin: { kind: `agent` },
+    })
+    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, null)).toEqual({
+      kind: `list`,
+      origin: { kind: `agent` },
+    })
+    // An ISSUE's `?view=diff` is the phone's own face — there is no sidebar
+    // beside it, and the panel stays the list.
+    expect(
+      sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `inbox`, `diff`)
+    ).toEqual({ kind: `list`, origin: { kind: `inbox` } })
+  })
+
   it(`keeps the main menu everywhere else`, () => {
     // Every LIST screen is itself: the main menu stays.
     for (const path of [

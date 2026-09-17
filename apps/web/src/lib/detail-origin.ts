@@ -274,13 +274,16 @@ function isDetailRest(rest: string): boolean {
 /**
  * EXP-851: the sidebar's occupant, from the URL alone — settings while any
  * `/settings` route is active, (EXP-916) the review's file tree on a review
- * detail, the LIST NAV on any other detail route that carries a parseable
- * `?from=`, the main menu otherwise. Derived (never click state) so a deep
- * link lands settled and every entry point drives the same swap.
+ * detail, (EXP-945) the RUN's file tree while its Changes face is up
+ * (`?view=diff`), the LIST NAV on any other detail route that carries a
+ * parseable `?from=`, the main menu otherwise. Derived (never click state) so
+ * a deep link lands settled and every entry point drives the same swap.
  */
 export function sidebarOccupant(
   pathname: string,
-  from: string | null | undefined
+  from: string | null | undefined,
+  /** The detail's `?view=` face — only `diff` changes anything. */
+  view?: string | null
 ): SidebarOccupant {
   const rest = teamRest(pathname)
   if (rest === null) return { kind: `main` }
@@ -288,6 +291,11 @@ export function sidebarOccupant(
     return { kind: `settings` }
   }
   if (/^\/reviews\/[^/]+$/.test(rest)) return { kind: `review` }
+  // EXP-945: a run's diff is a review's diff — same panel, same slot
+  // (`review-files-slot.ts`), so the file tree never floats in the column.
+  if (/^\/sessions\/[^/]+$/.test(rest) && view === `diff`) {
+    return { kind: `review` }
+  }
   if (!isDetailRest(rest)) return { kind: `main` }
   const origin = parseOrigin(from)
   return origin ? { kind: `list`, origin } : { kind: `main` }

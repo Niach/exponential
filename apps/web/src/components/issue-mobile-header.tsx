@@ -4,6 +4,7 @@ import type { Board, Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { SESSION_DOT_CLASS, type SessionDotTone } from "@exp/ui"
+import { faceShowsContextMenu, type WorkFaceKind } from "@/lib/work-faces"
 import { cn } from "@/lib/utils"
 import { issueUrlFor } from "@/components/issue-actions-menu"
 import { IssueDetailMobileMenu } from "@/components/issue-detail-mobile-menu"
@@ -52,12 +53,17 @@ export function IssueMobileHeader({
   action,
   graphBadge,
   dot,
+  face = `issue`,
 }: {
   issue: Issue
   board: Board
   teamSlug: string
   teamId: string
   readOnly: boolean
+  /** EXP-934: which face this bar is heading. The `…` menu (and the pin
+   *  beside it) act on the ISSUE, so they show on the Issue face alone
+   *  (`faceShowsContextMenu`); every other face keeps Stop / Resume alone. */
+  face?: WorkFaceKind
   /** EXP-851: the `?from=` token — Back returns THERE, else to the board. */
   origin?: string
   handlers: Pick<
@@ -113,25 +119,30 @@ export function IssueMobileHeader({
         <div className="flex shrink-0 items-center gap-1">
           {graphBadge}
           {action}
-          {/* EXP-850 §10: ghost everywhere a pin toggle renders. */}
-          <PinToggleButton
-            teamId={teamId}
-            kind="issue"
-            targetId={issue.id}
-            variant="ghost"
-          />
-          <IssueDetailMobileMenu
-            issueTitle={issue.title}
-            issueUrl={issueUrlFor(teamSlug, board.slug, issue.identifier)}
-            teamId={teamId}
-            boardId={issue.boardId}
-            issueIdentifier={issue.identifier}
-            duplicateOfId={issue.duplicateOfId ?? null}
-            readOnly={readOnly}
-            onDelete={handleDeleteIssue}
-            onMoveBoard={handlers.handleBoardChange}
-            onUnmarkDuplicate={handlers.handleUnmarkDuplicate}
-          />
+          {/* EXP-934: the issue's own controls, on the issue's own face. */}
+          {faceShowsContextMenu(face) && (
+            <>
+              {/* EXP-850 §10: ghost everywhere a pin toggle renders. */}
+              <PinToggleButton
+                teamId={teamId}
+                kind="issue"
+                targetId={issue.id}
+                variant="ghost"
+              />
+              <IssueDetailMobileMenu
+                issueTitle={issue.title}
+                issueUrl={issueUrlFor(teamSlug, board.slug, issue.identifier)}
+                teamId={teamId}
+                boardId={issue.boardId}
+                issueIdentifier={issue.identifier}
+                duplicateOfId={issue.duplicateOfId ?? null}
+                readOnly={readOnly}
+                onDelete={handleDeleteIssue}
+                onMoveBoard={handlers.handleBoardChange}
+                onUnmarkDuplicate={handlers.handleUnmarkDuplicate}
+              />
+            </>
+          )}
         </div>
       }
     />

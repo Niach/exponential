@@ -162,7 +162,7 @@ function ReviewDetailPage() {
   useEffect(() => {
     if (!issueId) return
     publishReviewFiles({
-      issueId,
+      subjectId: issueId,
       status: filesState.kind,
       files,
       selected,

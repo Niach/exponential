@@ -359,6 +359,10 @@ function OwnSessionPage({
             origin={from}
             handlers={handlers}
             dot={dot}
+            /* EXP-934: a session route never shows the ISSUE face (that is the
+               issue's own URL), so the `…` never belongs in this bar — only
+               Stop / Resume do. */
+            face={showingRun ? `run` : face === `diff` ? `changes` : `results`}
             graphBadge={
               /* EXP-897: the same pill the md+ header wears — the face
                  showing decides which section its sheet opens on. */

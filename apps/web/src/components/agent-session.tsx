@@ -17,7 +17,10 @@ import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
-import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
+import {
+  MobileFaceSwitcher,
+  type MobileFaceSwitcherProps,
+} from "@/components/mobile-face-switcher"
 import { IssueRunSwitcher } from "@/components/issue-run-switcher"
 import {
   MOBILE_WORK_BAR_CLEARANCE,
@@ -50,6 +53,7 @@ import {
   IssueChip as IssueChipView,
 } from "@exp/ui"
 import { availableFaces, phaseDotTone } from "@/lib/work-faces"
+import { publishReviewFiles } from "@/lib/review-files-slot"
 import { runHasEnded } from "@/lib/past-runs"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
@@ -157,6 +161,7 @@ import {
 import {
   ISSUE_FACE_LABEL,
   RESULTS_FACE_LABEL,
+  RUN_FACE_LABEL,
   runFaceLabel,
   WorkFaceToggle,
   type WorkFace,
@@ -903,8 +908,13 @@ export function AgentSessionView({
       : []),
   ]
   /** EXP-893: what the Changes face draws — the run's live diff, else the
-   *  issue's PR files the route fetched for a phone. */
-  const changesFiles = diffFiles.length > 0 ? diffFiles : (prFiles ?? [])
+   *  issue's PR files the route fetched for a phone. Memoized: EXP-945 makes
+   *  it the sidebar panel's input, and a fresh `[]` per render would republish
+   *  the slot on every one of them. */
+  const changesFiles = useMemo(
+    () => (diffFiles.length > 0 ? diffFiles : (prFiles ?? [])),
+    [diffFiles, prFiles]
+  )
   /** EXP-877: the diff face stands only while there is something to draw —
    *  with no files it falls back to the run face. */
   const showDiffFace = face === `diff` && changesFiles.length > 0
@@ -918,10 +928,45 @@ export function AgentSessionView({
     (prFiles?.length ?? 0) > 0 ||
     mergeProps?.prState === `open`
 
+  /** EXP-932: the counts the CHANGES face is worth — `totals` over the very
+   *  files it draws, the one derivation the md+ toggle's `+N −M` already uses
+   *  (`@exp/domain-contract/diff`). The phone's switcher reads THIS, so the
+   *  two can never print different numbers for the same diff again. */
+  const changesStats = useMemo(() => totals(changesFiles), [changesFiles])
+
+  // EXP-945: on md+ the Changes face's file TREE is the SIDEBAR's panel, the
+  // same slot and the same `ReviewFilesNav` a review detail fills — a run's
+  // context is the files it touched, and a floating tree inside the column was
+  // a second answer to a question already settled. The page owns the files and
+  // the selection; the panel only picks. Cleared on the way out (and whenever
+  // the face is not up) so no stale tree outlives its diff.
+  const publishFiles = showDiffFace && !isMobile
+  useEffect(() => {
+    if (!publishFiles) return
+    publishReviewFiles({
+      subjectId: session.id,
+      status: changesFiles.length > 0 ? `files` : `none`,
+      files: changesFiles,
+      selected: diffFile,
+      onSelect: setDiffFile,
+      back: { label: RUN_FACE_LABEL, onBack: () => onFace(`run`) },
+    })
+  }, [publishFiles, session.id, changesFiles, diffFile, onFace])
+  useEffect(() => {
+    if (publishFiles) return
+    publishReviewFiles(null)
+  }, [publishFiles])
+  useEffect(() => () => publishReviewFiles(null), [])
+
   /** The run header's own right cluster (issue-less runs): Merge, then
    *  Stop while live or Resume once ended and resumable on its machine. An
    *  issue-bound run's cluster is the issue's (pin + `…`), and its coding
-   *  action sits in the tray. */
+   *  action sits in the tray.
+   *
+   *  EXP-926 / FEED-45: these stand BESIDE the face toggle with no properties
+   *  card to belong to, so they wear the toggle's own height
+   *  (`placement="header"`) — a 24px Stop next to a 36px `Run +8870 −4` read
+   *  as a stray. Inside the tray they stay chips (`placement="tray"`). */
   const runTrailing = issueHeader ? (
     issueHeader.trailing
   ) : (
@@ -929,13 +974,17 @@ export function AgentSessionView({
       {/* EXP-916: the Changes face has no bar of its own any more, so the
           header carries the merge control on every face — exactly ONE. */}
       {canMerge && mergeProps && (
-        <MergePrPill {...mergeProps} steerEnabled={steerEnabled} />
+        <MergePrPill
+          {...mergeProps}
+          steerEnabled={steerEnabled}
+          placement="header"
+        />
       )}
       {prUrl && <PrGithubButton prUrl={prUrl} />}
       {canKill ? (
-        <StopRunPill onStop={requestKill} />
+        <StopRunPill onStop={requestKill} placement="header" />
       ) : sessionEnded && canResumeRun ? (
-        <ResumeRunPill session={session} />
+        <ResumeRunPill session={session} placement="header" />
       ) : null}
     </>
   )
@@ -1008,33 +1057,45 @@ export function AgentSessionView({
    *  Issue when the run links one, Run (this IS the run), Changes once there
    *  is a diff or an open PR. `Start coding` joins the menu once this run
    *  ended and no machine can resume it. */
-  const mobileSwitcher = isMobile ? (
-    <MobileFaceSwitcher
-      faces={availableFaces({
-        hasIssue: Boolean(onIssueFace),
-        hasRun: true,
+  const switcherProps: MobileFaceSwitcherProps | null = isMobile
+    ? {
+        faces: availableFaces({
+          hasIssue: Boolean(onIssueFace),
+          hasRun: true,
+          hasChanges,
+          hasResults: results.length > 0,
+        }),
+        face: showDiffFace ? `changes` : showResultsFace ? `results` : `run`,
+        runs: issueRuns,
+        viewedRunId: session.id,
+        // EXP-932: the numbers the Changes face itself shows, never a second
+        // reading of a different set.
+        diffStats: changesFiles.length > 0 ? changesStats : null,
         hasChanges,
-        hasResults: results.length > 0,
-      })}
-      face={showDiffFace ? `changes` : showResultsFace ? `results` : `run`}
-      runs={issueRuns}
-      viewedRunId={session.id}
-      diffStats={diffFiles.length > 0 ? diffStats : null}
-      hasChanges={hasChanges}
-      sessionTone={dot.tone}
-      offerStart={Boolean(onStart) && sessionEnded && !canResumeAny}
-      onFace={(next) => {
-        if (next === `issue`) {
-          onIssueFace?.()
-          return
-        }
-        onFace(
-          next === `changes` ? `diff` : next === `results` ? `results` : `run`
-        )
-      }}
-      onOpenRun={onOpenRun}
-      onStart={onStart}
-    />
+        sessionTone: dot.tone,
+        offerStart: Boolean(onStart) && sessionEnded && !canResumeAny,
+        onFace: (next) => {
+          if (next === `issue`) {
+            onIssueFace?.()
+            return
+          }
+          onFace(
+            next === `changes` ? `diff` : next === `results` ? `results` : `run`
+          )
+        },
+        onOpenRun,
+        onStart,
+      }
+    : null
+  const mobileSwitcher = switcherProps ? (
+    <MobileFaceSwitcher {...switcherProps} />
+  ) : null
+  /** EXP-931: the same switcher, the composer's size — it moves INTO the
+   *  expanded composer's control row (beside the usage ring) because the
+   *  composer covers the bar the circle rides on. Exactly one of the two is
+   *  mounted at a time. */
+  const composerSwitcher = switcherProps ? (
+    <MobileFaceSwitcher {...switcherProps} variant="inline" />
   ) : null
 
   /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
@@ -1112,13 +1173,16 @@ export function AgentSessionView({
               agent={session.agent}
               config={config}
               usageSlot={usageSlot}
+              switcherSlot={composerSwitcher}
               autoFocus
               onEmptyBlur={() => setComposerOpen(false)}
             />
           </div>
         ) : null
       }
-      trailing={mobileSwitcher}
+      /* EXP-931: exactly ONE switcher is mounted — the bar's circle, or the
+         one inside the expanded composer that replaces the bar. */
+      trailing={composerVisible && composerOpen ? undefined : mobileSwitcher}
     />
   )
 
@@ -1235,10 +1299,13 @@ export function AgentSessionView({
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
             {/* EXP-916: the face is the diff and nothing else — its merge,
-                GitHub and PR state live in the work header above it. */}
+                GitHub and PR state live in the work header above it.
+                EXP-945: and the file TREE is the sidebar's panel now, exactly
+                as it is on a review (`nav="none"`), so the cards take the
+                whole column; the phone's tree is its bar sheet. */}
             <ChangesView
               files={changesFiles}
-              nav="auto"
+              nav="none"
               selected={diffFile}
               onSelect={setDiffFile}
             />
