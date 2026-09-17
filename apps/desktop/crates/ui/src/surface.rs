@@ -486,6 +486,11 @@ pub(crate) fn bare_code_markdown_style() -> TextViewStyle {
 /// third rung — a capsule smaller than 24 stops being a hit target.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PillSize {
+    /// EXP-926 — the toggle's own height (`CONTROL_LG`, the web `h-9`
+    /// `TabsList`). The ONE place it is worn: a work-header action standing
+    /// BESIDE the face toggle, where a shorter capsule read as a stray chip
+    /// floating next to the control.
+    Lg,
     Md,
     Sm,
 }
@@ -494,6 +499,7 @@ impl PillSize {
     /// The capsule's height in px.
     pub(crate) fn height(self) -> f32 {
         match self {
+            PillSize::Lg => t::size::CONTROL_LG,
             PillSize::Md => t::size::CONTROL_MD,
             PillSize::Sm => t::size::CONTROL_SM,
         }
@@ -502,7 +508,7 @@ impl PillSize {
     /// The size a LEADING glyph renders at inside the capsule.
     pub(crate) fn glyph(self) -> f32 {
         match self {
-            PillSize::Md => 16.,
+            PillSize::Lg | PillSize::Md => 16.,
             PillSize::Sm => 12.,
         }
     }
@@ -574,7 +580,7 @@ pub(crate) fn glass_pill(
         (t::glass::FILL_CARD, t::glass::STROKE_CARD)
     };
     let (px_pad, gap) = match size {
-        PillSize::Md => (12., 6.),
+        PillSize::Lg | PillSize::Md => (12., 6.),
         PillSize::Sm => (8., 4.),
     };
     let pill = div()
@@ -673,6 +679,9 @@ pub(crate) fn glass_pill_button(
     match size {
         PillSize::Sm => button.web_xs(),
         PillSize::Md => button.web_sm(),
+        // EXP-926: `web_md` is the 36px control; the capsule shape is this
+        // recipe's, so the radius comes back on.
+        PillSize::Lg => button.web_md().rounded_full(),
     }
 }
 
@@ -697,6 +706,7 @@ pub(crate) fn glass_pill_button_primary(
     match size {
         PillSize::Sm => button.web_xs(),
         PillSize::Md => button.web_sm(),
+        PillSize::Lg => button.web_md().rounded_full(),
     }
 }
 

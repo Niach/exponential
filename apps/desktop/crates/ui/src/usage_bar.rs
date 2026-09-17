@@ -523,7 +523,15 @@ pub(crate) fn render_usage_windows(usage: &AgentUsage, now_epoch: i64, cx: &App)
 /// piece as the account picker's hover preview — so it is a standalone
 /// element that says nothing about where it sits. `None` when the login
 /// reported no window (the caller prints [`usage_caption`] instead).
-pub(crate) fn render_usage_mini(usage: &AgentUsage, cx: &App) -> Option<AnyElement> {
+///
+/// EXP-944: `now_epoch` captions the two WINDOW bars with when they reset
+/// (`resets in 2h 14m`, centred under the bar). `None` = bars only, which is
+/// what the tight surfaces want (the account picker's hover preview).
+pub(crate) fn render_usage_mini(
+    usage: &AgentUsage,
+    now_epoch: Option<i64>,
+    cx: &App,
+) -> Option<AnyElement> {
     use crate::controls::WebText as _;
     let windows = mini_windows(usage);
     if windows.is_empty() {
@@ -533,37 +541,64 @@ pub(crate) fn render_usage_mini(usage: &AgentUsage, cx: &App) -> Option<AnyEleme
     let mut row = gpui_component::h_flex()
         .w_full()
         .min_w_0()
-        .items_center()
+        .items_start()
         .gap_2()
         .text_2xs()
         .text_color(muted);
     for window in windows {
+        let reset = mini_window_reset(&window, now_epoch);
         row = row.child(
-            gpui_component::h_flex()
+            gpui_component::v_flex()
                 .flex_1()
                 .min_w_0()
-                .items_center()
-                .gap_1()
+                .gap_0p5()
                 .child(
-                    div()
-                        .flex_shrink_0()
-                        .truncate()
-                        .child(SharedString::from(window.label.clone())),
+                    gpui_component::h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .truncate()
+                                .child(SharedString::from(window.label.clone())),
+                        )
+                        .child(div().flex_1().min_w_0().child(meter(
+                            window.percent,
+                            severity(window.percent),
+                            MINI_TRACK_H,
+                            cx,
+                        )))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .child(SharedString::from(format!("{}%", window.percent))),
+                        ),
                 )
-                .child(div().flex_1().min_w_0().child(meter(
-                    window.percent,
-                    severity(window.percent),
-                    MINI_TRACK_H,
-                    cx,
-                )))
-                .child(
+                .children(reset.map(|line| {
                     div()
-                        .flex_shrink_0()
-                        .child(SharedString::from(format!("{}%", window.percent))),
-                ),
+                        .w_full()
+                        .min_w_0()
+                        .truncate()
+                        .text_center()
+                        .child(SharedString::from(line))
+                })),
         );
     }
     Some(row.into_any_element())
+}
+
+/// EXP-944 — the reset line under ONE mini bar, or `None` for a bar that
+/// carries none. Only the two WINDOWS say it: the per-model bar (`model:…`,
+/// "Fable") rides the weekly window's reset, so repeating it would print the
+/// same time twice. Mirrored ×4 (web `windowReset`).
+fn mini_window_reset(window: &MiniWindow, now_epoch: Option<i64>) -> Option<String> {
+    let now_epoch = now_epoch?;
+    if window.key != "session" && window.key != "weekly" {
+        return None;
+    }
+    format_reset_countdown(window.resets_at.as_deref(), now_epoch)
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,7 +1128,11 @@ impl ChipAction {
 
 /// EXP-862 — what a login's chip menu offers, the SAME rule on every client:
 ///
-/// * signed out, or a credential that expired here: a sign-in, nothing else;
+/// * signed out, or a credential that expired here: a sign-in, and (EXP-944)
+///   the removal beside it for a NAMED profile — a dead login is the one
+///   people most want gone, and codex logins, which are signed out far more
+///   often than claude's, were left with a menu of one. The ambient login
+///   still ends at the sign-in: its config dir is the CLI's own;
 /// * healthy and not the machine's login: make it the default, or remove it;
 /// * healthy and already the default: remove it.
 ///
@@ -1113,11 +1152,12 @@ pub(crate) fn chip_actions(
     can_switch: bool,
     can_remove: bool,
 ) -> Vec<ChipAction> {
-    if !signed_in || health == coding::agent_accounts::Health::NeedsRelogin {
-        return vec![ChipAction::SignIn];
-    }
+    let signs_in = !signed_in || health == coding::agent_accounts::Health::NeedsRelogin;
     let mut out = Vec::new();
-    if !active && can_switch {
+    if signs_in {
+        out.push(ChipAction::SignIn);
+    }
+    if !signs_in && !active && can_switch {
         out.push(ChipAction::SetDefault);
     }
     if can_remove && !profile_id.trim().is_empty() && profile_id != SYSTEM_PROFILE_ID {
@@ -1336,6 +1376,44 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Credits", "Month", "Other"]
         );
+    }
+
+    /// EXP-944 (×4 `windowReset`): only the two WINDOWS caption their bar with
+    /// a reset. The per-model bar rides the weekly window's reset, so saying it
+    /// again would print the same time twice; a window with no `resetsAt`, and
+    /// every caller that passed no clock, say nothing at all.
+    #[test]
+    fn only_the_two_windows_caption_their_reset() {
+        let now = 1_756_000_000_i64;
+        let at = |offset: i64| {
+            chrono::DateTime::from_timestamp(now + offset, 0)
+                .unwrap()
+                .to_rfc3339()
+        };
+        let mini = |key: &str, resets: Option<String>| MiniWindow {
+            key: key.to_string(),
+            label: key.to_string(),
+            percent: 12,
+            resets_at: resets,
+        };
+        let in_two_hours = Some(at(2 * 3600 + 14 * 60));
+        assert_eq!(
+            mini_window_reset(&mini("session", in_two_hours.clone()), Some(now)).as_deref(),
+            Some("resets in 2h 14m")
+        );
+        assert_eq!(
+            mini_window_reset(&mini("weekly", in_two_hours.clone()), Some(now)).as_deref(),
+            Some("resets in 2h 14m")
+        );
+        // The model bar never does.
+        assert_eq!(
+            mini_window_reset(&mini("model:fable", in_two_hours.clone()), Some(now)),
+            None
+        );
+        // No reset on the wire, no caption.
+        assert_eq!(mini_window_reset(&mini("session", None), Some(now)), None);
+        // No clock, no caption — the tight surfaces stay bars only.
+        assert_eq!(mini_window_reset(&mini("session", in_two_hours), None), None);
     }
 
     /// EXP-909 (×4 `usageAge`): numbers past the freshness window — or ones
@@ -2011,20 +2089,39 @@ mod tests {
         );
     }
 
-    /// EXP-862 — the ×4 chip rule: a broken or missing login offers ONLY a
-    /// sign-in; a healthy one offers the default switch (with the cap) and the
-    /// removal (with the cap, never the ambient login).
+    /// EXP-862 — the ×4 chip rule: a broken or missing login leads with a
+    /// sign-in and (EXP-944) offers the removal beside it for a NAMED profile;
+    /// a healthy one offers the default switch (with the cap) and the removal
+    /// (with the cap, never the ambient login).
     #[test]
     fn chip_menu_offers_one_thing_per_state() {
         use coding::agent_accounts::Health;
-        // Signed out: a sign-in and nothing else, caps or no caps.
+        // Signed out: the sign-in leads, the removal rides along — a dead
+        // named profile is exactly what people want gone, and the removal is
+        // a profile-dir delete the credential's state never gated.
         assert_eq!(
             chip_actions(false, Health::SignedOut, false, "0a1b", true, true),
-            vec![ChipAction::SignIn]
+            vec![ChipAction::SignIn, ChipAction::Remove]
         );
-        // Revoked here: still just the sign-in, even though the CLI reports in.
+        // Revoked here: the same pair, even though the CLI reports in.
         assert_eq!(
             chip_actions(true, Health::NeedsRelogin, true, "0a1b", true, true),
+            vec![ChipAction::SignIn, ChipAction::Remove]
+        );
+        // A dead login is never "set as default": it would not work.
+        assert!(
+            !chip_actions(false, Health::SignedOut, false, "0a1b", true, true)
+                .contains(&ChipAction::SetDefault)
+        );
+        // The AMBIENT login still ends at the sign-in: its config dir is the
+        // CLI's own, which Exponential never created.
+        assert_eq!(
+            chip_actions(false, Health::SignedOut, true, SYSTEM_PROFILE_ID, true, true),
+            vec![ChipAction::SignIn]
+        );
+        // An older machine without the remove cap keeps its menu of one.
+        assert_eq!(
+            chip_actions(false, Health::SignedOut, false, "0a1b", true, false),
             vec![ChipAction::SignIn]
         );
         // Healthy, not the machine's default.

@@ -2616,11 +2616,45 @@ impl SteerSessionView {
     }
 
     /// Name `index` in the header and scroll the diff to it (§11).
-    fn select_diff_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+    pub(crate) fn select_diff_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
         self.diff_selected = index;
         self.changes_diff
             .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
         cx.notify();
+    }
+
+    /// EXP-945 — fold or unfold one directory of the Changes tree. A method,
+    /// not an inline closure, because the tree is painted from TWO places now:
+    /// the window's left column ([`crate::review_files_nav`]) and — in a
+    /// column-less window — the pane's own card.
+    pub(crate) fn toggle_diff_dir(&mut self, path: String, cx: &mut gpui::Context<Self>) {
+        if !self.folded_dirs.insert(path.clone()) {
+            self.folded_dirs.remove(&path);
+        }
+        cx.notify();
+    }
+
+    /// EXP-945 — the four things a file tree needs, in the shape
+    /// [`crate::pr_diff::PrDiffView`] hands over: the run's Changes files, the
+    /// selected one, the `Filter files` field and the folded directories. The
+    /// sidebar panel reads them; the run stays the owner.
+    pub(crate) fn diff_pane_files(&self) -> Vec<crate::diff_pane::PaneFile> {
+        self.changes_files()
+            .iter()
+            .map(crate::diff_pane::PaneFile::new)
+            .collect()
+    }
+
+    pub(crate) fn diff_selected(&self) -> usize {
+        self.diff_selected
+    }
+
+    pub(crate) fn diff_filter(&self) -> &Entity<InputState> {
+        &self.diff_filter
+    }
+
+    pub(crate) fn diff_folded_dirs(&self) -> &std::collections::HashSet<String> {
+        &self.folded_dirs
     }
 
     /// EXP-916 — the Changes FACE: the file tree beside the per-file cards.
@@ -2643,14 +2677,19 @@ impl SteerSessionView {
             .iter()
             .map(crate::diff_pane::PaneFile::new)
             .collect();
+        // EXP-945: the run's Changes files are the same kind of context a
+        // review's are, so they go where a review's go — the window's LEFT
+        // COLUMN ([`crate::review_files_nav`]), not a floating tree inside the
+        // reading column. The pane paints its own only where no such column
+        // exists (an undocked run window), the identical test
+        // `pr_diff::render` makes.
+        let tree_in_sidebar = crate::screens::screens_for_window(window, cx).is_some();
         Some(crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
                 header: None,
                 files,
                 selected: self.diff_selected,
-                // The run's Changes face keeps its tree beside the column —
-                // the left column holds the list the run was opened from.
-                tree: true,
+                tree: !tree_in_sidebar,
                 filter: Some(self.diff_filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
                 caption: None,
@@ -2659,10 +2698,7 @@ impl SteerSessionView {
                     this.select_diff_file(index, cx);
                 }),
                 on_toggle_dir: std::rc::Rc::new(|this: &mut Self, path: String, cx| {
-                    if !this.folded_dirs.insert(path.clone()) {
-                        this.folded_dirs.remove(&path);
-                    }
-                    cx.notify();
+                    this.toggle_diff_dir(path, cx);
                 }),
             },
             window,

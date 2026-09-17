@@ -498,6 +498,14 @@ impl SessionScreenView {
         self.inner.read(cx).run_face()
     }
 
+    /// EXP-945: the viewer behind this screen — the owner of the Changes
+    /// face's files, selection, filter and folds, which the window's left
+    /// column paints ([`crate::review_files_nav`]). Handed over whole rather
+    /// than through six delegates: the panel observes it for repaints too.
+    pub(crate) fn inner(&self) -> &Entity<crate::steer_viewer::SteerSessionView> {
+        &self.inner
+    }
+
     /// EXP-879: how many pictures the run has published — 0 hides the
     /// Results item (the face is not offered on a run with nothing to show).
     pub(crate) fn results_count(&self, cx: &App) -> usize {
@@ -955,7 +963,15 @@ impl SessionScreenView {
             .as_ref()
             .and_then(|target| crate::work_header::merge_error_caption(target, cx));
         if let Some(target) = merge_target {
-            right.push(crate::work_header::merge_slot("session-merge", &target, true, cx));
+            // EXP-926: this cluster stands beside the face toggle, so it
+            // wears the TOGGLE's height, not a chip's.
+            right.push(crate::work_header::merge_slot(
+                "session-merge",
+                &target,
+                true,
+                crate::work_header::header_action_size(false),
+                cx,
+            ));
         }
         let over = self.run_over(cx);
         if killable && !self.ended && !over {
@@ -966,6 +982,7 @@ impl SessionScreenView {
                     device_label,
                 },
                 None,
+                crate::work_header::header_action_size(false),
                 cx,
             ));
         } else if let Some(path) = self.resume_path(cx) {
@@ -976,6 +993,7 @@ impl SessionScreenView {
                     host_label: device_label,
                 },
                 None,
+                crate::work_header::header_action_size(false),
                 cx,
             ));
         }
@@ -995,11 +1013,15 @@ impl SessionScreenView {
 /// glyph in the danger tint and the word "Stop". The SAME element on every
 /// session surface (the screen's header, the viewer's own chrome, whichever
 /// machine hosts the run); the caller wires the click to the run's confirm.
-pub(crate) fn stop_session_pill(id: impl Into<gpui::ElementId>, cx: &App) -> Button {
-    crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
+pub(crate) fn stop_session_pill(
+    id: impl Into<gpui::ElementId>,
+    size: crate::surface::PillSize,
+    cx: &App,
+) -> Button {
+    crate::surface::glass_pill_button(id, size, cx)
         .icon(
             gpui_component::Icon::new(registry::CODING_STOP)
-                .with_size(gpui::px(crate::surface::PillSize::Sm.glyph()))
+                .with_size(gpui::px(size.glyph()))
                 .text_color(cx.theme().danger),
         )
         .label("Stop")

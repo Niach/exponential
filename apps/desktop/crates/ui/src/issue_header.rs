@@ -616,6 +616,9 @@ impl IssueHeader {
                 issue_id: issue.id.clone(),
             },
             true,
+            // EXP-926: this one lives IN the property card's chip row, so it
+            // is chip-sized like the chips beside it.
+            crate::work_header::header_action_size(true),
             cx,
         )
     }
@@ -790,7 +793,12 @@ impl IssueHeader {
                     actions.push(self.start_coding.clone().into_any_element());
                 }
             }
-            other => actions.extend(crate::work_header::coding_action_button(other, None, cx)),
+            other => actions.extend(crate::work_header::coding_action_button(
+                other,
+                None,
+                crate::work_header::header_action_size(true),
+                cx,
+            )),
         }
         actions
     }

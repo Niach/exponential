@@ -41,6 +41,52 @@ pub(crate) const MAX_ISSUES_PER_RUN: usize = 30;
 /// of issues, and the checklist is a plain (non-virtual) list.
 pub(crate) const MAX_UNCHECKED_ROWS: usize = 50;
 
+/// EXP-946 — the gap a composer popover keeps to the window edge (web's
+/// `collisionPadding={12}`).
+const POPOVER_GUTTER: f32 = 12.;
+
+/// EXP-946 — the tallest a composer popover wants to be, room permitting.
+pub(crate) const POPOVER_WANTED_HEIGHT: f32 = 400.;
+
+/// EXP-946 — a popover never shrinks below this, however tight the window:
+/// under it the list stops being a list, and the window edge clips it
+/// anyway.
+const POPOVER_MIN_HEIGHT: f32 = 140.;
+
+/// EXP-946 — which side a composer popover opens on, and how tall it may be.
+///
+/// gpui-component's `Popover` anchors a CORNER and only CLAMPS — it never
+/// flips and never caps — so a list taller than the room on its side ran
+/// straight off the window. The composer sits low, so a picker prefers to
+/// open ABOVE its trigger; with no room there it opens BELOW, and either way
+/// it is capped to the room that side actually has. The ×4 rule (web's
+/// `collisionPadding` + `--radix-popover-content-available-height`).
+///
+/// `Anchor::BottomLeft` hangs the popup a trigger-height above the trigger's
+/// top and `Anchor::TopLeft` drops it from that same top
+/// (`Popup::resolved_corner`), which is what the two rooms are measured
+/// against.
+pub(crate) fn popover_fit(
+    trigger: gpui::Bounds<gpui::Pixels>,
+    viewport: gpui::Size<gpui::Pixels>,
+    wanted: f32,
+) -> (gpui::Anchor, gpui::Pixels) {
+    let gutter = px(POPOVER_GUTTER);
+    let above = (trigger.top() - trigger.size.height - gutter).max(px(0.));
+    let below = (viewport.height - trigger.top() - gutter).max(px(0.));
+    // A trigger that has never painted reports an empty rect at the origin;
+    // opening DOWN from there is the only guess that cannot be wrong.
+    let unmeasured = trigger.size.height <= px(0.);
+    let open_above = !unmeasured && (px(wanted) <= above || above >= below);
+    let room = if open_above { above } else { below };
+    let anchor = if open_above {
+        gpui::Anchor::BottomLeft
+    } else {
+        gpui::Anchor::TopLeft
+    };
+    (anchor, px(wanted).min(room).max(px(POPOVER_MIN_HEIGHT)))
+}
+
 /// One checklist row, snapshotted from the sync store (titles and
 /// descriptions ride into the launch request verbatim — the launcher never
 /// re-reads the collections).
@@ -358,8 +404,12 @@ pub(crate) fn issue_picker_popover<V: IssuePickerHost>(
     checked: &HashSet<String>,
     search: &Entity<InputState>,
     notes: Vec<(String, SharedString)>,
+    // EXP-946: the side and the height cap [`popover_fit`] worked out from
+    // where the trigger actually painted.
+    fit: (gpui::Anchor, gpui::Pixels),
     cx: &mut gpui::Context<V>,
 ) -> Popover {
+    let (anchor, max_height) = fit;
     let checked = checked.clone();
     let search = search.clone();
     let view = cx.entity().downgrade();
@@ -367,6 +417,7 @@ pub(crate) fn issue_picker_popover<V: IssuePickerHost>(
     let view_for_open = view.clone();
     Popover::new("chat-issue-picker")
         .p_1()
+        .anchor(anchor)
         .trigger(trigger)
         .on_open_change(move |open, window, cx| {
             // Fresh search + selection per open, and the field takes focus so
@@ -428,6 +479,9 @@ pub(crate) fn issue_picker_popover<V: IssuePickerHost>(
             v_flex()
                 .w(px(480.))
                 .max_w_full()
+                // EXP-946: the list SHRINKS with the room its side has, so the
+                // popover can never run off the window.
+                .max_h(max_height)
                 // ↑/↓/Enter arrive as the search field's own actions — a
                 // single-line input no-ops them, so the popover CAPTURES them
                 // for the list (the `MentionInput` pattern).
@@ -454,7 +508,8 @@ pub(crate) fn issue_picker_popover<V: IssuePickerHost>(
                 .child(
                     div()
                         .id("chat-issue-picker-scroll")
-                        .max_h(px(360.))
+                        .flex_1()
+                        .min_h_0()
                         .overflow_y_scroll()
                         .child(list),
                 )
@@ -490,6 +545,49 @@ fn move_selection_listener<V: IssuePickerHost, A: gpui::Action>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-946 — the picker opens ABOVE its trigger when that side has room,
+    /// BELOW when it does not, and is capped to whichever side it took, so it
+    /// can never run off the window.
+    #[test]
+    fn a_composer_popover_takes_the_side_with_room_and_caps_itself_to_it() {
+        let trigger = |top: f32| gpui::Bounds {
+            origin: gpui::Point::new(px(40.), px(top)),
+            size: gpui::Size::new(px(32.), px(32.)),
+        };
+        let viewport = gpui::Size::new(px(1200.), px(800.));
+        // A composer low in the window: plenty above, so the picker opens
+        // there at its full height.
+        let (anchor, height) = popover_fit(trigger(700.), viewport, POPOVER_WANTED_HEIGHT);
+        assert_eq!(anchor, gpui::Anchor::BottomLeft);
+        assert_eq!(height, px(POPOVER_WANTED_HEIGHT));
+        // A trigger near the TOP has no room above and flips BELOW — this is
+        // the case that used to run off the top of the window.
+        let (anchor, height) = popover_fit(trigger(80.), viewport, POPOVER_WANTED_HEIGHT);
+        assert_eq!(anchor, gpui::Anchor::TopLeft);
+        assert_eq!(height, px(POPOVER_WANTED_HEIGHT));
+        // Too little room above for the full height, but MORE than below: it
+        // stays above and shrinks to what that side has (300 - 32 - 12).
+        let (anchor, height) = popover_fit(
+            trigger(300.),
+            gpui::Size::new(px(1200.), px(500.)),
+            POPOVER_WANTED_HEIGHT,
+        );
+        assert_eq!(anchor, gpui::Anchor::BottomLeft);
+        assert_eq!(height, px(256.));
+        // A short window: neither side fits, and the floor keeps the list a
+        // list.
+        let (_, height) = popover_fit(
+            trigger(120.),
+            gpui::Size::new(px(1200.), px(200.)),
+            POPOVER_WANTED_HEIGHT,
+        );
+        assert_eq!(height, px(140.));
+        // A trigger that has never painted opens DOWN — the only guess that
+        // cannot put the panel off-screen.
+        let (anchor, _) = popover_fit(gpui::Bounds::default(), viewport, POPOVER_WANTED_HEIGHT);
+        assert_eq!(anchor, gpui::Anchor::TopLeft);
+    }
 
     fn row(id: &str, identifier: &str, title: &str) -> IssueRow {
         dated(id, identifier, title, None)

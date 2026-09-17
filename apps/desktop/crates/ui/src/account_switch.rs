@@ -484,7 +484,10 @@ impl SwitchContext {
             // question the reader opened the sheet with).
             if let Some(usage) = target.usage.as_ref() {
                 let age = crate::usage_bar::usage_age(Some(usage), now_epoch);
-                if let Some(mini) = crate::usage_bar::render_usage_mini(usage, cx) {
+                // EXP-944: no reset captions here — the picker's preview is a
+                // tight row, and the Devices page is where a limit is planned
+                // around.
+                if let Some(mini) = crate::usage_bar::render_usage_mini(usage, None, cx) {
                     row = row.child(
                         v_flex()
                             .w_full()

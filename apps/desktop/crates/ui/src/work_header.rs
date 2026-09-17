@@ -35,6 +35,25 @@ use crate::surface::{glass_pill_button, glass_pill_button_primary, PillSize};
 /// body, transcript and the full-page diff all cap to it.
 pub(crate) const WORK_COLUMN_W: f32 = 896.;
 
+/// EXP-926 / FEED-45 — ONE size rule per PLACEMENT, and the placement is the
+/// only thing that decides it.
+///
+/// A header action (Merge PR, Stop, Resume, Fix conflicts) sits in exactly two
+/// places: NEXT TO the face toggle in row 1 — a run with no issue, or a batch,
+/// which has no property card to put it in — or INSIDE that card's chip row
+/// beside status, priority, labels, due date and board. Beside the toggle it
+/// matches the TOGGLE ([`PillSize::Lg`], the 36px control); in the tray it
+/// matches the CHIPS ([`PillSize::Sm`], what `pickers::chip_button` wears).
+/// They used to be chip-sized in both, so the header's own cluster read as a
+/// row of stray chips floating next to a control twice their height.
+pub(crate) fn header_action_size(in_tray: bool) -> PillSize {
+    if in_tray {
+        PillSize::Sm
+    } else {
+        PillSize::Lg
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Face toggle
 // ---------------------------------------------------------------------------
@@ -385,6 +404,9 @@ pub(crate) fn resume_path_cached(
 pub(crate) fn coding_action_button(
     action: CodingAction,
     start: Option<&gpui::Entity<StartCodingControl>>,
+    // EXP-926: the placement's size — the toggle's beside the toggle, the
+    // chips' inside the tray.
+    size: PillSize,
     cx: &App,
 ) -> Option<AnyElement> {
     match action {
@@ -393,7 +415,7 @@ pub(crate) fn coding_action_button(
             local,
             device_label,
         } => Some(
-            crate::session_screen::stop_session_pill("work-stop", cx)
+            crate::session_screen::stop_session_pill("work-stop", size, cx)
                 .on_click(move |_, window, cx| {
                     let host = local
                         .then(|| {
@@ -420,7 +442,7 @@ pub(crate) fn coding_action_button(
             path,
             host_label,
         } => {
-            let button = resume_pill("work-resume", cx);
+            let button = resume_pill("work-resume", size, cx);
             Some(match path {
                 ResumePath::Local => button
                     .on_click(move |_, window, cx| {
@@ -481,11 +503,11 @@ pub(crate) fn github_button(
 }
 
 /// The Resume pill — glass, `Sm`, the resume glyph and the word "Resume".
-pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, cx: &App) -> Button {
-    glass_pill_button(id, PillSize::Sm, cx)
+pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, size: PillSize, cx: &App) -> Button {
+    glass_pill_button(id, size, cx)
         .icon(
             Icon::new(registry::RUN_RESUME)
-                .with_size(px(PillSize::Sm.glyph()))
+                .with_size(px(size.glyph()))
                 .text_color(cx.theme().muted_foreground),
         )
         .label("Resume")
@@ -503,9 +525,10 @@ pub(crate) fn merge_pill(
     id: impl Into<gpui::ElementId>,
     target: &MergeTarget,
     primary: bool,
+    size: PillSize,
     cx: &mut App,
 ) -> AnyElement {
-    merge_pill_labeled(id, target, primary, None, cx)
+    merge_pill_labeled(id, target, primary, None, size, cx)
 }
 
 /// EXP-917 — [`merge_pill`] with its RESTING label overridden: the swapped
@@ -517,6 +540,8 @@ pub(crate) fn merge_pill_labeled(
     target: &MergeTarget,
     primary: bool,
     resting_label: Option<&'static str>,
+    // EXP-926: the placement's size, never the pill's own opinion.
+    size: PillSize,
     cx: &mut App,
 ) -> AnyElement {
     let key = target.key();
@@ -534,13 +559,13 @@ pub(crate) fn merge_pill_labeled(
     };
     let target = target.clone();
     let mut button = if primary {
-        glass_pill_button_primary(id, PillSize::Sm)
+        glass_pill_button_primary(id, size)
     } else {
-        glass_pill_button(id, PillSize::Sm, cx)
+        glass_pill_button(id, size, cx)
     }
     .icon(
         Icon::from(ExpIcon::GitMerge)
-            .with_size(px(PillSize::Sm.glyph()))
+            .with_size(px(size.glyph()))
             .text_color(glyph),
     )
     // EXP-916: the settled label is the CONTRACT's, so the pill reads the
@@ -622,6 +647,7 @@ pub(crate) fn fix_conflicts_pill(
     id: impl Into<gpui::ElementId>,
     issue_id: &str,
     branch: Option<&str>,
+    size: PillSize,
     cx: &mut App,
 ) -> AnyElement {
     let fixing = branch.is_some_and(|branch| {
@@ -630,10 +656,10 @@ pub(crate) fn fix_conflicts_pill(
     });
     let no_agent = crate::coding_flow::no_agent_reason(cx);
     let issue_id = issue_id.to_string();
-    let mut button = glass_pill_button_primary(id, PillSize::Sm)
+    let mut button = glass_pill_button_primary(id, size)
         .icon(
             Icon::from(ExpIcon::GitBranch)
-                .with_size(px(PillSize::Sm.glyph()))
+                .with_size(px(size.glyph()))
                 .text_color(cx.theme().primary_foreground),
         )
         .label(if fixing { "Fixing…" } else { "Fix conflicts" })
@@ -676,9 +702,15 @@ pub(crate) fn fix_conflicts_pill(
 /// refusal instead ([`merge_error_caption`]). The swap is short-lived by
 /// construction: `MergeState` drops a failure whose row re-synced, so the
 /// next echo restores the plain pill.
-pub(crate) fn merge_slot(id: &str, target: &MergeTarget, primary: bool, cx: &mut App) -> AnyElement {
+pub(crate) fn merge_slot(
+    id: &str,
+    target: &MergeTarget,
+    primary: bool,
+    size: PillSize,
+    cx: &mut App,
+) -> AnyElement {
     let Some(issue) = merge_slot_swap_issue(target, cx) else {
-        return merge_pill(SharedString::from(id.to_string()), target, primary, cx);
+        return merge_pill(SharedString::from(id.to_string()), target, primary, size, cx);
     };
     // Fix conflicts takes the primary paint; Merge steps down to the glass
     // "Retry merge" beside it — never a dead end, the conflict may have been
@@ -693,6 +725,7 @@ pub(crate) fn merge_slot(id: &str, target: &MergeTarget, primary: bool, cx: &mut
             SharedString::from(format!("{id}-fix")),
             &issue.id,
             issue.branch.as_deref(),
+            size,
             cx,
         ))
         .child(merge_pill_labeled(
@@ -700,6 +733,7 @@ pub(crate) fn merge_slot(id: &str, target: &MergeTarget, primary: bool, cx: &mut
             target,
             false,
             Some(RETRY_MERGE_LABEL),
+            size,
             cx,
         ))
         .into_any_element()
@@ -873,6 +907,26 @@ mod tests {
         assert!(!merge_slot_swapped(false, true, true, true));
     }
 
+    /// EXP-926 / FEED-45 — ONE size rule per placement, pinned as a rule
+    /// rather than as a pixel: beside the toggle the actions wear the
+    /// toggle's own rung, in the tray they wear the chips'.
+    #[test]
+    fn a_header_action_takes_its_size_from_its_placement() {
+        assert_eq!(header_action_size(false), PillSize::Lg);
+        assert_eq!(header_action_size(true), PillSize::Sm);
+        // Beside the toggle means the TOGGLE's height — the 36px control the
+        // segmented capsule is (`controls::segmented`, web `h-9`).
+        assert_eq!(
+            header_action_size(false).height(),
+            theme::tokens::size::CONTROL_LG
+        );
+        // In the tray means the CHIPS' — what `pickers::chip_button` wears.
+        assert_eq!(
+            header_action_size(true).height(),
+            theme::tokens::size::CONTROL_SM
+        );
+    }
+
     /// EXP-889 — the tray's pills are ONE box. The reporter's Merge PR pill
     /// stood a rung taller (and a type size bigger) than the status /
     /// priority / label / Stop pills beside it, so this DRAWS the tray and
@@ -938,12 +992,22 @@ mod tests {
                             .gap_1()
                             .child(probe(
                                 self.0.merge.clone(),
-                                merge_pill("header-merge-pr", &target, true, cx),
+                                merge_pill(
+                                    "header-merge-pr",
+                                    &target,
+                                    true,
+                                    header_action_size(true),
+                                    cx,
+                                ),
                             ))
                             .child(probe(
                                 self.0.stop.clone(),
-                                crate::session_screen::stop_session_pill("work-stop", cx)
-                                    .into_any_element(),
+                                crate::session_screen::stop_session_pill(
+                                    "work-stop",
+                                    header_action_size(true),
+                                    cx,
+                                )
+                                .into_any_element(),
                             )),
                     )
             }
@@ -982,6 +1046,116 @@ mod tests {
             (merge.get() - expected).abs() < 2.,
             "EXP-889: the Merge pill is the Sm rung: {} vs {expected}",
             merge.get()
+        );
+    }
+
+    /// EXP-926 / FEED-45 — the OTHER placement, drawn: a run with no issue
+    /// (or a batch) has no property card, so Merge PR and Stop stand in row 1
+    /// NEXT TO the face toggle. There they must be the toggle's own box —
+    /// chip-sized capsules beside a control half again their height read as
+    /// strays. Same probe as the tray's test.
+    #[gpui::test]
+    async fn the_actions_beside_the_toggle_match_the_toggle(cx: &mut gpui::TestAppContext) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        #[derive(Default)]
+        struct Measured {
+            toggle: Rc<Cell<f32>>,
+            stop: Rc<Cell<f32>>,
+            merge: Rc<Cell<f32>>,
+        }
+
+        struct Cluster(Measured);
+
+        fn probe(out: Rc<Cell<f32>>, child: AnyElement) -> AnyElement {
+            div()
+                .relative()
+                .flex_shrink_0()
+                .child(child)
+                .child(
+                    gpui::canvas(
+                        move |bounds, _, _| out.set(f32::from(bounds.size.height)),
+                        |_, _: (), _, _| {},
+                    )
+                    .absolute()
+                    .size_full(),
+                )
+                .into_any_element()
+        }
+
+        impl gpui::Render for Cluster {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                cx: &mut gpui::Context<Self>,
+            ) -> impl IntoElement {
+                let target = MergeTarget::Session {
+                    session_id: "run-1".to_string(),
+                };
+                let toggle = face_toggle(
+                    FaceToggle {
+                        issue: false,
+                        run: Some("run-1".to_string()),
+                        diff: Some((3, 1)),
+                        pr_changes: false,
+                        results: false,
+                        active: Face::Run,
+                        multiple_runs: false,
+                    },
+                    Rc::new(|_, _, _| {}),
+                    cx,
+                )
+                .expect("two items is a toggle");
+                // The real row-1 right cluster (`render_work_header`'s).
+                h_flex()
+                    .items_center()
+                    .gap_1()
+                    .child(probe(self.0.toggle.clone(), toggle))
+                    .child(probe(
+                        self.0.merge.clone(),
+                        merge_pill("session-merge", &target, true, header_action_size(false), cx),
+                    ))
+                    .child(probe(
+                        self.0.stop.clone(),
+                        crate::session_screen::stop_session_pill(
+                            "work-stop",
+                            header_action_size(false),
+                            cx,
+                        )
+                        .into_any_element(),
+                    ))
+            }
+        }
+
+        let measured = Measured::default();
+        let (toggle, stop, merge) = (
+            measured.toggle.clone(),
+            measured.stop.clone(),
+            measured.merge.clone(),
+        );
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let (_view, cx) = cx.add_window_view(|_, _| Cluster(measured));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+
+        let expected = crate::controls::CTL_LG_H;
+        assert!(
+            (toggle.get() - expected).abs() < 2.,
+            "the face toggle is the Lg rung: {} vs {expected}",
+            toggle.get()
+        );
+        assert!(
+            (merge.get() - expected).abs() < 2.,
+            "EXP-926: the Merge pill matches the toggle: {} vs {expected}",
+            merge.get()
+        );
+        assert!(
+            (stop.get() - expected).abs() < 2.,
+            "EXP-926: the Stop pill matches the toggle: {} vs {expected}",
+            stop.get()
         );
     }
 

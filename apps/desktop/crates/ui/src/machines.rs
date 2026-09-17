@@ -71,6 +71,11 @@ const LIVENESS_TICK: std::time::Duration = std::time::Duration::from_secs(10);
 /// settings gear only renders under the pointer (`drafts_view`'s idiom).
 const MACHINE_ROW_GROUP: &str = "machine-row";
 
+/// EXP-944 — where a login sub-row starts, so it lines up under the device
+/// NAME: the row's own `px_3` plus the fold chevron and the kind icon (12px
+/// each) with the row's `gap_3` between them.
+const LOGIN_INDENT: f32 = 60.;
+
 /// EXP-909 (moved from the retired Accounts section): how long a queued usage
 /// refresh shows as in flight before the list gives up on the device
 /// answering — it answers by RE-REPORTING on its next beat, and the synced
@@ -168,6 +173,12 @@ pub(crate) struct MachinesSection {
     refreshing: std::collections::HashMap<String, RefreshMark>,
     /// When the list's OWN refresh last tried each login.
     auto_attempts: std::collections::HashMap<String, i64>,
+    /// EXP-944: the device ids whose logins are UNFOLDED. Devices collapse by
+    /// default — the list answers "which machines do I have and are they up"
+    /// first, and three machines' worth of logins, usage bars and "Add
+    /// account" rows made that first question unreadable. View state, never a
+    /// setting: a fold does not survive the screen.
+    expanded: std::collections::HashSet<String>,
     _subscriptions: Vec<gpui::Subscription>,
 }
 
@@ -210,6 +221,7 @@ impl MachinesSection {
             derived: None,
             refreshing: std::collections::HashMap::new(),
             auto_attempts: std::collections::HashMap::new(),
+            expanded: std::collections::HashSet::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -547,10 +559,16 @@ impl MachinesSection {
                     )
                     .tooltip(DEVICE_SETTINGS)
                     .on_click(move |_, window, cx| {
+                        // The row folds; the gear opens settings.
+                        cx.stop_propagation();
                         crate::device_settings::open(window, cx, settings_row_id.clone());
                     }),
                 )
         });
+        // EXP-944: the whole line folds, so the chevron is an AFFORDANCE, not
+        // a second target — the same fold glyph the session tree wears.
+        let expanded = self.expanded.contains(&device.device_id);
+        let toggle_id = device.device_id.clone();
 
         // EXP-642: one row per device, the web `GlassRow` two-line shape —
         // icon · (name · version · default star · "Shared") over the status
@@ -569,6 +587,23 @@ impl MachinesSection {
             .py_2p5()
             .cursor_pointer()
             .hover(move |this| this.bg(row_hover))
+            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                if !this.expanded.remove(&toggle_id) {
+                    this.expanded.insert(toggle_id.clone());
+                }
+                cx.notify();
+            }))
+            .child(
+                div().flex_shrink_0().child(
+                    Icon::new(if expanded {
+                        registry::UI_CHEVRON_DOWN
+                    } else {
+                        registry::UI_CHEVRON_RIGHT
+                    })
+                    .xsmall()
+                    .text_color(muted),
+                ),
+            )
             .child(
                 div()
                     .flex_shrink_0()
@@ -709,12 +744,15 @@ impl MachinesSection {
             // are gone with them, so a team row ends at its status line.
             .children(gear);
         // EXP-909: the device's own logins hang UNDER its line, so a login is
-        // always read beside the machine that holds it.
+        // always read beside the machine that holds it. EXP-944: in the FOLD —
+        // the collapsed row is the machine, its logins are the second question.
         gpui_component::v_flex()
             .w_full()
             .min_w_0()
             .child(line)
-            .children(self.render_login_rows(index, device, cx))
+            .when(expanded, |this| {
+                this.children(self.render_login_rows(index, device, cx))
+            })
             .into_any_element()
     }
 
@@ -739,7 +777,7 @@ impl MachinesSection {
         let muted = cx.theme().muted_foreground;
         let now_epoch = chrono::Utc::now().timestamp();
         // The sub-rows hang under the device NAME, not under its icon.
-        let indent = |element: gpui::Div| element.w_full().min_w_0().pl_9().pr_3();
+        let indent = |element: gpui::Div| element.w_full().min_w_0().pl(px(LOGIN_INDENT)).pr_3();
         if device.logins.is_empty() {
             let line = if device.accounts_reported {
                 crate::usage_bar::NO_LOGIN_REPORTED
@@ -877,7 +915,11 @@ impl MachinesSection {
                     login
                         .usage
                         .as_ref()
-                        .and_then(|usage| crate::usage_bar::render_usage_mini(usage, cx))
+                        // EXP-944: the device list is where a limit is actually
+                        // planned around, so its bars say WHEN they reset.
+                        .and_then(|usage| {
+                            crate::usage_bar::render_usage_mini(usage, Some(now_epoch), cx)
+                        })
                 })
                 .flatten();
             let numbers = gpui_component::h_flex()
@@ -982,7 +1024,7 @@ impl MachinesSection {
             div()
                 .w_full()
                 .min_w_0()
-                .pl_9()
+                .pl(px(LOGIN_INDENT))
                 .pr_3()
                 .pb_1()
                 .child(

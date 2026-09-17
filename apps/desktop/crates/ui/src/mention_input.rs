@@ -15,8 +15,8 @@ use std::rc::Rc;
 
 use gpui::{
     canvas, deferred, div, point, px, Bounds, Entity, InteractiveElement as _,
-    IntoElement, ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription,
-    TextRun, Window,
+    IntoElement, ParentElement as _, Pixels, Render, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Subscription, TextRun, Window,
 };
 use gpui_component::input::{self, InputEvent, Textarea, TextareaState};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
@@ -368,11 +368,18 @@ impl MentionInput {
                     .into_any_element()
             })
             .collect();
+        // EXP-946: the caret menu is CAPPED to the room under it and scrolls,
+        // so a long `#`/`@` list can never run off the window. `anchored`'s
+        // snap only slides a panel around; it cannot shrink one that is taller
+        // than the viewport.
+        let room_below = (window.viewport_size().height - anchor.y - px(12.)).max(px(0.));
         let menu = v_flex()
             .id("mention-completion")
             .occlude()
             .min_w(px(260.))
             .max_w(px(380.))
+            .max_h(room_below.max(px(140.)).min(px(320.)))
+            .overflow_y_scroll()
             .p_1()
             .gap_0p5()
             .bg(popover)

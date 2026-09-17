@@ -130,6 +130,10 @@ const PANEL_MARGIN_BOTTOM_BAR: f32 = 6.;
 /// from, EXP-851) and (EXP-916) the review's file tree
 /// ([`crate::review_files_nav`]): a review's context is the files its pull
 /// request touches, so THAT sits beside it instead of the Reviews queue.
+///
+/// EXP-945: a RUN on its Changes face takes the same occupant. Its files are
+/// the same kind of context, so they go in the same slot and through the same
+/// panel — only the back row differs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LeftOccupant {
     Rail,
@@ -139,16 +143,23 @@ pub(crate) enum LeftOccupant {
 }
 
 /// EXP-851: the pure occupant rule — Settings wins, then (EXP-916) the
-/// review screen's file tree, then a list origin, else the rail. `origin`
-/// is the list the ACTIVE screen carries ([`list_nav_origin`]).
+/// review screen's file tree, then (EXP-945) a run sitting on its Changes
+/// face, then a list origin, else the rail. `origin` is the list the ACTIVE
+/// screen carries ([`list_nav_origin`]); `run_diff` = the active screen is a
+/// run whose Changes face is up ([`window_run_diff`]), which outranks the
+/// run's own list because the files ARE the context there.
 pub(crate) fn left_occupant_for(
     screen: Option<&Screen>,
     origin: Option<&crate::navigation::TabOrigin>,
+    run_diff: bool,
 ) -> LeftOccupant {
     if matches!(screen, Some(Screen::Settings)) {
         return LeftOccupant::Settings;
     }
     if matches!(screen, Some(Screen::PrDiff { .. })) {
+        return LeftOccupant::ReviewFiles;
+    }
+    if run_diff && matches!(screen, Some(Screen::Session { .. })) {
         return LeftOccupant::ReviewFiles;
     }
     if origin.is_some() {
@@ -175,12 +186,29 @@ pub(crate) fn list_nav_origin(
         .and_then(|panel| panel.read(cx).origin_of(&screen))
 }
 
+/// EXP-945: is this window's ACTIVE screen a run sitting on its Changes
+/// face? Derived from the viewer's LIVE face, never from the click that asked
+/// for it — `set_run_face` defers through `pending_run_face` when the screen
+/// has not been built yet, so a click-derived answer would be a frame early.
+pub(crate) fn window_run_diff(window: &Window, cx: &App) -> bool {
+    let Some(nav) = crate::navigation::nav_for_window_id(window.window_handle().window_id(), cx)
+    else {
+        return false;
+    };
+    let Some(Screen::Session { session_id }) = crate::navigation::resolved_screen(&nav, cx) else {
+        return false;
+    };
+    crate::screens::screens_for_window(window, cx)
+        .and_then(|panel| panel.read(cx).run_screen(&session_id))
+        .is_some_and(|view| view.read(cx).run_face(cx) == crate::screens::RunFace::Diff)
+}
+
 /// EXP-456/EXP-851: which occupant this window's left column shows.
 pub(crate) fn window_left_occupant(window: &Window, cx: &App) -> LeftOccupant {
     let screen = crate::navigation::nav_for_window_id(window.window_handle().window_id(), cx)
         .and_then(|nav| crate::navigation::resolved_screen(&nav, cx));
     let origin = list_nav_origin(window, cx);
-    left_occupant_for(screen.as_ref(), origin.as_ref())
+    left_occupant_for(screen.as_ref(), origin.as_ref(), window_run_diff(window, cx))
 }
 
 /// EXP-870: the left column's width for `occupant` — the expanded rail
@@ -1716,39 +1744,68 @@ mod tests {
             issue_id: "i1".into(),
         };
         assert_eq!(
-            left_occupant_for(Some(&Screen::Settings), Some(&board)),
+            left_occupant_for(Some(&Screen::Settings), Some(&board), false),
             LeftOccupant::Settings,
             "settings replaces the rail even beside a list"
         );
         assert_eq!(
-            left_occupant_for(Some(&issue), Some(&board)),
+            left_occupant_for(Some(&issue), Some(&board), false),
             LeftOccupant::ListNav
         );
-        assert_eq!(left_occupant_for(Some(&issue), None), LeftOccupant::Rail);
+        assert_eq!(
+            left_occupant_for(Some(&issue), None, false),
+            LeftOccupant::Rail
+        );
         // EXP-916: a review's context is its file tree — with or without the
         // Reviews list it was opened from.
         let review = Screen::PrDiff {
             issue_id: "i1".into(),
         };
         assert_eq!(
-            left_occupant_for(Some(&review), Some(&board)),
+            left_occupant_for(Some(&review), Some(&board), false),
             LeftOccupant::ReviewFiles
         );
         assert_eq!(
-            left_occupant_for(Some(&review), None),
+            left_occupant_for(Some(&review), None, false),
             LeftOccupant::ReviewFiles
+        );
+        // EXP-945: a run on its CHANGES face takes the same occupant — its
+        // files are its context, so they go where a review's go, over the
+        // list the run was opened from. Every other face keeps that list.
+        let run = Screen::Session {
+            session_id: "s1".into(),
+        };
+        assert_eq!(
+            left_occupant_for(Some(&run), Some(&board), true),
+            LeftOccupant::ReviewFiles
+        );
+        assert_eq!(
+            left_occupant_for(Some(&run), None, true),
+            LeftOccupant::ReviewFiles
+        );
+        assert_eq!(
+            left_occupant_for(Some(&run), Some(&board), false),
+            LeftOccupant::ListNav,
+            "the Run face keeps the list the run was opened from"
+        );
+        assert_eq!(left_occupant_for(Some(&run), None, false), LeftOccupant::Rail);
+        // The flag alone never moves a screen that is not a run.
+        assert_eq!(
+            left_occupant_for(Some(&issue), Some(&board), true),
+            LeftOccupant::ListNav
         );
         assert_eq!(
             left_occupant_for(
                 Some(&Screen::BoardIssues {
                     board_id: "b1".into()
                 }),
-                None
+                None,
+                false
             ),
             LeftOccupant::Rail,
             "a list screen shows the rail, not a copy of itself"
         );
-        assert_eq!(left_occupant_for(None, None), LeftOccupant::Rail);
+        assert_eq!(left_occupant_for(None, None, false), LeftOccupant::Rail);
     }
 
     /// EXP-870: the rail never leaves — beside a list or the settings nav it
