@@ -1060,9 +1060,10 @@ class SteerConnection internal constructor(
         _activity.value = next
         // EXP-724: the swap re-derived the compaction state from the replay —
         // arm the backstop for a start it carried, drop it otherwise. The
-        // other slots (`turn`, `background_tasks`, `rate_limit` and EXP-861's
-        // `queue`) were re-derived the same way: the fold started from a
-        // fresh state, so whatever the replay did not restate is gone.
+        // other slots (`turn`, `background_tasks`, `rate_limit`, EXP-861's
+        // `queue` and EXP-927's `task_list`) were re-derived the same way: the
+        // fold started from a fresh state, so whatever the replay did not
+        // restate is gone.
         armCompactionTimeout(next.compacting)
         Log.i(
             TAG,
