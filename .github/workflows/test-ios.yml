@@ -27,13 +27,11 @@ name: test-ios
 # from packages/. The one exception is packages/domain-contract, whose JSON
 # fixtures and TS reference the ExpCore tests read straight off the checkout.
 
+# Once per change: the pull request only. The push the squash merge produces
+# carries the tree the PR just tested, so it does not run again
+# (`workflow_dispatch` for a direct push to master).
+
 on:
-  push:
-    branches: [master]
-    paths:
-      - 'apps/ios/**'
-      - 'packages/domain-contract/**'
-      - '.github/workflows/test-ios.yml'
   pull_request:
     branches: [master]
     paths:
