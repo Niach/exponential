@@ -1063,8 +1063,11 @@ export function AgentSessionView({
     />
   ) : (
     <MobileWorkBar
+      /* EXP-916: the ring belongs to the composer band — while a card holds
+         the keyboard, or once the run is over, the bar is the switcher alone
+         (Android's `FloatingBottomBar(right = …)`, iOS's `bandRetired`). */
       leading={
-        sessionOpen && usageAvailable
+        composerVisible && usageAvailable
           ? usageOverlay(
               <ContextRing
                 usage={sessionUsage}
