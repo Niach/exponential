@@ -180,7 +180,6 @@ struct MobileTabBar: View {
         .overlay(
             Capsule().stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
         )
-        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     /// One arm of the launcher capsule: a 52pt square hit area, no chrome of

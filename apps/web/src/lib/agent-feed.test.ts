@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import editCardCases from "@exp/domain-contract/fixtures/feed/edit-cards.json" with { type: "json" }
+import {
+  editCard,
+  renderEditCard,
+  type EditCardFeedItem,
+} from "@exp/domain-contract/edit-card"
 import {
   ackAnswer,
   activeQuestionIds,
@@ -31,6 +37,7 @@ import {
   createActivityCoalescer,
   failAnswer,
   groupFeedRows,
+  groupLaneRows,
   liveToolOutputTail,
   LIVE_TOOL_OUTPUT_TAIL_LINES,
   liveToolRowId,
@@ -739,6 +746,83 @@ describe(`groupFeedRows`, () => {
       { kind: `single`, item: feed[0] },
       { kind: `single`, item: feed[1] },
     ])
+  })
+})
+
+// EXP-916: the edited-files card is a CONTRACT. `fixtures/feed/edit-cards.json`
+// is replayed through the REAL `groupFeedRows`/`groupLaneRows` and the real
+// `editCard`, projected into the fixture's own row strings — the same replay
+// the desktop, iOS and Android feed tests run. A drift here is a drift ×4.
+describe(`edited-files cards (EXP-916)`, () => {
+  interface EditCase {
+    name: string
+    feed: (EditCardFeedItem & { text?: string })[]
+    start?: number
+    lane?: string
+    live?: number
+    expected: string[]
+  }
+  const cases = editCardCases as unknown as EditCase[]
+
+  /** `renderEditCard` over this row's members, prefixed with the row id and
+   *  the ids the row swallowed — the fixture's format, verbatim. */
+  const project = (item: EditCase): string[] => {
+    const live = item.live ?? null
+    const rows =
+      item.lane === undefined
+        ? groupFeedRows(item.feed, item.start ?? 0)
+        : groupLaneRows(
+            item.feed.filter((row) => row.subagentId === item.lane)
+          )
+    return rows.map((row) => {
+      if (row.kind === `edits`) {
+        const ids = row.items.map((m) => m.id).join(`,`)
+        return `card@${row.id}[${ids}]: ${renderEditCard(editCard(row.items, live))}`
+      }
+      if (row.kind === `toolRun`) {
+        return `run@${row.id}[${row.items.map((m) => m.id).join(`,`)}]`
+      }
+      if (row.kind === `subagent`) return `subagent@${row.id}(${row.subagentId})`
+      if (row.kind === `ask`) return `ask@${row.id}`
+      const kind = row.item.kind
+      return `${kind === `user_message` ? `user` : kind}@${row.item.id}`
+    })
+  }
+
+  it(`every fixture case projects byte-exact through groupFeedRows`, () => {
+    for (const item of cases) {
+      expect({ name: item.name, rows: project(item) }).toEqual({
+        name: item.name,
+        rows: item.expected,
+      })
+    }
+  })
+
+  it(`an edit run is its own row kind, and it BREAKS a command run`, () => {
+    const feed = [
+      { id: 1, kind: `tool`, toolKind: `execute` },
+      { id: 2, kind: `tool`, toolKind: `execute` },
+      { id: 3, kind: `tool`, toolKind: `edit`, detail: `a.ts` },
+      { id: 4, kind: `tool`, toolKind: `edit`, detail: `b.ts` },
+      { id: 5, kind: `tool`, toolKind: `execute` },
+    ]
+    expect(groupFeedRows(feed).map((row) => row.kind)).toEqual([
+      `toolRun`,
+      `edits`,
+      `single`,
+    ])
+    // The card row rides the ladder as a machine row, like a tool run, and it
+    // is never a card the run is BLOCKED on.
+    const editsRow = groupFeedRows(feed)[1]
+    expect(rowClass(editsRow)).toBe(`tool`)
+    expect(rowIsPendingCard(editsRow)).toBe(false)
+  })
+
+  it(`a workflow-tagged edit keeps its own single row`, () => {
+    const feed = [
+      { id: 1, kind: `tool`, toolKind: `edit`, detail: `a.ts`, workflowId: `w` },
+    ]
+    expect(groupFeedRows(feed).map((row) => row.kind)).toEqual([`single`])
   })
 })
 

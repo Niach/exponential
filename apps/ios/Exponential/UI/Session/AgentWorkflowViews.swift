@@ -338,9 +338,11 @@ struct AgentWorkflowCardRow: View {
                     .padding(.leading, 19)
             }
             if expanded, !nested.isEmpty {
+                // EXP-916: the agent's lane projects like every other one —
+                // its edit runs are edited-files cards, not loose tool rows.
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(nested) { item in
-                        SubagentItemRow(item: item, context: context)
+                    ForEach(AgentFeed.laneRows(nested)) { row in
+                        SubagentLaneRow(row: row, context: context)
                     }
                 }
                 .padding(.leading, 19)

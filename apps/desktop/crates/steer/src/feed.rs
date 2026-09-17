@@ -304,6 +304,26 @@ impl FeedItem {
         matches!(self.kind, FeedKind::Tool { .. })
     }
 
+    /// EXP-916 — this row's ACP tool kind, when it is a tool call carrying
+    /// one. The edited-files rule reads it (and nothing else about the call).
+    pub fn tool_kind(&self) -> Option<ToolKind> {
+        match &self.kind {
+            FeedKind::Tool { tool_kind, .. } => *tool_kind,
+            _ => None,
+        }
+    }
+
+    /// EXP-916 — whether this row is a call that belongs in an edited-files
+    /// card ([`domain::edit_card::is_edit_call`]): a tool call of kind
+    /// `edit`/`delete`/`move` that is not a workflow's own `Workflow` call.
+    pub fn is_edit_call(&self, workflow_ids: &[&str]) -> bool {
+        domain::edit_card::is_edit_call(
+            self.is_tool(),
+            self.tool_kind().map(ToolKind::as_str),
+            self.is_workflow_call(workflow_ids),
+        )
+    }
+
     /// EXP-850 §3: this tool call's id, when it has one — the key a workflow
     /// card is matched on (the card's `id` IS the `Workflow` call's id).
     pub fn call_id(&self) -> Option<&str> {
@@ -1624,6 +1644,14 @@ pub enum FeedRow<'a> {
         subagent_id: String,
         items: Vec<&'a FeedItem>,
     },
+    /// EXP-916 — a maximal run of consecutive same-lane EDIT calls, rendered
+    /// as the ONE edited-files card (`domain::edit_card`). Never pending: the
+    /// rule reads only kind/tool-kind/workflow/lane, so the card exists from
+    /// the first call and a later `tool_update` can never re-split it.
+    Edits {
+        id: FeedItemId,
+        items: Vec<&'a FeedItem>,
+    },
 }
 
 impl FeedRow<'_> {
@@ -1633,6 +1661,7 @@ impl FeedRow<'_> {
             FeedRow::Single(item) => item.id,
             FeedRow::ToolRun { id, .. }
             | FeedRow::Ask { id, .. }
+            | FeedRow::Edits { id, .. }
             | FeedRow::Subagent { id, .. } => *id,
         }
     }
@@ -1641,9 +1670,12 @@ impl FeedRow<'_> {
     pub fn class(&self) -> RowClass {
         match self {
             FeedRow::Single(item) => item.class(),
-            // A collapsed run of calls and a subagent's group are machine
-            // work, exactly like the single tool row they collapse.
-            FeedRow::ToolRun { .. } | FeedRow::Subagent { .. } => RowClass::Tool,
+            // A collapsed run of calls, an edited-files card and a subagent's
+            // group are machine work, exactly like the single tool row they
+            // collapse.
+            FeedRow::ToolRun { .. } | FeedRow::Edits { .. } | FeedRow::Subagent { .. } => {
+                RowClass::Tool
+            }
             // A stepper card is a question the reader answers — prose.
             FeedRow::Ask { .. } => RowClass::Prose,
         }
@@ -1817,6 +1849,11 @@ pub enum FeedRowSpec {
         subagent_id: String,
         items: Vec<usize>,
     },
+    /// EXP-916 — [`FeedRow::Edits`] as indices.
+    Edits {
+        id: FeedItemId,
+        items: Vec<usize>,
+    },
 }
 
 impl FeedRowSpec {
@@ -1826,6 +1863,7 @@ impl FeedRowSpec {
             FeedRowSpec::Single { id, .. }
             | FeedRowSpec::ToolRun { id, .. }
             | FeedRowSpec::Ask { id, .. }
+            | FeedRowSpec::Edits { id, .. }
             | FeedRowSpec::Subagent { id, .. } => *id,
         }
     }
@@ -1840,7 +1878,9 @@ impl FeedRowSpec {
             FeedRowSpec::Single { item, .. } => {
                 items.get(*item).map_or(RowClass::Prose, FeedItem::class)
             }
-            FeedRowSpec::ToolRun { .. } | FeedRowSpec::Subagent { .. } => RowClass::Tool,
+            FeedRowSpec::ToolRun { .. }
+            | FeedRowSpec::Edits { .. }
+            | FeedRowSpec::Subagent { .. } => RowClass::Tool,
             FeedRowSpec::Ask { .. } => RowClass::Prose,
         }
     }
@@ -1851,6 +1891,7 @@ impl FeedRowSpec {
             FeedRowSpec::Single { item, .. } => std::slice::from_ref(item),
             FeedRowSpec::ToolRun { items, .. }
             | FeedRowSpec::Ask { items, .. }
+            | FeedRowSpec::Edits { items, .. }
             | FeedRowSpec::Subagent { items, .. } => items,
         }
     }
@@ -1862,6 +1903,10 @@ impl FeedRowSpec {
         match self {
             FeedRowSpec::Single { item, .. } => FeedRow::Single(&items[*item]),
             FeedRowSpec::ToolRun { id, items: ixs } => FeedRow::ToolRun {
+                id: *id,
+                items: pick(ixs),
+            },
+            FeedRowSpec::Edits { id, items: ixs } => FeedRow::Edits {
                 id: *id,
                 items: pick(ixs),
             },
@@ -1975,11 +2020,26 @@ pub fn group_feed_row_specs_into(
             i += 1;
             continue;
         }
+        // EXP-916: a run of consecutive EDIT calls is the edited-files card,
+        // never a "N tool calls" run — and an edit call ENDS the tool run it
+        // would otherwise have joined (`domain::edit_card`, ×4).
+        if item.is_edit_call(workflow_ids) {
+            let end = domain::edit_card::edit_run_end(i, items.len(), |ix| {
+                items[ix].is_edit_call(workflow_ids) && items[ix].subagent_id().is_none()
+            });
+            rows.push(FeedRowSpec::Edits {
+                id: item.id,
+                items: (i..=end).collect(),
+            });
+            i = end + 1;
+            continue;
+        }
         let mut end = i;
         while end + 1 < items.len()
             && items[end + 1].is_tool()
             && items[end + 1].subagent_id().is_none()
             && !items[end + 1].is_workflow_call(workflow_ids)
+            && !items[end + 1].is_edit_call(workflow_ids)
         {
             end += 1;
         }
@@ -2035,14 +2095,18 @@ pub fn group_subagent_row_specs_into(
             i += 1;
             continue;
         }
-        // A run of the subagent's OWN calls, skipping over rows that belong
-        // to the main line or to another subagent (they are not in this view).
+        // EXP-916: inside the lane the edited-files rule is the SAME — the
+        // lane's own consecutive edit calls are ONE card, and an edit call
+        // ends the tool run beside it. Rows of another lane are invisible
+        // here (the projection filters to this one), so they never split a
+        // run, exactly like the fixture's `lane` cases.
+        let edits = item.is_edit_call(&[]);
         let mut run = vec![i];
         let mut j = i + 1;
         while j < items.len() {
             let next = &items[j];
             if scoped(next) {
-                if !next.is_tool() {
+                if !next.is_tool() || next.is_edit_call(&[]) != edits {
                     break;
                 }
                 run.push(j);
@@ -2050,7 +2114,12 @@ pub fn group_subagent_row_specs_into(
             j += 1;
         }
         let after = run.last().copied().unwrap_or(i) + 1;
-        if run.len() == 1 {
+        if edits {
+            rows.push(FeedRowSpec::Edits {
+                id: item.id,
+                items: run,
+            });
+        } else if run.len() == 1 {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -4542,5 +4611,229 @@ mod exp850_tests {
         // §4: a workflow's agents are never tabs.
         assert!(visible_subagent_tabs(&agents, None).is_empty());
         assert!(visible_subagent_tabs(&agents, Some("a55b7012793deae02")).is_empty());
+    }
+}
+
+/// EXP-916 — the edited-files card, replayed through the REAL projection.
+///
+/// `packages/domain-contract/fixtures/feed/edit-cards.json` is the contract:
+/// every client feeds it to ITS OWN `groupFeedRows` plus its `editCard` and
+/// compares one list of row strings (web `agent-feed.test.ts`, iOS
+/// `EditCardTests`, Android `EditCardTest`, and this). The reference
+/// projection lives in `@exp/domain-contract`'s own test; here the rows come
+/// out of [`group_feed_row_specs_from`] and [`group_subagent_row_specs_into`]
+/// themselves, so the desktop's grouping cannot drift from the fixture.
+#[cfg(test)]
+mod edit_card_fixture_tests {
+    use super::*;
+    use domain::edit_card::{edit_card, render_edit_card, EditCardMember};
+    use serde::Deserialize;
+
+    const CASES: &str =
+        include_str!("../../../../../packages/domain-contract/fixtures/feed/edit-cards.json");
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureItem {
+        id: FeedItemId,
+        kind: String,
+        #[serde(default)]
+        tool_kind: Option<String>,
+        #[serde(default)]
+        workflow_id: Option<String>,
+        #[serde(default)]
+        subagent_id: Option<String>,
+        #[serde(default)]
+        detail: Option<String>,
+        #[serde(default)]
+        diff: Option<String>,
+        #[serde(default)]
+        settled: bool,
+        #[serde(default)]
+        failed: bool,
+        #[serde(default)]
+        text: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureCase {
+        name: String,
+        feed: Vec<FixtureItem>,
+        #[serde(default)]
+        start: usize,
+        #[serde(default)]
+        lane: Option<String>,
+        #[serde(default)]
+        live: Option<FeedItemId>,
+        expected: Vec<String>,
+    }
+
+    fn cases() -> Vec<FixtureCase> {
+        serde_json::from_str(CASES).expect("the edit-card fixture parses")
+    }
+
+    /// The fixture's `workflowId` rides the desktop's `call_id` — a row IS a
+    /// workflow call when the feed holds a card for its id, which is exactly
+    /// what the fixture's field means.
+    fn item_of(raw: &FixtureItem) -> FeedItem {
+        let kind = match raw.kind.as_str() {
+            "tool" => FeedKind::Tool {
+                name: "Edit".to_string(),
+                detail: raw.detail.clone(),
+                subagent_id: raw.subagent_id.clone(),
+                call_id: raw.workflow_id.clone(),
+                tool_kind: raw.tool_kind.as_deref().and_then(ToolKind::parse),
+                settled: raw.settled,
+                failed: raw.failed,
+                diff: raw.diff.clone(),
+                output: None,
+                preview: None,
+            },
+            "user_message" => FeedKind::UserMessage {
+                text: raw.text.clone().unwrap_or_default(),
+                subagent_id: raw.subagent_id.clone(),
+            },
+            other => {
+                assert_eq!(other, "narration", "the fixture uses three kinds");
+                FeedKind::Narration {
+                    text: raw.text.clone().unwrap_or_default(),
+                    message_id: None,
+                    subagent_id: raw.subagent_id.clone(),
+                }
+            }
+        };
+        FeedItem {
+            id: raw.id,
+            kind,
+            seq: None,
+        }
+    }
+
+    fn row_string(spec: &FeedRowSpec, items: &[FeedItem], live: Option<FeedItemId>) -> String {
+        let ids = |ixs: &[usize]| {
+            ixs.iter()
+                .map(|&ix| items[ix].id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        match spec {
+            FeedRowSpec::Edits { id, items: ixs } => {
+                let members: Vec<EditCardMember<'_>> = ixs
+                    .iter()
+                    .map(|&ix| match &items[ix].kind {
+                        FeedKind::Tool {
+                            detail,
+                            diff,
+                            settled,
+                            failed,
+                            ..
+                        } => EditCardMember {
+                            id: items[ix].id,
+                            detail: detail.as_deref(),
+                            diff: diff.as_deref(),
+                            settled: *settled,
+                            failed: *failed,
+                        },
+                        _ => panic!("an edits row holds tool calls only"),
+                    })
+                    .collect();
+                format!(
+                    "card@{id}[{}]: {}",
+                    ids(ixs),
+                    render_edit_card(&edit_card(&members, live))
+                )
+            }
+            FeedRowSpec::ToolRun { id, items: ixs } => format!("run@{id}[{}]", ids(ixs)),
+            FeedRowSpec::Subagent {
+                id, subagent_id, ..
+            } => format!("subagent@{id}({subagent_id})"),
+            FeedRowSpec::Ask { id, .. } => format!("ask@{id}"),
+            FeedRowSpec::Single { id, item } => match &items[*item].kind {
+                FeedKind::Tool { .. } => format!("tool@{id}"),
+                FeedKind::UserMessage { .. } => format!("user@{id}"),
+                _ => format!("narration@{id}"),
+            },
+        }
+    }
+
+    fn project(case: &FixtureCase) -> Vec<String> {
+        let items: Vec<FeedItem> = case.feed.iter().map(item_of).collect();
+        let workflow_ids: Vec<&str> = case
+            .feed
+            .iter()
+            .filter_map(|raw| raw.workflow_id.as_deref())
+            .collect();
+        let mut rows = Vec::new();
+        match case.lane.as_deref() {
+            Some(lane) => group_subagent_row_specs_into(&items, case.start, lane, &mut rows),
+            None => group_feed_row_specs_into(&items, case.start, &workflow_ids, &mut rows),
+        }
+        rows.iter()
+            .map(|spec| row_string(spec, &items, case.live))
+            .collect()
+    }
+
+    #[test]
+    fn every_fixture_case_projects_byte_exact() {
+        for case in cases() {
+            assert_eq!(
+                project(&case),
+                case.expected,
+                "fixture case: {}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn the_fixture_covers_a_split_a_live_row_a_stub_a_lane_and_a_window() {
+        let names = cases()
+            .iter()
+            .map(|case| case.name.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for needle in ["splits", "live", "failed", "subagent", "window"] {
+            assert!(names.contains(needle), "the fixture covers `{needle}`");
+        }
+    }
+
+    /// The grouping rule reads kind, tool kind and the workflow id — never
+    /// `settled`, `failed` or the patch, so a card exists before any diff
+    /// lands and a later `tool_update` can never re-split it.
+    #[test]
+    fn the_rule_reads_only_kind_tool_kind_and_workflow_id() {
+        let tool = |tool_kind: Option<ToolKind>, call_id: Option<&str>| FeedItem {
+            id: 1,
+            kind: FeedKind::Tool {
+                name: "Edit".to_string(),
+                detail: None,
+                subagent_id: None,
+                call_id: call_id.map(str::to_string),
+                tool_kind,
+                settled: false,
+                failed: false,
+                diff: None,
+                output: None,
+                preview: None,
+            },
+            seq: None,
+        };
+        assert!(tool(Some(ToolKind::Edit), None).is_edit_call(&[]));
+        assert!(tool(Some(ToolKind::Delete), None).is_edit_call(&[]));
+        assert!(tool(Some(ToolKind::Move), None).is_edit_call(&[]));
+        assert!(!tool(Some(ToolKind::Read), None).is_edit_call(&[]));
+        assert!(!tool(None, None).is_edit_call(&[]));
+        assert!(!tool(Some(ToolKind::Edit), Some("wf-1")).is_edit_call(&["wf-1"]));
+        let prose = FeedItem {
+            id: 2,
+            kind: FeedKind::Narration {
+                text: "x".to_string(),
+                message_id: None,
+                subagent_id: None,
+            },
+            seq: None,
+        };
+        assert!(!prose.is_edit_call(&[]));
     }
 }

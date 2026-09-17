@@ -39,7 +39,13 @@
 //!   `packages/domain-contract/fixtures/issue-search.json`;
 //! * [`diff`] — EXP-895's ONE diff model + parser (`git diff`, bare steer
 //!   sections, GitHub patches), byte-locked ×4 by
-//!   `packages/domain-contract/fixtures/diff/`.
+//!   `packages/domain-contract/fixtures/diff/`;
+//! * [`diff_tree`] — EXP-916's file TREE beside a Changes surface (compact
+//!   folders, dirs before files, the flat query result), byte-locked ×4 by
+//!   `fixtures/diff/tree.json`;
+//! * [`edit_card`] — EXP-916's edited-files card and the ONE rule that decides
+//!   which tool calls form it, byte-locked ×4 by
+//!   `fixtures/feed/edit-cards.json`.
 //!
 //! gpui-free — headless-testable.
 
@@ -51,6 +57,8 @@ pub mod batch_run;
 pub mod board;
 pub mod client_version;
 pub mod diff;
+pub mod diff_tree;
+pub mod edit_card;
 pub mod enums;
 pub mod hydrate;
 pub mod image_message;

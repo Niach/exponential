@@ -200,9 +200,8 @@ import com.exponential.app.domain.BACK_TO_CURRENT_STEP_LABEL
 import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
 import com.exponential.app.domain.PLAN_FEEDBACK_PLACEHOLDER
 import com.exponential.app.domain.collectSubagents
+import com.exponential.app.domain.projectLaneRows
 import com.exponential.app.domain.currentStepperStep
-import com.exponential.app.domain.Diff
-import com.exponential.app.domain.diffTruncationNote
 import com.exponential.app.domain.FEED_WINDOW
 import com.exponential.app.domain.FEED_WINDOW_STEP
 import com.exponential.app.domain.groupFeedRows
@@ -237,7 +236,6 @@ import com.exponential.app.ui.components.PendingAttachmentStrip
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
-import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.markdown.AutocompleteRows
@@ -1832,15 +1830,17 @@ private fun ActivityFeed(
                         )
                     }
                 } else {
-                    itemsIndexed(focused.items, key = { _, item -> item.id }) { index, item ->
+                    // EXP-916: the lane's own projection — its consecutive
+                    // edits fold into ONE edited-files card, exactly as they
+                    // do in the main transcript.
+                    val laneRows = projectLaneRows(focused.items, workflowIds)
+                    itemsIndexed(laneRows, key = { _, laneRow -> laneRow.id }) { index, laneRow ->
                         // The same ladder as the main feed, over the rows a
                         // subagent's conversation is made of.
-                        val prev = focused.items.getOrNull(index - 1)
-                            ?.let { AgentFeedRow.Single(it).rowClass }
                         TranscriptRow(
-                            transcriptGap(prev, AgentFeedRow.Single(item).rowClass),
+                            transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass),
                         ) {
-                            SubagentItemRow(item)
+                            LaneRow(laneRow, liveItemId = liveRowId)
                         }
                     }
                 }
@@ -1876,6 +1876,12 @@ private fun ActivityFeed(
                             items = row.items,
                             liveTail = liveRowId != null && row.items.last().id == liveRowId,
                         )
+                        // EXP-916: a run of edits is ONE card, one row per
+                        // path, the live one open with its patch inline.
+                        is AgentFeedRow.Edits -> EditedFilesCard(
+                            items = row.items,
+                            liveItemId = liveRowId,
+                        )
                         is AgentFeedRow.SubagentRun -> SubagentGroupRow(
                             run = row,
                             liveTail = live && row.id == rows.last().id,
@@ -1897,7 +1903,19 @@ private fun ActivityFeed(
                             // as a tool row beside it.
                             is AgentFeedItem.Tool ->
                                 when (val workflow = workflows.firstOrNull { it.id == item.callId }) {
-                                    null -> ToolRow(item, live = item.id == liveRowId)
+                                    // EXP-916: such a call may still CARRY a
+                                    // patch (an edit tagged with a workflow).
+                                    // The card is the only place a patch
+                                    // renders now, so a one-member card draws
+                                    // it rather than a row that drops it.
+                                    null -> if (!item.diff.isNullOrEmpty()) {
+                                        EditedFilesCard(
+                                            items = listOf(item),
+                                            liveItemId = liveRowId,
+                                        )
+                                    } else {
+                                        ToolRow(item, live = item.id == liveRowId)
+                                    }
                                     else -> WorkflowCard(
                                         workflow = workflow,
                                         agentRuns = workflowAgentRuns(feed, workflow.id),
@@ -3768,13 +3786,29 @@ private fun SubagentGroupRow(
             // tool calls.
             // Inside the group the rows keep their own compact rhythm — the
             // gap ladder spaces the GROUP, not its contents (EXP-787).
+            // EXP-916: the lane projection, so a run of edits inside a
+            // subagent's conversation is the same ONE card it is outside it.
             expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                run.items.forEach { SubagentItemRow(it, nested = true) }
+                projectLaneRows(run.items).forEach { LaneRow(it, liveItemId = null, nested = true) }
             }
             liveTail && run.items.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                SubagentItemRow(run.items.last(), nested = true)
+                projectLaneRows(run.items).last().let { LaneRow(it, liveItemId = null, nested = true) }
             }
         }
+    }
+}
+
+/**
+ * EXP-916: one row of a LANE's projection ([projectLaneRows]) — an
+ * edited-files card, or the single item's own row. A lane holds no tool runs
+ * and no nested subagents, so those never reach here.
+ */
+@Composable
+private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, nested: Boolean = false) {
+    when (row) {
+        is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
+        is AgentFeedRow.Single -> SubagentItemRow(row.item, nested = nested)
+        else -> Unit
     }
 }
 
@@ -3817,7 +3851,6 @@ private fun ToolRow(
         detail = item.detail,
         nested = nested,
         failed = item.failed,
-        diff = item.diff,
         output = item.output,
         live = live,
     )
@@ -3834,23 +3867,20 @@ private fun ToolRow(
     nested: Boolean = false,
     /** EXP-785: the call errored — the row tints rose, like the web. */
     failed: Boolean = false,
-    /** EXP-806: the per-call unified diff an `edit` published, already cut to
-     *  the contract's caps by the publisher. Folded away until the row is
-     *  tapped — a phone transcript is a column, not the web's wide page, so an
-     *  always-open patch under every edit buries the conversation. */
-    diff: String? = null,
     /** EXP-895: what an `execute` call PRINTED, as its settle published it —
-     *  redacted and tail-cut by the publisher. Folded away like the diff. */
+     *  redacted and tail-cut by the publisher. Folded away until tapped.
+     *  EXP-916: a PATCH never lands here — an edit call is a member of the
+     *  edited-files card ([EditedFilesCard]), which owns its own disclosure. */
     output: String? = null,
     /** EXP-895: the ONE running call — open, where every other row is compact. */
     live: Boolean = false,
 ) {
-    // ONE disclosure for one row: a call carries a diff (`edit`) or output
-    // (`execute`), never both. It STARTS on whatever the flow says, and the
-    // live -> settled edge takes the reader's tap back, so a row folds away by
-    // itself once the transcript has moved past it.
-    val hasDetail = diff != null || output != null
-    var detailOpen by remember(diff, output) { mutableStateOf(live) }
+    // ONE disclosure for one row, and only an `execute` has one. It STARTS on
+    // whatever the flow says, and the live -> settled edge takes the reader's
+    // tap back, so a row folds away by itself once the transcript has moved
+    // past it.
+    val hasDetail = output != null
+    var detailOpen by remember(output) { mutableStateOf(live) }
     LaunchedEffect(live) { detailOpen = live }
     Column(
         modifier = Modifier
@@ -3902,16 +3932,12 @@ private fun ToolRow(
             if (hasDetail) {
                 Icon(
                     if (detailOpen) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                    contentDescription = when {
-                        output != null -> if (detailOpen) "Hide output" else "Show output"
-                        else -> if (detailOpen) "Hide changes" else "Show changes"
-                    },
+                    contentDescription = if (detailOpen) "Hide output" else "Show output",
                     modifier = Modifier.size(12.dp),
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 )
             }
         }
-        if (detailOpen && diff != null) ToolDiff(diff)
         if (detailOpen && output != null) ToolOutput(output, live)
     }
 }
@@ -4135,65 +4161,8 @@ private fun ExpToolPreviewRow(
 /** Aligned under the caption, past the mark (12dp) and its 8dp gap. */
 private val EXP_TOOL_PREVIEW_INSET = 20.dp
 
-/**
- * EXP-806/EXP-895: one call's diff, as the SAME [DiffFileCard] every other
- * Changes surface draws — `compact`, so a transcript column loses the old-side
- * gutter and keeps the rest — in a scroll box no taller than [ToolDiffMaxHeight]
- * (web `ToolDiff`'s `max-h-72`). The cards start COLLAPSED: the row above
- * already cost the reader a tap, and a folded header still says which file and
- * by how much.
- *
- * The publisher's cut note is a MUTED FOOTER outside the patch — inside it,
- * `\ 120 more lines truncated` would render as a diff line, which it is not.
- *
- * Nothing here reads [failed]: a failed call keeps the ROW's red caption and
- * its diff renders in the ordinary +/− colors, exactly like the web.
- */
-@Composable
-private fun ToolDiff(diff: String) {
-    // EXP-850: a per-call patch is a BARE unified diff (`--- a/path`, no
-    // `diff --git` header) while a session diff is full `git diff` output —
-    // the ONE parser reads both, and lifts the publisher's cut count off the
-    // trailing marker (EXP-786). A file a call wrote twice arrives as two
-    // sections and folds into ONE card (`mergeFilesByPath`).
-    val parsed = remember(diff) { Diff.parse(diff) }
-    val files = remember(parsed) { Diff.mergeFilesByPath(parsed.files) }
-    val truncated = parsed.truncatedLines
-    if (files.isEmpty() && truncated == null) return
-    val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            // Aligned under the row's text, past the tool glyph and its gap.
-            .padding(start = 20.dp, top = 4.dp)
-            // Bounded FIRST, so the box is capped and the cards scroll inside
-            // it rather than growing the transcript row. Horizontal scrolling
-            // lives inside each card, so the two axes never fight.
-            .heightIn(max = ToolDiffMaxHeight)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        files.forEach { file ->
-            DiffFileCard(
-                file = file,
-                expanded = expanded[file.path] == true,
-                onToggle = { expanded[file.path] = expanded[file.path] != true },
-                compact = true,
-            )
-        }
-        truncated?.let { lines ->
-            Text(
-                diffTruncationNote(lines),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            )
-        }
-    }
-}
-
-/** The folded-open diff's ceiling — web `ToolDiff`'s `max-h-72`. */
-private val ToolDiffMaxHeight = 288.dp
+/** The folded-open output's ceiling — the contract's number (web `max-h-72`). */
+private val ToolDiffMaxHeight = DomainContract.diffUiInlineDiffMaxHeight.dp
 
 // A run of ≥2 consecutive tool calls collapsed into one row (EXP-97),
 // expandable to the individual rows. EXP-785: the caption says what happened

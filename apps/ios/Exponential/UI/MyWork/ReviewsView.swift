@@ -304,13 +304,13 @@ struct ReviewsListContent: View {
                 Button {
                     runMergeTarget = entry
                 } label: {
-                    Label("Merge PR", appIcon: AppIcons.prMerged)
+                    Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
                 }
                 if let url = entry.prUrl.flatMap(URL.init(string:)) {
                     Button {
                         openURL(url)
                     } label: {
-                        Label("Open PR on GitHub", appIcon: AppIcons.uiExternalLink)
+                        Label(DomainContract.diffUiOpenOnGithub, appIcon: AppIcons.uiGithub)
                     }
                 }
             }
@@ -550,7 +550,7 @@ struct ReviewsListContent: View {
             Button {
                 mergeTarget = entry
             } label: {
-                Label("Merge PR", appIcon: AppIcons.prMerged)
+                Label(DomainContract.diffUiMergePr, appIcon: AppIcons.prMerged)
             }
             if row.isStackBottom {
                 Button {
@@ -577,7 +577,7 @@ struct ReviewsListContent: View {
                 Button {
                     openURL(url)
                 } label: {
-                    Label("Open PR on GitHub", appIcon: AppIcons.uiExternalLink)
+                    Label(DomainContract.diffUiOpenOnGithub, appIcon: AppIcons.uiGithub)
                 }
             }
         }

@@ -391,6 +391,8 @@ async function recipeExpandFirstDiffFile(page: Page): Promise<void> {
   const trigger = card.locator(`button[data-state]`).first()
   // The diff is fetched live from GitHub, the slowest load in the catalog.
   await trigger.waitFor({ timeout: 60_000 })
+  // EXP-916: cards start OPEN everywhere, so this is normally a no-op — the
+  // click is only left for a file past the contract's collapse threshold.
   if ((await trigger.getAttribute(`data-state`)) !== `open`) {
     await trigger.click()
   }

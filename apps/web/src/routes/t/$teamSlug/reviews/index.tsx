@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { GitBranch, GitMerge, GitPullRequest, LoaderCircle } from "lucide-react"
 import type { OpenPull } from "@/lib/integrations/github-pr"
 import {
   conceptIcon,
@@ -59,7 +58,14 @@ export const Route = createFileRoute(`/t/$teamSlug/reviews/`)({
   component: ReviewsPage,
 })
 
+// EXP-916: Reviews is a ×4 surface, so its glyphs are CONCEPTS — the natives
+// and the desktop read the same names out of `packages/icons/icons.json`.
+const PrOpenIcon = conceptIcon(`pr-open`)
+const PrMergedIcon = conceptIcon(`pr-merged`)
+const BranchIcon = conceptIcon(`ui-branch`)
+const UiLoadingIcon = conceptIcon(`ui-loading`)
 const StackIcon = conceptIcon(`pr-stack`)
+const BatchIcon = conceptIcon(`pr-batch`)
 
 interface ExternalMergeTarget {
   repositoryId: string
@@ -334,7 +340,7 @@ function ReviewsPage() {
             </div>
           ) : (
             <EmptyState
-              icon={GitPullRequest}
+              icon={PrOpenIcon}
               title="No open pull requests"
               description="Open pull requests in this team's repositories land here for review."
             />
@@ -381,18 +387,27 @@ function ReviewsPage() {
                         data-testid={`review-row-${issue.identifier}`}
                       >
                         {/* A batch PR wears the batch glyph; the overlay on it
-                            lists the issues it closes (EXP-897 Part 4). */}
-                        {isBatch ? (
-                          <PrGraphBadge
-                            teamId={team.id}
-                            teamSlug={teamSlug}
-                            face="changes"
-                            issue={issue}
-                            variant="glyph"
-                          />
-                        ) : (
-                          <GitPullRequest className="h-4 w-4 text-emerald-500" />
-                        )}
+                            lists the issues it closes (EXP-897 Part 4).
+                            EXP-916: the lead cell is ALWAYS drawn — a badge
+                            that renders nothing (its siblings have not synced)
+                            used to drop the grid's first column and shift the
+                            whole row. */}
+                        <span className="flex size-4 shrink-0 items-center justify-center">
+                          {isBatch ? (
+                            <PrGraphBadge
+                              teamId={team.id}
+                              teamSlug={teamSlug}
+                              face="changes"
+                              issue={issue}
+                              variant="glyph"
+                              fallback={
+                                <BatchIcon className="size-4 text-muted-foreground" />
+                              }
+                            />
+                          ) : (
+                            <PrOpenIcon className="h-4 w-4 text-emerald-500" />
+                          )}
+                        </span>
                         <span className="truncate font-mono text-xs text-muted-foreground">
                           {isBatch && issue.prNumber
                             ? `#${issue.prNumber}`
@@ -465,7 +480,7 @@ function ReviewsPage() {
                               openFixConflicts(entry)
                             }}
                           >
-                            <GitBranch className="h-3.5 w-3.5" />
+                            <BranchIcon className="h-3.5 w-3.5" />
                             Fix conflicts
                           </Pill>
                         ) : (
@@ -480,12 +495,12 @@ function ReviewsPage() {
                           >
                             {merging ? (
                               <>
-                                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                                <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
                                 Merging…
                               </>
                             ) : (
                               <>
-                                <GitMerge className="h-3.5 w-3.5" />
+                                <PrMergedIcon className="h-3.5 w-3.5" />
                                 Merge
                               </>
                             )}
@@ -512,7 +527,7 @@ function ReviewsPage() {
                                   setMergeTarget(entry)
                                 }}
                               >
-                                <GitMerge className="size-3" />
+                                <PrMergedIcon className="size-3" />
                                 Retry merge
                               </Pill>
                             )}
@@ -532,7 +547,7 @@ function ReviewsPage() {
               <div className="mb-6">
                 <GlassSectionHeader
                   leading={
-                    <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
+                    <PrOpenIcon className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
                   }
                   label="Agent runs"
                   trailing={
@@ -562,7 +577,7 @@ function ReviewsPage() {
                         }
                         data-testid={`review-run-${session.id}`}
                       >
-                        <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                        <PrOpenIcon className="h-4 w-4 text-emerald-500" />
                         <span className="truncate font-mono text-xs text-muted-foreground">
                           #{session.prNumber}
                         </span>
@@ -589,12 +604,12 @@ function ReviewsPage() {
                         >
                           {merging ? (
                             <>
-                              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                              <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
                               Merging…
                             </>
                           ) : (
                             <>
-                              <GitMerge className="h-3.5 w-3.5" />
+                              <PrMergedIcon className="h-3.5 w-3.5" />
                               Merge
                             </>
                           )}
@@ -617,7 +632,7 @@ function ReviewsPage() {
               <div key={group.repositoryId} className="mb-6">
                 <GlassSectionHeader
                   leading={
-                    <GitPullRequest className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
+                    <PrOpenIcon className="h-2.5 w-2.5 shrink-0 text-foreground/50" />
                   }
                   label={group.fullName}
                   trailing={
@@ -639,7 +654,7 @@ function ReviewsPage() {
                         }
                         data-testid={`review-pull-${group.fullName}-${pull.number}`}
                       >
-                        <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                        <PrOpenIcon className="h-4 w-4 text-emerald-500" />
                         <span className="truncate font-mono text-xs text-muted-foreground">
                           #{pull.number}
                         </span>
@@ -671,12 +686,12 @@ function ReviewsPage() {
                         >
                           {merging ? (
                             <>
-                              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                              <UiLoadingIcon className="h-3.5 w-3.5 animate-spin" />
                               Merging…
                             </>
                           ) : (
                             <>
-                              <GitMerge className="h-3.5 w-3.5" />
+                              <PrMergedIcon className="h-3.5 w-3.5" />
                               Merge
                             </>
                           )}

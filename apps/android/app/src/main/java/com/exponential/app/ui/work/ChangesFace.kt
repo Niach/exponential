@@ -33,10 +33,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Diff
-import com.exponential.app.ui.components.BarCapsule
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BarCircle
+import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
-import com.exponential.app.ui.components.FloatingBottomBar
+import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.ChangesRefusalNotice
@@ -97,11 +98,6 @@ fun ChangesFace(
             else -> emptyList()
         }
     }
-    // A live worktree diff is the run's own output and opens; a PR's files are
-    // a review queue and start collapsed (EXP-248), uniform with the web. Past
-    // `COLLAPSE_THRESHOLD` lines a file stays shut either way — one lockfile
-    // would otherwise bury every card under it.
-    val defaultCollapsed = diff == null
     val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -132,7 +128,12 @@ fun ChangesFace(
             }
             items(files.size, key = { "diff_file_$it" }) { index ->
                 val file = files[index]
-                val opens = diffOpensByDefault(file, defaultCollapsed)
+                // EXP-916: a file card opens by DEFAULT everywhere — the
+                // Changes face is a page of changes, and a column of shut
+                // headers says nothing. Past `COLLAPSE_THRESHOLD` lines a file
+                // still stays shut: one lockfile would otherwise bury every
+                // card under it.
+                val opens = diffOpensByDefault(file, defaultCollapsed = false)
                 DiffFileCard(
                     file = file,
                     expanded = expanded[file.path] ?: opens,
@@ -147,27 +148,28 @@ fun ChangesFace(
             // A refused merge captions the bar that produced it (EXP-559) —
             // the MESSAGE only; the recovery run takes the capsule's place.
             merge?.error?.let { ChangesRefusalNotice(message = it, modifier = Modifier.padding(horizontal = 16.dp)) }
-            FloatingBottomBar(
+            // EXP-916: the Reviews page's bar — a centred cluster, the white
+            // Merge pill hugging its label between the files circle and the
+            // switcher. One shape for Merge on every phone Changes surface.
+            FloatingBarCluster(
                 left = if (files.isNotEmpty()) {
                     { FileListCircle(count = files.size, onClick = { sheetOpen = true }) }
                 } else {
                     null
                 },
+                centre = merge?.let {
+                    {
+                        BarSolidPill(
+                            label = merge.label,
+                            icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                            loading = merge.loading,
+                            onClick = { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true },
+                            modifier = Modifier.testTag("pr-merge-bar"),
+                        )
+                    }
+                },
                 right = trailingBarSlot,
-            ) {
-                if (merge != null) {
-                    BarCapsule(
-                        label = merge.label,
-                        icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                        emphatic = true,
-                        loading = merge.loading,
-                        onClick = { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true },
-                        modifier = Modifier.testTag("pr-merge-bar"),
-                    )
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-            }
+            )
         }
     }
 
@@ -219,7 +221,7 @@ private fun FileListCircle(count: Int, onClick: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 ExpIcons.navFiles,
-                contentDescription = "Changed files",
+                contentDescription = DomainContract.diffUiChangedFilesTitle,
                 modifier = Modifier.size(18.dp),
                 tint = Color.White,
             )

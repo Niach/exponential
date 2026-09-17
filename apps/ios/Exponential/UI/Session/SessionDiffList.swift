@@ -42,7 +42,9 @@ struct DiffFileList<Header: View>: View {
     let files: [Diff.File]
     /// The publisher's OWN dropped-line count (`Diff.Parsed.truncatedLines`).
     var truncatedLines: Int?
-    /// Every card starts closed (the review layout) rather than open.
+    /// Every card starts closed rather than open. EXP-916: nothing asks for
+    /// this any more — every Changes surface opens its cards, and only the
+    /// SIZE rule (`DiffPresentation.diffOpensByDefault`) folds one away.
     var defaultCollapsed = false
     /// What an EMPTY file set says.
     var emptyLabel: String?
@@ -72,8 +74,8 @@ struct DiffFileList<Header: View>: View {
                     ForEach(files) { file in
                         DiffFileCard(
                             file: file,
-                            expanded: isExpanded(file.path),
-                            onToggle: { overrides[file.path] = !isExpanded(file.path) }
+                            expanded: isExpanded(file),
+                            onToggle: { overrides[file.path] = !isExpanded(file) }
                         )
                         .id(file.path)
                     }
@@ -99,8 +101,11 @@ struct DiffFileList<Header: View>: View {
         .accessibilityIdentifier(accessibilityId)
     }
 
-    private func isExpanded(_ path: String) -> Bool {
-        overrides[path] ?? !defaultCollapsed
+    /// EXP-916: a file opens by ITSELF unless it is huge — the ONE size rule,
+    /// shared ×4. A reader's own tap still wins over it.
+    private func isExpanded(_ file: Diff.File) -> Bool {
+        overrides[file.path]
+            ?? DiffPresentation.diffOpensByDefault(file, defaultCollapsed: defaultCollapsed)
     }
 }
 

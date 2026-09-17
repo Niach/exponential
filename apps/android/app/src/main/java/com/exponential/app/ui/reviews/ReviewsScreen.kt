@@ -574,13 +574,14 @@ private fun ReviewRow(
             }
             if (entry.prUrl != null) {
                 GlassSheetRow(
-                    label = "Open PR",
+                    // EXP-916: the contract's words and the GitHub mark, ×4.
+                    label = DomainContract.diffUiOpenOnGithub,
                     onClick = {
                         showActions = false
                         CustomTabsIntent.Builder().build()
                             .launchUrl(context, android.net.Uri.parse(entry.prUrl))
                     },
-                    leading = { Icon(ExpIcons.uiExternalLink, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    leading = { Icon(ExpIcons.uiGithub, contentDescription = null, modifier = Modifier.size(18.dp)) },
                 )
             }
         }

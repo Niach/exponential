@@ -23,14 +23,19 @@
 //! the drain records `feed item → tool call` as the row lands, and the extras
 //! key off the FEED ITEM. Nothing tries to match on titles or text.
 //!
-//! EXP-895: the card no longer paints its own lines. It renders the SHARED
-//! rows ([`crate::diff::file_rows`] at [`crate::diff::DiffOptions::card`],
-//! painted by [`crate::diff::render_diff_row`]) — the same anatomy the
-//! Changes face shows, only compact and unhighlighted — so an edit reads the
-//! same inline as it does in the pane. What stays local is the hosting: a
-//! card is rows, never a [`crate::diff::DiffView`] entity with its own scroll
-//! and file list (one per edit in a long run is a lot of state), and it is
-//! COLLAPSED to its header until the row's Show more opens it.
+//! EXP-916: the per-edit card is gone. A run of consecutive edit calls is
+//! ONE **edited-files card** ([`render_edit_card`]) over the contract's
+//! [`domain::edit_card::edit_card`] — a title and one FLUSH file card per
+//! path, whose rows are the SHARED diff rows ([`crate::diff::file_rows`] at
+//! [`crate::diff::DiffOptions::card`], painted by
+//! [`crate::diff::render_diff_row`]). So an edit reads the same inline as it
+//! does on the Changes face, only compact. The card never navigates: a click
+//! toggles a row IN PLACE, and only the LIVE row opens itself.
+//!
+//! What stays local is the live patch: the engine streams `EditDiff`s before
+//! the wire's own `tool_update` lands one, so [`LocalExtras`] keeps the cut
+//! patch of the call it is running and the card reads it until the wire
+//! catches up.
 //!
 //! The patch itself is built by the shared [`steer::unified_diff`] (ACP hands
 //! over `old_text`/`new_text`) and read back through the contract parser
@@ -41,8 +46,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, AnyElement, App, ClickEvent, InteractiveElement as _,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window,
+    div, AnyElement, App, ClickEvent, InteractiveElement as _, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -51,34 +56,34 @@ use gpui_component::{
 
 use coding::scm::DiffFile;
 
-use crate::diff::{file_rows, render_diff_row, DiffOptions, RenderRow, RowShape};
+use crate::diff::{file_rows, render_diff_row, DiffOptions, RowShape};
 use steer::feed::FeedItemId;
 use steer::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 
 use crate::controls::WebText as _;
 use crate::icons::registry;
 
+/// A card's own click listener — the host's `cx.listener(..)`, so this module
+/// stays free of the hosting view's type.
+pub(crate) type CardClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
 /// Lines of an output card kept — the tail, because a command's verdict is at
 /// the end. Same cap the CLI attach printer applies.
 pub(crate) const OUTPUT_LINES_MAX: usize = 200;
 
-/// Rows of a diff card shown before it folds behind "Show more".
-const DIFF_PREVIEW_ROWS: usize = 12;
+/// Rows of an OUTPUT card shown before it folds behind "Show more".
+const OUTPUT_PREVIEW_ROWS: usize = 12;
 
 /// A tool call's local extras, accumulated as the engine reports them.
 #[derive(Default)]
 pub(crate) struct ToolExtras {
-    /// Every edit the call made, in order.
-    edits: Vec<EditCard>,
+    /// EXP-916: every patch the call published so far, CONCATENATED — one
+    /// unified diff with one section per file, exactly the shape the wire's
+    /// own `tool_update` diff has, so the edited-files card reads either
+    /// through the same contract parser.
+    edits: String,
     /// The call's streamed output (`Execute` tools), tail-capped.
     output: Option<OutputCard>,
-}
-
-struct EditCard {
-    path: PathBuf,
-    file: DiffFile,
-    /// EXP-786: lines the contract cap dropped off the end of the patch.
-    omitted: usize,
 }
 
 #[derive(Default)]
@@ -141,12 +146,12 @@ impl LocalExtras {
             } => {
                 // A write that changed nothing (an agent rewriting a file
                 // byte for byte) is not a diff — no card at all.
-                if let Some(card) = tool_edit_card(path, old_text.as_deref(), &new_text) {
+                if let Some(patch) = tool_edit_patch(path, old_text.as_deref(), &new_text) {
                     self.by_tool_call
                         .entry(tool_call_id)
                         .or_default()
                         .edits
-                        .push(card);
+                        .push_str(&patch);
                 }
             }
             engine::LocalFeedEvent::Output {
@@ -240,13 +245,15 @@ impl LocalExtras {
             .is_some_and(|extras| !extras.edits.is_empty() || extras.output.is_some())
     }
 
-    /// EXP-862 — `item`'s per-edit patches, for the diff pane scoped to that
-    /// row. `None` when the row produced no local edit card (a remote viewer
-    /// reads the wire patch off the feed row instead).
-    pub(crate) fn edit_files(&self, item: FeedItemId) -> Option<Vec<DiffFile>> {
-        let extras = self.for_item(item)?;
-        (!extras.edits.is_empty())
-            .then(|| extras.edits.iter().map(|edit| edit.file.clone()).collect())
+    /// EXP-916 — the LIVE patch of `item`'s call: what the engine has written
+    /// so far, before the wire's `tool_update` carries one. The edited-files
+    /// card falls back to it so a running edit shows its diff on the runner
+    /// instead of sitting `pending` until the call settles. `None` for every
+    /// remote row (they have only the wire's).
+    pub(crate) fn edit_patch(&self, item: FeedItemId) -> Option<&str> {
+        self.for_item(item)
+            .map(|extras| extras.edits.as_str())
+            .filter(|patch| !patch.is_empty())
     }
 }
 
@@ -319,31 +326,38 @@ pub(crate) fn tool_diff_file(patch: &str) -> Option<(DiffFile, usize)> {
     (!file.path.is_empty() && !file.hunks.is_empty()).then_some((file, omitted))
 }
 
-/// The edit card for ONE local edit: the shared patch, cut to the contract
-/// caps — the SAME bytes the publisher puts on the wire for a remote viewer —
-/// and read back into the scm model. `None` when the write changed nothing.
-fn tool_edit_card(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Option<EditCard> {
+/// The patch for ONE local edit: the shared unified diff, cut to the contract
+/// caps — the SAME bytes the publisher puts on the wire for a remote viewer.
+/// `None` when the write changed nothing, or when the cut patch names no file
+/// (there would be no row to hang it on).
+fn tool_edit_patch(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Option<String> {
     let display = path.to_string_lossy();
     let patch = unified_diff(&display, old_text, new_text);
     if patch.is_empty() {
         return None;
     }
-    let (kept, omitted) = truncate_unified_diff(&patch, TOOL_DIFF_MAX_LINES, TOOL_DIFF_MAX_BYTES);
-    let (file, _) = tool_diff_file(&kept)?;
-    Some(EditCard {
-        path,
-        file,
-        omitted,
-    })
+    let (mut kept, omitted) =
+        truncate_unified_diff(&patch, TOOL_DIFF_MAX_LINES, TOOL_DIFF_MAX_BYTES);
+    // EXP-786: the publisher's own marker (`engine::mapper`), so the local
+    // patch is BYTE-IDENTICAL to the one a remote viewer gets and the
+    // contract parser reads the cut back out of either.
+    if omitted > 0 {
+        kept.push_str(&format!("\\ {omitted} more lines truncated\n"));
+    }
+    tool_diff_file(&kept)?;
+    Some(kept)
 }
 
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
 
-/// The cards hanging off feed row `item`: one per edit, then the command
-/// output. `None` when the row has none (every remote row, and every local
-/// row that is not a tool call).
+/// The card hanging off feed row `item`: the command's output.
+///
+/// EXP-916 took the per-edit cards out of here — a run of edits is the ONE
+/// edited-files card the transcript draws over the whole run
+/// ([`render_edit_card`]), never a stack of cards under one tool row. What is
+/// left is the LIVE window of an `execute` call.
 ///
 /// `on_toggle` is the host's own listener (`cx.listener(..)`), so this stays
 /// free of the hosting view's type; `on_kill` is the same idea for the Stop
@@ -351,68 +365,37 @@ fn tool_edit_card(path: PathBuf, old_text: Option<&str>, new_text: &str) -> Opti
 /// stop. It is `None` when the source cannot stop anything (a replay, a
 /// remote viewer): there the whole Running/Stop strip is left out rather than
 /// offering a button whose click goes nowhere.
-///
-/// EXP-862: `on_open` is the edit card HEADER's click — the diff pane, scoped
-/// to this one edit. `None` where there is no pane to open into.
 pub(crate) fn render_extras(
     extras: &LocalExtras,
     item: FeedItemId,
     expanded: bool,
-    on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
-    on_open: Option<OpenDiff>,
+    on_toggle: CardClick,
     on_kill: Option<Box<dyn Fn(&str, &mut Window, &mut App) + 'static>>,
     cx: &App,
 ) -> Option<AnyElement> {
     let tool = extras.for_item(item)?;
-    if tool.edits.is_empty() && tool.output.is_none() {
-        return None;
-    }
+    let output = tool.output.as_ref()?;
     let muted = cx.theme().muted_foreground;
     let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
-    for (index, edit) in tool.edits.iter().enumerate() {
-        column = column.child(render_edit_card(
-            edit,
-            (item, index),
-            expanded,
-            on_open.clone(),
-            cx,
-        ));
-    }
-    if let Some(output) = tool.output.as_ref() {
-        // EXP-910: this renderer serves the RUNNING row only (steer_viewer's
-        // `ToolRowMode::Live`), so its log is a TAIL — the last few lines, the
-        // way a terminal shows a running command, instead of the whole 200-row
-        // buffer under the reader's eye. The SETTLED row is
-        // `render_wire_extras`' and is untouched.
-        column = column.child(render_output_card(
-            output, item, expanded, true, on_kill, cx,
-        ));
-    }
-    // EXP-895: an edit card collapses to its HEADER, so any patch at all is
-    // worth a toggle (the output card still folds only when it overflows).
-    let foldable = tool.edits.iter().any(|edit| hunk_rows(&edit.file) > 0)
-        || tool
-            .output
-            .as_ref()
-            .is_some_and(|output| output.rows().len() > DIFF_PREVIEW_ROWS);
-    if foldable {
+    // EXP-910: this renderer serves the RUNNING row only (steer_viewer's
+    // `ToolRowMode::Live`), so its log is a TAIL — the last few lines, the
+    // way a terminal shows a running command, instead of the whole 200-row
+    // buffer under the reader's eye. The SETTLED row is
+    // `render_wire_extras`' and is untouched.
+    column = column.child(render_output_card(
+        output, item, expanded, true, on_kill, cx,
+    ));
+    if output.rows().len() > OUTPUT_PREVIEW_ROWS {
         column = column.child(fold_toggle(item, expanded, on_toggle, muted));
     }
     Some(column.into_any_element())
 }
 
-/// EXP-862 — "open the diff pane at this edit", the inline card header's
-/// click. `Rc` because one tool row can carry several edit cards and they all
-/// open the same scope.
-pub(crate) type OpenDiff = std::rc::Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
-
-/// The `Show more` / `Show less` line under a folded card. It STOPS the click
-/// (EXP-862): the card above it opens the diff pane now, and unfolding a
-/// patch in place must not also open the pane beside it.
+/// The `Show more` / `Show less` line under a folded output card.
 fn fold_toggle(
     item: FeedItemId,
     expanded: bool,
-    on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    on_toggle: CardClick,
     muted: gpui::Hsla,
 ) -> gpui::Stateful<gpui::Div> {
     div()
@@ -428,101 +411,276 @@ fn fold_toggle(
         })
 }
 
-/// EXP-786: "… N more lines" — the header's note for a cut patch.
-pub(crate) fn omitted_caption(omitted: usize) -> String {
-    format!("… {omitted} more line{}", if omitted == 1 { "" } else { "s" })
+// ---------------------------------------------------------------------------
+// EXP-916 — the edited-files card
+// ---------------------------------------------------------------------------
+
+/// EXP-786 — what the publisher cut off a card's patches, in the words every
+/// client says it in (web `truncatedLinesNote`).
+pub(crate) fn truncated_lines_note(lines: u32) -> String {
+    let plural = if lines == 1 { "" } else { "s" };
+    format!("{lines} more line{plural} truncated")
 }
 
-fn hunk_rows(file: &DiffFile) -> usize {
-    file.hunks.iter().map(|hunk| hunk.lines.len()).sum()
-}
+/// A row of an edited-files card was clicked: the path it named. `Rc` because
+/// one card hangs the same listener on every one of its rows.
+pub(crate) type EditRowClick = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App) + 'static>;
 
-/// EXP-895 — ONE edit, rendered through the SHARED diff rows at
-/// [`DiffOptions::card`]: the file-card header (status letter, dimmed dir +
-/// basename, `+N −M`, chevron) over compact unified lines, exactly the
-/// anatomy the Changes face shows.
+/// EXP-916 — THE edited-files card: one glass card per [`steer::feed::FeedRow::Edits`].
 ///
-/// A card is COLLAPSED to its header until the tool row's "Show more" opens
-/// it — a transcript is prose with evidence hanging off it, not a diff
-/// viewer; the header click opens the pane at this edit, where the whole
-/// patch lives. Open, the body stops at [`DIFF_PREVIEW_ROWS`] and says how
-/// much it is holding back (the publisher's own cut, EXP-786, counted in the
-/// same caption).
-/// How many BODY rows an edit card shows (pure): none while it is collapsed
-/// — the card is its header — and at most [`DIFF_PREVIEW_ROWS`] while it is
-/// open, because a transcript is prose with evidence hanging off it and the
-/// pane is where a whole patch is read.
-fn card_body_rows(rows: usize, expanded: bool) -> usize {
-    if expanded {
-        rows.saturating_sub(1).min(DIFF_PREVIEW_ROWS)
+/// `[diff glyph] {N} files edited` over one FLUSH file card per path — the
+/// contract's rows ([`domain::edit_card::edit_card`]), in the contract's
+/// order, at the contract's preview depth
+/// ([`domain::edit_card::EDIT_CARD_PREVIEW`], then `{n} more` / `Show less`).
+///
+/// * a `ready` row is the shared file-card header (`letter · dir/name · +a −d
+///   · chevron`) over its compact patch;
+/// * a `pending` row is the path alone, its chevron muted — the call is still
+///   writing and there is nothing to open;
+/// * a `done` row is the path alone, settled and plain: a delete, a move or an
+///   edit that changed nothing carries no patch to open;
+/// * a `failed` row is the path in `danger` and the word `failed`, no chevron.
+///
+/// `open` is the reader's OWN set of unfolded paths, or `None` while they have
+/// touched nothing — then the card follows the LIVE row (`view.live_index`),
+/// and the first click copies that effective set (so the live row can be
+/// folded too). Every open body is bounded to
+/// [`domain::contract::DIFF_UI_INLINE_DIFF_MAX_HEIGHT`] so one long patch
+/// cannot push the conversation off screen. A click toggles a row IN PLACE —
+/// a card never opens the Changes face.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_edit_card(
+    id: FeedItemId,
+    view: &domain::edit_card::EditCardView,
+    open: Option<&std::collections::HashSet<String>>,
+    more_open: bool,
+    on_toggle_row: EditRowClick,
+    on_toggle_more: CardClick,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let preview = domain::edit_card::EDIT_CARD_PREVIEW;
+    // The live row must be REACHABLE: a card whose running edit sits past the
+    // preview depth stays open until the run moves on.
+    let live_clamped = view.live_index.is_some_and(|index| index >= preview);
+    let show_all = more_open || live_clamped;
+    let shown = if show_all {
+        view.rows.len()
     } else {
-        0
+        view.rows.len().min(preview)
+    };
+    let mut card = crate::surface::glass_card()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .px_2()
+        .py_1p5()
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1p5()
+                .items_center()
+                .text_2xs()
+                .text_color(muted)
+                .child(Icon::new(registry::CODING_DIFF).xsmall())
+                .child(SharedString::from(view.title.clone())),
+        );
+    let mut rows = v_flex().w_full().min_w_0().overflow_hidden();
+    for (index, row) in view.rows.iter().take(shown).enumerate() {
+        let opened = match open {
+            Some(open) => open.contains(&row.path),
+            // Untouched: the card follows the run — exactly the live row.
+            None => view.live_index == Some(index),
+        };
+        let mut slot = div().w_full().min_w_0();
+        // A hairline is the only seam between two stacked file cards — the
+        // parent card already carries the border and the radius.
+        if index > 0 {
+            slot = slot
+                .border_t_1()
+                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla());
+        }
+        let body = match &row.file {
+            Some(file) => edit_row_ready(id, index, &row.path, file, opened, on_toggle_row.clone(), cx),
+            None => edit_row_stub(row, cx),
+        };
+        rows = rows.child(slot.child(body));
     }
+    card = card.child(rows);
+    // EXP-786: what the publisher cut off the members' patches, in the words
+    // every client says it in.
+    if view.truncated_lines > 0 {
+        card = card.child(
+            div()
+                .px_1()
+                .text_2xs()
+                .text_color(muted)
+                .child(SharedString::from(truncated_lines_note(
+                    view.truncated_lines,
+                ))),
+        );
+    }
+    // The fold: only while the card is not holding itself open for a live row.
+    if !live_clamped {
+        if let Some(more) = domain::edit_card::edit_card_more_label(view.rows.len()) {
+            let label = if more_open {
+                domain::contract::DIFF_UI_SHOW_LESS.to_string()
+            } else {
+                more
+            };
+            card = card.child(
+                div()
+                    .id(("session-edit-card-more", id as usize))
+                    .px_1()
+                    .cursor_pointer()
+                    .text_2xs()
+                    .text_color(muted)
+                    .child(SharedString::from(label))
+                    .on_click(move |event: &ClickEvent, window, cx| {
+                        cx.stop_propagation();
+                        on_toggle_more(event, window, cx);
+                    }),
+            );
+        }
+    }
+    card.into_any_element()
 }
 
-fn render_edit_card(
-    edit: &EditCard,
-    id: (FeedItemId, usize),
-    expanded: bool,
-    on_open: Option<OpenDiff>,
+/// A `ready` row: the shared file-card header, plus its patch when open.
+fn edit_row_ready(
+    id: FeedItemId,
+    index: usize,
+    path: &str,
+    file: &DiffFile,
+    open: bool,
+    on_toggle_row: EditRowClick,
     cx: &App,
 ) -> AnyElement {
     let options = DiffOptions::card();
-    let rows = file_rows(&edit.file, &cx.theme().highlight_theme, &options);
+    // A collapsed row shows its header and nothing else — highlighting the
+    // whole patch to throw it away is the EXP-884 lag in miniature.
+    let rows = if open {
+        file_rows(file, &cx.theme().highlight_theme, &options)
+    } else {
+        vec![crate::diff::file_header_only(file)]
+    };
     let Some(header) = rows.first() else {
         return div().into_any_element();
     };
-
-    // Collapsed: the header IS the whole card (one `glass_row_card`-shaped
-    // row). Open: header, body, and a trailing note for everything not shown.
-    let shown = card_body_rows(rows.len(), expanded);
-    let body: Vec<&RenderRow> = rows.iter().skip(1).take(shown).collect();
-    let hidden = if expanded {
-        rows.len().saturating_sub(1 + body.len()) + edit.omitted
-    } else {
-        0
-    };
-    let note = (hidden > 0).then(|| RenderRow::Note {
-        message: SharedString::from(omitted_caption(hidden)),
-    });
-    let tail = note.is_some();
-
-    let header_shape = if body.is_empty() && !tail {
-        RowShape::Only
-    } else {
-        RowShape::Top
-    };
-    // EXP-862: the header is the way INTO the diff pane, scoped to this edit
-    // — the card shows a preview of one patch, the pane shows the patch.
-    let mut card = v_flex().w_full().min_w_0().child(
+    // A COMPOSITE id: a card has one row per PATH of a whole edit run, so an
+    // arithmetic key (`id * 64 + index`) collides the moment a card is deep.
+    let row_id = gpui::ElementId::Name(SharedString::from(format!(
+        "session-edit-row-{id}-{index}"
+    )));
+    let body_id = gpui::ElementId::Name(SharedString::from(format!(
+        "session-edit-body-{id}-{index}"
+    )));
+    let clicked = path.to_string();
+    let mut column = v_flex().w_full().min_w_0().child(
         div()
-            .id(("session-edit-card", id.0 as usize * 64 + id.1))
+            .id(row_id)
             .w_full()
             .min_w_0()
-            .when_some(on_open, |header, on_open| {
-                header
-                    .cursor_pointer()
-                    .hover(|this| this.bg(cx.theme().list_hover))
-                    .on_click(move |event: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        on_open(event, window, cx);
-                    })
+            .cursor_pointer()
+            .hover(|this| this.bg(cx.theme().list_hover))
+            .on_click(move |_: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                on_toggle_row(&clicked, window, cx);
             })
-            .child(render_diff_row(header, header_shape, gpui::px(0.), &options, cx)),
+            .child(render_diff_row(
+                header,
+                if open { RowShape::Top } else { RowShape::Only },
+                gpui::px(0.),
+                &options,
+                cx,
+            )),
     );
-    let last = body.len().saturating_sub(1);
-    for (index, row) in body.iter().enumerate() {
-        let shape = if index == last && !tail {
-            RowShape::Bottom
-        } else {
-            RowShape::Middle
-        };
-        card = card.child(render_diff_row(row, shape, gpui::px(0.), &options, cx));
+    if open {
+        let mut body = v_flex().w_full().min_w_0();
+        for row in rows.iter().skip(1) {
+            body = body.child(render_diff_row(row, RowShape::Middle, gpui::px(0.), &options, cx));
+        }
+        column = column.child(
+            div()
+                .id(body_id)
+                .w_full()
+                .min_w_0()
+                .max_h(gpui::px(
+                    domain::contract::DIFF_UI_INLINE_DIFF_MAX_HEIGHT as f32,
+                ))
+                .overflow_y_scroll()
+                .child(body),
+        );
     }
-    if let Some(note) = note {
-        card = card.child(render_diff_row(&note, RowShape::Bottom, gpui::px(0.), &options, cx));
+    column.into_any_element()
+}
+
+/// A `pending` / `done` / `failed` row: the path, and what became of it. None
+/// of the three can be opened — there is no patch behind any of them.
+fn edit_row_stub(row: &domain::edit_card::EditCardRow, cx: &App) -> AnyElement {
+    let theme = cx.theme();
+    let failed = row.state == domain::edit_card::EditRowState::Failed;
+    let pending = row.state == domain::edit_card::EditRowState::Pending;
+    let (dir, name) = crate::diff::split_path(&row.path);
+    // A settled row reads like any other file name; only a pending one stays
+    // dim and only a failed one turns.
+    let tint = if failed {
+        theme.danger
+    } else if pending {
+        theme.muted_foreground
+    } else {
+        theme.foreground
+    };
+    let mut line = h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_2()
+        .h(gpui::px(24.))
+        .px_2()
+        .text_size(gpui::px(11.))
+        .font_family(theme.mono_font_family.clone())
+        .child(div().flex_shrink_0().w(gpui::px(12.)))
+        .child(
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(theme.muted_foreground)
+                        .child(SharedString::from(dir)),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(tint)
+                        .child(SharedString::from(name)),
+                ),
+        );
+    if failed {
+        line = line.child(
+            div()
+                .flex_shrink_0()
+                .text_color(theme.danger)
+                .child("failed"),
+        );
+    } else if pending {
+        // The call is still writing: a chevron that says "nothing to open".
+        line = line.child(
+            div().flex_shrink_0().child(
+                Icon::new(registry::UI_CHEVRON_DOWN)
+                    .xsmall()
+                    .text_color(theme.muted_foreground.opacity(0.4)),
+            ),
+        );
     }
-    card.into_any_element()
+    // A `done` row says nothing further: it settled, it wrote no patch, and a
+    // chevron would promise a body that does not exist.
+    line.into_any_element()
 }
 
 fn render_output_card(
@@ -543,7 +701,7 @@ fn render_output_card(
     } else if expanded {
         rows.len()
     } else {
-        rows.len().min(DIFF_PREVIEW_ROWS)
+        rows.len().min(OUTPUT_PREVIEW_ROWS)
     };
     // The TAIL is what matters, so a collapsed card shows the last rows.
     let skip = rows.len().saturating_sub(shown);
@@ -621,97 +779,38 @@ fn render_output_card(
     card.into_any_element()
 }
 
-/// EXP-895 — ONE parse per feed row, not one per repaint. A remote viewer's
-/// transcript re-renders on every frame of a live run, and a `tool` row's
-/// patch never changes once it has landed; the raw string is the cache key,
-/// so a row that is somehow rewritten still re-parses. Thread-local: the
-/// transcript is painted on the foreground only, and the cache dies with the
-/// window rather than outliving it in a global.
-fn wire_edit(item: FeedItemId, patch: &str) -> Option<std::rc::Rc<EditCard>> {
-    use std::hash::{Hash as _, Hasher as _};
-    thread_local! {
-        static WIRE_EDITS: std::cell::RefCell<HashMap<FeedItemId, (u64, Option<std::rc::Rc<EditCard>>)>> =
-            std::cell::RefCell::new(HashMap::new());
-    }
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    patch.hash(&mut hasher);
-    let key = hasher.finish();
-    WIRE_EDITS.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        if let Some((held, card)) = cache.get(&item) {
-            if *held == key {
-                return card.clone();
-            }
-        }
-        let card = tool_diff_file(patch).map(|(file, omitted)| {
-            std::rc::Rc::new(EditCard {
-                path: PathBuf::from(file.path.clone()),
-                file,
-                omitted,
-            })
-        });
-        // The feed itself is capped (EXP-783), so this follows it: one entry
-        // per live row, evicted wholesale once a transcript grows past it.
-        if cache.len() > 512 {
-            cache.clear();
-        }
-        cache.insert(item, (key, card.clone()));
-        card
-    })
-}
-
-/// EXP-786/895 — a row's WIRE evidence: the per-call patch the publisher cut
-/// and, once the call settled, what an `execute` call printed. Both go through
-/// the very cards a local run gets, so a local and a remote viewer of one run
-/// show the same thing; the cuts are the publisher's (a patch's trailing
-/// `\ N more lines truncated` marker, an output's LEADING one) and nothing is
-/// re-truncated here. An unparseable patch renders nothing rather than a broken
-/// card.
+/// EXP-895/EXP-916 — a row's WIRE evidence: what an `execute` call printed
+/// once it settled. The publisher's own cut is what shows (an output's LEADING
+/// `\ N more lines truncated` marker) and nothing is re-truncated here.
 ///
 /// This is the SETTLED row's renderer on every client, the desktop runner
 /// included (EXP-895 runner parity): [`LocalExtras`]'s own output card serves
-/// only the pre-settle live window, where it streams. Collapsed, the row is its
-/// headline plus the edit card's header (`+a −b`); the reader's Show more opens
-/// the patch and the log.
+/// only the pre-settle live window, where it streams. Collapsed, the row is
+/// its headline alone; the reader's Show more opens the log. An EDIT row has
+/// nothing here — its patch belongs to the edited-files card (EXP-916).
 pub(crate) fn render_wire_extras(
-    diff: Option<&str>,
     output: Option<&str>,
     item: FeedItemId,
     expanded: bool,
-    on_toggle: Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
-    on_open: Option<OpenDiff>,
+    on_toggle: CardClick,
     cx: &App,
 ) -> Option<AnyElement> {
-    let edit = diff.and_then(|diff| wire_edit(item, diff));
-    let printed = output.filter(|text| !text.trim().is_empty());
-    if edit.is_none() && printed.is_none() {
-        return None;
-    }
+    let printed = output.filter(|text| !text.trim().is_empty())?;
     let muted = cx.theme().muted_foreground;
     let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
-    let mut foldable = false;
-    if let Some(edit) = edit.as_ref() {
-        column = column.child(render_edit_card(edit, (item, 0), expanded, on_open, cx));
-        foldable = foldable || hunk_rows(&edit.file) > 0;
+    // A settled log is COMPACT until it is asked for: the headline already
+    // says what ran and whether it failed.
+    if expanded {
+        column = column.child(render_output_card(
+            &OutputCard::from_wire(printed),
+            item,
+            true,
+            false,
+            None,
+            cx,
+        ));
     }
-    if let Some(printed) = printed {
-        // A settled log is COMPACT until it is asked for: the headline already
-        // says what ran and whether it failed.
-        foldable = true;
-        if expanded {
-            column = column.child(render_output_card(
-                &OutputCard::from_wire(printed),
-                item,
-                true,
-                false,
-                None,
-                cx,
-            ));
-        }
-    }
-    if foldable {
-        column = column.child(fold_toggle(item, expanded, on_toggle, muted));
-    }
+    column = column.child(fold_toggle(item, expanded, on_toggle, muted));
     Some(column.into_any_element())
 }
 
@@ -828,6 +927,7 @@ pub(crate) fn plan_mode_toggle(config: Option<&steer::SessionConfig>) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::RenderRow;
     use domain::diff::{DiffLineKind, DiffStatus};
 
     /// The feed drops its oldest rows at `FEED_CAP`; the extras must follow,
@@ -872,21 +972,24 @@ mod tests {
             .collect()
     }
 
-    fn card(old: Option<&str>, new: &str) -> Option<EditCard> {
-        tool_edit_card(PathBuf::from("src/lib.rs"), old, new)
+    /// EXP-916: a local edit is a cut PATCH now; the card reads it back
+    /// through the contract parser, exactly as it reads the wire's.
+    fn card(old: Option<&str>, new: &str) -> Option<(DiffFile, usize)> {
+        let patch = tool_edit_patch(PathBuf::from("src/lib.rs"), old, new)?;
+        tool_diff_file(&patch)
     }
 
     /// A one-line edit is a one-line diff, not a whole-file replacement — the
     /// shared patch keeps the common prefix and suffix as context.
     #[test]
     fn an_edit_diffs_only_the_block_that_changed() {
-        let card = card(Some("a\nb\nc\n"), "a\nB\nc\n").expect("an edit");
-        assert_eq!(card.path, PathBuf::from("src/lib.rs"));
-        assert_eq!(card.file.status, DiffStatus::Modified);
-        assert_eq!((card.file.additions, card.file.deletions), (1, 1));
-        assert_eq!(card.omitted, 0);
+        let (file, omitted) = card(Some("a\nb\nc\n"), "a\nB\nc\n").expect("an edit");
+        assert_eq!(file.path, "src/lib.rs");
+        assert_eq!(file.status, DiffStatus::Modified);
+        assert_eq!((file.additions, file.deletions), (1, 1));
+        assert_eq!(omitted, 0);
         assert_eq!(
-            rows(&card.file),
+            rows(&file),
             vec![
                 line(DiffLineKind::Context, "a"),
                 line(DiffLineKind::Del, "b"),
@@ -895,7 +998,7 @@ mod tests {
             ]
         );
         // The hunk header numbers both sides from the first context line.
-        let hunk = &card.file.hunks[0];
+        let hunk = &file.hunks[0];
         assert_eq!((hunk.old_start, hunk.new_start), (1, 1));
         assert_eq!((hunk.old_lines, hunk.new_lines), (3, 3));
     }
@@ -904,11 +1007,11 @@ mod tests {
     /// status says Added (the card must not claim to have deleted nothing).
     #[test]
     fn a_created_file_is_all_additions() {
-        let card = card(None, "one\ntwo\n").expect("a new file");
-        assert_eq!(card.file.status, DiffStatus::Added);
-        assert_eq!((card.file.additions, card.file.deletions), (2, 0));
+        let (file, _) = card(None, "one\ntwo\n").expect("a new file");
+        assert_eq!(file.status, DiffStatus::Added);
+        assert_eq!((file.additions, file.deletions), (2, 0));
         assert_eq!(
-            rows(&card.file),
+            rows(&file),
             vec![
                 line(DiffLineKind::Add, "one"),
                 line(DiffLineKind::Add, "two"),
@@ -932,28 +1035,49 @@ mod tests {
         assert!(!extras.has_extras(1));
     }
 
-    /// EXP-895: an edit card is COLLAPSED to its header — one file-card row,
-    /// the same one the Changes face draws — until the row's Show more opens
-    /// it, and even open it stops at the preview cap.
+    /// EXP-916: a card ROW is the shared file-card header — the same one the
+    /// Changes face draws — over the patch, rendered FLUSH (the edited-files
+    /// card is the frame). The copy and the depths are the contract's.
     #[test]
-    fn an_edit_card_is_collapsed_to_its_header() {
-        let card = card(Some("a\nb\nc\n"), "a\nB\nc\n").expect("an edit");
+    fn an_edit_card_row_is_the_shared_file_card_header() {
+        let (file, _) = card(Some("a\nb\nc\n"), "a\nB\nc\n").expect("an edit");
+        let options = DiffOptions::card();
+        assert!(options.flush, "a card's files stack inside the card's frame");
+        assert!(options.compact, "and at the card's density");
         let rows = file_rows(
-            &card.file,
+            &file,
             &gpui_component::highlighter::HighlightTheme::default_dark(),
-            &DiffOptions::card(),
+            &options,
         );
         assert!(
             matches!(rows.first(), Some(RenderRow::FileHeader { .. })),
             "the first row is the file card's header"
         );
         assert!(rows.len() > 1, "and the patch has a body under it");
-        assert_eq!(card_body_rows(rows.len(), false), 0);
-        assert_eq!(card_body_rows(rows.len(), true), rows.len() - 1);
-        // A long patch stops at the preview cap; the note says how much is
-        // held back.
-        assert_eq!(card_body_rows(500, true), DIFF_PREVIEW_ROWS);
-        assert_eq!(omitted_caption(3), "… 3 more lines");
+
+        // The card's own numbers and words are the contract's, never this
+        // module's (`domain::edit_card` is the ×4 mirror).
+        let members = [
+            domain::edit_card::EditCardMember {
+                id: 1,
+                detail: Some("src/lib.rs"),
+                diff: None,
+                settled: false,
+                failed: false,
+            },
+        ];
+        let view = domain::edit_card::edit_card(&members, Some(1));
+        assert_eq!(view.title, domain::contract::DIFF_UI_EDITED_FILES_ONE);
+        assert_eq!(view.rows[0].state, domain::edit_card::EditRowState::Pending);
+        assert_eq!(view.live_index, Some(0), "the live row opens itself");
+        assert_eq!(domain::edit_card::EDIT_CARD_PREVIEW, 5);
+        assert_eq!(domain::edit_card::edit_card_more_label(5), None);
+        assert_eq!(
+            domain::edit_card::edit_card_more_label(8).as_deref(),
+            Some("3 more")
+        );
+        assert_eq!(domain::contract::DIFF_UI_SHOW_LESS, "Show less");
+        assert_eq!(domain::contract::DIFF_UI_INLINE_DIFF_MAX_HEIGHT, 288);
     }
 
     /// EXP-786: a local edit is cut to the SAME caps the wire applies, and
@@ -964,22 +1088,20 @@ mod tests {
         let new: String = (0..TOOL_DIFF_MAX_LINES * 2)
             .map(|n| format!("line {n}\n"))
             .collect();
-        let card = card(None, &new).expect("a big new file");
+        let (file, omitted) = card(None, &new).expect("a big new file");
         // Every line of a new file is an addition, so the kept ones are
         // exactly what survived the cap — plus, on a CUT patch, the one
         // empty context row the contract parser fills the declared hunk
         // range with.
-        let kept = rows(&card.file)
+        let kept = rows(&file)
             .iter()
             .filter(|(kind, _)| *kind == DiffLineKind::Add)
             .count();
         assert!(kept < TOOL_DIFF_MAX_LINES * 2, "{kept} rows were kept");
-        assert_eq!(kept + card.omitted, TOOL_DIFF_MAX_LINES * 2);
-        assert!(card.omitted > 0);
-        assert_eq!(omitted_caption(1), "… 1 more line");
-        assert_eq!(omitted_caption(card.omitted), format!("… {} more lines", card.omitted));
+        assert_eq!(kept + omitted, TOOL_DIFF_MAX_LINES * 2);
+        assert!(omitted > 0);
         // A short edit loses nothing.
-        assert_eq!(self::card(None, "x\n").expect("tiny").omitted, 0);
+        assert_eq!(self::card(None, "x\n").expect("tiny").1, 0);
     }
 
     /// EXP-786: the wire patch a publisher cut ends in its marker line; the

@@ -121,11 +121,41 @@ export interface DomainContract {
     liveToolOutputTailLines: number
   }
   /**
+   * EXP-916: the diff UI's shared copy + numbers — session edit cards, the
+   * Changes face and Reviews use these same words on every client. `{n}` /
+   * `{hidden}` are substituted by the client. `cardPreviewFiles` = how many
+   * rows an edited-files card lists before "N more"; `collapseThresholdLines`
+   * = a file with more hunk lines starts collapsed; `lineChunk` = one "Show
+   * more lines" step; `inlineDiffMaxHeight` = the transcript card's scroll
+   * box height in px/pt.
+   */
+  diffUi: {
+    filterPlaceholder: string
+    changedFilesTitle: string
+    editedFilesOne: string
+    editedFilesMany: string
+    moreFiles: string
+    showLess: string
+    showMoreLines: string
+    mergePr: string
+    closePr: string
+    openOnGithub: string
+    noChanges: string
+    cardPreviewFiles: number
+    collapseThresholdLines: number
+    lineChunk: number
+    inlineDiffMaxHeight: number
+  }
+  /**
    * EXP-785: ACP's tool-call kinds, carried on the `tool` steer event so
    * clients can bucket a call (an `edit` folds its diff, an `execute` is a
    * command) without parsing its name. Byte-equal to ACP's `ToolKind`.
    */
-  toolKind: { values: readonly string[] }
+  toolKind: {
+    values: readonly string[]
+    /** EXP-916: the subset whose calls form an edited-files card (edit, delete, move). */
+    editKinds: readonly string[]
+  }
   subscriberSource: { values: readonly string[] }
   /**
    * EXP-778: what a `pins` row points at — an issue, a coding session or an
@@ -304,3 +334,27 @@ export {
   type DiffStatus,
   type DiffTotals,
 } from "./diff"
+
+// EXP-916: the transcript's edited-files card and the Changes face's file
+// tree — behaviour like the diff parser, mirrored ×4 and locked by
+// `fixtures/feed/edit-cards.json` and `fixtures/diff/tree.json`.
+export {
+  editCard,
+  editCardMoreLabel,
+  editCardTitle,
+  editRunEnd,
+  isEditCall,
+  renderEditCard,
+  EDIT_CARD_KINDS,
+  EDIT_CARD_PREVIEW,
+  type EditCardFeedItem,
+  type EditCardRow,
+  type EditCardView,
+  type EditRowState,
+} from "./edit-card"
+
+export {
+  diffFileTree,
+  renderDiffTree,
+  type DiffTreeNode,
+} from "./diff-tree"

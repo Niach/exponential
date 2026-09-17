@@ -775,7 +775,7 @@ public enum Diff {
     }
 
     public static func summaryLabel(files: Int, additions: Int, deletions: Int) -> String {
-        if files == 0 { return "No changes" }
+        if files == 0 { return DomainContract.diffUiNoChanges }
         let noun = files == 1 ? "file" : "files"
         return "\(files) \(noun) \(additionsLabel(additions)) \(deletionsLabel(deletions))"
     }

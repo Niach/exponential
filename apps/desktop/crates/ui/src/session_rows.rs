@@ -9,7 +9,9 @@
 //! than something a reader discovers by steering an agent.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
+use domain::edit_card::{EditCardMember, EditCardView};
 use steer::{BackgroundTask, FeedItem, FeedItemId, FeedKind, FeedRowSpec, ToolKind};
 
 /// The fallback caption while the run says nothing about its turn (a codex
@@ -301,206 +303,88 @@ pub(crate) fn strip_lines(tasks: &[BackgroundTask], items: &[FeedItem]) -> Vec<S
 }
 
 // ---------------------------------------------------------------------------
-// §12 — per-turn file cards
+// EXP-916 — the edited-files card's memo
 // ---------------------------------------------------------------------------
 
-/// One file a turn touched.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct FileEdit {
-    pub(crate) path: String,
-    /// EXP-895: the contract's status, so the card's rows wear the same
-    /// letter the diff's file header does.
-    pub(crate) status: domain::diff::DiffStatus,
-    pub(crate) additions: u32,
-    pub(crate) deletions: u32,
-}
-
-/// The card one turn segment earns — rendered under `anchor`, the last edit
-/// row of the segment.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct FileCard {
-    pub(crate) anchor: FeedItemId,
-    pub(crate) files: Vec<FileEdit>,
-}
-
-impl FileCard {
-    /// `3 files edited` / `1 file edited` (§12).
-    pub(crate) fn title(&self) -> String {
-        match self.files.len() {
-            1 => "1 file edited".to_string(),
-            count => format!("{count} files edited"),
-        }
-    }
-}
-
-/// How many rows a card shows before the `{rest} more` toggle (§12).
-pub(crate) const FILE_CARD_ROWS: usize = 5;
-
-/// EXP-884 — the `path +a −d` read of every settled edit row, memoised by
-/// row id.
+/// EXP-884/EXP-916 — the PARSE behind one edited-files card, memoised by the
+/// card.
 ///
-/// [`file_cards`] runs on every frame the feed moved, and it used to parse
-/// EVERY edit's unified diff in the run each time (a framed copy of the patch
-/// plus a full hunk parse per row): on a long run that was tens of
-/// milliseconds per frame, growing with the transcript — the EXP-884 lag.
-/// A row's diff is written once by its `tool_update` and never edited, so
-/// the read is cached against the row id and the patch length (the length
-/// guards the one way the bytes could still move: a second update). Entries
-/// leave with their rows ([`Self::prune_before`], the viewer's eviction
-/// hook). Interior mutability so the read-only render paths that share a
-/// card's segmentation ([`turn_items`]) fill it too.
+/// The card's view ([`domain::edit_card::edit_card`]) re-parses every member's
+/// unified diff, and the transcript rebuilds its rows on every frame of a live
+/// run: without this a run that edited two hundred files re-parsed two hundred
+/// patches per frame — the EXP-884 lag, in its EXP-916 shape.
+///
+/// A card is keyed by its FIRST and LAST member's id, the total bytes of
+/// patch behind it, how many of its members have SETTLED (a patchless settle
+/// turns a `pending` row into a `done` one without a byte of patch) and which
+/// member is live: those are exactly the things that move a card's content (it
+/// grows at the tail, a `tool_update` lands a patch or a verdict, the live row
+/// moves on). Entries leave with their rows
+/// ([`Self::prune_before`], the viewer's eviction hook). Interior mutability,
+/// so the read-only render path fills it.
 #[derive(Default)]
 pub(crate) struct EditMemo {
-    by_item: std::cell::RefCell<HashMap<FeedItemId, (usize, Option<FileEdit>)>>,
+    by_card: std::cell::RefCell<HashMap<FeedItemId, (CardKey, Rc<EditCardView>)>>,
+}
+
+/// What makes one painting of a card different from the last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CardKey {
+    first: FeedItemId,
+    last: FeedItemId,
+    bytes: usize,
+    /// Settled members, and the failed ones among them.
+    settled: usize,
+    failed: usize,
+    live: Option<FeedItemId>,
 }
 
 impl EditMemo {
-    fn edit_of(&self, id: FeedItemId, diff: &str) -> Option<FileEdit> {
-        if let Some((len, edit)) = self.by_item.borrow().get(&id) {
-            if *len == diff.len() {
-                return edit.clone();
+    /// The card `id`'s view, parsed at most once per change.
+    pub(crate) fn card(
+        &self,
+        id: FeedItemId,
+        members: &[EditCardMember<'_>],
+        live: Option<FeedItemId>,
+    ) -> Rc<EditCardView> {
+        let key = CardKey {
+            first: members.first().map_or(id, |member| member.id),
+            last: members.last().map_or(id, |member| member.id),
+            bytes: members
+                .iter()
+                .map(|member| member.diff.map_or(0, str::len))
+                .sum(),
+            settled: members.iter().filter(|member| member.settled).count(),
+            failed: members.iter().filter(|member| member.failed).count(),
+            live,
+        };
+        if let Some((held, view)) = self.by_card.borrow().get(&id) {
+            if *held == key {
+                return view.clone();
             }
         }
-        let edit = edit_of(diff);
-        self.by_item
-            .borrow_mut()
-            .insert(id, (diff.len(), edit.clone()));
-        edit
+        let view = Rc::new(domain::edit_card::edit_card(members, live));
+        self.by_card.borrow_mut().insert(id, (key, view.clone()));
+        view
     }
 
-    /// Drop the entries of rows the feed no longer holds (ids below `first`).
+    /// Drop the entries of cards the feed no longer holds (ids below `first`).
     pub(crate) fn prune_before(&self, first: FeedItemId) {
-        self.by_item.borrow_mut().retain(|id, _| *id >= first);
+        self.by_card.borrow_mut().retain(|id, _| *id >= first);
     }
 
     /// Forget everything. The viewer calls this on a replay swap: the feed
     /// re-mints ids from the old anchor (or continues above a retained prefix
-    /// over ids the discarded tail held), so a re-minted id whose new diff
-    /// happens to have the SAME byte length would otherwise read back the
-    /// previous row's `path +a -d`.
+    /// over ids the discarded tail held), so a re-minted card id whose members
+    /// happen to key the same would otherwise read back the previous card.
     pub(crate) fn clear(&self) {
-        self.by_item.borrow_mut().clear();
+        self.by_card.borrow_mut().clear();
     }
 
     #[cfg(test)]
     fn len(&self) -> usize {
-        self.by_item.borrow().len()
+        self.by_card.borrow().len()
     }
-}
-
-/// §12 — the per-turn file cards, keyed by the row they hang under.
-///
-/// A segment runs from a user message (or the start of the feed) to the next
-/// one; inside it every settled `edit`/`delete`/`move` row with a diff
-/// contributes its file. Two writes to one file are ONE row, summed, so the
-/// title counts files rather than calls. A subagent's edits belong to its own
-/// card inside the group, never to the main line's.
-///
-/// EXP-884: the diff reads go through `memo`; the walk itself is a cheap
-/// match per item.
-pub(crate) fn file_cards(items: &[FeedItem], memo: &EditMemo) -> HashMap<FeedItemId, FileCard> {
-    turn_segments(items, memo)
-        .into_iter()
-        .filter_map(|segment| {
-            // The card hangs under the LAST edit row of the segment.
-            let anchor = segment.last()?.0;
-            // Two writes to one file are ONE row, summed, in first-touch
-            // order — the title counts files, not calls.
-            let mut files: Vec<FileEdit> = Vec::new();
-            for (_, edit) in segment {
-                match files.iter_mut().find(|held| held.path == edit.path) {
-                    Some(held) => {
-                        held.additions += edit.additions;
-                        held.deletions += edit.deletions;
-                    }
-                    None => files.push(edit),
-                }
-            }
-            Some((anchor, FileCard { anchor, files }))
-        })
-        .collect()
-}
-
-/// EXP-862 — the settled edit ROWS of the turn a [`FileCard`] hangs under, in
-/// feed order. The card carries only `path +a −d`; the diff pane scoped to
-/// that turn needs the PATCHES back, and the patches live on the rows.
-///
-/// Extracted from [`file_cards`], so "which rows belong to this turn" is
-/// answered once: a card and the pane it opens can never disagree about what
-/// the turn touched.
-pub(crate) fn turn_items(
-    items: &[FeedItem],
-    anchor: FeedItemId,
-    memo: &EditMemo,
-) -> Vec<FeedItemId> {
-    turn_segments(items, memo)
-        .into_iter()
-        // Any row of the segment names it: the anchor stays valid while the
-        // turn keeps editing (web keys the scope on the turn the same way).
-        .find(|segment| segment.iter().any(|(id, _)| *id == anchor))
-        .map(|segment| segment.into_iter().map(|(id, _)| id).collect())
-        .unwrap_or_default()
-}
-
-/// §12's segmentation: one entry per turn that edited anything, holding its
-/// settled edit rows (id + the file that row touched) in feed order.
-///
-/// A segment runs from a user message (or the start of the feed) to the next
-/// one. A subagent's edits belong to its own card inside the group, never to
-/// the main line's, so `subagent_id: None` gates both arms.
-fn turn_segments(items: &[FeedItem], memo: &EditMemo) -> Vec<Vec<(FeedItemId, FileEdit)>> {
-    let mut segments: Vec<Vec<(FeedItemId, FileEdit)>> = Vec::new();
-    let mut open: Vec<(FeedItemId, FileEdit)> = Vec::new();
-    for item in items {
-        match &item.kind {
-            // A new turn opens: whatever the last one edited is settled.
-            FeedKind::UserMessage {
-                subagent_id: None, ..
-            } => {
-                if !open.is_empty() {
-                    segments.push(std::mem::take(&mut open));
-                }
-            }
-            FeedKind::Tool {
-                subagent_id: None,
-                tool_kind,
-                settled,
-                diff: Some(diff),
-                ..
-            } if *settled && edits_files(*tool_kind) => {
-                let Some(edit) = memo.edit_of(item.id, diff) else {
-                    continue;
-                };
-                open.push((item.id, edit));
-            }
-            _ => {}
-        }
-    }
-    if !open.is_empty() {
-        segments.push(open);
-    }
-    segments
-}
-
-/// The kinds §12 counts — a write, a delete or a rename.
-fn edits_files(kind: Option<ToolKind>) -> bool {
-    matches!(
-        kind,
-        Some(ToolKind::Edit) | Some(ToolKind::Delete) | Some(ToolKind::Move)
-    )
-}
-
-/// One per-call patch read into `path +a -d` — the SAME parse the edit card
-/// under the row uses ([`crate::session_extras::tool_diff_file`], i.e. the
-/// contract parser), so the card and the row can never disagree about a file.
-fn edit_of(diff: &str) -> Option<FileEdit> {
-    let (file, _) = crate::session_extras::tool_diff_file(diff)?;
-    Some(FileEdit {
-        path: file.path,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-    })
 }
 
 #[cfg(test)]
@@ -867,76 +751,34 @@ mod tests {
         );
     }
 
-    /// §12: one card per turn segment, anchored on its last edit, files
-    /// merged by path and counted as files.
+    /// EXP-916: the transcript's rows carry the edited-files CARD — the
+    /// grouping is `steer::feed`'s (byte-locked by
+    /// `fixtures/feed/edit-cards.json`), and a subagent's edits never join
+    /// the main line's.
     #[test]
-    fn file_cards_are_one_per_turn_segment() {
+    fn consecutive_edits_group_into_one_card_row() {
         let mut a = tool(2, Some(ToolKind::Edit), true, Some(&patch("src/a.rs", 3, 1)));
         if let FeedKind::Tool { detail, .. } = &mut a.kind {
             *detail = Some("src/a.rs".to_string());
         }
-        let b = {
-            let mut row = tool(3, Some(ToolKind::Edit), true, Some(&patch("src/b.rs", 2, 0)));
-            if let FeedKind::Tool { detail, .. } = &mut row.kind {
-                *detail = Some("src/b.rs".to_string());
-            }
-            row
-        };
-        // A second write to a.rs in the SAME turn merges into one row.
-        let a_again = tool(4, Some(ToolKind::Edit), true, Some(&patch("src/a.rs", 1, 1)));
-        // An UNSETTLED edit and a READ never count.
-        let open = tool(5, Some(ToolKind::Edit), false, Some(&patch("src/c.rs", 9, 9)));
-        let read = tool(6, Some(ToolKind::Read), true, None);
-        // …and the next turn opens its own card.
-        let next = tool(8, Some(ToolKind::Delete), true, Some(&patch("src/d.rs", 0, 4)));
-
-        let items = vec![
-            user(1),
-            a,
-            b,
-            a_again,
-            open,
-            read,
-            user(7),
-            next,
-        ];
-        let memo = EditMemo::default();
-        let cards = file_cards(&items, &memo);
-        assert_eq!(cards.len(), 2);
-        let first = cards.get(&4).expect("the first turn's card anchors on its last edit");
-        assert_eq!(first.title(), "2 files edited");
-        assert_eq!(
-            first.files,
-            vec![
-                FileEdit {
-                    path: "src/a.rs".to_string(),
-                    status: domain::diff::DiffStatus::Modified,
-                    additions: 4,
-                    deletions: 2,
-                },
-                FileEdit {
-                    path: "src/b.rs".to_string(),
-                    status: domain::diff::DiffStatus::Modified,
-                    additions: 2,
-                    deletions: 0,
-                },
-            ]
+        let b = tool(3, Some(ToolKind::Edit), true, Some(&patch("src/b.rs", 2, 0)));
+        let read = tool(4, Some(ToolKind::Read), true, None);
+        let mut nested = tool(5, Some(ToolKind::Edit), true, Some(&patch("src/c.rs", 1, 0)));
+        if let FeedKind::Tool { subagent_id, .. } = &mut nested.kind {
+            *subagent_id = Some("a-1".to_string());
+        }
+        let items = vec![user(1), a, b, read, nested];
+        let rows = steer::feed::group_feed_row_specs(&items, &[]);
+        assert!(matches!(rows[0], FeedRowSpec::Single { item: 0, .. }));
+        assert!(
+            matches!(rows[1], FeedRowSpec::Edits { id: 2, ref items } if items == &[1, 2]),
+            "the two edits are ONE card, keyed by the first"
         );
-        let second = cards.get(&8).expect("the second turn earns its own card");
-        assert_eq!(second.title(), "1 file edited");
-        assert_eq!(second.files.len(), 1);
-
-        // EXP-862: the pane scoped to a card reads back the ROWS that card
-        // counted — every write, including the second one to a.rs, and
-        // nothing from the unsettled edit, the read or the next turn.
-        assert_eq!(turn_items(&items, 4, &memo), vec![2, 3, 4]);
-        assert_eq!(turn_items(&items, 8, &memo), vec![8]);
-        // Any row of the turn names it, so a scope opened while the turn was
-        // still editing keeps resolving after later writes moved the card's
-        // anchor (web keys the scope on the turn the same way).
-        assert_eq!(turn_items(&items, 3, &memo), vec![2, 3, 4]);
-        // An id no turn edited asks for nothing.
-        assert!(turn_items(&items, 99, &memo).is_empty());
+        assert!(matches!(rows[2], FeedRowSpec::Single { item: 3, .. }), "a read is its own row");
+        assert!(
+            matches!(rows[3], FeedRowSpec::Subagent { .. }),
+            "and the subagent's edit stays in its own lane"
+        );
     }
 
     // ── The recorded wire, end to end ─────────────────────────────────────
@@ -1086,41 +928,53 @@ mod tests {
         assert!(steer::feed::visible_subagent_tabs(&feed.subagents(), None).is_empty());
     }
 
-    /// §12: a turn that edited nothing earns no card, and a subagent's edits
-    /// never leak onto the main line's.
+    /// EXP-884/EXP-916: the memo parses each CARD once, re-reads it only
+    /// when its members, their bytes or the live row moved, and forgets the
+    /// cards the feed evicted.
     #[test]
-    fn a_turn_with_no_edits_has_no_card() {
-        let mut nested = tool(3, Some(ToolKind::Edit), true, Some(&patch("src/a.rs", 1, 0)));
-        if let FeedKind::Tool { subagent_id, .. } = &mut nested.kind {
-            *subagent_id = Some("a-1".to_string());
-        }
-        let items = vec![user(1), tool(2, Some(ToolKind::Read), true, None), nested];
-        assert!(file_cards(&items, &EditMemo::default()).is_empty());
-    }
-
-    /// EXP-884: the memo reads each settled edit's patch ONCE, re-reads it
-    /// only when the bytes moved, and forgets rows the feed evicted.
-    #[test]
-    fn the_edit_memo_parses_each_patch_once_and_follows_eviction() {
+    fn the_edit_memo_parses_each_card_once_and_follows_eviction() {
+        let a = patch("src/a.rs", 2, 1);
+        let b = patch("src/b.rs", 1, 0);
+        let grown = patch("src/a.rs", 5, 1);
         let memo = EditMemo::default();
-        let items = vec![
-            user(1),
-            tool(2, Some(ToolKind::Edit), true, Some(&patch("src/a.rs", 2, 1))),
-            tool(3, Some(ToolKind::Edit), true, Some(&patch("src/b.rs", 1, 0))),
-            tool(4, Some(ToolKind::Edit), true, None),
+        let members = vec![
+            EditCardMember {
+                id: 2,
+                detail: Some("src/a.rs"),
+                diff: Some(a.as_str()),
+                settled: true,
+                failed: false,
+            },
+            EditCardMember {
+                id: 3,
+                detail: Some("src/b.rs"),
+                diff: Some(b.as_str()),
+                settled: true,
+                failed: false,
+            },
         ];
-        let first = file_cards(&items, &memo);
-        assert_eq!(memo.len(), 2, "one entry per settled edit WITH a diff");
-        assert_eq!(file_cards(&items, &memo), first);
-        assert_eq!(memo.len(), 2);
-        // A longer patch for the same row is a different read.
-        let mut grown = items.clone();
-        grown[1] = tool(2, Some(ToolKind::Edit), true, Some(&patch("src/a.rs", 5, 1)));
-        let card = file_cards(&grown, &memo);
-        assert_eq!(card.get(&3).expect("card").files[0].additions, 5);
-        // Eviction: rows below the surviving first id leave the memo.
-        memo.prune_before(3);
+        let first = memo.card(2, &members, None);
+        assert_eq!(first.title, "2 files edited");
         assert_eq!(memo.len(), 1);
+        assert!(
+            Rc::ptr_eq(&first, &memo.card(2, &members, None)),
+            "a second frame re-uses the parse"
+        );
+        // A longer patch for the same member is a different card.
+        let regrown = vec![
+            EditCardMember {
+                diff: Some(grown.as_str()),
+                ..members[0]
+            },
+            members[1],
+        ];
+        let next = memo.card(2, &regrown, None);
+        assert_eq!(next.rows[0].file.as_ref().expect("a patch").additions, 5);
+        // The live member is part of the key — it names the one open row.
+        assert_eq!(memo.card(2, &regrown, Some(3)).live_index, Some(1));
+        // Eviction: cards below the surviving first id leave the memo.
+        memo.prune_before(3);
+        assert_eq!(memo.len(), 0);
     }
 }
 
@@ -1226,12 +1080,6 @@ mod bench {
         eprintln!("items: {} ({} KiB)", items.len(), feed.bytes() / 1024);
         let reps = 20;
         timed("active_question_ids", reps, || feed.active_question_ids());
-        timed("file_cards (cold memo)", reps, || {
-            super::file_cards(items, &super::EditMemo::default())
-        });
-        let memo = super::EditMemo::default();
-        super::file_cards(items, &memo);
-        timed("file_cards (warm memo)", reps, || super::file_cards(items, &memo));
         let prose = "Narration 3 of turn 7. ".repeat(12);
         timed("markdown parse (1 body)", reps, || crate::markdown::markdown_to_blocks(&prose));
         timed("collect_subagents x2", reps, || (feed.subagents(), feed.subagents()));

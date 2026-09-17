@@ -151,6 +151,21 @@ const FEED: Array<Record<string, unknown>> = [
     kind: `tool`,
     name: `Edit`,
     detail: `ui/board/BoardScreen.kt · defer subscribe to after first paint`,
+    // EXP-916: the per-call patch rides the settle (`tool_update.diff`), so the
+    // transcript's edited-files card has a real row to open.
+    diff: `--- a/app/src/main/java/com/exponential/app/ui/board/BoardScreen.kt
++++ b/app/src/main/java/com/exponential/app/ui/board/BoardScreen.kt
+@@ -41,9 +41,13 @@ fun BoardScreen(boardId: String) {
+-    // Blocks the first frame: we await the initial snapshot before drawing.
+-    val issues = remember { runBlocking { sync.subscribeIssues(boardId) } }
++    // Paint from the cached snapshot immediately, then subscribe once the
++    // first frame is on screen, and the shape catches us up in place.
++    val issues by sync.cachedIssues(boardId).collectAsState()
++    LaunchedEffect(boardId) {
++        withFrameNanos { }
++        sync.subscribeIssues(boardId)
++    }
+`,
   },
   {
     kind: `diff`,
@@ -193,6 +208,18 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
     kind: `tool`,
     name: `Edit`,
     detail: `data/sync/BoardSnapshotCache.kt · persist on ON_STOP`,
+    diff: `--- a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.kt
++++ b/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.kt
+@@ -58,6 +58,12 @@ class BoardSnapshotCache(private val dir: File) {
+     fun read(boardId: String): List<Issue>? = file(boardId).takeIf { it.exists() }?.let(::decode)
++
++    /** EXP-905: the last reduced state survives a cold process. */
++    fun persistOnStop(owner: LifecycleOwner, boardId: String, latest: () -> List<Issue>) {
++        owner.lifecycle.addObserver(LifecycleEventObserver { _, event ->
++            if (event == Lifecycle.Event.ON_STOP) write(boardId, latest())
++        })
++    }
+`,
   },
   {
     kind: `subagent`,
@@ -302,8 +329,15 @@ function publishFeed(send: (frame: Record<string, unknown>) => void) {
       typeof raw.toolKind === `string`
         ? raw.toolKind
         : (TOOL_KIND_BY_NAME[String(raw.name)] ?? `other`)
-    send({ t: `activity`, event: { ...raw, id, toolKind }, seq: seq++ })
-    send({ t: `activity`, event: { kind: `tool_update`, id, status: `completed` }, seq: seq++ })
+    // EXP-916: an edit's patch is a `tool_update` field, never on the `tool`
+    // row itself — the same wire shape the engine's mapper produces.
+    const { diff, ...call } = raw as typeof raw & { diff?: string }
+    send({ t: `activity`, event: { ...call, id, toolKind }, seq: seq++ })
+    send({
+      t: `activity`,
+      event: { kind: `tool_update`, id, status: `completed`, ...(diff ? { diff } : {}) },
+      seq: seq++,
+    })
   }
 }
 

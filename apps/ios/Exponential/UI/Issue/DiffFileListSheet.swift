@@ -16,13 +16,11 @@ struct DiffFileListSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var filter = ""
+    /// EXP-916: the totals are summed once per FILE SET, not once per body —
+    /// every keystroke in the filter re-evaluates this view.
+    @State private var summaryMemo = DiffSummaryMemo()
 
-    private var summary: String {
-        let sum = Diff.totals(files)
-        return Diff.summaryLabel(
-            files: sum.files, additions: sum.additions, deletions: sum.deletions
-        )
-    }
+    private var summary: String { summaryMemo.summary(files) }
 
     var body: some View {
         GlassSheetChrome(
@@ -52,20 +50,17 @@ struct DiffFileListSheet: View {
             },
             content: {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        let shown = DiffPresentation.filter(files, query: filter)
-                        if shown.isEmpty {
-                            Text(files.isEmpty ? "No changed files." : "No matching files.")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .padding(.horizontal, GlassSheetTokens.headerHPadding)
-                                .padding(.vertical, 12)
+                    // EXP-916: the TREE, not a flat list — the same nesting
+                    // the sidebar draws on web and the desktop.
+                    DiffFileTree(
+                        files: files,
+                        query: filter,
+                        selected: selected,
+                        onSelect: { path in
+                            dismiss()
+                            onSelect(path)
                         }
-                        ForEach(Array(shown.enumerated()), id: \.element.path) { index, file in
-                            if index > 0 { GlassDivider() }
-                            row(file)
-                        }
-                    }
+                    )
                     .padding(.horizontal, 8)
                     .padding(.bottom, 16)
                 }
@@ -74,38 +69,28 @@ struct DiffFileListSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("changes-file-list")
     }
+}
 
-    /// `letter · name · dimmed dir · counts` — the basename leads, the
-    /// directory trails it dimmed (web `FileDiffNav`).
-    private func row(_ file: Diff.File) -> some View {
-        Button {
-            dismiss()
-            onSelect(file.path)
-        } label: {
-            HStack(spacing: 8) {
-                DiffStatusLetter(status: file.status)
-                Text(DiffPresentation.pathBase(file.path))
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                let dir = DiffPresentation.pathDir(file.path)
-                if !dir.isEmpty {
-                    Text(dir)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 8)
-                DiffCountsLabel(additions: file.additions, deletions: file.deletions)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(file.path == selected ? GlassTokens.fillActive : .clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("changes-file-list-row")
+/// EXP-916 — the summary cache (the same idea as `DiffTreeMemo`): `Diff.totals`
+/// walks every file, and the sheet's body runs on every keystroke in its
+/// filter. Keyed on the files' identity, so only a refreshed diff re-sums.
+///
+/// Deliberately NOT `@Observable`: the cache is written DURING a body pass.
+@MainActor
+final class DiffSummaryMemo {
+    private var key: Int?
+    private var cached = ""
+
+    func summary(_ files: [Diff.File]) -> String {
+        let key = diffFilesKey(files)
+        if key == self.key { return cached }
+        let sum = Diff.totals(files)
+        let made = Diff.summaryLabel(
+            files: sum.files, additions: sum.additions, deletions: sum.deletions
+        )
+        self.key = key
+        cached = made
+        return made
     }
 }
 
@@ -120,13 +105,16 @@ struct DiffFilesBarCircle: View {
             accessibilityLabel: DiffPresentation.changedFilesTitle,
             action: action
         ) {
+            // EXP-916: Android's `FileListCircle` — an 18pt white glyph over
+            // the count in the secondary emphasis.
             VStack(spacing: 2) {
-                AppIcon(AppIcons.navFiles, size: AppIcon.Size.medium, weight: .medium)
+                AppIcon(AppIcons.navFiles, size: 18, weight: .medium)
+                    .foregroundStyle(.white)
                 Text("\(count)")
                     .font(.caption2.weight(.medium))
                     .monospacedDigit()
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
         .accessibilityIdentifier("changes-file-list-button")
     }

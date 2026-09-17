@@ -27,6 +27,7 @@ public enum DomainContract {
     public static let codingSessionBlockedKinds: [String] = ["rate_limit"]
     public static let codingSessionBlockedWindows: [String] = ["session", "weekly", "model"]
     public static let toolKindValues: [String] = ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "other"]
+    public static let toolKindEditValues: [String] = ["edit", "delete", "move"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let pinKindValues: [String] = ["issue", "session", "action"]
     public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"]
@@ -92,6 +93,21 @@ public enum DomainContract {
     public static let steerFeedToolOutputMaxLines: Int = 200
     public static let steerFeedToolOutputMaxBytes: Int = 16384
     public static let steerFeedLiveToolOutputTailLines: Int = 3
+    public static let diffUiFilterPlaceholder: String = "Filter files"
+    public static let diffUiChangedFilesTitle: String = "Changed files"
+    public static let diffUiEditedFilesOne: String = "1 file edited"
+    public static let diffUiEditedFilesMany: String = "{n} files edited"
+    public static let diffUiMoreFiles: String = "{n} more"
+    public static let diffUiShowLess: String = "Show less"
+    public static let diffUiShowMoreLines: String = "Show {n} more lines ({hidden} hidden)"
+    public static let diffUiMergePr: String = "Merge PR"
+    public static let diffUiClosePr: String = "Close PR without merging"
+    public static let diffUiOpenOnGithub: String = "Open PR on GitHub"
+    public static let diffUiNoChanges: String = "No changes"
+    public static let diffUiCardPreviewFiles: Int = 5
+    public static let diffUiCollapseThresholdLines: Int = 300
+    public static let diffUiLineChunk: Int = 500
+    public static let diffUiInlineDiffMaxHeight: Int = 288
 
     public static let issueStatusCategoryBacklog: String = "backlog"
     public static let issueStatusCategoryUnstarted: String = "unstarted"

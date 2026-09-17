@@ -44,7 +44,9 @@ struct WorkFaceSwitcher: View {
     }
 
     private func glyph(_ icon: String) -> some View {
-        AppIcon(icon, size: AppIcon.Size.medium, weight: .medium)
+        // EXP-916: Android's switcher glyph is 22dp — the one circle whose
+        // mark sits a step above the bar's 20pt.
+        AppIcon(icon, size: 22, weight: .medium)
             .foregroundStyle(.white)
     }
 

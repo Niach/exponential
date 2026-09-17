@@ -110,24 +110,28 @@ final class DiffPresentationTests: XCTestCase {
         XCTAssertEqual(blob.deletions, 3)
     }
 
-    func testFilterIsCaseInsensitiveOverTheWholePath() {
-        let files = [
-            file("apps/web/src/Board.tsx"),
-            file("apps/ios/ExpCore/Sources/Domain/Diff.swift"),
-            file("README.md"),
-        ]
-        XCTAssertEqual(DiffPresentation.filter(files, query: "").map(\.path), files.map(\.path))
-        // Whitespace only is an empty query, not a needle nothing matches.
-        XCTAssertEqual(DiffPresentation.filter(files, query: "   ").count, 3)
-        XCTAssertEqual(
-            DiffPresentation.filter(files, query: "board").map(\.path),
-            ["apps/web/src/Board.tsx"]
+    /// EXP-916: a file card opens by ITSELF unless the file is huge, and a
+    /// list that asks for collapsed still gets it (web/Android
+    /// `diffOpensByDefault`).
+    func testTheSizeRuleDecidesWhichCardsOpen() {
+        let small = file("a.ts", hunks: [hunk(lines: 10)])
+        XCTAssertTrue(DiffPresentation.diffOpensByDefault(small, defaultCollapsed: false))
+        XCTAssertFalse(DiffPresentation.diffOpensByDefault(small, defaultCollapsed: true))
+        // Exactly at the threshold still opens; one line past it folds.
+        let edge = file("b.ts", hunks: [hunk(lines: DiffPresentation.collapseThresholdLines)])
+        XCTAssertTrue(DiffPresentation.diffOpensByDefault(edge, defaultCollapsed: false))
+        let big = file("c.ts", hunks: [hunk(lines: DiffPresentation.collapseThresholdLines + 1)])
+        XCTAssertFalse(DiffPresentation.diffOpensByDefault(big, defaultCollapsed: false))
+        XCTAssertEqual(DiffPresentation.lineCount(big), DiffPresentation.collapseThresholdLines + 1)
+        // A file with no hunks (a binary blob) is never "too big".
+        XCTAssertTrue(DiffPresentation.diffOpensByDefault(file("d.png"), defaultCollapsed: false))
+    }
+
+    private func hunk(lines: Int) -> Diff.Hunk {
+        Diff.Hunk(
+            oldStart: 1, oldLines: lines, newStart: 1, newLines: lines,
+            header: "@@ -1,\(lines) +1,\(lines) @@",
+            lines: (0..<lines).map { Diff.Line(kind: .add, newNo: $0 + 1, text: "x") }
         )
-        // The DIRECTORY is searchable too, and order is preserved.
-        XCTAssertEqual(
-            DiffPresentation.filter(files, query: "APPS/").map(\.path),
-            ["apps/web/src/Board.tsx", "apps/ios/ExpCore/Sources/Domain/Diff.swift"]
-        )
-        XCTAssertTrue(DiffPresentation.filter(files, query: "nothing").isEmpty)
     }
 }

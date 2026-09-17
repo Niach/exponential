@@ -2,11 +2,11 @@ import { useState, type ReactNode } from "react"
 import type { Board, Issue } from "@/db/schema"
 import {
   conceptIcon,
-  Button,
   PILL_PRIMARY_PAINT,
   type SessionDotTone,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
+import { PrGithubButton } from "@/components/pr-github-button"
 import { useReviewFiles } from "@/hooks/use-review-files"
 import { useSteerConfig } from "@/components/agent-session"
 import { ChangesFileSheet } from "@/components/changes-file-sheet"
@@ -15,7 +15,6 @@ import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import {
   MOBILE_WORK_BAR_CLEARANCE,
   MOBILE_WORK_CAPSULE_CLASS,
-  MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
 } from "@/components/mobile-work-bar"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
@@ -32,50 +31,15 @@ import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 // open, the face switcher on the right. A run's live diff draws the same face
 // inside the session view.
 
-const GithubIcon = conceptIcon(`ui-github`)
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-
-/** The GitHub control of a Changes surface — the PR page in a new tab. The
- *  phone wears it in the HEADER's action slot; the work bar's leading slot is
- *  the file sheet's (EXP-895). */
-export function GithubGhostButton({ prUrl }: { prUrl: string }) {
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="size-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-      aria-label="Open pull request on GitHub"
-      title="Open PR on GitHub"
-      data-testid="changes-github-action"
-      onClick={() => window.open(prUrl, `_blank`, `noopener,noreferrer`)}
-    >
-      <GithubIcon className="size-4" />
-    </Button>
-  )
-}
-
-/** The GitHub circle of a phone work bar — kept for the surfaces that still put
- *  it in a bar slot (the run's Changes face has no issue header to hang it on
- *  when the run is issue-less). */
-export function GithubCircle({ prUrl }: { prUrl: string }) {
-  return (
-    <button
-      type="button"
-      aria-label="Open pull request on GitHub"
-      title="Open PR on GitHub"
-      data-testid="changes-github-circle"
-      onClick={() => window.open(prUrl, `_blank`, `noopener,noreferrer`)}
-      className={MOBILE_WORK_CIRCLE_CLASS}
-    >
-      <GithubIcon className="size-5" />
-    </button>
-  )
-}
 
 /** The Changes face's Merge PR capsule: the 52px work capsule painted with
  *  `Pill`'s own `primary` accent (which has to come LAST — the capsule brings
  *  its own glass fill), carrying the two-click confirm and the Fix-conflicts
  *  swap `SessionMergePill` already has. It self-hides unless the PR is open. */
+/** EXP-916: the phone's ONE Merge control — a SOLID white pill hugging its
+ *  label (28px padding, a 20px glyph) in the bar's centred cluster, on the
+ *  Reviews page and the Work screen's Changes face alike. */
 export function MergeCapsule(props: {
   issueId?: string
   sessionId?: string
@@ -91,7 +55,7 @@ export function MergeCapsule(props: {
       label={MERGE_PR_LABEL}
       className={cn(
         MOBILE_WORK_CAPSULE_CLASS,
-        `justify-center rounded-full`,
+        `flex-none justify-center rounded-full px-7 font-medium [&_svg]:size-5`,
         PILL_PRIMARY_PAINT
       )}
     />
@@ -138,7 +102,7 @@ export function IssueChangesFace({
         origin={origin}
         handlers={handlers}
         action={
-          issue.prUrl ? <GithubGhostButton prUrl={issue.prUrl} /> : undefined
+          issue.prUrl ? <PrGithubButton prUrl={issue.prUrl} /> : undefined
         }
         graphBadge={
           /* EXP-897: the Changes face's own overlay — the PR stack bottom-up,
@@ -174,11 +138,12 @@ export function IssueChangesFace({
         )}
         {state.kind === `files` && (
           /* The file LIST is the bar's sheet on a phone, so the cards stand
-             alone here (`nav="none"`) and every one of them starts closed. */
+             alone here (`nav="none"`). EXP-916: they start OPEN, like every
+             other diff surface — only a file past the contract's collapse
+             threshold folds itself. */
           <ChangesView
             files={files}
             nav="none"
-            defaultCollapsed
             selected={selected}
             onSelect={setSelected}
             emptyLabel="No changes in this pull request."
@@ -186,6 +151,8 @@ export function IssueChangesFace({
         )}
       </div>
       <MobileWorkBar
+        /* EXP-916: the Reviews page's cluster — files · Merge PR · switcher. */
+        cluster
         leading={
           files.length > 0 ? (
             <ChangesFileSheet

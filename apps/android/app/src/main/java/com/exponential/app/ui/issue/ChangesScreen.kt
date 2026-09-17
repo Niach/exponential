@@ -2,7 +2,6 @@ package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -34,13 +33,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -67,12 +66,16 @@ import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.ui.components.BarCircle
+import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.work.GithubHeaderAction
 import com.exponential.app.ui.steer.SteerLaunchDelegate
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -306,6 +309,14 @@ fun ChangesScreen(
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },
+                // EXP-916: a link OUT of the app is a header verb, never a
+                // review-bar circle — the bar's leading slot opens the file
+                // tree instead (Work screen parity).
+                actions = {
+                    issue?.prUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                        GithubHeaderAction(url, Modifier.testTag("changes-github-action"))
+                    }
+                },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
         },
@@ -315,9 +326,15 @@ fun ChangesScreen(
         // prFiles/branchDiff failure must NOT strand a member with no PR
         // actions. The per-file diff renders below it, per load state.
         val loadedFiles = (load as? ChangesLoadState.Loaded)?.files
-        // Every file starts collapsed (EXP-248) — uniform with the web and
-        // iOS review detail.
+        // EXP-895: GitHub's PullFile is parsed into the shared model HERE and
+        // nowhere else — the cards below never see a patch string.
+        val files = remember(loadedFiles) { loadedFiles.orEmpty().map { it.toDiffFile() } }
+        // EXP-916: a file card opens by default on every Changes surface; only
+        // a file past `COLLAPSE_THRESHOLD` lines still starts shut.
         val expanded = remember(loadedFiles) { mutableStateMapOf<String, Boolean>() }
+        var sheetOpen by remember { mutableStateOf(false) }
+        val listState = rememberLazyListState()
+        val scope = rememberCoroutineScope()
         var mergeConfirmOpen by remember { mutableStateOf(false) }
         var closeConfirmOpen by remember { mutableStateOf(false) }
         // The floating bar grows when it captions a refusal (and the conflict
@@ -331,6 +348,7 @@ fun ChangesScreen(
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
+                state = listState,
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
@@ -342,15 +360,24 @@ fun ChangesScreen(
                 item(key = "__summary__") {
                     ChangesSummaryHeader(issue = issue, files = loadedFiles)
                 }
-                item(key = "__files__") {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ChangesFileList(load = load, expanded = expanded)
-                    }
+                if (files.isEmpty()) {
+                    item(key = "__status__") { ChangesLoadNote(load) }
+                }
+                items(files.size, key = { "diff_file_$it" }) { index ->
+                    val file = files[index]
+                    val opens = diffOpensByDefault(file, defaultCollapsed = false)
+                    DiffFileCard(
+                        file = file,
+                        expanded = expanded[file.path] ?: opens,
+                        onToggle = { expanded[file.path] = !(expanded[file.path] ?: opens) },
+                    )
                 }
             }
 
             ChangesBottomBar(
                 issue = issue,
+                fileCount = files.size,
+                onOpenFiles = { sheetOpen = true },
                 isMember = permissions.isMember,
                 merging = merging,
                 closing = closing,
@@ -378,6 +405,22 @@ fun ChangesScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .onSizeChanged { barHeightPx = it.height },
+            )
+        }
+
+        // Picking a file closes the sheet, opens that card and scrolls to it —
+        // the phone twin of the desktop IDE's `scroll_to_file`. +1 for the
+        // summary header above the cards.
+        if (sheetOpen) {
+            DiffFileListSheet(
+                files = files,
+                onPick = { path ->
+                    sheetOpen = false
+                    expanded[path] = true
+                    val index = files.indexOfFirst { it.path == path }
+                    if (index >= 0) scope.launch { listState.animateScrollToItem(index + 1) }
+                },
+                onDismiss = { sheetOpen = false },
             )
         }
 
@@ -441,6 +484,9 @@ fun ChangesScreen(
 @Composable
 private fun ChangesBottomBar(
     issue: IssueEntity?,
+    /** EXP-916: the bar's LEADING circle — the file tree and how much is in it. */
+    fileCount: Int,
+    onOpenFiles: () -> Unit,
     isMember: Boolean,
     merging: Boolean,
     closing: Boolean,
@@ -451,100 +497,93 @@ private fun ChangesBottomBar(
     onFixConflicts: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     val prUrl = issue?.prUrl
     val canReview = isMember &&
         !prUrl.isNullOrBlank() &&
         issue?.prState == DomainContract.prStateOpen
-    if (!canReview && prUrl.isNullOrBlank()) return
+    if (!canReview && fileCount == 0) return
     val busy = merging || closing
     Column(
         // EXP-627: the store slide's pop-out rect is measured off the review
         // bar (`PopRects`), iOS parity.
-        modifier = modifier.testTag("pr-merge-bar").padding(horizontal = 16.dp),
+        modifier = modifier.testTag("pr-merge-bar"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (actionError != null) {
-            ChangesRefusalNotice(message = actionError)
+            ChangesRefusalNotice(message = actionError, modifier = Modifier.padding(horizontal = 16.dp))
         }
-        Row(
-            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (canReview) {
-                ChangesBarCircle(onClick = onClosePr, enabled = !busy) {
-                    if (closing) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            ExpIcons.uiClose,
-                            contentDescription = "Close PR without merging",
-                            modifier = Modifier.size(20.dp),
-                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                        )
+        // EXP-916: the shared cluster — files · Merge PR · reject — the same
+        // bar the Work screen's Changes face draws with the switcher in the
+        // reject's place.
+        FloatingBarCluster(
+            left = if (fileCount > 0) {
+                {
+                    // EXP-916: the file TREE, reached from the bar's leading
+                    // slot — the count is the affordance, exactly as on the
+                    // Work screen.
+                    BarCircle(
+                        onClick = onOpenFiles,
+                        modifier = Modifier.testTag("changes-file-list-button"),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                ExpIcons.navFiles,
+                                contentDescription = DomainContract.diffUiChangedFilesTitle,
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.White,
+                            )
+                            Text(
+                                fileCount.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
                     }
                 }
-                // EXP-706: the primary action is a WHITE pill — the one solid
-                // thing on the bar, so the review's outcome is unmistakable.
-                // No hairline: a white fill needs no edge against the dim
-                // circles beside it. A conflict-refused merge REPLACES it with
-                // the recovery run (the notice above keeps only the message).
-                Row(
-                    modifier = Modifier
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(percent = 50))
-                        .background(Color.White)
-                        .clickable(
-                            enabled = !busy,
-                            onClick = if (canFixConflicts) onFixConflicts else onMerge,
-                        )
-                        .padding(horizontal = 28.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (merging) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            // On white, the default primary tint disappears.
-                            color = Color.Black,
-                        )
-                    } else {
-                        Icon(
-                            if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = Color.Black,
-                        )
-                    }
-                    Text(
-                        if (canFixConflicts) "Fix conflicts" else "Merge",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.Black,
+            } else {
+                null
+            },
+            centre = if (canReview) {
+                {
+                    // EXP-706: the primary action is a WHITE pill — the one
+                    // solid thing on the bar, so the review's outcome is
+                    // unmistakable. A conflict-refused merge REPLACES it with
+                    // the recovery run (the notice above keeps only the
+                    // message).
+                    BarSolidPill(
+                        label = if (canFixConflicts) "Fix conflicts" else DomainContract.diffUiMergePr,
+                        icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                        enabled = !busy,
+                        loading = merging,
+                        onClick = if (canFixConflicts) onFixConflicts else onMerge,
                     )
                 }
-            }
-            if (!prUrl.isNullOrBlank()) {
-                ChangesBarCircle(onClick = {
-                    runCatching {
-                        val intent = android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(prUrl),
-                        )
-                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        context.startActivity(intent)
+            } else {
+                null
+            },
+            right = if (canReview) {
+                {
+                    // EXP-916: reject TRAILS the merge pill — files · Merge PR
+                    // · reject, the slot order iOS and the phone web wear.
+                    BarCircle(onClick = onClosePr, enabled = !busy) {
+                        if (closing) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                // EXP-916: rejecting a PR is `prClosed`, the
+                                // same mark the state itself wears ×4.
+                                ExpIcons.prClosed,
+                                contentDescription = DomainContract.diffUiClosePr,
+                                modifier = Modifier.size(20.dp),
+                                tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
                     }
-                }) {
-                    Icon(
-                        ExpIcons.uiExternalLink,
-                        contentDescription = "Open PR on GitHub",
-                        modifier = Modifier.size(20.dp),
-                        tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                    )
                 }
-            }
-        }
+            } else {
+                null
+            },
+        )
     }
 }
 
@@ -586,25 +625,6 @@ internal fun ChangesRefusalNotice(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
-    }
-}
-
-@Composable
-private fun ChangesBarCircle(
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(52.dp)
-            .clip(CircleShape)
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
     }
 }
 
@@ -672,16 +692,13 @@ private fun ChangesSummaryHeader(
 }
 
 /**
- * EXP-893: the per-file rows of a PR review — a load spinner, a failure, the
- * empty note, or one collapsible [DiffFileCard] per file — shared by the
- * Reviews page above and the Work screen's Changes face (`ChangesFace`).
- * A plain Column body (not a LazyListScope), so either host lays it out.
+ * EXP-893/EXP-916: what stands in for the file cards while there are none — a
+ * load spinner, a failure, or the empty note. The cards themselves are ITEMS
+ * of the review's list (one per file, so a pick from the file tree can scroll
+ * to one), exactly as on the Work screen's Changes face.
  */
 @Composable
-internal fun ChangesFileList(
-    load: ChangesLoadState,
-    expanded: MutableMap<String, Boolean>,
-) {
+internal fun ChangesLoadNote(load: ChangesLoadState) {
     val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     when (load) {
@@ -699,26 +716,11 @@ internal fun ChangesFileList(
             color = MaterialTheme.colorScheme.error,
             modifier = Modifier.padding(vertical = 12.dp),
         )
-        is ChangesLoadState.Loaded -> {
-            val files = load.files
-            if (files.isEmpty()) {
-                Text(
-                    "No changed files.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tertiary,
-                    modifier = Modifier.padding(vertical = 12.dp),
-                )
-            }
-            // EXP-895: GitHub's PullFile is parsed into the shared model here
-            // and nowhere else — the card below never sees a patch string.
-            val parsed = remember(files) { files.map { it.toDiffFile() } }
-            parsed.forEach { file ->
-                DiffFileCard(
-                    file = file,
-                    expanded = expanded[file.path] == true,
-                    onToggle = { expanded[file.path] = expanded[file.path] != true },
-                )
-            }
-        }
+        is ChangesLoadState.Loaded -> Text(
+            "No changed files.",
+            style = MaterialTheme.typography.bodySmall,
+            color = tertiary,
+            modifier = Modifier.padding(vertical = 12.dp),
+        )
     }
 }

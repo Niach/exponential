@@ -1775,7 +1775,13 @@ impl Mapper {
             .and_then(|raw| raw.get("exit_code").or_else(|| raw.get("exitCode")))
             .and_then(Value::as_i64)
             .map(|code| code as i32);
-        let mut wire_diff: Option<String> = None;
+        // EXP-916: EVERY `Diff` of one update goes on the wire as one
+        // multi-section patch — codex's `apply_patch` reports a whole file set
+        // under a single `Edit` call (`file_change_updates`), and keeping only
+        // the last section made the transcript's edited-files card count one
+        // file where five changed. The sections are joined first and cut ONCE,
+        // so the contract caps bound the whole call, not each file.
+        let mut sections: Vec<String> = Vec::new();
         for item in content {
             match item {
                 ToolCallContent::Diff(diff) => {
@@ -1786,9 +1792,9 @@ impl Mapper {
                         new_text: diff.new_text.clone(),
                     });
                     if kind == ToolKind::Edit {
-                        // The LAST diff of one update wins; an update carrying
-                        // several files is not something any adapter emits.
-                        wire_diff = self.wire_edit_diff(diff).or(wire_diff);
+                        if let Some(section) = self.edit_patch(diff) {
+                            sections.push(section);
+                        }
                     }
                 }
                 ToolCallContent::Content(block) if kind == ToolKind::Execute => {
@@ -1821,20 +1827,29 @@ impl Mapper {
                 _ => {}
             }
         }
-        wire_diff
+        if sections.is_empty() {
+            return None;
+        }
+        Some(self.wire_patch(&sections.concat()))
     }
 
-    /// EXP-786: the per-call patch for the wire — built, redacted, cut. A
-    /// cut patch ends in a `\ N more lines truncated` marker line (a `\`
-    /// line is unified-diff metadata, so a renderer shows it as a note and
-    /// never as a hunk). `None` when the edit changed nothing.
-    fn wire_edit_diff(&self, diff: &agent_client_protocol::schema::v1::Diff) -> Option<String> {
+    /// One file's section of the wire patch: the unified diff of its old and
+    /// new text, or `None` when the edit changed nothing.
+    fn edit_patch(&self, diff: &agent_client_protocol::schema::v1::Diff) -> Option<String> {
         let path = self.display_path(&diff.path);
         let patch = steer::unified_diff(&path, diff.old_text.as_deref(), &diff.new_text);
         if patch.is_empty() {
             return None;
         }
-        let redacted = self.config.redactor.redact(&patch);
+        Some(patch)
+    }
+
+    /// EXP-786: the per-call patch for the wire — redacted, then cut to the
+    /// contract caps. A cut patch ends in a `\ N more lines truncated` marker
+    /// line (a `\` line is unified-diff metadata, so a renderer shows it as a
+    /// note and never as a hunk).
+    fn wire_patch(&self, patch: &str) -> String {
+        let redacted = self.config.redactor.redact(patch);
         let (mut kept, omitted) = steer::truncate_unified_diff(
             &redacted,
             steer::TOOL_DIFF_MAX_LINES,
@@ -1843,7 +1858,7 @@ impl Mapper {
         if omitted > 0 {
             kept.push_str(&format!("\\ {omitted} more lines truncated\n"));
         }
-        Some(kept)
+        kept
     }
 
     /// The `Tool { detail }` DERIVATION (rule 1). Never `raw_input`'s command

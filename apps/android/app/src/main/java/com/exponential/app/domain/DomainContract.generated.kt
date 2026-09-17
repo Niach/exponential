@@ -26,6 +26,7 @@ object DomainContract {
     val codingSessionBlockedKinds: List<String> = listOf("rate_limit")
     val codingSessionBlockedWindows: List<String> = listOf("session", "weekly", "model")
     val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "other")
+    val toolKindEditValues: List<String> = listOf("edit", "delete", "move")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val pinKindValues: List<String> = listOf("issue", "session", "action")
     val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed")
@@ -91,6 +92,21 @@ object DomainContract {
     const val steerFeedToolOutputMaxLines: Int = 200
     const val steerFeedToolOutputMaxBytes: Int = 16384
     const val steerFeedLiveToolOutputTailLines: Int = 3
+    const val diffUiFilterPlaceholder: String = "Filter files"
+    const val diffUiChangedFilesTitle: String = "Changed files"
+    const val diffUiEditedFilesOne: String = "1 file edited"
+    const val diffUiEditedFilesMany: String = "{n} files edited"
+    const val diffUiMoreFiles: String = "{n} more"
+    const val diffUiShowLess: String = "Show less"
+    const val diffUiShowMoreLines: String = "Show {n} more lines ({hidden} hidden)"
+    const val diffUiMergePr: String = "Merge PR"
+    const val diffUiClosePr: String = "Close PR without merging"
+    const val diffUiOpenOnGithub: String = "Open PR on GitHub"
+    const val diffUiNoChanges: String = "No changes"
+    const val diffUiCardPreviewFiles: Int = 5
+    const val diffUiCollapseThresholdLines: Int = 300
+    const val diffUiLineChunk: Int = 500
+    const val diffUiInlineDiffMaxHeight: Int = 288
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"

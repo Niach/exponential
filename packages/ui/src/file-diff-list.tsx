@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { DiffFile } from "@exp/domain-contract/diff"
 
-import { Button } from "./button"
 import { cn } from "./cn"
 import { diffOpensByDefault, FileDiffCard, type DiffDensity } from "./file-diff-card"
-import { FileDiffNav } from "./file-diff-nav"
-import { conceptIcon } from "./icons.generated"
+import { FileDiffTree } from "./file-diff-tree"
 import { useIsMobile } from "./use-mobile"
 
 // EXP-895 — the ONE diff view. `DiffFile[]` in, the file column beside the
@@ -16,10 +14,10 @@ import { useIsMobile } from "./use-mobile"
 // The aside is md-and-up only. On a phone the file list is a SHEET off the work
 // bar's leading slot (apps/web `changes-file-sheet.tsx`), because a 64-wide
 // column beside a diff leaves neither readable.
-
-const NavFilesIcon = conceptIcon(`nav-files`)
-
-const NAV_FOLD_LABEL = `Changed files`
+//
+// EXP-916: the aside is the file TREE and it does not fold — a diff HAS a file
+// column, and a chevron that takes it away was one control over a surface
+// whose whole job is the list beside the cards.
 
 /** EXP-786: the note under a publisher-CUT diff — the lines it dropped. */
 export function truncatedLinesNote(lines: number): string {
@@ -29,8 +27,6 @@ export function truncatedLinesNote(lines: number): string {
 export function FileDiffList({
   files,
   nav = `auto`,
-  navOpen,
-  onNavOpenChange,
   defaultCollapsed = false,
   density = `comfortable`,
   focusPath = null,
@@ -43,10 +39,7 @@ export function FileDiffList({
   /** `auto` = the md+ file column; `none` = cards only (a sheet, a top bar or
    *  a tool card owns the list instead). */
   nav?: `auto` | `none`
-  /** Controlled fold of that column. Absent = the list owns it, open. */
-  navOpen?: boolean
-  onNavOpenChange?: (open: boolean) => void
-  /** Every card starts closed, whatever its size (the review layout). */
+  /** Every card starts closed, whatever its size. */
   defaultCollapsed?: boolean
   density?: DiffDensity
   /** Open this file and scroll to it — whatever the reader picked (a nav row, a
@@ -66,18 +59,10 @@ export function FileDiffList({
   // Sparse user overrides on top of the size-based defaults, keyed by path — a
   // refresh replaces `files` without discarding the reader's toggles.
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
-  const [ownNavOpen, setOwnNavOpen] = useState(true)
   const sectionRefs = useRef(new Map<string, HTMLDivElement>())
   // ONE matchMedia subscription for the whole list — the path labels below only
   // need the answer (EXP-698).
   const isMobile = useIsMobile()
-
-  const navIsOpen = navOpen ?? ownNavOpen
-  const toggleNav = () => {
-    const next = !navIsOpen
-    if (navOpen === undefined) setOwnNavOpen(next)
-    onNavOpenChange?.(next)
-  }
 
   const defaults = useMemo(() => {
     const map = new Map<string, boolean>()
@@ -113,34 +98,15 @@ export function FileDiffList({
       data-testid="file-diff-list"
     >
       {showNav && (
-        <aside
-          className={cn(
-            `hidden shrink-0 flex-col gap-2 md:flex`,
-            navIsOpen && `w-64`
-          )}
-        >
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={NAV_FOLD_LABEL}
-            aria-expanded={navIsOpen}
-            title={NAV_FOLD_LABEL}
-            className="self-start text-muted-foreground"
-            data-testid="diff-nav-fold"
-            onClick={toggleNav}
-          >
-            <NavFilesIcon />
-          </Button>
-          {navIsOpen && (
-            <FileDiffNav
-              files={files}
-              selected={focusPath}
-              onSelect={(path) => {
-                jumpTo(path)
-                onSelect?.(path)
-              }}
-            />
-          )}
+        <aside className="hidden w-64 shrink-0 flex-col gap-2 md:flex">
+          <FileDiffTree
+            files={files}
+            selected={focusPath}
+            onSelect={(path) => {
+              jumpTo(path)
+              onSelect?.(path)
+            }}
+          />
         </aside>
       )}
       <div className="min-w-0 flex-1 space-y-2">

@@ -6,20 +6,20 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { contract } from "@exp/domain-contract"
+import { summaryLabel, totals } from "@exp/domain-contract/diff"
 import type { Issue } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { useTeamBySlug, useTeamBoards } from "@/hooks/use-team-data"
 import { useReviewFiles } from "@/hooks/use-review-files"
-import {
-  HEADER_BUTTON_CLASS,
-  MobileDetailHeader,
-} from "@/components/team/mobile-detail-header"
+import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { mergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
 import {
   conceptIcon,
   Button,
+  GlassCard,
   Pill,
   Dialog,
   DialogCancel,
@@ -28,23 +28,22 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { ChangesFileSheet } from "@/components/changes-file-sheet"
 import { ChangesTopBar } from "@/components/changes-top-bar"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { ChangesView } from "@/components/changes-view"
-import { GithubCircle, MergeCapsule } from "@/components/issue-changes-face"
+import { MergeCapsule } from "@/components/issue-changes-face"
+import { PrGithubButton } from "@/components/pr-github-button"
 import {
   MOBILE_WORK_BAR_CLEARANCE,
+  MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
 } from "@/components/mobile-work-bar"
 import { useSteerConfig } from "@/components/agent-session"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { publishReviewFiles } from "@/lib/review-files-slot"
 
 // Review-detail (EXP-106): the PR/branch diff for one review, with Merge/Close
 // actions moved off the issue detail. The representative issue carries the PR;
@@ -56,6 +55,10 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // with its own confirm and the Fix-conflicts swap), so the route keeps only the
 // CLOSE mutation; on a phone the bar is the shared `MobileWorkBar` (file sheet ·
 // Merge capsule · GitHub) and Close moves into the header's `…`.
+//
+// EXP-916: on md+ the file TREE is the SIDEBAR's panel (`ReviewFilesNav`,
+// fed through `review-files-slot.ts`), a review's context where another
+// detail keeps its list — so the cards take the whole column here.
 export const Route = createFileRoute(
   `/t/$teamSlug/reviews/$issueIdentifier`
 )({
@@ -80,7 +83,7 @@ export const Route = createFileRoute(
 })
 
 const UiLoadingIcon = conceptIcon(`ui-loading`)
-const UiMoreIcon = conceptIcon(`ui-more`)
+const PrClosedIcon = conceptIcon(`pr-closed`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
 function ReviewDetailPage() {
@@ -144,6 +147,21 @@ function ReviewDetailPage() {
   const { state: filesState, reload: reloadFiles } = useReviewFiles(issue)
   const files = filesState.kind === `files` ? filesState.files : []
   const [selected, setSelected] = useState<string | null>(null)
+
+  // EXP-916: hand the sidebar's tree what it draws — the files, the selection
+  // and the pick that scrolls the diff — and take it back on the way out.
+  const issueId = issue?.id ?? null
+  useEffect(() => {
+    if (!issueId) return
+    publishReviewFiles({
+      issueId,
+      status: filesState.kind,
+      files,
+      selected,
+      onSelect: setSelected,
+    })
+  }, [issueId, filesState.kind, files, selected])
+  useEffect(() => () => publishReviewFiles(null), [])
 
   // Close holds its spinner until the Electric echo flips prState away from
   // `open` (which hides the action), matching the Reviews list. Merge's own
@@ -234,6 +252,10 @@ function ReviewDetailPage() {
 
   const isOpen = issue.prState === `open`
   const isBatch = linked.length > 1
+  // The phone card's counts — the very words the md+ bar and the file tree
+  // use, so the page says its size once and says it the same way ×4.
+  const sum = totals(files)
+  const mobileSummary = summaryLabel(sum.files, sum.additions, sum.deletions)
   const mergeTarget = {
     issueId: issue.id,
     prState: issue.prState,
@@ -246,9 +268,9 @@ function ReviewDetailPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* EXP-851: the shared detail header on phones — round back, the
-          identifier centred. EXP-895: Close PR lives in its `…` now; the bottom
-          bar is the shared three-slot work bar, which has no room for a fourth
-          control. */}
+          identifier centred. EXP-916: GitHub is the trailing control, the way
+          iOS and Android wear it; the `…` is gone, because its ONE item (close
+          without merging) is now the bar's own circle. */}
       <MobileDetailHeader
         className="md:hidden"
         title={<span className="font-mono">{issue.identifier}</span>}
@@ -257,35 +279,34 @@ function ReviewDetailPage() {
           void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
         }
         menu={
-          isOpen ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={HEADER_BUTTON_CLASS}
-                  aria-label="Review actions"
-                  data-testid="review-actions-menu"
-                >
-                  <UiMoreIcon className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  disabled={closing}
-                  onSelect={() => setConfirmCloseOpen(true)}
-                >
-                  Close PR without merging
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : undefined
+          issue.prUrl ? <PrGithubButton prUrl={issue.prUrl} /> : undefined
         }
       />
+
+      {/* EXP-916: the phone's summary line, the natives' compact card — the
+          branch over the PR state and the diff's size, so a review says what
+          it IS without the md+ `ChangesTopBar`. */}
+      <GlassCard
+        className="mx-3 mt-2 flex flex-col gap-1 px-3 py-2 text-xs md:hidden"
+        data-testid="review-mobile-summary"
+      >
+        <span className="min-w-0 truncate font-mono text-muted-foreground">
+          {issue.branch ?? `No branch`}
+        </span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Pill size="sm" className="shrink-0 capitalize">
+            {issue.prNumber == null ? `No pull request` : (issue.prState ?? `open`)}
+          </Pill>
+          <span className="min-w-0 truncate text-muted-foreground">
+            {mobileSummary}
+          </span>
+        </span>
+      </GlassCard>
 
       {/* The md+ header: the ONE Changes bar (EXP-895) — it owns the merge
           control, Close and the GitHub link. */}
       <ChangesTopBar
+        identifier={issue.identifier}
         files={files}
         branch={issue.branch}
         prState={issue.prNumber == null ? null : (issue.prState ?? `open`)}
@@ -357,10 +378,12 @@ function ReviewDetailPage() {
               </Pill>
             </div>
           ) : files.length > 0 ? (
+            /* EXP-916: every card starts OPEN — a review is read top to
+               bottom, and only a file past the contract's collapse threshold
+               folds itself. The tree is the sidebar's (`nav="none"`). */
             <ChangesView
               files={files}
-              nav="auto"
-              defaultCollapsed
+              nav="none"
               selected={selected}
               onSelect={setSelected}
             />
@@ -373,9 +396,13 @@ function ReviewDetailPage() {
       </div>
 
       {/* The phone bar (EXP-895): the same three-slot work bar every Work-screen
-          face wears — the file sheet, the Merge capsule, GitHub. */}
-      {(files.length > 0 || isOpen || issue.prUrl) && (
+          face wears — the file sheet, the Merge capsule, and (EXP-916) Reject
+          where the natives keep it. */}
+      {(files.length > 0 || isOpen) && (
         <MobileWorkBar
+          /* EXP-916: Android's review bar — a centred cluster, the white
+             Merge pill hugging its label between the two circles. */
+          cluster
           leading={
             files.length > 0 ? (
               <ChangesFileSheet
@@ -387,7 +414,26 @@ function ReviewDetailPage() {
           }
           capsule={isOpen ? <MergeCapsule {...mergeTarget} /> : undefined}
           trailing={
-            issue.prUrl ? <GithubCircle prUrl={issue.prUrl} /> : undefined
+            /* EXP-916: REJECT sits where the natives put it — the bar's
+               trailing circle, and only while there is an open PR to close.
+               GitHub moved up into the header. */
+            isOpen ? (
+              <button
+                type="button"
+                aria-label={contract.diffUi.closePr}
+                title={contract.diffUi.closePr}
+                data-testid="review-close-pr"
+                disabled={closing}
+                onClick={() => setConfirmCloseOpen(true)}
+                className={MOBILE_WORK_CIRCLE_CLASS}
+              >
+                {closing ? (
+                  <UiLoadingIcon className="size-5 animate-spin" />
+                ) : (
+                  <PrClosedIcon className="size-5" />
+                )}
+              </button>
+            ) : undefined
           }
         />
       )}

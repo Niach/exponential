@@ -37,7 +37,7 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   return { ...actual, useLiveQuery: () => ({ data: [] }) }
 })
 
-import { PrGraphOverlay } from "@/components/pr-graph-badge"
+import { PrGraphBadge, PrGraphOverlay } from "@/components/pr-graph-badge"
 import { prGraph } from "@/lib/pr-graph"
 
 const issue = (
@@ -158,5 +158,39 @@ describe(`PrGraphOverlay`, () => {
     expect(screen.getByTestId(`chip-BATB`)).toBeTruthy()
     // Nothing to merge as a stack: a lone batch PR is one entry.
     expect(screen.queryByTestId(`pr-graph-merge-stack`)).toBeNull()
+  })
+})
+
+// EXP-916: a `glyph` badge sits in a FIXED lead cell of a Reviews grid row.
+// When the graph has no badge to draw (the sibling issues have not synced yet)
+// it must still fill that cell, or the whole row shifts one column left.
+describe(`PrGraphBadge fallback (EXP-916)`, () => {
+  it(`renders its fallback when the graph carries no badge`, () => {
+    render(
+      <PrGraphBadge
+        teamId="t1"
+        teamSlug="acme"
+        face="changes"
+        issue={issue(`lone`)}
+        variant="glyph"
+        fallback={<span data-testid="badge-fallback" />}
+      />
+    )
+    // No batch, no stack — nothing for the badge itself to say.
+    expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
+    expect(screen.getByTestId(`badge-fallback`)).toBeTruthy()
+  })
+
+  it(`no fallback keeps the old behaviour — nothing at all`, () => {
+    const { container } = render(
+      <PrGraphBadge
+        teamId="t1"
+        teamSlug="acme"
+        face="changes"
+        issue={issue(`lone`)}
+        variant="glyph"
+      />
+    )
+    expect(container.innerHTML).toBe(``)
   })
 })

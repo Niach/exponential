@@ -1,6 +1,7 @@
 package com.exponential.app.ui.work
 
 import android.content.Intent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
@@ -126,11 +128,13 @@ fun WorkTopBar(
  * link OUT of the app belongs with the other header verbs anyway.
  */
 @Composable
-fun GithubHeaderAction(prUrl: String) {
+fun GithubHeaderAction(prUrl: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    Box(modifier = modifier) {
     TopBarActionButton(
         icon = ExpIcons.uiGithub,
-        contentDescription = "Open PR on GitHub",
+        // EXP-916: the contract's words, byte-identical ×4.
+        contentDescription = DomainContract.diffUiOpenOnGithub,
         onClick = {
             // A device with no browser (a stripped emulator image) throws
             // rather than resolving the intent — a dead tap beats a crash.
@@ -144,6 +148,7 @@ fun GithubHeaderAction(prUrl: String) {
         // circle is left to the primary actions.
         borderless = true,
     )
+    }
 }
 
 /** The ×4 session-dot palette (`SessionDotTone`) as the list rows draw it. */

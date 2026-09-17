@@ -1,34 +1,41 @@
-//! EXP-895 — THE Changes layout, on every desktop surface that shows a diff.
+//! EXP-895/EXP-916 — THE Changes layout, on every desktop surface that shows
+//! a diff.
 //!
 //! One anatomy, three hosts (the review screen [`crate::pr_diff`], the run's
 //! Changes face [`crate::steer_viewer`], and anything else that grows one):
 //!
 //! ```text
-//! Changes +82 −6 · 3 files · exp/APP-14 · Open        [×] [GitHub] [Merge PR]
 //! ┌───────────────────┐  ┌──────────────────────────────────────────────┐
 //! │ 3 files +82 −6    │  │ M feature/…/strings.xml            +2 −0  ⌄  │
 //! │ [ Filter files  ] │  │              15 unchanged lines              │
-//! │ M strings.xml f…  │  │ @@ -16,4 +16,6 @@                            │
+//! │ ▾ app/src         │  │ @@ -16,4 +16,6 @@                            │
+//! │   M strings.xml   │  │                                              │
 //! └───────────────────┘  └──────────────────────────────────────────────┘
 //! ```
 //!
-//! The web route (`@exp/ui` `FileDiffNav` + `FileDiffList`) is the reference
+//! The web route (`@exp/ui` `FileDiffNav` + `FileDiffTree`) is the reference
 //! look and the natives mirror it, so a review reads identically ×4.
 //!
-//! Two rules the bar exists to hold:
+//! EXP-916 took the pane's own `Changes +N −M · K files · branch · state` bar
+//! away: the pane IS the changes, and everything that bar said about the PR
+//! (its branch, its state, the merge and the GitHub link) belongs to the
+//! header ABOVE the pane — the work header on a run or an issue, the review's
+//! own header row on the Reviews detail. What is left here is the diff and
+//! the way around it: the file TREE
+//! ([`domain::diff_tree::diff_file_tree`], hand-mirrored ×4) over a
+//! `Filter files` field.
 //!
-//! * **the bar OWNS the merge control** while the Changes face is up — one
-//!   [`MergeSlot`], never two. A conflict-classified failure SWAPS it for the
-//!   recovery run (merging is exactly what is blocked) and offers Merge again
-//!   as a ghost "Retry merge" beside it, never a dead end;
-//! * the counts are the contract's ([`domain::diff::totals`],
-//!   [`additions_label`] / [`deletions_label`] — U+2212, never a hyphen).
+//! The counts are the contract's ([`domain::diff::summary_label`],
+//! [`additions_label`] / [`deletions_label`] — U+2212, never a hyphen).
 //!
 //! EXP-877 made the pane a FULL PAGE under the run's header rather than a
 //! right-hand split: the diff and the transcript are two things you read, not
-//! one thing you read while glancing at the other. Its content is centred in
-//! the same [`crate::work_header::WORK_COLUMN_W`] column the run's header and
-//! transcript use, so nothing shifts sideways when you toggle it.
+//! one thing you read while glancing at the other. Its diff column is centred
+//! in the same [`crate::work_header::WORK_COLUMN_W`] column the run's header
+//! and transcript use, so nothing shifts sideways when you toggle it; the
+//! tree sits beside that column, and only where the window has room for both.
+
+use std::collections::HashSet;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, ClickEvent, Context, Entity,
@@ -43,15 +50,19 @@ use gpui_component::{
 };
 
 use coding::scm::DiffFile;
-use domain::diff::{additions_label, deletions_label, DiffStatus, Totals};
+use domain::diff::{additions_label, deletions_label, summary_label, DiffStatus, Totals};
+use domain::diff_tree::{diff_file_tree, DiffTreeKind, DiffTreeNode};
 
 use crate::changes_bar::MergeTarget;
 use crate::controls::{glass_input, WebControl as _, WebText as _};
 use crate::diff::{status_color, status_letter};
 use crate::icons::registry;
 
-/// The file list's own column.
+/// The file tree's own column.
 pub(crate) const FILE_LIST_WIDTH: f32 = 216.;
+
+/// EXP-916: one level of nesting in the file tree.
+const TREE_INDENT: f32 = 12.;
 
 /// One row of the pane's file list — the shared file-row anatomy (status
 /// letter · basename · dimmed dir · `+N −M`), which the transcript's per-turn
@@ -116,45 +127,41 @@ pub(crate) enum MergeSlot {
     },
 }
 
-/// The Changes BAR: `Changes +N −M · K files · branch · state` and the
-/// surface's own controls.
-pub(crate) struct DiffBarSpec {
-    pub(crate) totals: Totals,
-    /// The PR state as prose ("Open", "No Pull Request"); `None` while the
-    /// diff is still loading.
-    pub(crate) state: Option<SharedString>,
-    pub(crate) branch: Option<SharedString>,
-    pub(crate) merge: Option<MergeSlot>,
-    /// The surface's own glyphs, in order, BEFORE the merge slot: the
-    /// review's Close-PR ×, its GitHub link and undock, the pane's close.
-    /// The merge control anchors the bar's right edge — it is the one thing
-    /// on the bar a reader came to press.
-    pub(crate) trailing: Vec<AnyElement>,
-}
+/// A file row was picked: its index into the pane's `files`.
+pub(crate) type PickFile<V> = std::rc::Rc<dyn Fn(&mut V, usize, &mut Context<V>) + 'static>;
+
+/// A folder row was clicked: its path.
+pub(crate) type ToggleDir<V> = std::rc::Rc<dyn Fn(&mut V, String, &mut Context<V>) + 'static>;
 
 /// Everything one painting of the pane needs. Generic over the hosting view,
-/// like [`crate::changes_bar`] was, so the pane's open/selected state stays
-/// the caller's.
+/// like [`crate::changes_bar`] was, so the pane's selection and fold state
+/// stays the caller's.
 pub(crate) struct DiffPaneSpec<V: Render> {
-    pub(crate) bar: DiffBarSpec,
+    /// EXP-916: the surface's OWN header row above the diff — the review's
+    /// identifier/branch/state/merge cluster. `None` wherever a work header
+    /// already sits above the pane (a run's Changes face, an embedded issue
+    /// tab), which is the only header those surfaces get.
+    pub(crate) header: Option<AnyElement>,
     pub(crate) files: Vec<PaneFile>,
-    /// The file the list highlights (an index into `files`).
+    /// The file the tree highlights (an index into `files`).
     pub(crate) selected: usize,
-    /// Whether the left file list is unfolded.
-    pub(crate) list_open: bool,
+    /// EXP-916: whether the pane draws the file tree BESIDE its column.
+    /// `false` where the window's left column carries it instead — the
+    /// review screen ([`crate::review_files_nav`]), whose tree sits in the
+    /// sidebar like every other detail's context. The selection, the filter
+    /// and the folds are still the host's, whichever side paints them.
+    pub(crate) tree: bool,
     /// The `Filter files` field's state. `None` = no filter on this surface.
     pub(crate) filter: Option<Entity<InputState>>,
-    /// EXP-862: what the pane is SHOWING, when it is not the whole branch —
-    /// "This turn: 3 files" / "This edit". `None` = the session scope, where
-    /// the header's Diff pill already says it.
-    pub(crate) scope_label: Option<SharedString>,
-    /// A failure line under the bar (the review's merge/close refusal).
+    /// The directories the reader FOLDED. Every directory is open by
+    /// default — a tree that opens closed is a list of folders, not a
+    /// review — so this set is what is shut, keyed by the node's path.
+    pub(crate) folded_dirs: HashSet<String>,
+    /// A failure line under the header (the review's merge/close refusal).
     pub(crate) caption: Option<SharedString>,
     pub(crate) diff: Entity<crate::diff::DiffView>,
-    pub(crate) on_toggle_list: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
-    /// The scope chip's click: back to the whole branch.
-    pub(crate) on_show_session: Box<dyn Fn(&mut V, &mut Context<V>) + 'static>,
-    pub(crate) on_pick: std::rc::Rc<dyn Fn(&mut V, usize, &mut Context<V>) + 'static>,
+    pub(crate) on_pick: PickFile<V>,
+    pub(crate) on_toggle_dir: ToggleDir<V>,
 }
 
 /// `+N` / `−M`, mono, the contract's labels and the shared tints. The ONE
@@ -186,7 +193,6 @@ pub(crate) fn file_row(
     active: bool,
     cx: &gpui::App,
 ) -> gpui::Stateful<gpui::Div> {
-    let muted = cx.theme().muted_foreground;
     crate::surface::flat_row()
         .id(id)
         .flex()
@@ -211,9 +217,13 @@ pub(crate) fn file_row(
                 .text_color(status_color(file.status, cx))
                 .child(status_letter(file.status)),
         )
+        // EXP-916: the name alone — the tree above it IS the directory, so a
+        // dimmed dir crumb would say it twice (web `FileDiffTree` parity).
         .child(
             div()
-                .flex_shrink_0()
+                .flex_1()
+                .min_w_0()
+                .truncate()
                 .text_color(if active {
                     cx.theme().foreground
                 } else {
@@ -221,119 +231,261 @@ pub(crate) fn file_row(
                 })
                 .child(file.name.clone()),
         )
+        .child(counts(file.additions, file.deletions, cx))
+}
+
+/// The pane's rows ARE the tree builder's input — it reads a path and two
+/// counts, all of which a [`PaneFile`] already holds. (Rebuilding a
+/// `Vec<DiffFile>` here cloned every path once per frame.)
+impl domain::diff_tree::DiffTreeRow for PaneFile {
+    fn path(&self) -> &str {
+        &self.path
+    }
+    fn additions(&self) -> u32 {
+        self.additions
+    }
+    fn deletions(&self) -> u32 {
+        self.deletions
+    }
+}
+
+/// EXP-916: where the tree is painted — a glass CARD beside the diff column
+/// (the pane's own tree, [`FILE_LIST_WIDTH`] wide) or the bare PANEL that
+/// fills the window's left column ([`crate::review_files_nav`]), whose
+/// chrome is the column's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TreeChrome {
+    Card,
+    Panel,
+}
+
+/// EXP-916 — the file TREE column: the summary, the `Filter files` field and
+/// the tree itself ([`domain::diff_tree::diff_file_tree`], the ×4 mirror).
+///
+/// Directories carry their subtree's counts and are OPEN unless the reader
+/// folded them (`folded`, keyed by the node's path); a non-blank query turns
+/// the tree into the FLAT list of matching files, because a filtered tree is
+/// a search result, not a smaller tree. Picking a file row hands its index
+/// back — the host scrolls the diff to it and expands it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn file_tree<V: Render>(
+    files: &[PaneFile],
+    selected: usize,
+    filter: Option<&Entity<InputState>>,
+    folded: &HashSet<String>,
+    on_pick: PickFile<V>,
+    on_toggle_dir: ToggleDir<V>,
+    chrome: TreeChrome,
+    window: &Window,
+    cx: &mut Context<V>,
+) -> AnyElement {
+    let totals = Totals {
+        files: files.len(),
+        additions: files.iter().map(|file| file.additions).sum(),
+        deletions: files.iter().map(|file| file.deletions).sum(),
+    };
+    let query = filter
+        .map(|state| state.read(cx).value().to_string())
+        .unwrap_or_default();
+    let nodes = diff_file_tree(files, &query);
+    let shell = match chrome {
+        TreeChrome::Card => crate::surface::glass_card()
+            .w(px(FILE_LIST_WIDTH))
+            .flex_shrink_0(),
+        // The panel's chrome is the left column's: no card stroke, the
+        // full width and height of the slot.
+        TreeChrome::Panel => v_flex().size_full(),
+    };
+    let mut card = shell
+        .id("diff-file-tree")
+        .min_w_0()
+        .overflow_hidden()
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_1p5()
+                .px_2p5()
+                .py_2()
+                .text_xs()
+                // The panel's summary is a section band (web: `bg-glass-section`
+                // over a hairline) — the card's is its own top edge already.
+                .when(chrome == TreeChrome::Panel, |row| {
+                    row.bg(theme::tokens::glass::FILL_SECTION.to_hsla())
+                        .border_b_1()
+                        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        // The ONE summary sentence, the contract's:
+                        // `3 files +82 −6` / `No changes`.
+                        .child(SharedString::from(summary_label(
+                            totals.files,
+                            totals.additions,
+                            totals.deletions,
+                        ))),
+                ),
+        );
+    if let Some(state) = filter {
+        card = card.child(
+            div().px_2().pb_1p5().child(
+                div()
+                    .w_full()
+                    .child(glass_input(state, window, cx).small().cleanable(true)),
+            ),
+        );
+    }
+    let mut painted = 0usize;
+    let mut out: Vec<AnyElement> = Vec::new();
+    walk_tree(
+        &nodes,
+        0,
+        files,
+        selected,
+        folded,
+        &on_pick,
+        &on_toggle_dir,
+        &mut painted,
+        &mut out,
+        cx,
+    );
+    let rows = v_flex()
+        .id("diff-file-tree-rows")
+        .w_full()
+        .min_w_0()
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .px_1()
+        .pb_1()
+        .gap_0p5()
+        .children(out);
+    card.child(rows).into_any_element()
+}
+
+/// One level of the tree, depth-first — directories then files, the order the
+/// builder already put them in.
+#[allow(clippy::too_many_arguments)]
+fn walk_tree<V: Render>(
+    nodes: &[DiffTreeNode],
+    depth: usize,
+    files: &[PaneFile],
+    selected: usize,
+    folded: &HashSet<String>,
+    on_pick: &PickFile<V>,
+    on_toggle_dir: &ToggleDir<V>,
+    painted: &mut usize,
+    out: &mut Vec<AnyElement>,
+    cx: &mut Context<V>,
+) {
+    for node in nodes {
+        let key = *painted;
+        *painted += 1;
+        let indent = px(TREE_INDENT * depth as f32);
+        match node.kind {
+            DiffTreeKind::File => {
+                let Some(index) = node.index.filter(|index| *index < files.len()) else {
+                    continue;
+                };
+                let on_pick = on_pick.clone();
+                let row = file_row(("diff-tree-file", key), &files[index], index == selected, cx)
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        on_pick(this, index, cx);
+                    }));
+                out.push(div().w_full().min_w_0().pl(indent).child(row).into_any_element());
+            }
+            DiffTreeKind::Dir => {
+                let open = !folded.contains(&node.path);
+                let path = node.path.clone();
+                let toggle = on_toggle_dir.clone();
+                let row = dir_row(("diff-tree-dir", key), node, open, cx).on_click(cx.listener(
+                    move |this, _: &ClickEvent, _window, cx| {
+                        cx.stop_propagation();
+                        toggle(this, path.clone(), cx);
+                    },
+                ));
+                out.push(div().w_full().min_w_0().pl(indent).child(row).into_any_element());
+                if open {
+                    walk_tree(
+                        &node.children,
+                        depth + 1,
+                        files,
+                        selected,
+                        folded,
+                        on_pick,
+                        on_toggle_dir,
+                        painted,
+                        out,
+                        cx,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// ONE folder row: `chevron · folder glyph · name · +N −M`.
+fn dir_row(
+    id: impl Into<gpui::ElementId>,
+    node: &DiffTreeNode,
+    open: bool,
+    cx: &gpui::App,
+) -> gpui::Stateful<gpui::Div> {
+    let muted = cx.theme().muted_foreground;
+    crate::surface::flat_row()
+        .id(id)
+        .flex()
+        .w_full()
+        .min_w_0()
+        .gap_1p5()
+        .items_center()
+        .px_1p5()
+        .py_1()
+        .cursor_pointer()
+        .text_2xs()
+        .font_family(theme::terminal::FONT_FAMILY)
+        .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+        .child(
+            Icon::new(if open {
+                registry::UI_FOLDER_OPEN
+            } else {
+                registry::UI_FOLDER
+            })
+            .xsmall()
+            .text_color(muted),
+        )
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_color(muted)
-                .child(file.dir.clone()),
+                .text_color(cx.theme().foreground.opacity(0.9))
+                .child(SharedString::from(node.name.clone())),
         )
-        .child(counts(file.additions, file.deletions, cx))
-}
-
-/// The file list's own filter (pure): the indices of `files` whose PATH holds
-/// `query`, case-insensitively. An empty query keeps everything, in order.
-pub(crate) fn filter_files(files: &[PaneFile], query: &str) -> Vec<usize> {
-    let needle = query.trim().to_lowercase();
-    files
-        .iter()
-        .enumerate()
-        .filter(|(_, file)| needle.is_empty() || file.path.to_lowercase().contains(needle.as_str()))
-        .map(|(index, _)| index)
-        .collect()
-}
-
-/// `1 file` / `7 files`.
-fn file_count_label(files: usize) -> String {
-    if files == 1 {
-        "1 file".to_string()
-    } else {
-        format!("{files} files")
-    }
-}
-
-/// The bar. `Changes +N −M · K files · branch · state` on the left, the
-/// surface's glyphs and the ONE merge control on the right.
-fn render_bar<V: Render>(
-    spec: DiffBarSpec,
-    scope: Option<(SharedString, Box<dyn Fn(&mut V, &mut Context<V>) + 'static>)>,
-    cx: &mut Context<V>,
-) -> gpui::Div {
-    let DiffBarSpec {
-        totals,
-        state,
-        branch,
-        merge,
-        trailing,
-    } = spec;
-    let muted = cx.theme().muted_foreground;
-    let mut bar = h_flex()
-        .w_full()
-        .flex_shrink_0()
-        .h(px(36.))
-        .px_1()
-        .gap_2()
-        .items_center()
-        .text_xs()
-        .child(div().flex_shrink_0().child("Changes"))
-        // Nothing is counted until the files are in hand: a "0 files +0 −0"
-        // flash while a review loads reads as an empty PR.
-        .when(totals.files > 0, |bar| {
-            bar.child(counts(totals.additions, totals.deletions, cx))
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .text_color(muted)
-                        .child(SharedString::from(file_count_label(totals.files))),
-                )
+        .child(counts(node.additions, node.deletions, cx))
+        // EXP-916: the ONE disclosure chevron ×4 — down when closed, flipped
+        // while open, exactly like the file card header above the diff.
+        .child({
+            let chevron = Icon::new(registry::UI_CHEVRON_DOWN).xsmall().text_color(muted);
+            if open {
+                chevron
+                    .transform(gpui::Transformation::rotate(gpui::percentage(0.5)))
+                    .into_any_element()
+            } else {
+                chevron.into_any_element()
+            }
         })
-        .children(branch.map(|branch| {
-            div()
-                .min_w_0()
-                .truncate()
-                .text_color(muted)
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child(branch)
-        }))
-        .children(state.map(|state| div().flex_shrink_0().text_color(muted).child(state)));
-
-    // EXP-862 — the SCOPE chip: what the pane is showing when it is not the
-    // whole branch, and the click that goes back to it.
-    if let Some((label, on_show_session)) = scope {
-        bar = bar.child(
-            crate::surface::glass_pill(
-                "session-diff-scope",
-                crate::surface::PillSize::Sm,
-                crate::surface::PillMode::Action,
-                cx,
-            )
-            .flex_shrink_0()
-            .tooltip(|window, cx| {
-                gpui_component::tooltip::Tooltip::new("Show all changes").build(window, cx)
-            })
-            .child(div().text_2xs().child(label))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                cx.stop_propagation();
-                on_show_session(this, cx);
-            })),
-        );
-    }
-
-    bar.child(
-        h_flex()
-            .ml_auto()
-            .flex_shrink_0()
-            .items_center()
-            .gap_1()
-            .children(trailing)
-            .children(merge.map(|merge| render_merge_slot(merge, cx))),
-    )
 }
 
 /// The merge slot — exactly one primary control, plus the ghost "Retry merge"
-/// the swap leaves standing.
-fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>) -> AnyElement {
+/// the swap leaves standing. EXP-916: the surface's own header hosts it (the
+/// pane has no bar of its own any more).
+pub(crate) fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>) -> AnyElement {
     match merge {
         // EXP-917: the shared SLOT — a conflict-refused ISSUE target swaps
         // here too, so a run's Changes bar (which never builds the explicit
@@ -379,163 +531,86 @@ fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>) -> AnyEle
     }
 }
 
-/// §11/EXP-877/EXP-895 — the pane: the Changes bar over the file list and the
-/// shared [`crate::diff::DiffView`], centred in the work column.
+/// EXP-877/EXP-895/EXP-916 — the pane: the surface's own header (when it has
+/// one) over the file TREE and the shared [`crate::diff::DiffView`], whose
+/// column is centred at [`crate::work_header::WORK_COLUMN_W`].
+///
+/// The tree only appears where the window has room for it BESIDE that column
+/// — on a narrow window the diff keeps the full width and the file list would
+/// have taken it, so a phone-width desktop window reads like the phone does.
 pub(crate) fn render<V: Render>(
     spec: DiffPaneSpec<V>,
     window: &Window,
     cx: &mut Context<V>,
 ) -> AnyElement {
     let DiffPaneSpec {
-        bar,
+        header,
         files,
         selected,
-        list_open,
+        tree,
         filter,
-        scope_label,
+        folded_dirs,
         caption,
         diff,
-        on_toggle_list,
-        on_show_session,
         on_pick,
+        on_toggle_dir,
     } = spec;
-    let multiple = files.len() > 1;
-    let totals = bar.totals;
-
-    // The file-list toggle only exists when there is more than one file to
-    // list; EXP-862: a glyph on a row is a GHOST button.
-    let mut bar = bar;
-    if multiple {
-        let mut trailing = Vec::with_capacity(bar.trailing.len() + 1);
-        trailing.push(
-            crate::controls::ghost_icon_button(
-                "session-diff-files",
-                Icon::new(registry::NAV_FILES),
-                cx,
-            )
-            .tooltip(if list_open {
-                "Hide file list"
-            } else {
-                "Show file list"
-            })
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                cx.stop_propagation();
-                on_toggle_list(this, cx);
-            }))
-            .into_any_element(),
-        );
-        trailing.append(&mut bar.trailing);
-        bar.trailing = trailing;
-    }
-    let scope = scope_label.map(|label| (label, on_show_session));
-    let bar = render_bar(bar, scope, cx);
-
-    let query = filter
-        .as_ref()
-        .map(|state| state.read(cx).value().to_string())
-        .unwrap_or_default();
-    let visible = filter_files(&files, &query);
-
-    let list = (multiple && list_open).then(|| {
-        let mut card = crate::surface::glass_card()
-            .id("session-diff-file-list")
-            .w(px(FILE_LIST_WIDTH))
-            .flex_shrink_0()
-            .overflow_hidden()
-            .child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_1p5()
-                    .px_2p5()
-                    .py_2()
-                    .text_xs()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(SharedString::from(file_count_label(totals.files))),
-                    )
-                    .child(counts(totals.additions, totals.deletions, cx)),
-            );
-        // The `Filter files` field — the issue picker's search-row recipe.
-        if let Some(state) = filter.as_ref() {
-            card = card.child(
-                div().px_2().pb_1p5().child(
-                    div()
-                        .w_full()
-                        .child(glass_input(state, window, cx).small().cleanable(true)),
-                ),
-            );
-        }
-        let mut rows = v_flex()
-            .id("session-diff-file-rows")
-            .w_full()
-            .min_w_0()
-            .max_h(px(360.))
-            .overflow_y_scroll()
-            .px_1()
-            .pb_1()
-            .gap_0p5();
-        for index in visible {
-            let Some(file) = files.get(index) else {
-                continue;
-            };
-            let on_pick = on_pick.clone();
-            rows = rows.child(
-                file_row(("session-diff-file", index), file, index == selected, cx).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        cx.stop_propagation();
-                        on_pick(this, index, cx);
-                    }),
-                ),
-            );
-        }
-        card.child(rows)
+    let tree = (tree && fits_tree(window)).then(|| {
+        file_tree(
+            &files,
+            selected,
+            filter.as_ref(),
+            &folded_dirs,
+            on_pick,
+            on_toggle_dir,
+            TreeChrome::Card,
+            window,
+            cx,
+        )
     });
-
-    // EXP-877: the page is full-bleed, its CONTENT is the work column — the
-    // same block the header and the transcript sit in, so toggling the diff
-    // never shifts the run sideways.
+    let column = v_flex()
+        .w_full()
+        .max_w(px(crate::work_header::WORK_COLUMN_W))
+        .h_full()
+        .min_w_0()
+        .overflow_hidden()
+        .children(header)
+        .children(caption.map(|message| {
+            div()
+                .w_full()
+                .flex_shrink_0()
+                .px_1()
+                .pb_1()
+                .text_xs()
+                .truncate()
+                .text_color(cx.theme().danger)
+                .child(message)
+        }))
+        .child(div().flex_1().min_h_0().w_full().min_w_0().child(diff));
     v_flex()
         .size_full()
         .min_w_0()
         .items_center()
         .overflow_hidden()
         .child(
-            v_flex()
+            h_flex()
                 .w_full()
-                .max_w(px(crate::work_header::WORK_COLUMN_W))
                 .h_full()
                 .min_w_0()
-                .overflow_hidden()
-                .child(bar)
-                .children(caption.map(|message| {
-                    div()
-                        .w_full()
-                        .flex_shrink_0()
-                        .px_1()
-                        .pb_1()
-                        .text_xs()
-                        .truncate()
-                        .text_color(cx.theme().danger)
-                        .child(message)
-                }))
-                .child(
-                    h_flex()
-                        .flex_1()
-                        .min_h_0()
-                        .w_full()
-                        .min_w_0()
-                        .gap_2()
-                        .items_start()
-                        .children(list)
-                        .child(div().flex_1().min_w_0().h_full().child(diff)),
-                ),
+                .justify_center()
+                .gap_2()
+                .items_start()
+                .children(tree)
+                .child(column),
         )
         .into_any_element()
+}
+
+/// Whether the window is wide enough for the work column AND the tree beside
+/// it. Below that the diff keeps the whole width.
+fn fits_tree(window: &Window) -> bool {
+    f32::from(window.viewport_size().width)
+        >= crate::work_header::WORK_COLUMN_W + FILE_LIST_WIDTH + 2. * TREE_INDENT
 }
 
 #[cfg(test)]
@@ -557,22 +632,43 @@ mod tests {
         assert!(FILE_LIST_WIDTH * 2. < crate::work_header::WORK_COLUMN_W);
     }
 
-    /// EXP-895: the list's filter matches on the whole PATH, not the
-    /// basename — a reader types `web/src` as readily as `diff.rs` — and it
-    /// is case-insensitive. An empty query is the identity.
+    /// EXP-916: the tree column is the shared builder's
+    /// ([`domain::diff_tree::diff_file_tree`], byte-locked ×4) — the pane
+    /// only paints it. A query flattens it to the matching FILES, in input
+    /// order, case-insensitively.
     #[test]
-    fn the_file_filter_matches_on_path() {
+    fn the_tree_is_the_contracts_and_a_query_flattens_it() {
         let files = [
             pane_file("apps/web/src/diff.tsx", 1, 0),
             pane_file("apps/desktop/crates/ui/src/diff.rs", 2, 1),
             pane_file("README.md", 0, 3),
         ];
-        assert_eq!(filter_files(&files, ""), vec![0, 1, 2]);
-        assert_eq!(filter_files(&files, "   "), vec![0, 1, 2]);
-        assert_eq!(filter_files(&files, "diff"), vec![0, 1]);
-        assert_eq!(filter_files(&files, "DESKTOP"), vec![1]);
-        assert_eq!(filter_files(&files, "readme"), vec![2]);
-        assert!(filter_files(&files, "nothing here").is_empty());
+        let tree = diff_file_tree(&files, "");
+        assert_eq!(
+            domain::diff_tree::render_diff_tree(&tree),
+            vec![
+                "apps +3 -1 (2)",
+                "  desktop/crates/ui/src +2 -1 (1)",
+                "    diff.rs +2 -1",
+                "  web/src +1 -0 (1)",
+                "    diff.tsx +1 -0",
+                "README.md +0 -3",
+            ]
+        );
+        let hits = diff_file_tree(&files, "DESKTOP");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].kind, DiffTreeKind::File);
+        assert_eq!(hits[0].index, Some(1), "a file node names its input row");
+        assert!(diff_file_tree(&files, "nothing here").is_empty());
+    }
+
+    /// EXP-916: the tree needs the work column PLUS its own beside it — a
+    /// narrower window gives the diff the whole width instead.
+    #[test]
+    fn the_tree_column_needs_room_beside_the_work_column() {
+        assert_eq!(FILE_LIST_WIDTH, 216.);
+        assert_eq!(TREE_INDENT, 12.);
+        assert!(FILE_LIST_WIDTH + crate::work_header::WORK_COLUMN_W > crate::work_header::WORK_COLUMN_W);
     }
 
     /// A file row splits its path the way the diff card's header does: the
@@ -618,7 +714,9 @@ mod tests {
         assert_eq!(deletions_label(6), "\u{2212}6");
         assert!(!deletions_label(6).contains('-'));
         assert_eq!(additions_label(82), "+82");
-        assert_eq!(file_count_label(1), "1 file");
-        assert_eq!(file_count_label(3), "3 files");
+        // EXP-916: the tree's one summary sentence is the contract's.
+        assert_eq!(summary_label(1, 2, 0), "1 file +2 \u{2212}0");
+        assert_eq!(summary_label(3, 82, 6), "3 files +82 \u{2212}6");
+        assert_eq!(summary_label(0, 0, 0), domain::contract::DIFF_UI_NO_CHANGES);
     }
 }

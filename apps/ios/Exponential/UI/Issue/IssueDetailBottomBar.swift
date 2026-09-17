@@ -161,7 +161,7 @@ struct IssueDetailBottomBar<Switcher: View>: View {
         FloatingBottomBar {
             if isModerator {
                 FloatingBarCircle(accessibilityLabel: "Properties", action: onOpenProperties) {
-                    AppIcon(AppIcons.uiProperties, size: AppIcon.Size.medium, weight: .medium)
+                    AppIcon(AppIcons.uiProperties, size: FloatingBarTokens.glyph, weight: .medium)
                         .foregroundStyle(.white)
                 }
                 // The sheet it opens carries the SAME "Properties" title, so
@@ -190,12 +190,12 @@ struct IssueDetailBottomBar<Switcher: View>: View {
             switcher()
         case .start:
             FloatingBarCircle(accessibilityLabel: "Start coding", action: onStartCoding) {
-                AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
+                AppIcon(AppIcons.actionRun, size: FloatingBarTokens.glyph, weight: .medium)
                     .foregroundStyle(.white)
             }
         case .noDevices:
             FloatingBarCircle(accessibilityLabel: "Start coding", action: { showNoDeviceAlert = true }) {
-                AppIcon(AppIcons.actionRun, size: AppIcon.Size.medium, weight: .medium)
+                AppIcon(AppIcons.actionRun, size: FloatingBarTokens.glyph, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.quaternary))
             }
         }

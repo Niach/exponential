@@ -457,6 +457,27 @@ pub(crate) fn coding_action_button(
     }
 }
 
+/// EXP-916 — the ONE way out to GitHub, on the issue face, the run face and
+/// the review header alike: a ghost glyph in the right cluster, present
+/// exactly while the subject HAS a pull request. `None` otherwise — an empty
+/// link is worse than no link. Callers name the element so two clusters can
+/// carry it at once.
+pub(crate) fn github_button(
+    id: impl Into<gpui::ElementId>,
+    pr_url: Option<&str>,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    let url = pr_url.map(str::trim).filter(|url| !url.is_empty())?.to_string();
+    Some(
+        crate::controls::ghost_icon_button(id, Icon::new(registry::UI_GITHUB), cx)
+            .tooltip(domain::contract::DIFF_UI_OPEN_ON_GITHUB)
+            .on_click(move |_, _, cx| {
+                crate::settings::open_url(cx, url.clone());
+            })
+            .into_any_element(),
+    )
+}
+
 /// The Resume pill — glass, `Sm`, the resume glyph and the word "Resume".
 pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, cx: &App) -> Button {
     glass_pill_button(id, PillSize::Sm, cx)
@@ -506,12 +527,14 @@ pub(crate) fn merge_pill(
             .with_size(px(PillSize::Sm.glyph()))
             .text_color(glyph),
     )
+    // EXP-916: the settled label is the CONTRACT's, so the pill reads the
+    // same word on all four clients.
     .label(if merging {
         "Merging…"
     } else if armed {
         "Confirm merge"
     } else {
-        "Merge PR"
+        domain::contract::DIFF_UI_MERGE_PR
     })
     .tooltip(target.tooltip())
     .on_click(move |_, _, cx| {

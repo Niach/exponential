@@ -87,7 +87,7 @@ struct PrChangesFace<Trailing: View>: View {
             isPresented: $closeConfirm,
             titleVisibility: .visible
         ) {
-            Button("Close PR without merging", role: .destructive) { viewModel?.closePr() }
+            Button(DomainContract.diffUiClosePr, role: .destructive) { viewModel?.closePr() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Closes the pull request on GitHub without merging. Use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.")
@@ -128,11 +128,11 @@ struct PrChangesFace<Trailing: View>: View {
 
     private func content(_ vm: ChangesViewModel) -> some View {
         let files = loadedFiles(vm)
-        // EXP-895: the ONE diff view. Every card starts closed (EXP-248) —
-        // uniform with web's `defaultCollapsed` review layout.
+        // EXP-895: the ONE diff view. EXP-916: every card starts OPEN here
+        // too — a review that has to tap every file to read it is not a
+        // review; only the size rule folds a huge file away.
         return DiffFileList(
             files: files ?? [],
-            defaultCollapsed: true,
             emptyLabel: files == nil ? nil : "No changed files.",
             focusPath: selectedPath,
             accessibilityId: "changes-file-cards",
@@ -239,7 +239,10 @@ struct PrChangesFace<Trailing: View>: View {
                         .glassCard()
                         .padding(.horizontal, 16)
                 }
-                FloatingBottomBar {
+                // EXP-916: the centred cluster ×3 — files · Merge PR ·
+                // reject on the Reviews page, files · Merge PR · switcher on
+                // the Work screen's Changes face. One bar for both.
+                FloatingBarCluster {
                     barLeading(vm)
                 } center: {
                     barCenter(vm)
@@ -267,35 +270,31 @@ struct PrChangesFace<Trailing: View>: View {
 
     /// EXP-706: the bar's ONE primary action. A merge the server refused on
     /// a REAL conflict cannot succeed on a retry, so the recovery run
-    /// REPLACES Merge in this slot — same white capsule, so the bar keeps
-    /// exactly one thing to press.
+    /// REPLACES Merge in this slot — same capsule, so the bar keeps exactly
+    /// one thing to press.
+    ///
+    /// EXP-916: a SOLID white pill hugging its label, the one solid thing on
+    /// the bar, on both hosts (Android's `BarSolidPill`).
     @ViewBuilder
     private func barCenter(_ vm: ChangesViewModel) -> some View {
         if canReview(vm) {
-            if canFixConflicts(vm) {
-                FloatingBarSolidPill(
-                    accessibilityLabel: "Fix merge conflicts",
-                    enabled: !vm.merging && !vm.closing,
-                    action: openFixConflicts
-                ) {
-                    AppIcon(AppIcons.uiBranch, size: AppIcon.Size.medium, weight: .medium)
-                    Text("Fix conflicts")
-                        .font(.subheadline.weight(.medium))
+            let fix = canFixConflicts(vm)
+            FloatingBarSolidPill(
+                accessibilityLabel: fix ? "Fix merge conflicts" : "Merge pull request",
+                enabled: !vm.merging && !vm.closing,
+                action: fix ? openFixConflicts : { mergeConfirm = true }
+            ) {
+                if vm.merging {
+                    ProgressView().controlSize(.small).tint(.black.opacity(0.6))
+                } else {
+                    AppIcon(
+                        fix ? AppIcons.uiBranch : AppIcons.prMerged,
+                        size: FloatingBarTokens.glyph,
+                        weight: .medium
+                    )
                 }
-            } else {
-                FloatingBarSolidPill(
-                    accessibilityLabel: "Merge pull request",
-                    enabled: !vm.merging && !vm.closing,
-                    action: { mergeConfirm = true }
-                ) {
-                    if vm.merging {
-                        ProgressView().controlSize(.small).tint(.black.opacity(0.6))
-                    } else {
-                        AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
-                    }
-                    Text("Merge PR")
-                        .font(.subheadline.weight(.medium))
-                }
+                Text(fix ? "Fix conflicts" : DomainContract.diffUiMergePr)
+                    .font(.subheadline.weight(.medium))
             }
         }
     }
@@ -316,14 +315,15 @@ struct PrChangesFace<Trailing: View>: View {
 
     private func closeCircle(_ vm: ChangesViewModel) -> some View {
         FloatingBarCircle(
-            accessibilityLabel: "Close PR without merging",
+            accessibilityLabel: DomainContract.diffUiClosePr,
             enabled: !vm.merging && !vm.closing,
             action: { closeConfirm = true }
         ) {
             if vm.closing {
                 ProgressView().controlSize(.small).tint(.white)
             } else {
-                AppIcon(AppIcons.uiClose, size: AppIcon.Size.medium, weight: .medium)
+                // EXP-916: the PR-closed mark, not a generic ✕.
+                AppIcon(AppIcons.prClosed, size: FloatingBarTokens.glyph, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
@@ -333,10 +333,10 @@ struct PrChangesFace<Trailing: View>: View {
     /// own (it owns that toolbar across faces); the Reviews page's is here.
     private func githubToolbarButton(_ url: URL) -> some View {
         Button { openURL(url) } label: {
-            AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.medium, weight: .medium)
+            AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium, weight: .medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
-        .accessibilityLabel("Open PR on GitHub")
+        .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
         .accessibilityIdentifier("changes-github-action")
     }
 

@@ -2160,10 +2160,10 @@ impl IssueDetailView {
         let title = self.render_title(cx).into_any_element();
         let changes_open = self.changes_open;
         let (right, tray, extra) = header.update(cx, |header, cx| {
-            // EXP-895/EXP-889: while the Changes face is up its BAR owns the
-            // merge control (and the badge's overlay is the PR stack) — the
-            // tray must not offer a second Merge PR beside it.
-            header.set_merge_suppressed(changes_open);
+            // EXP-916: the Changes pane has no bar of its own any more, so
+            // the tray keeps the ONE merge control on every face. (The
+            // badge's overlay still follows the face.)
+            header.set_merge_suppressed(false);
             header.set_badge_context(
                 if changes_open {
                     crate::pr_graph::BadgeFace::Changes

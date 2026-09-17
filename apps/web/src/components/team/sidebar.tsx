@@ -44,6 +44,7 @@ import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { TeamListNav } from "@/components/team/list-nav"
+import { ReviewFilesNav } from "@/components/team/review-files-nav"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
 import {
   AgentRunningBadge,
@@ -158,6 +159,8 @@ export function TeamSidebar({
   const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
+  // EXP-916: a review detail's panel is its file tree, not a list.
+  const reviewFiles = occupant.kind === `review`
   // EXP-870: a panel is up → the rail compacts to its icon column instead of
   // leaving. Strictly derived, never a toggle.
   const compact = occupant.kind !== `main`
@@ -609,6 +612,21 @@ export function TeamSidebar({
                     origin={listOrigin}
                   />
                 )}
+              </div>
+
+              {/* EXP-916: the REVIEW's file tree — a review's context is the
+                  files its pull request touches, so that panel sits beside
+                  it where another detail keeps its list. Same depth as the
+                  list nav, so the two never slide over each other. */}
+              <div
+                inert={!reviewFiles}
+                className={cn(
+                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
+                  SLOT_MOTION,
+                  OFFSET_CLASS[panelOffset(`review`, occupant.kind)]
+                )}
+              >
+                {reviewFiles && <ReviewFilesNav teamSlug={teamSlug} />}
               </div>
             </div>
           </div>

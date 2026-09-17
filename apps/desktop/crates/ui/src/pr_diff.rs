@@ -1,12 +1,14 @@
 //! PR diff center screen (EXP-181): the Reviews rows open this instead of the
 //! issue detail — the shared unified [`DiffView`] over `issues.prFiles`.
 //!
-//! EXP-895: the screen is no longer a header of its own. It IS the shared
-//! Changes layout ([`crate::diff_pane`]) — `Changes +N −M · K files · branch
-//! · state` over the file list and the per-file cards — the same thing the
-//! run's Changes face renders, so a review and a run read identically. All
-//! this module still owns is WHAT to put in the bar's slots: the issue's PR
-//! state, the merge/close cluster and the way back to the issue.
+//! EXP-895/EXP-916: the screen IS the shared Changes layout
+//! ([`crate::diff_pane`]) — the file tree beside the per-file cards, the same
+//! thing the run's Changes face renders, so a review and a run read
+//! identically. What this module owns is the HEADER over it: `identifier ·
+//! branch · state · N files +a −d` on the left, and on the right the reject
+//! glyph, the ONE merge control and the GitHub link. Embedded in an issue tab
+//! (`embedded`) it draws no header at all — the work header above it is the
+//! header, and a second one would say everything twice.
 //!
 //! Merge/close drive the SAME [`crate::pr_merge`] two-click machinery the
 //! Reviews list does, so an arm/spinner/failure started on either surface
@@ -26,8 +28,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    div, prelude::FluentBuilder as _, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    Focusable, InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
@@ -53,17 +55,11 @@ pub struct PrDiffView {
     nav: Entity<Navigation>,
     diff: Entity<DiffView>,
     issue_id: Option<String>,
-    /// EXP-895: the file list's state — which row the list highlights,
-    /// whether it is unfolded, and the `Filter files` field.
+    /// EXP-895/EXP-916: the file tree's state — which row it highlights, the
+    /// directories the reader folded, and the `Filter files` field.
     selected: usize,
-    list_open: bool,
+    folded_dirs: std::collections::HashSet<String>,
     filter: Entity<gpui_component::input::InputState>,
-    /// EXP-525: the diff lost its tab chip (and with it the chip's undock
-    /// button), so the ScreensPanel-owned instance offers "open in new
-    /// window" in its own header. Stays `false` on the instances
-    /// `build_screen_content` creates — an undocked window must not offer
-    /// undocking itself.
-    pub(crate) show_undock: bool,
     /// EXP-889: this pane is the CHANGES FACE of an issue tab, not a screen
     /// of its own — the work header above it already names the issue and
     /// carries its `…` menu, so the bar drops the identifier link back to it.
@@ -83,7 +79,8 @@ impl PrDiffView {
             diff
         });
         let filter = cx.new(|cx| {
-            gpui_component::input::InputState::new(window, cx).placeholder("Filter files")
+            gpui_component::input::InputState::new(window, cx)
+                .placeholder(domain::contract::DIFF_UI_FILTER_PLACEHOLDER)
         });
         // The header's merge/close cluster mirrors the shared two-click state
         // (EXP-325), and its identity/state line rides the synced issue row.
@@ -109,9 +106,8 @@ impl PrDiffView {
             diff,
             issue_id: None,
             selected: 0,
-            list_open: true,
+            folded_dirs: std::collections::HashSet::new(),
             filter,
-            show_undock: false,
             embedded: false,
             _subscriptions: subscriptions,
         }
@@ -157,11 +153,50 @@ impl PrDiffView {
     }
 
     /// Name `index` in the file list and scroll the diff to it.
-    fn select_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+    pub(crate) fn select_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
         self.selected = index;
         self.diff
             .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
         cx.notify();
+    }
+
+    /// Fold `path` in the file tree, or open it again.
+    pub(crate) fn toggle_dir(&mut self, path: String, cx: &mut gpui::Context<Self>) {
+        if !self.folded_dirs.insert(path.clone()) {
+            self.folded_dirs.remove(&path);
+        }
+        cx.notify();
+    }
+
+    /// EXP-916: the tree's inputs, for whoever paints it — this view's own
+    /// pane (embedded in an issue tab, or undocked) or the window's left
+    /// column ([`crate::review_files_nav`]) beside the review screen.
+    pub(crate) fn pane_files(&self, cx: &App) -> Vec<crate::diff_pane::PaneFile> {
+        self.diff
+            .read(cx)
+            .files()
+            .iter()
+            .map(|file| {
+                crate::diff_pane::PaneFile::from_parts(
+                    &file.filename,
+                    file.status,
+                    file.additions,
+                    file.deletions,
+                )
+            })
+            .collect()
+    }
+
+    pub(crate) fn selected(&self) -> usize {
+        self.selected
+    }
+
+    pub(crate) fn filter(&self) -> &Entity<gpui_component::input::InputState> {
+        &self.filter
+    }
+
+    pub(crate) fn folded_dirs(&self) -> &std::collections::HashSet<String> {
+        &self.folded_dirs
     }
 }
 
@@ -186,20 +221,14 @@ impl Render for PrDiffView {
 
         // The files (and with them the counts) come off the diff's own
         // summaries — nothing is counted until they are in hand.
-        let files: Vec<crate::diff_pane::PaneFile> = self
-            .diff
-            .read(cx)
-            .files()
-            .iter()
-            .map(|file| {
-                crate::diff_pane::PaneFile::from_parts(
-                    &file.filename,
-                    file.status,
-                    file.additions,
-                    file.deletions,
-                )
-            })
-            .collect();
+        let files = self.pane_files(cx);
+        // EXP-916: on the REVIEW screen the tree is the window's left
+        // column's ([`crate::review_files_nav`], the sidebar beside every
+        // detail); the pane paints its own only where no such column exists
+        // — embedded in an issue tab (the column holds the board's list) or
+        // in an undocked window (no column at all).
+        let tree_in_sidebar =
+            !self.embedded && crate::screens::screens_for_window(window, cx).is_some();
         let totals = domain::diff::Totals {
             files: files.len(),
             additions: files.iter().map(|file| file.additions).sum(),
@@ -207,25 +236,14 @@ impl Render for PrDiffView {
         };
 
         let mut caption: Option<SharedString> = None;
+        let mut leading: Vec<gpui::AnyElement> = Vec::with_capacity(4);
         let mut trailing: Vec<gpui::AnyElement> = Vec::with_capacity(4);
         let mut merge: Option<crate::diff_pane::MergeSlot> = None;
-        let mut branch: Option<SharedString> = None;
-        let mut state: Option<SharedString> = None;
+        // EXP-916: GitHub sits AFTER the merge pill — reject · Merge PR ·
+        // GitHub, the same order the web review header wears.
+        let mut github: Option<gpui::AnyElement> = None;
 
         if let Some(issue) = issue.as_ref() {
-            // EXP-897 §4: the review page IS a Changes face, so it carries the
-            // same stack/batch badge — its overlay lists the PR stack
-            // bottom-up, "Merge stack" on the bottom entry. Embedded in an
-            // issue tab the work header carries that badge already.
-            if !self.embedded {
-                let spec = crate::pr_graph::issue_spec(
-                    issue,
-                    None,
-                    crate::pr_graph::BadgeFace::Changes,
-                    cx,
-                );
-                trailing.extend(crate::pr_graph::badge("review-pr-graph", spec, cx));
-            }
             let is_open = issue.pr_state.as_deref() == Some("open");
             let close_key = close_pr_key(&issue.id);
             let (merging, closing, close_armed, error, failed_op, is_conflict) = {
@@ -241,43 +259,64 @@ impl Render for PrDiffView {
                 )
             };
             caption = error.clone();
-            branch = issue.branch.clone().map(SharedString::from);
-            state = issue.pr_state.as_deref().map(capitalize);
 
             // The way back: the row click lands HERE now, so the identifier
-            // is what reopens the issue. (EXP-889: embedded in an issue tab
-            // the face toggle is the way back — the link would only reopen
-            // the tab it is already in.)
+            // is what reopens the issue.
             let nav_id = issue.id.clone();
-            if !self.embedded {
-                trailing.push(
+            leading.push(
+                div()
+                    .id("pr-diff-open-issue")
+                    .flex_shrink_0()
+                    .text_xs()
+                    .cursor_pointer()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .text_color(cx.theme().muted_foreground)
+                    .hover(|this| this.text_color(theme::tokens::PRIMARY.to_hsla()))
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        navigate(
+                            window,
+                            cx,
+                            Screen::IssueDetail {
+                                issue_id: nav_id.clone(),
+                            },
+                        );
+                    }))
+                    .child(SharedString::from(issue.identifier.clone()))
+                    .into_any_element(),
+            );
+            if let Some(branch) = issue.branch.clone().filter(|branch| !branch.is_empty()) {
+                leading.push(
                     div()
-                        .id("pr-diff-open-issue")
-                        .flex_shrink_0()
-                        .px_1()
+                        .min_w_0()
+                        .truncate()
                         .text_xs()
-                        .cursor_pointer()
-                        .font_family(theme::terminal::FONT_FAMILY)
                         .text_color(cx.theme().muted_foreground)
-                        .hover(|this| this.text_color(theme::tokens::PRIMARY.to_hsla()))
-                        .on_click(cx.listener(move |_, _, window, cx| {
-                            navigate(
-                                window,
-                                cx,
-                                Screen::IssueDetail {
-                                    issue_id: nav_id.clone(),
-                                },
-                            );
-                        }))
-                        .child(SharedString::from(issue.identifier.clone()))
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(branch))
+                        .into_any_element(),
+                );
+            }
+            if let Some(state) = issue.pr_state.as_deref().map(capitalize) {
+                leading.push(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(state)
                         .into_any_element(),
                 );
             }
 
-            // The reject path — a quiet round `×` that only grows into a
-            // labeled danger confirm once armed (EXP-100). EXP-862: the glyph
-            // is a GHOST icon button — a circle means a primary action, and
-            // closing a PR without merging is not one.
+            // EXP-897 §4: the review page IS a Changes face, so it carries the
+            // same stack/batch badge — its overlay lists the PR stack
+            // bottom-up, "Merge stack" on the bottom entry.
+            let spec =
+                crate::pr_graph::issue_spec(issue, None, crate::pr_graph::BadgeFace::Changes, cx);
+            trailing.extend(crate::pr_graph::badge("review-pr-graph", spec, cx));
+
+            // The reject path — a quiet CIRCLED `×` that only grows into a
+            // labeled danger confirm once armed (EXP-100/EXP-916). Closing a
+            // PR without merging is not a primary action.
             if is_open {
                 let mut button = if close_armed && !closing {
                     Button::new("pr-diff-close")
@@ -287,14 +326,16 @@ impl Render for PrDiffView {
                 } else {
                     crate::controls::ghost_icon_button(
                         "pr-diff-close",
-                        Icon::new(registry::UI_CLOSE),
+                        Icon::new(registry::PR_CLOSED),
                         cx,
                     )
                 };
                 if closing {
                     button = button.loading(true).disabled(true);
                 } else if !close_armed {
-                    button = button.tooltip("Close PR without merging").disabled(merging);
+                    button = button
+                        .tooltip(domain::contract::DIFF_UI_CLOSE_PR)
+                        .disabled(merging);
                 }
                 let click_id = issue.id.clone();
                 trailing.push(
@@ -310,49 +351,6 @@ impl Render for PrDiffView {
                             );
                         }))
                         .into_any_element(),
-                );
-            }
-
-            if let Some(url) = issue.pr_url.clone() {
-                trailing.push(
-                    crate::controls::ghost_icon_button(
-                        "pr-diff-open-github",
-                        Icon::new(registry::UI_EXTERNAL_LINK),
-                        cx,
-                    )
-                    .tooltip("Open pull request on GitHub")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        crate::settings::open_url(cx, url.clone());
-                    }))
-                    .into_any_element(),
-                );
-            }
-
-            if self.show_undock {
-                let undock_id = issue.id.clone();
-                trailing.push(
-                    // The undock glyph is `UI_UNDOCK`, not the ExternalLink
-                    // every other undock button wears: this is the ONE place
-                    // it would sit beside an actual external link (the GitHub
-                    // button), and two identical icons in one cluster read as
-                    // a duplicate control.
-                    crate::controls::ghost_icon_button(
-                        "pr-diff-undock",
-                        Icon::new(registry::UI_UNDOCK),
-                        cx,
-                    )
-                    .tooltip("Open in new window")
-                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                        crate::undock::open_undocked_screen(
-                            Screen::PrDiff {
-                                issue_id: undock_id.clone(),
-                            },
-                            window.window_handle(),
-                            cx,
-                        );
-                        crate::navigation::set_screen(window, cx, None);
-                    }))
-                    .into_any_element(),
                 );
             }
 
@@ -383,31 +381,69 @@ impl Render for PrDiffView {
                     crate::diff_pane::MergeSlot::Merge(target)
                 });
             }
+
+            // EXP-916: the ONE way out to GitHub, on every Changes surface —
+            // the same control the work header carries.
+            github = crate::work_header::github_button(
+                "pr-diff-open-github",
+                issue.pr_url.as_deref(),
+                cx,
+            );
         }
+
+        // EXP-889: embedded in an issue tab the work header above IS the
+        // header — the identifier, the merge pill and the GitHub link are
+        // already up there, and a second row would say everything twice.
+        let header = (!self.embedded).then(|| {
+            gpui_component::h_flex()
+                .w_full()
+                .flex_shrink_0()
+                .h(gpui::px(36.))
+                .px_1()
+                .gap_2()
+                .items_center()
+                .children(leading)
+                .when(totals.files > 0, |row| {
+                    row.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(SharedString::from(domain::diff::summary_label(
+                                totals.files,
+                                totals.additions,
+                                totals.deletions,
+                            ))),
+                    )
+                })
+                .child(
+                    gpui_component::h_flex()
+                        .ml_auto()
+                        .flex_shrink_0()
+                        .items_center()
+                        .gap_1()
+                        .children(trailing)
+                        .children(merge.map(|merge| crate::diff_pane::render_merge_slot(merge, cx)))
+                        .children(github),
+                )
+                .into_any_element()
+        });
 
         crate::diff_pane::render(
             crate::diff_pane::DiffPaneSpec {
-                bar: crate::diff_pane::DiffBarSpec {
-                    totals,
-                    state,
-                    branch,
-                    merge,
-                    trailing,
-                },
+                header,
                 files,
                 selected: self.selected,
-                list_open: self.list_open,
+                tree: !tree_in_sidebar,
                 filter: Some(self.filter.clone()),
-                scope_label: None,
+                folded_dirs: self.folded_dirs.clone(),
                 caption,
                 diff: self.diff.clone(),
-                on_toggle_list: Box::new(|this: &mut Self, cx| {
-                    this.list_open = !this.list_open;
-                    cx.notify();
-                }),
-                on_show_session: Box::new(|_, _| {}),
                 on_pick: std::rc::Rc::new(|this: &mut Self, index, cx| {
                     this.select_file(index, cx);
+                }),
+                on_toggle_dir: std::rc::Rc::new(|this: &mut Self, path: String, cx| {
+                    this.toggle_dir(path, cx);
                 }),
             },
             window,

@@ -708,7 +708,7 @@ pub fn deletions_label(n: u32) -> String {
 
 pub fn summary_label(files: usize, additions: u32, deletions: u32) -> String {
     if files == 0 {
-        return "No changes".to_string();
+        return crate::contract::DIFF_UI_NO_CHANGES.to_string();
     }
     format!(
         "{files} {} {} {}",

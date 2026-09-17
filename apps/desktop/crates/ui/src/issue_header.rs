@@ -716,10 +716,13 @@ impl IssueHeader {
         leading: Option<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut cluster = Vec::with_capacity(4);
+        let mut cluster = Vec::with_capacity(5);
         // EXP-897 §4: the ONE stack/batch badge, shared by all three faces.
         cluster.extend(self.pr_graph_badge(issue, cx));
         cluster.extend(leading);
+        // EXP-916: the way out to GitHub, on every face of a subject with a
+        // pull request — the diff surfaces no longer carry one of their own.
+        cluster.extend(crate::work_header::github_button("work-github", issue.pr_url.as_deref(), cx));
         // EXP-778: the personal pin toggle — a pinned issue lands in the
         // rail's Pinned section. Needs the team (the board's) to address
         // the toggle; a not-yet-synced board hides it for a repaint.

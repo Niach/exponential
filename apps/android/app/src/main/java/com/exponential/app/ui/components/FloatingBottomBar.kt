@@ -37,6 +37,12 @@ import com.exponential.app.ui.theme.TextEmphasis
 // switcher; Run: usage ring · steer · switcher; Changes: GitHub · merge ·
 // switcher), so the chrome is shared and only the slots move. A missing slot
 // simply leaves its space empty, so the capsule never jumps between faces.
+//
+// EXP-916: the CHANGES bars (the Reviews page and the Work screen's Changes
+// face) are a [FloatingBarCluster] instead — nothing stretches, the circles
+// and the white [BarSolidPill] hug their content 12dp apart, centred. The
+// web (`MobileWorkBar cluster` + `MergeCapsule`) and iOS
+// (`FloatingBarCluster` + `FloatingBarSolidPill`) mirror both.
 
 /** The bar's rung — the height of its capsule and the diameter of its circles. */
 val FloatingBarRung: Dp = 52.dp
@@ -67,6 +73,82 @@ fun FloatingBottomBar(
 }
 
 /**
+ * EXP-916: the centred cluster — `[left] [centre] [right]` hugging their
+ * content, 12dp apart. Every slot is optional and a missing one leaves no
+ * gap. Same screen inset and vertical padding as [FloatingBottomBar].
+ */
+@Composable
+fun FloatingBarCluster(
+    modifier: Modifier = Modifier,
+    left: (@Composable () -> Unit)? = null,
+    centre: (@Composable () -> Unit)? = null,
+    right: (@Composable () -> Unit)? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+    ) {
+        left?.invoke()
+        centre?.invoke()
+        right?.invoke()
+    }
+}
+
+/**
+ * EXP-706/EXP-916: the bar's labelled PRIMARY action — a SOLID white pill
+ * with dark content, hugging its label (28dp padding, a 20dp glyph), the one
+ * solid thing on a Changes bar. No hairline: a white fill needs no edge
+ * against the dim circles beside it. A [loading] pill spins in place of its
+ * glyph and drops the tap.
+ */
+@Composable
+fun BarSolidPill(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+) {
+    Row(
+        modifier = modifier
+            .height(FloatingBarRung)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(Color.White)
+            .clickable(enabled = enabled && !loading, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 28.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                // On white, the default primary tint disappears.
+                color = Color.Black,
+            )
+        } else {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = Color.Black,
+            )
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
  * One 52dp glass circle of the bar. Public since EXP-893 (it lived in the
  * issue bar): the Work screen's switcher, usage ring and GitHub circles are
  * all this. [enabled] drops the tap but keeps the disc — a dimmed glyph is the
@@ -93,9 +175,10 @@ fun BarCircle(
 }
 
 /**
- * The bar's centre capsule: an optional leading glyph and a label, tertiary
- * (a placeholder that opens a composer) or full white (a verb — `Merge PR`).
- * A [loading] capsule spins in place of its glyph and drops the tap.
+ * The bar's centre capsule: an optional leading glyph and a placeholder
+ * label (tertiary white) that opens a composer. A verb never rides it —
+ * Merge is the [BarSolidPill] in a [FloatingBarCluster]. A [loading]
+ * capsule spins in place of its glyph and drops the tap.
  */
 @Composable
 fun RowScope.BarCapsule(
@@ -103,13 +186,11 @@ fun RowScope.BarCapsule(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
-    /** True for a VERB (full white label); false for a placeholder. */
-    emphatic: Boolean = false,
     enabled: Boolean = true,
     loading: Boolean = false,
 ) {
     val capsule = RoundedCornerShape(percent = 50)
-    val tint = Color.White.copy(alpha = if (emphatic) 1f else TextEmphasis.Tertiary)
+    val tint = Color.White.copy(alpha = TextEmphasis.Tertiary)
     Row(
         modifier = modifier
             .weight(1f)

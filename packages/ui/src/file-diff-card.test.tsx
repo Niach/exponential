@@ -134,6 +134,16 @@ describe(`FileDiffCard`, () => {
     expect(meta?.textContent).toBe(`No newline at end of file`)
   })
 
+  it(`mounts its body straight away where there is no IntersectionObserver`, () => {
+    // EXP-916: an open card waits until it is NEAR the viewport before it
+    // builds its rows. jsdom has no observer, and neither does a server
+    // render — both must draw the whole body rather than an empty reservation.
+    expect(typeof IntersectionObserver).toBe(`undefined`)
+    render(<FileDiffCard file={TWO_HUNKS} />)
+    expect(screen.getByText(`@@ -10,3 +10,3 @@`)).toBeTruthy()
+    expect(screen.queryByTestId(`file-diff-placeholder`)).toBeNull()
+  })
+
   it(`defaultOpen=false hides the body until the header is clicked`, () => {
     render(<FileDiffCard file={TWO_HUNKS} defaultOpen={false} />)
     expect(screen.queryByText(`@@ -10,3 +10,3 @@`)).toBeNull()

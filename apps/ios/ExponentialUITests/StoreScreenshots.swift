@@ -186,12 +186,8 @@ final class StoreScreenshots: XCTestCase {
             fileRows.firstMatch.waitForExistence(timeout: 60),
             "The PR diff never loaded — check SCREENSHOT_PR_URL is a reachable public PR"
         )
-        // Every file starts collapsed; expand them so the shot shows patches
-        // rather than a bare filename list.
-        for index in 0..<min(fileRows.count, 5) {
-            let row = fileRows.element(boundBy: index)
-            if row.exists && row.isHittable { row.tap() }
-        }
+        // EXP-916: every file card starts OPEN (only a huge one folds itself
+        // away), so the shot already shows patches rather than a filename list.
         snapshot("05_review", settle: 2, popRects: app)
         goBack(app)
 

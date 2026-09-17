@@ -797,6 +797,13 @@ sealed interface AgentFeedRow {
         override val id get() = items.first().id
     }
 
+    /** EXP-916: a maximal run of consecutive same-lane EDIT calls — the ONE
+     *  "edited files" card, one row per path ([EditCard.editCard]). The rule
+     *  lives in [EditCard]; an edit call never joins a plain tool run. */
+    data class Edits(val items: List<AgentFeedItem.Tool>) : AgentFeedRow {
+        override val id get() = items.first().id
+    }
+
     /** Every step of one askId ask, in step order — the card shows ONE step at
      *  a time and advances as the answers are acknowledged. */
     data class QuestionStepper(
@@ -861,8 +868,10 @@ enum class TranscriptGap { Turn, Block, Tool, Default, None }
 /** Which class a rendered row belongs to. */
 val AgentFeedRow.rowClass: AgentRowClass
     get() = when (this) {
-        // A run of tool calls, and a subagent's whole run, are machinery.
+        // A run of tool calls, an edited-files card, and a subagent's whole
+        // run, are machinery.
         is AgentFeedRow.ToolRun -> AgentRowClass.Tool
+        is AgentFeedRow.Edits -> AgentRowClass.Tool
         is AgentFeedRow.SubagentRun -> AgentRowClass.Tool
         is AgentFeedRow.QuestionStepper -> AgentRowClass.Prose
         is AgentFeedRow.Single -> when (item) {
@@ -957,12 +966,17 @@ fun groupFeedRows(
      *  tagged edge whose card never arrived is never lost. */
     workflowIds: Set<String> = emptySet(),
 ): List<AgentFeedRow> =
-    pendingQuestionsLast(nestWorkflowRows(projectFeedRows(feed, from), workflowIds))
+    pendingQuestionsLast(nestWorkflowRows(projectFeedRows(feed, from, workflowIds), workflowIds))
 
 /** The projection WITHOUT the EXP-850 workflow nesting and without the S9
  *  reorder — every subagent run is a row of its own here, which is what makes
  *  [collectSubagents] see the workflow's agents too. */
-private fun projectFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<AgentFeedRow> {
+private fun projectFeedRows(
+    feed: List<AgentFeedItem>,
+    from: Int = 0,
+    /** EXP-916: the calls that ARE a workflow card — never edit-card members. */
+    workflowIds: Set<String> = emptySet(),
+): List<AgentFeedRow> {
     // EXP-783: `from` restricts the projection to the rendered WINDOW. The
     // grouping starts from an empty state there, so a window that cuts through
     // a tool run, an ask or a subagent's calls opens a FRESH group at the
@@ -1032,11 +1046,28 @@ private fun projectFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<Agen
                 }
                 i++
             }
+            // EXP-916: a run of consecutive edit calls is an edited-files card,
+            // and it is scanned FIRST — an edit never joins a plain tool run.
+            EditCard.isEditCall(item, workflowIds) -> {
+                val end = EditCard.editRunEnd(feed, i, workflowIds)
+                rows.add(
+                    AgentFeedRow.Edits(feed.subList(i, end + 1).map { it as AgentFeedItem.Tool }),
+                )
+                i = end + 1
+            }
             item is AgentFeedItem.Tool -> {
                 var end = i
                 while (end + 1 < feed.size) {
                     val next = feed[end + 1]
-                    if (next is AgentFeedItem.Tool && next.subagentId == null) end++ else break
+                    if (
+                        next is AgentFeedItem.Tool &&
+                        next.subagentId == null &&
+                        !EditCard.isEditCall(next, workflowIds)
+                    ) {
+                        end++
+                    } else {
+                        break
+                    }
                 }
                 if (end == i) {
                     rows.add(AgentFeedRow.Single(item))
@@ -1050,6 +1081,34 @@ private fun projectFeedRows(feed: List<AgentFeedItem>, from: Int = 0): List<Agen
                 i++
             }
         }
+    }
+    return rows
+}
+
+/**
+ * EXP-916: a subagent LANE's items → render rows. A lane is already a flat
+ * conversation (its own prose, the turns addressed to it, its tool calls), so
+ * its ONE grouping is the edited-files card — by the same [EditCard] rule the
+ * main lane uses, scoped to the items this lane actually holds.
+ */
+fun projectLaneRows(
+    items: List<AgentFeedItem>,
+    workflowIds: Set<String> = emptySet(),
+): List<AgentFeedRow> {
+    val rows = mutableListOf<AgentFeedRow>()
+    var i = 0
+    while (i < items.size) {
+        val item = items[i]
+        if (EditCard.isEditCall(item, workflowIds)) {
+            val end = EditCard.editRunEnd(items, i, workflowIds)
+            rows.add(
+                AgentFeedRow.Edits(items.subList(i, end + 1).map { it as AgentFeedItem.Tool }),
+            )
+            i = end + 1
+            continue
+        }
+        rows.add(AgentFeedRow.Single(item))
+        i++
     }
     return rows
 }

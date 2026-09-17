@@ -1178,10 +1178,9 @@ impl ScreensPanel {
         let file_viewer = cx.new(|cx| crate::file_viewer::FileViewerView::new(window, cx));
         let support_thread =
             cx.new(|cx| crate::support_thread::SupportThreadView::new(window, cx));
+        // EXP-916: the review header carries no undock button any more —
+        // its cluster is reject / merge / GitHub, and nothing else.
         let pr_diff = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
-        // EXP-525: only the in-shell instance offers "open in new window" —
-        // `build_screen_content`'s undocked-window instances must not.
-        pr_diff.update(cx, |diff, _| diff.show_undock = true);
         let devices = cx.new(|cx| crate::devices_view::DevicesView::new(window, cx));
         let drafts = cx.new(|cx| crate::drafts_view::DraftsView::new(window, cx));
         let actions = cx.new(|cx| crate::actions_view::ActionsView::new(window, cx));
@@ -1699,6 +1698,12 @@ impl ScreensPanel {
                 }
             }
         }
+    }
+
+    /// EXP-916: the shared PR diff view — the review screen's, whose file
+    /// tree the window's left column paints ([`crate::review_files_nav`]).
+    pub(crate) fn pr_diff(&self) -> &Entity<crate::pr_diff::PrDiffView> {
+        &self.pr_diff
     }
 
     /// EXP-818: the remembered origin of `screen`'s tab, if it has one.

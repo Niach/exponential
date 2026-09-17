@@ -63,24 +63,6 @@ class DiffPresentationTest {
         assertEquals("ui/", middleTruncatePath("ui/", 22))
     }
 
-    // ── The file sheet's filter ──────────────────────────────────────────────
-
-    @Test
-    fun `the filter matches the whole path, case-insensitively`() {
-        val files = listOf(
-            file("apps/web/src/res/values/strings.xml"),
-            file("apps/android/TopicScreen.kt"),
-        )
-        assertEquals(files, filterDiffFiles(files, "  "))
-        assertEquals(
-            listOf(files[0]),
-            filterDiffFiles(files, "values/STR"),
-        )
-        // The query is trimmed, and the order of the survivors is the diff's.
-        assertEquals(files, filterDiffFiles(files, " apps/ "))
-        assertTrue(filterDiffFiles(files, "nothing").isEmpty())
-    }
-
     // ── What a file with no rows says ────────────────────────────────────────
 
     @Test

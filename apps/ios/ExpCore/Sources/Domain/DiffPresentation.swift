@@ -3,18 +3,37 @@ import Foundation
 /// EXP-895 — the pure decisions the ONE diff view makes ABOUT a `Diff.File`,
 /// kept out of the SwiftUI layer so they can be tested and so the strings stay
 /// byte-identical with web's `@exp/ui` (`diff-counts.tsx`, `file-diff-card.tsx`,
-/// `file-diff-nav.tsx`, `changes-file-sheet.tsx`).
+/// `file-diff-tree.tsx`, `changes-file-sheet.tsx`).
 ///
 /// The model and its labels (`Diff.summaryLabel`, `additionsLabel`,
 /// `deletionsLabel`, `unchangedLabel`) live in `Diff`; only what a VIEW needs
 /// on top of them is here.
 public enum DiffPresentation {
-    /// The phone file sheet's title (web `CHANGED_FILES_TITLE`).
-    public static let changedFilesTitle = "Changed files"
-    /// Its filter field (web `DIFF_FILTER_PLACEHOLDER`).
-    public static let filterPlaceholder = "Filter files"
+    /// The phone file sheet's title. EXP-916: the contract's word, ×4.
+    public static let changedFilesTitle = DomainContract.diffUiChangedFilesTitle
+    /// Its filter field (contract `diffUi.filterPlaceholder`).
+    public static let filterPlaceholder = DomainContract.diffUiFilterPlaceholder
     /// The word a Changes surface heads its summary with (web `CHANGES_TITLE`).
     public static let changesTitle = "Changes"
+
+    /// EXP-916: a file with MORE hunk lines than this starts collapsed.
+    public static let collapseThresholdLines = DomainContract.diffUiCollapseThresholdLines
+
+    /// The hunk lines of a file — what the size rule is measured in.
+    public static func lineCount(_ file: Diff.File) -> Int {
+        file.hunks.reduce(0) { $0 + $1.lines.count }
+    }
+
+    /// EXP-916 — whether a file card opens by itself at this list's setting.
+    /// Every Changes surface now starts EXPANDED; only sheer size folds a file
+    /// away, and a review list that asks for collapsed still gets it.
+    /// Mirrored ×4 (web/Android `diffOpensByDefault`, desktop
+    /// `diff_opens_by_default`).
+    public static func diffOpensByDefault(
+        _ file: Diff.File, defaultCollapsed: Bool
+    ) -> Bool {
+        !defaultCollapsed && lineCount(file) <= collapseThresholdLines
+    }
 
     /// The basename of a path — a file list's primary label.
     public static func pathBase(_ path: String) -> String {
@@ -59,14 +78,6 @@ public enum DiffPresentation {
         case .copied: return "Copied without content changes"
         case .modified: return "No textual diff (binary or too large)"
         }
-    }
-
-    /// The file sheet's filter: a case-insensitive substring of the PATH, the
-    /// query trimmed. An empty query keeps everything, in order.
-    public static func filter(_ files: [Diff.File], query: String) -> [Diff.File] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if needle.isEmpty { return files }
-        return files.filter { $0.path.lowercased().contains(needle) }
     }
 }
 

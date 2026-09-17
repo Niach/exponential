@@ -252,7 +252,6 @@ describe(`sidebarOccupant`, () => {
     for (const path of [
       `/t/acme/boards/web/issues/MET-12`,
       `/t/acme/sessions/s1`,
-      `/t/acme/reviews/MET-12`,
       `/t/acme/support/t1`,
     ]) {
       expect(sidebarOccupant(path, `inbox`), path).toEqual({
@@ -264,6 +263,22 @@ describe(`sidebarOccupant`, () => {
       kind: `list`,
       origin: board,
     })
+  })
+
+  // EXP-916: a review's panel is its file tree — whatever list it came from,
+  // and with no token at all (a deep link).
+  it(`gives a review detail its file tree`, () => {
+    expect(sidebarOccupant(`/t/acme/reviews/MET-12`, `reviews`)).toEqual({
+      kind: `review`,
+    })
+    expect(sidebarOccupant(`/t/acme/reviews/MET-12`, `inbox`)).toEqual({
+      kind: `review`,
+    })
+    expect(sidebarOccupant(`/t/acme/reviews/MET-12`, null)).toEqual({
+      kind: `review`,
+    })
+    // The queue itself is a list screen: the main menu.
+    expect(sidebarOccupant(`/t/acme/reviews`, null)).toEqual({ kind: `main` })
   })
 
   it(`keeps the main menu everywhere else`, () => {

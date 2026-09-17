@@ -58,7 +58,24 @@ interface Contract {
     toolOutputMaxBytes: number
     liveToolOutputTailLines: number
   }
-  toolKind: Section
+  diffUi: {
+    filterPlaceholder: string
+    changedFilesTitle: string
+    editedFilesOne: string
+    editedFilesMany: string
+    moreFiles: string
+    showLess: string
+    showMoreLines: string
+    mergePr: string
+    closePr: string
+    openOnGithub: string
+    noChanges: string
+    cardPreviewFiles: number
+    collapseThresholdLines: number
+    lineChunk: number
+    inlineDiffMaxHeight: number
+  }
+  toolKind: Section & { editKinds: string[] }
   subscriberSource: Section
   pinKind: Section
   issueEventType: Section
@@ -143,6 +160,44 @@ const automationEventCatchupMs =
 // caps (`toolDiffMaxLines`/`toolDiffMaxBytes`) the publisher truncates a
 // `tool_update.diff` to before it rides the wire.
 const steerFeed = contract.steerFeed
+
+// EXP-916: the diff UI's shared copy and numbers — the ONE wording every
+// diff surface uses (session edit cards, the Changes face, Reviews) ×4.
+// Strings carry `{n}`/`{hidden}` placeholders the client substitutes.
+const diffUi = contract.diffUi
+const diffUiStrings: [string, string][] = [
+  ["filterPlaceholder", diffUi.filterPlaceholder],
+  ["changedFilesTitle", diffUi.changedFilesTitle],
+  ["editedFilesOne", diffUi.editedFilesOne],
+  ["editedFilesMany", diffUi.editedFilesMany],
+  ["moreFiles", diffUi.moreFiles],
+  ["showLess", diffUi.showLess],
+  ["showMoreLines", diffUi.showMoreLines],
+  ["mergePr", diffUi.mergePr],
+  ["closePr", diffUi.closePr],
+  ["openOnGithub", diffUi.openOnGithub],
+  ["noChanges", diffUi.noChanges],
+]
+const diffUiInts: [string, number][] = [
+  ["cardPreviewFiles", diffUi.cardPreviewFiles],
+  ["collapseThresholdLines", diffUi.collapseThresholdLines],
+  ["lineChunk", diffUi.lineChunk],
+  ["inlineDiffMaxHeight", diffUi.inlineDiffMaxHeight],
+]
+const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+const screaming = (s: string) => s.replace(/([A-Z])/g, "_$1").toUpperCase()
+const swiftDiffUi = [
+  ...diffUiStrings.map(([k, v]) => `    public static let diffUi${capFirst(k)}: String = "${v}"`),
+  ...diffUiInts.map(([k, v]) => `    public static let diffUi${capFirst(k)}: Int = ${v}`),
+].join("\n")
+const kotlinDiffUi = [
+  ...diffUiStrings.map(([k, v]) => `    const val diffUi${capFirst(k)}: String = "${v}"`),
+  ...diffUiInts.map(([k, v]) => `    const val diffUi${capFirst(k)}: Int = ${v}`),
+].join("\n")
+const rustDiffUi = [
+  ...diffUiStrings.map(([k, v]) => `pub const DIFF_UI_${screaming(k)}: &str = "${v}";`),
+  ...diffUiInts.map(([k, v]) => `pub const DIFF_UI_${screaming(k)}: usize = ${v};`),
+].join("\n")
 
 // The 7 locked builtin issue statuses (EXP-314) — emitted as parallel arrays
 // (keys/categories/names/colors/sortOrders) so every client can construct its
@@ -303,6 +358,7 @@ ${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.v
 ${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${swiftStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${swiftStringArray("toolKindValues", contract.toolKind.values)}
+${swiftStringArray("toolKindEditValues", contract.toolKind.editKinds)}
 ${swiftStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${swiftStringArray("pinKindValues", contract.pinKind.values)}
 ${swiftStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -368,6 +424,7 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
     public static let steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
     public static let steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
+${swiftDiffUi}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
@@ -412,6 +469,7 @@ ${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.
 ${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${kotlinStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${kotlinStringArray("toolKindValues", contract.toolKind.values)}
+${kotlinStringArray("toolKindEditValues", contract.toolKind.editKinds)}
 ${kotlinStringArray("subscriberSourceValues", contract.subscriberSource.values)}
 ${kotlinStringArray("pinKindValues", contract.pinKind.values)}
 ${kotlinStringArray("issueEventTypeValues", contract.issueEventType.values)}
@@ -477,6 +535,7 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val steerFeedToolOutputMaxLines: Int = ${steerFeed.toolOutputMaxLines}
     const val steerFeedToolOutputMaxBytes: Int = ${steerFeed.toolOutputMaxBytes}
     const val steerFeedLiveToolOutputTailLines: Int = ${steerFeed.liveToolOutputTailLines}
+${kotlinDiffUi}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
@@ -523,6 +582,7 @@ ${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.value
 ${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${rustStrSlice("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${rustStrSlice("toolKindValues", contract.toolKind.values)}
+${rustStrSlice("toolKindEditValues", contract.toolKind.editKinds)}
 ${rustStrSlice("subscriberSourceValues", contract.subscriberSource.values)}
 ${rustStrSlice("pinKindValues", contract.pinKind.values)}
 ${rustStrSlice("issueEventTypeValues", contract.issueEventType.values)}
@@ -588,6 +648,7 @@ pub const STEER_FEED_TOOL_DIFF_MAX_BYTES: usize = ${steerFeed.toolDiffMaxBytes};
 pub const STEER_FEED_TOOL_OUTPUT_MAX_LINES: usize = ${steerFeed.toolOutputMaxLines};
 pub const STEER_FEED_TOOL_OUTPUT_MAX_BYTES: usize = ${steerFeed.toolOutputMaxBytes};
 pub const STEER_FEED_LIVE_TOOL_OUTPUT_TAIL_LINES: usize = ${steerFeed.liveToolOutputTailLines};
+${rustDiffUi}
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}

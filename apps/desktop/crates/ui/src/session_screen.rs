@@ -874,7 +874,9 @@ impl SessionScreenView {
             // back into this view synchronously.
             let session_id = self.session_id.clone();
             let (right, tray, extra) = header.update(cx, |header, cx| {
-                header.set_merge_suppressed(diff_open);
+                // EXP-916: the Changes pane has no bar of its own any more,
+                // so the tray keeps the ONE merge control on every face.
+                header.set_merge_suppressed(false);
                 // EXP-897: the badge's overlay follows the face that is up —
                 // the run tree on Run, the PR stack on Changes.
                 header.set_badge_context(
@@ -927,6 +929,13 @@ impl SessionScreenView {
             let spec = crate::pr_graph::session_spec(row, face, cx);
             right.extend(crate::pr_graph::badge("session-pr-graph", spec, cx));
         }
+        // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the
+        // header, exactly as an issue's does.
+        right.extend(crate::work_header::github_button(
+            "work-github",
+            row.as_ref().and_then(|row| row.pr_url.as_deref()),
+            cx,
+        ));
         right.extend(self.face_toggle(None, cx));
         let (merge_target, killable, local, device_label) = {
             let inner = self.inner.read(cx);
@@ -937,13 +946,11 @@ impl SessionScreenView {
                 inner.device_label(cx),
             )
         };
-        // EXP-895: the Changes face's bar owns the merge control while it is
-        // up; the header offers it only on the Run face. EXP-917: the shared
-        // SLOT, so a batch run's conflict swaps to Fix conflicts here exactly
-        // like the issue tray's, and any other refusal captions the header
-        // (`extra`) instead of dying in the log.
-        let merge_target =
-            merge_target.filter(|_| self.run_face(cx) != crate::screens::RunFace::Diff);
+        // EXP-916: the Changes pane has no bar of its own any more, so the
+        // ONE merge control lives in the header on every face. EXP-917: the
+        // shared SLOT, so a batch run's conflict swaps to Fix conflicts here
+        // exactly like the issue tray's, and any other refusal captions the
+        // header (`extra`) instead of dying in the log.
         let extra = merge_target
             .as_ref()
             .and_then(|target| crate::work_header::merge_error_caption(target, cx));

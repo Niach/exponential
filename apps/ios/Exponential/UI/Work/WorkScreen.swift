@@ -406,13 +406,13 @@ struct WorkScreen: View {
                     if face == .changes, let url = prURL {
                         Button { openURL(url) } label: {
                             AppIcon(
-                                AppIcons.uiExternalLink,
+                                AppIcons.uiGithub,
                                 size: AppIcon.Size.medium,
                                 weight: .medium
                             )
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         }
-                        .accessibilityLabel("Open PR on GitHub")
+                        .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
                         .accessibilityIdentifier("changes-github-action")
                     }
                     if hasIssueMenu {

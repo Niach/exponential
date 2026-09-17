@@ -255,6 +255,10 @@ export type SidebarOccupant =
   | { kind: `main` }
   | { kind: `settings` }
   | { kind: `list`; origin: DetailOrigin }
+  /** EXP-916: a review detail — the panel is the pull request's FILE TREE
+   *  (`ReviewFilesNav`), a review's context, whatever list it was opened
+   *  from. The desktop's `LeftOccupant::ReviewFiles`. */
+  | { kind: `review` }
 
 /** A DETAIL route below `/t/$teamSlug` — the only routes that can show a list
  * nav. Board/inbox/support/agent/reviews are LIST screens and keep the main
@@ -269,9 +273,10 @@ function isDetailRest(rest: string): boolean {
 
 /**
  * EXP-851: the sidebar's occupant, from the URL alone — settings while any
- * `/settings` route is active, the LIST NAV on a detail route that carries a
- * parseable `?from=`, the main menu otherwise. Derived (never click state) so
- * a deep link lands settled and every entry point drives the same swap.
+ * `/settings` route is active, (EXP-916) the review's file tree on a review
+ * detail, the LIST NAV on any other detail route that carries a parseable
+ * `?from=`, the main menu otherwise. Derived (never click state) so a deep
+ * link lands settled and every entry point drives the same swap.
  */
 export function sidebarOccupant(
   pathname: string,
@@ -282,15 +287,18 @@ export function sidebarOccupant(
   if (rest === `/settings` || rest.startsWith(`/settings/`)) {
     return { kind: `settings` }
   }
+  if (/^\/reviews\/[^/]+$/.test(rest)) return { kind: `review` }
   if (!isDetailRest(rest)) return { kind: `main` }
   const origin = parseOrigin(from)
   return origin ? { kind: `list`, origin } : { kind: `main` }
 }
 
-/** EXP-870: how deep an occupant sits — the main menu 0, a list nav 1,
- * settings 2. The slide reads direction off it. */
+/** EXP-870: how deep an occupant sits — the main menu 0, a list nav (or a
+ * review's file tree) 1, settings 2. The slide reads direction off it. */
 export function occupantDepth(kind: SidebarOccupant[`kind`]): number {
-  return kind === `main` ? 0 : kind === `list` ? 1 : 2
+  if (kind === `main`) return 0
+  if (kind === `list` || kind === `review`) return 1
+  return 2
 }
 
 /**
@@ -302,7 +310,7 @@ export function occupantDepth(kind: SidebarOccupant[`kind`]): number {
  * same.
  */
 export function panelOffset(
-  panel: `list` | `settings`,
+  panel: `list` | `review` | `settings`,
   occupant: SidebarOccupant[`kind`]
 ): -1 | 0 | 1 {
   const depth = occupantDepth(panel)

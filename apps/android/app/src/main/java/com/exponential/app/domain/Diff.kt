@@ -564,7 +564,7 @@ object Diff {
     fun deletionsLabel(n: Int): String = "−$n"
 
     fun summaryLabel(files: Int, additions: Int, deletions: Int): String {
-        if (files == 0) return "No changes"
+        if (files == 0) return DomainContract.diffUiNoChanges
         val noun = if (files == 1) "file" else "files"
         return "$files $noun ${additionsLabel(additions)} ${deletionsLabel(deletions)}"
     }

@@ -79,6 +79,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@exp/design-tokens": "workspace:*",
+        "@exp/domain-contract": "workspace:*",
         "@exp/ui": "workspace:*",
         "@exp/view-catalog": "workspace:*",
         "react": "^19.2.0",
