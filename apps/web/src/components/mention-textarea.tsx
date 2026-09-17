@@ -1,4 +1,11 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import type { User } from "@/db/schema"
 import { MENU_SURFACE_CLASS, Textarea } from "@exp/ui"
 import { cn } from "@/lib/utils"
@@ -126,6 +133,30 @@ export const MentionTextarea = forwardRef<
       : menu?.kind === `issueRef`
         ? issueCandidates.length
         : emojiCandidates.length
+
+  // EXP-946: the menu opens ABOVE the field — a composer normally sits at the
+  // bottom of the screen. A field near the TOP of the window has no room
+  // there, and the menu used to run straight off it, so measure both sides
+  // and flip; whichever side wins is capped to the room it has and scrolls.
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [above, setAbove] = useState(true)
+  const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current
+    const el = menuRef.current
+    if (!wrap || !el) return
+    const rect = wrap.getBoundingClientRect()
+    const gutter = 12
+    const roomAbove = Math.max(0, rect.top - gutter)
+    const roomBelow = Math.max(0, window.innerHeight - rect.bottom - gutter)
+    // `scrollHeight` is the FULL list even while a cap is on it, so the
+    // choice never depends on the cap the last open left behind.
+    const fitsAbove = el.scrollHeight <= roomAbove
+    const next = fitsAbove || roomAbove >= roomBelow
+    setAbove(next)
+    setMenuMaxHeight(Math.round(next ? roomAbove : roomBelow))
+  }, [menu, candidateCount])
 
   const sync = (next: string, caret: number) => {
     onValueChange(next)
@@ -301,7 +332,7 @@ export const MentionTextarea = forwardRef<
   }
 
   return (
-    <div className="relative flex-1">
+    <div ref={wrapRef} className="relative flex-1">
       <Textarea
         {...props}
         ref={textareaRef}
@@ -311,9 +342,14 @@ export const MentionTextarea = forwardRef<
       />
       {menu && candidateCount > 0 && (
         <div
+          ref={menuRef}
+          style={
+            menuMaxHeight === null ? undefined : { maxHeight: menuMaxHeight }
+          }
           className={cn(
             MENU_SURFACE_CLASS,
-            `absolute bottom-full mb-1 w-72 overflow-hidden`
+            `absolute w-72 overflow-x-hidden overflow-y-auto`,
+            above ? `bottom-full mb-1` : `top-full mt-1`
           )}
         >
           {menu.kind === `mention` &&

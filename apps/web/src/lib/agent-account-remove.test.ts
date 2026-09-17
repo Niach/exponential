@@ -39,13 +39,15 @@ describe(`removeAccountBlockReason (EXP-862)`, () => {
     )
   })
 
-  it(`leaves a signed-out or expired login to its sign-in`, () => {
+  it(`still offers it for a signed-out or expired named login (EXP-944)`, () => {
+    // The removal deletes a profile dir; the credential's state never decided
+    // whether that is possible, and the server has always taken it.
     expect(
       removeAccountBlockReason(CAPABLE, { ...HEALTHY, signedIn: false })
-    ).toContain(`signed out`)
+    ).toBeNull()
     expect(
       canRemoveAccountOn(CAPABLE, { ...HEALTHY, health: `needs_relogin` })
-    ).toBe(false)
+    ).toBe(true)
   })
 })
 

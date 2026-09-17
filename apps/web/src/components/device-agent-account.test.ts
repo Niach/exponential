@@ -51,16 +51,25 @@ function device(patch: Partial<SteerDevice> = {}): SteerDevice {
 
 describe(`accountChipActions`, () => {
   it(`offers the repairs that state allows`, () => {
-    // Signed out or expired: a sign-in and nothing else. A dead credential is
-    // never "set as default" — it would not work.
+    // Signed out or expired: the sign-in leads, and (EXP-944) the removal
+    // rides along — a dead named profile is exactly what people want gone.
+    // A dead credential is never "set as default": it would not work.
     expect(
       accountChipActions(
         device(),
         chip({ signedIn: false, active: true, health: `signed_out` })
       )
-    ).toEqual([ACTION_SIGN_IN])
+    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
     expect(
       accountChipActions(device(), chip({ health: `needs_relogin` }))
+    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
+    // The ambient login stays a sign-in and nothing else: its config dir is
+    // the CLI's own.
+    expect(
+      accountChipActions(
+        device(),
+        chip({ profileId: `system`, signedIn: false, health: `signed_out` })
+      )
     ).toEqual([ACTION_SIGN_IN])
     // Healthy and not the device's login: both entries.
     expect(accountChipActions(device(), chip())).toEqual([

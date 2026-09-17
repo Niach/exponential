@@ -195,8 +195,11 @@ export function DeviceLoginRowView({
       <div className="flex min-w-0 items-center gap-2 pl-5">
         {state === `ready` ? (
           <>
+            {/* EXP-944: the device list is where a limit is actually planned
+                around, so its bars say WHEN they reset. */}
             <UsageMini
               usage={row.usage}
+              now={now}
               className={cn(`min-w-0 flex-1`, age && `opacity-50`)}
             />
             {age && (
