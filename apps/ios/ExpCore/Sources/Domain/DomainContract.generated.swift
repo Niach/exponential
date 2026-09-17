@@ -66,6 +66,7 @@ public enum DomainContract {
     public static let workflowAgentStateValues: [String] = ["queued", "running", "done", "error"]
     public static let workflowStatusValues: [String] = ["running", "completed", "failed", "stopped"]
     public static let backgroundTaskKindValues: [String] = ["shell", "workflow", "agent", "other"]
+    public static let taskListStatusValues: [String] = ["pending", "in_progress", "completed"]
     public static let steerWorkingVerbs: [String] = ["Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating", "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling", "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling", "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating"]
     public static let steerWorkingTokenTickMs: Int = 2000
     public static let steerWorkingPreviewMax: Int = 160

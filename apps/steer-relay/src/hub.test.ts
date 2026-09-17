@@ -1666,6 +1666,47 @@ describe(`activity event kinds`, () => {
     expect(kept[0].id).toBe(`w5zr2977l`)
   })
 
+  // EXP-927: `task_list` is a latest-wins slot, replayed right behind
+  // `background_tasks` (the strip it renders in) and before the diff.
+  test(`task_list is latest-wins, replayed after background_tasks`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    activity(hub, pub, { kind: `narration`, text: `working` })
+    activity(hub, pub, { kind: `diff`, diff: `+ line` })
+    activity(hub, pub, {
+      kind: `task_list`,
+      entries: [{ content: `Read the issue`, status: `in_progress` }],
+    })
+    activity(hub, pub, { kind: `background_tasks`, tasks: [] })
+    const latest = {
+      kind: `task_list`,
+      entries: [
+        { content: `Read the issue`, status: `completed` },
+        { content: `Running the tests`, status: `in_progress` },
+        { content: `Open the PR`, status: `pending` },
+      ],
+      at: 9,
+    }
+    activity(hub, pub, latest)
+
+    const member = connectMember(hub)
+    expect(member.events().map((e) => e.kind)).toEqual([
+      `narration`,
+      `background_tasks`,
+      `task_list`,
+      `diff`,
+    ])
+    expect(member.events()[2]).toEqual(latest as never)
+    expect(room(hub).activityLog.length).toBe(1)
+    // An unknown status drops the WHOLE frame; the slot keeps the last good
+    // list.
+    activity(hub, pub, {
+      kind: `task_list`,
+      entries: [{ content: `?`, status: `blocked` }],
+    })
+    expect(slot(hub, `task_list`)).toEqual(latest)
+  })
+
   // EXP-861: `queue` is a latest-wins slot too — the device's held user
   // messages, replayed right after `turn` (before the workflow cards) so a
   // late joiner draws the bar above its composer at once. An EMPTY list is

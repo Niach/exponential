@@ -69,10 +69,10 @@ struct Entry {
 
 /// EXP-758: the latest-wins slots, in the relay's replay order
 /// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`, `rate_limit`,
-/// `turn`, `workflow`, `background_tasks`, `diff` — the diff stays LAST, where
+/// `turn`, `workflow`, `background_tasks`, `task_list`, `diff` — the diff stays LAST, where
 /// it replayed before any of this became a map). EXP-784 added `rate_limit`
 /// beside `usage`; EXP-848 `turn`; EXP-850 the keyed `workflow` block and
-/// `background_tasks`.
+/// `background_tasks`; EXP-927 `task_list` right behind it.
 const SLOT_CONFIG_STATE: usize = 0;
 const SLOT_USAGE: usize = 1;
 const SLOT_RATE_LIMIT: usize = 2;
@@ -80,8 +80,9 @@ const SLOT_TURN: usize = 3;
 /// EXP-861: the queued-messages slot, replayed right after `turn`.
 const SLOT_QUEUE: usize = 4;
 const SLOT_BACKGROUND_TASKS: usize = 5;
-const SLOT_DIFF: usize = 6;
-const SLOT_COUNT: usize = 7;
+const SLOT_TASK_LIST: usize = 6;
+const SLOT_DIFF: usize = 7;
+const SLOT_COUNT: usize = 8;
 
 /// EXP-850 §3: how many workflow cards one session keeps. A run that starts
 /// more than this many workflows loses the OLDEST (its card is finished and
@@ -100,6 +101,7 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
         ActivityEvent::Turn { .. } => Some(SLOT_TURN),
         ActivityEvent::Queue { .. } => Some(SLOT_QUEUE),
         ActivityEvent::BackgroundTasks { .. } => Some(SLOT_BACKGROUND_TASKS),
+        ActivityEvent::TaskList { .. } => Some(SLOT_TASK_LIST),
         ActivityEvent::Diff { .. } => Some(SLOT_DIFF),
         _ => None,
     }
@@ -309,7 +311,7 @@ impl ActivityJournal {
         for workflow in &self.workflows {
             tail.push((workflow.seq, &workflow.event));
         }
-        for slot in [SLOT_BACKGROUND_TASKS, SLOT_DIFF] {
+        for slot in [SLOT_BACKGROUND_TASKS, SLOT_TASK_LIST, SLOT_DIFF] {
             if let Some(event) = self.slots[slot].as_ref() {
                 tail.push((self.slot_seqs[slot], event));
             }

@@ -517,6 +517,8 @@ pub struct SteerFeed {
     turn_tokens: Option<u64>,
     /// EXP-850 §2: the background-task strip, latest-wins whole.
     background_tasks: Vec<crate::frames::BackgroundTask>,
+    /// EXP-927: the agent's own task list, latest-wins whole.
+    task_list: Vec<crate::frames::TaskListEntry>,
     /// EXP-861: the messages the device holds queued behind the running
     /// turn, latest-wins whole (empty = nothing queued, the bar closes).
     queue: Vec<crate::frames::QueuedMessage>,
@@ -619,6 +621,12 @@ impl SteerFeed {
     /// them (empty = nothing running, so the strip closes).
     pub fn background_tasks(&self) -> &[crate::frames::BackgroundTask] {
         &self.background_tasks
+    }
+
+    /// EXP-927: the agent's own task list as the publisher last sent it, in
+    /// order (empty = the agent keeps none).
+    pub fn task_list(&self) -> &[crate::frames::TaskListEntry] {
+        &self.task_list
     }
 
     /// EXP-861: the messages the device holds queued behind the running
@@ -1328,6 +1336,8 @@ impl SteerFeed {
             // EXP-850 §2: latest-wins whole, exactly like `config_state` — an
             // EMPTY list is the publisher saying nothing runs any more.
             ActivityEvent::BackgroundTasks { tasks, .. } => self.background_tasks = tasks,
+            // EXP-927: latest-wins whole, the agent's list as it stands.
+            ActivityEvent::TaskList { entries, .. } => self.task_list = entries,
             // EXP-861: latest-wins whole — an EMPTY list is the engine saying
             // nothing is held any more.
             ActivityEvent::Queue { messages, .. } => self.queue = messages,

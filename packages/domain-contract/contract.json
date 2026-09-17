@@ -1239,6 +1239,9 @@
   "backgroundTaskKind": {
     "values": ["shell", "workflow", "agent", "other"]
   },
+  "taskListStatus": {
+    "values": ["pending", "in_progress", "completed"]
+  },
   "steerWorking": {
     "verbs": [
       "Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating",

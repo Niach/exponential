@@ -134,6 +134,7 @@ interface Contract {
   workflowAgentState: Section
   workflowStatus: Section
   backgroundTaskKind: Section
+  taskListStatus: Section
   steerWorking: { verbs: string[]; tokenTickMs: number; previewMax: number }
 }
 
@@ -406,6 +407,7 @@ ${swiftStringArray("subagentStatusValues", contract.subagentStatus.values)}
 ${swiftStringArray("workflowAgentStateValues", contract.workflowAgentState.values)}
 ${swiftStringArray("workflowStatusValues", contract.workflowStatus.values)}
 ${swiftStringArray("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
+${swiftStringArray("taskListStatusValues", contract.taskListStatus.values)}
 ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let steerWorkingTokenTickMs: Int = ${contract.steerWorking.tokenTickMs}
     public static let steerWorkingPreviewMax: Int = ${contract.steerWorking.previewMax}
@@ -519,6 +521,7 @@ ${kotlinStringArray("subagentStatusValues", contract.subagentStatus.values)}
 ${kotlinStringArray("workflowAgentStateValues", contract.workflowAgentState.values)}
 ${kotlinStringArray("workflowStatusValues", contract.workflowStatus.values)}
 ${kotlinStringArray("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
+${kotlinStringArray("taskListStatusValues", contract.taskListStatus.values)}
 ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val steerWorkingTokenTickMs: Long = ${contract.steerWorking.tokenTickMs}L
     const val steerWorkingPreviewMax: Int = ${contract.steerWorking.previewMax}
@@ -634,6 +637,7 @@ ${rustStrSlice("subagentStatusValues", contract.subagentStatus.values)}
 ${rustStrSlice("workflowAgentStateValues", contract.workflowAgentState.values)}
 ${rustStrSlice("workflowStatusValues", contract.workflowStatus.values)}
 ${rustStrSlice("backgroundTaskKindValues", contract.backgroundTaskKind.values)}
+${rustStrSlice("taskListStatusValues", contract.taskListStatus.values)}
 ${rustStrSlice("steerWorkingVerbs", contract.steerWorking.verbs)}
 pub const STEER_WORKING_TOKEN_TICK_MS: i64 = ${contract.steerWorking.tokenTickMs};
 pub const STEER_WORKING_PREVIEW_MAX: usize = ${contract.steerWorking.previewMax};

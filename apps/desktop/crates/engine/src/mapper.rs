@@ -196,6 +196,9 @@ pub struct Mapper {
     /// subagent's first user turn IS the prompt the Task tool call already
     /// says, so it is dropped instead of published twice.
     subagent_prompts_seen: std::collections::HashSet<String>,
+    /// EXP-927: the task list last put on the wire — the `task_list` slot's
+    /// dedupe (`None` = never published).
+    task_list: Option<Vec<steer::TaskListEntry>>,
     permissions: HashMap<String, PermissionAsk>,
     elicitations: HashMap<String, ElicitationAsk>,
     /// question id → which ask owns it (a stepper registers one per step).
@@ -442,6 +445,7 @@ impl Mapper {
             subagents: HashMap::new(),
             subagent_tool_calls: HashMap::new(),
             subagent_prompts_seen: std::collections::HashSet::new(),
+            task_list: None,
             permissions: HashMap::new(),
             elicitations: HashMap::new(),
             questions: HashMap::new(),
@@ -596,7 +600,7 @@ impl Mapper {
             }
             SessionUpdate::ToolCallUpdate(update) => self.on_tool_call_update(update, out),
             SessionUpdate::Plan(plan) => {
-                let entries = plan
+                let entries: Vec<PlanEntryView> = plan
                     .entries
                     .iter()
                     .map(|entry| PlanEntryView {
@@ -621,7 +625,27 @@ impl Mapper {
                         },
                     })
                     .collect();
+                // EXP-927: the same list rides the wire as the `task_list`
+                // slot — the bottom strip's first block on every client. The
+                // slot is latest-wins, so an unchanged list is not restated.
+                let wire_entries: Vec<steer::TaskListEntry> = entries
+                    .iter()
+                    .map(|entry| steer::TaskListEntry {
+                        content: self.clean(entry.content.trim(), WORKFLOW_TEXT_MAX),
+                        status: match entry.status {
+                            PlanEntryStatusView::InProgress => steer::TaskListStatus::InProgress,
+                            PlanEntryStatusView::Completed => steer::TaskListStatus::Completed,
+                            PlanEntryStatusView::Pending => steer::TaskListStatus::Pending,
+                        },
+                    })
+                    .filter(|entry| !entry.content.is_empty())
+                    .take(steer::TASK_LIST_MAX)
+                    .collect();
                 out.local.push(LocalFeedEvent::Plan { entries });
+                if self.task_list.as_ref() != Some(&wire_entries) {
+                    self.task_list = Some(wire_entries.clone());
+                    emit(out, ActivityEvent::task_list(wire_entries), None);
+                }
             }
             SessionUpdate::AvailableCommandsUpdate(update) => {
                 let mapped = self.map_commands(&update.available_commands);
@@ -4093,6 +4117,47 @@ mod tests {
             serde_json::to_value(&out.wire[0]).expect("usage serializes"),
             json!({"kind": "usage", "contextUsed": 124_000, "contextSize": 200_000, "costUsd": 1.24})
         );
+    }
+
+    /// EXP-927: the agent's task list rides the wire as the `task_list` slot,
+    /// whole and in order, and an unchanged list is not restated.
+    #[test]
+    fn a_plan_update_publishes_the_task_list_slot_once() {
+        use agent_client_protocol::schema::v1::{
+            Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus,
+        };
+        let plan = || {
+            SessionUpdate::Plan(Plan::new(vec![
+                PlanEntry::new("Read the issue", PlanEntryPriority::Medium, PlanEntryStatus::Completed),
+                PlanEntry::new(
+                    "Running the tests with expu_supersecretkey",
+                    PlanEntryPriority::Medium,
+                    PlanEntryStatus::InProgress,
+                ),
+                PlanEntry::new("  ", PlanEntryPriority::Medium, PlanEntryStatus::Pending),
+                PlanEntry::new("Open the PR", PlanEntryPriority::Medium, PlanEntryStatus::Pending),
+            ]))
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut out);
+        assert_eq!(out.wire.len(), 1);
+        let wire = serde_json::to_value(&out.wire[0]).expect("task_list serializes");
+        assert_eq!(wire["kind"], "task_list");
+        assert_eq!(
+            wire["entries"][0],
+            json!({"content": "Read the issue", "status": "completed"})
+        );
+        assert_eq!(wire["entries"][1]["status"], "in_progress");
+        assert!(!wire["entries"][1]["content"].as_str().unwrap().contains("expu_"));
+        // The blank entry is dropped, the order kept.
+        assert_eq!(wire["entries"][2], json!({"content": "Open the PR", "status": "pending"}));
+        assert_eq!(wire["entries"].as_array().unwrap().len(), 3);
+
+        let mut again = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut again);
+        assert!(again.wire.is_empty(), "an identical list is not republished");
+        assert!(matches!(again.local[0], LocalFeedEvent::Plan { .. }));
     }
 
     #[test]

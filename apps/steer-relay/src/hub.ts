@@ -189,6 +189,8 @@ const LATEST_WINS_KINDS = new Set([
   // and one room may hold WORKFLOW_SLOT_CAP of them.
   `background_tasks`,
   `workflow`,
+  // EXP-927: the agent's own task list, the strip's first block.
+  `task_list`,
   // EXP-861: the queued user messages behind a running turn.
   `queue`,
 ])
@@ -205,6 +207,7 @@ const LATEST_REPLAY_ORDER = [
   `queue`,
   `workflow`,
   `background_tasks`,
+  `task_list`,
   `diff`,
 ] as const
 

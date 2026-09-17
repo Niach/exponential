@@ -120,8 +120,8 @@ pub use frames::{
     BackgroundTaskKind, ClientFrame, QueuedMessage, QUEUE_MAX, QUEUE_TEXT_MAX,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
     StartRepoGroup, StartStack, StartStackIssue, SteerRole, SubagentStatus, ToolKind, ToolPreview,
-    ToolUpdateStatus, TurnState,
-    ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
+    TaskListEntry, TaskListStatus, ToolUpdateStatus, TurnState,
+    ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, TASK_LIST_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
     CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
 };
 pub use workflow::{

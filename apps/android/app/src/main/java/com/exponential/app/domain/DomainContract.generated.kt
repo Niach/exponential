@@ -65,6 +65,7 @@ object DomainContract {
     val workflowAgentStateValues: List<String> = listOf("queued", "running", "done", "error")
     val workflowStatusValues: List<String> = listOf("running", "completed", "failed", "stopped")
     val backgroundTaskKindValues: List<String> = listOf("shell", "workflow", "agent", "other")
+    val taskListStatusValues: List<String> = listOf("pending", "in_progress", "completed")
     val steerWorkingVerbs: List<String> = listOf("Thinking", "Pondering", "Musing", "Brewing", "Cogitating", "Percolating", "Noodling", "Simmering", "Weaving", "Tinkering", "Sketching", "Mulling", "Puzzling", "Churning", "Kneading", "Osmosing", "Crunching", "Distilling", "Composing", "Wrangling", "Untangling", "Scheming", "Hatching", "Marinating")
     const val steerWorkingTokenTickMs: Long = 2000L
     const val steerWorkingPreviewMax: Int = 160

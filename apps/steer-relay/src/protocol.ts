@@ -122,6 +122,7 @@ export const setModeFrame = z.object({
 //   rate_limit:        the agent's wall       { kind, status, resetsAt?, message? }                     (latest replaces prior)
 //   turn:              the turn edge          { kind, state, startedAt?, tokens? }                      (latest replaces prior)
 //   background_tasks:  the bottom strip       { kind, tasks[] }                                         (latest replaces prior)
+//   task_list:         the agent's own tasks  { kind, entries[{content,status}] }                       (latest replaces prior)
 //   queue:             held user messages     { kind, messages[{id,text}] }                             (latest replaces prior)
 //   workflow:          one Workflow card      { kind, id, name, status, phases[], agents[], … }         (latest replaces prior PER ID)
 //
@@ -192,6 +193,12 @@ export const BACKGROUND_TASK_KINDS = contract.backgroundTaskKind.values as [
   ...string[],
 ]
 
+/** EXP-927: contract `taskListStatus` — the agent's own task list. */
+export const TASK_LIST_STATUSES = contract.taskListStatus.values as [
+  string,
+  ...string[],
+]
+
 /** EXP-850 §3: contract `workflowStatus` / `workflowAgentState`. */
 export const WORKFLOW_STATUSES = contract.workflowStatus.values as [
   string,
@@ -213,6 +220,9 @@ export const SUBAGENT_STATUSES = contract.subagentStatus.values as [
  *  `steer::BACKGROUND_TASKS_MAX` / `WORKFLOW_PHASES_MAX` /
  *  `WORKFLOW_AGENTS_MAX`, which the publisher truncates to first. */
 export const BACKGROUND_TASKS_MAX = 32
+// EXP-927: how many entries one `task_list` frame carries
+// (`steer::TASK_LIST_MAX`, the publisher cuts the tail first).
+export const TASK_LIST_MAX = 50
 // EXP-861: how many user messages one run holds queued behind a running turn
 // (the desktop engine's own cap), and how much of each the slot carries.
 export const QUEUE_MAX = 20
@@ -497,6 +507,22 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
         })
       )
       .max(BACKGROUND_TASKS_MAX),
+    at: z.number().optional(),
+  }),
+  // EXP-927 (wire doc §2c): the agent's OWN task list (claude's TodoWrite /
+  // Task* list, codex's plan), in FULL and in order. LATEST-WINS state like
+  // `background_tasks`, never a transcript row: clients draw it as the first
+  // block of the bottom strip, hidden while empty or all completed.
+  z.object({
+    kind: z.literal(`task_list`),
+    entries: z
+      .array(
+        z.object({
+          content: z.string().max(WORKFLOW_TEXT_MAX),
+          status: z.enum(TASK_LIST_STATUSES),
+        })
+      )
+      .max(TASK_LIST_MAX),
     at: z.number().optional(),
   }),
   // EXP-861: the user messages the agent has NOT read yet, in FULL and in

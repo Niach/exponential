@@ -287,6 +287,8 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
         // place); a scrolling printer would repeat the whole list on every
         // change, so it stays silent here.
         steer::ActivityEvent::BackgroundTasks { .. } => {}
+        // EXP-927: the task list prints off its LOCAL twin (`print_plan`).
+        steer::ActivityEvent::TaskList { .. } => {}
         // EXP-861: the queue bar is a SCREEN affordance too; a line printer
         // prints the message when the engine delivers it (its own
         // `user_message` row), not while it waits.

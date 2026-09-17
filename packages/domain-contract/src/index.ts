@@ -291,6 +291,7 @@ export interface DomainContract {
   workflowAgentState: { values: readonly string[] }
   workflowStatus: { values: readonly string[] }
   backgroundTaskKind: { values: readonly string[] }
+  taskListStatus: { values: readonly string[] }
   steerWorking: {
     verbs: readonly string[]
     tokenTickMs: number
