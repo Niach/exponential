@@ -42,6 +42,7 @@ import {
 } from "@/components/mention-textarea"
 import { EmojiPickerPopover } from "@/components/emoji-picker"
 import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
+import { readTabMemory, writeTabMemory } from "@/lib/work-tab-memory"
 
 // Multi-client surface (the natives mirror this row) — concept icons, never
 // raw lucide imports (EXP-317).
@@ -80,6 +81,12 @@ interface CommentComposerProps {
    * bar (EXP-568) collapses back to its "+ Comment" pill on this.
    */
   onEmptyBlur?: () => void
+  /**
+   * EXP-894: where the typed TEXT is remembered across an unmount (a work tab
+   * switch) — `lib/work-tab-memory.ts`. Seeds the field on mount, cleared on
+   * a successful send and on Cancel. Absent (edit mode) = nothing kept.
+   */
+  draft?: { owner: string; slot: string }
 }
 
 /**
@@ -100,8 +107,17 @@ export function CommentComposer({
   placeholder = `Leave a reply…`,
   autoFocus = false,
   onEmptyBlur,
+  draft,
 }: CommentComposerProps) {
-  const [text, setText] = useState(initialText)
+  const [text, setTextState] = useState(
+    () =>
+      (draft ? readTabMemory<string>(draft.owner, draft.slot) : undefined) ??
+      initialText
+  )
+  const setText = (next: string) => {
+    setTextState(next)
+    if (draft) writeTabMemory(draft.owner, draft.slot, next)
+  }
   const [pending, setPending] = useState<PendingCommentAttachment[]>(() =>
     (initialAttachments ?? []).map((row) => ({ key: row.id, existing: row }))
   )
@@ -399,7 +415,10 @@ export function CommentComposer({
             <Pill
               mode="action"
               size="sm"
-              onClick={onCancel}
+              onClick={() => {
+                setText(``)
+                onCancel()
+              }}
               disabled={submitting}
             >
               Cancel

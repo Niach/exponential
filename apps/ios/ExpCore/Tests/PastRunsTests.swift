@@ -16,6 +16,8 @@ final class PastRunsTests: XCTestCase {
         startedReason: String? = nil,
         issueId: String? = "issue-1",
         actionName: String? = nil,
+        actionId: String? = nil,
+        agentTitle: String? = nil,
         batchIssueIds: String? = nil,
         branch: String? = nil,
         endedAt: String? = "2026-09-01T10:00:00Z",
@@ -31,7 +33,9 @@ final class PastRunsTests: XCTestCase {
             status: status,
             agent: "claude",
             branch: branch,
+            agentTitle: agentTitle,
             batchIssueIds: batchIssueIds,
+            actionId: actionId,
             actionName: actionName,
             startedReason: startedReason,
             endedBy: "user",
@@ -276,6 +280,36 @@ final class PastRunsTests: XCTestCase {
             "Batch run"
         )
         XCTAssertEqual(PastRuns.title(session(id: "a", issueId: nil), issue: nil), "Batch run")
+    }
+
+    // EXP-905 — a chat run reads the agent CLI's auto-title, trimmed, else
+    // "Chat"; issue/action runs ignore `agent_title`. Mirrored ×4.
+    func testAChatRunReadsItsAgentTitle() {
+        let chat = { (title: String?) in
+            self.session(id: "c", issueId: nil, actionName: "Chat", agentTitle: title)
+        }
+        XCTAssertEqual(PastRuns.title(chat("  Fix login flow \n"), issue: nil), "Fix login flow")
+        XCTAssertEqual(PastRuns.chatSubject(chat("Fix login flow")), "Fix login flow")
+        XCTAssertEqual(PastRuns.title(chat(nil), issue: nil), "Chat")
+        XCTAssertEqual(PastRuns.title(chat("   "), issue: nil), "Chat")
+        XCTAssertNil(PastRuns.identifier(chat("Fix login flow"), issue: nil))
+        // An action run keeps its snapshot, even one literally named "Chat".
+        XCTAssertEqual(
+            PastRuns.title(
+                session(id: "a", issueId: nil, actionName: "Release train", agentTitle: "x"),
+                issue: nil
+            ),
+            "Release train"
+        )
+        XCTAssertNil(
+            PastRuns.chatSubject(
+                session(id: "a", issueId: nil, actionName: "Chat", actionId: "act-1", agentTitle: "x")
+            )
+        )
+        XCTAssertEqual(
+            PastRuns.title(session(id: "i", agentTitle: "x"), issue: issue()), "Fix the sync loop"
+        )
+        XCTAssertNil(PastRuns.chatSubject(session(id: "b", issueId: nil, agentTitle: "x")))
     }
 
     // EXP-876 — a batch names itself after the issues it covers, so two of

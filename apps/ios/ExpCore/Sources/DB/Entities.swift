@@ -397,6 +397,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // and cleared by every server end path. A session list row renders it as
     // its SECOND line, before the device byline; NULL = nothing to say.
     public let agentCaption: String?
+    // EXP-905: the title the agent CLI (Claude Code / codex) auto-named the
+    // run with, device-written like `agentCaption`. A CHAT run's subject
+    // (`PastRuns.chatSubject`); NULL = the agent has not named it (yet).
+    public let agentTitle: String?
     // EXP-804: the agent's usage wall, stored as the raw jsonb TEXT off the
     // wire (`{kind, agent, window, resetsAt, since}`) exactly like the device
     // row's `agentUsage`; nil = not blocked. Orthogonal to `status` the way
@@ -480,6 +484,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         needsInput: Bool = false,
         agentBusy: Bool = false,
         agentCaption: String? = nil,
+        agentTitle: String? = nil,
         blocked: String? = nil,
         results: String? = nil,
         batchIssueIds: String? = nil,
@@ -512,6 +517,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.needsInput = needsInput
         self.agentBusy = agentBusy
         self.agentCaption = agentCaption
+        self.agentTitle = agentTitle
         self.blocked = blocked
         self.results = results
         self.batchIssueIds = batchIssueIds
@@ -543,6 +549,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case needsInput = "needs_input"
         case agentBusy = "agent_busy"
         case agentCaption = "agent_caption"
+        case agentTitle = "agent_title"
         case blocked
         case results
         case batchIssueIds = "batch_issue_ids"
@@ -590,6 +597,8 @@ extension CodingSessionEntity: Codable {
         agentBusy = c.decodeWireBool(forKey: .agentBusy, default: false)
         // EXP-850: pre-EXP-850 snapshots omit the key — decode permissively.
         agentCaption = try c.decodeIfPresent(String.self, forKey: .agentCaption)
+        // EXP-905: pre-EXP-905 snapshots omit the key — decode permissively.
+        agentTitle = try c.decodeIfPresent(String.self, forKey: .agentTitle)
         // EXP-804: jsonb — raw text off the wire, a native object from
         // fixtures; pre-EXP-804 snapshots omit the key entirely.
         blocked = c.decodeWireJsonString(forKey: .blocked)

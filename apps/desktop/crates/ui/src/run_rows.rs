@@ -540,8 +540,8 @@ pub(crate) fn run_started_at(session: &domain::rows::CodingSession) -> Option<&s
 }
 
 /// The row's subject line: the issue title, a sync placeholder while that
-/// issue row is missing, the action-name snapshot (a chat run's reads "Chat",
-/// EXP-615), else the batch's own name (EXP-876: its first covered issue's
+/// issue row is missing, the action-name snapshot (a chat run's reads its
+/// `agent_title`, else "Chat", EXP-615/EXP-908), else the batch's own name (EXP-876: its first covered issue's
 /// title, else "Batch run"). Byte-identical ×4: web `pastRunTitle`, iOS
 /// `PastRuns.title`, Android `pastRunTitle`.
 pub(crate) fn run_title(
@@ -560,9 +560,10 @@ pub(crate) fn run_title(
     if session.issue_id.is_some() {
         return SharedString::from("Issue syncing…");
     }
-    match session.action_name.as_deref() {
-        Some(name) if !name.trim().is_empty() => SharedString::from(name.to_string()),
-        _ => SharedString::from(domain::batch_run::batch_run_name(session, batch_issues).subject),
+    // EXP-908: a chat run reads the agent's auto-named title, else "Chat".
+    match domain::batch_run::action_run_subject(session) {
+        Some(subject) => SharedString::from(subject),
+        None => SharedString::from(domain::batch_run::batch_run_name(session, batch_issues).subject),
     }
 }
 
@@ -813,6 +814,11 @@ mod tests {
             "id": "s-4", "action_name": "Chat", "branch": "exp/chat-1a2b3c4d"
         }));
         assert_eq!(run_title(&chat, None, &[]), SharedString::from("Chat"));
+        // EXP-908: once the agent names the chat, the subject is that title.
+        let named = row(serde_json::json!({
+            "id": "s-5", "action_name": "Chat", "agent_title": " Tab shell polish "
+        }));
+        assert_eq!(run_title(&named, None, &[]), SharedString::from("Tab shell polish"));
         let syncing = row(serde_json::json!({ "id": "s-3", "issue_id": "i-1" }));
         assert_eq!(
             run_title(&syncing, None, &[]),

@@ -382,7 +382,25 @@ pub struct IssueDetailView {
     /// the first time it opens (its fetch is `issues.prFiles`, one snapshot
     /// per issue).
     changes: Option<Entity<crate::pr_diff::PrDiffView>>,
+    /// EXP-894: what each OPEN issue tab would lose on a switch — this view
+    /// is shared across tabs, so it stashes the outgoing issue's comment
+    /// drafts + scroll and restores them on the way back
+    /// (`crate::tab_state` documents the choice). The panel drops a tab's
+    /// entry when the tab closes ([`Self::forget_tab_state`]).
+    tab_states: crate::tab_state::TabStateStore<IssueTabState>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-894: one issue tab's switch-surviving state.
+struct IssueTabState {
+    scroll: gpui::Point<gpui::Pixels>,
+    timeline: crate::timeline::TimelineDraft,
+}
+
+impl crate::tab_state::TabStateEmpty for IssueTabState {
+    fn is_empty_state(&self) -> bool {
+        self.scroll == gpui::Point::default() && self.timeline.is_empty()
+    }
 }
 
 impl IssueDetailView {
@@ -466,6 +484,7 @@ impl IssueDetailView {
             resumable: None,
             changes_open: false,
             changes: None,
+            tab_states: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -516,6 +535,19 @@ impl IssueDetailView {
         changes
     }
 
+    /// EXP-894: `issue_id`'s tab closed — its stashed drafts go with it (and,
+    /// when it is the issue on show, the live ones are not stashed on the
+    /// way out either).
+    pub(crate) fn forget_tab_state(&mut self, issue_id: &str) {
+        let live = self.issue_id.as_deref() == Some(issue_id);
+        self.tab_states.forget(issue_id, live);
+    }
+
+    /// EXP-894: every issue tab went (a team switch).
+    pub(crate) fn clear_tab_states(&mut self) {
+        self.tab_states.clear(self.issue_id.as_deref());
+    }
+
     /// The area under the fixed header: the scrolling body. (EXP-818 retired
     /// the EXP-791 slide-in session panel — a run opens on its own
     /// `Screen::Session` beside the list it came from.)
@@ -542,7 +574,25 @@ impl IssueDetailView {
         cx: &mut gpui::Context<Self>,
     ) {
         if self.issue_id.as_deref() == Some(issue_id.as_str()) {
+            // EXP-894: its tab closed while this view still pointed at it —
+            // the reopened tab starts clean, like any freshly opened issue.
+            if self.tab_states.reopened(&issue_id) {
+                self.body_scroll
+                    .set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
+                self.timeline.update(cx, |timeline, cx| {
+                    timeline.restore_draft(Default::default(), window, cx)
+                });
+            }
             return;
+        }
+        // EXP-894: stash what the OUTGOING issue's tab would lose (its
+        // comment drafts, its scroll) before the resets below wipe it.
+        if let Some(outgoing) = self.issue_id.clone() {
+            let state = IssueTabState {
+                scroll: self.body_scroll.offset(),
+                timeline: self.timeline.read(cx).draft(cx),
+            };
+            self.tab_states.stash(&outgoing, state);
         }
         // Commit an in-flight title edit to the OUTGOING issue before the
         // swap (its blur won't fire until `issue_id` already points at the
@@ -628,10 +678,18 @@ impl IssueDetailView {
         self.header.update(cx, |header, cx| {
             header.set_issue(Some(issue_id.clone()), window, cx)
         });
+        // EXP-894: the incoming tab's stash, if it left one.
+        let restored = self.tab_states.take(&issue_id);
         self.timeline
             .update(cx, |timeline, cx| {
                 timeline.set_issue(Some(issue_id), window, cx)
             });
+        if let Some(state) = restored {
+            self.body_scroll.set_offset(state.scroll);
+            self.timeline.update(cx, |timeline, cx| {
+                timeline.restore_draft(state.timeline, window, cx)
+            });
+        }
 
         self.sync_from_issue(window, cx);
         // Land keyboard focus on the detail root so its scoped bindings are

@@ -67,6 +67,42 @@ pub fn is_batch_run(session: &CodingSession) -> bool {
     session.issue_id.is_none() && session.action_name.is_none()
 }
 
+/// The reserved action-name snapshot a CHAT run carries (EXP-615): the chat
+/// builtin's own name, `api::actions::BUILTIN_CHAT_NAME`, which this crate
+/// does not depend on.
+pub const CHAT_RUN_NAME: &str = "Chat";
+
+/// A chat run: issue-less, action-row-less, carrying the reserved `Chat`
+/// snapshot (the server stamps it from the builtin, never client text).
+pub fn is_chat_run(session: &CodingSession) -> bool {
+    session.issue_id.is_none()
+        && session.action_id.is_none()
+        && session.action_name.as_deref().map(str::trim) == Some(CHAT_RUN_NAME)
+}
+
+/// EXP-908 — the subject of an issue-less ACTION-shaped run (chat or action):
+/// a chat run reads the agent's auto-named `agent_title` when non-empty, else
+/// `Chat`; an action run its name snapshot. `None` for an issue run, a batch,
+/// or a blank snapshot. Byte-identical ×4 (web `pastRunTitle`).
+pub fn action_run_subject(session: &CodingSession) -> Option<String> {
+    if session.issue_id.is_some() {
+        return None;
+    }
+    if is_chat_run(session) {
+        let title = session.agent_title.as_deref().map(str::trim).unwrap_or("");
+        return Some(if title.is_empty() {
+            CHAT_RUN_NAME.to_string()
+        } else {
+            title.to_string()
+        });
+    }
+    session
+        .action_name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_string)
+}
+
 /// The issues a batch run covers, in NAMING order: the stored order when the
 /// row recorded it, else the branch-mates oldest first (a deterministic order
 /// every client reaches the same way — `created_at` is on every issue row,
@@ -208,6 +244,28 @@ mod tests {
         assert!(is_batch_run(&session(json!({}))));
         assert!(!is_batch_run(&session(json!({"issue_id": "i-1"}))));
         assert!(!is_batch_run(&session(json!({"action_name": "Chat"}))));
+    }
+
+    #[test]
+    fn a_chat_run_is_named_after_its_agent_title() {
+        let chat = |title: Value| session(json!({"action_name": "Chat", "agent_title": title}));
+        assert_eq!(
+            action_run_subject(&chat(json!("  Fix the login flow "))).as_deref(),
+            Some("Fix the login flow")
+        );
+        assert_eq!(action_run_subject(&chat(json!("   "))).as_deref(), Some("Chat"));
+        assert_eq!(action_run_subject(&chat(Value::Null)).as_deref(), Some("Chat"));
+        // Action and issue runs never read the agent title.
+        let action = session(json!({
+            "action_id": "a-1", "action_name": "Daily digest", "agent_title": "Something"
+        }));
+        assert_eq!(action_run_subject(&action).as_deref(), Some("Daily digest"));
+        let issue = session(json!({"issue_id": "i-1", "agent_title": "Something"}));
+        assert_eq!(action_run_subject(&issue), None);
+        // A batch has no action subject at all (it names itself after issues).
+        assert_eq!(action_run_subject(&session(json!({"agent_title": "x"}))), None);
+        assert!(is_chat_run(&session(json!({"action_name": "Chat"}))));
+        assert!(!is_chat_run(&session(json!({"action_id": "a-1", "action_name": "Chat"}))));
     }
 
     #[test]

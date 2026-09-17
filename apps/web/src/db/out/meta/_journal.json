@@ -876,6 +876,13 @@
       "when": 1789528854296,
       "tag": "0124_batch_issue_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1789570193164,
+      "tag": "0125_coding_session_agent_title",
+      "breakpoints": true
     }
   ]
 }

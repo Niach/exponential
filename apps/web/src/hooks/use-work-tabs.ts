@@ -7,6 +7,7 @@ import {
   workTabsStorageKey,
   type WorkTabsState,
 } from "@/lib/work-tabs"
+import { forgetClosedTabs } from "@/lib/work-tab-memory"
 
 // EXP-870: the work tabs' store — one state per TEAM, persisted in
 // `sessionStorage` (per browser window, like a browser's own tabs: a second
@@ -42,6 +43,8 @@ export function updateWorkTabs(
   const current = read(teamId)
   const next = transition(current)
   if (next === current) return
+  // EXP-894: a closed (or pruned) tab takes its remembered drafts with it.
+  forgetClosedTabs(current.tabs, next.tabs)
   cache.set(teamId, next)
   try {
     window.sessionStorage.setItem(workTabsStorageKey(teamId), JSON.stringify(next))

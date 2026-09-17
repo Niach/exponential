@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.batchRunName
+import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-688: a coding session's IDENTITY line — status dot, mono identifier,
@@ -87,7 +88,9 @@ internal fun sessionRowTitle(
 ): String = when {
     issue != null -> issue.title.ifBlank { "Untitled issue" }
     session.issueId == null ->
-        session.actionName?.takeIf { it.isNotBlank() }
+        // EXP-905: a chat run reads its agent's auto-title, else "Chat".
+        chatRunSubject(session)
+            ?: session.actionName?.takeIf { it.isNotBlank() }
             ?: batchRunName(session, batchIssues).subject
     else -> "Issue not synced yet"
 }

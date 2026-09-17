@@ -94,6 +94,8 @@ pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
     truncate_marked, worktree_diff, AgentBusyForwarder, AgentBusyHook, AnswerLink,
     CaptionForwarder, CaptionHook, CaptionSignal, CommandLink,
+    normalize_agent_title, AgentTitleForwarder, AgentTitleHook, AgentTitleSignal, AGENT_TITLE_MAX,
+    AGENT_TITLE_RETRY_INTERVAL,
     ConfigChange, ConfigLink,
     BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
     RemoteAnswer, SessionAgent, SessionBlocked, blocked_wall_expired, iso_from_unix_millis,

@@ -49,8 +49,24 @@ fun pastRunTitle(
     issue != null -> issue.title.trim().ifBlank { "Untitled issue" }
     session.issueId != null -> "Issue syncing…"
     else ->
-        session.actionName?.trim()?.ifBlank { null }
+        chatRunSubject(session)
+            ?: session.actionName?.trim()?.ifBlank { null }
             ?: batchRunName(session, batchIssues).subject
+}
+
+/** The hidden Chat builtin's name — the `action_name` snapshot every chat run
+ *  carries (EXP-615; byte-identical with `builtinChatAction`). */
+const val CHAT_RUN_NAME = "Chat"
+
+/**
+ * EXP-905: a CHAT run's subject — the agent CLI's own auto-title
+ * (`agent_title`, trimmed) when non-empty, else "Chat". Null for every other
+ * run (issue/action/batch keep their names). A chat run = no issue, no action
+ * row, `action_name` == "Chat". Mirrored ×4.
+ */
+fun chatRunSubject(session: CodingSessionEntity): String? {
+    if (session.issueId != null || session.actionId != null || session.actionName != CHAT_RUN_NAME) return null
+    return session.agentTitle?.trim()?.ifBlank { null } ?: CHAT_RUN_NAME
 }
 
 /**

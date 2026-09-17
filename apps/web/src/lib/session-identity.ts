@@ -13,8 +13,9 @@ export interface SessionIdentity {
   /** `EXP-688`, or a batch's `EXP-688 +2` (EXP-876) — null for action, chat
    * and not-yet-synced issue runs. */
   identifier: string | null
-  /** The issue title, an action's name snapshot, `Chat`, or the batch's own
-   * name (its first issue's title, else `Batch run`). */
+  /** The issue title, an action's name snapshot, a chat's agent-named title
+   * (EXP-905, else `Chat`), or the batch's own name (its first issue's title,
+   * else `Batch run`). */
   subject: string
 }
 
@@ -22,14 +23,21 @@ export interface SessionIdentity {
  * `CodingSession`, a synthesized row, or a fixture. */
 type IdentitySession = Pick<
   CodingSession,
-  `issueId` | `actionId` | `actionName` | `batchIssueIds` | `branch`
+  | `issueId`
+  | `actionId`
+  | `actionName`
+  | `batchIssueIds`
+  | `branch`
+  | `agentTitle`
 >
 
 /** EXP-739: the hidden "Chat" builtin's runs. It has no DB `actions` row (so
  * `action_id` is NULL like a batch run's) and links no issue — the reserved
  * `actionName` snapshot is what tells the two apart. ×4 with the desktop's
  * `ActionRunKind::Chat` and the natives' chat rows. */
-export function isChatSession(session: IdentitySession): boolean {
+export function isChatSession(
+  session: Pick<IdentitySession, `issueId` | `actionId` | `actionName`>
+): boolean {
   return (
     session.issueId == null &&
     session.actionId == null &&
@@ -56,7 +64,9 @@ export function sessionIdentity(row: {
     }
   }
   if (isChatSession(session)) {
-    return { identifier: null, subject: BUILTIN_CHAT_NAME }
+    // EXP-905: a chat reads the title its agent CLI named it with (×4).
+    const title = session.agentTitle?.trim()
+    return { identifier: null, subject: title || BUILTIN_CHAT_NAME }
   }
   if (!session.issueId) {
     // An action run keeps its snapshot; a batch names itself after its issues.

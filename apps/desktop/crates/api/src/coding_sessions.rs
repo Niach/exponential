@@ -695,6 +695,42 @@ pub fn set_agent_caption(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct SetAgentTitleInput<'a> {
+    id: &'a str,
+    /// `None` is written as an explicit JSON null (the server's clear), like
+    /// the caption's.
+    title: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct SetAgentTitleEnvelope {
+    updated: bool,
+}
+
+/// `codingSessions.setAgentTitle` — mutation (EXP-905). Writes the name the
+/// agent CLI gave its conversation (claude's `ai-title`/`custom-title`
+/// transcript lines, codex's `thread/name/updated`) onto the synced row's
+/// `agent_title` column, so a chat run lists under that name instead of a
+/// generic "Chat" on every client.
+///
+/// Same rails as [`set_agent_caption`]: owner-or-host, live statuses only,
+/// blank → null server-side, `updated: false` and transport errors both
+/// ignorable. Unlike the caption it is never cleared at teardown — the name
+/// outlives the run.
+pub fn set_agent_title(
+    trpc: &TrpcClient,
+    id: &str,
+    title: Option<&str>,
+) -> Result<bool, ApiError> {
+    let envelope: SetAgentTitleEnvelope = trpc.mutation(
+        "codingSessions.setAgentTitle",
+        &SetAgentTitleInput { id, title },
+    )?;
+    Ok(envelope.updated)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BlockedInput<'a> {
     pub kind: &'a str,
     pub agent: &'a str,
@@ -1641,6 +1677,22 @@ mod tests {
         assert!(!set_agent_caption(&client(&base), "sess-1", None).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(r#"{"id":"sess-1","caption":null}"#));
+    }
+
+    /// EXP-905: the agent's own conversation name. `None` goes over as an
+    /// explicit JSON null, exactly like the caption.
+    #[test]
+    fn set_agent_title_posts_the_text_and_an_explicit_null() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"updated":true}}}"#);
+        assert!(set_agent_title(&client(&base), "sess-1", Some("Fix the flaky login test")).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/codingSessions.setAgentTitle HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"sess-1","title":"Fix the flaky login test"}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"updated":false}}}"#);
+        assert!(!set_agent_title(&client(&base), "sess-1", None).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"id":"sess-1","title":null}"#));
     }
 
     #[test]

@@ -113,9 +113,25 @@ public enum PastRuns {
             return title.isEmpty ? "Untitled issue" : title
         }
         if session.issueId != nil { return "Issue syncing…" }
+        if let chat = chatSubject(session) { return chat }
         let action = (session.actionName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !action.isEmpty { return action }
         return BatchRun.name(session, issues: batchIssues).subject
+    }
+
+    /// The hidden Chat builtin's name — the `action_name` snapshot every chat
+    /// run carries (EXP-615; byte-identical with `ActionDto.builtinChatAction`).
+    public static let chatRunName = "Chat"
+
+    /// EXP-905: a CHAT run's subject — the agent CLI's own auto-title
+    /// (`agent_title`, trimmed) when non-empty, else "Chat". nil for every
+    /// other run (issue/action/batch keep their names). A chat run = no issue,
+    /// no action row, `action_name` == "Chat". Mirrored ×4.
+    public static func chatSubject(_ session: CodingSessionEntity) -> String? {
+        guard session.issueId == nil, session.actionId == nil,
+              session.actionName == chatRunName else { return nil }
+        let title = (session.agentTitle ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? chatRunName : title
     }
 
     /// EXP-876: the row's mono lead-in — the issue's identifier, a batch's

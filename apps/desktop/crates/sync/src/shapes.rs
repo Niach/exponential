@@ -394,6 +394,11 @@ pub const SHAPES: [ShapeSpec; 22] = [
             // list's second line. Heals onto existing store tables like the
             // rest; dropping it silently blanks the line on this client only.
             "agent_caption",
+            // EXP-908: the device-written agent title — a CHAT run's subject
+            // on every client (tabs, lists, the run header). Heals onto
+            // existing store tables like the rest; dropping it silently
+            // renames every chat back to "Chat" on this client only.
+            "agent_title",
             // EXP-804: the agent's usage wall as row state (jsonb, NULL =
             // not blocked). A blocked run still reads `running`, so without
             // this the IDE shows a silently stalled run as healthy. Heals
@@ -809,6 +814,14 @@ mod tests {
     fn coding_sessions_syncs_the_agent_caption() {
         let spec = shape_by_name("coding_sessions").unwrap();
         assert!(spec.columns.contains(&"agent_caption"));
+    }
+
+    /// EXP-908: the agent's auto-named title — a chat run's subject. Dropping
+    /// it silently names every chat "Chat" here while other clients name it.
+    #[test]
+    fn coding_sessions_syncs_the_agent_title() {
+        let spec = shape_by_name("coding_sessions").unwrap();
+        assert!(spec.columns.contains(&"agent_title"));
     }
 
     #[test]

@@ -114,7 +114,22 @@ pub struct SupportThreadView {
     /// Last mutation failure — a caption under the header, cleared on the
     /// next attempt.
     error: Option<String>,
+    /// EXP-894: each OPEN thread tab's unsent composer (text + Reply/Note
+    /// mode) — this view is shared across tabs (`crate::tab_state`).
+    tab_states: crate::tab_state::TabStateStore<ThreadTabState>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-894: one support-thread tab's switch-surviving state.
+struct ThreadTabState {
+    draft: String,
+    note_mode: bool,
+}
+
+impl crate::tab_state::TabStateEmpty for ThreadTabState {
+    fn is_empty_state(&self) -> bool {
+        self.draft.trim().is_empty() && !self.note_mode
+    }
 }
 
 impl SupportThreadView {
@@ -160,8 +175,21 @@ impl SupportThreadView {
             escalate_board: None,
             scroll: ScrollHandle::new(),
             error: None,
+            tab_states: Default::default(),
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-894: `thread_id`'s tab closed — drop its stashed draft (and, when
+    /// it is the thread on show, never stash the live one on the way out).
+    pub(crate) fn forget_tab_state(&mut self, thread_id: &str) {
+        let live = self.thread_id.as_deref() == Some(thread_id);
+        self.tab_states.forget(thread_id, live);
+    }
+
+    /// EXP-894: every thread tab went (a team switch).
+    pub(crate) fn clear_tab_states(&mut self) {
+        self.tab_states.clear(self.thread_id.as_deref());
     }
 
     /// Point the view at a thread. Local state resets per thread; re-pointing
@@ -174,6 +202,12 @@ impl SupportThreadView {
         cx: &mut gpui::Context<Self>,
     ) {
         if self.thread_id.as_deref() == Some(thread_id.as_str()) {
+            // EXP-894: its tab closed while still pointed at — start clean.
+            if self.tab_states.reopened(&thread_id) {
+                self.set_note_mode(false, window, cx);
+                self.composer
+                    .update(cx, |input, cx| input.set_value("", window, cx));
+            }
             self.ensure_poll(cx);
             return;
         }
@@ -185,6 +219,15 @@ impl SupportThreadView {
         if queries::trpc_client(cx).is_none() {
             return;
         }
+        // EXP-894: stash the OUTGOING thread's unsent composer first.
+        if let Some(outgoing) = self.thread_id.clone() {
+            let state = ThreadTabState {
+                draft: self.composer.read(cx).value().to_string(),
+                note_mode: self.note_mode,
+            };
+            self.tab_states.stash(&outgoing, state);
+        }
+        let restored = self.tab_states.take(&thread_id);
         self.thread_id = Some(thread_id);
         self.detail = None;
         self.submission = None;
@@ -199,6 +242,11 @@ impl SupportThreadView {
             input.set_value("", window, cx);
             input.set_placeholder(reply_placeholder("the reporter"), window, cx);
         });
+        if let Some(state) = restored {
+            self.set_note_mode(state.note_mode, window, cx);
+            self.composer
+                .update(cx, |input, cx| input.set_value(state.draft, window, cx));
+        }
         self.fetch(cx);
         self.fetch_submission(cx);
         self.ensure_poll(cx);

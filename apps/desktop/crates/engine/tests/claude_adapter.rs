@@ -1263,9 +1263,25 @@ async fn a_recorded_transcript_lists_and_replays_without_spawning_the_cli() {
         .lock()
         .expect("updates")
         .iter()
+        .filter(|notification| !matches!(notification.update, SessionUpdate::SessionInfoUpdate(_)))
         .map(|notification| shape(&notification.update))
         .collect();
     assert_eq!(shapes, vec!["user:hello there".to_string(), "agent:hi back".to_string()]);
+    // EXP-905: a LIVE load (not a read-only replay) names the run off the
+    // transcript's `ai-title` line, as a `session_info_update` title.
+    let titles: Vec<String> = updates
+        .lock()
+        .expect("updates")
+        .iter()
+        .filter_map(|notification| match &notification.update {
+            SessionUpdate::SessionInfoUpdate(info) => match &info.title {
+                agent_client_protocol::schema::MaybeUndefined::Value(title) => Some(title.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(titles, vec!["A recorded run".to_string()]);
     assert!(
         !work.0.join("argv.txt").exists(),
         "a transcript replay must not spawn claude"

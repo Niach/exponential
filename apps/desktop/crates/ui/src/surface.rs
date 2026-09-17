@@ -741,6 +741,20 @@ pub(crate) struct RichTab {
     pub(crate) title: Option<SharedString>,
     /// A tinted exit-code badge (a terminal chip whose child exited).
     pub(crate) badge: Option<(SharedString, Hsla)>,
+    /// EXP-905: whether the caller appends the trailing ghost × cluster. A
+    /// chip WITHOUT one (a live run, EXP-877) pads its right side like its
+    /// left ([`rich_tab_padding`]) instead of jamming the label against the
+    /// border.
+    pub(crate) closable: bool,
+}
+
+/// EXP-905 — a [`rich_tab`]'s `(left, right)` padding in px: `pl 8 / pr 4`
+/// when the 24px ghost × trails the label (its own box supplies the air),
+/// `pl 8 / pr 8` when nothing does. Byte-identical with the web `DockTab`
+/// (`pl-2 pr-1` / `pl-2 pr-2`); the strip's width measurer reads the same
+/// pair, so a live chip is measured exactly as wide as it paints.
+pub(crate) fn rich_tab_padding(closable: bool) -> (f32, f32) {
+    if closable { (8., 4.) } else { (8., 8.) }
 }
 
 impl RichTab {
@@ -752,13 +766,15 @@ impl RichTab {
             identifier: None,
             title: None,
             badge: None,
+            closable: true,
         }
     }
 }
 
 /// EXP-698/EXP-877 — the ONE RICH tab, now byte-identical with the web chip:
 /// 32px tall, 6px radius, capped at [`RICH_TAB_MAX_W`], `pl 8 / pr 4` (the
-/// short right side is the 24px ghost × the caller appends), `gap 6`, a 14px
+/// short right side is the 24px ghost × the caller appends; `pr 8` on a chip
+/// with no ×, EXP-905 [`rich_tab_padding`]), `gap 6`, a 14px
 /// lead box holding a 14px glyph or an 8px dot, the mono `text_xs` identifier
 /// and the `text_sm` truncating title.
 ///
@@ -775,12 +791,13 @@ impl RichTab {
 /// coincidence of the rem.
 pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
     let theme = cx.theme();
+    let (pad_left, pad_right) = rich_tab_padding(tab.closable);
     let chip = div()
         .id(tab.id)
         .h(px(32.))
         .max_w(px(RICH_TAB_MAX_W))
-        .pl(px(8.))
-        .pr(px(4.))
+        .pl(px(pad_left))
+        .pr(px(pad_right))
         .flex()
         .flex_none()
         .items_center()
@@ -894,6 +911,17 @@ mod tests {
         assert!(tab.identifier.is_none());
         assert!(tab.title.is_none());
         assert!(tab.badge.is_none());
+        assert!(tab.closable, "a chip carries its × unless the caller says not");
+    }
+
+    /// EXP-905: a chip with no × (a live run) pads its right side like its
+    /// left — the label used to touch the border — while a closable chip
+    /// keeps the short right side its 24px × fills. Web `DockTab` twin:
+    /// `pl-2 pr-2` / `pl-2 pr-1`.
+    #[test]
+    fn a_chip_without_a_close_button_pads_both_sides_equally() {
+        assert_eq!(rich_tab_padding(false), (8., 8.));
+        assert_eq!(rich_tab_padding(true), (8., 4.));
     }
 
     /// EXP-698: a Button pill and a `Div` pill must paint the SAME surface.

@@ -822,6 +822,16 @@ async fn open_thread(
     // handshake is lost by starting the pumps here.
     start_pumps(shared, cx, notifications, requests);
 
+    // EXP-905: a resumed thread already carries its name (`Thread.name`).
+    if let Some(update) = response
+        .get("thread")
+        .and_then(|thread| thread.get("name"))
+        .and_then(Value::as_str)
+        .and_then(title_update)
+    {
+        emit(shared, cx, update);
+    }
+
     seed_config(shared, &response).await;
 
     Ok(NewSessionResponse::new(session_id)
@@ -1510,6 +1520,18 @@ fn on_notification(
         }
     }
 
+    // EXP-905: a name for ANOTHER thread (a spawned subagent's) is not this
+    // conversation's.
+    if method == "thread/name/updated" {
+        let named = params.get("threadId").and_then(Value::as_str);
+        let own = shared.session_id();
+        if let (Some(named), Some(own)) = (named, own.as_ref()) {
+            if named != own.0.as_ref() {
+                return;
+            }
+        }
+    }
+
     // 3. The feed.
     for update in feed_updates(&shared.items, method, params) {
         emit(shared, cx, update);
@@ -1602,20 +1624,28 @@ fn feed_updates(items: &Items, method: &str, params: &Value) -> Vec<SessionUpdat
             compaction_id(params),
             CompactionStatus::Completed,
         ))],
+        // EXP-905: the app-server schema names the field `threadName`
+        // (`ThreadNameUpdatedNotification`, nullable); `name` is kept for the
+        // older spelling. The mapper turns it into the synced `agent_title`.
         "thread/name/updated" => params
-            .get("name")
+            .get("threadName")
+            .or_else(|| params.get("name"))
             .and_then(Value::as_str)
-            .filter(|name| !name.is_empty())
-            .map(|name| {
-                SessionUpdate::SessionInfoUpdate(
-                    agent_client_protocol::schema::v1::SessionInfoUpdate::new()
-                        .title(name.to_string()),
-                )
-            })
+            .and_then(title_update)
             .into_iter()
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// EXP-905: a thread name as a `session_info_update` title (`None` when
+/// blank — a cleared name never clears the synced column).
+fn title_update(name: &str) -> Option<SessionUpdate> {
+    (!name.trim().is_empty()).then(|| {
+        SessionUpdate::SessionInfoUpdate(
+            agent_client_protocol::schema::v1::SessionInfoUpdate::new().title(name.to_string()),
+        )
+    })
 }
 
 fn delta_text(params: &Value) -> Option<String> {
@@ -2796,6 +2826,33 @@ mod tests {
             meta.get("exponentialSubagent"),
             Some(&json!({ "id": "thread_9", "agentType": "reviewer", "status": "started" }))
         );
+    }
+
+    #[test]
+    fn a_thread_name_becomes_the_session_title() {
+        let items = Items::default();
+        let title = |params: Value| -> Vec<Option<String>> {
+            feed_updates(&items, "thread/name/updated", &params)
+                .into_iter()
+                .map(|update| match update {
+                    SessionUpdate::SessionInfoUpdate(info) => match info.title {
+                        agent_client_protocol::schema::MaybeUndefined::Value(title) => Some(title),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect()
+        };
+        // The schema's spelling (`ThreadNameUpdatedNotification.threadName`).
+        assert_eq!(
+            title(json!({ "threadId": "t1", "threadName": "Refactor the pump" })),
+            vec![Some("Refactor the pump".to_string())]
+        );
+        // The older `name` spelling still reads.
+        assert_eq!(title(json!({ "threadId": "t1", "name": "Old" })), vec![Some("Old".to_string())]);
+        // A cleared or blank name says nothing.
+        assert!(title(json!({ "threadId": "t1", "threadName": null })).is_empty());
+        assert!(title(json!({ "threadId": "t1", "threadName": "  " })).is_empty());
     }
 
     #[test]

@@ -334,6 +334,13 @@ impl EngineSession {
         self.0.ctx.caption_signal.clone()
     }
 
+    /// EXP-905: the name the agent gave this conversation, in process — the
+    /// same value the engine forwards to the synced `agent_title` column.
+    /// `None` until the agent names it.
+    pub fn agent_title(&self) -> Option<String> {
+        self.0.ctx.agent_title.get()
+    }
+
     /// Stop now and end the row with `outcome` as the publisher `bye`.
     /// Idempotent.
     pub fn kill(&self, outcome: &'static str) {
@@ -553,6 +560,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         local_sink: spec.local_sink,
         turn_signal: Arc::new(steer::TurnSignal::new()),
         caption_signal: Arc::new(steer::CaptionSignal::new()),
+        agent_title: Arc::new(steer::AgentTitleSignal::new()),
         workflows: Mutex::new(Vec::new()),
         agent: spec.agent,
         redactor,

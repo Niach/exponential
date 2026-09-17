@@ -287,9 +287,14 @@ import androidx.room.TypeConverters
     //      of guessing the machine's ambient one. New column on the
     //      coding-sessions shape allowlist; destructive fallback wipes +
     //      resyncs so every row arrives carrying it.
+    // v63 (EXP-905): coding_sessions.agent_title — the agent CLI's own
+    //      auto-title for the run, device-written, nullable text; a chat run's
+    //      subject. New column on the coding-sessions shape allowlist;
+    //      destructive fallback wipes + resyncs so every row arrives carrying
+    //      it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 62,
+    version = 63,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

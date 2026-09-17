@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { CommentComposer } from "@/components/comment-composer"
+import { readTabMemory, resetTabMemory } from "@/lib/work-tab-memory"
 
 // EXP-568 — the composer grew the same four insert affordances the editor rail
 // carries, so the action row is a cross-client contract now. The `#` button in
@@ -132,5 +133,46 @@ describe(`CommentComposer onEmptyBlur`, () => {
     })
     expect(onEmptyBlur).not.toHaveBeenCalled()
     outside.remove()
+  })
+})
+
+// EXP-894: a work-tab switch unmounts the issue route — the draft must come
+// back with it, and leave once it is posted.
+describe(`CommentComposer draft memory`, () => {
+  const draft = { owner: `issue:issue-draft`, slot: `comment` }
+
+  it(`restores typed text after an unmount`, () => {
+    resetTabMemory()
+    const first = render(
+      <CommentComposer issueId="issue-1" users={[]} onSubmit={vi.fn()} draft={draft} />
+    )
+    fireEvent.change(screen.getByPlaceholderText(`Leave a reply…`), {
+      target: { value: `half typed` },
+    })
+    first.unmount()
+
+    render(
+      <CommentComposer issueId="issue-1" users={[]} onSubmit={vi.fn()} draft={draft} />
+    )
+    expect(
+      (screen.getByPlaceholderText(`Leave a reply…`) as HTMLTextAreaElement)
+        .value
+    ).toBe(`half typed`)
+  })
+
+  it(`forgets the draft once the comment posts`, async () => {
+    resetTabMemory()
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+    render(
+      <CommentComposer issueId="issue-1" users={[]} onSubmit={onSubmit} draft={draft} />
+    )
+    fireEvent.change(screen.getByPlaceholderText(`Leave a reply…`), {
+      target: { value: `ship it` },
+    })
+    fireEvent.click(screen.getByLabelText(`Send comment`))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(`ship it`, []))
+    await waitFor(() =>
+      expect(readTabMemory(draft.owner, draft.slot)).toBeUndefined()
+    )
   })
 })

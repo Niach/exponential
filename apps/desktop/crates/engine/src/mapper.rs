@@ -123,6 +123,9 @@ pub struct MapOut {
     /// exactly like `needs_input`'s `Option<bool>`: the outer layer is "did
     /// this step speak", the inner one is the value.
     pub blocked: Option<Option<steer::SessionBlocked>>,
+    /// EXP-905: the agent's conversation name CHANGED to this (already
+    /// normalised). Never a clear: a `null` title says nothing here.
+    pub agent_title: Option<String>,
 }
 
 /// Identifies one parked ask so an inbound `answer` frame can find the ACP
@@ -212,6 +215,9 @@ pub struct Mapper {
     last_usage: Option<ActivityEvent>,
     /// EXP-784: the rate-limit slot's last published snapshot.
     last_rate_limit: Option<ActivityEvent>,
+    /// EXP-905: the agent's conversation name as last reported (normalised),
+    /// so an identical re-report is not a change.
+    agent_title: Option<String>,
     /// EXP-848: the turn slot as last published. Deduped like the others — a
     /// second `ended` for the same turn says nothing.
     turn_state: steer::TurnState,
@@ -444,6 +450,7 @@ impl Mapper {
             last_config_state: None,
             last_usage: None,
             last_rate_limit: None,
+            agent_title: None,
             turn_state: steer::TurnState::default(),
             turn_started_at: None,
             turn_tokens: 0,
@@ -637,7 +644,20 @@ impl Mapper {
             // A session-row fact, not a feed row — unless its `_meta` carries
             // the EXP-784 rate-limit slot (claude's `rate_limit_event` and its
             // synthetic "You've hit your…" notices ride a no-op one).
-            SessionUpdate::SessionInfoUpdate(_) => {
+            SessionUpdate::SessionInfoUpdate(update) => {
+                // EXP-905: a TITLE is the agent naming its conversation
+                // (claude's transcript `ai-title`, codex's
+                // `thread/name/updated`) — the synced `agent_title` column's
+                // one input. The no-op carriers leave it undefined; a `null`
+                // never clears (the name outlives whatever cleared it).
+                if let Some(title) = defined(&update.title)
+                    .and_then(|raw| steer::normalize_agent_title(raw))
+                {
+                    if self.agent_title.as_deref() != Some(title.as_str()) {
+                        self.agent_title = Some(title.clone());
+                        out.agent_title = Some(title);
+                    }
+                }
                 if let Some(slot) = notification
                     .meta
                     .as_ref()
@@ -3189,6 +3209,57 @@ mod tests {
 
     fn notify(update: SessionUpdate) -> SessionNotification {
         SessionNotification::new(SessionId::new("acp-1"), update)
+    }
+
+    /// EXP-905: a session title is recorded (normalised) only when it
+    /// CHANGES; the no-op `_meta` carriers and a `null` title say nothing,
+    /// and the rate-limit slot still rides the same arm.
+    #[test]
+    fn a_session_title_surfaces_once_per_change_and_never_clears() {
+        use agent_client_protocol::schema::v1::SessionInfoUpdate;
+        let mut mapper = mapper();
+        let titled = |title: &str| {
+            notify(SessionUpdate::SessionInfoUpdate(
+                SessionInfoUpdate::new().title(title.to_string()),
+            ))
+        };
+        let mut out = MapOut::default();
+        mapper.on_update(&titled("  Fix the\n flaky test "), &mut out);
+        assert_eq!(out.agent_title.as_deref(), Some("Fix the flaky test"));
+        assert!(out.wire.is_empty(), "a title is a row fact, not a feed event");
+
+        let mut out = MapOut::default();
+        mapper.on_update(&titled("Fix the flaky test"), &mut out);
+        assert_eq!(out.agent_title, None, "an identical re-report is no change");
+
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::SessionInfoUpdate(
+                SessionInfoUpdate::new().title(None::<String>),
+            )),
+            &mut out,
+        );
+        mapper.on_update(&notify(SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new())), &mut out);
+        mapper.on_update(&titled("   "), &mut out);
+        assert_eq!(out.agent_title, None);
+
+        let mut carrier = notify(SessionUpdate::SessionInfoUpdate(
+            SessionInfoUpdate::new().title("Renamed".to_string()),
+        ));
+        let mut meta = serde_json::Map::new();
+        meta.insert(
+            RATE_LIMIT_META_KEY.to_string(),
+            json!({ "status": "rejected", "resetsAt": 1_900_000_000_000_i64, "window": "session" }),
+        );
+        carrier.meta = Some(meta);
+        let mut out = MapOut::default();
+        mapper.on_update(&carrier, &mut out);
+        assert_eq!(out.agent_title.as_deref(), Some("Renamed"));
+        assert!(
+            out.wire.iter().any(|event| matches!(event, steer::ActivityEvent::RateLimit { .. })),
+            "{:?}",
+            out.wire
+        );
     }
 
     fn chunk(text: &str, message_id: Option<&str>) -> ContentChunk {

@@ -11,8 +11,10 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.domain.CHAT_RUN_NAME
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrStack
+import com.exponential.app.domain.chatRunSubject
 import com.exponential.app.domain.sortableTimestamp
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -93,7 +95,7 @@ fun buildRunEntries(sessions: List<CodingSessionEntity>): List<RunReviewEntry> {
                 prUrl = session.prUrl,
                 prNumber = session.prNumber,
                 branch = session.branch,
-                title = session.actionName ?: "Chat",
+                title = chatRunSubject(session) ?: session.actionName ?: CHAT_RUN_NAME,
             )
         }
 }
