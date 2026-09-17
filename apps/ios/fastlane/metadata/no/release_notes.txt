@@ -1,3 +1,11 @@
+- En chatkjøring får navn etter det agenten arbeider med, i stedet for å hete «Chat» overalt
+- Én diff overalt: filene i en diff ligger i et tre du kan hoppe rundt i, og en agents endringer i én tur samles på ett kort «Edited files»
+- Forbruket på ett sted: et panel viser kjøringens egen konto, grensevinduene dens og kontekstvinduet, pluss de andre innloggingene på maskinen
+- Enhetene bærer innloggingene: hver maskin viser sine agentinnlogginger med plan, tilstand og forbruk, og tannhjulet til en enhet rommer Update og Remove
+- En stack-fletting som mislykkes, sier nå hvorfor i stedet for å tie
+- Ett issue-søk: samme rangering bærer hver issueliste, hver velger og hver #-meny, med det øverste treffet allerede valgt
+- En kommando som kjører, viser bare de siste linjene sine, så lang utskrift ikke lenger oversvømmer kjøringen
+- En kjøring som blir taus, markeres som avsluttet og blir stående i listen i stedet for å forsvinne
 - Én Work-skjerm: et issue, kjøringen, endringene og resultatene er sider av samme skjerm, du bytter mellom dem fra linjen nederst, og Stop eller Resume ligger øverst til høyre
 - Én diff-visning: alle differ leses likt, med linjenumre, skjulte uendrede linjer du kan åpne, og omdøpte eller binære filer navngitt i stedet for vist tomme
 - Stablede pull requests: start et issue oppå det som blokkerer det, slå sammen hele kjeden med Merge stack, les stack- eller batch-merket på arbeidet, og svar på spørsmålet en nøstet kjøring sender deg
@@ -8,11 +16,6 @@
 - Meldinger i kø: en melding som venter på agenten står i en linje over skrivefeltet, og Stop i en økt som kjører avbryter virkelig den pågående turen i stedet for å bli borte på veien
 - Roligere knapper og tydeligere velgere: bare hovedhandlingen på en skjerm beholder en fylt sirkel, og agentvelgeren bærer merket til Claude Code eller Codex, mens enhetsmenyer starter med et laptop- eller serverikon
 - Agent-siden holder kjøringene dine: tidligere kjøringer brettes bak et tall du kan åpne, og når ingenting kjører, ligger skrivefeltet midt på siden
-- Logg inn der kontoen er: innlogging, valg av aktiv konto og fjerning ligger nå på kontobrikkene, og Add account i Accounts-overskriften logger en ny konto inn på en enhet
 - Issue-filtre er borte: filterknappen og pillene er borte fra board og innboks, søk dekker det de ble brukt til, og gruppering og statusbånd blir
 - Fortsett med e-post eller med en passnøkkel: logg inn med en 6-sifret kode du får tilsendt, eller med Face ID eller Touch ID; alle valgene står i én liste, og en ukjent e-post blir rett og slett en ny konto
-- Arbeidsindikatoren stopper når agenten stopper: den følger nå agentens virkelige tur i stedet for tilkoblingen, viser hva den gjør med tid og tokens, og Stop ligger i overskriften til økten
-- Kort i loggen: et kall til Exponential viser en enkel tekst som «Creating issue» med en forhåndsvisning av resultatet, en underagents brikke bærer oppgaven den fikk, og en Plan-brikke uten knapper vises så lenge kjøringen planlegger
-- Workflow-kort: en kjøring med flere agenter vises som ett kort med fasene sine og agentene under, og en øktrad får en andre linje med det kjøringen jobber med akkurat nå
-- Kontoer og reparasjon: tilstanden til en agentkonto kommer fra en ekte forbruksmåling, så en død innlogging viser «Needs re-login», og Devices viser innloggingene til hver maskin med riktig reparasjon på en brikke
 - Bytt konto midt i en kjøring, og kom tilbake dit du kom fra: en Claude-kjøring på grensen sin kan fortsette på en annen konto, og forlater du en økt, havner du tilbake på issuet eller boardet du åpnet den fra

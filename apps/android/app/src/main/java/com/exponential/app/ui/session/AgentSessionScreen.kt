@@ -121,6 +121,7 @@ import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.isSessionLive
+import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.sessionModel
 import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
@@ -434,7 +435,8 @@ fun RunFace(
     // leaving the screen on a spinner nothing could clear. Foreground and
     // network revivals are the store's job, not this screen's.
     LaunchedEffect(Unit) { viewModel.ensureConnected() }
-    val sessionEnded = session?.status == DomainContract.codingSessionStatusEnded
+    // EXP-888: a sweep end is not an end — the composer stays live.
+    val sessionEnded = session?.let { runHasEnded(it) } == true
     // A trailing question/plan means the session is blocked on a human — the
     // host's title dot flips amber so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&
@@ -4712,7 +4714,7 @@ private fun EndedRunHeader(
     hostLabel: String,
     runState: ActionRunState,
 ) {
-    if (session == null || session.status != DomainContract.codingSessionStatusEnded) return
+    if (session == null || !runHasEnded(session)) return
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),

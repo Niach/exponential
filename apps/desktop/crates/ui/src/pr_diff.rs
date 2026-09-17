@@ -41,7 +41,7 @@ use sync::Store;
 use crate::controls::WebControl as _;
 use crate::diff::DiffView;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, navigate, Navigation, Screen};
+use crate::navigation::{navigate, Screen};
 use crate::pr_merge::{close_pr_key, MergeOp, MergeState};
 use crate::queries;
 
@@ -52,7 +52,6 @@ use crate::queries;
 /// The read-only PR diff center screen.
 pub struct PrDiffView {
     focus_handle: FocusHandle,
-    nav: Entity<Navigation>,
     diff: Entity<DiffView>,
     issue_id: Option<String>,
     /// EXP-895/EXP-916: the file tree's state — which row it highlights, the
@@ -71,7 +70,6 @@ pub struct PrDiffView {
 
 impl PrDiffView {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let nav = nav_for_window(window, cx);
         let diff = cx.new(|cx| {
             let mut diff = DiffView::new(window, cx);
             // EXP-706/EXP-895: the review diff is a stack of per-file cards.
@@ -102,7 +100,6 @@ impl PrDiffView {
         ));
         Self {
             focus_handle: cx.focus_handle(),
-            nav,
             diff,
             issue_id: None,
             selected: 0,
@@ -360,11 +357,16 @@ impl Render for PrDiffView {
             let target = crate::changes_bar::MergeTarget::Issue {
                 issue_id: issue.id.clone(),
             };
-            let conflicted = error.is_some()
-                && failed_op == Some(crate::pr_merge::FailedOp::Merge)
-                && is_conflict
-                && issue.branch.is_some()
-                && active_team_id(&self.nav, cx).is_some();
+            // EXP-917: the swap rule is ONE function
+            // (`work_header::merge_slot_swapped`) — this screen used to carry
+            // its own copy, including a `team` conjunct that was always true
+            // here (the composer resolves the team from the route).
+            let conflicted = crate::work_header::merge_slot_swapped(
+                is_open,
+                failed_op == Some(crate::pr_merge::FailedOp::Merge),
+                is_conflict,
+                issue.branch.is_some(),
+            );
             if is_open {
                 merge = Some(if conflicted {
                     let fixing = issue.branch.as_deref().is_some_and(|branch| {

@@ -500,7 +500,8 @@ export const issues = pgTable(
     // instead of committing two issues with the same identifier.
     uniqueIndex(`uniq_issues_board_number`).on(table.boardId, table.number),
     // Serves issues.search's FTS branch (REV-14). The expression must stay
-    // byte-identical to the query's tsvector expression in trpc/issues.ts —
+    // byte-identical to the query's tsvector expression in
+    // apps/web/src/lib/issue-search-sql.ts (ISSUE_TSVECTOR) —
     // Postgres matches index and predicate on the parse tree, and 'english'
     // is pinned because the session default config is not immutable.
     index(`idx_issues_fts`).using(
@@ -713,7 +714,8 @@ export const comments = pgTable(
     index(`idx_comments_team`).on(table.teamId),
     index(`idx_comments_board`).on(table.boardId),
     index(`idx_comments_parent`).on(table.parentId),
-    // Serves issues.search's comment-body FTS branch (REV-14). Same
+    // Serves issues.search's comment-body FTS branch (REV-14) — its twin
+    // lives in apps/web/src/lib/issue-search-sql.ts, not trpc/issues.ts. Same
     // byte-identical-expression contract as idx_issues_fts.
     index(`idx_comments_body_fts`).using(
       `gin`,
@@ -1597,6 +1599,9 @@ export const githubInstallationLinks = pgTable(
     index(`idx_github_installation_links_installation`).on(
       table.githubInstallationId
     ),
+    // EXP-835: the admin console's per-user correlated subqueries filter on
+    // the claiming user alone — without this they seq-scan every link.
+    index(`idx_github_installation_links_created_by`).on(table.createdByUserId),
   ]
 )
 
@@ -1651,6 +1656,12 @@ export const githubInstallationRepoGrants = pgTable(
     index(`idx_github_installation_repo_grants_ws_inst`).on(
       table.teamId,
       table.installationId
+    ),
+    // EXP-835: the admin console's per-user correlated subqueries filter on
+    // the granting user alone — the unique key above leads with team_id, so
+    // it cannot serve them and they seq-scan every grant.
+    index(`idx_github_installation_repo_grants_granted_by`).on(
+      table.grantedByUserId
     ),
   ]
 )
@@ -2002,6 +2013,9 @@ export const repositories = pgTable(
   (table) => [
     unique().on(table.teamId, table.fullName),
     index(`idx_repositories_team`).on(table.teamId),
+    // EXP-835: the admin console's per-user correlated subqueries filter on
+    // the sharer alone — without this they seq-scan the whole registry.
+    index(`idx_repositories_shared_by`).on(table.sharedByUserId),
   ]
 )
 

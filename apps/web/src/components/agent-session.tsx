@@ -49,6 +49,7 @@ import {
   IssueChip as IssueChipView,
 } from "@exp/ui"
 import { availableFaces, phaseDotTone } from "@/lib/work-faces"
+import { runHasEnded } from "@/lib/past-runs"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import {
@@ -526,7 +527,10 @@ export function AgentSessionView({
   const diffStats = useMemo(() => totals(diffFiles), [diffFiles])
 
   const live = phase.kind === `live`
-  const sessionEnded = session.status === `ended`
+  // EXP-888: a sweep end (`ended_by = stale`) is not an end — the host
+  // ignores the flip and heartbeats the row back to `running`, so the
+  // composer stays open and the header keeps Stop instead of Resume.
+  const sessionEnded = runHasEnded(session)
   // EXP-312: live implies ownership — the mint refuses everyone else.
   // EXP-621: the composer stays MOUNTED through connection flaps (only send
   // is disabled) — unmounting it on a phase change was how a slow-consumer

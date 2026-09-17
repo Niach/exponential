@@ -2070,6 +2070,7 @@ pub fn group_subagent_row_specs_into(
     items: &[FeedItem],
     start: usize,
     subagent_id: &str,
+    workflow_ids: &[&str],
     rows: &mut Vec<FeedRowSpec>,
 ) {
     rows.clear();
@@ -2087,7 +2088,10 @@ pub fn group_subagent_row_specs_into(
             i += 1;
             continue;
         }
-        if !item.is_tool() {
+        // EXP-850 §3: a workflow call is its OWN card here too — it never
+        // joins the lane's tool run and never a card, exactly as in the main
+        // projection (web/iOS/Android say the same).
+        if !item.is_tool() || item.is_workflow_call(workflow_ids) {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -2099,14 +2103,19 @@ pub fn group_subagent_row_specs_into(
         // lane's own consecutive edit calls are ONE card, and an edit call
         // ends the tool run beside it. Rows of another lane are invisible
         // here (the projection filters to this one), so they never split a
-        // run, exactly like the fixture's `lane` cases.
-        let edits = item.is_edit_call(&[]);
+        // run, exactly like the fixture's `lane` cases. The `workflow_ids`
+        // ride along (EXP-850 §3, web/iOS/Android thread them here too): a
+        // workflow call is its own CARD, never a member of an edits row.
+        let edits = item.is_edit_call(workflow_ids);
         let mut run = vec![i];
         let mut j = i + 1;
         while j < items.len() {
             let next = &items[j];
             if scoped(next) {
-                if !next.is_tool() || next.is_edit_call(&[]) != edits {
+                if !next.is_tool()
+                    || next.is_workflow_call(workflow_ids)
+                    || next.is_edit_call(workflow_ids) != edits
+                {
                     break;
                 }
                 run.push(j);
@@ -3965,17 +3974,17 @@ mod tests {
 
         let items = feed.items();
         let mut rows = Vec::new();
-        group_subagent_row_specs_into(items, 0, "a1", &mut rows);
+        group_subagent_row_specs_into(items, 0, "a1", &[], &mut rows);
         let indices: Vec<Vec<usize>> = rows.iter().map(|row| row.item_indices().to_vec()).collect();
         assert_eq!(indices, vec![vec![2, 5], vec![6], vec![7]]);
         assert!(matches!(rows[0], FeedRowSpec::ToolRun { .. }));
         assert_eq!(rows[0].id(), items[2].id);
         // The window start restricts it exactly like the main projection.
-        group_subagent_row_specs_into(items, 6, "a1", &mut rows);
+        group_subagent_row_specs_into(items, 6, "a1", &[], &mut rows);
         let indices: Vec<Vec<usize>> = rows.iter().map(|row| row.item_indices().to_vec()).collect();
         assert_eq!(indices, vec![vec![6], vec![7]]);
         // A subagent nobody scoped a row to projects nothing.
-        group_subagent_row_specs_into(items, 0, "nobody", &mut rows);
+        group_subagent_row_specs_into(items, 0, "nobody", &[], &mut rows);
         assert!(rows.is_empty());
     }
 
@@ -4766,7 +4775,9 @@ mod edit_card_fixture_tests {
             .collect();
         let mut rows = Vec::new();
         match case.lane.as_deref() {
-            Some(lane) => group_subagent_row_specs_into(&items, case.start, lane, &mut rows),
+            Some(lane) => {
+                group_subagent_row_specs_into(&items, case.start, lane, &workflow_ids, &mut rows)
+            }
             None => group_feed_row_specs_into(&items, case.start, &workflow_ids, &mut rows),
         }
         rows.iter()

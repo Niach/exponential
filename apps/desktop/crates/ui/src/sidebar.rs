@@ -2305,6 +2305,10 @@ impl ListPanel {
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
+            // EXP-915: the column's lists GROUP by the team's status rows and
+            // memoize on `issue_statuses.revision()` — without this observer a
+            // renamed/added status only landed on the next unrelated repaint.
+            cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             cx.observe(&collections.notifications, |_, _, cx| cx.notify()),
             // The coding badges ride the coding_sessions shape; the local
             // Start↔Stop flip rides the process-global LocalSessions registry.
@@ -4089,6 +4093,14 @@ impl Render for ListPanel {
                         // EXP-915: a new list starts at its top (the two
                         // issue lists share one virtual-list scroll).
                         self.nav_list_scroll.scroll_to_item(0, ScrollStrategy::Top);
+                        // …and the outgoing list's memoized rows go with it:
+                        // the slots are keyed, so keeping them only pinned an
+                        // `Rc` of a query nothing will ask for again.
+                        self.nav_data.clear();
+                        self.nav_statuses.clear();
+                        self.inbox_data.clear();
+                        self.reviews_data.clear();
+                        self.automation_facts.clear();
                     }
                 }
                 // EXP-863: the issue bodies refill these; any other list

@@ -52,6 +52,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.formatAutomationBlock
+import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.triggerSummary
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
@@ -548,7 +549,7 @@ private fun AutomationsContent(
                 // shared RunningSessionRow (state dot, byline, the action's
                 // glyph circle), a finished one the plain EndedRunRow link.
                 // Both open the session view (close-out + Resume live there).
-                val ended = session.status == DomainContract.codingSessionStatusEnded
+                val ended = runHasEnded(session)
                 val device = sessionDevice(session, devices)
                 if (ended) {
                     val timeLabel = relativeTime(session.endedAt ?: session.updatedAt)

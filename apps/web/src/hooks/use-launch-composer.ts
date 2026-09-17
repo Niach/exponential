@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
 import { toast } from "sonner"
 import type { Board, CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
@@ -292,7 +292,13 @@ export function useLaunchComposer({
           eq(s.teamId, teamId),
           // in_review terminals are still alive and occupy the issue's
           // worktree (EXP-194) — they block a restart like running ones.
-          inArray(s.status, [`running`, `in_review`])
+          // EXP-888: so does a SWEPT row (`ended` + `ended_by = 'stale'`) —
+          // the sweep's flip is not an end, the agent is still on that
+          // worktree, and a fresh Start would put a SECOND one there.
+          or(
+            inArray(s.status, [`running`, `in_review`]),
+            and(eq(s.status, `ended`), eq(s.endedBy, `stale`))
+          )
         )
       ),
     [teamId]

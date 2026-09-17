@@ -13,7 +13,7 @@
 //! └───────────────────┘  └──────────────────────────────────────────────┘
 //! ```
 //!
-//! The web route (`@exp/ui` `FileDiffNav` + `FileDiffTree`) is the reference
+//! The web route (`@exp/ui` `file-diff-tree.tsx` `FileDiffTree`) is the reference
 //! look and the natives mirror it, so a review reads identically ×4.
 //!
 //! EXP-916 took the pane's own `Changes +N −M · K files · branch · state` bar
@@ -501,10 +501,17 @@ pub(crate) fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>
         } => {
             // Merge steps down to a ghost beside the recovery run rather than
             // vanishing until the PR closes.
-            // The label stays the pill's own ("Merge PR"); only the paint
-            // changes, so the two controls read as primary + secondary.
-            let retry = retry
-                .map(|target| crate::work_header::merge_pill("diff-bar-merge", &target, false, cx));
+            // Secondary paint and the shared "Retry merge" label, like the
+            // run header and the review page (EXP-917 parity).
+            let retry = retry.map(|target| {
+                crate::work_header::merge_pill_labeled(
+                    "diff-bar-merge",
+                    &target,
+                    false,
+                    Some(crate::work_header::RETRY_MERGE_LABEL),
+                    cx,
+                )
+            });
             let mut fix = Button::new("diff-bar-fix").primary().web_sm();
             if fixing {
                 fix = fix.label("Fixing…").disabled(true);
@@ -514,6 +521,11 @@ pub(crate) fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>
                 fix = fix.label("Fix conflicts");
             }
             let fix = fix.on_click(move |_: &ClickEvent, window, cx| {
+                // Same board/team guard as `work_header::fix_conflicts_pill`.
+                if !crate::work_header::fix_conflicts_target_resolves(&issue_id, window, cx) {
+                    log::warn!("[ui] fix conflicts skipped: {issue_id} is outside the active team");
+                    return;
+                }
                 crate::navigation::navigate_to_chat(
                     window,
                     cx,

@@ -911,6 +911,48 @@ fn command_labels_are_redacted_and_an_unchanged_snapshot_is_not_republished() {
     );
 }
 
+/// EXP-905 + REV2-17 — the agent's conversation name is outbound text like
+/// every other string the mapper publishes, and it is SYNCED (the
+/// `agent_title` column), so it goes through the session's redactor before it
+/// is normalised. The agent names a conversation after what it read, and what
+/// it read includes the launcher's MCP config: a title quoting the session's
+/// `expu_` key would otherwise land in the database verbatim.
+#[test]
+fn an_agent_title_is_redacted_before_it_is_normalised() {
+    use agent_client_protocol::schema::v1::{
+        SessionId, SessionInfoUpdate, SessionNotification, SessionUpdate,
+    };
+    let mut mapper = mapper();
+    let mut out = MapOut::default();
+    mapper.on_update(
+        &SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::SessionInfoUpdate(
+                // Whitespace around it too: the redaction happens FIRST and the
+                // collapse still runs after it.
+                SessionInfoUpdate::new().title("Rotate  expu_supersecretkey\n in the proxy"),
+            ),
+        ),
+        &mut out,
+    );
+    assert_eq!(
+        out.agent_title.as_deref(),
+        Some("Rotate [redacted] in the proxy")
+    );
+
+    // A title that is NOTHING but the secret still normalises to the marker,
+    // never to the key itself.
+    let mut out = MapOut::default();
+    mapper.on_update(
+        &SessionNotification::new(
+            SessionId::new("acp-1"),
+            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("expu_supersecretkey")),
+        ),
+        &mut out,
+    );
+    assert_eq!(out.agent_title.as_deref(), Some("[redacted]"));
+}
+
 /// EXP-846 — the narration-split bug, off a real journal
 /// (`journal/b716f5c5…`, rows 1161-1164): the main thread was streaming one
 /// assistant message while a SUBAGENT ran tool calls, and every one of those

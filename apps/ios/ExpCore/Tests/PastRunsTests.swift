@@ -20,6 +20,7 @@ final class PastRunsTests: XCTestCase {
         agentTitle: String? = nil,
         batchIssueIds: String? = nil,
         branch: String? = nil,
+        endedBy: String? = "user",
         endedAt: String? = "2026-09-01T10:00:00Z",
         updatedAt: String = "2026-09-01T10:00:00Z"
     ) -> CodingSessionEntity {
@@ -38,7 +39,7 @@ final class PastRunsTests: XCTestCase {
             actionId: actionId,
             actionName: actionName,
             startedReason: startedReason,
-            endedBy: "user",
+            endedBy: endedBy,
             startedAt: "2026-09-01T09:00:00Z",
             endedAt: endedAt,
             createdAt: "2026-09-01T09:00:00Z",
@@ -98,6 +99,47 @@ final class PastRunsTests: XCTestCase {
                 createdAt: "2026-09-02T10:00:00Z"
             ),
         ]
+    }
+
+    // EXP-888 — the ONE live/ended predicate ×4 (web `runHasEnded`, desktop
+    // `run_rows::run_has_ended`, Android `runHasEnded`).
+    func testASweepEndIsNotAnEnd() {
+        let live = session(id: "live", status: "running", endedBy: nil)
+        let review = session(id: "review", status: "in_review", endedBy: nil)
+        XCTAssertFalse(PastRuns.hasEnded(live))
+        XCTAssertFalse(PastRuns.hasEnded(review))
+        XCTAssertTrue(PastRuns.hasEnded(session(id: "a", endedBy: "agent")))
+        XCTAssertTrue(PastRuns.hasEnded(session(id: "u", endedBy: "user")))
+        XCTAssertTrue(PastRuns.hasEnded(session(id: "m", endedBy: "merge")))
+        // The staleness sweep's end: the host ignores the flip and heartbeats
+        // the row back to `running`, so the run is LIVE, not past.
+        let swept = session(id: "swept", endedBy: "stale")
+        XCTAssertFalse(PastRuns.hasEnded(swept))
+        // A legacy row that stamped no reason still reads as ended.
+        XCTAssertTrue(PastRuns.hasEnded(session(id: "legacy", endedBy: nil)))
+
+        XCTAssertTrue(PastRuns.isStaleEnd(swept))
+        // `stale` only ever rides an `ended` row; on a live one it means nothing.
+        XCTAssertFalse(PastRuns.isStaleEnd(session(id: "l", status: "running", endedBy: "stale")))
+        XCTAssertTrue(PastRuns.isLive(swept))
+        XCTAssertFalse(PastRuns.isLive(session(id: "a", endedBy: "agent")))
+
+        // The live-badge/ordering twin says the same about a swept row.
+        XCTAssertTrue(PastRuns.isLiveRun(swept))
+        XCTAssertFalse(PastRuns.isLiveRun(session(id: "a", endedBy: "agent")))
+        XCTAssertTrue(PastRuns.isLiveRun(live))
+        XCTAssertTrue(PastRuns.isLiveRun(review))
+    }
+
+    func testASweptRunStaysOutOfPast() {
+        let rows = [
+            session(id: "really-ended", endedBy: "agent"),
+            session(id: "swept", endedBy: "stale"),
+        ]
+        XCTAssertEqual(
+            PastRuns.select(rows, userId: "user-1", teamId: "team-1").map(\.id),
+            ["really-ended"]
+        )
     }
 
     func testSelectPastRunsListsOnlyOwnEndedPersonStartedRuns() {

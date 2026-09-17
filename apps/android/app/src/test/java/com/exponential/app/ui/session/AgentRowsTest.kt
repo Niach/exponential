@@ -5,8 +5,12 @@ import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.LIVE_RUN_LABEL
 import com.exponential.app.domain.MergeTarget
+import com.exponential.app.domain.isLiveRun
 import com.exponential.app.domain.isLiveRunStatus
 import com.exponential.app.domain.issueRunWhen
+import com.exponential.app.domain.runHasEnded
+import com.exponential.app.domain.runIsLive
+import com.exponential.app.domain.runIsStaleEnd
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.batchRunIssueIds
 import com.exponential.app.domain.batchRunIssues
@@ -529,6 +533,52 @@ class AgentRowsTest {
             listOf("mine", "mine-killed", "mine-merged", "legacy"),
             rows.map { it.session.id },
         )
+    }
+
+    // EXP-888 — the ONE live/ended predicate ×4 (web `runHasEnded`, desktop
+    // `run_rows::run_has_ended`, iOS `PastRuns.hasEnded`).
+    @Test
+    fun `a sweep end is not an end`() {
+        val live = session("live", userId = "me")
+        val review = session("review", userId = "me", status = "in_review")
+        assertTrue(!runHasEnded(live))
+        assertTrue(!runHasEnded(review))
+        assertTrue(runHasEnded(pastRun("a", endedBy = "agent")))
+        assertTrue(runHasEnded(pastRun("u", endedBy = "user")))
+        assertTrue(runHasEnded(pastRun("m", endedBy = "merge")))
+        // The staleness sweep's end: the host ignores the flip and heartbeats
+        // the row back to `running`, so the run is LIVE, not past.
+        val swept = pastRun("swept", endedBy = "stale")
+        assertTrue(!runHasEnded(swept))
+        // A legacy row that stamped no reason still reads as ended.
+        assertTrue(runHasEnded(pastRun("legacy", endedBy = null)))
+
+        assertTrue(runIsStaleEnd(swept))
+        // `stale` only ever rides an `ended` row; on a live one it means nothing.
+        assertTrue(!runIsStaleEnd(session("l", userId = "me", endedBy = "stale")))
+        assertTrue(runIsLive(swept))
+        assertTrue(!runIsLive(pastRun("a", endedBy = "agent")))
+
+        // The live-badge/ordering twin says the same about a swept row.
+        assertTrue(isLiveRun(swept))
+        assertTrue(!isLiveRun(pastRun("a", endedBy = "agent")))
+        assertTrue(isLiveRun(live))
+        assertTrue(isLiveRun(review))
+    }
+
+    @Test
+    fun `a swept run stays out of Past`() {
+        val rows = pastRunRows(
+            sessions = listOf(
+                pastRun("really-ended", endedBy = "agent"),
+                pastRun("swept", endedBy = "stale"),
+            ),
+            issues = emptyList(),
+            currentUserId = "me",
+            teamId = "team-1",
+            nowMs = nowMs,
+        )
+        assertEquals(listOf("really-ended"), rows.map { it.session.id })
     }
 
     @Test

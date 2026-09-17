@@ -8,7 +8,7 @@
 // Since EXP-560 every live row carries its `device_id` stamp, so the unshare
 // path scopes the kill to the one machine whose share was withdrawn; member
 // removal passes no deviceId and sweeps every box the host runs for them.
-import { and, eq, inArray, ne } from "drizzle-orm"
+import { and, eq, inArray, ne, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { codingSessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
@@ -52,7 +52,16 @@ export async function endForeignHostedSessions(
           ne(codingSessions.userId, hostUserId),
           eq(codingSessions.teamId, teamId),
           ...(deviceId ? [eq(codingSessions.deviceId, deviceId)] : []),
-          inArray(codingSessions.status, [...LIVE_STATUSES])
+          // EXP-888: a stale-swept row counts as live here. `ended_by =
+          // 'stale'` is the sweep giving up on a silent row, not a teardown —
+          // no client acts on it, so the agent may well still be running on
+          // the host's hardware, which is exactly what the withdrawn consent
+          // must stop. Overwriting `stale` with `system` gives the hosting
+          // daemon's kill-poll the durable signal it ignores on `stale`.
+          or(
+            inArray(codingSessions.status, [...LIVE_STATUSES]),
+            eq(codingSessions.endedBy, `stale`)
+          )
         )
       )
       .returning({ id: codingSessions.id })

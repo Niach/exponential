@@ -68,6 +68,7 @@ import { generateWidgetKey } from "@/lib/widget/key"
 import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
 import { parseFreezeNow } from "./lib/freeze-now"
+import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
   DEMO_API_KEYS,
   DEMO_ATTACHMENT_DATES,
@@ -273,34 +274,9 @@ async function ensureTeammates(): Promise<Record<string, string>> {
 
 // This script DESTROYS data before it writes any: `teardown` drops the whole
 // `TEAM_SLUG` team, the demo users and the personal teams they solely own. That
-// is only ever correct against a local dev database — pointed at staging or
-// production it would delete a real team and real accounts. So refuse anything
-// that is not obviously local: the loopback hosts, or the dev compose
-// Postgres port (54321) on whatever host name resolves to it. `--allow-remote`
-// is the deliberate, typed-out override.
-function assertLocalDatabase(): void {
-  if (process.argv.includes(`--allow-remote`)) return
-  const raw = process.env.DATABASE_URL
-  if (!raw) throw new Error(`DATABASE_URL is not set`)
-  let url: URL
-  try {
-    url = new URL(raw)
-  } catch {
-    throw new Error(`DATABASE_URL is not a parsable URL`)
-  }
-  // `new URL('postgres://h@[::1]:5432/db').hostname` keeps the brackets.
-  const host = url.hostname.replace(/^\[|\]$/g, ``).toLowerCase()
-  const isLocal =
-    host === `localhost` ||
-    host === `127.0.0.1` ||
-    host === `::1` ||
-    url.port === `54321`
-  if (isLocal) return
-  throw new Error(
-    `Refusing to seed "${host}": seed:screenshots DELETES the "${TEAM_SLUG}" team, the demo users and their personal teams. ` +
-      `Point DATABASE_URL at the local dev database (localhost, 127.0.0.1, ::1, or port 54321), or pass --allow-remote if you truly mean this one.`
-  )
-}
+// is only ever correct against a local dev database — the shared guard
+// (`scripts/lib/local-db-guard.ts`, EXP-913) refuses anything else.
+const SEED_CONSEQUENCE = `seed:screenshots DELETES the "${TEAM_SLUG}" team, the demo users and their personal teams.`
 
 async function teardown() {
   const [ws] = await db
@@ -353,7 +329,7 @@ async function teardown() {
 }
 
 async function main() {
-  assertLocalDatabase()
+  assertLocalDatabase(SEED_CONSEQUENCE)
   await teardown()
   const demoId = await ensureDemoUser()
   await ensureNewcomerUser()

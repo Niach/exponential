@@ -370,6 +370,13 @@ async function main() {
   const args = parseArgs(process.argv.slice(2))
   const ctx = recipeContext(args.baseUrl)
 
+  // EXP-913, FIRST thing: the orchestrator judges this lane on the results
+  // file, so a run that dies before its first view (a DB lookup, a browser
+  // that will not launch) must not be read against the PREVIOUS run's rows.
+  // An empty array says "this run recorded nothing" — which is the truth.
+  const results: Result[] = []
+  writeResults(args.out, results)
+
   console.log(`base ${args.baseUrl}`)
   console.log(`out  ${args.out}`)
 
@@ -392,9 +399,6 @@ async function main() {
   const reclock = await resolveReclock()
 
   const browser = await chromium.launch()
-  const results: Result[] = []
-  // Never leave a previous run's verdicts behind for the orchestrator to read.
-  writeResults(args.out, results)
 
   try {
     for (const formFactor of args.formFactors) {

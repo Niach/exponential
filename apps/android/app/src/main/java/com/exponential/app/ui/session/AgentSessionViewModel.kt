@@ -48,6 +48,7 @@ import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resumeTargetFor
+import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.markdown.AttachmentDims
@@ -324,7 +325,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             // A teammate's run is never steerable (EXP-312) and its account is
             // not this user's to change; the machine must be one we may drive.
             mine = userId != null && row.userId == userId,
-            sessionEnded = row.status == DomainContract.codingSessionStatusEnded,
+            sessionEnded = runHasEnded(row),
             deviceOnline = steerDevice?.online == true,
             canResume = steerDevice?.canResumeRun == true,
             canSwitchAccount = steerDevice?.canSwitchAccount == true,

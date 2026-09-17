@@ -2,7 +2,8 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-895 — the phone's file list (web `ChangesFileSheet` + `FileDiffNav`). A
+/// EXP-895 — the phone's file list (web `ChangesFileSheet` + `@exp/ui`
+/// `file-diff-tree.tsx`). A
 /// column beside the cards leaves neither readable on a phone, so the list
 /// lives in a bottom SHEET off the work bar's LEADING slot — the slot GitHub
 /// used to hold on the Changes face (GitHub moved to the header's action slot).
@@ -30,8 +31,8 @@ struct DiffFileListSheet: View {
                 VStack(spacing: 8) {
                     // The summary counts the WHOLE diff, never the filtered
                     // slice: it is the review's summary line, not a search
-                    // result count. ONE contract string (web `FileDiffNav`
-                    // heads its list with exactly this).
+                    // result count. ONE contract string (web
+                    // `file-diff-tree.tsx` heads its list with exactly this).
                     Text(summary)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.white)

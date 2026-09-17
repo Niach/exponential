@@ -108,10 +108,16 @@ enum IssueRefLookup {
     /// breaking ties, an empty query = most recent). The issue being edited
     /// never offers itself.
     ///
-    /// The team's rows are materialized and ranked in Swift rather than
-    /// filtered with SQL `LIKE`: the ranking needs the whole pool to order it,
-    /// and the old two-`LIKE` predicate was a full scan of the same rows
-    /// anyway.
+    /// The pre-pass is BOUNDED, and it reads no descriptions: this runs on the
+    /// main actor for every keystroke, so a team's whole issue table (bodies
+    /// included) may never be materialized to answer one. SQL keeps the rows
+    /// whose identifier or title holds every token, newest first, capped at
+    /// [prePassCap]; `IssueSearch` then ranks that slice by the SHARED engine
+    /// (EXP-892) with `description: nil` — so the local pass ranks on
+    /// identifier and title alone, exactly what it filtered on, and body hits
+    /// arrive through the server search (`issues.search`) that backs this menu.
+    /// (SQLite's `LIKE` folds ASCII case only, so a capital OUTSIDE ASCII is
+    /// answered by the server pass rather than this one.)
     static func search(
         _ query: String,
         scope: Scope,
@@ -126,17 +132,31 @@ enum IssueRefLookup {
         }()
         return (try? pool.read { db -> [IssueRefCandidate] in
             guard let teamId = try teamId(for: scope, db: db) else { return [] }
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                SELECT i.id, i.identifier, i.title, i.description, i.status, i.status_id,
+            // The SAME tokens the engine scores with, so the filter can never
+            // drop a row the ranking would have kept on those two fields.
+            let tokens = IssueSearch.tokens(query)
+            var sql = """
+                SELECT i.id, i.identifier, i.title, i.status, i.status_id,
                        i.created_at, i.updated_at
                 FROM issues i
                 JOIN boards p ON p.id = i.board_id
                 WHERE p.team_id = ?
-                """,
-                arguments: [teamId]
-            )
+                """
+            // Every bound value is a string, so the array stays concrete and
+            // `StatementArguments` takes it without an existential dance.
+            var arguments: [String] = [teamId]
+            for token in tokens {
+                sql += "\n  AND (i.identifier LIKE ? ESCAPE '\\' OR i.title LIKE ? ESCAPE '\\')"
+                let like = "%\(escapedForLike(token))%"
+                arguments.append(like)
+                arguments.append(like)
+            }
+            // An empty query is the menu's "recent work" list, which the engine
+            // orders by CREATION — cap the same column it will sort on.
+            sql += tokens.isEmpty
+                ? "\nORDER BY i.created_at DESC\nLIMIT \(prePassCap)"
+                : "\nORDER BY i.updated_at DESC\nLIMIT \(prePassCap)"
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(arguments))
             guard !rows.isEmpty else { return [] }
             let ranked = IssueSearch.rank(
                 rows,
@@ -145,14 +165,13 @@ enum IssueRefLookup {
                 exclude: selfIssueId.map { Set([$0]) } ?? [],
                 projection: { row in
                     let identifier: String? = row["identifier"]
-                    let description: String? = row["description"]
                     let createdAt: String? = row["created_at"]
                     let updatedAt: String? = row["updated_at"]
                     return IssueSearch.Row(
                         id: row["id"],
                         identifier: identifier ?? "",
                         title: row["title"],
-                        description: description,
+                        description: nil,
                         createdAt: createdAt,
                         updatedAt: updatedAt
                     )
@@ -176,6 +195,20 @@ enum IssueRefLookup {
                 )
             }
         }) ?? []
+    }
+
+    /// How many rows the local `#`-menu pass ever materializes.
+    private static let prePassCap = 300
+
+    /// A token as a SQL `LIKE` operand: `\`, `%` and `_` are literal here, so
+    /// each one is escaped for the `ESCAPE '\'` the query declares.
+    private static func escapedForLike(_ token: String) -> String {
+        var out = ""
+        for character in token {
+            if character == "\\" || character == "%" || character == "_" { out.append("\\") }
+            out.append(character)
+        }
+        return out
     }
 
     /// EXP-892: the server's full-text hits (`issues.search` — title +

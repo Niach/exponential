@@ -139,9 +139,30 @@ function uuid(n: number): string {
   return `00000000-0000-4000-8000-${n.toString(16).padStart(12, `0`)}`
 }
 
+// killSession is the one procedure here that WRITES, and it writes through
+// ctx.db — a structural fake transaction records the SET so the EXP-888
+// stale-end case can be asserted.
+const ctxUpdates: Record<string, unknown>[] = []
+const ctxDb = {
+  transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+    fn({
+      execute: async () => ({ rows: [{ txid: `1` }] }),
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => {
+              ctxUpdates.push(values)
+              return [{ id: SESSION_ID, ...values }]
+            },
+          }),
+        }),
+      }),
+    }),
+}
+
 const caller = steerRouter.createCaller({
   session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
-  db: {},
+  db: ctxDb,
   request: new Request(`http://localhost/`),
 } as never)
 
@@ -1549,6 +1570,31 @@ describe(`steer.killSession — owner OR host (EXP-432)`, () => {
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), SESSION_ID)
   })
 
+  // EXP-888: the sweep's `stale` end is not a kill — no client acts on it —
+  // so a real kill must still land its durable `user` close-out on that row.
+  it(`overwrites a stale sweep end instead of short-circuiting`, async () => {
+    ctxUpdates.length = 0
+    queueSession({ status: `ended`, endedBy: `stale` })
+
+    await caller.killSession({ sessionId: SESSION_ID })
+
+    expect(ctxUpdates).toHaveLength(1)
+    expect(ctxUpdates[0]).toMatchObject({
+      status: `ended`,
+      endedBy: `user`,
+      agentBusy: false,
+    })
+  })
+
+  it(`leaves a real end alone`, async () => {
+    ctxUpdates.length = 0
+    queueSession({ status: `ended`, endedBy: `agent` })
+
+    await caller.killSession({ sessionId: SESSION_ID })
+
+    expect(ctxUpdates).toHaveLength(0)
+  })
+
   it(`refuses a user who is neither owner nor host`, async () => {
     queueSession({ hostUserId: `someone-else`, status: `ended` })
     const error = await rejectionOf(
@@ -1868,6 +1914,30 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     )
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toContain(`still live`)
+  })
+
+  // EXP-888: the sweep's end is not an end. The row READS `ended`, but its
+  // machine ignored the flip and the agent is still on the worktree — a
+  // resume would put a second one there. Refused before the device is even
+  // resolved, so no queued device row is needed.
+  it(`refuses a swept run — a stale end is not an end`, async () => {
+    queueEndedRun({ endedBy: `stale` })
+    const error = await rejectionOf(
+      caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toContain(`only went quiet`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`still resumes a genuinely ended run`, async () => {
+    queueEndedRun({ endedBy: `user` })
+    queueOwnDevice({ caps: [`actions`, `resume-run`] })
+    const result = await caller.startSession({
+      resumeSessionId: RESUME,
+      deviceId: `dev-1`,
+    })
+    expect(result).toEqual({ ok: true })
   })
 
   it(`refuses a run whose worktree lives on another machine`, async () => {

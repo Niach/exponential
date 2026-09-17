@@ -130,13 +130,17 @@ describe(`endLiveIssueSessionsInTx`, () => {
       endedBy: `merge`,
       updatedAt: expect.any(Date),
     })
-    // EXP-637: the sweep spares the session that merged its own PR.
+    // EXP-637: the sweep spares the session that merged its own PR. EXP-888:
+    // a stale-swept row is a target like any live one — the sweep's end is
+    // not one the desktop acts on, a merge end is.
     expect(whereShape(h.updates[0]!.where)).toEqual([
       `col:issue_id`,
       ISSUE,
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
       `col:merged_own_pr`,
       false,
     ])
@@ -174,6 +178,8 @@ describe(`endMergedPrSessions`, () => {
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
       `col:merged_own_pr`,
       false,
     ])
@@ -234,6 +240,8 @@ describe(`endMergedPrSessions`, () => {
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
       `col:merged_own_pr`,
       false,
     ])
@@ -282,6 +290,8 @@ describe(`applySessionPrState`, () => {
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
       `col:merged_own_pr`,
       false,
       `col:end_sessions_on_merge`,
@@ -299,6 +309,8 @@ describe(`applySessionPrState`, () => {
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
     ])
     expect(h.relayPostKill).toHaveBeenCalledTimes(1)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
@@ -333,6 +345,8 @@ describe(`applySessionPrState`, () => {
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
       `col:merged_own_pr`,
       false,
     ])

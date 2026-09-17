@@ -65,6 +65,10 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
         })
         .catch(() => {
           // Local ranking already rendered — never surface a network error.
+          // EXP-875: but the query IS answered (with nothing), so record that:
+          // a failed pass used to leave `pending` true until the next
+          // keystroke, and a caller drawing a spinner off it never stopped.
+          if (!cancelled) setHits({ query: normalized, rows: [] })
         })
     }, 250)
     return () => {
@@ -91,5 +95,8 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, normalized, limit, excludeKey, hits, wantServer, emptyQuery])
 
+  // `pending` = the server pass for THIS query has not answered yet (a
+  // failure answers it with nothing). No caller draws it today; it exists so
+  // one can, without inventing its own debounce.
   return { results, pending: wantServer && hits.query !== normalized }
 }

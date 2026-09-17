@@ -1,3 +1,11 @@
+- En chatkørsel får navn efter det, agenten arbejder med, i stedet for at hedde „Chat“ overalt
+- Én diff overalt: filerne i en diff ligger i et træ, du kan springe rundt i, og en agents ændringer i én tur samles på ét kort „Edited files“
+- Forbruget ét sted: et panel viser kørslens egen konto, dens grænsevinduer og kontekstvinduet, plus de andre logins på maskinen
+- Enhederne bærer loginsene: hver maskine viser sine agentlogins med plan, tilstand og forbrug, og en enheds tandhjul rummer Update og Remove
+- En stack-fletning, der mislykkes, siger nu hvorfor i stedet for at tie
+- Én issue-søgning: den samme rangering bærer hver issueliste, hver vælger og hver #-menu, med det øverste resultat allerede valgt
+- En kørende kommando viser kun sine sidste linjer, så et langt output ikke længere oversvømmer kørslen
+- En kørsel, der bliver tavs, markeres som afsluttet og bliver stående på listen i stedet for at forsvinde
 - Én Work-skærm: et issue, dets kørsel, ændringerne og resultaterne er nu flader på én skærm, du skifter mellem dem fra bjælken nederst, og Stop eller Resume ligger øverst til højre
 - Én diff-visning: alle diffs ser ens ud, med linjenumre, skjulte uændrede linjer du kan folde ud, og omdøbte og binære filer navngivet i stedet for vist tomme
 - Stablede pull requests: start et issue oven på det, der blokerer det, saml hele kæden med Merge stack, læs stack- eller batch-mærket på arbejdet, og svar på et spørgsmål fra en indlejret kørsel
@@ -8,11 +16,6 @@
 - Beskeder i kø: en besked, der venter på agenten, står i en bjælke over skrivefeltet, og Stop i en kørende session afbryder den igangværende tur i stedet for at blive væk undervejs
 - Roligere knapper og tydeligere vælgere: kun skærmens hovedhandling beholder en udfyldt cirkel, og agentvælgeren bærer mærket for Claude Code eller Codex, mens enhedsmenuer starter med et laptop- eller serverikon
 - Agent-siden holder dine kørsler: tidligere kørsler foldes bag et tal, du kan åbne, og når intet kører, sidder skrivefeltet midt på siden
-- Log ind, hvor kontoen er: login, valget af den aktive konto og fjernelse ligger nu på kontochipsene, og Add account i Accounts-overskriften logger en ny konto ind på en enhed
 - Issue-filtre er væk: filterknappen og dens pills er væk fra board og indbakke, søgning dækker det, de blev brugt til, og gruppering og statusbånd bliver
 - Fortsæt med e-mail eller med en adgangsnøgle: log ind med en 6-cifret kode, du får tilsendt, eller med Face ID eller Touch ID; alle muligheder står i én liste, og en ukendt e-mail bliver bare til en ny konto
-- Arbejdsindikatoren stopper, når agenten stopper: den følger nu agentens rigtige tur i stedet for forbindelsen, viser hvad den laver med tid og tokens, og Stop ligger i sessionens overskrift
-- Kort i forløbet: et kald til Exponential vises som en enkel tekst som „Creating issue“ med et smugkig på resultatet, en underagents chip bærer den opgave, den fik, og en Plan-chip uden knapper vises, mens kørslen stadig planlægger
-- Workflow-kort: en kørsel med flere agenter vises som ét kort med sine faser og agenterne nedenunder, og en sessionsrække får en anden linje med det, kørslen arbejder på lige nu
-- Konti og reparation: en agentkontos tilstand kommer fra en rigtig forbrugsmåling, så et dødt login viser „Needs re-login“, og Devices viser hver maskines logins med den rigtige reparation på en chip
 - Skift konto midt i en kørsel, og kom tilbage hvor du kom fra: en Claude-kørsel, der rammer sin grænse, kan fortsætte på en anden konto, og forlader du en session, lander du igen på det issue eller board, du åbnede den fra

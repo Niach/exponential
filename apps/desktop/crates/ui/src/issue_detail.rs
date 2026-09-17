@@ -201,17 +201,42 @@ pub(crate) struct UnechoedSaves(HashMap<String, UnechoedSave>);
 struct UnechoedSave {
     saved: String,
     stale: Vec<String>,
+    /// When the newest save in this entry was sent. An entry outlives its
+    /// echo only while the round trip is in flight, so one older than
+    /// [`UNECHOED_SAVE_TTL`] is bookkeeping nobody will retire: the write is
+    /// long gone (its failure path clears it, but a dropped task, a killed
+    /// request or a server that answered nothing at all leaves none), and
+    /// keeping it would hold the editor on text the row does not have.
+    at: std::time::Instant,
 }
+
+/// How long a save may stay un-echoed before the row wins again. Generous
+/// against a slow round trip, short enough that a lost one heals within a
+/// reading pause.
+const UNECHOED_SAVE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
 impl UnechoedSaves {
     /// Record that `saved` (normalized) was just sent for `issue_id`, whose
     /// synced row currently reads `synced` (normalized).
     pub(crate) fn record(&mut self, issue_id: &str, saved: &str, synced: &str) {
+        self.record_at(issue_id, saved, synced, std::time::Instant::now());
+    }
+
+    fn record_at(
+        &mut self,
+        issue_id: &str,
+        saved: &str,
+        synced: &str,
+        now: std::time::Instant,
+    ) {
         match self.0.get_mut(issue_id) {
-            Some(entry) if entry.saved == saved => {}
+            Some(entry) if entry.saved == saved => {
+                entry.at = now;
+            }
             Some(entry) if entry.stale.iter().any(|value| value == synced) => {
                 let previous = std::mem::replace(&mut entry.saved, saved.to_string());
                 entry.stale.push(previous);
+                entry.at = now;
             }
             _ if synced == saved => {
                 self.0.remove(issue_id);
@@ -222,6 +247,7 @@ impl UnechoedSaves {
                     UnechoedSave {
                         saved: saved.to_string(),
                         stale: vec![synced.to_string()],
+                        at: now,
                     },
                 );
             }
@@ -233,7 +259,22 @@ impl UnechoedSaves {
     /// (the row is the truth) — retiring the entry once the echo or a newer
     /// remote write shows up.
     pub(crate) fn resolve(&mut self, issue_id: &str, synced: &str) -> Option<String> {
+        self.resolve_at(issue_id, synced, std::time::Instant::now())
+    }
+
+    fn resolve_at(
+        &mut self,
+        issue_id: &str,
+        synced: &str,
+        now: std::time::Instant,
+    ) -> Option<String> {
         let entry = self.0.get_mut(issue_id)?;
+        // An entry nothing retired in a minute is stale bookkeeping, not an
+        // in-flight save: the row is the truth again.
+        if now.duration_since(entry.at) >= UNECHOED_SAVE_TTL {
+            self.0.remove(issue_id);
+            return None;
+        }
         if let Some(ix) = entry.stale.iter().position(|value| value == synced) {
             // Echoes arrive in save order: values queued before this one are
             // behind the row now.
@@ -242,6 +283,20 @@ impl UnechoedSaves {
         }
         self.0.remove(issue_id);
         None
+    }
+
+    /// EXP-919 — the write of `saved` FAILED: there is no echo coming, so the
+    /// entry must go or the editor keeps showing text the server rejected
+    /// (and every reopen of the issue restores it). A LATER save for the same
+    /// issue supersedes this one and stays.
+    pub(crate) fn retire(&mut self, issue_id: &str, saved: &str) {
+        if self
+            .0
+            .get(issue_id)
+            .is_some_and(|entry| entry.saved == saved)
+        {
+            self.0.remove(issue_id);
+        }
     }
 }
 
@@ -253,6 +308,34 @@ fn synced_description(issue_id: &str, cx: &App) -> Option<String> {
         .read(cx)
         .get(issue_id)
         .map(|issue| issue.description.as_deref().unwrap_or_default().trim().to_string())
+}
+
+/// EXP-919 — send a description save AND keep its bookkeeping honest: the
+/// entry is recorded before the write and RETIRED again if the write fails,
+/// because a failed write has no Electric echo to retire it. Without that the
+/// editor (and every reopen of the issue) kept showing text the server never
+/// took.
+fn spawn_description_save(
+    saves: &Rc<RefCell<UnechoedSaves>>,
+    issue_id: &str,
+    saved: &str,
+    cx: &mut App,
+) {
+    record_unechoed_save(saves, issue_id, saved, cx);
+    let mut input = api::issues::IssuesUpdateInput::new(issue_id.to_string());
+    input.description = if saved.is_empty() {
+        api::Patch::Null
+    } else {
+        api::Patch::Set(saved.to_string())
+    };
+    let saves = saves.clone();
+    let issue_id = issue_id.to_string();
+    let saved = saved.to_string();
+    crate::issue_header::spawn_issue_update_then(cx, input, move |result, _cx| {
+        if result.is_err() {
+            saves.borrow_mut().retire(&issue_id, &saved);
+        }
+    });
 }
 
 /// [`UnechoedSaves::record`] against the issue's current synced row.
@@ -382,6 +465,13 @@ pub struct IssueDetailView {
     /// the first time it opens (its fetch is `issues.prFiles`, one snapshot
     /// per issue).
     changes: Option<Entity<crate::pr_diff::PrDiffView>>,
+    /// The issue [`Self::ensure_changes`] last pointed that pane at. The call
+    /// happens in `render`, and `PrDiffView::set_issue` with no signed-in
+    /// account records NOTHING and notifies — which re-rendered, re-pointed,
+    /// re-notified: a 100% CPU spin with the Changes face open and no account.
+    /// The latch makes the attempt once per issue; a session change (the
+    /// account landing) and a re-open of the face clear it.
+    changes_requested: Option<String>,
     /// EXP-894: what each OPEN issue tab would lose on a switch — this view
     /// is shared across tabs, so it stashes the outgoing issue's comment
     /// drafts + scroll and restores them on the way back
@@ -462,6 +552,14 @@ impl IssueDetailView {
         // EXP-736: the relations card lives in this view's body — a relation
         // added on another client (or the duplicate mirror) must re-render it.
         subscriptions.push(cx.observe(&collections.issue_relations, |_, _, cx| cx.notify()));
+        // EXP-889: the Changes pane's fetch needs a signed-in account — a
+        // cold start reaches the face before the session validates. The
+        // attempt is latched (see `changes_requested`), so the session
+        // machine moving is what licenses the retry.
+        subscriptions.push(cx.observe(&Store::global(cx).state(), |this, _, cx| {
+            this.changes_requested = None;
+            cx.notify();
+        }));
 
         Self {
             issue_id: None,
@@ -484,6 +582,7 @@ impl IssueDetailView {
             resumable: None,
             changes_open: false,
             changes: None,
+            changes_requested: None,
             tab_states: Default::default(),
             _subscriptions: subscriptions,
         }
@@ -502,6 +601,8 @@ impl IssueDetailView {
         if open {
             self.flush_title(cx);
             self.flush_description(cx);
+            // Re-opening the face is a fresh attempt at the pane's fetch.
+            self.changes_requested = None;
         }
         self.changes_open = open;
         cx.notify();
@@ -531,7 +632,13 @@ impl IssueDetailView {
                 changes
             }
         };
-        changes.update(cx, |view, cx| view.set_issue(issue.id.clone(), cx));
+        // ONE attempt per issue: this runs from `render`, and a `set_issue`
+        // that cannot fetch (no account yet) notifies without recording the
+        // id, which would re-enter this on the very next frame forever.
+        if self.changes_requested.as_deref() != Some(issue.id.as_str()) {
+            self.changes_requested = Some(issue.id.clone());
+            changes.update(cx, |view, cx| view.set_issue(issue.id.clone(), cx));
+        }
         changes
     }
 
@@ -637,6 +744,7 @@ impl IssueDetailView {
         // the OUTGOING issue's PR. (The pane itself is kept and re-pointed
         // when the face opens again: `set_issue` on it is the refetch.)
         self.changes_open = false;
+        self.changes_requested = None;
         // The files rail's transient state belongs to the OUTGOING issue —
         // a pending upload row or a busy marker must never leak onto the
         // incoming one (the in-flight requests themselves keep running and
@@ -844,14 +952,7 @@ impl IssueDetailView {
                     return;
                 }
                 *last_saved.borrow_mut() = normalized.clone();
-                record_unechoed_save(&unechoed, &issue_id, &normalized, cx);
-                let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                input.description = if normalized.is_empty() {
-                    api::Patch::Null
-                } else {
-                    api::Patch::Set(normalized)
-                };
-                spawn_issue_update(cx, input);
+                spawn_description_save(&unechoed, &issue_id, &normalized, cx);
             }),
             on_attach_files: {
                 let view = cx.entity().downgrade();
@@ -911,14 +1012,7 @@ impl IssueDetailView {
             return;
         }
         *self.last_saved_description.borrow_mut() = normalized.clone();
-        record_unechoed_save(&self.unechoed_saves, &issue_id, &normalized, cx);
-        let mut input = api::issues::IssuesUpdateInput::new(issue_id);
-        input.description = if normalized.is_empty() {
-            api::Patch::Null
-        } else {
-            api::Patch::Set(normalized)
-        };
-        spawn_issue_update(cx, input);
+        spawn_description_save(&self.unechoed_saves, &issue_id, &normalized, cx);
         editor.mark_clean(cx);
     }
 
@@ -1702,10 +1796,7 @@ impl IssueDetailView {
             } else {
                 format!("{current}\n\n{image_ref}")
             };
-            record_unechoed_save(&self.unechoed_saves, &issue_id, &next, cx);
-            let mut input = api::issues::IssuesUpdateInput::new(issue_id);
-            input.description = api::Patch::Set(next);
-            spawn_issue_update(cx, input);
+            spawn_description_save(&self.unechoed_saves, &issue_id, &next, cx);
             return;
         }
         self.flush_description(cx);
@@ -1720,10 +1811,7 @@ impl IssueDetailView {
             editor.mark_clean(cx);
         }
         *self.last_saved_description.borrow_mut() = next.clone();
-        record_unechoed_save(&self.unechoed_saves, &issue_id, &next, cx);
-        let mut input = api::issues::IssuesUpdateInput::new(issue_id);
-        input.description = api::Patch::Set(next);
-        spawn_issue_update(cx, input);
+        spawn_description_save(&self.unechoed_saves, &issue_id, &next, cx);
     }
 
     fn fail_pending_file(&mut self, key: u64, message: SharedString, cx: &mut gpui::Context<Self>) {
@@ -2306,7 +2394,9 @@ impl Render for IssueDetailView {
         // `fallbackFace`) — a merged or closed PR drops the tab back onto
         // its issue instead of leaving a dead pane up.
         if self.changes_open && !crate::queries::is_reviewable(&issue) {
-            self.changes_open = false;
+            // A proper state transition, not a silent field poke in `render`:
+            // closing the face notifies, exactly as the toggle does.
+            self.set_changes_open(false, cx);
         }
         let header = self.render_header(&issue, window, cx);
         // EXP-889: the CHANGES face — the issue's open PR read through the
@@ -3023,6 +3113,61 @@ mod multi_window_tests {
         saves.record("c", "mine", "old");
         assert_eq!(saves.resolve("c", "theirs"), None);
         assert_eq!(saves.resolve("c", "old"), None);
+    }
+
+    /// EXP-919: a save that FAILED has no echo coming — it must not pin the
+    /// editor to text the server never took (nor survive a reopen of the
+    /// issue). The write's error path calls `retire`; a LATER save for the
+    /// same issue supersedes the failed one and stays.
+    #[test]
+    fn a_failed_save_retires_its_entry_but_never_a_newer_one() {
+        let mut saves = UnechoedSaves::default();
+        saves.record("a", "mine", "old");
+        assert_eq!(saves.resolve("a", "old").as_deref(), Some("mine"));
+        saves.retire("a", "mine");
+        assert_eq!(saves.resolve("a", "old"), None, "the row is the truth again");
+
+        // A second save landed before the first one's failure came back: the
+        // failure retires NOTHING (the entry belongs to the newer write).
+        saves.record("b", "one", "old");
+        saves.record("b", "two", "old");
+        saves.retire("b", "one");
+        assert_eq!(saves.resolve("b", "old").as_deref(), Some("two"));
+
+        // Retiring an issue with nothing in flight is a no-op.
+        saves.retire("c", "whatever");
+        assert_eq!(saves.resolve("c", "old"), None);
+    }
+
+    /// EXP-919: nothing stays pinned forever. A write whose failure never
+    /// came back at all (a dropped task, a request that answered nothing)
+    /// leaves an entry no echo will retire — it expires instead.
+    #[test]
+    fn an_unechoed_save_expires_after_its_ttl() {
+        let mut saves = UnechoedSaves::default();
+        let start = std::time::Instant::now();
+        saves.record_at("a", "mine", "old", start);
+        // Well inside the window: still the in-flight truth.
+        assert_eq!(
+            saves
+                .resolve_at("a", "old", start + std::time::Duration::from_secs(59))
+                .as_deref(),
+            Some("mine")
+        );
+        // Past it: the row wins again, and the entry is gone for good.
+        assert_eq!(saves.resolve_at("a", "old", start + UNECHOED_SAVE_TTL), None);
+        assert_eq!(saves.resolve_at("a", "old", start), None);
+
+        // Each save re-stamps the entry, so a steady stream never expires
+        // mid-flight.
+        saves.record_at("b", "one", "old", start);
+        saves.record_at("b", "two", "old", start + std::time::Duration::from_secs(59));
+        assert_eq!(
+            saves
+                .resolve_at("b", "old", start + std::time::Duration::from_secs(90))
+                .as_deref(),
+            Some("two")
+        );
     }
 
     /// The FIX half. gpui never clears a window's focus when the window is

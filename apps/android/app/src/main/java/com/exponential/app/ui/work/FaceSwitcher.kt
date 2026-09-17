@@ -35,7 +35,7 @@ import com.exponential.app.domain.SwitcherMode
 import com.exponential.app.domain.SwitcherTarget
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.domain.faceLabel
-import com.exponential.app.domain.isLiveRunStatus
+import com.exponential.app.domain.isLiveRun
 import com.exponential.app.domain.issueRunWhen
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.ui.components.BarCircle
@@ -213,7 +213,7 @@ private fun SwitcherRow(
         is SwitcherTarget.Run -> {
             val run = runs.firstOrNull { it.session.id == target.id }
             val onShow = target.id == shownRunId
-            val live = run != null && isLiveRunStatus(run.session.status)
+            val live = run != null && isLiveRun(run.session)
             GlassMenuItem(
                 leadingIcon = when {
                     onShow -> ({ Icon(ExpIcons.uiCheck, contentDescription = null) })

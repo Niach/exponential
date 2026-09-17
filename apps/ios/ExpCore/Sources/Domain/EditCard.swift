@@ -144,7 +144,10 @@ public enum EditCard {
             let subject = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if let diff, !diff.isEmpty {
                 let parsed = Diff.parse(diff)
-                truncatedLines += parsed.truncatedLines ?? 0
+                // Every marker is already clamped to `Diff.lineMax`, so the
+                // SUM saturates there too — the count is a caption, not an
+                // accumulator (and the mirrors carry 32-bit counters).
+                truncatedLines = min(truncatedLines + (parsed.truncatedLines ?? 0), Diff.lineMax)
                 for file in parsed.files {
                     // A pathless section (hunks with no header) borrows the
                     // call's own subject — the engine names the file in

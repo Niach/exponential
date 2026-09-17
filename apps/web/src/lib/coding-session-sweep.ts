@@ -6,8 +6,10 @@
 // view tickets for a dead relay room.
 //
 // EXP-888: the sweep ENDS a stale row with `ended_by = stale`, so the run keeps
-// its place in every runs list and its on-device transcript (EXP-886 keeps
-// journals indefinitely) stays openable and resumable. `stale` is the one end
+// its place in every runs list and its on-device transcript stays openable and
+// resumable for as long as the device keeps it (EXP-886: journals are pruned
+// per the user's `sessionRetentionDays`,
+// apps/desktop/crates/coding/src/session_retention.rs). `stale` is the one end
 // that never kills: the desktop kill-watch and the CLI kill-poll ignore it
 // (the run may just be a laptop that slept past the window), and the next
 // heartbeat of a run that turns out to be alive REVIVES the row
@@ -30,6 +32,7 @@ import { db } from "@/db/connection"
 import { codingSessions, devices } from "@/db/schema"
 import { CODING_SESSION_STALE_MS } from "@exp/db-schema/domain"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
+import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 
 const INITIAL_DELAY_MS = 2 * 60 * 1000
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000
@@ -66,24 +69,58 @@ export async function runCodingSessionSweep(
       and ${devices.caps} ? ${STALE_END_CAP}
   )`
 
-  const ended = await db
-    .update(codingSessions)
-    .set({
-      status: `ended`,
-      endedAt: now,
-      endedBy: `stale`,
-      needsInput: false,
-      // EXP-848/850: an ended run is never busy and says nothing.
-      agentBusy: false,
-      agentCaption: null,
-    })
-    .where(and(stale, hostKnowsStaleEnd))
-    .returning({ id: codingSessions.id })
+  // The flip is the OPTIONAL half: every row it misses is still swept by the
+  // legacy delete below, which is the behaviour older builds have always had.
+  // So a failure here (a lock timeout, the `caps ?` operator on a drifted
+  // devices row) degrades to that instead of aborting the whole pass and
+  // leaving phantom "coding now" badges up until the next interval.
+  let ended: { id: string; parentSessionId: string | null }[] = []
+  try {
+    ended = await db
+      .update(codingSessions)
+      .set({
+        status: `ended`,
+        endedAt: now,
+        endedBy: `stale`,
+        needsInput: false,
+        // EXP-848/850: an ended run is never busy and says nothing.
+        agentBusy: false,
+        agentCaption: null,
+      })
+      .where(and(stale, hostKnowsStaleEnd))
+      .returning({
+        id: codingSessions.id,
+        parentSessionId: codingSessions.parentSessionId,
+      })
+  } catch (err) {
+    console.error(
+      `[coding-session-sweep] stale-end flip failed, falling back to delete:`,
+      err
+    )
+  }
 
   const deleted = await db
     .delete(codingSessions)
     .where(stale)
     .returning({ id: codingSessions.id })
+
+  // EXP-700: a swept row may be an agent-started CHILD whose parent is blocked
+  // waiting for a report it will now never send — the child's `sessions_end`
+  // never ran, which is precisely why the sweep saw it go silent. Tell the
+  // parent, exactly like the client/merge end paths do. `notifyParentOfChildEnd`
+  // no-ops for every row that is not agent-started with a live linked parent
+  // and never throws, so this stays best-effort; the parentSessionId filter
+  // just keeps a big sweep from looking up rows that can't qualify.
+  await Promise.all(
+    ended
+      .filter((row) => row.parentSessionId)
+      .map((row) =>
+        notifyParentOfChildEnd(db, row.id, {
+          summary: null,
+          endedBy: `stale`,
+        })
+      )
+  )
 
   return { sessionsEnded: ended.length, sessionsDeleted: deleted.length }
 }

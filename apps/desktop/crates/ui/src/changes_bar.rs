@@ -189,9 +189,16 @@ pub(crate) fn issue_has_open_pr(issue: &domain::rows::Issue) -> bool {
     issue.pr_state.as_deref() == Some("open")
 }
 
-/// Any synced open-PR issue on `branch` — a batch run's representative merge
-/// target. Pure (unit-tested); an empty branch never matches (trunk/scratch
-/// runs record no branch).
+/// The synced open-PR issue on `branch` that REPRESENTS its pull request — a
+/// batch run's merge target. Pure (unit-tested); an empty branch never matches
+/// (trunk/scratch runs record no branch).
+///
+/// EXP-917: the pick is [`crate::queries::representative_order`], the Reviews
+/// row's rule, NOT "the first one the collection happens to yield". The
+/// issues collection is a `HashMap`, so the old `.next()` returned an
+/// arbitrary sibling: the run header then keyed the conflict swap on a
+/// different issue than Reviews merged through, and a real conflict fell back
+/// to the plain Merge pill.
 pub(crate) fn open_pr_issue_on_branch<'a>(
     branch: &str,
     issues: impl Iterator<Item = &'a domain::rows::Issue>,
@@ -199,9 +206,9 @@ pub(crate) fn open_pr_issue_on_branch<'a>(
     if branch.is_empty() {
         return None;
     }
-    let mut issues =
-        issues.filter(|issue| issue.branch.as_deref() == Some(branch) && issue_has_open_pr(issue));
-    issues.next()
+    issues
+        .filter(|issue| issue.branch.as_deref() == Some(branch) && issue_has_open_pr(issue))
+        .min_by(|a, b| crate::queries::representative_order(a, b))
 }
 
 #[cfg(test)]
@@ -255,6 +262,70 @@ mod tests {
         .is_none());
         // Trunk/scratch sessions record no branch — never a merge target.
         assert!(open_pr_issue_on_branch("", [&open].into_iter()).is_none());
+    }
+
+    /// EXP-917: a BATCH pull request has one representative, and both paths
+    /// to it agree. The run header resolves it through the branch
+    /// ([`open_pr_issue_on_branch`]) while Reviews merges through
+    /// `ReviewEntry::representative` (`issues[0]` after
+    /// [`crate::queries::sort_pr_issues`]) — and the conflict swap keys
+    /// `MergeState` on that id, so a disagreement hid the swap. The issues
+    /// collection is a `HashMap`, so the branch lookup is fed here in every
+    /// order.
+    #[test]
+    fn a_batch_pr_resolves_the_same_representative_on_both_paths() {
+        let issue = |id: &str, created_at: &str| -> domain::rows::Issue {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "board_id": "b-1", "number": 1,
+                "identifier": "EXP-1", "title": "t", "status": "in_review",
+                "branch": "exp/batch-a1b2c3d4", "pr_state": "open",
+                "pr_url": "https://github.com/o/r/pull/7",
+                "created_at": created_at,
+            }))
+            .unwrap()
+        };
+        let older = issue("i-older", "2026-09-01T10:00:00Z");
+        let newest = issue("i-newest", "2026-09-03T10:00:00Z");
+        let middle = issue("i-middle", "2026-09-02T10:00:00Z");
+
+        // The Reviews side: the entry's `issues[0]`.
+        let mut sorted = vec![older.clone(), newest.clone(), middle.clone()];
+        crate::queries::sort_pr_issues(&mut sorted);
+        assert_eq!(sorted[0].id, "i-newest");
+
+        // The run-header side: every iteration order the HashMap can yield.
+        let rows = [&older, &newest, &middle];
+        for a in 0..3 {
+            for b in 0..3 {
+                for c in 0..3 {
+                    if a == b || b == c || a == c {
+                        continue;
+                    }
+                    let found = open_pr_issue_on_branch(
+                        "exp/batch-a1b2c3d4",
+                        [rows[a], rows[b], rows[c]].into_iter(),
+                    );
+                    assert_eq!(
+                        found.map(|issue| issue.id.as_str()),
+                        Some(sorted[0].id.as_str()),
+                        "both paths merge through the same batch sibling"
+                    );
+                }
+            }
+        }
+
+        // Issues created in the same instant fall back to the id — still ONE
+        // answer, never the collection's order.
+        let tie_a = issue("i-b", "2026-09-04T10:00:00Z");
+        let tie_b = issue("i-a", "2026-09-04T10:00:00Z");
+        let mut tied = vec![tie_a.clone(), tie_b.clone()];
+        crate::queries::sort_pr_issues(&mut tied);
+        assert_eq!(tied[0].id, "i-a");
+        assert_eq!(
+            open_pr_issue_on_branch("exp/batch-a1b2c3d4", [&tie_a, &tie_b].into_iter())
+                .map(|issue| issue.id.as_str()),
+            Some("i-a")
+        );
     }
 
     /// EXP-734: the ONE merge-target rule. An action/chat run carries its own

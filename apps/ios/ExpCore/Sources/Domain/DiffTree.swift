@@ -69,9 +69,14 @@ public enum DiffTree {
     public static func fileTree(_ files: [Diff.File], query: String = "") -> [Node] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if !needle.isEmpty {
+            // UTF-16 code units, like the JS `includes` the fixture locks (and
+            // Kotlin's `contains`, and Rust's on bytes). Swift's own `contains`
+            // matches CANONICALLY, so an NFD path would answer a needle typed
+            // in NFC — a different file set than the other three return.
+            let pin = Array(needle.utf16)
             var out: [Node] = []
             for (index, file) in files.enumerated()
-            where file.path.lowercased().contains(needle) {
+            where codeUnitsContain(Array(file.path.lowercased().utf16), pin) {
                 out.append(leaf(file, index: index, name: file.path))
             }
             return out
@@ -188,28 +193,41 @@ public enum DiffTree {
     }
 
     /// Lower-cased code-unit order, then the raw name — portable everywhere.
+    /// EVERY rung compares CODE UNITS, the equality too: Swift's `==`/`!=` on
+    /// `String` is canonical, so an NFC name and its NFD twin would fall
+    /// through both rungs as "equal" and land in whatever order the (unstable)
+    /// sort left them — while JS, Rust and Kotlin order them by code unit.
     private static func byName(_ a: Node, _ b: Node) -> Bool {
-        let la = a.name.lowercased()
-        let lb = b.name.lowercased()
+        let la = Array(a.name.lowercased().utf16)
+        let lb = Array(b.name.lowercased().utf16)
         if la != lb { return codeUnitsLess(la, lb) }
-        if a.name != b.name { return codeUnitsLess(a.name, b.name) }
+        let ra = Array(a.name.utf16)
+        let rb = Array(b.name.utf16)
+        if ra != rb { return codeUnitsLess(ra, rb) }
         return false
     }
 
     /// JavaScript's `<` on strings: UTF-16 code units, lexicographically.
     /// Swift's own `<` normalizes and orders by grapheme, which is a DIFFERENT
     /// answer for the same pair — and the fixture locks the JS one.
-    private static func codeUnitsLess(_ a: String, _ b: String) -> Bool {
-        var left = a.utf16.makeIterator()
-        var right = b.utf16.makeIterator()
-        while true {
-            switch (left.next(), right.next()) {
-            case (nil, nil): return false
-            case (nil, _): return true
-            case (_, nil): return false
-            case let (l?, r?):
-                if l != r { return l < r }
-            }
+    private static func codeUnitsLess(_ a: [UInt16], _ b: [UInt16]) -> Bool {
+        var i = 0
+        while i < a.count, i < b.count {
+            if a[i] != b[i] { return a[i] < b[i] }
+            i += 1
         }
+        return a.count < b.count
+    }
+
+    /// JavaScript's `includes` on strings: a UTF-16 code-unit substring.
+    private static func codeUnitsContain(_ haystack: [UInt16], _ needle: [UInt16]) -> Bool {
+        if needle.isEmpty { return true }
+        if needle.count > haystack.count { return false }
+        for start in 0...(haystack.count - needle.count) {
+            var i = 0
+            while i < needle.count, haystack[start + i] == needle[i] { i += 1 }
+            if i == needle.count { return true }
+        }
+        return false
     }
 }

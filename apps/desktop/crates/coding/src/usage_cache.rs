@@ -79,12 +79,33 @@ pub const CODEX_REFRESH_INTERVAL_SECS: u64 = 6 * 3600;
 /// ~8h access token.
 pub const CLAUDE_REFRESH_MARGIN_SECS: u64 = 15 * 60;
 
+/// EXP-909 — the floor between two SUCCESSFUL claude rotations, whatever the
+/// expiry says.
+///
+/// [`CLAUDE_REFRESH_MARGIN_SECS`] is an EXPIRY predicate, and two things make
+/// it permanently true: a token whose whole lifetime is shorter than the
+/// margin (a test/enterprise issuer handing out 10-minute tokens), and a local
+/// clock running ahead of the issuer's. Either one turns the beat into a
+/// `grant_type=refresh_token` POST every 30 s, burning a single-use grant each
+/// time — the exact loop [`AgentCacheEntry::dead_refresh_tokens`] exists to
+/// contain. So a rotation that LANDED also buys this much quiet: nothing is
+/// lost when the margin is honest (an 8-hour token is due once every ~8 h),
+/// and a pathological one costs six POSTs an hour instead of 120.
+pub const CLAUDE_REFRESH_MIN_INTERVAL_SECS: u64 = 600;
+
 /// A refresh the network (not the account) lost: retry on this cadence.
 /// Ten minutes is long enough that a flapping link cannot turn the keep-alive
 /// into a retry storm against the token endpoint, and short enough that a
 /// laptop coming back from a tunnel still rotates well inside
 /// [`CLAUDE_REFRESH_MARGIN_SECS`] — the margin budgets one of these.
 pub const REFRESH_FAILED_BACKOFF_SECS: u64 = 600;
+
+/// Somebody else (the CLI, or a sibling process) holds this login's refresh
+/// lock. Nothing was spent — but reaching that answer READ the credential
+/// store, which on macOS is a keychain hit, so the beat must not simply ask
+/// again 30 s later for as long as the holder takes. One minute fits a whole
+/// POST plus the store write and still re-opens the gate promptly.
+pub const CONTENDED_REFRESH_BACKOFF_SECS: u64 = 60;
 
 /// A store with no refresh token at all will not grow one without a relogin.
 /// Nothing this process does can change that answer, so asking again on the
@@ -144,8 +165,9 @@ pub struct AgentCacheEntry {
     /// Set when the credential STORE refused; no read is attempted before it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credential_denied_until_secs: Option<u64>,
-    /// EXP-792: set on a 429 — the one floor a FORCED refresh
-    /// (`agent_usage_refresh`) must still honor.
+    /// EXP-792: set on a 429 — the floor a FORCED refresh
+    /// (`agent_usage_refresh`) answers with instead of polling. See
+    /// [`force_due`] for the other two a force keeps.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limited_until_secs: Option<u64>,
     /// EXP-849 — this login's HEALTH, as the
@@ -414,7 +436,8 @@ pub fn refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
 ///
 /// Unlike [`refresh_due`] this is NOT a rider on a usage probe: it is asked on
 /// every beat, because the thing it protects is the token's expiry, not a
-/// request budget. The two backoffs above are the whole rate limit.
+/// request budget. The two backoffs above plus the success floor
+/// ([`CLAUDE_REFRESH_MIN_INTERVAL_SECS`]) are the whole rate limit.
 pub fn claude_refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
     if entry
         .credential_denied_until_secs
@@ -428,6 +451,17 @@ pub fn claude_refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
     {
         return false;
     }
+    // EXP-909: a rotation that LANDED holds the next one off for the floor,
+    // so an expiry that never leaves the margin (a short-lived token, a clock
+    // ahead of the issuer) cannot POST on every beat. A clock BEHIND the
+    // issuer is harmless — the margin simply opens later — so only the
+    // success stamp is floored, never the expiry itself.
+    if entry
+        .refreshed_at_secs
+        .is_some_and(|at| now.saturating_sub(at) < CLAUDE_REFRESH_MIN_INTERVAL_SECS)
+    {
+        return false;
+    }
     match entry.claude_expires_at_ms {
         // Never read, or a document with no expiry in it: look now. The read
         // itself stamps the answer that schedules every later beat, and a
@@ -435,9 +469,7 @@ pub fn claude_refresh_due(entry: &AgentCacheEntry, now: u64) -> bool {
         // cannot be scheduled off a field it lacks, and `refresh_if_expiring`
         // never POSTs on a guess), so this arm never means "every beat".
         None => true,
-        // Milliseconds on both sides. `saturating_mul` keeps a hand-edited or
-        // absurd clock from wrapping the comparison into "not due".
-        Some(at) => ((now + CLAUDE_REFRESH_MARGIN_SECS) as i64).saturating_mul(1000) >= at,
+        Some(at) => inside_refresh_margin(at, now),
     }
 }
 
@@ -456,26 +488,28 @@ pub fn note_credential_expiry(entry: &mut AgentCacheEntry, expires_at_ms: Option
 /// Health is deliberately NOT touched here — it is the usage probe's fact
 /// (EXP-849), and a rotation that works while the probe 401s says something
 /// about the endpoint, not the account.
+///
+/// EXP-909: a rotation that lands a token ALREADY inside
+/// [`CLAUDE_REFRESH_MARGIN_SECS`] is not a success the cadence can be built
+/// on — the gate would be true again the moment the floor lifts, forever. It
+/// is treated as a failure instead ([`note_refresh_failed`]), so the two rate
+/// limits agree and the log line that follows names a real condition rather
+/// than a rotation that keeps happening.
 pub fn note_refresh_ok(entry: &mut AgentCacheEntry, expires_at_ms: i64, now: u64) {
     entry.claude_expires_at_ms = Some(expires_at_ms);
-    entry.refresh_backoff_until_secs = None;
     entry.refreshed_at_secs = Some(now);
+    if inside_refresh_margin(expires_at_ms, now) {
+        note_refresh_failed(entry, now, REFRESH_FAILED_BACKOFF_SECS);
+    } else {
+        entry.refresh_backoff_until_secs = None;
+    }
 }
 
-/// EXP-881 — is this login's claude token ALREADY expired (not merely inside
-/// the refresh margin [`claude_refresh_due`] answers for)?
-///
-/// The distinction is the whole point: an expiring token is a keep-alive's
-/// business and may be left alone when the user turned the keep-alive off, but
-/// an EXPIRED one makes every usage read 401 and paints `Needs re-login` on a
-/// perfectly good account. So the collector refreshes an expired one whatever
-/// the setting says. `None` (never read, or a document with no expiry) is NOT
-/// expired: we have no evidence, and guessing would mean a POST on every beat.
-pub fn claude_token_expired(entry: &AgentCacheEntry, now: u64) -> bool {
-    match entry.claude_expires_at_ms {
-        None => false,
-        Some(at) => (now as i64).saturating_mul(1000) >= at,
-    }
+/// Is `expires_at_ms` (unix MILLIseconds) within [`CLAUDE_REFRESH_MARGIN_SECS`]
+/// of `now` (unix seconds)? `saturating_mul` keeps a hand-edited or absurd
+/// clock from wrapping the comparison.
+fn inside_refresh_margin(expires_at_ms: i64, now: u64) -> bool {
+    ((now + CLAUDE_REFRESH_MARGIN_SECS) as i64).saturating_mul(1000) >= expires_at_ms
 }
 
 /// EXP-881 — a rotation landed on a login whose numbers are dimmed: release
@@ -722,16 +756,31 @@ pub fn apply_outcome(
 }
 
 /// EXP-792: make `entry` due for one FORCED poll — past the scheduled next
-/// poll and the machine-wide shared TTL, but never past the 429 floor.
-/// `Err(until)` = still rate-limited until that unix second.
+/// poll and the machine-wide shared TTL. Three floors survive a force:
+///
+/// * the 429 floor, the endpoint's own instruction — `Err(until)` names the
+///   unix second it lifts, and the host answers with that instead of polling;
+/// * the EXP-817 reset pin: while EVERY window sits at 100 % nothing can move
+///   before the earliest reset, so a forced read there would spend a request
+///   to re-read numbers that are physically unchanged. The pin is kept (the
+///   pass reports what it holds) rather than refused, because a person
+///   pressing Refresh on a maxed account wants the caption, not an error;
+/// * `credential_denied_until_secs` (the hour after a keychain ACL refusal).
+///   `agent_usage_refresh` reaches this from a person's Refresh AND from a
+///   page's periodic refresh, and the call site cannot tell them apart — so
+///   the denial is kept in both cases rather than letting an idle Accounts
+///   page re-raise a modal nobody will answer every beat.
 pub fn force_due(entry: &mut AgentCacheEntry, now: u64) -> Result<(), u64> {
     if let Some(until) = entry.rate_limited_until_secs.filter(|until| now < *until) {
         return Err(until);
     }
-    entry.next_poll_at_secs = 0;
+    let pinned = entry
+        .earliest_reset_secs
+        .map(|reset| reset + RESET_MARGIN_SECS)
+        .filter(|at| now < *at);
+    entry.next_poll_at_secs = pinned.unwrap_or(0);
     entry.fetched_at_secs = 0;
-    entry.endpoint_due_at_secs = None;
-    entry.credential_denied_until_secs = None;
+    entry.endpoint_due_at_secs = pinned;
     Ok(())
 }
 
@@ -1108,12 +1157,11 @@ mod tests {
         // "not due" — it simply stays far away.
         assert!(!claude_refresh_due(&expiring_at(i64::MAX), now));
 
-        // EXP-881 — the two predicates are NOT the same question. Inside the
-        // margin the token is due a refresh but still WORKS, so nothing is
-        // forced: only an already-dead one overrides the keep-alive setting.
+        // EXP-909 — the margin is the ONE question the gate asks about the
+        // token; there is no second "already expired" predicate, because the
+        // refresh has a single expiry-driven path and a past instant is
+        // trivially inside the margin.
         assert!(claude_refresh_due(&expiring_at(edge), now));
-        assert!(!claude_token_expired(&expiring_at(edge), now));
-        assert!(!claude_token_expired(&fresh, opens));
     }
 
     /// An access token that already expired is trivially inside the margin, so
@@ -1128,12 +1176,56 @@ mod tests {
         // A zero/absent-looking stamp is "expired in 1970", i.e. due.
         assert!(claude_refresh_due(&expiring_at(0), now));
 
-        // EXP-881: all three are also EXPIRED, the stronger fact (the
-        // refresh has one expiry-driven path since EXP-909). An entry that
-        // was never read is not expired — we have no evidence either way.
-        assert!(claude_token_expired(&expiring_at(ms_after(now, -60)), now));
-        assert!(claude_token_expired(&expiring_at(0), now));
-        assert!(!claude_token_expired(&AgentCacheEntry::default(), now));
+    }
+
+    /// EXP-909 — the SUCCESS floor. A token whose whole lifetime is shorter
+    /// than the margin (or a clock running ahead of the issuer) leaves the
+    /// expiry gate permanently true; without a floor the beat would POST
+    /// `grant_type=refresh_token` every 30 s and burn a single-use grant each
+    /// time. Both halves of the guard are checked: a landed rotation parks the
+    /// gate for [`CLAUDE_REFRESH_MIN_INTERVAL_SECS`], and a rotation that
+    /// lands a token ALREADY inside the margin is recorded as a failure so the
+    /// ordinary backoff covers the same ground.
+    #[test]
+    fn a_landed_rotation_floors_the_next_one() {
+        let now = 1_700_000_000;
+
+        // An honest 8-hour token: the floor is invisible, the expiry rules.
+        let mut healthy = AgentCacheEntry::default();
+        note_refresh_ok(&mut healthy, ms_after(now, 8 * 3600), now);
+        assert_eq!(healthy.refresh_backoff_until_secs, None);
+        assert!(!claude_refresh_due(&healthy, now + CLAUDE_REFRESH_MIN_INTERVAL_SECS));
+        let opens = now + 8 * 3600 - CLAUDE_REFRESH_MARGIN_SECS;
+        assert!(claude_refresh_due(&healthy, opens), "the margin still decides");
+
+        // A 10-minute token: inside the margin the instant it lands, so the
+        // rotation is booked as a FAILURE and the backoff holds the gate.
+        let mut short = AgentCacheEntry::default();
+        note_refresh_ok(&mut short, ms_after(now, 600), now);
+        assert_eq!(
+            short.refresh_backoff_until_secs,
+            Some(now + REFRESH_FAILED_BACKOFF_SECS),
+            "a token born inside the margin is not a cadence"
+        );
+        assert_eq!(short.refreshed_at_secs, Some(now), "it did land, though");
+        assert!(!claude_refresh_due(&short, now + 30), "not on the next beat");
+
+        // The floor alone covers the same ground once the backoff is gone —
+        // a clock ahead of the issuer keeps the expiry gate true forever.
+        let mut ahead = AgentCacheEntry {
+            refresh_backoff_until_secs: None,
+            ..AgentCacheEntry::default()
+        };
+        note_refresh_ok(&mut ahead, ms_after(now, 8 * 3600), now);
+        ahead.refresh_backoff_until_secs = None;
+        ahead.claude_expires_at_ms = Some(ms_after(now, 60));
+        assert!(claude_refresh_due(&ahead, now + CLAUDE_REFRESH_MIN_INTERVAL_SECS));
+        for beat in [30, 60, 300, CLAUDE_REFRESH_MIN_INTERVAL_SECS - 1] {
+            assert!(
+                !claude_refresh_due(&ahead, now + beat),
+                "no POST {beat}s after a landed rotation"
+            );
+        }
     }
 
     /// `None` = never read (or a document with no expiry): look ONCE, then let

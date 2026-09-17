@@ -456,7 +456,7 @@ struct ActionsListView: View {
     /// (EXP-773), where its summary and Resume live.
     @ViewBuilder
     private func automatedRunRow(_ session: CodingSessionEntity, vm: ActionsViewModel) -> some View {
-        let ended = session.status == DomainContract.codingSessionStatusEnded
+        let ended = PastRuns.hasEnded(session)
         if ended {
             EndedRunRow(
                 title: session.actionName ?? "Action run",

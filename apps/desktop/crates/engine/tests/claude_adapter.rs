@@ -1221,6 +1221,11 @@ async fn a_recorded_transcript_lists_and_replays_without_spawning_the_cli() {
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let seen = updates.clone();
     let listed = work.0.clone();
+    // EXP-905: the load's title read is SCHEDULED on the blocking thread (a
+    // resumed transcript can be megabytes, and the pump must not parse it), so
+    // the name lands a moment AFTER `LoadSessionResponse` — the client waits
+    // for it while the connection is still up, as a real one does.
+    let titled = updates.clone();
     let sessions = Client
         .builder()
         .name("exp746-test-client")
@@ -1248,6 +1253,19 @@ async fn a_recorded_transcript_lists_and_replays_without_spawning_the_cli() {
             ))
             .block_task()
             .await?;
+            settle(|| {
+                titled.lock().expect("updates").iter().any(|notification| {
+                    matches!(
+                        &notification.update,
+                        SessionUpdate::SessionInfoUpdate(info)
+                            if matches!(
+                                &info.title,
+                                agent_client_protocol::schema::MaybeUndefined::Value(_)
+                            )
+                    )
+                })
+            })
+            .await;
             Ok::<_, Error>(sessions)
         })
         .await

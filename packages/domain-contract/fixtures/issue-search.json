@@ -137,5 +137,25 @@
     "allowUnsynced": false,
     "limit": 2,
     "expected": ["k1", "k2"]
+  },
+  {
+    "name": "an accented word prefix matches its own spelling only",
+    "rows": [
+      { "id": "v1", "identifier": "EXP-1", "title": "R\u00e9sum\u00e9 upload", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "v2", "identifier": "EXP-2", "title": "Resume the run", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "v3", "identifier": "EXP-3", "title": "Nothing here", "description": "a r\u00e9sum\u00e9 lives in the body", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "R\u00e9sum",
+    "expected": ["v1", "v3"]
+  },
+  {
+    "name": "a non-breaking space separates two tokens like any other whitespace",
+    "rows": [
+      { "id": "w1", "identifier": "EXP-1", "title": "Session results", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "w2", "identifier": "EXP-2", "title": "Session list", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "w3", "identifier": "EXP-3", "title": "Results page", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "session\u00a0results",
+    "expected": ["w1"]
   }
 ]

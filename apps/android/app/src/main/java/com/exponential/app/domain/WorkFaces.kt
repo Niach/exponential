@@ -64,8 +64,11 @@ private fun stamp(value: String): Long = WireTimestamps.parseEpochMs(value) ?: 0
 /** Live by status AND heartbeat: a `running` row whose machine went quiet
  *  past the staleness window is neither steerable nor stoppable. */
 fun isSessionLive(row: CodingSessionEntity, nowMs: Long): Boolean =
+    // EXP-888: a sweep end (`ended_by = 'stale'`) is NOT an end — the host
+    // ignores the flip and heartbeats the row back to `running`.
     (row.status == DomainContract.codingSessionStatusRunning ||
-        row.status == DomainContract.codingSessionStatusInReview) &&
+        row.status == DomainContract.codingSessionStatusInReview ||
+        runIsStaleEnd(row)) &&
         !CodingSessionLiveness.isStale(row.updatedAt, nowMs)
 
 private fun newest(rows: List<CodingSessionEntity>): CodingSessionEntity? {
@@ -238,7 +241,8 @@ fun codingAction(
     val own = target != null && me != null && target.userId == me
     return primaryAction(
         ownLive = own && isSessionLive(target!!, nowMs),
-        ownEndedResumable = own && target!!.status == DomainContract.codingSessionStatusEnded && resumable,
+        // EXP-888: a sweep end is not an end — never offer Resume on it.
+        ownEndedResumable = own && runHasEnded(target!!) && resumable,
         canStart = canStart,
     )
 }

@@ -26,7 +26,7 @@
  * Everything long-lived is tracked and killed in a `finally`, so a Ctrl-C leaves
  * no orphan relay stub or desktop window behind.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
 import { join } from "node:path"
 import {
   PLATFORMS,
@@ -569,6 +569,13 @@ async function captureWeb(
   ]
   if (isScoped(options, scope)) cmd.push(`--views`, views.join(`,`))
 
+  // EXP-913: the lane is judged on the results file it is about to write, so
+  // the PREVIOUS run's rows must not be sitting there — a crash before the
+  // first view would otherwise be read as "everything passed last time".
+  // `capture:views` truncates it itself on entry; this is the belt for a lane
+  // that never gets that far (or a `bun` that never starts).
+  clearCaptureViewsResults()
+
   console.log(`\n── web (${formFactor}) ─────────────────────────────────`)
   const result = await run({
     cmd,
@@ -607,6 +614,17 @@ async function captureWeb(
       ok: problems.length === 0,
       detail: problems.length === 0 ? undefined : problems.join(` · `),
     })
+  }
+}
+
+/** Drop the previous run's `capture-views.json` (best effort: an unwritable
+ *  raw dir is the capture's problem to report, not this one's). */
+function clearCaptureViewsResults(): void {
+  const path = join(rawDir(), `capture-views.json`)
+  try {
+    rmSync(path, { force: true })
+  } catch {
+    // Nothing to do — the reader treats a missing OR unreadable file the same.
   }
 }
 

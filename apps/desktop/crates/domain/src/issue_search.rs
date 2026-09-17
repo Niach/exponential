@@ -28,6 +28,7 @@
 //!
 //! gpui-free, like the rest of `domain`.
 
+use std::cell::OnceCell;
 use std::collections::HashSet;
 
 const SCORE_IDENTIFIER_EXACT: i32 = 100;
@@ -143,34 +144,47 @@ pub fn identifier_number(identifier: &str) -> i64 {
 }
 
 /// A row lowercased + word-split once, so an N-token query costs one pass.
-struct Prepared {
+/// The DESCRIPTION is lowercased and word-split LAZILY (the Android mirror's
+/// rule): a token that already matched the identifier or the title never
+/// touches it, and a description is the only unbounded field a ranked pool
+/// carries — every keystroke prepares the whole pool.
+struct Prepared<'a> {
     identifier: String,
     number: Option<String>,
     title: String,
     title_words: Vec<String>,
-    description: String,
-    description_words: Vec<String>,
+    raw_description: &'a str,
+    description: OnceCell<String>,
+    description_words: OnceCell<Vec<String>>,
 }
 
-fn prepare(row: &SearchRow<'_>) -> Prepared {
+impl Prepared<'_> {
+    fn description(&self) -> &str {
+        self.description.get_or_init(|| self.raw_description.to_lowercase())
+    }
+
+    fn description_words(&self) -> &[String] {
+        self.description_words
+            .get_or_init(|| words(self.description()).into_iter().map(str::to_string).collect())
+    }
+}
+
+fn prepare<'a>(row: &SearchRow<'a>) -> Prepared<'a> {
     let title = row.title.to_lowercase();
-    let description = row.description.unwrap_or("").to_lowercase();
     Prepared {
         identifier: row.identifier.to_lowercase(),
         number: identifier_tail(row.identifier).map(str::to_string),
         title_words: words(&title).into_iter().map(str::to_string).collect(),
         title,
-        description_words: words(&description)
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
-        description,
+        raw_description: row.description.unwrap_or(""),
+        description: OnceCell::new(),
+        description_words: OnceCell::new(),
     }
 }
 
 /// The best field score of `token` against a prepared row, or `None` when the
 /// token matches nothing.
-fn token_score(row: &Prepared, token: &str) -> Option<i32> {
+fn token_score(row: &Prepared<'_>, token: &str) -> Option<i32> {
     let number = row.number.as_deref();
     if row.identifier == token || number == Some(token) {
         return Some(SCORE_IDENTIFIER_EXACT);
@@ -190,13 +204,13 @@ fn token_score(row: &Prepared, token: &str) -> Option<i32> {
         return Some(SCORE_TITLE_CONTAINS);
     }
     if row
-        .description_words
+        .description_words()
         .iter()
         .any(|word| word.starts_with(token))
     {
         return Some(SCORE_DESCRIPTION_WORD_PREFIX);
     }
-    if row.description.contains(token) {
+    if row.description().contains(token) {
         return Some(SCORE_DESCRIPTION_CONTAINS);
     }
     None

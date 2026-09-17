@@ -125,20 +125,19 @@ export function CodingDocsPage() {
               <strong>Account</strong> it uses.
             </p>
             <p>
-              You see it in three places: on the machine&apos;s{` `}
-              <strong>Device settings</strong> (a <strong>Login</strong> or
-              {` `}<strong>Switch account</strong> pill plus usage cards
-              inside each agent&apos;s tab), in the <strong>Accounts</strong>
-              {` `}section of the <strong>Devices</strong> page (every
-              account you own, one tab per agent, with the machines that hold
-              it), and mid-run on the run itself. On web and desktop that is
-              the context ring under the composer. On a phone it is the
-              run&apos;s <strong>…</strong> menu.
+              You see it in two places. The <strong>Devices</strong> page
+              lists each machine with the logins it holds underneath it —
+              which account, whether it still works, and what is left of each
+              window; repairing one (a <strong>Login</strong> or{` `}
+              <strong>Switch account</strong> pill) happens right there, on
+              the login&apos;s own row. And mid-run the context ring beside
+              the composer opens the same usage overlay — the same one, on
+              every client, phones included.
             </p>
 
             <DocShot
-              view="usage"
-              caption="Accounts on the Devices page: each agent account, the machines that hold it, and what is left of each window"
+              view="agents"
+              caption="The Devices page: each machine with the agent logins it holds, their health, and what is left of each window"
             />
 
             <p>

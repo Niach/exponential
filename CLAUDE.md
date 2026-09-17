@@ -145,12 +145,12 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 
 **`.env.example` at the repo root = the CANONICAL reference** and `selfhost/.env.example` its self-host subset; read them, no list here; relays have their own `apps/*/.env.example`. Not obvious from those:
 
-- `CLOUD_INSTANCE` = the opt-IN cloud marker (EXP-364): `'true'` = billing, plan limits, in-app widget, conversion tracking; unset = self-hosted, every FEATURE limit unlocked.
-- `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup on in dev, OFF in production builds (`selfhost/docker-compose.yaml` re-defaults it `true`). Auth posture = BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5), never runtime `NODE_ENV`. EXP-857: `AUTH_EMAIL_OTP_ENABLED` defaults on WITH a mail transport, `AUTH_PASSKEY_ENABLED` WITH an https base (rpID = host; Android origins from `ANDROID_APP_LINK_FINGERPRINTS`); login = ONE "Continue with …" list ×4; `mobile-oauth-start?provider=browser` = the native browser handoff.
-- Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*` for ALL mail, SES wins if both; neither = email off.
-- OIDC: `OIDC_PROVIDERS` (JSON array) = primary; the single-provider `AUTH_OIDC_ENABLED`/`OIDC_*` vars = legacy, read only when unset.
-- GitHub App installations are claimed PER TEAM (`github_installation_links`); `GITHUB_APP_CLIENT_SECRET` unset ⇒ install-page round-trip; `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts.
-- `STEER_RELAY_URL` unset = remote start/steer off; HS256 `STEER_RELAY_SECRET` must match the relay; BOTH relays need `TRUST_PROXY=true` behind a reverse proxy.
+- `CLOUD_INSTANCE` = the opt-IN cloud marker (EXP-364): `'true'` = billing, plan limits, in-app widget, conversion tracking; unset = self-hosted, every FEATURE limit unlocked; `INITIAL_ADMIN_EMAILS` auto-promotes global admins.
+- `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup on in dev, OFF in production builds (`selfhost/docker-compose.yaml` re-defaults `true`). Auth posture = BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5), never runtime `NODE_ENV`. EXP-857: `AUTH_EMAIL_OTP_ENABLED` defaults on WITH a mail transport, `AUTH_PASSKEY_ENABLED` WITH an https base (rpID = host; Android origins from `ANDROID_APP_LINK_FINGERPRINTS`); login = ONE "Continue with …" list ×4; `mobile-oauth-start?provider=browser` = the native browser handoff.
+- Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*` for ALL mail, SES wins; neither = no mail.
+- OIDC: `OIDC_PROVIDERS` (JSON array) = primary; single-provider `AUTH_OIDC_ENABLED`/`OIDC_*` = legacy, read only when unset.
+- GitHub App installs are claimed PER TEAM (`github_installation_links`); `GITHUB_APP_CLIENT_SECRET` unset ⇒ install-page round-trip; `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts.
+- `STEER_RELAY_URL` unset = remote start/steer off; HS256 `STEER_RELAY_SECRET` must match the relay; BOTH relays need `TRUST_PROXY=true` behind a proxy.
 - `CLIENT_MIN_VERSION_{ANDROID,IOS,DESKTOP}` gate with HTTP 426 + a blocking update screen (unset = off); MARKETING versions, never build numbers; `CLIENT_LATEST_VERSION_*` = informational.
 - Widget rate limits: `WIDGET_RATE_LIMIT_PER_{KEY,IP}_HOURLY` + `_{KEY,IP}_BURST` (KEY self-host-only; cloud = per-TEAM plan ceiling, `lib/widget/submit-limit.ts`), `RECIPIENT` bounds support mail, config GET `WIDGET_CONFIG_RATE_LIMIT_{PER_IP_HOURLY,IP_BURST}` (REV-25).
 

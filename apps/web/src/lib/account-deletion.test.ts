@@ -537,9 +537,13 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
       `col:user_id`,
       USER,
       `col:host_user_id`,
+      // EXP-888: a stale-swept row is still a live agent as far as this path
+      // is concerned — the sweep's end is not one any client acts on.
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
     ])
     expect(result.endedSessionIds).toContain(`sess-requested`)
   })
@@ -569,6 +573,8 @@ describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, ()
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
     ])
     expect(result.endedSessionIds).toEqual([`sess-hosted`])
   })

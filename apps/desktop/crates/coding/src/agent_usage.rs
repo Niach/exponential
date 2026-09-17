@@ -1099,9 +1099,11 @@ fn collect_inner(
 
 /// EXP-792: a FORCED refresh for ONE login (`agent_usage_refresh`): the
 /// poll policy's schedule and the shared TTL are set aside for this one
-/// pass, the 429 floor is not. `Err(until)` names the unix second the
-/// floor lifts (the host replies with it instead of polling); `Ok` is the
-/// same payload [`collect_if_due`] would answer, with that login re-read.
+/// pass; the 429 floor, the EXP-817 reset pin and the keychain-refusal hour
+/// are not ([`usage_cache::force_due`] spells out why each survives).
+/// `Err(until)` names the unix second the 429 floor lifts (the host replies
+/// with it instead of polling); `Ok` is the same payload [`collect_if_due`]
+/// would answer, with that login re-read.
 ///
 /// EXP-808: `profile` names the account profile to refresh (`system`, blank
 /// or `None`-ish = the ambient login). The forced login is also put past the
@@ -1318,7 +1320,26 @@ struct UsageTarget {
 /// one whose numbers are OLDEST, and never within [`PROFILE_STAGGER_SECS`] of
 /// the previous secondary probe: the poll floors are per LOGIN, so an unspaced
 /// fan-out would multiply this machine's request rate by the number of
-/// accounts on it.
+/// accounts on it. Both clocks are [`endpoint_clock`], never `fetched_at_secs`
+/// — the rotation rations REQUESTS, and a live frame is not one.
+/// EXP-881 — the secondary rotation's clock for one login: when the ENDPOINT
+/// last answered for it.
+///
+/// Deliberately not `fetched_at_secs`, which a LIVE frame moves too. A frame
+/// costs no request, so keying the stagger on it let one busy secondary hold
+/// every idle sibling out of the pass's single endpoint slot for as long as
+/// its run lasted — the sibling's numbers froze while a session it has nothing
+/// to do with kept publishing.
+///
+/// `None` = an older host's row, or one only live applies have ever written:
+/// `fetched_at_secs` is the only evidence such a row carries, and the first
+/// real fetch replaces the guess for good.
+fn endpoint_clock(entry: &AgentCacheEntry) -> u64 {
+    entry
+        .endpoint_fetched_at_secs
+        .unwrap_or(entry.fetched_at_secs)
+}
+
 fn usage_targets(
     data_dir: &Path,
     report: &DoctorReport,
@@ -1370,9 +1391,10 @@ fn usage_targets(
                 may_poll: is_active || first_read,
             });
             if let (false, Some(entry)) = (is_active, entry) {
-                last_secondary_probe_secs = last_secondary_probe_secs.max(entry.fetched_at_secs);
+                let clock = endpoint_clock(entry);
+                last_secondary_probe_secs = last_secondary_probe_secs.max(clock);
                 if usage_cache::poll_due(entry, now) {
-                    secondary.push((targets.len() - 1, entry.fetched_at_secs));
+                    secondary.push((targets.len() - 1, clock));
                 }
             }
         }
@@ -1821,10 +1843,22 @@ fn claude_keep_alive_step_at(
             None
         }
         // A sibling process or the CLI itself is refreshing right now. Nothing
-        // was spent and nothing is owed: the next beat re-reads the store and
-        // finds their token. Silent on purpose — it is the normal outcome on a
-        // machine running both the IDE and the daemon.
-        RefreshOutcome::Contended => None,
+        // was spent, and the holder's token lands in the store shortly — but
+        // "nothing is owed" is not "ask again in 30 s": the precheck that
+        // reaches this arm READS the credential store, which on macOS is a
+        // keychain hit per beat for as long as the holder takes. A minute is
+        // long enough that a whole POST + write fits inside it and short
+        // enough that the gate re-opens the moment the lock clears. Silent on
+        // purpose — it is the normal outcome on a machine running both the IDE
+        // and the daemon.
+        RefreshOutcome::Contended => {
+            usage_cache::note_refresh_failed(
+                entry,
+                now,
+                usage_cache::CONTENDED_REFRESH_BACKOFF_SECS,
+            );
+            None
+        }
         // EXP-849's rule: a flaky network is not a broken account, so health
         // is untouched and only the backoff moves.
         RefreshOutcome::Failed(reason) => {
@@ -3268,7 +3302,6 @@ mod tests {
         let mut entry = usage_cache::AgentCacheEntry {
             fetched_at_secs: 1_000,
             next_poll_at_secs: 5_000,
-            credential_denied_until_secs: Some(9_000),
             ..Default::default()
         };
         assert!(!usage_cache::poll_due(&entry, 1_010));
@@ -3290,6 +3323,60 @@ mod tests {
         // A successful read lifts the floor.
         usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(Vec::new()), 2_000, "s");
         assert_eq!(entry.rate_limited_until_secs, None);
+    }
+
+    /// The two floors a force must NOT wash away.
+    ///
+    /// EXP-817: while EVERY window sits at 100 % the schedule is pinned to just
+    /// past the earliest reset — the numbers physically cannot move before it,
+    /// so a forced read there spends a request to re-read 100 %.
+    ///
+    /// The keychain refusal is kept because `agent_usage_refresh` arrives both
+    /// from a person pressing Refresh and from a page's periodic one, and the
+    /// command carries no way to tell them apart: clearing it would let an
+    /// open Accounts page re-raise the macOS ACL modal on every beat.
+    #[test]
+    fn a_force_keeps_the_maxed_reset_pin_and_the_keychain_refusal() {
+        let stamp = "2099-09-06T14:00:00.000Z";
+        let reset = chrono::DateTime::parse_from_rfc3339(stamp).unwrap().timestamp() as u64;
+        let now = reset - 3_600;
+        let maxed = vec![
+            UsageWindow { key: "session".into(), percent: 100, resets_at: Some(stamp.to_string()), ..Default::default() },
+            UsageWindow { key: "weekly".into(), percent: 100, resets_at: Some(stamp.to_string()), ..Default::default() },
+        ];
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(maxed), now, "s");
+        assert_eq!(entry.earliest_reset_secs, Some(reset), "every window maxed");
+        let pinned = reset + usage_cache::RESET_MARGIN_SECS;
+        assert_eq!(entry.next_poll_at_secs, pinned);
+
+        assert_eq!(usage_cache::force_due(&mut entry, now + 60), Ok(()));
+        assert_eq!(entry.next_poll_at_secs, pinned, "the reset pin survives a force");
+        assert_eq!(entry.endpoint_due_at_secs, Some(pinned));
+        assert!(!usage_cache::poll_due(&entry, now + 60), "nothing can have moved yet");
+        assert!(!usage_cache::live_endpoint_due(&entry, now + 60));
+        // Past the reset the same force opens everything.
+        assert_eq!(usage_cache::force_due(&mut entry, pinned), Ok(()));
+        assert_eq!(entry.next_poll_at_secs, 0);
+        assert_eq!(entry.endpoint_due_at_secs, None);
+        assert!(usage_cache::poll_due(&entry, pinned));
+
+        // The hour after a refused credential store is the other keeper.
+        let mut denied = AgentCacheEntry {
+            credential_denied_until_secs: Some(now + usage_cache::CREDENTIAL_DENIED_BACKOFF_SECS),
+            ..AgentCacheEntry::default()
+        };
+        assert_eq!(usage_cache::force_due(&mut denied, now), Ok(()));
+        assert_eq!(
+            denied.credential_denied_until_secs,
+            Some(now + usage_cache::CREDENTIAL_DENIED_BACKOFF_SECS),
+            "a force never re-raises the ACL modal"
+        );
+        assert!(!usage_cache::poll_due(&denied, now));
+        assert!(usage_cache::poll_due(
+            &denied,
+            now + usage_cache::CREDENTIAL_DENIED_BACKOFF_SECS
+        ));
     }
 
     // -----------------------------------------------------------------
@@ -3559,6 +3646,37 @@ mod tests {
         assert!(
             !targets.iter().any(|target| target.may_poll && !target.active),
             "a secondary probed a second ago spaces the next one out"
+        );
+
+        // EXP-881 — a LIVE frame is not a probe. One secondary running a
+        // session restamps `fetched_at_secs` on every turn without spending a
+        // request; the rotation keys on `endpoint_fetched_at_secs`, so an idle
+        // sibling still wins the pass's endpoint slot instead of waiting out
+        // somebody else's run.
+        let mut live_frames = usage_cache::UsageCache::default();
+        for (index, profile) in planned.iter().enumerate() {
+            let busy = index == 1;
+            live_frames.insert(
+                usage_cache::entry_key("codex", profile),
+                AgentCacheEntry {
+                    // The busy login's frames land every turn…
+                    fetched_at_secs: if busy { now - 1 } else { now - 10_000 - index as u64 * 100 },
+                    // …but no endpoint answered for anybody in hours.
+                    endpoint_fetched_at_secs: Some(now - 10_000 - index as u64 * 100),
+                    ..AgentCacheEntry::default()
+                },
+            );
+        }
+        let targets = usage_targets(&dir, &report, &eligible, &live_frames, now, None);
+        let polled: Vec<&str> = targets
+            .iter()
+            .filter(|target| target.may_poll && !target.active)
+            .map(|target| target.profile.as_str())
+            .collect();
+        assert_eq!(
+            polled,
+            vec![oldest.as_str()],
+            "a live run on one secondary never holds an idle one's slot"
         );
 
         // A person pressing Refresh is not a beat: the forced login polls
@@ -4119,7 +4237,10 @@ mod tests {
         let (dir, settings, work) = claude_keep_alive_fixture("expired-login", now);
         crate::agent_profiles::set_active_profile(&dir, CodingAgent::Claude, &work.id).unwrap();
         expire_claude_login(&dir, &work.id, now);
-        assert!(usage_cache::claude_token_expired(
+        // An expired token is trivially inside the margin, so the ONE gate
+        // says due (EXP-909 folded the separate "already expired" predicate
+        // into it).
+        assert!(usage_cache::claude_refresh_due(
             usage_cache::load(&dir)
                 .get(&usage_cache::entry_key("claude", &work.id))
                 .unwrap(),
@@ -4176,12 +4297,15 @@ mod tests {
         );
         assert!(entry.usage.as_ref().unwrap().stale, "and the bar is dimmed");
         assert!(!usage_cache::poll_due(&entry, now), "behind the failure's wall");
-        assert!(usage_cache::claude_token_expired(&entry, now) || entry.claude_expires_at_ms.is_none());
+        assert!(usage_cache::claude_refresh_due(&entry, now), "and the token is due");
 
         // The rotation, through the real step against the canned endpoint.
         let token = claude_keep_alive_step_at(&base, Some(&dir), &mut entry, now);
         assert_eq!(token.as_deref(), Some("at-new"));
-        assert!(!usage_cache::claude_token_expired(&entry, now), "a live token now");
+        assert!(
+            entry.claude_expires_at_ms.unwrap() > (now as i64) * 1000,
+            "a live token now"
+        );
         usage_cache::note_token_rotated(&mut entry, now);
         assert!(
             entry.next_poll_at_secs <= now,

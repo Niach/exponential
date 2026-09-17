@@ -19,7 +19,7 @@
 //
 // It lives outside `lib/trpc/coding-sessions.ts` on purpose: the MCP tool
 // tests mock this one module instead of the whole session router.
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, or } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { codingSessions } from "@/db/schema"
 import type { Context } from "@/lib/trpc"
@@ -57,6 +57,7 @@ export async function endSessionByAgent(
       userId: codingSessions.userId,
       hostUserId: codingSessions.hostUserId,
       status: codingSessions.status,
+      endedBy: codingSessions.endedBy,
     })
     .from(codingSessions)
     .where(eq(codingSessions.id, sessionId))
@@ -75,7 +76,12 @@ export async function endSessionByAgent(
     })
   }
 
-  if (existing.status === `ended`) {
+  // EXP-888: a sweep end is not an end. `ended_by = 'stale'` only means the
+  // staleness sweep gave up on a silent row — the run was alive all along (the
+  // laptop slept past the window) and this close-out is its REAL one, so it
+  // overwrites `stale` instead of reporting `alreadyEnded` and losing the
+  // agent's report to whoever started the run.
+  if (existing.status === `ended` && existing.endedBy !== `stale`) {
     return {
       sessionId,
       status: `ended`,
@@ -101,7 +107,10 @@ export async function endSessionByAgent(
     .where(
       and(
         eq(codingSessions.id, sessionId),
-        inArray(codingSessions.status, [...LIVE_STATUSES])
+        or(
+          inArray(codingSessions.status, [...LIVE_STATUSES]),
+          eq(codingSessions.endedBy, `stale`)
+        )
       )
     )
     .returning({

@@ -726,7 +726,16 @@ export async function endLiveIssueSessionsInTx(
     .where(
       and(
         eq(codingSessions.issueId, issueId),
-        inArray(codingSessions.status, [`running`, `in_review`]),
+        // EXP-888: a stale-swept row is a merge target too. `ended_by =
+        // 'stale'` only says the sweep gave up on a silent row — no client
+        // acts on it — while a MERGE end is the one the desktop kill-watch
+        // and CLI kill-poll do act on (EXP-498), so the merge must overwrite
+        // it. The `merged_own_pr` spare and the team's `end_sessions_on_merge`
+        // gate still decide WHETHER to end, exactly as for a live row.
+        or(
+          inArray(codingSessions.status, [`running`, `in_review`]),
+          eq(codingSessions.endedBy, `stale`)
+        ),
         eq(codingSessions.mergedOwnPr, false)
       )
     )
@@ -808,7 +817,16 @@ export async function endMergedPrSessions(
       .where(
         and(
           inArray(codingSessions.issueId, targetIds),
-          inArray(codingSessions.status, [`running`, `in_review`]),
+          // EXP-888: a stale-swept row is a merge target too. `ended_by =
+          // 'stale'` only says the sweep gave up on a silent row — no client
+          // acts on it — while a MERGE end is the one the desktop kill-watch
+          // and CLI kill-poll do act on (EXP-498), so the merge must overwrite
+          // it. The `merged_own_pr` spare and the team's `end_sessions_on_merge`
+          // gate still decide WHETHER to end, exactly as for a live row.
+          or(
+            inArray(codingSessions.status, [`running`, `in_review`]),
+            eq(codingSessions.endedBy, `stale`)
+          ),
           eq(codingSessions.mergedOwnPr, false)
         )
       )
@@ -866,7 +884,16 @@ export async function applySessionPrState(opts: {
         and(
           eq(codingSessions.prUrl, opts.prUrl),
           isNull(codingSessions.issueId),
-          inArray(codingSessions.status, [`running`, `in_review`]),
+          // EXP-888: a stale-swept row is a merge target too. `ended_by =
+          // 'stale'` only says the sweep gave up on a silent row — no client
+          // acts on it — while a MERGE end is the one the desktop kill-watch
+          // and CLI kill-poll do act on (EXP-498), so the merge must overwrite
+          // it. The `merged_own_pr` spare and the team's `end_sessions_on_merge`
+          // gate still decide WHETHER to end, exactly as for a live row.
+          or(
+            inArray(codingSessions.status, [`running`, `in_review`]),
+            eq(codingSessions.endedBy, `stale`)
+          ),
           eq(codingSessions.mergedOwnPr, false),
           ...(opts.endSessions === true
             ? []
@@ -889,7 +916,13 @@ export async function applySessionPrState(opts: {
       .where(
         and(
           inArray(codingSessions.id, targetIds),
-          inArray(codingSessions.status, [`running`, `in_review`])
+          // Same stale exemption as the select above — the ids were chosen
+          // under it, so re-narrowing to the live statuses here would drop
+          // exactly the swept rows this merge means to close out.
+          or(
+            inArray(codingSessions.status, [`running`, `in_review`]),
+            eq(codingSessions.endedBy, `stale`)
+          )
         )
       )
       .returning({ id: codingSessions.id })

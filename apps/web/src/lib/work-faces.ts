@@ -1,4 +1,5 @@
 import { isCodingSessionStale } from "@exp/db-schema/domain"
+import { runIsStaleEnd } from "@/lib/past-runs"
 import type { SessionConfigState } from "@/lib/agent-feed"
 import { type SessionDotTone } from "@exp/ui"
 
@@ -68,6 +69,7 @@ interface CodingTargetRow {
   issueId: string | null
   userId: string
   status: string
+  endedBy?: string | null
   startedAt: Date | string
   updatedAt: Date | string
 }
@@ -80,11 +82,15 @@ function stamp(value: Date | string): number {
 /** Live by status AND heartbeat: a `running` row whose machine went quiet
  *  past the staleness window is neither steerable nor stoppable. */
 export function isSessionLive(
-  row: Pick<CodingTargetRow, `status` | `updatedAt`>,
+  row: Pick<CodingTargetRow, `status` | `endedBy` | `updatedAt`>,
   now: Date
 ): boolean {
   return (
-    (row.status === `running` || row.status === `in_review`) &&
+    // EXP-888: a sweep end (`ended_by = stale`) is NOT an end — the host
+    // ignores the flip and heartbeats the row back to `running`.
+    (row.status === `running` ||
+      row.status === `in_review` ||
+      runIsStaleEnd(row)) &&
     !isCodingSessionStale(new Date(stamp(row.updatedAt)), now)
   )
 }

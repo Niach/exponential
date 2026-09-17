@@ -8,10 +8,14 @@ import { useNow } from "@/hooks/use-now"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useIssueRuns } from "@/hooks/use-agents-data"
 import { useSession } from "@/hooks/use-session"
-import { useSessionDiffStats } from "@/hooks/use-session-diff-stats"
+import {
+  shouldConnectSessionDiff,
+  useSessionDiffStats,
+} from "@/hooks/use-session-diff-stats"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useWorkTabs } from "@/hooks/use-work-tabs"
 import type { CodingSession, Issue } from "@/db/schema"
+import { useSteerConfig } from "@/components/agent-session"
 import { BoardNotFound } from "@/components/board-not-found"
 import { IssueChangesFace } from "@/components/issue-changes-face"
 import { IssueDetailView } from "@/components/issue-detail-view"
@@ -146,7 +150,20 @@ function IssueDetailPage() {
     currentUserId
   )
   // EXP-889: every width — the wide toggle's diff item reads it too.
-  const diffStats = useSessionDiffStats(runTarget?.id, { connect: true })
+  // EXP-875: but it DIALS only for a run whose diff is still a live thing —
+  // running, PR open, or freshly merged — and never with steering off. An
+  // ended run used to have its ticket minted and its device asked to
+  // republish its journal every time anyone opened the issue.
+  const steerConfig = useSteerConfig()
+  const diffStats = useSessionDiffStats(runTarget?.id, {
+    connect: shouldConnectSessionDiff({
+      session: runTarget,
+      issuePrState: issue?.prState,
+      steerEnabled: Boolean(steerConfig?.enabled),
+      now,
+    }),
+    status: runTarget?.status,
+  })
   const hasChanges = diffStats.fileCount > 0 || issue?.prState === `open`
   const openComposer = useOpenComposer()
 

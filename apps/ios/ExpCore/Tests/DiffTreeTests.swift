@@ -82,4 +82,32 @@ final class DiffTreeTests: XCTestCase {
         XCTAssertEqual(tree[0].name, "apps/web/src")
         XCTAssertEqual(tree[0].path, "apps/web/src")
     }
+
+    /// `an NFC name and its NFD twin sort and filter by code unit`
+    ///
+    /// Swift's `==`/`contains` on `String` compare CANONICALLY, so the twins
+    /// are one string to them and neither the order nor the filter would match
+    /// JS, Rust or Kotlin — all three of which see different code units.
+    func testAnNFCNameAndItsNFDTwinSortAndFilterByCodeUnit() {
+        let nfc = "src/caf\u{E9}.ts"
+        let nfd = "src/cafe\u{301}.ts"
+        let tree = DiffTree.fileTree([file(nfc), file(nfd)])
+        // U+0065 `e` < U+00E9 `é`, so the DECOMPOSED name sorts first — the
+        // order every other client computes, whatever the input order.
+        XCTAssertEqual(tree[0].children.map(\.path), [nfd, nfc])
+        XCTAssertEqual(
+            DiffTree.fileTree([file(nfd), file(nfc)])[0].children.map(\.path),
+            [nfd, nfc]
+        )
+        // The filter is a code-unit substring: the composed needle finds the
+        // composed path ALONE.
+        XCTAssertEqual(
+            DiffTree.fileTree([file(nfc), file(nfd)], query: "caf\u{E9}").map(\.path),
+            [nfc]
+        )
+        XCTAssertEqual(
+            DiffTree.fileTree([file(nfc), file(nfd)], query: "cafe\u{301}").map(\.path),
+            [nfd]
+        )
+    }
 }

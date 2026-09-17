@@ -22,7 +22,7 @@
 // phones). No play button (the Agent page composer's device picker is the one
 // way to start a run), no ⋯ menu, no inline update controls, and no spacers
 // standing in for them. A team device row has no control at all.
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   conceptIcon,
@@ -64,6 +64,7 @@ import {
   deviceLoginRows,
   deviceWorstHealth,
   healthBadgeLabel,
+  type AgentProfileUsageRow,
 } from "@/lib/agent-usage"
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
@@ -211,8 +212,17 @@ export function MyMachines({
     return map
   }, [userRows])
 
-  const mine = devices?.filter(deviceIsMine) ?? null
-  const teamShared = devices?.filter((device) => !deviceIsMine(device)) ?? []
+  // EXP-875: real memos, keyed on `devices`. A fresh array per render made
+  // every memo below miss, so the refresh loop's effects re-fired on every
+  // render instead of on the 30 s beat.
+  const mine = useMemo(
+    () => devices?.filter(deviceIsMine) ?? null,
+    [devices]
+  )
+  const teamShared = useMemo(
+    () => devices?.filter((device) => !deviceIsMine(device)) ?? [],
+    [devices]
+  )
   // EXP-909: the 30 s auto-refresh the deleted Accounts section used to run,
   // keyed by LOGIN and scoped to the caller's own machines — a teammate's
   // server takes no commands from here.
@@ -236,13 +246,17 @@ export function MyMachines({
     () => new Map((mine ?? []).map((device) => [device.deviceId, device.caps ?? []])),
     [mine]
   )
-  useAgentUsageRefresh(
-    ownLogins,
-    (row) =>
+  // EXP-875: the caller's half of the verdict is the MACHINE's — online and
+  // advertising the cap. Whether the LOGIN could ever answer (mine, signed
+  // in, monitored) is the hook's own `usageRefreshEligible`, so no surface
+  // can queue a command for a login that can only report nothing.
+  const canRefresh = useCallback(
+    (row: AgentProfileUsageRow) =>
       row.online &&
       deviceCanRefreshUsage({ caps: capsByDevice.get(row.deviceId) ?? [] }),
-    now
+    [capsByDevice]
   )
+  useAgentUsageRefresh(ownLogins, canRefresh, now)
   // Re-resolved each render so the dialog always edits the LIVE synced row.
   const settingsTarget =
     mine?.find((device) => device.deviceId === settingsTargetId) ?? null

@@ -94,20 +94,35 @@ interface Prepared {
   number: string | null
   title: string
   titleWords: string[]
-  description: string
-  descriptionWords: string[]
+  readonly description: string
+  readonly descriptionWords: string[]
 }
 
+/**
+ * One row's lowercased fields. The DESCRIPTION is lowercased and word-split
+ * LAZILY (the Android mirror's rule): a token that already matched the
+ * identifier or the title never touches it, and a description is the only
+ * unbounded field a ranked pool carries — every keystroke prepares the whole
+ * pool.
+ */
 function prepare(row: IssueSearchRow): Prepared {
   const title = row.title.toLowerCase()
-  const description = (row.description ?? ``).toLowerCase()
+  const raw = row.description ?? ``
+  let description: string | null = null
+  let descriptionWords: string[] | null = null
   return {
     identifier: row.identifier.toLowerCase(),
     number: identifierNumber(row.identifier),
     title,
     titleWords: words(title),
-    description,
-    descriptionWords: words(description),
+    get description(): string {
+      description ??= raw.toLowerCase()
+      return description
+    },
+    get descriptionWords(): string[] {
+      descriptionWords ??= words(this.description)
+      return descriptionWords
+    },
   }
 }
 

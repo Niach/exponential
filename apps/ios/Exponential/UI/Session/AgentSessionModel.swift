@@ -354,7 +354,10 @@ final class AgentSessionModel {
     /// them dialing forever.
     var sessionEnded: Bool {
         guard let session else { return true }
-        return session.status == DomainContract.codingSessionStatusEnded
+        // EXP-888: a sweep end (`ended_by == "stale"`) is not an end — the
+        // host ignores the flip and heartbeats the row back to `running`, so
+        // the composer stays live instead of retiring for up to 30 minutes.
+        return PastRuns.hasEnded(session)
     }
 
     /// EXP-621: the session is finished as far as this screen is concerned —

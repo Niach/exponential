@@ -17,6 +17,7 @@ import {
 } from "@/lib/session-device"
 import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
 import {
+  isLiveRun,
   pastRunIdentifier,
   pastRunTitle,
   selectIssueRuns,
@@ -353,11 +354,13 @@ export function useAgentsData(
 
     // Staleness guard (EXP-153): heartbeat-dead rows render as absent
     // (not "ended" — swept rows leave no recap entry either).
+    // EXP-888: `isLiveRun` keeps a SWEPT row (`ended` + `ended_by = 'stale'`)
+    // in Running — the sweep's flip is not an end, the device ignores it and
+    // its next heartbeat revives the row.
     const running = sessions
       .filter(
         (session) =>
-          (session.status === `running` || session.status === `in_review`) &&
-          !isCodingSessionStale(session.updatedAt, now)
+          isLiveRun(session) && !isCodingSessionStale(session.updatedAt, now)
       )
       .sort(
         (a, b) =>

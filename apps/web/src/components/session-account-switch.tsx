@@ -29,6 +29,7 @@ import type { CodingSession, Device, DeviceAgentHealth } from "@/db/schema"
 import { conceptIcon, Button, ListRow } from "@exp/ui"
 import { codingSessionCollection, deviceCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
+import { runHasEnded } from "@/lib/past-runs"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -288,7 +289,7 @@ export function useSessionAccountSwitch(
       blockedReason: switchBlockedReason({
         agent: session.agent,
         mine,
-        sessionEnded: session.status === `ended`,
+        sessionEnded: runHasEnded(session),
         deviceOnline: online,
         canSwitch,
         turnEnded,

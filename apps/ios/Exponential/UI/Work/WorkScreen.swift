@@ -144,12 +144,14 @@ struct WorkScreen: View {
     /// The shown run is mine and its row still lives.
     private var ownLive: Bool {
         guard let shownSession else { return false }
+        // EXP-888: a sweep end is not an end — the run keeps its Stop.
         return CodingSessionOwnership.isOwn(shownSession, userId: deps.auth.userId)
-            && shownSession.status != DomainContract.codingSessionStatusEnded
+            && !PastRuns.hasEnded(shownSession)
     }
 
     private var shownEnded: Bool {
-        shownSession?.status == DomainContract.codingSessionStatusEnded
+        guard let shownSession else { return false }
+        return PastRuns.hasEnded(shownSession)
     }
 
     private var resumeDevice: SteerDevice? {

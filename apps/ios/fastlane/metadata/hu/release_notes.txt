@@ -1,3 +1,11 @@
+- A csevegőfutás arról kapja a nevét, amin az ügynök dolgozik, ahelyett hogy mindenhol „Chat” állna
+- Egy diff mindenhol: a diff fájljai fában állnak, amelyben ugrálhatsz, az ügynök egy körben tett módosításai pedig egyetlen „Edited files” kártyára gyűlnek
+- A használat egy helyen: egy panel mutatja a futás saját fiókját, a korlátablakait és a kontextusablakot, valamint a gép többi bejelentkezését
+- Az eszközök hordozzák a bejelentkezéseket: minden gép felsorolja az ügynökfiókjait csomaggal, állapottal és használattal, egy eszköz fogaskereke pedig az Update és a Remove helye
+- A sikertelen stack-egyesítés mostantól megmondja, miért, ahelyett hogy hallgatna
+- Egyetlen issue-kereső: ugyanaz a sorrend hajtja minden issue-listát, választót és #-menüt, a legfelső találat pedig már ki van jelölve
+- A futó parancs csak az utolsó sorait mutatja, így a hosszú kimenet nem árasztja el a futást
+- Az elnémuló futás befejezettként jelenik meg, és a listán marad ahelyett, hogy eltűnne
 - Egyetlen Work képernyő: egy issue, a futása, a változások és az eredmények ugyanannak a képernyőnek az arcai, az alsó sávval válthatsz köztük, a Stop vagy a Resume pedig jobbra fent ül
 - Egyetlen diffnézet: minden diff ugyanúgy olvasható, sorszámokkal, kinyitható változatlan sorokkal, az átnevezett és bináris fájlok pedig névvel szerepelnek üresen mutatás helyett
 - Egymásra épülő pull requestek: indíts egy issue-t arra, ami blokkolja, fűzd össze az egész láncot a Merge stackkel, olvasd le a munkán a stack- vagy batch-jelvényt, és válaszolj a kérdésre, amit egy beágyazott futás küld
@@ -8,11 +16,6 @@
 - Sorban álló üzenetek: az ügynökre váró üzenet a szerkesztőmező fölötti sávban látszik, az élő munkamenetben a Stop pedig tényleg megszakítja a futó kört, ahelyett hogy útközben elveszne
 - Csendesebb gombok és világosabb választók: kitöltött kört csak a képernyő fő művelete kap, az ügynökválasztó a Claude Code vagy a Codex jelét viseli, az eszközmenük pedig laptop- vagy szerverikonnal kezdenek
 - Az Agent oldal tartja a futásaidat: a korábbi futások egy szám mögé hajtódnak össze, amit kinyithatsz, és ha semmi sem fut, a szerkesztőmező az oldal közepén ül
-- Ott jelentkezz be, ahol a fiók van: a bejelentkezés, az aktív fiók választása és az eltávolítás a fiókcímkékre került, az Accounts fejlécében lévő Add account pedig új fiókot léptet be egy eszközön
 - Az issue-szűrők eltűntek: a szűrőgomb és a pirulái elhagyták a boardot és a beérkezetteket, a keresés lefedi, amire használták őket, a csoportosítás és a státuszsávok maradnak
 - Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen listában van, és egy ismeretlen e-mail-cím egyszerűen új fiók lesz
-- A munkajelzés akkor ér véget, amikor az ügynök: mostantól az ügynök valódi körét követi a kapcsolat helyett, mutatja, mit csinál, idővel és tokenekkel, a Stop pedig a munkamenet fejlécében van
-- Kártyák az előzményben: az Exponential hívása egyszerű feliratot mutat, például „Creating issue”, az eredmény előnézetével, az alügynök címkéje a kapott feladatot viseli, és egy csak olvasható Plan címke látszik, amíg a futás tervez
-- Workflow-kártya: a több ügynökös futás egyetlen kártyaként jelenik meg a szakaszaival és alattuk az ügynökökkel, a munkamenet sora pedig második sort kap arról, min dolgozik éppen
-- Fiókok és javítás: az ügynökfiók állapota valódi használatmérésből jön, így egy halott bejelentkezés „Needs re-login” feliratot mutat, a Devices pedig gépenként felsorolja a fiókokat a megfelelő javítással egy címkén
 - Fiókváltás futás közben, és vissza oda, ahonnan jöttél: a korlátjába ütköző Claude-futás másik fiókkal folytatható, a munkamenetből kilépve pedig visszakerülsz arra az issue-ra vagy boardra, ahonnan megnyitottad

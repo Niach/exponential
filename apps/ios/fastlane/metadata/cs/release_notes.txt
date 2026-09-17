@@ -1,3 +1,11 @@
+- Chatovací běh nese jméno toho, na čem agent pracuje, místo aby všude hlásil „Chat“
+- Jeden diff všude: soubory diffu stojí ve stromu, ve kterém skáčeš, a úpravy agenta z jednoho tahu se sbírají do jedné karty „Edited files“
+- Spotřeba na jednom místě: přehled ukáže vlastní účet běhu, jeho limitní okna i kontextové okno a k tomu ostatní přihlášení na tom stroji
+- Zařízení nesou přihlášení: každý stroj vypíše své účty agenta s tarifem, stavem a spotřebou a ozubené kolo zařízení skrývá Update a Remove
+- Neúspěšné sloučení stacku teď řekne proč, místo aby mlčelo
+- Jedno hledání issue: stejné řazení nese každý seznam issue, každý výběr i každou #-nabídku a horní výsledek je rovnou vybraný
+- Běžící příkaz ukáže jen své poslední řádky, takže dlouhý výstup už běh nezaplaví
+- Běh, který ztichne, se označí jako ukončený a zůstane v seznamu, místo aby zmizel
 - Jedna obrazovka Work: issue, jeho běh, změny i výsledky jsou teď tváře jedné obrazovky, přepínáš je lištou dole a Stop či Resume sedí vpravo nahoře
 - Jeden pohled na diff: každý diff vypadá stejně, s čísly řádků, se skrytými nezměněnými řádky, které si můžeš rozbalit, a s pojmenovanými přejmenovanými i binárními soubory místo prázdna
 - Naskládané pull requesty: issue můžeš spustit nad tím, které ho blokuje, celý řetěz spojit přes Merge stack, na práci vidíš odznak stacku nebo batche a odpovíš na dotaz, který ti pošle vnořený běh
@@ -8,11 +16,6 @@
 - Zprávy ve frontě: zpráva, která čeká na agenta, je vidět v liště nad polem pro psaní, a Stop v běžící relaci skutečně přeruší probíhající tah, místo aby se cestou ztratil
 - Tišší tlačítka a jasnější výběry: plný kroužek si nechá jen hlavní akce obrazovky a výběr agenta nese značku Claude Code nebo Codex, zatímco nabídky zařízení začínají ikonou notebooku či serveru
 - Stránka Agent drží tvoje běhy: minulé běhy se složí za počet, který můžeš otevřít, a když nic neběží, sedí pole pro psaní uprostřed stránky
-- Přihlašuj se tam, kde je účet: přihlášení, volba aktivního účtu i jeho odebrání jsou teď na odznacích účtu a Add account v záhlaví Accounts přihlásí nový účet na zařízení
 - Filtry issues jsou pryč: tlačítko filtru a jeho štítky zmizely z boardu i z doručených, hledání pokryje, k čemu sloužily, a seskupení i pásy stavů zůstávají
 - Pokračovat e-mailem nebo přístupovým klíčem: přihlas se šestimístným kódem, který ti přijde e-mailem, nebo přes Face ID či Touch ID; všechny možnosti jsou v jednom seznamu a neznámý e-mail se prostě stane novým účtem
-- Ukazatel práce skončí, když skončí agent: sleduje teď skutečný tah agenta místo spojení, ukazuje, co právě dělá, i s časem a tokeny, a Stop je v záhlaví relace
-- Karty v historii: volání Exponential se ukáže jako prostý popisek typu „Creating issue“ s náhledem výsledku, štítek podagenta nese úkol, který dostal, a štítek Plan jen pro čtení svítí, dokud běh ještě plánuje
-- Karta workflow: běh s více agenty se zobrazí jako jedna karta s fázemi a agenty pod nimi a řádek relace dostane druhý řádek s tím, na čem se právě pracuje
-- Účty a opravy: stav účtu agenta pochází ze skutečného měření spotřeby, takže mrtvé přihlášení hlásí „Needs re-login“, a Devices vypisuje u každého stroje jeho přihlášení se správnou opravou na štítku
 - Změna účtu uprostřed běhu a návrat tam, odkud jsi přišel: běh Claude, který narazí na limit, může pokračovat pod jiným účtem, a odchod z relace tě vrátí na issue nebo board, odkud jsi ji otevřel

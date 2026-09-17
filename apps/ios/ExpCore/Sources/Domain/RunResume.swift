@@ -16,8 +16,11 @@ public enum RunResume {
         devices: [SteerDevice],
         currentUserId: String?
     ) -> SteerDevice? {
+        // EXP-888: a sweep end (`ended_by == "stale"`) is NOT an end — the
+        // host ignores the flip and heartbeats the row back to `running`.
+        // Resuming it would put a second agent on the run's worktree.
         guard CodingSessionOwnership.isOwn(session, userId: currentUserId),
-              session.status == DomainContract.codingSessionStatusEnded,
+              PastRuns.hasEnded(session),
               let deviceId = session.deviceId, !deviceId.isEmpty
         else { return nil }
         let candidates = devices.filter { $0.deviceId == deviceId }

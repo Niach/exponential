@@ -10,7 +10,7 @@ import org.junit.Test
  * EXP-895: the pure decisions the ONE diff view makes ABOUT a [Diff.File] —
  * everything the composables read before they draw. The strings are
  * byte-identical with iOS `DiffPresentation` and web `@exp/ui`
- * (`file-diff-card.tsx`, `file-diff-nav.tsx`, `changes-file-sheet.tsx`), so a
+ * (`file-diff-card.tsx`, `file-diff-tree.tsx`, apps/web `changes-file-sheet.tsx`), so a
  * word that moves there moves here.
  */
 class DiffPresentationTest {
