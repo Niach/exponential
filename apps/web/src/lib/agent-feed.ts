@@ -12,7 +12,7 @@ import {
 } from "@/lib/steer-commands"
 import { formatResetCountdown } from "@/lib/agent-usage"
 import { contract, toolGroupSummary } from "@exp/domain-contract"
-import { editRunEnd, isEditCall } from "@exp/domain-contract/edit-card"
+import { editCard, editRunEnd, isEditCall } from "@exp/domain-contract/edit-card"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
 // app — see design-tokens.test.ts, which reads the same file by path).
@@ -789,6 +789,10 @@ export function groupFeedRows<
     resolved?: boolean
     toolKind?: string
     workflowId?: string
+    detail?: string
+    diff?: string
+    settled?: boolean
+    failed?: boolean
   },
 >(feed: readonly T[], start = 0): FeedRow<T>[] {
   const rows: FeedRow<T>[] = []
@@ -841,7 +845,7 @@ export function groupFeedRows<
       continue
     }
     const scan = scanToolRuns(feed, i)
-    rows.push(scan.row)
+    if (scan.row) rows.push(scan.row)
     i = scan.end
   }
   return hoistPendingCards(rows)
@@ -873,15 +877,20 @@ function scanToolRuns<
     toolKind?: string
     subagentId?: string
     workflowId?: string
+    detail?: string
+    diff?: string
+    settled?: boolean
+    failed?: boolean
   },
->(feed: readonly T[], i: number): { row: FeedRow<T>; end: number } {
+>(feed: readonly T[], i: number): { row: FeedRow<T> | null; end: number } {
   const item = feed[i]
   if (isEditCall(item)) {
     const end = editRunEnd(feed, i)
-    return {
-      row: { kind: `edits`, id: item.id, items: feed.slice(i, end + 1) },
-      end,
-    }
+    const items = feed.slice(i, end + 1)
+    // EXP-938: `editCard` drops a member with neither a patch nor a `detail`;
+    // a run it drops ENTIRELY emits no row, never a "0 files edited" card.
+    if (editCard(items).rows.length === 0) return { row: null, end }
+    return { row: { kind: `edits`, id: item.id, items }, end }
   }
   if (item.kind !== `tool` || item.workflowId !== undefined) {
     return { row: { kind: `single`, item }, end: i }
@@ -915,12 +924,16 @@ export function groupLaneRows<
     toolKind?: string
     subagentId?: string
     workflowId?: string
+    detail?: string
+    diff?: string
+    settled?: boolean
+    failed?: boolean
   },
 >(items: readonly T[]): FeedRow<T>[] {
   const rows: FeedRow<T>[] = []
   for (let i = 0; i < items.length; i++) {
     const scan = scanToolRuns(items, i)
-    rows.push(scan.row)
+    if (scan.row) rows.push(scan.row)
     i = scan.end
   }
   return rows

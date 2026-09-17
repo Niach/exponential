@@ -1050,9 +1050,11 @@ private fun projectFeedRows(
             // and it is scanned FIRST — an edit never joins a plain tool run.
             EditCard.isEditCall(item, workflowIds) -> {
                 val end = EditCard.editRunEnd(feed, i, workflowIds)
-                rows.add(
-                    AgentFeedRow.Edits(feed.subList(i, end + 1).map { it as AgentFeedItem.Tool }),
-                )
+                val run = feed.subList(i, end + 1).map { it as AgentFeedItem.Tool }
+                // EXP-938: [EditCard.editCard] drops a member with neither a
+                // patch nor a `detail`; a run it drops ENTIRELY emits no row,
+                // never a "0 files edited" card.
+                if (EditCard.editCard(run).rows.isNotEmpty()) rows.add(AgentFeedRow.Edits(run))
                 i = end + 1
             }
             item is AgentFeedItem.Tool -> {
@@ -1101,9 +1103,9 @@ fun projectLaneRows(
         val item = items[i]
         if (EditCard.isEditCall(item, workflowIds)) {
             val end = EditCard.editRunEnd(items, i, workflowIds)
-            rows.add(
-                AgentFeedRow.Edits(items.subList(i, end + 1).map { it as AgentFeedItem.Tool }),
-            )
+            val run = items.subList(i, end + 1).map { it as AgentFeedItem.Tool }
+            // EXP-938: a run whose every member is dropped is no row at all.
+            if (EditCard.editCard(run).rows.isNotEmpty()) rows.add(AgentFeedRow.Edits(run))
             i = end + 1
             continue
         }

@@ -324,6 +324,28 @@ impl FeedItem {
         )
     }
 
+    /// EXP-938: this item as a member of an edited-files card — the fields
+    /// [`domain::edit_card::edit_card`] reads (a non-tool is an empty member).
+    pub fn edit_card_member(&self) -> domain::edit_card::EditCardMember<'_> {
+        let (detail, diff, settled, failed) = match &self.kind {
+            FeedKind::Tool {
+                detail,
+                diff,
+                settled,
+                failed,
+                ..
+            } => (detail.as_deref(), diff.as_deref(), *settled, *failed),
+            _ => (None, None, true, false),
+        };
+        domain::edit_card::EditCardMember {
+            id: self.id,
+            detail,
+            diff,
+            settled,
+            failed,
+        }
+    }
+
     /// EXP-850 §3: this tool call's id, when it has one — the key a workflow
     /// card is matched on (the card's `id` IS the `Workflow` call's id).
     pub fn call_id(&self) -> Option<&str> {
@@ -2027,10 +2049,13 @@ pub fn group_feed_row_specs_into(
             let end = domain::edit_card::edit_run_end(i, items.len(), |ix| {
                 items[ix].is_edit_call(workflow_ids) && items[ix].subagent_id().is_none()
             });
-            rows.push(FeedRowSpec::Edits {
-                id: item.id,
-                items: (i..=end).collect(),
-            });
+            let run: Vec<usize> = (i..=end).collect();
+            if edit_run_has_rows(items, &run) {
+                rows.push(FeedRowSpec::Edits {
+                    id: item.id,
+                    items: run,
+                });
+            }
             i = end + 1;
             continue;
         }
@@ -2124,10 +2149,12 @@ pub fn group_subagent_row_specs_into(
         }
         let after = run.last().copied().unwrap_or(i) + 1;
         if edits {
-            rows.push(FeedRowSpec::Edits {
-                id: item.id,
-                items: run,
-            });
+            if edit_run_has_rows(items, &run) {
+                rows.push(FeedRowSpec::Edits {
+                    id: item.id,
+                    items: run,
+                });
+            }
         } else if run.len() == 1 {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
@@ -2141,6 +2168,14 @@ pub fn group_subagent_row_specs_into(
         }
         i = after;
     }
+}
+
+/// EXP-938: whether an edit run's card lists any file. `edit_card` drops a
+/// member with neither a patch nor a `detail`; when it drops EVERY member the
+/// run emits no row at all, never a "0 files edited" card (×4).
+fn edit_run_has_rows(items: &[FeedItem], run: &[usize]) -> bool {
+    let members: Vec<_> = run.iter().map(|&ix| items[ix].edit_card_member()).collect();
+    !domain::edit_card::edit_card(&members, None).rows.is_empty()
 }
 
 /// `subagent.agent_type` when the desktop's hook payload carried none — old

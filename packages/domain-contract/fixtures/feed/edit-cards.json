@@ -214,6 +214,63 @@
     ]
   },
   {
+    "name": "a run whose every member is dropped is no card at all",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "narration",
+        "text": "Editing."
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "toolKind": "edit",
+        "settled": true,
+        "diff": "@@ -1,1 +1,2 @@\n m\n+n\n"
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "toolKind": "delete",
+        "settled": true
+      },
+      {
+        "id": 4,
+        "kind": "narration",
+        "text": "Done."
+      }
+    ],
+    "expected": [
+      "narration@1",
+      "narration@4"
+    ]
+  },
+  {
+    "name": "inside a lane a run whose every member is dropped is no card either",
+    "lane": "sub-1",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "toolKind": "edit",
+        "subagentId": "sub-1",
+        "settled": true,
+        "diff": "@@ -1,1 +1,2 @@\n m\n+n\n"
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "toolKind": "execute",
+        "detail": "bun test",
+        "subagentId": "sub-1",
+        "settled": true
+      }
+    ],
+    "expected": [
+      "tool@2"
+    ]
+  },
+  {
     "name": "the live edit without a patch yet is a pending row, and the live one",
     "feed": [
       {
