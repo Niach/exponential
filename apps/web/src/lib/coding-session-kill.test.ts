@@ -94,9 +94,13 @@ describe(`endForeignHostedSessions`, () => {
       HOST,
       `col:team_id`,
       TEAM,
+      // EXP-888: "live" includes a stale-swept row — the sweep gave up on it,
+      // no client acted on that, so the agent may still be running.
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
     ])
     expect(h.relayPostKill).toHaveBeenCalledTimes(2)
     expect(h.relayPostKill).toHaveBeenCalledWith(expect.anything(), `sess-1`)
@@ -121,6 +125,8 @@ describe(`endForeignHostedSessions`, () => {
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
     ])
   })
 

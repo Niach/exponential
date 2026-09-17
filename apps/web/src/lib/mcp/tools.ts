@@ -140,7 +140,10 @@ import {
   releasePrOpenClaim,
 } from "@/lib/integrations/pr-actor-claims"
 import { composeDeviceList } from "@/lib/steer-devices"
-import { issueSearchMatchIds } from "@/lib/issue-search-sql"
+import {
+  ISSUE_SEARCH_SCAN_CAP,
+  issueSearchMatchIds,
+} from "@/lib/issue-search-sql"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
@@ -1150,10 +1153,15 @@ export function registerExponentialTools(
         if (dueBefore) conditions.push(lte(issues.dueDate, dueBefore))
         // EXP-892: the same full-text + identifier predicate every client's
         // search box runs (lib/issue-search-sql.ts), over the boards this
-        // call may see.
+        // call may see. Capped: unlike the team-scoped search box this spans
+        // EVERY granted board, and a limit-1000 list must not scan them all.
         if (search) {
           conditions.push(
-            sql`${issues.id} in (${issueSearchMatchIds(search, { boardIds: allowedBoardIds })})`
+            sql`${issues.id} in (${issueSearchMatchIds(
+              search,
+              { boardIds: allowedBoardIds },
+              { limit: ISSUE_SEARCH_SCAN_CAP }
+            )})`
           )
         }
 

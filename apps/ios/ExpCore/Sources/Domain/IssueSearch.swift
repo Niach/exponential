@@ -218,26 +218,33 @@ public enum IssueSearch {
         }
     }
 
-    private struct Prepared {
+    /// One row's lowercased fields. The DESCRIPTION is lowercased and
+    /// word-split LAZILY (the Android mirror's rule): a token that already
+    /// matched the identifier or the title never touches it, and a description
+    /// is the only unbounded field a ranked pool carries — every keystroke
+    /// prepares the whole pool. A reference type so the cache survives being
+    /// held in an `Entry`.
+    private final class Prepared {
         let identifier: String
         let number: String?
         let title: String
         let titleWords: [String]
-        let description: String
-        let descriptionWords: [String]
+        private let rawDescription: String
+        lazy var description: String = rawDescription.lowercased()
+        lazy var descriptionWords: [String] = IssueSearch.words(description)
+
+        init(row: Row) {
+            self.identifier = row.identifier.lowercased()
+            self.number = IssueSearch.numericTail(row.identifier)
+            let title = row.title.lowercased()
+            self.title = title
+            self.titleWords = IssueSearch.words(title)
+            self.rawDescription = row.description ?? ""
+        }
     }
 
     private static func prepare(_ row: Row) -> Prepared {
-        let title = row.title.lowercased()
-        let description = (row.description ?? "").lowercased()
-        return Prepared(
-            identifier: row.identifier.lowercased(),
-            number: numericTail(row.identifier),
-            title: title,
-            titleWords: words(title),
-            description: description,
-            descriptionWords: words(description)
-        )
+        Prepared(row: row)
     }
 
     /// `\p{L}`/`\p{N}` runs — the web's `[^\p{L}\p{N}]+` split, spelled with

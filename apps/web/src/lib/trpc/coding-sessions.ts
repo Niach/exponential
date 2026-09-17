@@ -21,6 +21,7 @@ import {
   devices,
   issues,
   sessionAttachments,
+  teams,
 } from "@/db/schema"
 import {
   assertTeamMember,
@@ -898,7 +899,9 @@ export const codingSessionsRouter = router({
           status: codingSessions.status,
           endedBy: codingSessions.endedBy,
           issueId: codingSessions.issueId,
+          teamId: codingSessions.teamId,
           prState: codingSessions.prState,
+          mergedOwnPr: codingSessions.mergedOwnPr,
         })
         .from(codingSessions)
         .where(eq(codingSessions.id, input.id))
@@ -1081,6 +1084,21 @@ export const codingSessionsRouter = router({
           merged = issue?.prState === `merged`
           inReview = issue?.status === `in_review`
         }
+        // A merged PR only ends a run where a merge would have ended it live
+        // (pr-sync.ts's merge sweeps): EXP-637 spares the run that merged its
+        // OWN PR, and EXP-711 lets a team switch merge-ends off entirely. A
+        // revive that ignored either would kill, via the back door, exactly
+        // the runs those two rules exist to keep alive — so the row comes
+        // back `running`/`in_review` instead.
+        if (merged && existing.mergedOwnPr) merged = false
+        if (merged && existing.teamId) {
+          const [team] = await ctx.db
+            .select({ endSessionsOnMerge: teams.endSessionsOnMerge })
+            .from(teams)
+            .where(eq(teams.id, existing.teamId))
+            .limit(1)
+          if (team && !team.endSessionsOnMerge) merged = false
+        }
         const revived = await ctx.db
           .update(codingSessions)
           .set(
@@ -1122,6 +1140,18 @@ export const codingSessionsRouter = router({
         .set({
           updatedAt: new Date(),
           ackedAt: sql`coalesce(${codingSessions.ackedAt}, now())`,
+          // EXP-909: the beat also carries the LOGIN the run spends, and a
+          // row created before the device knew it (a start that predates the
+          // account pick, or a pre-EXP-909 start path) would otherwise never
+          // learn it — the usage readout falls back to a guess. COALESCE, not
+          // overwrite: the account a run started on is its account for life,
+          // and a mid-run switch mints a NEW row (`resumed_from_id`), so a
+          // differing value here is a stale echo, never a correction.
+          ...(input.agentAccount
+            ? {
+                agentAccount: sql`coalesce(${codingSessions.agentAccount}, ${input.agentAccount})`,
+              }
+            : {}),
           ...(device ?? {}),
         })
         .where(
@@ -1298,8 +1328,15 @@ export const codingSessionsRouter = router({
   // EXP-905: the title the agent CLI auto-names the run with (claude's
   // transcript `ai-title` entry, codex's thread name). A chat run's identity
   // reads it as its subject on every client. Same rails as setAgentCaption:
-  // owner-or-host only, live statuses only (an ended row keeps whatever title
-  // it had), blank = null, a refused write is a silent `updated: false`.
+  // owner-or-host only, blank = null, a refused write is a silent
+  // `updated: false`.
+  //
+  // The one rail it does NOT share is the live-status fence. A title is a
+  // LABEL, not run state: the CLI often names the run in its last second (the
+  // ai-title entry lands with the final assistant message) and the forwarder
+  // delivers it just after the exit hook ended the row, so fencing it to live
+  // statuses left exactly the finished runs a person scrolls back to as
+  // "Chat run". Writing it on an `ended` row changes nothing anybody acts on.
   setAgentTitle: authedProcedure
     .input(
       z.object({
@@ -1334,12 +1371,7 @@ export const codingSessionsRouter = router({
       const updated = await ctx.db
         .update(codingSessions)
         .set({ agentTitle: title })
-        .where(
-          and(
-            eq(codingSessions.id, input.id),
-            inArray(codingSessions.status, [`running`, `in_review`])
-          )
-        )
+        .where(eq(codingSessions.id, input.id))
         .returning({ id: codingSessions.id })
 
       return { updated: updated.length > 0 }

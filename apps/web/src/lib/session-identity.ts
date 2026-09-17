@@ -6,6 +6,7 @@
 import type { CodingSession, Issue } from "@/db/schema"
 import { BUILTIN_CHAT_NAME } from "@/lib/builtin-actions"
 import { batchRunName, type BatchRunIssue } from "@/lib/batch-run"
+import { runHasEnded } from "@/lib/past-runs"
 
 /** EXP-688: one run's identity — the mono identifier (absent for action and
  * chat runs) and its human subject. */
@@ -89,7 +90,7 @@ export function tabPhaseLabel(row: {
 }): string {
   const { session, device, paused } = row
   if (paused) return `Paused · ${device.label ?? `the device`} is offline`
-  if (session.status === `ended`) return `Session ended`
+  if (runHasEnded(session)) return `Session ended`
   if (session.needsInput) {
     return device.label
       ? `Needs your input · ${device.label}`

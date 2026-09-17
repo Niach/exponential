@@ -5,6 +5,7 @@ import {
   issueRunEntryLabel,
   issueRunWhen,
 } from "@/components/issue-run-switcher"
+import { LIVE_RUN_LABEL } from "@/lib/past-runs"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import type { CodingSession } from "@/db/schema"
 
@@ -99,16 +100,48 @@ describe(`run entries (×4 strings)`, () => {
     const now = new Date()
     // A stamp that parses to nothing: the time segment simply drops.
     const noStamp = new Date(NaN)
-    expect(issueRunWhen({ status: `running`, endedAt: null, updatedAt: now })).toBe(
-      `Live`
-    )
-    expect(issueRunWhen({ status: `in_review`, endedAt: null, updatedAt: now })).toBe(
-      `Live`
-    )
-    expect(issueRunWhen({ status: `ended`, endedAt: null, updatedAt: noStamp })).toBe(``)
+    expect(
+      issueRunWhen({
+        status: `running`,
+        endedBy: null,
+        endedAt: null,
+        updatedAt: now,
+      })
+    ).toBe(`Live`)
+    expect(
+      issueRunWhen({
+        status: `in_review`,
+        endedBy: null,
+        endedAt: null,
+        updatedAt: now,
+      })
+    ).toBe(`Live`)
+    expect(
+      issueRunWhen({
+        status: `ended`,
+        endedBy: `agent`,
+        endedAt: null,
+        updatedAt: noStamp,
+      })
+    ).toBe(``)
+    // EXP-888: the sweep's end is not an end — the run reads Live.
+    expect(
+      issueRunWhen({
+        status: `ended`,
+        endedBy: `stale`,
+        endedAt: null,
+        updatedAt: now,
+      })
+    ).toBe(LIVE_RUN_LABEL)
     expect(
       issueRunEntryLabel({
-        session: { status: `ended`, endedAt: null, updatedAt: noStamp, deviceLabel: null },
+        session: {
+          status: `ended`,
+          endedBy: `agent`,
+          endedAt: null,
+          updatedAt: noStamp,
+          deviceLabel: null,
+        },
         device: { label: `macbook` },
       })
     ).toBe(`macbook`)
@@ -117,6 +150,7 @@ describe(`run entries (×4 strings)`, () => {
       issueRunEntryLabel({
         session: {
           status: `running`,
+          endedBy: null,
           endedAt: null,
           updatedAt: now,
           deviceLabel: `studio`,

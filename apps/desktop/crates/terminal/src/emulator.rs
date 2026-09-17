@@ -123,6 +123,18 @@ pub struct GraphicsUpdate {
     pub removed: Vec<u64>,
 }
 
+/// §6.15 (EXP-896): the largest OSC-52 payload that may reach the system
+/// clipboard, in decoded bytes. Generous for any "copied!" a CLI prints, and
+/// a hard stop for a runaway child: xterm's own limits are far smaller, and
+/// the clipboard is the USER's, not the terminal's scratch space.
+pub const OSC52_MAX_BYTES: usize = 1024 * 1024;
+
+/// Whether an OSC-52 payload is small enough to reach the clipboard
+/// ([`OSC52_MAX_BYTES`]). Pure, so the cap is a test rather than a comment.
+pub fn osc52_within_cap(text: &str) -> bool {
+    text.len() <= OSC52_MAX_BYTES
+}
+
 pub struct Emulator {
     term: TermHandle,
     events: flume::Receiver<RioEvent>,
@@ -254,6 +266,17 @@ impl Emulator {
                 RioEvent::ClipboardStore(kind, text) => {
                     if text.is_empty() {
                         log::debug!("ignoring empty OSC-52 clipboard write");
+                    } else if !osc52_within_cap(&text) {
+                        // A child that dumps a file down OSC-52 (or a binary
+                        // stream that happens to decode) must not park
+                        // megabytes on the user's clipboard, replacing what
+                        // they copied with something no one can read. Beyond
+                        // the cap the write is DROPPED whole — a truncated
+                        // clipboard would be worse than none.
+                        log::debug!(
+                            "dropping OSC-52 clipboard write of {} bytes (cap {OSC52_MAX_BYTES})",
+                            text.len()
+                        );
                     } else {
                         signals.push(EmulatorSignal::ClipboardWrite {
                             target: match kind {
@@ -471,6 +494,51 @@ mod tests {
         let mut written = Vec::new();
         let signals = emulator.drain_events(&mut |bytes| written.extend_from_slice(bytes));
         (signals, written)
+    }
+
+    /// §6.15 (EXP-896): the clipboard is the USER's. An empty payload is
+    /// xterm's "clear it" (dropped), and a payload past
+    /// [`OSC52_MAX_BYTES`] is dropped WHOLE — a child streaming a file down
+    /// OSC-52 must not replace what the user copied, and half of it would be
+    /// worse than none.
+    #[test]
+    fn an_oversized_osc52_payload_never_reaches_the_clipboard() {
+        // The rule itself, at its boundary.
+        assert!(osc52_within_cap(""));
+        assert!(osc52_within_cap(&"a".repeat(OSC52_MAX_BYTES)));
+        assert!(!osc52_within_cap(&"a".repeat(OSC52_MAX_BYTES + 1)));
+
+        // …and through the parser: a real `52;c;<base64>` whose decoded
+        // payload is over the cap surfaces NO signal, while a small one does.
+        let mut emulator = Emulator::new(20, 4);
+        // `QUFB` is base64 for "AAA": 4 chars in, 3 bytes of payload out.
+        let oversize = format!(
+            "\x1b]52;c;{}\x07",
+            "QUFB".repeat(OSC52_MAX_BYTES / 3 + 16)
+        );
+        emulator.advance_bytes(oversize.as_bytes());
+        let (signals, _) = drain(&mut emulator);
+        assert!(
+            !signals
+                .iter()
+                .any(|signal| matches!(signal, EmulatorSignal::ClipboardWrite { .. })),
+            "an oversized OSC-52 write must be dropped, not clipped"
+        );
+
+        // A normal copy on the same emulator still lands.
+        emulator.advance_bytes(b"\x1b]52;c;bGluayBjb3BpZWQ=\x07");
+        let (signals, _) = drain(&mut emulator);
+        assert_eq!(
+            signals
+                .iter()
+                .filter_map(|signal| match signal {
+                    EmulatorSignal::ClipboardWrite { target, text } =>
+                        Some((*target, text.clone())),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            vec![(ClipboardTarget::Clipboard, "link copied".to_string())]
+        );
     }
 
     #[test]

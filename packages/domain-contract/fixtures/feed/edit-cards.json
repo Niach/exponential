@@ -596,5 +596,69 @@
     "expected": [
       "card@1[1]: 1 file edited | src/a.ts +1 -1 | truncated=900"
     ]
+  },
+  {
+    "name": "two maxed truncation markers saturate the total, never wrap it",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "toolKind": "edit",
+        "detail": "src/a.ts",
+        "settled": true,
+        "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n\\ 2147483647 more lines truncated\n"
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "toolKind": "edit",
+        "detail": "src/b.ts",
+        "settled": true,
+        "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n\\ 2147483647 more lines truncated\n"
+      }
+    ],
+    "expected": [
+      "card@1[1,2]: 2 files edited | src/a.ts +1 -1 | src/b.ts +1 -0 | truncated=2147483647"
+    ]
+  },
+  {
+    "name": "inside a lane a workflow-tagged edit is still its own card",
+    "lane": "sub-1",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "toolKind": "edit",
+        "detail": "src/a.ts",
+        "settled": true,
+        "subagentId": "sub-1",
+        "workflowId": "w1",
+        "diff": "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,3 +1,3 @@\n x\n-y\n+z\n w\n"
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "toolKind": "edit",
+        "detail": "src/a2.ts",
+        "settled": true,
+        "subagentId": "sub-1",
+        "workflowId": "w2",
+        "diff": "--- a/src/a2.ts\n+++ b/src/a2.ts\n@@ -1,1 +1,2 @@\n m\n+n\n"
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "toolKind": "edit",
+        "detail": "src/b.ts",
+        "settled": true,
+        "subagentId": "sub-1",
+        "diff": "--- a/src/b.ts\n+++ b/src/b.ts\n@@ -1,1 +1,2 @@\n m\n+n\n"
+      }
+    ],
+    "expected": [
+      "tool@1",
+      "tool@2",
+      "card@3[3]: 1 file edited | src/b.ts +1 -0"
+    ]
   }
 ]

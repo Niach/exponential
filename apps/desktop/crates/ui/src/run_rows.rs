@@ -526,9 +526,27 @@ pub(crate) fn render_run_list_row(
 // Shared run vocabulary
 // ---------------------------------------------------------------------------
 
-/// Whether the row's synced status is the terminal `ended`.
+/// EXP-888: the staleness sweep's end — `ended_by = stale`. The server flips a
+/// silent row to `ended` only when its host device advertises the `stale-end`
+/// cap; that device IGNORES the flip (`sync::session_row_fires_kill`) and its
+/// next heartbeat (up to 30 min later) revives the row to `running`. So a
+/// sweep end says "silent for the staleness window", NEVER "this run is over".
+/// ×4 (web `runIsStaleEnd`, iOS `PastRuns.isStaleEnd`, Android `runIsStaleEnd`).
+pub(crate) fn run_is_stale_end(session: &domain::rows::CodingSession) -> bool {
+    session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
+        && session.ended_by.as_deref() == Some(domain::contract::CODING_SESSION_ENDED_BY_STALE)
+}
+
+/// THE predicate: whether the run is OVER — the terminal `ended` status, minus
+/// [`run_is_stale_end`]. Every Running-vs-Past, Stop-vs-Resume and
+/// composer-enabled decision goes through this and never through the raw
+/// status, or a swept-but-alive run lists as past, greys its composer out and
+/// offers a Resume that would put a SECOND agent on the same worktree.
+/// Byte-identical ×4 (web `runHasEnded`, iOS `PastRuns.hasEnded`, Android
+/// `runHasEnded`).
 pub(crate) fn run_has_ended(session: &domain::rows::CodingSession) -> bool {
     session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
+        && !run_is_stale_end(session)
 }
 
 /// When a run started: its `started_at`, else the row's creation stamp.
@@ -675,6 +693,50 @@ mod tests {
 
     fn session(id: &str) -> domain::rows::CodingSession {
         serde_json::from_value(serde_json::json!({ "id": id })).expect("row")
+    }
+
+    /// EXP-888 — the ONE live/ended predicate ×4 (web `runHasEnded`, iOS
+    /// `PastRuns.hasEnded`, Android `runHasEnded`): a sweep end is not an end.
+    #[test]
+    fn a_sweep_end_is_not_an_end() {
+        let row = |status: &str, ended_by: Option<&str>| -> domain::rows::CodingSession {
+            let mut run = session("s-1");
+            run.status = Some(status.to_string());
+            run.ended_by = ended_by.map(str::to_string);
+            run
+        };
+        assert!(!run_has_ended(&row("running", None)));
+        assert!(!run_has_ended(&row("in_review", None)));
+        assert!(run_has_ended(&row("ended", Some("agent"))));
+        assert!(run_has_ended(&row("ended", Some("user"))));
+        assert!(run_has_ended(&row("ended", Some("merge"))));
+        // The staleness sweep's end: the host ignores the flip and heartbeats
+        // the row back to `running`, so the run is LIVE, not past.
+        assert!(!run_has_ended(&row(
+            "ended",
+            Some(domain::contract::CODING_SESSION_ENDED_BY_STALE)
+        )));
+        // A legacy row that stamped no reason still reads as ended.
+        assert!(run_has_ended(&row("ended", None)));
+
+        assert!(run_is_stale_end(&row("ended", Some("stale"))));
+        // `stale` only ever rides an `ended` row; on a live one it means nothing.
+        assert!(!run_is_stale_end(&row("running", Some("stale"))));
+
+        // The live-badge/ordering twins say the same about a swept row.
+        let now = 1_800_000_000;
+        let mut swept = row("ended", Some("stale"));
+        swept.updated_at = Some(
+            chrono::DateTime::from_timestamp(now, 0)
+                .expect("timestamp")
+                .to_rfc3339(),
+        );
+        assert!(crate::queries::is_live_run_status(&swept));
+        assert!(crate::queries::coding_session_is_live(&swept, now));
+        assert!(!crate::queries::coding_session_is_live(
+            &row("ended", Some("agent")),
+            now
+        ));
     }
 
     /// EXP-886: a switcher entry says `Live` for a live-status run and the

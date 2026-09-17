@@ -650,8 +650,14 @@ impl Mapper {
                 // `thread/name/updated`) — the synced `agent_title` column's
                 // one input. The no-op carriers leave it undefined; a `null`
                 // never clears (the name outlives whatever cleared it).
+                //
+                // REV2-17: a title is outbound text like any other, so it goes
+                // through the redactor FIRST and is normalised (collapse, cap)
+                // after — the launcher's secrets reach this column otherwise,
+                // and a title is synced, not merely relayed.
                 if let Some(title) = defined(&update.title)
-                    .and_then(|raw| steer::normalize_agent_title(raw))
+                    .map(|raw| self.config.redactor.redact(raw))
+                    .and_then(|raw| steer::normalize_agent_title(&raw))
                 {
                     if self.agent_title.as_deref() != Some(title.as_str()) {
                         self.agent_title = Some(title.clone());

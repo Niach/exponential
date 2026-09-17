@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@exp/ui"
-import { isLiveRunStatus } from "@/lib/past-runs"
+import { isLiveRun } from "@/lib/past-runs"
 import { cn } from "@/lib/utils"
 import {
   CHANGES_FACE_LABEL,
@@ -207,7 +207,7 @@ export function MobileFaceSwitcher({
           if (target.kind === `run`) {
             const row = runs.find((entry) => entry.session.id === target.id)
             if (!row) return null
-            const live = isLiveRunStatus(row.session.status)
+            const live = isLiveRun(row.session)
             return (
               <DropdownMenuCheckboxItem
                 key={`run-${target.id}`}

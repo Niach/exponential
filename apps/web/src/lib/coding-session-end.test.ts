@@ -88,13 +88,17 @@ describe(`endSessionByAgent`, () => {
     // EXP-862: the summary is REPORTED to whoever started the run (the MCP
     // tool relays it), never written to the row.
     expect(updates[0]!.values).not.toHaveProperty(`summary`)
-    // Status-fenced so a close-out racing a kill can't resurrect the row.
+    // Status-fenced so a close-out racing a kill can't resurrect the row —
+    // EXP-888 excepted: a `stale` sweep end is overwritable, the run was
+    // alive all along.
     expect(whereShape(updates[0]!.where)).toEqual([
       `col:id`,
       SESSION,
       `col:status`,
       `running`,
       `in_review`,
+      `col:ended_by`,
+      `stale`,
     ])
   })
 
@@ -115,6 +119,40 @@ describe(`endSessionByAgent`, () => {
     expect(updates[0]!.values).toMatchObject({ status: `ended` })
   })
 
+  it(`closes out a row the staleness sweep ended (EXP-888)`, async () => {
+    // The sweep's `stale` end is not an end: the run was alive all along (a
+    // slept laptop), so its real close-out must land — otherwise the agent's
+    // report is dropped and the row keeps `stale`, which no client acts on.
+    selectResults.push([
+      {
+        id: SESSION,
+        userId: `actor`,
+        hostUserId: null,
+        status: `ended`,
+        endedBy: `stale`,
+        startedReason: `agent`,
+      },
+    ])
+
+    const result = await endSessionByAgent(fakeDb, SESSION, `actor`, close)
+
+    expect(result.alreadyEnded).toBe(false)
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.values).toMatchObject({
+      status: `ended`,
+      endedBy: `agent`,
+    })
+    expect(whereShape(updates[0]!.where)).toEqual([
+      `col:id`,
+      SESSION,
+      `col:status`,
+      `running`,
+      `in_review`,
+      `col:ended_by`,
+      `stale`,
+    ])
+  })
+
   it(`is idempotent and never overwrites an earlier close-out`, async () => {
     selectResults.push([
       {
@@ -122,6 +160,7 @@ describe(`endSessionByAgent`, () => {
         userId: `actor`,
         hostUserId: null,
         status: `ended`,
+        endedBy: `agent`,
         startedReason: null,
       },
     ])

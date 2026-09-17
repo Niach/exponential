@@ -581,8 +581,15 @@ pub struct PullFile {
     /// (plus rare `copied` / `changed` / `unchanged`). Kept as a string —
     /// mirroring the web type — so unknown values never fail the decode.
     pub status: String,
-    pub additions: u32,
-    pub deletions: u32,
+    /// EXP-912: SIGNED, and wide, because the wire is a JSON number nobody on
+    /// this side validates — the shared diff fixture
+    /// (`packages/domain-contract/fixtures/diff/cases.json`) locks
+    /// `additions: -3` clamping to `0`, and `domain::diff::from_pull_file`
+    /// takes `i64` for exactly that. A `u32` here rejected the whole
+    /// `PrFilesResponse` on the desktop over one number every other client
+    /// clamps.
+    pub additions: i64,
+    pub deletions: i64,
     /// Unified patch body (hunks only, starting at `@@`). Absent for binary
     /// or too-large files — the web renders "No textual diff" for those.
     #[serde(default)]
@@ -655,6 +662,24 @@ mod tests {
         assert!(request.starts_with("GET /api/trpc/issues.prFiles?input="));
         assert!(request.contains("%22issueId%22"));
         assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
+    }
+
+    /// EXP-912: a NEGATIVE count decodes. The shared diff fixture locks
+    /// `additions: -3 → 0` (every client clamps the one number), so the
+    /// desktop must not reject the whole response over it — the clamp lives in
+    /// `domain::diff::from_pull_file`, which takes `i64`.
+    #[test]
+    fn decodes_a_negative_count_instead_of_failing_the_whole_response() {
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"repo":"a/b","prNumber":7,"files":[
+                {"filename":"src/a.ts","status":"modified","additions":-3,"deletions":2},
+                {"filename":"src/b.ts","status":"modified","additions":4294967296,"deletions":0}
+            ]}}}"#,
+        );
+        let out = pr_files(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
+        assert_eq!((out.files[0].additions, out.files[0].deletions), (-3, 2));
+        assert_eq!(out.files[1].additions, 4_294_967_296, "wider than a u32, too");
     }
 
     #[test]

@@ -29,9 +29,14 @@ public enum CodingSessionLiveness {
         return now.timeIntervalSince(seen) * 1000 >= Double(DomainContract.codingSessionStaleMs)
     }
 
+    /// EXP-888: a sweep end (`ended_by == "stale"`) counts as live — the
+    /// host device ignores that flip and heartbeats the row back to
+    /// `running`, so the run is still there. `PastRuns.hasEnded` is the ×4
+    /// twin of this rule.
     public static func isLive(_ session: CodingSessionEntity, now: Date = Date()) -> Bool {
         (session.status == DomainContract.codingSessionStatusRunning
-            || session.status == DomainContract.codingSessionStatusInReview)
+            || session.status == DomainContract.codingSessionStatusInReview
+            || PastRuns.isStaleEnd(session))
             && !isStale(updatedAt: session.updatedAt, now: now)
     }
 }

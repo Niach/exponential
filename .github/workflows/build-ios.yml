@@ -35,6 +35,10 @@ jobs:
     # Xcode 26.x requires macOS Tahoe 26.2+, so this must be a macos-26 image
     # (a RELEASE macOS — the whole point of building here).
     runs-on: macos-26
+    # Clean archive + export + TestFlight upload is ~35 min; past this the
+    # build is wedged (a provisioning prompt, a stalled ASC upload), and a
+    # release job must not sit on a runner for six hours.
+    timeout-minutes: 90
 
     defaults:
       run:

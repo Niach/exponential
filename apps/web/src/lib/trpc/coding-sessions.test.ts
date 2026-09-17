@@ -101,6 +101,17 @@ function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
   return out
 }
 
+// The literal text of a drizzle `sql` fragment (StringChunks only — bound
+// params are asserted separately), enough to tell a COALESCE from a plain
+// overwrite.
+function sqlText(node: unknown): string {
+  if (!node || typeof node !== `object`) return ``
+  const rec = node as Record<string, unknown>
+  if (Array.isArray(rec.queryChunks)) return rec.queryChunks.map(sqlText).join(``)
+  if (Array.isArray(rec.value)) return rec.value.join(``)
+  return ``
+}
+
 const fakeDb = {
   insert: (table: unknown) => ({
     values: (values: Record<string, unknown>) => {
@@ -743,6 +754,100 @@ describe(`codingSessions.heartbeat — in_review liveness`, () => {
     expect(`status` in updates[0]!.values).toBe(false)
   })
 
+  // EXP-637/EXP-711: the revive's merge conversion is a merge END, so it obeys
+  // the same two spares every other merge path does.
+  it(`revives instead of merge-ending the run that merged its own PR`, async () => {
+    selectResults.push([
+      {
+        userId: `actor`,
+        status: `ended`,
+        endedBy: `stale`,
+        issueId: ISSUE_ID,
+        teamId: TEAM_ID,
+        prState: null,
+        mergedOwnPr: true,
+      },
+    ])
+    selectResults.push([{ status: `done`, prState: `merged` }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates[0]!.values).toMatchObject({
+      status: `running`,
+      endedBy: null,
+    })
+  })
+
+  it(`revives instead of merge-ending when the team switched merge-ends off`, async () => {
+    selectResults.push([
+      {
+        userId: `actor`,
+        status: `ended`,
+        endedBy: `stale`,
+        issueId: ISSUE_ID,
+        teamId: TEAM_ID,
+        prState: null,
+        mergedOwnPr: false,
+      },
+    ])
+    selectResults.push([{ status: `done`, prState: `merged` }])
+    selectResults.push([{ endSessionsOnMerge: false }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: true })
+    expect(updates[0]!.values).toMatchObject({
+      status: `running`,
+      endedBy: null,
+    })
+  })
+
+  it(`still merge-ends when the team keeps merge-ends on`, async () => {
+    selectResults.push([
+      {
+        userId: `actor`,
+        status: `ended`,
+        endedBy: `stale`,
+        issueId: ISSUE_ID,
+        teamId: TEAM_ID,
+        prState: null,
+        mergedOwnPr: false,
+      },
+    ])
+    selectResults.push([{ status: `done`, prState: `merged` }])
+    selectResults.push([{ endSessionsOnMerge: true }])
+
+    const result = await caller.heartbeat({ id: SESSION_ID })
+
+    expect(result).toEqual({ alive: false })
+    expect(updates[0]!.values).toMatchObject({ endedBy: `merge` })
+  })
+
+  // EXP-909: the login a run spends is learned from the beat, on an EXISTING
+  // row too — coalesced, never overwritten.
+  it(`stamps agent_account on a live row without overwriting a known one`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    await caller.heartbeat({ id: SESSION_ID, agentAccount: `work` })
+
+    expect(Object.keys(updates[0]!.values)).toEqual([
+      `updatedAt`,
+      `ackedAt`,
+      `agentAccount`,
+    ])
+    // A coalesce, so a row that already names an account keeps it.
+    expect(sqlText(updates[0]!.values.agentAccount)).toContain(`coalesce`)
+  })
+
+  it(`leaves agent_account alone when the beat carries none`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+
+    await caller.heartbeat({ id: SESSION_ID })
+
+    expect(Object.keys(updates[0]!.values)).toEqual([`updatedAt`, `ackedAt`])
+  })
+
   it(`never revives a non-stale end`, async () => {
     selectResults.push([
       { userId: `actor`, status: `ended`, endedBy: `system`, issueId: null, prState: null },
@@ -1308,10 +1413,23 @@ describe(`codingSessions.setAgentTitle — agent-named title (EXP-905)`, () => {
     expect(result).toEqual({ updated: true })
     expect(updates).toHaveLength(1)
     expect(updates[0]!.values).toEqual({ agentTitle: `Fix the tab padding` })
+    // Addressed by id ALONE: a title is a label, not run state, and the CLI
+    // often names the run in its last second — see the ended-row case below.
     const shape = whereShape(updateWheres[0]).flat()
-    expect(shape).toContain(`running`)
-    expect(shape).toContain(`in_review`)
-    expect(shape).not.toContain(`ended`)
+    expect(shape).toContain(SESSION_ID)
+    expect(shape).not.toContain(`running`)
+  })
+
+  it(`still names a run the exit hook just ended`, async () => {
+    selectResults.push([{ userId: `actor`, status: `ended` }])
+
+    const result = await caller.setAgentTitle({
+      id: SESSION_ID,
+      title: `Fix the tab padding`,
+    })
+
+    expect(result).toEqual({ updated: true })
+    expect(updates[0]!.values).toEqual({ agentTitle: `Fix the tab padding` })
   })
 
   it(`clears it on a host-written row`, async () => {

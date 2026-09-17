@@ -59,8 +59,6 @@ object IssueSearch {
     private const val SCORE_DESCRIPTION_WORD_PREFIX = 20
     private const val SCORE_DESCRIPTION_CONTAINS = 15
 
-    private val WHITESPACE = Regex("\\s+")
-
     /** Trim, drop ONE leading `#`, lowercase. Empty = "recent work". */
     fun normalizeQuery(query: String): String {
         var q = query.trim()
@@ -71,12 +69,28 @@ object IssueSearch {
     /**
      * Whitespace-separated tokens of the normalized query, each shorn of a
      * leading `#`, empties dropped.
+     *
+     * The split reads [Char.isWhitespace], never `Regex("\\s+")`: Java's `\s`
+     * is ASCII-only, so a NON-BREAKING space (U+00A0, what a paste out of a
+     * rendered page carries) would glue two tokens into one here while the
+     * other three engines — JS `\s`, Swift `isWhitespace`, Rust
+     * `split_whitespace` — all split it.
      */
-    fun tokens(query: String): List<String> =
-        normalizeQuery(query)
-            .split(WHITESPACE)
-            .map { if (it.startsWith("#")) it.substring(1) else it }
-            .filter { it.isNotEmpty() }
+    fun tokens(query: String): List<String> {
+        val text = normalizeQuery(query)
+        val out = mutableListOf<String>()
+        var start = 0
+        for (i in 0..text.length) {
+            if (i < text.length && !text[i].isWhitespace()) continue
+            if (i > start) {
+                val raw = text.substring(start, i)
+                val token = if (raw.startsWith("#")) raw.substring(1) else raw
+                if (token.isNotEmpty()) out.add(token)
+            }
+            start = i + 1
+        }
+        return out
+    }
 
     /** The numeric tail as a number for ordering (`EXP-87` → 87), -1 when none. */
     fun identifierNumber(identifier: String): Int =

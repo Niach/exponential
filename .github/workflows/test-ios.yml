@@ -15,8 +15,8 @@ name: test-ios
 # built here is shippable (EXP-405) and nothing should try; the signed archive
 # stays in build-ios.yml on the same runner image.
 #
-# EXP-912: it also RUNS the ExpCore suite. Before, nothing in CI executed a
-# Swift test, so the contract fixtures every other client replays on each PR
+# EXP-912: it also RUNS the ExpCore and ExpUI suites. Before, nothing in CI
+# executed a Swift test, so the contract fixtures every client replays on a PR
 # (`packages/domain-contract/fixtures/**`: diff, tool-group summary, workflow
 # caption) drifted on iOS until a release. `--no-selective-testing` because
 # tuist's selective testing can skip a suite whose inputs it does not track —
@@ -53,6 +53,9 @@ jobs:
   compile:
     # Same image as build-ios.yml: Xcode 26.x needs macOS Tahoe 26.2+.
     runs-on: macos-26
+    # A Release compile plus two simulator suites is ~25 min on a cold cache;
+    # anything past this is a hung simulator, not slow work.
+    timeout-minutes: 60
 
     defaults:
       run:
@@ -122,20 +125,99 @@ jobs:
       # Runs even when the Release compile failed: a red compile and a drifted
       # fixture are two separate answers, and the second one is cheap once the
       # dependencies are resolved.
-      - name: Run the ExpCore suite (simulator)
+      #
+      # BOTH schemes, because `bun run ios:test` runs both and the byte-locked
+      # markdown-interchange, emoji and status-colour parity suites live in
+      # ExpUI, not ExpCore.
+      #
+      # The gate is the RESULT BUNDLE, never the log: `tuist test` pipes
+      # xcodebuild through xcbeautify, which prints `✔ name (0.001 seconds)`
+      # and never xcodebuild's `Executed N tests` line, so a grep-the-log gate
+      # is dead on arrival — as the old one was. `xcresulttool get test-results
+      # summary` reports the real counts, and a per-scheme FLOOR turns a suite
+      # that silently stopped running (a scheme renamed, a test target dropped
+      # out of it, selective testing sneaking back in) into a red job instead
+      # of a green one that executed nothing. Floors sit under today's counts
+      # (ExpCore 903, ExpUI 383) so ordinary churn passes.
+      - name: Run the ExpCore + ExpUI suites (simulator)
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
         run: |
-          if ! tuist test ExpCore --no-selective-testing \
-            > "$RUNNER_TEMP/test.log" 2>&1; then
-            echo "::group::Failing tests"
-            grep -E "error: |failed \(|Failing tests:" "$RUNNER_TEMP/test.log" | sort -u | head -60 || true
-            echo "::endgroup::"
-            echo "::group::Tail of the test log"
-            tail -80 "$RUNNER_TEMP/test.log"
-            echo "::endgroup::"
+          set -uo pipefail
+
+          # Pin the destination. Left to itself tuist takes whatever simulator
+          # the image happens to list first (an iPad, locally) — which device
+          # ran the suite should not be a property of the runner image.
+          DEVICE="$(xcrun simctl list devices available -j \
+            | jq -r '[.devices[][] | .name]
+                     | (map(select(. == "iPhone 17 Pro Max"))
+                        + map(select(startswith("iPhone 17")))
+                        + map(select(startswith("iPhone")))) | .[0] // empty')"
+          if [ -z "$DEVICE" ]; then
+            echo "::error::No iPhone simulator available on this image"
             exit 1
           fi
-          grep -E "Executed [0-9]+ tests?" "$RUNNER_TEMP/test.log" | tail -1 || true
+          echo "Simulator: $DEVICE"
+
+          fail=0
+          run_suite() {
+            local scheme="$1" floor="$2"
+            local log="$RUNNER_TEMP/test-$scheme.log"
+            local dir="$RUNNER_TEMP/xcresult/$scheme"
+            rm -rf "$dir" && mkdir -p "$dir"
+
+            local status=0
+            tuist test "$scheme" --no-selective-testing \
+              --device "$DEVICE" \
+              --result-bundle-path "$dir/$scheme.xcresult" \
+              > "$log" 2>&1 || status=$?
+
+            local bundle="$dir/$scheme.xcresult"
+            [ -d "$bundle" ] || bundle="$(find "$dir" -maxdepth 3 -name '*.xcresult' -print -quit)"
+            if [ ! -d "$bundle" ]; then
+              echo "::error::$scheme produced no result bundle (tuist exit $status)"
+              echo "::group::Tail of the $scheme log"
+              tail -80 "$log"
+              echo "::endgroup::"
+              fail=1
+              return 0
+            fi
+
+            local summary
+            if ! summary="$(xcrun xcresulttool get test-results summary --path "$bundle" --compact)"; then
+              echo "::error::$scheme: could not read the result bundle at $bundle"
+              fail=1
+              return 0
+            fi
+
+            local total failed skipped result
+            total="$(jq -r '.totalTestCount // 0' <<<"$summary")"
+            failed="$(jq -r '.failedTests // 0' <<<"$summary")"
+            skipped="$(jq -r '.skippedTests // 0' <<<"$summary")"
+            result="$(jq -r '.result // "unknown"' <<<"$summary")"
+            echo "$scheme: $result — $total executed, $failed failed, $skipped skipped (floor $floor)"
+
+            if [ "$status" -ne 0 ] || [ "$failed" -ne 0 ]; then
+              echo "::error::$scheme failed: $failed failing tests (tuist exit $status)"
+              echo "::group::Failing tests ($scheme)"
+              jq -r '.testFailures[]? | "\(.targetName)/\(.testName): \(.failureText)"' <<<"$summary" | head -60
+              echo "::endgroup::"
+              echo "::group::Tail of the $scheme log"
+              tail -80 "$log"
+              echo "::endgroup::"
+              fail=1
+            fi
+
+            if [ "$total" -lt "$floor" ]; then
+              echo "::error::$scheme executed $total tests, below the floor of $floor — the suite stopped running, it did not pass"
+              fail=1
+            fi
+
+            return 0
+          }
+
+          run_suite ExpCore 800
+          run_suite ExpUI 300
+          exit "$fail"
 
       - name: Upload the build and test logs
         if: failure()
@@ -144,6 +226,6 @@ jobs:
           name: ios-compile-log
           path: |
             ${{ runner.temp }}/build.log
-            ${{ runner.temp }}/test.log
+            ${{ runner.temp }}/test-*.log
           if-no-files-found: ignore
           retention-days: 7

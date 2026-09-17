@@ -3,6 +3,7 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { codingSessionCollection } from "@/lib/collections"
+import { isLiveRun, runHasEnded } from "@/lib/past-runs"
 import { useNow } from "@/hooks/use-now"
 import { useCanResumeOn } from "@/hooks/use-resume-run"
 import { IssueCodingControl } from "@/components/issue-coding-rows"
@@ -70,9 +71,11 @@ export function IssueCodingAction({
     () =>
       pick(
         own.filter(
-          (row) =>
-            (row.status === `running` || row.status === `in_review`) &&
-            !isCodingSessionStale(row.updatedAt, now)
+          // EXP-888: a sweep end (`ended_by = stale`) is NOT an end — its host
+          // ignores the flip and heartbeats the row back to `running`. Such a
+          // run keeps its Stop and must never be offered a Resume, which would
+          // put a second agent on the same worktree.
+          (row) => isLiveRun(row) && !isCodingSessionStale(row.updatedAt, now)
         )
       ),
     [own, now, preferredSessionId]
@@ -83,11 +86,11 @@ export function IssueCodingAction({
   // run behind it would fork the issue's work. Falls through to Start coding.
   const ownEnded = useMemo(() => {
     const preferred = own.find(
-      (row) => row.id === preferredSessionId && row.status === `ended`
+      (row) => row.id === preferredSessionId && runHasEnded(row)
     )
     if (preferred) return preferred
     const newestOwn = newest(own)
-    return newestOwn?.status === `ended` ? newestOwn : null
+    return newestOwn && runHasEnded(newestOwn) ? newestOwn : null
   }, [own, preferredSessionId])
   const canResume = useCanResumeOn(ownLive ? null : ownEnded)
 

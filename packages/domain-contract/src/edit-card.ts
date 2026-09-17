@@ -41,7 +41,7 @@
 //   tap toggles a row in place — a card never navigates anywhere.
 
 import contractJson from "../contract.json" with { type: "json" }
-import { mergeFilesByPath, parseDiff, type DiffFile } from "./diff"
+import { DIFF_LINE_MAX, mergeFilesByPath, parseDiff, type DiffFile } from "./diff"
 
 const json = contractJson as unknown as {
   diffUi: {
@@ -136,23 +136,30 @@ export function editCard(
   // The path the LAST member names — its patch's first file, else its
   // `detail` — recorded while its patch is parsed once, never re-parsed.
   let lastPath: string | null = null
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    // The LAST member by INDEX, never by identity: one item object may sit in
+    // the run twice (a re-render reuses rows), and `item === last` would then
+    // name the wrong member the live one.
+    const isLast = i === items.length - 1
     if (item.diff) {
       const parsed = parseDiff(item.diff)
-      truncatedLines += parsed.truncatedLines ?? 0
+      // Every marker is already clamped to `DIFF_LINE_MAX`, so the SUM must
+      // saturate there too — the count is a caption, not an accumulator.
+      truncatedLines = Math.min(truncatedLines + (parsed.truncatedLines ?? 0), DIFF_LINE_MAX)
       for (const file of parsed.files) {
         // A pathless section (hunks with no header) borrows the call's own
         // subject — the engine names the file in `detail`.
         const path = file.path || item.detail?.trim()
         if (!path) continue
-        if (item === last && lastPath === null) lastPath = path
+        if (isLast && lastPath === null) lastPath = path
         ready.push(file.path === path ? file : { ...file, path })
       }
-      if (item === last && lastPath === null) lastPath = item.detail?.trim() || null
+      if (isLast && lastPath === null) lastPath = item.detail?.trim() || null
       continue
     }
     const path = item.detail?.trim()
-    if (item === last) lastPath = path || null
+    if (isLast) lastPath = path || null
     if (!path) continue
     const state: EditRowState =
       item.failed === true ? `failed` : item.settled === true ? `done` : `pending`

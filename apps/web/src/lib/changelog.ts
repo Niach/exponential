@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-17-release-train`,
+    date: `2026-09-17`,
+    title: `Release train 2026-09-17`,
+    summary: `Every diff reads the same, tabs keep what you typed, issue search is one engine on every client, and the Devices page holds your logins and usage.`,
+    body: `- **One diff design**: a review, a run's changes and the transcript draw the same file card on all four clients, a run's edits collect into one card in the conversation, and the file list beside a diff is a folder tree with counts and a filter.
+- **Tabs keep their state**: on the web and the desktop app a half-typed comment, an open reply box and the scroll position come back when you return to a work tab, and a chat run carries the title the agent gave it.
+- **One issue search**: every picker, the # autocomplete and the search sheet rank issues the same way on web, desktop, iOS and Android, with the top row preselected and Enter or Tab to pick. The desktop search sheet finds issues only now; files stay in the Files rail.
+- **Accounts and usage**: the context ring opens one usage view that names the account a run spends, the Devices page lists each machine's logins with their usage in place, and idle runs no longer pin a stale rate-limit reading.
+- **Runs that are still there stay**: the crash sweep no longer deletes a run whose transcript still exists on its device, and the issue page keeps a run's diff after the merge.
+- **Merge and conflicts**: a merge refused by a real conflict turns the Merge PR button into Fix conflicts wherever you clicked it, and the Merge PR pill sits on the small phone rung too.
+- **Desktop app**: Back returns where you came from, the sidebar list no longer re-derives every row per frame, the terminal copies and pastes, and long chips and diff headers no longer overlap.
+- **Web**: every page has a title, and the composers share one attachment thumbnail and one floating-bar chrome.`,
+  },
+  {
     id: `2026-09-tab-shell-polish`,
     date: `2026-09-17`,
     title: `Tabs keep their state, chats get their names`,

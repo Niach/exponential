@@ -68,6 +68,13 @@ const PAD_Y: f32 = 2.0;
 /// Cursor blink half-period (visible ↔ hidden).
 const BLINK_INTERVAL: Duration = Duration::from_millis(530);
 
+/// §6.15 (EXP-896): the shortest gap between two OSC-52 clipboard writes this
+/// view will honour. A child in a loop can emit one per output chunk; the
+/// clipboard only ever holds the last of them, so a burst is coalesced to one
+/// system write (the drain already keeps only the newest signal per pump) and
+/// anything closer than this is dropped rather than queued.
+const OSC52_MIN_INTERVAL: Duration = Duration::from_millis(100);
+
 /// The terminal view's key context (EXP-71 shadowing target).
 const KEY_CONTEXT: &str = "Terminal";
 
@@ -126,6 +133,9 @@ pub struct TerminalView {
     /// Uploaded inline-image textures keyed by rio's texture key (EXP-636);
     /// fed from the wake drain, read by the element in prepaint.
     images: Rc<RefCell<ImageCache>>,
+    /// §6.15: when this view last honoured an OSC-52 write
+    /// ([`OSC52_MIN_INTERVAL`]).
+    last_clipboard_write: Option<Instant>,
     _wake_task: Task<()>,
     _blink_task: Task<()>,
 }
@@ -177,6 +187,7 @@ impl TerminalView {
             last_motion_cell: None,
             cursor_bounds: Rc::new(StdCell::new(None)),
             images: Rc::new(RefCell::new(ImageCache::default())),
+            last_clipboard_write: None,
             _wake_task: wake_task,
             _blink_task: blink_task,
         }
@@ -221,6 +232,10 @@ impl TerminalView {
         for update in self.session.borrow_mut().take_graphics() {
             self.images.borrow_mut().apply(update);
         }
+        // §6.15: the clipboard holds ONE value, so a drain carrying several
+        // OSC-52 writes is worth exactly its last one — never N system
+        // clipboard writes in a single pump.
+        let mut clipboard: Option<(ClipboardTarget, String)> = None;
         for signal in signals {
             match signal {
                 EmulatorSignal::Title(title) => {
@@ -229,10 +244,13 @@ impl TerminalView {
                 }
                 EmulatorSignal::Bell => cx.emit(TerminalViewEvent::Bell),
                 EmulatorSignal::ClipboardWrite { target, text } => {
-                    write_osc52_clipboard(target, text, cx)
+                    clipboard = Some((target, text));
                 }
                 EmulatorSignal::Redraw => {}
             }
+        }
+        if let Some((target, text)) = clipboard {
+            self.honour_osc52_clipboard(target, text, cx);
         }
         if self.exit.is_none() {
             let exit = self.session.borrow().exit();
@@ -244,6 +262,51 @@ impl TerminalView {
         // Fresh output re-shows the cursor (standard blink behavior).
         self.blink_visible = true;
         cx.notify();
+    }
+
+    /// §6.15 (EXP-896): put an OSC-52 payload on the system clipboard — but
+    /// only for the terminal the user is actually in, and at most once per
+    /// [`OSC52_MIN_INTERVAL`].
+    ///
+    /// The clipboard is a WINDOW-wide, in fact machine-wide, resource: a
+    /// background agent shell (or a second window's tab) that keeps printing
+    /// `52;c;…` would otherwise overwrite whatever the user copied in the
+    /// surface they ARE looking at. Focus is read off the ACTIVE window, so
+    /// an unfocused tab, an inactive window and a backgrounded app all stay
+    /// out of it.
+    fn honour_osc52_clipboard(
+        &mut self,
+        target: ClipboardTarget,
+        text: String,
+        cx: &mut Context<Self>,
+    ) {
+        let now = Instant::now();
+        if self
+            .last_clipboard_write
+            .is_some_and(|at| now.duration_since(at) < OSC52_MIN_INTERVAL)
+        {
+            log::debug!("dropping OSC-52 clipboard write (one per 100ms)");
+            return;
+        }
+        if !self.is_focused_in_active_window(cx) {
+            log::debug!("ignoring OSC-52 clipboard write from an unfocused terminal");
+            return;
+        }
+        self.last_clipboard_write = Some(now);
+        write_osc52_clipboard(target, text, cx);
+    }
+
+    /// Is THIS terminal the focused one in the window the user is in? Read
+    /// through the active window handle: `on_wake` runs off a background
+    /// wake, with no `Window` in hand.
+    fn is_focused_in_active_window(&self, cx: &mut Context<Self>) -> bool {
+        let focus_handle = self.focus_handle.clone();
+        let Some(window) = cx.active_window() else {
+            return false;
+        };
+        window
+            .update(cx, |_, window, _| focus_handle.is_focused(window))
+            .unwrap_or(false)
     }
 
     fn blink_tick(&mut self, cx: &mut Context<Self>) {

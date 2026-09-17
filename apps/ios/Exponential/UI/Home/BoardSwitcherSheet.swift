@@ -119,7 +119,7 @@ struct BoardSwitcherSheet: View {
             case let .session(_, session, issue):
                 // The sessions list's first line, so the two cannot drift;
                 // an ended run wears the static neutral dot.
-                let ended = session.status == DomainContract.codingSessionStatusEnded
+                let ended = PastRuns.hasEnded(session)
                 SessionRowTitle(
                     identifier: issue?.identifier,
                     title: sessionRowTitle(issue: issue, session: session),

@@ -46,6 +46,23 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-17-release-train",
+    date: "2026-09-17",
+    title: "Release train 2026-09-17",
+    summary: "Every diff reads the same, tabs keep what you typed, issue search is one engine on every client, and the Devices page holds your logins and usage.",
+    body: r#"- **One diff design**: a review, a run's changes and the transcript draw the same file card on all four clients, a run's edits collect into one card in the conversation, and the file list beside a diff is a folder tree with counts and a filter.
+- **Tabs keep their state**: on the web and the desktop app a half-typed comment, an open reply box and the scroll position come back when you return to a work tab, and a chat run carries the title the agent gave it.
+- **One issue search**: every picker, the # autocomplete and the search sheet rank issues the same way on web, desktop, iOS and Android, with the top row preselected and Enter or Tab to pick. The desktop search sheet finds issues only now; files stay in the Files rail.
+- **Accounts and usage**: the context ring opens one usage view that names the account a run spends, the Devices page lists each machine's logins with their usage in place, and idle runs no longer pin a stale rate-limit reading.
+- **Runs that are still there stay**: the crash sweep no longer deletes a run whose transcript still exists on its device, and the issue page keeps a run's diff after the merge.
+- **Merge and conflicts**: a merge refused by a real conflict turns the Merge PR button into Fix conflicts wherever you clicked it, and the Merge PR pill sits on the small phone rung too.
+- **Desktop app**: Back returns where you came from, the sidebar list no longer re-derives every row per frame, the terminal copies and pastes, and long chips and diff headers no longer overlap.
+- **Web**: every page has a title, and the composers share one attachment thumbnail and one floating-bar chrome."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-tab-shell-polish",
     date: "2026-09-17",
     title: "Tabs keep their state, chats get their names",
@@ -55,9 +72,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Chats named by the agent**: a chat run shows the title Claude Code or codex gave the conversation instead of "Chat", in every session list, tab and review row on the web, the desktop app, iOS and Android. Renaming it in the agent renames it here."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
+/// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",
@@ -66,19 +83,6 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 - **Edits in the transcript**: the files a run touches in a row are collected into one "N files edited" card in the conversation, with the file it is writing right now open and the rest a tap away. No jumping to another screen to see what changed.
 - **A file tree**: the list beside a diff is a tree of folders now, with the counts per folder, a filter, and long folder chains folded into one line. On a review it sits in the sidebar, where every other page keeps its context.
 - **Reviews polish**: a review's header says which issue it is, how big the diff is and what the pull request's state is, with reject, Merge PR and the GitHub link beside it. Batch rows in the review queue no longer lose their first column. On phones the floating bottom bar is now the same on web, iOS and Android: one geometry, no drop shadow, and Merge PR is one white pill centred between the circles, on a review and on a run's changes alike."#,
-};
-
-/// The entry before that.
-#[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-accounts-usage",
-    date: "2026-09-17",
-    title: "Accounts and usage",
-    summary: "One usage view on every client that names the account a run is on, shows that account's numbers, keeps them current, and lists each device's logins in place.",
-    body: r#"- **One usage overlay**: the context ring opens the same view on web, desktop, iOS and Android: the run's own account at the top with its three rate-limit windows, the context window below, and every other account on that machine as a compact row with a switch button beside it instead of across it.
-- **The right account**: the overlay names the login the run actually spends, so a run started on a second account no longer wears the default account's name or its re-login badge.
-- **Numbers that move**: an idle run no longer pins its last rate-limit reading, a window that has reset re-reads within a heartbeat, opening the overlay asks the machine for a fresh read, and an account nobody ran for days refreshes its own token to report instead of showing days-old numbers.
-- **Devices list their logins**: the Devices page lists each machine's accounts under the machine, with the same compact usage line and one menu per login, in place of the separate Accounts section, its tabs and its chips."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored

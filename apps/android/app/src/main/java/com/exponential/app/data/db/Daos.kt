@@ -270,7 +270,15 @@ interface CodingSessionDao {
     // Account-wide live sessions (the Agents tab + its bottom-bar dot). Takes a
     // status list so both live states (`running` + `in_review`, EXP-194) match;
     // CodingSessionLiveness.isLive still applies the staleness cut on top.
-    @Query("SELECT * FROM coding_sessions WHERE status IN (:statuses) ORDER BY started_at DESC")
+    // EXP-888: the sweep's own end (`ended_by = 'stale'`) rides along — the
+    // host device ignores that flip and heartbeats the row back to `running`
+    // within the heartbeat interval, so the run is still live (`runHasEnded`).
+    // The two literals are the contract's `codingSessionStatusEnded` /
+    // `codingSessionEndedByStale`, inlined because Room needs them in the SQL.
+    @Query(
+        "SELECT * FROM coding_sessions WHERE status IN (:statuses) " +
+            "OR (status = 'ended' AND ended_by = 'stale') ORDER BY started_at DESC",
+    )
     fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
 
     // EXP-746: the Agent page's "Recent" feed — one user's finished

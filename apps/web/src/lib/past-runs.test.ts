@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest"
 import {
+  isLiveRun,
   isLiveRunStatus,
   LIVE_RUN_LABEL,
   pastRunByline,
   pastRunEndedAt,
   pastRunIdentifier,
   pastRunTitle,
+  runHasEnded,
+  runIsLive,
+  runIsStaleEnd,
   selectIssueRuns,
   selectPastRuns,
   PAST_RUN_CAP,
@@ -56,6 +60,38 @@ function run(over: Partial<PastRun> = {}): PastRun {
   }
 }
 
+// EXP-888: the ONE live/ended predicate, mirrored by desktop
+// `run_rows::run_has_ended`, iOS `PastRuns.hasEnded` and Android
+// `runHasEnded`. Same `it` name on all four.
+describe(`runHasEnded`, () => {
+  it(`a sweep end is not an end`, () => {
+    expect(runHasEnded(run({ status: `running`, endedBy: null }))).toBe(false)
+    expect(runHasEnded(run({ status: `in_review`, endedBy: null }))).toBe(false)
+    expect(runHasEnded(run({ status: `ended`, endedBy: `agent` }))).toBe(true)
+    expect(runHasEnded(run({ status: `ended`, endedBy: `user` }))).toBe(true)
+    expect(runHasEnded(run({ status: `ended`, endedBy: `merge` }))).toBe(true)
+    // The staleness sweep's end: the host ignores it and heartbeats the row
+    // back to `running`, so the run is LIVE, not past.
+    expect(runHasEnded(run({ status: `ended`, endedBy: `stale` }))).toBe(false)
+    // A legacy row that stamped no reason still reads as ended.
+    expect(runHasEnded(run({ status: `ended`, endedBy: null }))).toBe(true)
+
+    expect(runIsStaleEnd(run({ status: `ended`, endedBy: `stale` }))).toBe(true)
+    // `stale` only ever rides an `ended` row; on a live one it means nothing.
+    expect(runIsStaleEnd(run({ status: `running`, endedBy: `stale` }))).toBe(
+      false
+    )
+    expect(runIsLive(run({ status: `ended`, endedBy: `stale` }))).toBe(true)
+    expect(runIsLive(run({ status: `ended`, endedBy: `agent` }))).toBe(false)
+
+    // The live-badge/ordering twin says the same about a swept row.
+    expect(isLiveRun(run({ status: `ended`, endedBy: `stale` }))).toBe(true)
+    expect(isLiveRun(run({ status: `ended`, endedBy: `agent` }))).toBe(false)
+    expect(isLiveRun(run({ status: `running`, endedBy: null }))).toBe(true)
+    expect(isLiveRun(run({ status: `in_review`, endedBy: null }))).toBe(true)
+  })
+})
+
 describe(`selectPastRuns`, () => {
   it(`own person-started ended runs only`, () => {
     const mine = run({ id: `mine` })
@@ -72,6 +108,19 @@ describe(`selectPastRuns`, () => {
     // Without a signed-in user or an active team there is nothing to list.
     expect(selectPastRuns(rows, undefined, `team-1`)).toEqual([])
     expect(selectPastRuns(rows, `me`, undefined)).toEqual([])
+  })
+
+  it(`a swept run stays out of Past`, () => {
+    // EXP-888: the sweep ends a silent row with `ended_by = stale`; its host
+    // revives it on the next heartbeat. Listing it under Recent would grey
+    // the composer out and offer Resume on a run that is still alive.
+    const rows = [
+      run({ id: `really-ended`, endedBy: `agent` }),
+      run({ id: `swept`, endedBy: `stale` }),
+    ]
+    expect(selectPastRuns(rows, `me`, `team-1`).map((r) => r.id)).toEqual([
+      `really-ended`,
+    ])
   })
 
   it(`a scheduled run never lists under Past`, () => {

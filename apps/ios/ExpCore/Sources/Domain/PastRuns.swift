@@ -26,6 +26,34 @@ public enum PastRuns {
     /// real row off the end.
     public static let queryLimit = 50
 
+    /// EXP-888: the staleness sweep's end — `ended_by == "stale"`. The server
+    /// flips a silent row to `ended` only when its host device advertises the
+    /// `stale-end` cap; that device IGNORES the flip and its next heartbeat
+    /// (up to 30 min later) revives the row to `running`. So a sweep end says
+    /// "silent for the staleness window", NEVER "this run is over". ×4 (web
+    /// `runIsStaleEnd`, desktop `run_rows::run_is_stale_end`, Android
+    /// `runIsStaleEnd`).
+    public static func isStaleEnd(_ session: CodingSessionEntity) -> Bool {
+        session.status == DomainContract.codingSessionStatusEnded
+            && session.endedBy == DomainContract.codingSessionEndedByStale
+    }
+
+    /// THE predicate: whether the run is OVER. `isLive` is its negation.
+    /// Every Running-vs-Past, Stop-vs-Resume and composer-enabled decision
+    /// goes through this and never through `status == "ended"` alone — or a
+    /// swept-but-alive run lists as past, greys its composer out and offers a
+    /// Resume that would put a SECOND agent on the same worktree.
+    /// Byte-identical ×4 (web `runHasEnded`, desktop `run_rows::run_has_ended`,
+    /// Android `runHasEnded`).
+    public static func hasEnded(_ session: CodingSessionEntity) -> Bool {
+        session.status == DomainContract.codingSessionStatusEnded && !isStaleEnd(session)
+    }
+
+    /// The negation of ``hasEnded(_:)`` — the run may still be alive. ×4.
+    public static func isLive(_ session: CodingSessionEntity) -> Bool {
+        !hasEnded(session)
+    }
+
     /// The section's rows: own + active-team + `ended` + PERSON-started,
     /// newest first, capped. Ordering key is `ended_at ?? updated_at` — a row
     /// whose end never landed still sorts by its last heartbeat, and ISO-8601
@@ -38,7 +66,8 @@ public enum PastRuns {
     ) -> [CodingSessionEntity] {
         sessions
             .filter { CodingSessionOwnership.isOwn($0, userId: userId, teamId: teamId) }
-            .filter { $0.status == DomainContract.codingSessionStatusEnded }
+            // EXP-888: a sweep end is not an end — that row belongs to Running.
+            .filter { hasEnded($0) }
             // EXP-676: an automation run belongs under Automations, never here.
             .filter { ($0.startedReason ?? "").isEmpty }
             .sorted { endedAt($0) > endedAt($1) }
@@ -52,6 +81,15 @@ public enum PastRuns {
     public static func isLiveRunStatus(_ status: String) -> Bool {
         status == DomainContract.codingSessionStatusRunning
             || status == DomainContract.codingSessionStatusInReview
+    }
+
+    /// The row-level twin of ``isLiveRunStatus(_:)``: live by status, plus
+    /// EXP-888's sweep end, which is a live run whose heartbeat has not landed
+    /// yet. Every list that paints a live badge or sorts live runs first reads
+    /// THIS. ×4 (web `isLiveRun`, desktop `queries::is_live_run_status`,
+    /// Android `isLiveRun`).
+    public static func isLiveRun(_ session: CodingSessionEntity) -> Bool {
+        isStaleEnd(session) || isLiveRunStatus(session.status)
     }
 
     /// The word the run switcher shows in a live run's time slot, in place of
@@ -75,8 +113,8 @@ public enum PastRuns {
             .filter { $0.issueId == issueId }
             .filter { CodingSessionOwnership.isOwn($0, userId: userId) }
             .sorted { a, b in
-                let liveA = isLiveRunStatus(a.status)
-                let liveB = isLiveRunStatus(b.status)
+                let liveA = isLiveRun(a)
+                let liveB = isLiveRun(b)
                 if liveA != liveB { return liveA }
                 return endedAt(a) > endedAt(b)
             }
@@ -87,7 +125,7 @@ public enum PastRuns {
     /// entry is `byline(device:relativeTime:)` over it; the trigger names the
     /// run on show by it. ×4 (web `issueRunWhen`).
     public static func issueRunWhen(_ session: CodingSessionEntity, endedRelative: String) -> String {
-        isLiveRunStatus(session.status) ? liveRunLabel : endedRelative
+        isLiveRun(session) ? liveRunLabel : endedRelative
     }
 
     /// When the run finished, for ordering and the byline's relative time.

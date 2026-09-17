@@ -41,6 +41,7 @@ import { bootstrapCloud } from "@/lib/bootstrap-cloud"
 import { bootstrapSelfHosted } from "@/lib/bootstrap-self-hosted"
 import { startFcmTokenSweepScheduler } from "@/lib/fcm-token-sweep"
 import { startDeviceCodeSweepScheduler } from "@/lib/device-code-sweep"
+import { startDeviceCommandSweepScheduler } from "@/lib/device-command-sweep"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
@@ -98,6 +99,12 @@ startFcmTokenSweepScheduler()
 // the plugin only deletes rows whose grant resolves, and /device/code is
 // unauthenticated, so unpolled leftovers would accumulate unboundedly.
 startDeviceCodeSweepScheduler()
+
+// Device commands: hourly sweep deleting rows a device already completed
+// (`done`/`failed`) past the retention window — completion results are only
+// ever read live, so the rows are unread history that would otherwise grow
+// for the life of the instance. `pending` rows are never touched.
+startDeviceCommandSweepScheduler()
 
 // REV2-6 warn-only boot check — see the header comment. Bun read
 // BUN_CONFIG_MAX_HTTP_REQUESTS before this code ran, so a bad value can only

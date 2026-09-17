@@ -1,3 +1,11 @@
+- A chat run takes its name from what the agent is working on, instead of reading Chat everywhere
+- One diff everywhere: a diff's files sit in a tree you can jump around, and an agent's edits in a turn collect in one Edited files card
+- Usage in one place: an overlay shows the run's own account, its limit windows and the context window, plus the other logins on that machine
+- Devices carry the logins: every machine lists its agent logins with plan, health and usage, and a device's gear button holds Update and Remove
+- A stack merge that fails now says why, instead of going quiet
+- One issue search: the same ranking drives every issue list, picker and # menu, with the top result ready to pick
+- A running command shows only its last lines, so long output no longer floods the run
+- A run that goes quiet is marked ended and stays in the list instead of disappearing
 - One Work screen: an issue, its coding run and its changes are faces of one screen now, switched from the bar at the bottom, with Stop or Resume in the top-right corner
 - One diff view: every diff reads the same, with line numbers, hidden unchanged lines you can open, and renames and binary files named instead of shown empty
 - Stacked pull requests: start an issue on top of the one that blocks it, merge the chain with Merge stack, read the stack or batch badge on the work, and answer a question a nested run sends you
@@ -8,11 +16,6 @@
 - Queued messages: a message waiting for the agent shows in a bar above the composer, and Stop in a live session interrupts the running turn instead of getting lost on the way
 - Quieter buttons and clearer pickers: only a screen's main action keeps a filled circle, and the agent picker carries the Claude Code or Codex mark while device menus lead with a laptop or server icon
 - The Agent page holds your runs: past runs fold behind a count you can open, and with nothing running the prompt sits in the middle of the page instead of under the nav bar
-- Sign in where the account is: signing in, choosing the active login and removing one now live on the account chips, and Add account in the Accounts header signs a new login in on a device
 - Issue filters are gone: the filter button and its pills left the board and the inbox, search covers what they did, and grouping and the status bands stay
 - Continue with email, or with a passkey: sign in with a 6-digit code mailed to you, or with Face ID or Touch ID; every option is one Continue list, and an unknown email simply becomes a new account
-- Working ends when the agent does: the working indicator follows the agent's real turn instead of the connection, showing what it is doing with the elapsed time and tokens, and Stop sits in the session header
-- Transcript cards: an Exponential call reads as a plain caption like Creating issue with a preview of its result, a subagent chip carries the task it was given, and a read-only Plan chip shows while the run is still planning
-- Workflow card: a run with several agents renders as one card with its phases and the agents under it, and a session row carries a second line saying what the run is working on right now
-- Accounts and repairs: an agent account's health comes from a live usage probe, so a dead login reads Needs re-login, and Devices lists each machine's logins with the right repair on a chip
 - Switch account mid-run, and come back where you were: a Claude run at its limit can carry on with another account, and leaving a session returns you to the issue or board you opened it from

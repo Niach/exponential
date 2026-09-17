@@ -1,3 +1,11 @@
+- Un run di chat prende il nome da ciò su cui l'agente sta lavorando, invece di leggere «Chat» ovunque
+- Un solo diff ovunque: i file di un diff stanno in un albero in cui salti, e le modifiche di un agente in un turno si raccolgono in una scheda «Edited files»
+- L'uso in un unico posto: un pannello mostra l'account dell'esecuzione, le sue finestre di limite e la finestra di contesto, più gli altri account di quella macchina
+- I dispositivi portano gli account: ogni macchina elenca i suoi account agente con piano, stato e uso, e la rotella di un dispositivo tiene Update e Remove
+- Un merge di stack che fallisce ora dice perché, invece di restare in silenzio
+- Una sola ricerca degli issue: lo stesso ordinamento regge ogni elenco, ogni selettore e ogni menu #, con il primo risultato già scelto
+- Un comando in corso mostra solo le sue ultime righe, così un output lungo non inonda più l'esecuzione
+- Un'esecuzione che tace viene segnata come finita e resta nell'elenco invece di sparire
 - Una sola schermata Work: un issue, la sua esecuzione, le modifiche e i risultati sono facce di una stessa schermata, si cambia dalla barra in basso, e Stop o Resume sta in alto a destra
 - Una sola vista del diff: ogni diff si legge allo stesso modo, con i numeri di riga, le righe invariate che puoi aprire, e i file rinominati o binari nominati invece che vuoti
 - Pull request impilate: avvia un issue sopra quello che lo blocca, unisci l'intera catena con Merge stack, leggi il distintivo di stack o di batch sul lavoro, e rispondi alla domanda che ti manda un'esecuzione annidata
@@ -8,11 +16,6 @@
 - Messaggi in coda: un messaggio che aspetta l'agente compare in una barra sopra il campo di scrittura, e Stop in una sessione dal vivo interrompe davvero il turno in corso invece di perdersi per strada
 - Pulsanti più discreti e selettori più chiari: solo l'azione principale di una schermata tiene un cerchio pieno, e il selettore dell'agente porta il segno di Claude Code o Codex, mentre i menu dei dispositivi si aprono con un'icona di portatile o di server
 - La pagina Agent tiene i tuoi run: i run passati si ripiegano dietro un conteggio che puoi aprire, e quando non gira nulla il campo di scrittura sta al centro della pagina
-- Accedi dove sta l'account: accesso, scelta dell'account attivo e rimozione vivono ora sulle etichette dell'account, e Add account nell'intestazione Accounts accede con un nuovo account su un dispositivo
 - I filtri degli issue sono spariti: il pulsante filtro e le sue pastiglie lasciano board e posta in arrivo, la ricerca copre quello che facevano, e raggruppamento e bande di stato restano
 - Continua con l'email, o con una passkey: accedi con un codice di 6 cifre inviato per email, oppure con Face ID o Touch ID; tutte le opzioni stanno in un unico elenco, e un'email sconosciuta diventa semplicemente un nuovo account
-- L'indicatore di lavoro finisce quando finisce l'agente: ora segue il turno reale dell'agente invece della connessione, mostra cosa sta facendo con durata e token, e Stop sta nell'intestazione della sessione
-- Schede nella cronologia: una chiamata a Exponential mostra una didascalia semplice come «Creating issue» con un'anteprima del risultato, il chip di un sottoagente porta il compito che ha ricevuto, e un chip Plan di sola lettura appare finché l'esecuzione pianifica
-- Scheda workflow: un'esecuzione con più agenti appare come un'unica scheda con le sue fasi e gli agenti sotto, e una riga di sessione guadagna una seconda riga con ciò a cui sta lavorando
-- Account e riparazioni: lo stato di un account agente arriva da una misura d'uso reale, quindi un accesso morto legge «Needs re-login», e Devices elenca gli account di ogni macchina con la riparazione giusta su un chip
 - Cambio account a metà esecuzione, e ritorno da dove sei arrivato: un'esecuzione Claude al limite può proseguire con un altro account, e uscire da una sessione ti riporta all'issue o alla board da cui l'avevi aperta

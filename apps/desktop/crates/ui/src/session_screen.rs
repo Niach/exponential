@@ -290,10 +290,10 @@ fn row_ended(session_id: &str, cx: &App) -> bool {
         return false;
     };
     let sessions = store.collections().coding_sessions.read(cx);
-    sessions
-        .get(session_id)
-        .and_then(|row| row.status.as_deref())
-        .is_some_and(|status| status == domain::contract::CODING_SESSION_STATUS_ENDED)
+    // EXP-888: a sweep end (`ended_by = stale`) is not an end — the host
+    // ignores the flip and heartbeats the row back to `running`, so the
+    // composer stays open and Stop stays in place of Resume.
+    sessions.get(session_id).is_some_and(crate::run_rows::run_has_ended)
 }
 
 /// EXP-800: where an ended run's Resume goes. `Local` re-enters the run

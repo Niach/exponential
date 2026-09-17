@@ -37,8 +37,13 @@ export function useRememberedScroll(
         if (Math.abs(node.scrollTop - target) < 1) restoring = false
       }
       const onScroll = () => {
-        // Programmatic restores fire scroll too; only record once settled.
-        if (restoring) return
+        // Programmatic restores fire scroll too; only record once settled —
+        // and a restore that LANDED is settled, whether it landed from
+        // `apply` or from the browser's own anchoring.
+        if (restoring) {
+          if (Math.abs(node.scrollTop - target) < 1) restoring = false
+          return
+        }
         writeTabMemory(owner, slot, node.scrollTop > 0 ? node.scrollTop : null)
       }
 
@@ -50,13 +55,19 @@ export function useRememberedScroll(
       }
       let observer: ResizeObserver | null = null
       let timer: ReturnType<typeof setTimeout> | null = null
-      if (restoring && typeof ResizeObserver !== `undefined`) {
-        observer = new ResizeObserver(apply)
-        for (const child of Array.from(node.children)) observer.observe(child)
+      if (restoring) {
+        // The window is armed whether or not this environment observes
+        // resizes: an offset the content never grows back to would otherwise
+        // leave `restoring` true forever, and the hook would stop recording
+        // where the reader actually is.
         timer = setTimeout(() => {
           restoring = false
           observer?.disconnect()
         }, RESTORE_WINDOW_MS)
+        if (typeof ResizeObserver !== `undefined`) {
+          observer = new ResizeObserver(apply)
+          for (const child of Array.from(node.children)) observer.observe(child)
+        }
       }
 
       cleanupRef.current = () => {

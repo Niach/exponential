@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { contract } from "@exp/domain-contract"
-import { summaryLabel, totals } from "@exp/domain-contract/diff"
+import { summaryLabel, totals, type DiffFile } from "@exp/domain-contract/diff"
 import type { Issue } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { useTeamBySlug, useTeamBoards } from "@/hooks/use-team-data"
@@ -86,6 +86,9 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
 const PrClosedIcon = conceptIcon(`pr-closed`)
 const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
+/** One stable empty list, so a loading diff is not a new array per render. */
+const EMPTY_FILES: DiffFile[] = []
+
 function ReviewDetailPage() {
   const { teamSlug, issueIdentifier } = Route.useParams()
   const navigate = useNavigate()
@@ -145,7 +148,12 @@ function ReviewDetailPage() {
   // The diff itself, hoisted so the top bar can caption it (EXP-706) — the
   // SHARED hook since EXP-895, the same one the phone's Changes face uses.
   const { state: filesState, reload: reloadFiles } = useReviewFiles(issue)
-  const files = filesState.kind === `files` ? filesState.files : []
+  // EXP-875: memoized — a fresh `[]` per render while the diff loads made the
+  // publish effect below re-fire on every render.
+  const files = useMemo(
+    () => (filesState.kind === `files` ? filesState.files : EMPTY_FILES),
+    [filesState]
+  )
   const [selected, setSelected] = useState<string | null>(null)
 
   // EXP-916: hand the sidebar's tree what it draws — the files, the selection

@@ -266,7 +266,12 @@ pub(crate) struct AutomatedRunsKey {
     coding_sessions: u64,
     devices: u64,
     issues: u64,
-    actions: u64,
+    /// `RunListFacts::derive` BAKES theme colours into the cached facts (the
+    /// caption's muted foreground), so a theme swap has to re-derive them —
+    /// as raw float bits, since `Hsla` is not `Eq`. (The `actions` shape is
+    /// deliberately absent: the query never reads it — an action run's name
+    /// is the `action_name` SNAPSHOT on the session row.)
+    muted: [u32; 4],
     clock: i64,
 }
 
@@ -276,12 +281,18 @@ pub(crate) fn automated_runs_key(
     now_secs: i64,
 ) -> AutomatedRunsKey {
     let collections = Store::global(cx).collections();
+    let muted = gpui_component::ActiveTheme::theme(cx).muted_foreground;
     AutomatedRunsKey {
         team_id: team_id.map(str::to_string),
         coding_sessions: collections.coding_sessions.read(cx).revision(),
         devices: collections.devices.read(cx).revision(),
         issues: collections.issues.read(cx).revision(),
-        actions: collections.actions.read(cx).revision(),
+        muted: [
+            muted.h.to_bits(),
+            muted.s.to_bits(),
+            muted.l.to_bits(),
+            muted.a.to_bits(),
+        ],
         clock: now_secs.div_euclid(5),
     }
 }
@@ -289,11 +300,38 @@ pub(crate) fn automated_runs_key(
 /// Today as `YYYY-MM-DD` for the overdue boundary. Device-LOCAL date — the
 /// EXP-38 boundary every client uses: web `formatDateForMutation(new Date())`,
 /// iOS `Calendar.current`, Android `LocalDate.now()`.
+///
+/// Rendered code asks for this a LOT — twice on the memo path alone (the
+/// key's `today` plus the build's `board_data_from`), and once per overdue
+/// row in the big list — and `Local::now()` is a timezone lookup plus a
+/// format each time. The answer only changes at local midnight, so it is
+/// cached for the current wall-clock SECOND: still exact within a second of
+/// the boundary, and free for every other caller in the frame.
 pub fn today_local() -> String {
-    chrono::Local::now()
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string()
+    use std::cell::RefCell;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    thread_local! {
+        static CACHED: RefCell<Option<(u64, String)>> = const { RefCell::new(None) };
+    }
+    let second = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or_default();
+    CACHED.with(|cached| {
+        let mut cached = cached.borrow_mut();
+        if let Some((at, today)) = cached.as_ref() {
+            if *at == second {
+                return today.clone();
+            }
+        }
+        let today = chrono::Local::now()
+            .date_naive()
+            .format("%Y-%m-%d")
+            .to_string();
+        *cached = Some((second, today.clone()));
+        today
+    })
 }
 
 /// The signed-in account (per the §5 session machine) — `None` unless Synced.
@@ -915,9 +953,36 @@ pub struct ReviewEntry {
     pub stack_top_issue_id: Option<String>,
 }
 
+/// EXP-917 — which issue REPRESENTS one pull request when several share it (a
+/// batch run lands N issues on ONE branch under ONE `pr_url`): the NEWEST by
+/// `created_at`, id ascending as the tiebreak so the answer never depends on
+/// collection iteration order. ONE rule, shared by the Reviews row
+/// ([`ReviewEntry::representative`]) and the run header's branch lookup
+/// ([`crate::changes_bar::open_pr_issue_on_branch`]): a merge failure is
+/// recorded in [`crate::pr_merge::MergeState`] under the issue id it was
+/// merged through, so two surfaces picking different siblings meant the
+/// conflict swap looked the failure up under an id that never failed.
+pub(crate) fn representative_order(
+    a: &domain::rows::Issue,
+    b: &domain::rows::Issue,
+) -> std::cmp::Ordering {
+    // ISO strings from one source compare lexicographically; `None` sorts
+    // last under the descending compare.
+    b.created_at
+        .cmp(&a.created_at)
+        .then_with(|| a.id.cmp(&b.id))
+}
+
+/// Order the issues of ONE pull request so `issues[0]` is its
+/// [`representative_order`] representative.
+pub(crate) fn sort_pr_issues(issues: &mut [domain::rows::Issue]) {
+    issues.sort_by(representative_order);
+}
+
 impl ReviewEntry {
     /// The representative issue — the one whose id drives row-click, merge and
-    /// dismiss (the server acts on the ONE linked PR either way).
+    /// dismiss (the server acts on the ONE linked PR either way). The list is
+    /// kept in [`representative_order`].
     pub fn representative(&self) -> &domain::rows::Issue {
         &self.issues[0]
     }
@@ -1036,12 +1101,12 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
         bucket.push(issue);
     }
 
-    // One entry per PR; issues newest first (ISO strings from one source
-    // compare lexicographically, None last) so the representative is newest.
+    // One entry per PR; issues in the SHARED representative order (EXP-917),
+    // so `issues[0]` is the same issue the run header merges through.
     let mut entries: Vec<ReviewEntry> = Vec::with_capacity(pr_order.len());
     for key in pr_order {
         let mut issues = by_pr.remove(&key).unwrap_or_default();
-        issues.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        sort_pr_issues(&mut issues);
         entries.push(ReviewEntry {
             issues,
             depth: 0,
@@ -1182,11 +1247,14 @@ pub(crate) fn coding_session_is_live(
     session: &domain::rows::CodingSession,
     now_epoch: i64,
 ) -> bool {
+    // EXP-888: a sweep end (`ended_by = stale`) is NOT an end — the host
+    // ignores the flip and heartbeats the row back to `running` within the
+    // heartbeat interval, so the run stays live here.
     let live_status = matches!(
         session.status.as_deref(),
         Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
             | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-    );
+    ) || crate::run_rows::run_is_stale_end(session);
     if !live_status {
         return false;
     }
@@ -1757,9 +1825,8 @@ pub(crate) fn own_ended_runs<'a>(
     team_id: &str,
 ) -> Vec<&'a domain::rows::CodingSession> {
     let mut out: Vec<&domain::rows::CodingSession> = rows
-        .filter(|session| {
-            session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED)
-        })
+        // EXP-888: a sweep end is not an end — such a row belongs to Running.
+        .filter(|session| crate::run_rows::run_has_ended(session))
         .filter(|session| session.started_reason.is_none())
         .filter(|session| session.user_id.as_deref() == Some(me))
         .filter(|session| session.team_id.as_deref() == Some(team_id))
@@ -1781,7 +1848,7 @@ pub(crate) fn is_live_run_status(session: &domain::rows::CodingSession) -> bool 
         session.status.as_deref(),
         Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
             | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-    )
+    ) || crate::run_rows::run_is_stale_end(session)
 }
 
 /// EXP-886 — an issue's RUNS (×4): the caller's own runs of THAT issue,

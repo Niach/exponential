@@ -3,6 +3,7 @@ import type { Board, CodingSession, Issue } from "@/db/schema"
 import type { SessionDevice } from "@/lib/session-device"
 import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
 import { sessionIdentity } from "@/lib/session-identity"
+import { runHasEnded } from "@/lib/past-runs"
 import { pastRunRowByline } from "@/components/agent-session-row"
 import {
   PastSessionRow,
@@ -98,7 +99,7 @@ export function SessionTreeList({
         if (!row) return null
         const active = session.id === activeSessionId
         const expanded = !collapsed.has(session.id)
-        return session.status === `ended` ? (
+        return runHasEnded(session) ? (
           <PastSessionRow
             key={session.id}
             sessionId={session.id}

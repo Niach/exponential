@@ -48,6 +48,7 @@ import {
 } from "@/lib/start-prompt"
 import { deviceRowIsOnline, deviceUsageWallAt } from "@/lib/steer-devices"
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { runIsStaleEnd } from "@/lib/past-runs"
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
@@ -768,6 +769,19 @@ export const steerRouter = router({
             message: `Only the session owner can resume it`,
           })
         }
+        // EXP-888: a sweep end is NOT an end. `ended_by = 'stale'` only says
+        // the staleness sweep gave up on a quiet row; the hosting device
+        // ignores that flip and its next heartbeat (up to 30 min later)
+        // revives the run — the agent is still sitting on that worktree. So a
+        // resume here would put a SECOND agent on it. Refuse, and name the way
+        // forward: a real Stop (`killSession` overwrites `stale` with a
+        // durable `user` close-out the device honours) makes it resumable.
+        if (runIsStaleEnd(session)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That run only went quiet — it was not ended, and its machine may still be running the agent. Stop it first, then resume.`,
+          })
+        }
         // EXP-849: a resume naming ANOTHER account is the mid-session account
         // SWITCH, and the whole point is switching a run that is still alive
         // (between turns): the device ends the live run, moves the agent's
@@ -1401,9 +1415,14 @@ export const steerRouter = router({
         })
       }
 
-      // Idempotent: killing an already-ended session leaves the row alone.
+      // Idempotent: killing an already-ended session leaves the row alone —
+      // except a sweep end (EXP-888). `ended_by = 'stale'` means only the
+      // staleness sweep gave up on the row; no client treats it as a kill, so
+      // a real kill must still land its durable `user` close-out (the desktop
+      // kill-watch and the CLI kill-poll ignore `stale` and would otherwise
+      // keep the agent alive).
       let result: { session: typeof session; txId?: number }
-      if (session.status === `ended`) {
+      if (session.status === `ended` && session.endedBy !== `stale`) {
         result = { session }
       } else {
         result = await ctx.db.transaction(async (tx) => {

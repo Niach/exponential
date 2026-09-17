@@ -48,9 +48,44 @@ export function pastRunEndedAt(
   return stamp(session.endedAt) || stamp(session.updatedAt)
 }
 
+/** The end facts every "is this run over?" decision reads. Structural on
+ *  purpose (`endedBy` optional) so a caller holding only a partial row still
+ *  passes one. ×4. */
+export type RunEndFacts = {
+  status: string
+  endedBy?: string | null
+}
+
+/** EXP-888: the staleness sweep's end — `ended_by = 'stale'`. The sweep flips
+ *  a silent row to `ended` only when its host device advertises the
+ *  `stale-end` cap; that device IGNORES the flip and its next heartbeat
+ *  (up to 30 min later) revives the row to `running`. So a sweep end says
+ *  "silent for the staleness window", NEVER "this run is over". ×4. */
+export function runIsStaleEnd(session: RunEndFacts): boolean {
+  return session.status === `ended` && session.endedBy === `stale`
+}
+
+/** THE predicate: whether the run is OVER. `runIsLive` is its negation
+ *  (`status !== 'ended' || endedBy === 'stale'`). Every Running-vs-Past,
+ *  Stop-vs-Resume and composer-enabled decision goes through this and never
+ *  through `status === 'ended'` alone — otherwise a swept-but-alive run lists
+ *  as past, greys its composer out and offers Resume, which would put a
+ *  SECOND agent on the same worktree. Byte-identical ×4 (desktop
+ *  `run_rows::run_has_ended`, iOS `PastRuns.hasEnded`, Android
+ *  `runHasEnded`). */
+export function runHasEnded(session: RunEndFacts): boolean {
+  return session.status === `ended` && !runIsStaleEnd(session)
+}
+
+/** The negation of [`runHasEnded`] — the run may still be alive. ×4. */
+export function runIsLive(session: RunEndFacts): boolean {
+  return !runHasEnded(session)
+}
+
 /** The caller's OWN, PERSON-started, ENDED runs in one team, newest first,
  *  capped. `startedReason !== null` is an automation/agent run and belongs to
- *  the Automations tab, never here. */
+ *  the Automations tab, never here. A sweep end (EXP-888) is not an end, so
+ *  those rows stay OUT of Recent and keep their place in Running. */
 export function selectPastRuns<T extends PastRunSession>(
   sessions: readonly T[],
   currentUserId: string | undefined,
@@ -61,7 +96,7 @@ export function selectPastRuns<T extends PastRunSession>(
   return sessions
     .filter(
       (session) =>
-        session.status === `ended` &&
+        runHasEnded(session) &&
         session.startedReason == null &&
         session.userId === currentUserId &&
         session.teamId === teamId
@@ -75,6 +110,15 @@ export function selectPastRuns<T extends PastRunSession>(
  *  runs, it only sorts by its last heartbeat. */
 export function isLiveRunStatus(status: string): boolean {
   return status === `running` || status === `in_review`
+}
+
+/** The row-level twin of [`isLiveRunStatus`]: live by status, plus EXP-888's
+ *  sweep end, which is a live run whose heartbeat has not landed yet. Every
+ *  list that paints a live badge or sorts live runs first reads THIS. ×4
+ *  (desktop `queries::is_live_run_status`, iOS `PastRuns.isLiveRun`, Android
+ *  `isLiveRun`). */
+export function isLiveRun(session: RunEndFacts): boolean {
+  return runIsStaleEnd(session) || isLiveRunStatus(session.status)
 }
 
 /** The word the run switcher shows in a live run's time slot, in place of
@@ -94,7 +138,7 @@ export function selectIssueRuns<T extends PastRunSession>(
   issueId: string | undefined
 ): T[] {
   if (!currentUserId || !issueId) return []
-  const live = (session: T) => (isLiveRunStatus(session.status) ? 1 : 0)
+  const live = (session: T) => (isLiveRun(session) ? 1 : 0)
   return sessions
     .filter(
       (session) =>

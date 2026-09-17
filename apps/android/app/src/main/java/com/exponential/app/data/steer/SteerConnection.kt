@@ -34,6 +34,7 @@ import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
+import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.trimmed
 import com.exponential.app.domain.withId
 import io.ktor.http.HttpStatusCode
@@ -564,7 +565,9 @@ class SteerConnection internal constructor(
         val row = session.value
         if (row != null) {
             sawSessionRow = true
-            return row.status == DomainContract.codingSessionStatusEnded
+            // EXP-888: a sweep end is not an end — the host revives the row
+            // on its next heartbeat, so the viewer keeps dialing.
+            return runHasEnded(row)
         }
         return sawSessionRow
     }

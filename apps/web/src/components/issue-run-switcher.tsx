@@ -11,7 +11,7 @@ import {
   Pill,
 } from "@exp/ui"
 import {
-  isLiveRunStatus,
+  isLiveRun,
   LIVE_RUN_LABEL,
   pastRunByline,
   pastRunEndedAt,
@@ -39,16 +39,19 @@ const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
 /** The `<when>` segment of a run's entry: `Live` for a live-status run, else
  *  when it ended (empty when the row stamped no honest time). */
 export function issueRunWhen(
-  session: Pick<CodingSession, `status` | `endedAt` | `updatedAt`>
+  session: Pick<CodingSession, `status` | `endedBy` | `endedAt` | `updatedAt`>
 ): string {
-  if (isLiveRunStatus(session.status)) return LIVE_RUN_LABEL
+  if (isLiveRun(session)) return LIVE_RUN_LABEL
   const endedAt = pastRunEndedAt(session)
   return endedAt > 0 ? relativeTime(new Date(endedAt)) : ``
 }
 
 /** One entry's text: the Recent byline with `issueRunWhen` in the time slot. */
 export function issueRunEntryLabel(row: {
-  session: Pick<CodingSession, `status` | `endedAt` | `updatedAt` | `deviceLabel`>
+  session: Pick<
+    CodingSession,
+    `status` | `endedBy` | `endedAt` | `updatedAt` | `deviceLabel`
+  >
   device: Pick<PastRunRow[`device`], `label`>
 }): string {
   return pastRunByline({
@@ -89,7 +92,7 @@ export function IssueRunSwitcher({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" data-testid="issue-run-switcher-menu">
         {runs.map((row) => {
-          const live = isLiveRunStatus(row.session.status)
+          const live = isLiveRun(row.session)
           return (
             <DropdownMenuCheckboxItem
               key={row.session.id}

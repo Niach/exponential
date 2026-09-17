@@ -40,7 +40,10 @@ fun resumeTargetFor(
     currentUserId: String?,
 ): RunResumeTarget? {
     if (currentUserId == null || session.userId != currentUserId) return null
-    if (session.status != DomainContract.codingSessionStatusEnded) return null
+    // EXP-888: a sweep end is NOT an end — the host ignores the flip and
+    // heartbeats the row back to `running`. Resuming it would put a second
+    // agent on the run's worktree.
+    if (!runHasEnded(session)) return null
     val deviceId = session.deviceId?.takeIf { it.isNotEmpty() } ?: return null
     val candidates = devices.filter { it.deviceId == deviceId }
     val device = candidates.firstOrNull { it.isMine } ?: candidates.firstOrNull() ?: return null

@@ -551,7 +551,9 @@ impl SteerSessionView {
 
         // EXP-895: the Changes face's file filter. Its own state, so the
         // list re-renders on every keystroke and nothing else does.
-        let diff_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter files"));
+        let diff_filter = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(domain::contract::DIFF_UI_FILTER_PLACEHOLDER)
+        });
 
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe(&diff_filter, |_, _, event: &InputEvent, cx| {
@@ -1162,11 +1164,15 @@ impl SteerSessionView {
         // EXP-789: a focused subagent tab projects ONLY that subagent's rows
         // (web `AgentConversation`); Main is the grouped transcript.
         let focus = self.active_subagent();
+        // EXP-850 §3: the lane projection needs them too — a workflow call is
+        // its own card inside a lane exactly as it is in the main transcript.
+        let held = self.feed.workflow_ids();
         match focus.as_deref() {
             Some(subagent_id) => steer::feed::group_subagent_row_specs_into(
                 self.feed.items(),
                 start,
                 subagent_id,
+                &held,
                 &mut self.rows,
             ),
             None => {
@@ -1178,7 +1184,6 @@ impl SteerSessionView {
         // ones, and §9 floats an unanswered card under everything that
         // followed it. Both are pure ([`crate::session_rows`]) and both run
         // on the projection, so the list diff sees one settled order.
-        let held = self.feed.workflow_ids();
         if focus.is_none() {
             crate::session_rows::hide_workflow_agent_rows(&mut self.rows, self.feed.items(), &held);
             crate::session_rows::pending_last(&mut self.rows, self.feed.items());
@@ -1311,12 +1316,10 @@ impl SteerSessionView {
             .read(cx)
             .get(&self.session_id)
             .cloned();
-        let ended = row
-            .as_ref()
-            .and_then(|row| row.status.clone())
-            .as_deref()
-            .map(|status| status == domain::contract::CODING_SESSION_STATUS_ENDED)
-            .unwrap_or(false);
+        // EXP-906: "ended" is the SHARED rule (`run_rows::run_has_ended`) —
+        // a sweep end (`ended` by `stale`) is a row the server tidied, not a
+        // run that finished, and treating it as one parked the viewer.
+        let ended = row.as_ref().is_some_and(crate::run_rows::run_has_ended);
         if ended {
             // EXP-639: the redial loops treat the synced row as the truth —
             // a `no_such_session` for an ended run would otherwise park the
@@ -1355,11 +1358,7 @@ impl SteerSessionView {
     }
 
     fn row_ended(&self) -> bool {
-        self.row
-            .as_ref()
-            .and_then(|row| row.status.as_deref())
-            .map(|status| status == domain::contract::CODING_SESSION_STATUS_ENDED)
-            .unwrap_or(false)
+        self.row.as_ref().is_some_and(crate::run_rows::run_has_ended)
     }
 
     fn device(&self, cx: &App) -> crate::queries::SessionDevicePresentation {

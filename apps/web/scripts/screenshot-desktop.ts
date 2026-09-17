@@ -50,6 +50,7 @@ import {
 } from "@/lib/steer"
 import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
 import { reclockDemoRows } from "./lib/demo-reclock"
+import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
   DEMO_DEVICE_ID,
   DEMO_DEVICE_LABEL,
@@ -477,6 +478,12 @@ async function reportMcpReadiness(userId: string, teamId: string): Promise<void>
 }
 
 async function main() {
+  // EXP-913: this stub WRITES — it upserts the demo device row on every beat
+  // and re-clocks the seeded rows — so it refuses a database that is not
+  // obviously the local dev one, exactly like `seed:screenshots` does.
+  assertLocalDatabase(
+    `screenshots:desktop upserts the demo device + MCP readiness rows and SHIFTS the seeded timestamps.`
+  )
   const config = required(getSteerRelayConfig())
   const { userId, sessionId, teamId } = await resolveTarget()
 

@@ -241,9 +241,14 @@ impl ConnectTo<Client> for ClaudeAgent {
                             session.replay_history(&spawned, &transcript);
                             // EXP-905: a LIVE resume keeps the name the
                             // conversation already has; a read-only replay
-                            // writes no row, so it reads nothing.
+                            // writes no row, so it reads nothing. SCHEDULED,
+                            // never called here: the first read of a resumed
+                            // run's transcript can be megabytes, and this is
+                            // the pump — `schedule_title_poll` puts it on the
+                            // blocking thread, so the load responds now and
+                            // the title follows.
                             if !session.spec.replay {
-                                session.poll_title(&spawned);
+                                session.schedule_title_poll(&spawned, Duration::ZERO);
                             }
                             responder.respond(
                                 LoadSessionResponse::new()

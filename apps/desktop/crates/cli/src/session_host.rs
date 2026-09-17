@@ -480,20 +480,28 @@ enum PollDecision {
 }
 
 /// EXP-681: how long the kill poll tolerates the 426 min-version gate before
-/// it ends the run ITSELF. While the gate holds the server rejects every
-/// call from this build — the session heartbeat included — so the row's
+/// it ends the run ITSELF. While the gate holds the server rejects every call
+/// from this build — the session heartbeat included — so the row's
 /// `updated_at` froze at the first gated poll and the server sweep
 /// (`coding-session-sweep.ts`: `CODING_SESSION_STALE_MS` from `updated_at`,
-/// checked every 30 minutes) has DELETED it by the end of this window. From
-/// then on a web/mobile "Kill session" has nothing to kill and the poll can
-/// never see an `ended` edge: the run is unreachable from every product
-/// surface, and the only useful thing the gated host can still do is stop
-/// hosting it — which also un-parks the daemon's own update (daemon.rs
-/// waits for idle before it swaps the binary), the day
-/// `CLIENT_MIN_VERSION_CLI` is raised past a build holding a forgotten
-/// person-started run. Deliberately the server's window plus its sweep
-/// cadence, not a shorter guess: a gate that lifts sooner (a rolled-back
-/// deploy) simply resumes the normal poll.
+/// checked every 30 minutes) has acted on it by the end of this window.
+///
+/// EXP-888 changed WHAT the sweep does, not what this bound is for. This
+/// build advertises the `stale-end` cap, so the sweep ENDS the row with
+/// `ended_by = stale` (a build without the cap still has its row deleted).
+/// Neither outcome ever reaches the watcher as a kill: a `stale` end is the
+/// one end the poll ignores by design (a laptop that slept past the window
+/// must not lose its run), and a real Stop — which still writes a real end,
+/// `ended_by = user` — cannot be seen either, because every poll from this
+/// build is 426'd for as long as the gate holds. So from here on the run is
+/// steerable and stoppable from no product surface, and the only useful thing
+/// the gated host can still do is stop hosting it — which also un-parks the
+/// daemon's own update (daemon.rs waits for idle before it swaps the binary),
+/// the day `CLIENT_MIN_VERSION_CLI` is raised past a build holding a
+/// forgotten person-started run. Deliberately the server's window plus its
+/// sweep cadence, not a shorter guess: a gate that lifts sooner (a rolled-back
+/// deploy) simply resumes the normal poll, and a run that turns out to be
+/// alive revives its row on the next heartbeat.
 const GATED_KILL_AFTER: Duration = Duration::from_millis(
     domain::contract::CODING_SESSION_STALE_MS as u64 + 30 * 60 * 1000,
 );

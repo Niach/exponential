@@ -127,7 +127,14 @@ object EditCard {
             val diff = item.diff
             if (!diff.isNullOrEmpty()) {
                 val parsed = Diff.parse(diff)
-                truncatedLines += parsed.truncatedLines ?: 0
+                // Every marker is already clamped to [Diff.LINE_MAX], so the
+                // SUM saturates there too — the count is a caption, not an
+                // accumulator, and `+=` on `Int` would WRAP to a negative
+                // (which the render then hides entirely).
+                truncatedLines = minOf(
+                    truncatedLines.toLong() + (parsed.truncatedLines ?: 0).toLong(),
+                    Diff.LINE_MAX.toLong(),
+                ).toInt()
                 for (file in parsed.files) {
                     // A pathless section (hunks with no header) borrows the
                     // call's own subject — the engine names the file in `detail`.

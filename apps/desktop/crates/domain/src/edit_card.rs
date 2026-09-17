@@ -44,7 +44,7 @@
 //!
 //! gpui-free, like the rest of `domain`.
 
-use crate::diff::{merge_files_by_path, parse_diff, DiffFile};
+use crate::diff::{merge_files_by_path, parse_diff, DiffFile, DIFF_LINE_MAX};
 
 /// The tool kinds whose calls form an edited-files card — the contract's
 /// `toolKind.editKinds`, generated ×4 so no mirror restates the list.
@@ -160,7 +160,12 @@ pub fn edit_card(items: &[EditCardMember<'_>], live_item_id: Option<u64>) -> Edi
         let is_last = at + 1 == items.len();
         if let Some(diff) = member_diff(member) {
             let parsed = parse_diff(diff);
-            truncated_lines += parsed.truncated_lines.unwrap_or(0);
+            // Every marker is already clamped to `DIFF_LINE_MAX`, so the SUM
+            // saturates there too — the count is a caption, not an
+            // accumulator, and `+=` on `u32` would panic in a debug build.
+            truncated_lines = truncated_lines
+                .saturating_add(parsed.truncated_lines.unwrap_or(0))
+                .min(DIFF_LINE_MAX);
             for file in parsed.files {
                 // A pathless section (hunks with no header) borrows the call's
                 // own subject — the engine names the file in `detail`.

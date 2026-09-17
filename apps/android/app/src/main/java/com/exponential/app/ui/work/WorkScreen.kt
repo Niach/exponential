@@ -41,6 +41,7 @@ import com.exponential.app.domain.fallbackFace
 import com.exponential.app.domain.groupSessionResults
 import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.parseSessionResults
+import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.switcherBadge
 import com.exponential.app.domain.switcherMode
 import com.exponential.app.domain.switcherTargets
@@ -172,7 +173,10 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     val mergeError by (sessionVm?.mergeError ?: remember { MutableStateFlow(null) })
         .collectAsStateWithLifecycle()
-    val sessionEnded = shownSession?.status == DomainContract.codingSessionStatusEnded
+    // EXP-888: a sweep end (`ended_by = 'stale'`) is NOT an end — the device
+    // ignores the flip and its next heartbeat revives the row — so the pill
+    // keeps saying Stop and the composer stays open.
+    val sessionEnded = shownSession?.let { runHasEnded(it) } == true
     val ownShown = shownSession != null && currentUserId != null && shownSession?.userId == currentUserId
     val shownLive = shownSession?.let { isSessionLive(it, liveClock) } == true
     val awaitingInput = phase == AgentPhase.Live &&
@@ -288,9 +292,13 @@ fun WorkScreen(
     // an issue-less run keeps the auto-back. Edge-triggered on a REAL live
     // row, so a screen opened onto an already-ended run stays put.
     var wasLive by remember(shownSessionId) { mutableStateOf(false) }
-    LaunchedEffect(shownSession?.status, issueId) {
-        val status = shownSession?.status ?: return@LaunchedEffect
-        if (status != DomainContract.codingSessionStatusEnded) {
+    // EXP-888: `runHasEnded`, never the raw status — a swept row reads `ended`
+    // while its agent is still running, and backing out of it would strand the
+    // run the next heartbeat revives. `endedBy` is a key too: the sweep's
+    // `stale` turning into a real end never moves `status`.
+    LaunchedEffect(shownSession?.status, shownSession?.endedBy, issueId) {
+        val row = shownSession ?: return@LaunchedEffect
+        if (!runHasEnded(row)) {
             wasLive = true
         } else if (wasLive && issueId == null) {
             onBack()
@@ -412,7 +420,7 @@ fun WorkScreen(
                             val fix = mergeTarget is MergeTarget.Issue &&
                                 canOfferFixConflicts(mergeError, mergeIssue?.branch, steerEnabled = steerEnabled == true)
                             ChangesMergeControl(
-                                label = if (fix) "Fix conflicts" else "Merge PR",
+                                label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
                                 fixConflicts = fix,
                                 loading = merging,
                                 error = mergeError?.message,
@@ -439,7 +447,7 @@ fun WorkScreen(
                                 changesErrorFrom == ChangesViewModel.PrAction.Merge &&
                                 steerEnabled == true && !issue?.branch.isNullOrBlank()
                             ChangesMergeControl(
-                                label = if (fix) "Fix conflicts" else "Merge PR",
+                                label = if (fix) "Fix conflicts" else DomainContract.diffUiMergePr,
                                 fixConflicts = fix,
                                 loading = changesMerging,
                                 error = changesError,

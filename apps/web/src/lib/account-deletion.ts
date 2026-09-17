@@ -1,5 +1,14 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
+import {
+  and,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm"
 import {
   attachments,
   codingSessions,
@@ -189,7 +198,15 @@ export async function guardAndCleanupTeamsForUserDeletion(
       and(
         eq(codingSessions.userId, userId),
         isNotNull(codingSessions.hostUserId),
-        inArray(codingSessions.status, [`running`, `in_review`])
+        // EXP-888: a stale-swept row still has an agent behind it. The sweep's
+        // `ended_by = 'stale'` is "this row went silent", not "this run is
+        // over" — no client acts on it — so a deleted account's run must be
+        // closed out here too, or the cascade vaporizes the row and the agent
+        // outlives its requester on the host's machine.
+        or(
+          inArray(codingSessions.status, [`running`, `in_review`]),
+          eq(codingSessions.endedBy, `stale`)
+        )
       )
     )
     .returning({ id: codingSessions.id })
@@ -214,7 +231,13 @@ export async function guardAndCleanupTeamsForUserDeletion(
       and(
         eq(codingSessions.hostUserId, userId),
         ne(codingSessions.userId, userId),
-        inArray(codingSessions.status, [`running`, `in_review`])
+        // EXP-888: same stale exemption as above — the daemon executing these
+        // runs authenticates as the account being deleted, so they are over
+        // whatever the sweep already wrote.
+        or(
+          inArray(codingSessions.status, [`running`, `in_review`]),
+          eq(codingSessions.endedBy, `stale`)
+        )
       )
     )
     .returning({ id: codingSessions.id })

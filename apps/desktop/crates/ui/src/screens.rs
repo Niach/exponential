@@ -878,7 +878,8 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     );
     // An ended run keeps its tab as a read-only transcript — its dot says so
     // rather than claiming the agent is still working.
-    let ended = row.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_ENDED);
+    // EXP-888: a sweep end is not an end — the tab keeps its live dot.
+    let ended = crate::run_rows::run_has_ended(row);
     let display = crate::queries::coding_session_display(
         row,
         issue
@@ -1636,10 +1637,9 @@ impl ScreensPanel {
                 .filter(|id| {
                     sessions
                         .get(id.as_str())
-                        .and_then(|row| row.status.as_deref())
-                        .is_some_and(|status| {
-                            status == domain::contract::CODING_SESSION_STATUS_ENDED
-                        })
+                        // EXP-888: a sweep end never closes out a tab — the
+                        // host revives the row on its next heartbeat.
+                        .is_some_and(crate::run_rows::run_has_ended)
                 })
                 .cloned()
                 .collect();

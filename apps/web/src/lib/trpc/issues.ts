@@ -65,7 +65,11 @@ import {
   isStackedPrRefusal,
   prMergeFailureError,
 } from "@/lib/trpc/pr-merge-error"
-import { issueSearchMatchIds, issueSearchRankSql } from "@/lib/issue-search-sql"
+import {
+  issueSearchIdentifierExactSql,
+  issueSearchMatchIds,
+  issueSearchRankSql,
+} from "@/lib/issue-search-sql"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
   applyPrClosedState,
@@ -2669,7 +2673,13 @@ export const issuesRouter = router({
           i.priority
         from issues i
         join matches m on m.id = i.id
-        order by ${issueSearchRankSql(input.query)} desc, i.updated_at desc
+        -- An exact identifier hit sorts FIRST: those rows come from the
+        -- ILIKE branch, so their ts_rank is 0 and the limit below would
+        -- otherwise drop the very issue the person typed (EXP-892).
+        order by
+          ${issueSearchIdentifierExactSql(input.query)} desc,
+          ${issueSearchRankSql(input.query)} desc,
+          i.updated_at desc
         limit ${input.limit}
       `)
 

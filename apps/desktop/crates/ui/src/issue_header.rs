@@ -36,7 +36,7 @@ use gpui_component::{
     h_flex,
     input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -50,7 +50,7 @@ use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
 use crate::issue_detail::{issue_web_url, set_duplicate_of, DETAIL_GUTTER};
 use crate::navigation::go_back;
 use crate::queries;
-use crate::surface::{glass_pill, glass_pill_button, PillMode, PillSize};
+use crate::surface::{glass_pill, PillMode, PillSize};
 
 pub struct IssueHeader {
     issue_id: Option<String>,
@@ -964,17 +964,45 @@ pub(crate) fn toggle_label(
 /// re-renders; errors log and the UI stays put (web inline behavior). Shared
 /// by the issue header's controls, the detail actions and the title save.
 pub(crate) fn spawn_issue_update(cx: &mut App, input: api::issues::IssuesUpdateInput) {
+    spawn_issue_update_then(cx, input, |_, _| {});
+}
+
+/// EXP-919 — [`spawn_issue_update`] whose OUTCOME is handled: `on_done` runs
+/// on the main thread with the write's result (`Err` carries the logged
+/// message). A write that never lands must be able to retire the local
+/// bookkeeping that was waiting for its Electric echo
+/// (`issue_detail::UnechoedSaves`) — a fire-and-forget log line left the
+/// editor pinned to text the server never took.
+///
+/// With no signed-in account nothing is SENT, so `on_done` never runs: the
+/// text is the user's unsaved work, not a write the server refused, and
+/// dropping it the moment a signed-out client rendered would lose it. Its
+/// bookkeeping expires on the TTL instead.
+pub(crate) fn spawn_issue_update_then(
+    cx: &mut App,
+    input: api::issues::IssuesUpdateInput,
+    on_done: impl FnOnce(Result<(), String>, &mut App) + 'static,
+) {
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("[ui] issues.update skipped: no signed-in account");
         return;
     };
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(err) = api::issues::issues_update(&trpc, &input) {
-                log::warn!("[ui] issues.update({}) failed: {err}", input.id);
-            }
-        })
-        .detach();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                let id = input.id.clone();
+                api::issues::issues_update(&trpc, &input)
+                    .map(|_| ())
+                    .map_err(|err| {
+                        log::warn!("[ui] issues.update({id}) failed: {err}");
+                        err.to_string()
+                    })
+            })
+            .await;
+        let _ = cx.update(|cx| on_done(result, cx));
+    })
+    .detach();
 }
 
 /// Web `formatDateForMutation`: `YYYY-MM-DD`.

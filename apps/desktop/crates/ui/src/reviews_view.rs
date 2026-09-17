@@ -282,15 +282,18 @@ impl ReviewsView {
             crate::coding_flow::LocalSessions::global_ref(cx)
                 .is_some_and(|sessions| sessions.read(cx).is_branch_fixing(branch))
         });
-        let fix_button = error
-            .as_ref()
-            .filter(|_| failed_op == Some(crate::pr_merge::FailedOp::Merge))
-            // EXP-533: only a REAL content conflict (409). A merge that failed
-            // because the machine is offline, the base is stale or no GitHub
-            // App is installed offers nothing an agent could rebase.
-            .filter(|_| is_conflict)
-            .filter(|_| issue.branch.is_some())
-            .map(|_| {
+        // EXP-533 + EXP-917: the swap rule is ONE function
+        // (`work_header::merge_slot_swapped`) — MERGE failures only, and only
+        // a REAL content conflict (409) with a recorded branch. A merge that
+        // failed because the machine is offline, the base is stale or no
+        // GitHub App is installed offers nothing an agent could rebase.
+        let fix_button = crate::work_header::merge_slot_swapped(
+            crate::queries::is_reviewable(issue),
+            failed_op == Some(crate::pr_merge::FailedOp::Merge),
+            is_conflict,
+            issue.branch.is_some(),
+        )
+        .then(|| {
                 let mut button =
                     Button::new(SharedString::from(format!("review-fix-{}", issue.id)))
                         .web_sm()
@@ -350,7 +353,7 @@ impl ReviewsView {
                         registry::PR_MERGED
                     }))
                     .label(if swapped {
-                        "Retry merge"
+                        crate::work_header::RETRY_MERGE_LABEL
                     } else if merges_stack {
                         domain::pr_stack::MERGE_STACK_LABEL
                     } else {

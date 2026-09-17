@@ -493,7 +493,9 @@ export function mergeFilesByPath(files: readonly DiffFile[]): DiffFile[] {
     const target = out[seen]
     // The first clone above gave the target a private array — push into it
     // (amortised O(1)) instead of copying the whole accumulation per merge.
-    target.hunks.push(...file.hunks)
+    // ONE hunk per push: a spread `push(...file.hunks)` passes every hunk as
+    // an ARGUMENT, and a huge diff overflows the engine's argument limit.
+    for (const hunk of file.hunks) target.hunks.push(hunk)
     target.additions += file.additions
     target.deletions += file.deletions
     target.status = file.status

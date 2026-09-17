@@ -183,10 +183,17 @@ final class AgentsViewModel {
             try CodingSessionEntity
                 // Every live status — an in_review session is still watchable
                 // (EXP-194); `rebuild()`'s liveness filter drops stale rows.
-                .filter([
-                    DomainContract.codingSessionStatusRunning,
-                    DomainContract.codingSessionStatusInReview,
-                ].contains(Column("status")))
+                // EXP-888: a sweep end (`ended_by = 'stale'`) is not an end —
+                // the host ignores the flip and heartbeats the row back to
+                // `running`, so it stays in the live list (`PastRuns.hasEnded`).
+                .filter(
+                    [
+                        DomainContract.codingSessionStatusRunning,
+                        DomainContract.codingSessionStatusInReview,
+                    ].contains(Column("status"))
+                        || (Column("status") == DomainContract.codingSessionStatusEnded
+                            && Column("ended_by") == DomainContract.codingSessionEndedByStale)
+                )
                 .fetchAll(db)
         }
         sessionTask = Task { [weak self] in

@@ -34,10 +34,11 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
-import com.exponential.app.domain.isLiveRunStatus
+import com.exponential.app.domain.isLiveRun
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.resumeTargetFor
+import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.steer.steerDeviceFlow
@@ -646,7 +647,7 @@ fun pastRunRows(
         .filter {
             it.userId == currentUserId &&
                 it.teamId == teamId &&
-                it.status == DomainContract.codingSessionStatusEnded &&
+                runHasEnded(it) &&
                 it.startedReason == null
         }
         // ISO-8601 UTC stamps order lexicographically; a row swept before it
@@ -684,7 +685,7 @@ fun issueRunRows(
     return sessions
         .filter { it.issueId == issueId && it.userId == currentUserId }
         .sortedWith(
-            compareByDescending<CodingSessionEntity> { isLiveRunStatus(it.status) }
+            compareByDescending<CodingSessionEntity> { isLiveRun(it) }
                 .thenByDescending { it.endedAt ?: it.updatedAt },
         )
         .map { session ->

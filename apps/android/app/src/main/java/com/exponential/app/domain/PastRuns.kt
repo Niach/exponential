@@ -10,12 +10,45 @@ import com.exponential.app.data.db.IssueEntity
 // EXP-886: the session screen's run switcher (`issueRunRows`) reuses the
 // byline with `issueRunWhen` in its time slot.
 
+/**
+ * EXP-888: the staleness sweep's end — `ended_by = "stale"`. The server flips
+ * a silent row to `ended` only when its host device advertises the
+ * `stale-end` cap; that device IGNORES the flip and its next heartbeat (up to
+ * 30 min later) revives the row to `running`. So a sweep end says "silent for
+ * the staleness window", NEVER "this run is over". ×4 (web `runIsStaleEnd`,
+ * desktop `run_rows::run_is_stale_end`, iOS `PastRuns.isStaleEnd`).
+ */
+fun runIsStaleEnd(session: CodingSessionEntity): Boolean =
+    session.status == DomainContract.codingSessionStatusEnded &&
+        session.endedBy == DomainContract.codingSessionEndedByStale
+
+/**
+ * THE predicate: whether the run is OVER. [runIsLive] is its negation. Every
+ * Running-vs-Past, Stop-vs-Resume and composer-enabled decision goes through
+ * this and never through `status == "ended"` alone — or a swept-but-alive run
+ * lists as past, greys its composer out and offers a Resume that would put a
+ * SECOND agent on the same worktree. Byte-identical ×4 (web `runHasEnded`,
+ * desktop `run_rows::run_has_ended`, iOS `PastRuns.hasEnded`).
+ */
+fun runHasEnded(session: CodingSessionEntity): Boolean =
+    session.status == DomainContract.codingSessionStatusEnded && !runIsStaleEnd(session)
+
+/** The negation of [runHasEnded] — the run may still be alive. ×4. */
+fun runIsLive(session: CodingSessionEntity): Boolean = !runHasEnded(session)
+
 /** A run that is alive by STATUS — running or in review. Staleness is not
  *  consulted: a run whose machine went quiet is still one of the issue's
  *  runs, it only sorts by its last heartbeat. ×4. */
 fun isLiveRunStatus(status: String): Boolean =
     status == DomainContract.codingSessionStatusRunning ||
         status == DomainContract.codingSessionStatusInReview
+
+/** The row-level twin of [isLiveRunStatus]: live by status, plus EXP-888's
+ *  sweep end, which is a live run whose heartbeat has not landed yet. Every
+ *  list that paints a live badge or sorts live runs first reads THIS. ×4 (web
+ *  `isLiveRun`, desktop `queries::is_live_run_status`, iOS `PastRuns.isLiveRun`). */
+fun isLiveRun(session: CodingSessionEntity): Boolean =
+    runIsStaleEnd(session) || isLiveRunStatus(session.status)
 
 /** The word the run switcher shows in a live run's time slot, in place of the
  *  ended relative time. Byte-identical ×4 (web `LIVE_RUN_LABEL`). */
@@ -28,7 +61,7 @@ const val LIVE_RUN_LABEL = "Live"
  * (web `issueRunWhen`).
  */
 fun issueRunWhen(session: CodingSessionEntity, endedRelative: String): String =
-    if (isLiveRunStatus(session.status)) LIVE_RUN_LABEL else endedRelative
+    if (isLiveRun(session)) LIVE_RUN_LABEL else endedRelative
 
 /**
  * What a Past row is called: the issue's title, else — while that issue row
