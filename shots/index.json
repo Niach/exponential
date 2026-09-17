@@ -156,8 +156,8 @@
         "file": "shots/agents/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 30936,
-        "sha256": "d812b5939367270c5b5f0159445ba2a8e461b37a85b8aa32e147f680d2e3fbfd"
+        "bytes": 34340,
+        "sha256": "a26824cda5d345434db6d1b6a42a48aee45dcbbdba22c1d7fb03fcaa5d84035e"
       },
       "web": {
         "file": "shots/agents/web.webp",
@@ -1527,8 +1527,8 @@
         "file": "shots/steering/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 83456,
-        "sha256": "acf8909683a4484ceb8f338938ccc3dd6190805119c30064258a908f665daef7"
+        "bytes": 83774,
+        "sha256": "f7b7dd2db2ce0b871876bdad3f054d6ee6a0d1a1eefb838f9a70dbd6b8313747"
       },
       "web": {
         "file": "shots/steering/web.webp",
