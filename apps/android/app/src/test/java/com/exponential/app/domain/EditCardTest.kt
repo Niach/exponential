@@ -121,7 +121,8 @@ class EditCardTest {
                 val end = EditCard.editRunEnd(feed, i, case.workflowIds)
                 val members = feed.subList(i, end + 1).map { it as AgentFeedItem.Tool }
                 val view = EditCard.editCard(members, case.live)
-                rows.add(
+                // EXP-938: a run whose every member is dropped is no card.
+                if (view.rows.isNotEmpty()) rows.add(
                     "card@${row.id}[${members.joinToString(",") { it.id.toString() }}]: " +
                         EditCard.renderEditCard(view),
                 )

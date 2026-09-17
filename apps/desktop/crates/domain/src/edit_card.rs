@@ -412,12 +412,16 @@ mod tests {
                 });
                 let members: Vec<EditCardMember<'_>> =
                     feed[i..=end].iter().map(|item| member(item)).collect();
-                rows.push(format!(
-                    "card@{}[{}]: {}",
-                    row.id,
-                    ids(&feed[i..=end]),
-                    render_edit_card(&edit_card(&members, live))
-                ));
+                let view = edit_card(&members, live);
+                // EXP-938: a run whose every member is dropped is no card.
+                if !view.rows.is_empty() {
+                    rows.push(format!(
+                        "card@{}[{}]: {}",
+                        row.id,
+                        ids(&feed[i..=end]),
+                        render_edit_card(&view)
+                    ));
+                }
                 i = end + 1;
                 continue;
             }

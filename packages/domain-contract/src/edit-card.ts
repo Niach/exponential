@@ -17,6 +17,9 @@
 // - ANY other item ends the run: narration, a user turn, a question, a tool of
 //   another kind, a workflow call, another lane's item. "Nothing between" is
 //   literal;
+// - a run whose card lists NO file (`editCard` dropped every member: none has
+//   a patch or a `detail`, EXP-938) emits no row at all, never "0 files
+//   edited";
 // - the row's id is its FIRST item's id (stable while a live run grows); the
 //   window `start` (EXP-783) opens a fresh card at its boundary like every
 //   other group.

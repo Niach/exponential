@@ -62,11 +62,13 @@ function project(item: Case): string[] {
     if (isEditCall(row)) {
       const end = editRunEnd(feed, i)
       const members = feed.slice(i, end + 1)
-      rows.push(
-        `card@${row.id}[${members.map((m) => m.id).join(`,`)}]: ${renderEditCard(
-          editCard(members, live)
-        )}`
-      )
+      const view = editCard(members, live)
+      // EXP-938: a run whose every member is dropped is no card at all.
+      if (view.rows.length > 0) {
+        rows.push(
+          `card@${row.id}[${members.map((m) => m.id).join(`,`)}]: ${renderEditCard(view)}`
+        )
+      }
       i = end
       continue
     }

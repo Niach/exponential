@@ -1609,7 +1609,10 @@ public enum AgentFeed {
         while i < items.count {
             if EditCard.isEditCall(items[i], workflowIds: workflowIds) {
                 let end = EditCard.runEnd(items, start: i, workflowIds: workflowIds)
-                rows.append(.edits(Array(items[i...end])))
+                let run = Array(items[i...end])
+                // EXP-938: a run whose every member `EditCard.card` drops is
+                // no row at all, never a "0 files edited" card.
+                if !EditCard.card(run).rows.isEmpty { rows.append(.edits(run)) }
                 i = end + 1
                 continue
             }
@@ -1661,7 +1664,13 @@ public enum AgentFeed {
             // never part of a "N tool calls" run — the card IS how edits read.
             if EditCard.isEditCall(item, workflowIds: workflowIds) {
                 let end = EditCard.runEnd(feed, start: i, workflowIds: workflowIds)
-                builders.append(RowBuilder(kind: .edits, items: Array(feed[i...end])))
+                let run = Array(feed[i...end])
+                // EXP-938: `EditCard.card` drops a member with neither a patch
+                // nor a `detail`; a run it drops ENTIRELY emits no row, never a
+                // "0 files edited" card.
+                if !EditCard.card(run).rows.isEmpty {
+                    builders.append(RowBuilder(kind: .edits, items: run))
+                }
                 i = end + 1
                 continue
             }
