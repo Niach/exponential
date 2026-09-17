@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-tab-shell-polish",
+    date: "2026-09-17",
+    title: "Tabs keep their state, chats get their names",
+    summary: "Switching work tabs no longer drops a half-typed comment, a live run's tab no longer cuts its label off, and a chat run is named after what the agent called it.",
+    body: r#"- **Tabs keep what you typed**: on the web and the desktop app, a comment or reply you started, the reply box you opened and how far you had scrolled come back when you return to the tab. Closing the tab forgets them.
+- **Room on the right**: a live run's tab has no close button, so its label now gets the same padding on both sides instead of touching the edge, on the web and the desktop app alike.
+- **Chats named by the agent**: a chat run shows the title Claude Code or codex gave the conversation instead of "Chat", in every session list, tab and review row on the web, the desktop app, iOS and Android. Renaming it in the agent renames it here."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",
@@ -56,9 +68,9 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Reviews polish**: a review's header says which issue it is, how big the diff is and what the pull request's state is, with reject, Merge PR and the GitHub link beside it. Batch rows in the review queue no longer lose their first column. On phones the floating bottom bar is now the same on web, iOS and Android: one geometry, no drop shadow, and Merge PR is one white pill centred between the circles, on a review and on a run's changes alike."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
+/// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-accounts-usage",
     date: "2026-09-17",
     title: "Accounts and usage",
@@ -67,18 +79,6 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 - **The right account**: the overlay names the login the run actually spends, so a run started on a second account no longer wears the default account's name or its re-login badge.
 - **Numbers that move**: an idle run no longer pins its last rate-limit reading, a window that has reset re-reads within a heartbeat, opening the overlay asks the machine for a fresh read, and an account nobody ran for days refreshes its own token to report instead of showing days-old numbers.
 - **Devices list their logins**: the Devices page lists each machine's accounts under the machine, with the same compact usage line and one menu per login, in place of the separate Accounts section, its tabs and its chips."#,
-};
-
-/// The entry before that.
-#[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-fix-conflicts-everywhere",
-    date: "2026-09-16",
-    title: "Fix conflicts, on every Merge button",
-    summary: "A merge refused by a real conflict now turns the Merge PR button into Fix conflicts wherever you clicked it, instead of only showing an error.",
-    body: r#"- **The swap works everywhere**: on the web the issue header, the run header, the Changes faces and the review page all showed an error notification on a conflict and kept the plain Merge PR button. They now swap it for Fix conflicts with a Retry merge beside it, like the Reviews list always did.
-- **Desktop app**: a batch or chat run's header and its Changes bar make the same swap, and a merge refused for any other reason now shows its message under the button instead of only in the log.
-- **iOS**: merging a stack from the overlay on the Work screen reports a refusal instead of silently doing nothing."#,
 };
 
 /// Whether the rail's "What's new" card renders, given the stored
