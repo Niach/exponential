@@ -2,13 +2,14 @@ name: test
 
 # CI test gate: typecheck + unit tests for the bun workspaces, the desktop
 # Rust workspace, and the Android app, plus a from-scratch migration run
-# against a real Postgres. Runs on every push/PR to master so red tests are
-# visible before anything ships (build-issues-web.yml runs the web portion
-# again as a hard gate before pushing the production image).
+# against a real Postgres. Runs ONCE per change: on the pull request. It does
+# NOT run again on the push to master that the squash merge produces (the same
+# tree was just tested on the PR, and the second run only made every merge and
+# every release wait twice). A direct push to master (the screenshot refresh,
+# a trunk-clone release) is therefore untested here: those runs verify
+# locally, and `workflow_dispatch` runs this suite on demand.
 
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
   workflow_dispatch: {}
