@@ -82,6 +82,10 @@ import {
   type QuestionLike,
   backgroundStripLines,
   parseBackgroundTasks,
+  parseTaskList,
+  taskListSummary,
+  TASK_LIST_MAX,
+  TASK_LIST_STATUSES,
   parseQueue,
   QUEUE_MAX_MESSAGES,
   QUEUE_REMOVE_LABEL,
@@ -2564,6 +2568,74 @@ describe(`backgroundStripLines (§1/§2)`, () => {
         feed: [{ id: 1, kind: `tool`, name: `Bash` }],
       })
     ).toEqual([])
+  })
+})
+
+describe(`EXP-927: agents leave the strip, the task list joins it (§2c)`, () => {
+  it(`never lists a background AGENT: a subagent is a tab`, () => {
+    expect(
+      backgroundStripLines({
+        backgroundTasks: [
+          { id: `a1`, kind: `agent`, description: `web lane` },
+          { id: `w1`, kind: `workflow`, description: `Review the diff` },
+          { id: `b1`, kind: `shell`, description: `bun dev` },
+          { id: `o1`, kind: `other`, description: `Something else` },
+        ],
+        feed: [],
+      }).map((line) => line.key)
+    ).toEqual([`task:w1`, `task:b1`, `task:o1`])
+  })
+
+  it(`parses the slot tolerantly, in order`, () => {
+    expect(
+      parseTaskList({
+        kind: `task_list`,
+        entries: [
+          { content: ` Read the issue `, status: `completed` },
+          { content: `Running the tests`, status: `in_progress` },
+          { content: ``, status: `pending` },
+          { content: `Open the PR`, status: `blocked` },
+          `junk`,
+        ],
+      })
+    ).toEqual([
+      { content: `Read the issue`, status: `completed` },
+      { content: `Running the tests`, status: `in_progress` },
+      { content: `Open the PR`, status: `pending` },
+    ])
+    expect(parseTaskList({ kind: `task_list` })).toBeNull()
+    expect(parseTaskList({ kind: `task_list`, entries: [] })).toEqual([])
+    const many = Array.from({ length: TASK_LIST_MAX + 5 }, (_, i) => ({
+      content: `task ${i}`,
+      status: `pending`,
+    }))
+    expect(parseTaskList({ entries: many })).toHaveLength(TASK_LIST_MAX)
+    expect([...TASK_LIST_STATUSES]).toEqual(contract.taskListStatus.values)
+  })
+
+  it(`summarizes the collapsed line: current entry + done/total`, () => {
+    expect(
+      taskListSummary([
+        { content: `Read the issue`, status: `completed` },
+        { content: `Write the fix`, status: `pending` },
+        { content: `Running the tests`, status: `in_progress` },
+      ])
+    ).toEqual({ current: `Running the tests`, completed: 1, total: 3 })
+    // Nothing in progress: the first pending entry is what comes next.
+    expect(
+      taskListSummary([
+        { content: `Read the issue`, status: `completed` },
+        { content: `Write the fix`, status: `pending` },
+        { content: `Open the PR`, status: `pending` },
+      ])
+    ).toEqual({ current: `Write the fix`, completed: 1, total: 3 })
+  })
+
+  it(`hides the block when empty or all completed`, () => {
+    expect(taskListSummary([])).toBeNull()
+    expect(
+      taskListSummary([{ content: `Read the issue`, status: `completed` }])
+    ).toBeNull()
   })
 })
 

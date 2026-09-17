@@ -7,6 +7,7 @@ import {
   parseRateLimit,
   parseSessionUsage,
   parseBackgroundTasks,
+  parseTaskList,
   parseQueue,
   parseToolKind,
   parseToolPreview,
@@ -33,6 +34,7 @@ import {
   HISTORY_PAGE_LIMIT,
   type AnswerStates,
   type BackgroundTask,
+  type TaskListEntry,
   type EchoEntry,
   type QueuedMessage,
   type SessionConfigState,
@@ -316,6 +318,14 @@ export type ActivityEvent =
       tasks?: unknown
       at?: number
     }
+  // EXP-927: the agent's OWN task list (TodoWrite / Task* / codex plan), in
+  // full on every frame — the bottom strip's first block. A latest-wins
+  // slot; never a feed row.
+  | {
+      kind: `task_list`
+      entries?: unknown
+      at?: number
+    }
   // EXP-861: the messages the DEVICE holds until the current turn (or
   // compaction) ends — the FULL queue on every frame, so an empty array
   // clears the strip. A latest-wins slot; never a feed row.
@@ -570,6 +580,9 @@ export interface SteerSessionSnapshot {
   /** EXP-850 §2: what the CLI is running in the background — the strip above
    *  the composer. Empty = no strip. */
   backgroundTasks: BackgroundTask[]
+  /** EXP-927: the agent's own task list, in order — the strip's first block.
+   *  Empty = the agent keeps none. */
+  taskList: TaskListEntry[]
   /** EXP-861: the messages the device is holding for the next turn — the
    *  strip above the composer. Empty = no strip. */
   queue: QueuedMessage[]
@@ -736,6 +749,8 @@ export function createSteerSessionStore(
   // EXP-850 §2/§3: the two new latest-wins slots. `workflows` is keyed per
   // workflow id, in first-appearance order (a Map preserves insertion order).
   let backgroundTasks: BackgroundTask[] = []
+  // EXP-927: the agent's own task list, latest-wins whole.
+  let taskList: TaskListEntry[] = []
   // EXP-861: the device-held queue, the seventh latest-wins slot.
   let queue: QueuedMessage[] = []
   let workflows = new Map<string, WorkflowState>()
@@ -796,6 +811,7 @@ export function createSteerSessionStore(
     turnStartedAt,
     turnTokens,
     backgroundTasks,
+    taskList,
     queue,
     workflows,
     runningWorkflow: null,
@@ -821,6 +837,7 @@ export function createSteerSessionStore(
       turnStartedAt,
       turnTokens,
       backgroundTasks,
+      taskList,
       queue,
       workflows,
       runningWorkflow: newestRunningWorkflow([...workflows.values()]),
@@ -1226,6 +1243,13 @@ export function createSteerSessionStore(
         if (tasks) backgroundTasks = tasks
         return
       }
+      case `task_list`: {
+        // EXP-927: the FULL list; an unreadable payload keeps the previous
+        // one (the same rule).
+        const entries = parseTaskList(event)
+        if (entries) taskList = entries
+        return
+      }
       case `queue`: {
         // EXP-861: the FULL queue, so an empty array closes the strip; an
         // unreadable payload keeps the previous list (the same rule).
@@ -1409,6 +1433,7 @@ export function createSteerSessionStore(
     turnStartedAt = null
     turnTokens = null
     backgroundTasks = []
+    taskList = []
     // EXP-861: the replay restates the device's queue too.
     queue = []
     workflows = new Map()
@@ -1495,6 +1520,7 @@ export function createSteerSessionStore(
       turnStartedAt,
       turnTokens,
       backgroundTasks,
+      taskList,
       queue,
       workflows,
     }
@@ -1526,6 +1552,7 @@ export function createSteerSessionStore(
     turnStartedAt = savedSlots.turnStartedAt
     turnTokens = savedSlots.turnTokens
     backgroundTasks = savedSlots.backgroundTasks
+    taskList = savedSlots.taskList
     queue = savedSlots.queue
     workflows = savedSlots.workflows
     if (page.length === 0) {

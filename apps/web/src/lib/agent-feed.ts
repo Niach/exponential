@@ -2075,6 +2075,73 @@ export function parseWorkflow(event: unknown): WorkflowState | null {
   }
 }
 
+/** The contract's `taskListStatus`. */
+export type TaskListStatus = `pending` | `in_progress` | `completed`
+
+export const TASK_LIST_STATUSES: readonly TaskListStatus[] = [
+  `pending`,
+  `in_progress`,
+  `completed`,
+]
+
+/** The relay's `TASK_LIST_MAX`; re-applied because the wire is a device's
+ *  word, not ours. */
+export const TASK_LIST_MAX = 50
+
+/** EXP-927: one entry of the agent's OWN task list (claude's TodoWrite /
+ *  Task* list, codex's plan) — the bottom strip's first block. */
+export interface TaskListEntry {
+  content: string
+  status: TaskListStatus
+}
+
+/** Fold a `task_list` event — the FULL list in order. Null = an unreadable
+ *  payload (the slot then stands). An entry with no text is dropped; an
+ *  unknown status reads as `pending`. */
+export function parseTaskList(event: unknown): TaskListEntry[] | null {
+  if (!isEventRecord(event)) return null
+  if (!Array.isArray(event.entries)) return null
+  const entries: TaskListEntry[] = []
+  for (const raw of event.entries) {
+    if (entries.length >= TASK_LIST_MAX) break
+    if (!isEventRecord(raw)) continue
+    const content = clampText(raw.content)
+    if (!content) continue
+    const status = typeof raw.status === `string` ? raw.status.trim() : ``
+    entries.push({
+      content,
+      status: (TASK_LIST_STATUSES as readonly string[]).includes(status)
+        ? (status as TaskListStatus)
+        : `pending`,
+    })
+  }
+  return entries
+}
+
+/** EXP-927 (wire doc §2c): what the COLLAPSED task-list line says, or null
+ *  when the block is hidden — no entries, or every one completed. `current` =
+ *  the first `in_progress` entry, else the first `pending` one. ×4: desktop
+ *  `session_rows::task_list_summary`, iOS/Android `AgentFeed.taskListSummary`. */
+export interface TaskListSummary {
+  current: string
+  completed: number
+  total: number
+}
+
+export function taskListSummary(
+  entries: readonly TaskListEntry[]
+): TaskListSummary | null {
+  const open = entries.filter((entry) => entry.status !== `completed`)
+  if (open.length === 0) return null
+  const current =
+    open.find((entry) => entry.status === `in_progress`) ?? open[0]
+  return {
+    current: current.content,
+    completed: entries.length - open.length,
+    total: entries.length,
+  }
+}
+
 /** Fold a `background_tasks` event — the FULL current list, so an empty array
  *  closes the strip. Null = an unreadable payload (the slot then stands). */
 export function parseBackgroundTasks(event: unknown): BackgroundTask[] | null {
@@ -2136,7 +2203,9 @@ export function workflowPhaseCounts(
 }
 
 /** §1/§2 — the strip directly above the composer: one line per background
- *  task, then one per OPEN (unsettled) `wait` tool row. Empty = no strip. */
+ *  task, then one per OPEN (unsettled) `wait` tool row. Empty = no strip.
+ *  EXP-927: a task of kind `agent` is a SUBAGENT, and a subagent is a
+ *  conversation tab — the strip never lists it. */
 export interface BackgroundStripLine {
   kind: `task` | `wait`
   /** A stable React key: the task id, or the wait row's feed id. */
@@ -2155,9 +2224,13 @@ export function backgroundStripLines(input: {
     settled?: boolean
   }[]
 }): BackgroundStripLine[] {
-  const lines: BackgroundStripLine[] = (input.backgroundTasks ?? []).map(
-    (task) => ({ kind: `task` as const, key: `task:${task.id}`, text: task.description })
-  )
+  const lines: BackgroundStripLine[] = (input.backgroundTasks ?? [])
+    .filter((task) => task.kind !== `agent`)
+    .map((task) => ({
+      kind: `task` as const,
+      key: `task:${task.id}`,
+      text: task.description,
+    }))
   for (const item of input.feed) {
     if (item.kind !== `tool` || item.toolKind !== `wait`) continue
     if (item.settled === true) continue

@@ -2676,6 +2676,43 @@ describe(`background_tasks (§2)`, () => {
   })
 })
 
+describe(`task_list (§2c, EXP-927)`, () => {
+  it(`is a latest-wins slot, never a feed row, cleared by a replay reset`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `task_list`,
+        entries: [{ content: `Read the issue`, status: `in_progress` }],
+      },
+    })
+    socket.frame({
+      t: `activity`,
+      event: {
+        kind: `task_list`,
+        entries: [
+          { content: `Read the issue`, status: `completed` },
+          { content: `Running the tests`, status: `in_progress` },
+        ],
+      },
+    })
+    // An unreadable payload keeps the list standing.
+    socket.frame({ t: `activity`, event: { kind: `task_list` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().taskList).toEqual([
+      { content: `Read the issue`, status: `completed` },
+      { content: `Running the tests`, status: `in_progress` },
+    ])
+    expect(store.getSnapshot().feed).toHaveLength(0)
+    socket.frame({ t: `activity_reset` })
+    socket.frame({ t: `activity_synced` })
+    await vi.advanceTimersByTimeAsync(REPLAY_MAX_MS + 100)
+    expect(store.getSnapshot().taskList).toEqual([])
+    store.dispose()
+  })
+})
+
 describe(`workflow cards (§3)`, () => {
   const workflowEvent = (over: Record<string, unknown> = {}) => ({
     kind: `workflow`,
