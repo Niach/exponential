@@ -246,6 +246,45 @@ pub(crate) fn format_tokens(tokens: u64) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// §2c — the task-list block at the head of the strip (EXP-927)
+// ---------------------------------------------------------------------------
+
+/// What the COLLAPSED task-list line says: which entry the agent is on, and
+/// how much of the list is behind it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TaskListSummary {
+    /// The current entry's `content` — the first `in_progress`, else the
+    /// first `pending`.
+    pub(crate) current: String,
+    pub(crate) completed: usize,
+    pub(crate) total: usize,
+}
+
+/// §2c — the task list's collapsed read, or `None` while the block is hidden
+/// (no entries at all, or every entry `completed`).
+///
+/// Mirror of web `taskListSummary` (`apps/web/src/lib/agent-feed.ts`) and the
+/// natives' `AgentFeed.taskListSummary`: one rule ×4, so a run reads the same
+/// on every client.
+pub(crate) fn task_list_summary(entries: &[steer::TaskListEntry]) -> Option<TaskListSummary> {
+    let open: Vec<&steer::TaskListEntry> = entries
+        .iter()
+        .filter(|entry| entry.status != steer::TaskListStatus::Completed)
+        .collect();
+    let first = *open.first()?;
+    let current = open
+        .iter()
+        .find(|entry| entry.status == steer::TaskListStatus::InProgress)
+        .copied()
+        .unwrap_or(first);
+    Some(TaskListSummary {
+        current: current.content.clone(),
+        completed: entries.len() - open.len(),
+        total: entries.len(),
+    })
+}
+
+// ---------------------------------------------------------------------------
 // §1/§2 — the strip above the composer
 // ---------------------------------------------------------------------------
 
@@ -268,9 +307,15 @@ impl StripLine {
 
 /// §1/§2 — the strip's lines: one per background task, then one per open wait
 /// row, in feed order. Empty means the strip is absent.
+///
+/// EXP-927 (§2c): a task of kind `agent` is a SUBAGENT, and a subagent is a
+/// conversation tab ([`crate::steer_viewer::SteerSessionView::render_subagent_strip`])
+/// — it never doubles as a strip line. The strip is shells, workflows and
+/// whatever else the CLI reports.
 pub(crate) fn strip_lines(tasks: &[BackgroundTask], items: &[FeedItem]) -> Vec<StripLine> {
     let mut lines: Vec<StripLine> = tasks
         .iter()
+        .filter(|task| task.kind != steer::BackgroundTaskKind::Agent)
         .map(|task| task.description.trim())
         .filter(|description| !description.is_empty())
         .map(|description| StripLine::Task(description.to_string()))
@@ -735,6 +780,77 @@ mod tests {
             ]
         );
         assert!(strip_lines(&[], &[narration(1)]).is_empty());
+    }
+
+    /// EXP-927 §2c: a subagent task is a conversation TAB, so the strip skips
+    /// it — the shell beside it stays.
+    #[test]
+    fn the_strip_skips_subagent_tasks() {
+        let task = |kind, description: &str| BackgroundTask {
+            id: format!("task-{description}"),
+            kind,
+            description: description.to_string(),
+            tool_id: None,
+        };
+        let tasks = vec![
+            task(steer::BackgroundTaskKind::Agent, "Explore the crate"),
+            task(steer::BackgroundTaskKind::Shell, "Sleep in the background"),
+            task(steer::BackgroundTaskKind::Workflow, "Ship it"),
+        ];
+        assert_eq!(
+            strip_lines(&tasks, &[]),
+            vec![
+                StripLine::Task("Sleep in the background".to_string()),
+                StripLine::Task("Ship it".to_string()),
+            ]
+        );
+        // A list of nothing but subagents leaves the strip absent.
+        assert!(
+            strip_lines(&[task(steer::BackgroundTaskKind::Agent, "Explore the crate")], &[])
+                .is_empty()
+        );
+    }
+
+    /// EXP-927 §2c: the collapsed read — hidden while empty or all done, the
+    /// first `in_progress` otherwise, else the first `pending`.
+    #[test]
+    fn the_task_list_summary_names_the_current_entry() {
+        let entry = |content: &str, status| steer::TaskListEntry {
+            content: content.to_string(),
+            status,
+        };
+        assert_eq!(task_list_summary(&[]), None);
+        assert_eq!(
+            task_list_summary(&[entry("Read the issue", steer::TaskListStatus::Completed)]),
+            None
+        );
+        let entries = vec![
+            entry("Read the issue", steer::TaskListStatus::Completed),
+            entry("Open the PR", steer::TaskListStatus::Pending),
+            entry("Running the tests", steer::TaskListStatus::InProgress),
+        ];
+        assert_eq!(
+            task_list_summary(&entries),
+            Some(TaskListSummary {
+                current: "Running the tests".to_string(),
+                completed: 1,
+                total: 3,
+            })
+        );
+        // No `in_progress` at all: the first OPEN entry is the current one.
+        let entries = vec![
+            entry("Read the issue", steer::TaskListStatus::Completed),
+            entry("Open the PR", steer::TaskListStatus::Pending),
+            entry("Write the tests", steer::TaskListStatus::Pending),
+        ];
+        assert_eq!(
+            task_list_summary(&entries),
+            Some(TaskListSummary {
+                current: "Open the PR".to_string(),
+                completed: 1,
+                total: 3,
+            })
+        );
     }
 
     /// §1: a wait row with no detail still names the call.
