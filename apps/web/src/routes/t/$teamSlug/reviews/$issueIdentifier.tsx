@@ -412,7 +412,7 @@ function ReviewDetailPage() {
               />
             ) : undefined
           }
-          capsule={isOpen ? <MergeCapsule {...mergeTarget} hug /> : undefined}
+          capsule={isOpen ? <MergeCapsule {...mergeTarget} /> : undefined}
           trailing={
             /* EXP-916: REJECT sits where the natives put it — the bar's
                trailing circle, and only while there is an open PR to close.

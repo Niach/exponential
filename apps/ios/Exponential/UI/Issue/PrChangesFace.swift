@@ -239,25 +239,15 @@ struct PrChangesFace<Trailing: View>: View {
                         .glassCard()
                         .padding(.horizontal, 16)
                 }
-                // EXP-916: the Reviews page is Android's centred cluster (the
-                // white pill hugging its label); the Work screen's Changes
-                // face keeps the stretched bar its sibling faces wear.
-                if reviewMode {
-                    FloatingBarCluster {
-                        barLeading(vm)
-                    } center: {
-                        barCenter(vm)
-                    } trailing: {
-                        barTrailing(vm)
-                    }
-                } else {
-                    FloatingBottomBar {
-                        barLeading(vm)
-                    } center: {
-                        barCenter(vm)
-                    } trailing: {
-                        barTrailing(vm)
-                    }
+                // EXP-916: the centred cluster ×3 — files · Merge PR ·
+                // reject on the Reviews page, files · Merge PR · switcher on
+                // the Work screen's Changes face. One bar for both.
+                FloatingBarCluster {
+                    barLeading(vm)
+                } center: {
+                    barCenter(vm)
+                } trailing: {
+                    barTrailing(vm)
                 }
             }
             // EXP-642: the store slide's pop-out rect is measured off the
@@ -283,56 +273,28 @@ struct PrChangesFace<Trailing: View>: View {
     /// REPLACES Merge in this slot — same capsule, so the bar keeps exactly
     /// one thing to press.
     ///
-    /// EXP-916, Android's two shapes: on the Reviews page a SOLID white pill
-    /// hugging its label (`ChangesBottomBar`); on the Work screen's Changes
-    /// face the bar's stretched glass capsule with a white label (the
-    /// emphatic `BarCapsule`), like the `+ Comment` and composer capsules
-    /// of the faces beside it.
+    /// EXP-916: a SOLID white pill hugging its label, the one solid thing on
+    /// the bar, on both hosts (Android's `BarSolidPill`).
     @ViewBuilder
     private func barCenter(_ vm: ChangesViewModel) -> some View {
         if canReview(vm) {
             let fix = canFixConflicts(vm)
-            let label = fix ? "Fix conflicts" : DomainContract.diffUiMergePr
-            let accessibilityLabel = fix ? "Fix merge conflicts" : "Merge pull request"
-            let enabled = !vm.merging && !vm.closing
-            let action: () -> Void = fix ? openFixConflicts : { mergeConfirm = true }
-            if reviewMode {
-                FloatingBarSolidPill(
-                    accessibilityLabel: accessibilityLabel,
-                    enabled: enabled,
-                    action: action
-                ) {
-                    if vm.merging {
-                        ProgressView().controlSize(.small).tint(.black.opacity(0.6))
-                    } else {
-                        AppIcon(
-                            fix ? AppIcons.uiBranch : AppIcons.prMerged,
-                            size: FloatingBarTokens.glyph,
-                            weight: .medium
-                        )
-                    }
-                    Text(label)
-                        .font(.subheadline.weight(.medium))
+            FloatingBarSolidPill(
+                accessibilityLabel: fix ? "Fix merge conflicts" : "Merge pull request",
+                enabled: !vm.merging && !vm.closing,
+                action: fix ? openFixConflicts : { mergeConfirm = true }
+            ) {
+                if vm.merging {
+                    ProgressView().controlSize(.small).tint(.black.opacity(0.6))
+                } else {
+                    AppIcon(
+                        fix ? AppIcons.uiBranch : AppIcons.prMerged,
+                        size: FloatingBarTokens.glyph,
+                        weight: .medium
+                    )
                 }
-            } else {
-                FloatingBarCapsule(
-                    accessibilityLabel: accessibilityLabel,
-                    emphatic: true,
-                    enabled: enabled,
-                    action: action
-                ) {
-                    if vm.merging {
-                        ProgressView().controlSize(.small).tint(.white)
-                    } else {
-                        AppIcon(
-                            fix ? AppIcons.uiBranch : AppIcons.prMerged,
-                            size: AppIcon.Size.medium,
-                            weight: .medium
-                        )
-                    }
-                    Text(label)
-                        .font(.subheadline)
-                }
+                Text(fix ? "Fix conflicts" : DomainContract.diffUiMergePr)
+                    .font(.subheadline.weight(.medium))
             }
         }
     }

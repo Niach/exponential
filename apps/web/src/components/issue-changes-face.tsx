@@ -37,10 +37,10 @@ const UiLoadingIcon = conceptIcon(`ui-loading`)
  *  `Pill`'s own `primary` accent (which has to come LAST — the capsule brings
  *  its own glass fill), carrying the two-click confirm and the Fix-conflicts
  *  swap `SessionMergePill` already has. It self-hides unless the PR is open. */
-export function MergeCapsule({
-  hug = false,
-  ...props
-}: {
+/** EXP-916: the phone's ONE Merge control — a SOLID white pill hugging its
+ *  label (28px padding, a 20px glyph) in the bar's centred cluster, on the
+ *  Reviews page and the Work screen's Changes face alike. */
+export function MergeCapsule(props: {
   issueId?: string
   sessionId?: string
   prState: string | null
@@ -48,11 +48,6 @@ export function MergeCapsule({
   branch: string | null
   updatedAt: string | Date | null
   steerEnabled: boolean
-  /** EXP-916: the Reviews page's pill — SOLID white, hugging its label
-   *  (28px padding, a 20px glyph), Android's `ChangesBottomBar`. Default:
-   *  the Work screen's Changes face, where Merge is the bar's stretched
-   *  glass capsule with a white label (Android's emphatic `BarCapsule`). */
-  hug?: boolean
 }) {
   return (
     <SessionMergePill
@@ -60,12 +55,8 @@ export function MergeCapsule({
       label={MERGE_PR_LABEL}
       className={cn(
         MOBILE_WORK_CAPSULE_CLASS,
-        `rounded-full text-foreground [&_svg]:size-4`,
-        hug &&
-          cn(
-            `flex-none justify-center px-7 font-medium [&_svg]:size-5`,
-            PILL_PRIMARY_PAINT
-          )
+        `flex-none justify-center rounded-full px-7 font-medium [&_svg]:size-5`,
+        PILL_PRIMARY_PAINT
       )}
     />
   )
@@ -160,6 +151,8 @@ export function IssueChangesFace({
         )}
       </div>
       <MobileWorkBar
+        /* EXP-916: the Reviews page's cluster — files · Merge PR · switcher. */
+        cluster
         leading={
           files.length > 0 ? (
             <ChangesFileSheet

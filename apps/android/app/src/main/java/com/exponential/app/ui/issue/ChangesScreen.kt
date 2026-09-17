@@ -2,7 +2,6 @@ package com.exponential.app.ui.issue
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -68,7 +66,10 @@ import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.ui.components.BarCircle
+import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
@@ -505,97 +506,84 @@ private fun ChangesBottomBar(
     Column(
         // EXP-627: the store slide's pop-out rect is measured off the review
         // bar (`PopRects`), iOS parity.
-        modifier = modifier.testTag("pr-merge-bar").padding(horizontal = 16.dp),
+        modifier = modifier.testTag("pr-merge-bar"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (actionError != null) {
-            ChangesRefusalNotice(message = actionError)
+            ChangesRefusalNotice(message = actionError, modifier = Modifier.padding(horizontal = 16.dp))
         }
-        Row(
-            modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (fileCount > 0) {
-                // EXP-916: the file TREE, reached from the bar's leading slot —
-                // the count is the affordance, exactly as on the Work screen.
-                ChangesBarCircle(
-                    onClick = onOpenFiles,
-                    modifier = Modifier.testTag("changes-file-list-button"),
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            ExpIcons.navFiles,
-                            contentDescription = DomainContract.diffUiChangedFilesTitle,
-                            modifier = Modifier.size(18.dp),
-                            tint = Color.White,
-                        )
-                        Text(
-                            fileCount.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = TextEmphasis.Secondary),
-                        )
+        // EXP-916: the shared cluster — files · Merge PR · reject — the same
+        // bar the Work screen's Changes face draws with the switcher in the
+        // reject's place.
+        FloatingBarCluster(
+            left = if (fileCount > 0) {
+                {
+                    // EXP-916: the file TREE, reached from the bar's leading
+                    // slot — the count is the affordance, exactly as on the
+                    // Work screen.
+                    BarCircle(
+                        onClick = onOpenFiles,
+                        modifier = Modifier.testTag("changes-file-list-button"),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                ExpIcons.navFiles,
+                                contentDescription = DomainContract.diffUiChangedFilesTitle,
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.White,
+                            )
+                            Text(
+                                fileCount.toString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
                     }
                 }
-            }
-            if (canReview) {
-                // EXP-706: the primary action is a WHITE pill — the one solid
-                // thing on the bar, so the review's outcome is unmistakable.
-                // No hairline: a white fill needs no edge against the dim
-                // circles beside it. A conflict-refused merge REPLACES it with
-                // the recovery run (the notice above keeps only the message).
-                Row(
-                    modifier = Modifier
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(percent = 50))
-                        .background(Color.White)
-                        .clickable(
-                            enabled = !busy,
-                            onClick = if (canFixConflicts) onFixConflicts else onMerge,
-                        )
-                        .padding(horizontal = 28.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (merging) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            // On white, the default primary tint disappears.
-                            color = Color.Black,
-                        )
-                    } else {
-                        Icon(
-                            if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = Color.Black,
-                        )
-                    }
-                    Text(
-                        if (canFixConflicts) "Fix conflicts" else DomainContract.diffUiMergePr,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color.Black,
+            } else {
+                null
+            },
+            centre = if (canReview) {
+                {
+                    // EXP-706: the primary action is a WHITE pill — the one
+                    // solid thing on the bar, so the review's outcome is
+                    // unmistakable. A conflict-refused merge REPLACES it with
+                    // the recovery run (the notice above keeps only the
+                    // message).
+                    BarSolidPill(
+                        label = if (canFixConflicts) "Fix conflicts" else DomainContract.diffUiMergePr,
+                        icon = if (canFixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                        enabled = !busy,
+                        loading = merging,
+                        onClick = if (canFixConflicts) onFixConflicts else onMerge,
                     )
                 }
-                // EXP-916: reject TRAILS the merge pill — files · Merge PR ·
-                // reject, the slot order iOS and the phone web wear.
-                ChangesBarCircle(onClick = onClosePr, enabled = !busy) {
-                    if (closing) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            // EXP-916: rejecting a PR is `prClosed`, the same
-                            // mark the state itself wears ×4.
-                            ExpIcons.prClosed,
-                            contentDescription = DomainContract.diffUiClosePr,
-                            modifier = Modifier.size(20.dp),
-                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                        )
+            } else {
+                null
+            },
+            right = if (canReview) {
+                {
+                    // EXP-916: reject TRAILS the merge pill — files · Merge PR
+                    // · reject, the slot order iOS and the phone web wear.
+                    BarCircle(onClick = onClosePr, enabled = !busy) {
+                        if (closing) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                // EXP-916: rejecting a PR is `prClosed`, the
+                                // same mark the state itself wears ×4.
+                                ExpIcons.prClosed,
+                                contentDescription = DomainContract.diffUiClosePr,
+                                modifier = Modifier.size(20.dp),
+                                tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        }
                     }
                 }
-            }
-        }
+            } else {
+                null
+            },
+        )
     }
 }
 
@@ -637,26 +625,6 @@ internal fun ChangesRefusalNotice(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface,
         )
-    }
-}
-
-@Composable
-private fun ChangesBarCircle(
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .size(52.dp)
-            .clip(CircleShape)
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
     }
 }
 

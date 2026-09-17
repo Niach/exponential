@@ -12,9 +12,9 @@ import SwiftUI
 // three phones are locked to): a 20pt inset, 10pt between the slots, 52pt
 // circles with 20pt white glyphs, a capsule padded 18pt whose glyph and label
 // sit 8pt apart, and NO drop shadow — the bar sits flat on the content with
-// only its hairline for an edge. `FloatingBarCluster` is the Reviews page's
-// layout (Android's `ChangesBottomBar`): nothing stretches, the circles and
-// the white pill hug their content 12pt apart, centred.
+// only its hairline for an edge. `FloatingBarCluster` is every Changes
+// bar's layout (Reviews page and Work screen alike): nothing stretches, the
+// circles and the white Merge pill hug their content 12pt apart, centred.
 
 public enum FloatingBarTokens {
     /// Every slot is this tall — the circles and the labelled pills alike
@@ -136,26 +136,19 @@ public struct FloatingBarBadgeDot: View {
 }
 
 /// The centre capsule: a full-width glass pill whose content reads as the
-/// prompt it expands into (`+ Comment`, `Type / for commands`) — or, when
-/// `emphatic`, a VERB in full white (`Merge PR` on the Work screen's Changes
-/// face, Android's emphatic `BarCapsule`).
+/// prompt it expands into (`+ Comment`, `Type / for commands`). A VERB never
+/// rides it — Merge is the solid pill below, in a cluster.
 public struct FloatingBarCapsule<Content: View>: View {
     let accessibilityLabel: String
-    let emphatic: Bool
-    let enabled: Bool
     let action: () -> Void
     let content: Content
 
     public init(
         accessibilityLabel: String,
-        emphatic: Bool = false,
-        enabled: Bool = true,
         action: @escaping () -> Void,
         @ViewBuilder content: () -> Content
     ) {
         self.accessibilityLabel = accessibilityLabel
-        self.emphatic = emphatic
-        self.enabled = enabled
         self.action = action
         self.content = content()
     }
@@ -166,7 +159,7 @@ public struct FloatingBarCapsule<Content: View>: View {
                 content
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(.white.opacity(emphatic ? TextOpacity.primary : TextOpacity.tertiary))
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             .padding(.horizontal, FloatingBarTokens.capsuleHorizontalPadding)
             .frame(height: FloatingBarTokens.capsuleContentHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,7 +171,6 @@ public struct FloatingBarCapsule<Content: View>: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
         .accessibilityLabel(accessibilityLabel)
     }
 }
@@ -257,10 +249,12 @@ public struct FloatingBottomBar<Leading: View, Center: View, Trailing: View>: Vi
     }
 }
 
-/// EXP-916: the Reviews page's bar — `[leading] [centre] [trailing]` as a
-/// CENTRED cluster whose slots hug their content, 12pt apart (Android's
-/// `ChangesBottomBar`). Nothing stretches: the white Merge pill is as wide
-/// as its label, and a missing slot leaves no gap.
+/// EXP-916: the CHANGES bar — `[leading] [centre] [trailing]` as a CENTRED
+/// cluster whose slots hug their content, 12pt apart (Android's
+/// `FloatingBarCluster`): files · Merge PR · reject on the Reviews page,
+/// files · Merge PR · switcher on the Work screen's Changes face. Nothing
+/// stretches: the white Merge pill is as wide as its label, and a missing
+/// slot leaves no gap.
 public struct FloatingBarCluster<Leading: View, Center: View, Trailing: View>: View {
     let leading: Leading
     let center: Center

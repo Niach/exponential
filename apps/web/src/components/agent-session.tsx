@@ -1042,7 +1042,9 @@ export function AgentSessionView({
   ) : showDiffFace ? (
     <MobileWorkBar
       /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides the
-         issue header's action slot (an issue-less run keeps the circle). */
+         issue header's action slot (an issue-less run keeps the circle).
+         EXP-916: the Reviews page's cluster — files · Merge PR · switcher. */
+      cluster
       leading={
         changesFiles.length > 0 ? (
           <ChangesFileSheet

@@ -34,10 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
+import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.BottomBarInset
-import com.exponential.app.ui.components.FloatingBottomBar
+import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.ChangesRefusalNotice
@@ -148,27 +148,28 @@ fun ChangesFace(
             // A refused merge captions the bar that produced it (EXP-559) —
             // the MESSAGE only; the recovery run takes the capsule's place.
             merge?.error?.let { ChangesRefusalNotice(message = it, modifier = Modifier.padding(horizontal = 16.dp)) }
-            FloatingBottomBar(
+            // EXP-916: the Reviews page's bar — a centred cluster, the white
+            // Merge pill hugging its label between the files circle and the
+            // switcher. One shape for Merge on every phone Changes surface.
+            FloatingBarCluster(
                 left = if (files.isNotEmpty()) {
                     { FileListCircle(count = files.size, onClick = { sheetOpen = true }) }
                 } else {
                     null
                 },
+                centre = merge?.let {
+                    {
+                        BarSolidPill(
+                            label = merge.label,
+                            icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
+                            loading = merge.loading,
+                            onClick = { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true },
+                            modifier = Modifier.testTag("pr-merge-bar"),
+                        )
+                    }
+                },
                 right = trailingBarSlot,
-            ) {
-                if (merge != null) {
-                    BarCapsule(
-                        label = merge.label,
-                        icon = if (merge.fixConflicts) ExpIcons.uiBranch else ExpIcons.prMerged,
-                        emphatic = true,
-                        loading = merge.loading,
-                        onClick = { if (merge.fixConflicts) merge.onFixConflicts() else mergeConfirmOpen = true },
-                        modifier = Modifier.testTag("pr-merge-bar"),
-                    )
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-            }
+            )
         }
     }
 
