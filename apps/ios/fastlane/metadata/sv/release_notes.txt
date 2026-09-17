@@ -1,3 +1,5 @@
+- Stop i en pågående session är nu en vanlig knapp i raden, lika hög som tillbakaknappen, i stället för ett piller med trasig kontur
+- Raderna i en körnings logg överlappar inte längre varandra, och chatten rullar fritt förbi kortet ovanför skrivfältet
 - En chattkörning får namn efter det agenten arbetar med, i stället för att heta ”Chat” överallt
 - En enda diff överallt: filerna i en diff ligger i ett träd du hoppar i, och en agents ändringar under en tur samlas på ett kort ”Edited files”
 - Förbrukningen på ett ställe: en ruta visar körningens eget konto, dess gränsfönster och kontextfönstret, plus de andra inloggningarna på maskinen

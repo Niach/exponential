@@ -1,3 +1,5 @@
+- Stop w trwającej sesji to teraz zwykły przycisk na pasku, tej samej wysokości co przycisk wstecz, zamiast pigułki z pękniętym obrysem
+- Wiersze zapisu przebiegu już na siebie nie nachodzą, a czat przewija się obok karty nad polem pisania
 - Przebieg czatu bierze nazwę od tego, nad czym pracuje agent, zamiast wszędzie pokazywać „Chat”
 - Jeden diff wszędzie: pliki diffa stoją w drzewie, po którym skaczesz, a zmiany agenta z jednej tury zbierają się w jednej karcie „Edited files”
 - Zużycie w jednym miejscu: panel pokazuje własne konto przebiegu, jego okna limitów i okno kontekstu, a do tego pozostałe logowania na tej maszynie

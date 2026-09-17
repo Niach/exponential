@@ -1,3 +1,5 @@
+- Stop käynnissä olevassa istunnossa on nyt tavallinen palkin painike, yhtä korkea kuin takaisin-painike, eikä enää pilleri, jonka reunus piirtyi rikki
+- Ajon tapahtumarivit eivät enää mene päällekkäin, ja keskustelu vierii vapaaksi kirjoituskentän yläpuolisesta kortista
 - Chat-ajo saa nimensä siitä, mitä agentti tekee, eikä lue enää kaikkialla ”Chat”
 - Yksi diff kaikkialla: diffin tiedostot ovat puussa, jossa voit hypellä, ja agentin yhden vuoron muokkaukset kokoontuvat yhteen ”Edited files” -korttiin
 - Käyttö yhdessä paikassa: näkymä kertoo ajon oman tilin, sen rajaikkunat ja konteksti-ikkunan sekä koneen muut kirjautumiset

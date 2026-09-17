@@ -1,3 +1,5 @@
+- O Stop numa sessão a correr é agora um botão normal da barra, com a mesma altura do botão de voltar, em vez de uma pílula com o contorno partido
+- As linhas do registo de uma execução já não se sobrepõem umas às outras, e a conversa passa a rolar fora do cartão por cima do campo de escrita
 - Uma execução de chat passa a ter o nome daquilo em que o agente trabalha, em vez de ler «Chat» por todo o lado
 - Um só diff em todo o lado: os ficheiros de um diff ficam numa árvore por onde salta, e as alterações de um agente num turno juntam-se num cartão «Edited files»
 - O uso num só sítio: um painel mostra a conta da execução, as suas janelas de limite e a janela de contexto, mais as outras contas dessa máquina

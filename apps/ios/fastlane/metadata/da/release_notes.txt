@@ -1,3 +1,5 @@
+- Stop i en kørende session er nu en almindelig knap i bjælken, lige så høj som tilbage-knappen, i stedet for en pille med en brudt kant
+- Rækkerne i en kørsels udskrift overlapper ikke længere hinanden, og chatten ruller fri af kortet over skrivefeltet
 - En chatkørsel får navn efter det, agenten arbejder med, i stedet for at hedde „Chat“ overalt
 - Én diff overalt: filerne i en diff ligger i et træ, du kan springe rundt i, og en agents ændringer i én tur samles på ét kort „Edited files“
 - Forbruget ét sted: et panel viser kørslens egen konto, dens grænsevinduer og kontekstvinduet, plus de andre logins på maskinen

@@ -1,3 +1,5 @@
+- The Stop button on a running session is a plain bar button now, the same height as the back button, instead of a pill that drew a broken outline
+- Rows in a run's transcript no longer overlap each other, and the chat scrolls clear of the card above the composer
 - A chat run takes its name from what the agent is working on, instead of reading Chat everywhere
 - One diff everywhere: a diff's files sit in a tree you can jump around, and an agent's edits in a turn collect in one Edited files card
 - Usage in one place: an overlay shows the run's own account, its limit windows and the context window, plus the other logins on that machine

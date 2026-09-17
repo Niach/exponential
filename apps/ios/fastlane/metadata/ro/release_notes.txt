@@ -1,3 +1,5 @@
+- Stop într-o sesiune vie este acum un buton simplu din bară, la aceeași înălțime cu butonul înapoi, în loc de o pastilă cu conturul rupt
+- Rândurile din jurnalul unei rulări nu se mai suprapun, iar conversația derulează liber pe lângă cardul de deasupra câmpului de scris
 - O rulare de chat își ia numele din ceea ce lucrează agentul, în loc să scrie „Chat” peste tot
 - Un singur diff peste tot: fișierele unui diff stau într-un arbore prin care sari, iar modificările agentului dintr-o tură se strâng într-un card „Edited files”
 - Consumul într-un singur loc: un panou arată contul propriu al rulării, ferestrele lui de limită și fereastra de context, plus celelalte conturi de pe acea mașină

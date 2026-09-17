@@ -398,10 +398,16 @@ struct WorkScreen: View {
                         prGraphBadge
                     }
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if face == .run {
-                        runPill
+                // EXP-942: Stop / Resume is its OWN bar item, so the system
+                // gives it its own capsule instead of merging it with the
+                // `…` menu into one shared shape.
+                if face == .run, primaryAction == .stop || primaryAction == .resume {
+                    ToolbarItem(placement: .topBarTrailing) { runPill }
+                    if #available(iOS 26.0, *) {
+                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
                     }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     // EXP-895: on the Changes face GitHub rides the HEADER's
                     // action slot — the work bar's leading slot belongs to the
                     // file sheet now.
@@ -429,30 +435,29 @@ struct WorkScreen: View {
             }
     }
 
-    /// EXP-818: the ONE Stop — a small red-tinted glass pill, IDENTICAL
-    /// whether this phone hosts the run or only watches it; Resume once it
-    /// ended and a machine can take it (EXP-773).
+    /// EXP-818: the ONE Stop, IDENTICAL whether this phone hosts the run or
+    /// only watches it; Resume once it ended and a machine can take it
+    /// (EXP-773). EXP-942: a NATIVE toolbar button, not a glass pill — the
+    /// navigation bar wraps its items in the system capsule at the back
+    /// button's height, and a pill inside that capsule drew a second, broken
+    /// outline. Tint carries the red; the bar owns the shape.
     @ViewBuilder
     private var runPill: some View {
         switch primaryAction {
         case .stop:
-            GlassPill(
-                "Stop",
-                icon: AppIcons.codingStop,
-                size: .sm,
-                mode: .action { runRequest = .stop },
-                tint: DesignTokens.Semantic.red
-            )
+            // Text, not a Label: a bar item collapses a Label to its icon,
+            // and the ending verb is the word "Stop" on every client.
+            Button(role: .destructive) { runRequest = .stop } label: {
+                Text("Stop").fontWeight(.medium)
+            }
+            .tint(DesignTokens.Semantic.red)
             .accessibilityLabel("Stop the agent and end the session")
             .accessibilityIdentifier("session-stop")
         case .resume:
-            GlassPill(
-                "Resume",
-                icon: AppIcons.runResume,
-                size: .sm,
-                mode: .action { showResumeConfirm = true },
-                enabled: !resuming
-            )
+            Button { showResumeConfirm = true } label: {
+                Text("Resume").fontWeight(.medium)
+            }
+            .disabled(resuming)
             .accessibilityIdentifier("resume-run")
         case .start, .none:
             EmptyView()

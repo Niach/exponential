@@ -1,3 +1,5 @@
+- Stop v běžící relaci je teď obyčejné tlačítko v liště, stejně vysoké jako tlačítko zpět, místo pilulky s rozbitým obrysem
+- Řádky v přepisu běhu se už nepřekrývají a chat se posouvá mimo kartu nad polem pro psaní
 - Chatovací běh nese jméno toho, na čem agent pracuje, místo aby všude hlásil „Chat“
 - Jeden diff všude: soubory diffu stojí ve stromu, ve kterém skáčeš, a úpravy agenta z jednoho tahu se sbírají do jedné karty „Edited files“
 - Spotřeba na jednom místě: přehled ukáže vlastní účet běhu, jeho limitní okna i kontextové okno a k tomu ostatní přihlášení na tom stroji

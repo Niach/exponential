@@ -1,3 +1,5 @@
+- Stop en una sesión en marcha es ahora un botón normal de la barra, de la misma altura que el botón de volver, en lugar de una píldora con el contorno roto
+- Las filas del registro de una ejecución ya no se solapan entre sí, y el chat se desplaza libre de la tarjeta sobre el campo de escritura
 - Una ejecución de chat toma el nombre de aquello en lo que trabaja el agente, en vez de leer «Chat» en todas partes
 - Un solo diff en todas partes: los archivos de un diff van en un árbol por el que saltas, y los cambios de un agente en un turno se reúnen en una tarjeta «Edited files»
 - El uso en un solo sitio: un panel muestra la cuenta de la ejecución, sus ventanas de límite y la ventana de contexto, más las demás cuentas de esa máquina

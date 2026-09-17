@@ -3846,13 +3846,25 @@ private struct FollowPinTracker: ViewModifier {
     @State private var lastPinned = true
     /// A growth repin is already queued for the next run-loop turn.
     @State private var repinQueued = false
-    /// Growth repins issued since the feed last rested at its true bottom
-    /// or the user last scrolled. Bounded: a repin that keeps landing short
-    /// (lazy rows realising under it, an OS layout bug) must not become a
-    /// relayout storm — build 94 was watchdog-killed with the main thread
-    /// 100% in lazy-stack layout and +380MB of view-list copies in 84s.
+    /// Growth repins issued inside the CURRENT burst window. Bounded: a repin
+    /// that keeps landing short (lazy rows realising under it, an OS layout
+    /// bug) must not become a relayout storm — build 94 was watchdog-killed
+    /// with the main thread 100% in lazy-stack layout and +380MB of view-list
+    /// copies in 84s.
     @State private var growthRepins = 0
+    /// When the current burst window opened. The budget is a RATE (n per
+    /// window), never a count reset by the geometry: a repin is what puts the
+    /// feed's end back in view, so "the end is in view" is the storm's own
+    /// output — re-arming the budget there let the loop re-arm itself and spin
+    /// the main thread for good (EXP-943: a live run streaming into the feed
+    /// wedged the layout, so rows drew at stale positions over one another and
+    /// the transcript could not be scrolled to its end).
+    @State private var burstOpenedAt = Date.distantPast
     private static let maxGrowthRepins = 8
+    /// Long enough that one layout storm cannot outlast it, short enough that
+    /// a streaming run keeps following (8 repins per window is far more than
+    /// the eye resolves).
+    private static let growthBurstWindow: TimeInterval = 2
 
     /// Queue ONE repin for the next run-loop turn. The growth observer runs
     /// inside the scroll view's layout transaction; calling scrollTo there
@@ -3863,7 +3875,13 @@ private struct FollowPinTracker: ViewModifier {
     /// turns. Deferring breaks the re-entrancy and coalesces a burst of
     /// growth samples into a single scroll.
     private func queueGrowthRepin() {
-        guard !repinQueued, growthRepins < Self.maxGrowthRepins else { return }
+        guard !repinQueued else { return }
+        let now = Date()
+        if now.timeIntervalSince(burstOpenedAt) >= Self.growthBurstWindow {
+            burstOpenedAt = now
+            growthRepins = 0
+        }
+        guard growthRepins < Self.maxGrowthRepins else { return }
         repinQueued = true
         growthRepins += 1
         Task { @MainActor in
@@ -3881,7 +3899,12 @@ private struct FollowPinTracker: ViewModifier {
                     userScrolling = newPhase == .tracking
                         || newPhase == .interacting
                         || newPhase == .decelerating
-                    if userScrolling { growthRepins = 0 }
+                    // A gesture is the one input the storm cannot fake, so it
+                    // opens a fresh window (EXP-943).
+                    if userScrolling {
+                        growthRepins = 0
+                        burstOpenedAt = Date()
+                    }
                     // The growth observer skips repins during user scrolls
                     // (EXP-306); catch up once the gesture settles so a
                     // followed feed never idles a few points shy of its end.
@@ -3937,9 +3960,11 @@ private struct FollowPinTracker: ViewModifier {
                         below: geometry.contentSize.height - geometry.visibleRect.maxY
                     )
                 } action: { old, new in
-                    // Resting at (or bouncing past) the true bottom re-arms
-                    // the growth budget: the last repin converged.
-                    if new.below <= 0 { growthRepins = 0 }
+                    // NOTHING re-arms the budget here: `below <= 0` is what a
+                    // repin PRODUCES, so re-arming on it handed the storm its
+                    // own escape hatch (EXP-943). The rate window in
+                    // `queueGrowthRepin` re-arms on time alone, and a user
+                    // gesture re-arms in the phase observer.
                     // Only chase growth that actually pushed the bottom out
                     // of view; a scrollTo whose target is already visible is
                     // pure layout churn.

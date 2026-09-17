@@ -1,3 +1,5 @@
+- Stop u sesiji koja traje sada je običan gumb u traci, jednake visine kao gumb za natrag, umjesto pilule s razbijenim obrubom
+- Retci u zapisu izvođenja više se ne preklapaju, a razgovor se pomiče mimo kartice iznad polja za pisanje
 - Izvođenje razgovora nosi ime onoga na čemu agent radi, umjesto da posvuda piše „Chat“
 - Jedan diff posvuda: datoteke diffa stoje u stablu po kojem skačeš, a izmjene agenta u jednom potezu skupljaju se u jednu karticu „Edited files“
 - Potrošnja na jednom mjestu: prikaz pokazuje vlastiti račun izvođenja, njegove prozore ograničenja i kontekstni prozor te ostale prijave na tom stroju

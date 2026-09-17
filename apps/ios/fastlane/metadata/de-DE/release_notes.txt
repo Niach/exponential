@@ -1,3 +1,5 @@
+- Stop in einer laufenden Session ist jetzt ein schlichter Button in der Leiste, genauso hoch wie der Zurück-Button, statt einer Pille mit gebrochenem Rand
+- Die Zeilen im Protokoll eines Laufs überlappen sich nicht mehr, und der Chat scrollt frei an der Karte über dem Eingabefeld vorbei
 - Ein Chat-Lauf trägt jetzt den Namen dessen, woran der Agent arbeitet, statt überall „Chat“ zu heißen
 - Ein Diff überall: die Dateien eines Diffs stehen in einem Baum, durch den du springst, und die Änderungen eines Agenten in einem Zug sammeln sich in einer Karte „Edited files“
 - Verbrauch an einem Ort: eine Übersicht zeigt das Konto des Laufs, seine Limit-Fenster und das Kontextfenster, dazu die anderen Logins auf dieser Maschine

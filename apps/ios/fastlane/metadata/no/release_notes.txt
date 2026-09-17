@@ -1,3 +1,5 @@
+- Stop i en økt som kjører, er nå en vanlig knapp i linjen, like høy som tilbakeknappen, i stedet for en pille med brukket kant
+- Radene i loggen til en kjøring overlapper ikke lenger hverandre, og chatten ruller fritt forbi kortet over skrivefeltet
 - En chatkjøring får navn etter det agenten arbeider med, i stedet for å hete «Chat» overalt
 - Én diff overalt: filene i en diff ligger i et tre du kan hoppe rundt i, og en agents endringer i én tur samles på ett kort «Edited files»
 - Forbruket på ett sted: et panel viser kjøringens egen konto, grensevinduene dens og kontekstvinduet, pluss de andre innloggingene på maskinen
