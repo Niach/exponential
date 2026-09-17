@@ -8,6 +8,7 @@ import {
   SheetTitle,
 } from "@exp/ui"
 import { CommentComposer } from "@/components/comment-composer"
+import { cn } from "@/lib/utils"
 import {
   MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
@@ -63,7 +64,7 @@ export function IssueDetailMobileBar({
             type="button"
             aria-label="Issue properties"
             onClick={() => setPropertiesOpen(true)}
-            className={MOBILE_WORK_CIRCLE_CLASS}
+            className={cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)}
           >
             <PropertiesIcon className="size-5" />
           </button>

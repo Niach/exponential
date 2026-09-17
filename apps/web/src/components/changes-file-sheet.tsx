@@ -43,9 +43,11 @@ export function ChangesFileSheet({
         onClick={() => setOpen(true)}
         className={MOBILE_WORK_CIRCLE_CLASS}
       >
+        {/* EXP-916: Android's `FileListCircle` — an 18px white glyph over
+            the count in the secondary emphasis. */}
         <span className="flex flex-col items-center gap-0.5 leading-none">
-          <NavFilesIcon className="size-4" />
-          <span className="text-[0.625rem] font-medium tabular-nums">
+          <NavFilesIcon className="size-[18px] text-foreground" />
+          <span className="text-[0.6875rem] font-medium tabular-nums">
             {files.length}
           </span>
         </span>

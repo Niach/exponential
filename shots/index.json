@@ -696,8 +696,8 @@
         "file": "shots/issue-detail/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 78176,
-        "sha256": "5fe020452aec659e143a92d540b09863c628c37583cad0731a6de198c3c6fe07"
+        "bytes": 78388,
+        "sha256": "671d1602d4c8ead7dba7ab3441d1f13c00842d7c60b145e5a04cbec0ed16758c"
       },
       "web": {
         "file": "shots/issue-detail/web.webp",
@@ -710,8 +710,8 @@
         "file": "shots/issue-detail/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 72114,
-        "sha256": "2793d3377a7a04a41b02789c0b1621c706d9d683ef3c5560f139ec679f7b9f02"
+        "bytes": 72310,
+        "sha256": "d54fe25041c82409ef0e996832825e96daa95f0afa5cc6540a5c00d042d0e9a4"
       }
     },
     "issue-properties": {
@@ -1001,8 +1001,8 @@
         "file": "shots/review-diff/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 89282,
-        "sha256": "9d8cd324ec2a5f551ca673f3786167613f678113c7c6127fac80cadb005caed3"
+        "bytes": 88254,
+        "sha256": "d6f823fec8c537b4b8a4bdbbf3abd56160e4c1cb8a5e7aaa9dd796ea9129c8cf"
       },
       "web": {
         "file": "shots/review-diff/web.webp",
@@ -1015,8 +1015,8 @@
         "file": "shots/review-diff/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 70228,
-        "sha256": "8931d435612775cc4125301c6a5b2eecaebc27370cb7b4abef909bde5da98c3e"
+        "bytes": 71588,
+        "sha256": "5389ac841ef2f5aece6e6e82025d4421a03f0b557f1f05d95a3fffd6d5ceb199"
       }
     },
     "reviews": {
@@ -1527,8 +1527,8 @@
         "file": "shots/steering/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 83380,
-        "sha256": "3bf683f2fd65c11de7d444872dc72bd67e66dd9969e4fd0923e80da263cdf02f"
+        "bytes": 83456,
+        "sha256": "acf8909683a4484ceb8f338938ccc3dd6190805119c30064258a908f665daef7"
       },
       "web": {
         "file": "shots/steering/web.webp",
@@ -1541,8 +1541,8 @@
         "file": "shots/steering/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 103040,
-        "sha256": "081ecccb9fd4c8d202f2800925c9519cad73ea7cfaf75cc63d015875160737ac"
+        "bytes": 102892,
+        "sha256": "fffa8958ae44277c34232107dae01e66491d79aaf1f0c32ebafa74284dc5031a"
       }
     },
     "support-inbox": {

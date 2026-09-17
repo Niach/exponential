@@ -21,20 +21,22 @@ final class FloatingBottomBarTokenTests: XCTestCase {
         )
     }
 
-    func testSpacingAndInsets() {
-        XCTAssertEqual(FloatingBarTokens.spacing, 12)
+    // EXP-916: Android's `FloatingBottomBar` numbers — 20 inset, 10 between
+    // the slots (12 in the review page's centred cluster), an 18-wide label
+    // inset on the capsule, 28 on the solid pill, 20pt glyphs.
+    func testSpacingAndInsetsAreAndroids() {
+        XCTAssertEqual(FloatingBarTokens.spacing, 10)
+        XCTAssertEqual(FloatingBarTokens.clusterSpacing, 12)
         XCTAssertEqual(FloatingBarTokens.inset, 20)
         XCTAssertEqual(FloatingBarTokens.topPadding, 8)
         XCTAssertEqual(FloatingBarTokens.bottomPadding, 4)
-        XCTAssertEqual(FloatingBarTokens.capsuleHorizontalPadding, 14)
+        XCTAssertEqual(
+            FloatingBarTokens.capsuleHorizontalPadding + FloatingBarTokens.capsuleInnerPadding,
+            18
+        )
+        XCTAssertEqual(FloatingBarTokens.capsuleGap, 8)
         XCTAssertEqual(FloatingBarTokens.solidPillHorizontalPadding, 28)
-    }
-
-    // The lift is the tab bar's: black 35 %, r16, y6.
-    func testShadowIsTheTabBarsLift() {
-        XCTAssertEqual(FloatingBarTokens.shadowOpacity, 0.35)
-        XCTAssertEqual(FloatingBarTokens.shadowRadius, 16)
-        XCTAssertEqual(FloatingBarTokens.shadowY, 6)
+        XCTAssertEqual(FloatingBarTokens.glyph, AppIcon.Size.large)
     }
 
     // The badge is the tab bar's 8pt disc, re-based on the 52pt square.

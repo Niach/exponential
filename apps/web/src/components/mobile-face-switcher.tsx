@@ -102,6 +102,9 @@ function TargetIcon({
   return <Icon className={className} />
 }
 
+/** EXP-916: the dot rides the GLYPH's top-trailing corner (3px out), on its
+ *  own 12px opaque disc — Android's `FaceSwitcher` badge, inside the circle
+ *  rather than hanging off its edge. */
 function BadgeDot({ tone }: { tone: SessionDotTone | `changes` }) {
   return (
     <span
@@ -109,7 +112,7 @@ function BadgeDot({ tone }: { tone: SessionDotTone | `changes` }) {
       data-testid="mobile-face-switcher-badge"
       data-tone={tone}
       className={cn(
-        `absolute -right-0.5 -top-0.5 size-2.5 rounded-full ring-2 ring-popover`,
+        `absolute -right-[3px] -top-[3px] size-2 rounded-full ring-2 ring-popover`,
         tone === `changes` ? SESSION_DOT_CLASS.running : SESSION_DOT_CLASS[tone]
       )}
     />
@@ -163,10 +166,12 @@ export function MobileFaceSwitcher({
           mode.target.kind === `face` ? mode.target.face : mode.target.kind
         }
         onClick={() => activate(mode.target)}
-        className={cn(MOBILE_WORK_CIRCLE_CLASS, `relative text-foreground`)}
+        className={cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)}
       >
-        <TargetIcon target={mode.target} className="size-5" />
-        {badge && <BadgeDot tone={badge} />}
+        <span className="relative flex">
+          <TargetIcon target={mode.target} className="size-5" />
+          {badge && <BadgeDot tone={badge} />}
+        </span>
       </button>
     )
   }
@@ -180,14 +185,16 @@ export function MobileFaceSwitcher({
           title="Switch view"
           data-testid="mobile-face-switcher"
           data-face-target="menu"
-          className={cn(MOBILE_WORK_CIRCLE_CLASS, `relative text-foreground`)}
+          className={cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)}
         >
-          {open ? (
-            <CloseIcon className="size-5" />
-          ) : (
-            <FacesIcon className="size-5" />
-          )}
-          {badge && !open && <BadgeDot tone={badge} />}
+          <span className="relative flex">
+            {open ? (
+              <CloseIcon className="size-5" />
+            ) : (
+              <FacesIcon className="size-5" />
+            )}
+            {badge && !open && <BadgeDot tone={badge} />}
+          </span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

@@ -35,6 +35,29 @@ describe(`MobileWorkBar`, () => {
     expect(trailing.parentElement?.className).toContain(`hidden`)
   })
 
+  // EXP-916: the Reviews page's layout — Android's centred cluster, no
+  // stretched placeholder where the capsule is missing.
+  it(`cluster centres the slots and never pads an empty capsule`, () => {
+    render(
+      <MobileWorkBar
+        cluster
+        leading={<button data-testid="leading">L</button>}
+        trailing={<button data-testid="trailing">T</button>}
+      />
+    )
+    const bar = screen.getByTestId(`mobile-work-bar`)
+    expect(bar.dataset.layout).toBe(`cluster`)
+    expect(bar.className).toContain(`justify-center`)
+    expect(bar.querySelector(`span.flex-1`)).toBeNull()
+  })
+
+  it(`stretch leaves a spacer where the capsule is missing`, () => {
+    render(<MobileWorkBar trailing={<button data-testid="trailing">T</button>} />)
+    const bar = screen.getByTestId(`mobile-work-bar`)
+    expect(bar.dataset.layout).toBe(`stretch`)
+    expect(bar.querySelector(`span.flex-1`)).not.toBeNull()
+  })
+
   it(`renders nothing while hidden`, () => {
     const { container } = render(
       <MobileWorkBar

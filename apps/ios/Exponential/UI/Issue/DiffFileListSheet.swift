@@ -105,13 +105,16 @@ struct DiffFilesBarCircle: View {
             accessibilityLabel: DiffPresentation.changedFilesTitle,
             action: action
         ) {
+            // EXP-916: Android's `FileListCircle` — an 18pt white glyph over
+            // the count in the secondary emphasis.
             VStack(spacing: 2) {
-                AppIcon(AppIcons.navFiles, size: AppIcon.Size.medium, weight: .medium)
+                AppIcon(AppIcons.navFiles, size: 18, weight: .medium)
+                    .foregroundStyle(.white)
                 Text("\(count)")
                     .font(.caption2.weight(.medium))
                     .monospacedDigit()
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
         .accessibilityIdentifier("changes-file-list-button")
     }

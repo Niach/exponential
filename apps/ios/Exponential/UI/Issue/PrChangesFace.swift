@@ -239,12 +239,25 @@ struct PrChangesFace<Trailing: View>: View {
                         .glassCard()
                         .padding(.horizontal, 16)
                 }
-                FloatingBottomBar {
-                    barLeading(vm)
-                } center: {
-                    barCenter(vm)
-                } trailing: {
-                    barTrailing(vm)
+                // EXP-916: the Reviews page is Android's centred cluster (the
+                // white pill hugging its label); the Work screen's Changes
+                // face keeps the stretched bar its sibling faces wear.
+                if reviewMode {
+                    FloatingBarCluster {
+                        barLeading(vm)
+                    } center: {
+                        barCenter(vm)
+                    } trailing: {
+                        barTrailing(vm)
+                    }
+                } else {
+                    FloatingBottomBar {
+                        barLeading(vm)
+                    } center: {
+                        barCenter(vm)
+                    } trailing: {
+                        barTrailing(vm)
+                    }
                 }
             }
             // EXP-642: the store slide's pop-out rect is measured off the
@@ -267,34 +280,58 @@ struct PrChangesFace<Trailing: View>: View {
 
     /// EXP-706: the bar's ONE primary action. A merge the server refused on
     /// a REAL conflict cannot succeed on a retry, so the recovery run
-    /// REPLACES Merge in this slot — same white capsule, so the bar keeps
-    /// exactly one thing to press.
+    /// REPLACES Merge in this slot — same capsule, so the bar keeps exactly
+    /// one thing to press.
+    ///
+    /// EXP-916, Android's two shapes: on the Reviews page a SOLID white pill
+    /// hugging its label (`ChangesBottomBar`); on the Work screen's Changes
+    /// face the bar's stretched glass capsule with a white label (the
+    /// emphatic `BarCapsule`), like the `+ Comment` and composer capsules
+    /// of the faces beside it.
     @ViewBuilder
     private func barCenter(_ vm: ChangesViewModel) -> some View {
         if canReview(vm) {
-            if canFixConflicts(vm) {
+            let fix = canFixConflicts(vm)
+            let label = fix ? "Fix conflicts" : DomainContract.diffUiMergePr
+            let accessibilityLabel = fix ? "Fix merge conflicts" : "Merge pull request"
+            let enabled = !vm.merging && !vm.closing
+            let action: () -> Void = fix ? openFixConflicts : { mergeConfirm = true }
+            if reviewMode {
                 FloatingBarSolidPill(
-                    accessibilityLabel: "Fix merge conflicts",
-                    enabled: !vm.merging && !vm.closing,
-                    action: openFixConflicts
-                ) {
-                    AppIcon(AppIcons.uiBranch, size: AppIcon.Size.medium, weight: .medium)
-                    Text("Fix conflicts")
-                        .font(.subheadline.weight(.medium))
-                }
-            } else {
-                FloatingBarSolidPill(
-                    accessibilityLabel: "Merge pull request",
-                    enabled: !vm.merging && !vm.closing,
-                    action: { mergeConfirm = true }
+                    accessibilityLabel: accessibilityLabel,
+                    enabled: enabled,
+                    action: action
                 ) {
                     if vm.merging {
                         ProgressView().controlSize(.small).tint(.black.opacity(0.6))
                     } else {
-                        AppIcon(AppIcons.prMerged, size: AppIcon.Size.medium, weight: .medium)
+                        AppIcon(
+                            fix ? AppIcons.uiBranch : AppIcons.prMerged,
+                            size: FloatingBarTokens.glyph,
+                            weight: .medium
+                        )
                     }
-                    Text(DomainContract.diffUiMergePr)
+                    Text(label)
                         .font(.subheadline.weight(.medium))
+                }
+            } else {
+                FloatingBarCapsule(
+                    accessibilityLabel: accessibilityLabel,
+                    emphatic: true,
+                    enabled: enabled,
+                    action: action
+                ) {
+                    if vm.merging {
+                        ProgressView().controlSize(.small).tint(.white)
+                    } else {
+                        AppIcon(
+                            fix ? AppIcons.uiBranch : AppIcons.prMerged,
+                            size: AppIcon.Size.medium,
+                            weight: .medium
+                        )
+                    }
+                    Text(label)
+                        .font(.subheadline)
                 }
             }
         }
@@ -324,7 +361,7 @@ struct PrChangesFace<Trailing: View>: View {
                 ProgressView().controlSize(.small).tint(.white)
             } else {
                 // EXP-916: the PR-closed mark, not a generic ✕.
-                AppIcon(AppIcons.prClosed, size: AppIcon.Size.medium, weight: .medium)
+                AppIcon(AppIcons.prClosed, size: FloatingBarTokens.glyph, weight: .medium)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }

@@ -400,6 +400,9 @@ function ReviewDetailPage() {
           where the natives keep it. */}
       {(files.length > 0 || isOpen) && (
         <MobileWorkBar
+          /* EXP-916: Android's review bar — a centred cluster, the white
+             Merge pill hugging its label between the two circles. */
+          cluster
           leading={
             files.length > 0 ? (
               <ChangesFileSheet
@@ -409,7 +412,7 @@ function ReviewDetailPage() {
               />
             ) : undefined
           }
-          capsule={isOpen ? <MergeCapsule {...mergeTarget} /> : undefined}
+          capsule={isOpen ? <MergeCapsule {...mergeTarget} hug /> : undefined}
           trailing={
             /* EXP-916: REJECT sits where the natives put it — the bar's
                trailing circle, and only while there is an open PR to close.
