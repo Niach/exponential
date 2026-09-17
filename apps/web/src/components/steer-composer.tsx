@@ -116,6 +116,14 @@ export interface SteerComposerProps {
   onEmptyBlur?: () => void
 }
 
+/** EXP-931: a menu opened from INSIDE the composer (the model picker, the
+ *  inline face switcher) portals its content out of the root and takes focus
+ *  with it. That is not the reader leaving the composer, so it must not
+ *  collapse it: the trigger would unmount under its own open menu. */
+function hasOpenPopup(root: HTMLElement): boolean {
+  return root.querySelector(`[aria-haspopup][data-state="open"]`) !== null
+}
+
 export function SteerComposer({
   store,
   live,
@@ -294,6 +302,7 @@ export function SteerComposer({
       if (!root) return
       const active = document.activeElement
       if (active && root.contains(active)) return
+      if (hasOpenPopup(root)) return
       if (filePickerOpenRef.current) return
       if (menu.open || confirming !== null) return
       const draft = store.getDraftSnapshot()
@@ -313,6 +322,7 @@ export function SteerComposer({
     if (!root) return
     const active = document.activeElement
     if (active && root.contains(active)) return
+    if (hasOpenPopup(root)) return
     if (filePickerOpenRef.current || menu.open || confirming !== null) return
     const draft = store.getDraftSnapshot()
     if (draft.text.trim().length > 0 || draft.images.length > 0) return
