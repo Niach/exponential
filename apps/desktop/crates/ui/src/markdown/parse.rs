@@ -744,6 +744,37 @@ mod tests {
         }
     }
 
+    /// EXP-925 — the read-only renderer (comments, the transcript, the issue
+    /// hover preview) draws a `\` hard break as a LINE BREAK, and a line that
+    /// holds nothing but `\` — what web TipTap writes for each extra
+    /// Shift+Enter — as the empty line it is. Neither ever paints a visible
+    /// backslash.
+    #[test]
+    fn backslash_hard_breaks_render_as_line_breaks_never_as_a_backslash() {
+        let lines = |md: &str| {
+            let blocks = markdown_to_blocks(md);
+            blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text { content, .. } => Some(content.lines()),
+                    _ => None,
+                })
+                .flatten()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lines("alpha\\\nbeta"), vec!["alpha", "beta"]);
+        // The live EXP-924 shape: the empty lines survive as empty lines.
+        assert_eq!(
+            lines("line one\\\n\\\nline two"),
+            vec!["line one", "", "line two"]
+        );
+        assert_eq!(lines("a\\\n\\\n\\\nb"), vec!["a", "", "", "b"]);
+        // A backslash that is NOT a break is still the character the user
+        // typed.
+        assert_eq!(lines("back\\slash"), vec!["back\\slash"]);
+    }
+
     /// EXP-824: an absolute attachment link lifts into a media block only on
     /// the instance origin; a foreign host's `/api/attachments/…` path (or
     /// an absolute link with no origin known) stays an inline link.

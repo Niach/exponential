@@ -33,12 +33,17 @@ export const REMOVE_ACCOUNT_OLD_APP = `That machine runs an older Exponential ap
  * null when it is. The menu shows the entry exactly when this is null; the
  * sentence exists for the tooltip and for a requester that raced the state.
  *
- * Three refusals, in the order a person would hit them:
+ * Two refusals, in the order a person would hit them:
  *  - the ambient login: the agent CLI's own config dir, which Exponential
  *    never created and must not delete;
- *  - a machine whose build cannot run the command at all;
- *  - a login that is signed out or expired here: its chip's one repair is a
- *    sign-in, so that is all it offers. */
+ *  - a machine whose build cannot run the command at all.
+ *
+ * EXP-944: being signed OUT is no longer one of them. A dead profile is the
+ * thing people most want gone, the removal is a profile-dir delete that never
+ * touches the account (no `codex logout`, ever), and the server has always
+ * taken it — it gates on the ambient id, the caps and the reported profile,
+ * never on the credential's state. So a signed-out named login offers "Sign
+ * in" AND "Remove account". */
 export function removeAccountBlockReason(
   device: Pick<SteerDevice, `caps`>,
   row: RemovableAccountRow
@@ -48,9 +53,6 @@ export function removeAccountBlockReason(
   }
   if (!deviceCanAgentLogin(device) || !deviceCanRemoveAccount(device)) {
     return REMOVE_ACCOUNT_OLD_APP
-  }
-  if (!row.signedIn || row.health === `needs_relogin`) {
-    return `That account is signed out on that machine, so its chip offers a sign-in instead.`
   }
   return null
 }

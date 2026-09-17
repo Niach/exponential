@@ -77,6 +77,7 @@ const PINNED_RECIPES = [
   `openBoardSwitcher`,
   `openIssuePropertiesMobile`,
   `openMachineSettings`,
+  `expandFirstDevice`,
   `openAddServer`,
   `openAutomationsTab`,
   `openSuggestionsTab`,

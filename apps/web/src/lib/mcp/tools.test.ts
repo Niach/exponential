@@ -3917,6 +3917,22 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     const titles = contract.expToolDisplay.tools.map((row) => row.title)
     expect(new Set(titles).size).toBe(titles.length)
   })
+
+  // EXP-948: a run of consecutive calls to the SAME tool renders the row's
+  // PLURAL copy ("Read 3 issues"), so both forms exist, both carry the `{n}`
+  // the client substitutes, and they keep the no-em-dash rule.
+  it(`gives every tool a plural caption for a run of calls`, () => {
+    for (const row of contract.expToolDisplay.tools) {
+      expect(row.progressiveMany.includes(`{n}`), row.name).toBe(true)
+      expect(row.doneMany.includes(`{n}`), row.name).toBe(true)
+      expect(row.progressiveMany.length, row.name).toBeLessThanOrEqual(60)
+      expect(row.doneMany.length, row.name).toBeLessThanOrEqual(60)
+      expect(
+        `${row.progressiveMany}${row.doneMany}`.includes(`—`),
+        row.name
+      ).toBe(false)
+    }
+  })
 })
 
 // ── EXP-897 / FEED-43: stacks over MCP ───────────────────────────────────────

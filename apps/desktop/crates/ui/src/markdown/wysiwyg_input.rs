@@ -39,6 +39,11 @@
 //! forms are interchangeable GFM, and no byte-parity fixture pins the
 //! backslash one, so rewriting it on the way in is enough: the engine holds
 //! the hard break it already round-trips and saves emit the two-space form.
+//! EXP-925: a break with NOTHING in front of it — what web TipTap writes for
+//! each extra Shift+Enter — cannot use the two-space spelling, because that
+//! line is BLANK and the engine ends a block at the first blank line. It gets
+//! an invisible marker instead ([`EMPTY_BREAK_MARKER`]), which
+//! [`restore_blank_line_markers`] writes back as the `\` the contract stores.
 //!
 //! All three transforms are deliberately narrow. Canonical input is returned
 //! byte-identical; code — fenced, indented, or a span — is never touched at
@@ -253,7 +258,7 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
     const MARKER: &str = "&nbsp;";
 
     let lines: Vec<&str> = markdown.split('\n').collect();
-    let mut out: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut out: Vec<Cow<'_, str>> = Vec::with_capacity(lines.len());
     let mut index = 0;
     let mut changed = false;
     let mut fence: Option<(u8, usize)> = None;
@@ -262,13 +267,22 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
             if closes_fence(lines[index], ch, len) {
                 fence = None;
             }
-            out.push(lines[index]);
+            out.push(Cow::Borrowed(lines[index]));
             index += 1;
             continue;
         }
         if !lines[index].is_empty() {
             fence = fence_opener(lines[index]);
-            out.push(lines[index]);
+            // EXP-925: an empty hard-break line goes back to the `\` the
+            // contract stores — the marker is this editor's business and must
+            // never leave it.
+            match empty_break_line(lines[index]) {
+                Some(indent) => {
+                    changed = true;
+                    out.push(Cow::Owned(format!("{indent}\\")));
+                }
+                None => out.push(Cow::Borrowed(lines[index])),
+            }
             index += 1;
             continue;
         }
@@ -285,10 +299,10 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
         {
             changed = true;
             for step in 0..run {
-                out.push(if step % 2 == 0 { "" } else { MARKER });
+                out.push(Cow::Borrowed(if step % 2 == 0 { "" } else { MARKER }));
             }
         } else {
-            out.extend(std::iter::repeat_n("", run));
+            out.extend(std::iter::repeat_n(Cow::Borrowed(""), run));
         }
     }
 
@@ -297,6 +311,22 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
     } else {
         markdown.to_string()
     }
+}
+
+/// EXP-925 — the leading indent of a line that is NOTHING but an empty
+/// hard break ([`EMPTY_BREAK_MARKER`] plus its two-space break), or `None` for
+/// every other line. The indent is kept so a break inside a list item stays
+/// inside it.
+fn empty_break_line(line: &str) -> Option<&str> {
+    let marker = line.find(EMPTY_BREAK_MARKER)?;
+    let indent = &line[..marker];
+    if !indent.chars().all(|ch| ch == ' ' || ch == '\t') {
+        return None;
+    }
+    let rest = &line[marker + EMPTY_BREAK_MARKER.len_utf8()..];
+    rest.chars()
+        .all(|ch| ch == ' ' || ch == '\t' || ch == EMPTY_BREAK_MARKER)
+        .then_some(indent)
 }
 
 /// Whether the blank run `start..end` sits between two indented-code lines.
@@ -508,6 +538,15 @@ fn strip_block_indent(line: &str) -> Option<&str> {
 
 // -- 3. Backslash hard breaks ----------------------------------------------
 
+/// EXP-925 — the invisible stand-in for a hard break that has NO text on its
+/// line. The vendored engine ends a block at the first line whose `trim()` is
+/// empty, so the two-space form alone cannot carry an empty line; a zero-width
+/// space is not whitespace to Rust's `trim` (it is `Cf`, not `White_Space`),
+/// so the line stays part of the paragraph and draws as nothing.
+/// [`restore_blank_line_markers`] writes it back as the `\` the contract
+/// stores, so the marker never reaches another client.
+const EMPTY_BREAK_MARKER: char = '\u{200b}';
+
 /// Rewrite every `\`-at-end-of-line hard break as the two-space form the
 /// vendored engine understands (see the module docs). Returns the input
 /// borrowed when it holds none.
@@ -564,7 +603,19 @@ fn normalize_hard_breaks(markdown: &str) -> Cow<'_, str> {
         {
             Some(offset) => {
                 changed = true;
-                out.push(Cow::Owned(format!("{}  ", &line[..offset])));
+                let prefix = &line[..offset];
+                // EXP-925: a hard break with NOTHING in front of it — what web
+                // TipTap writes for two Shift+Enters in a row — cannot become
+                // `  ` alone: that line is BLANK, and a blank line ends the
+                // block instead of continuing it. It carries the invisible
+                // marker so the engine keeps it inside the paragraph and draws
+                // it as the empty line it is; [`restore_blank_line_markers`]
+                // takes it back out on save.
+                if prefix.trim().is_empty() {
+                    out.push(Cow::Owned(format!("{prefix}{EMPTY_BREAK_MARKER}  ")));
+                } else {
+                    out.push(Cow::Owned(format!("{prefix}  ")));
+                }
             }
             None => out.push(Cow::Borrowed(*line)),
         }
@@ -592,11 +643,10 @@ fn hard_break_backslash(line: &str) -> Option<usize> {
         return None;
     }
     let offset = line.len() - 1;
-    // Nothing but the break on the line: the two-space form would be a blank
-    // line, which ends the block instead of continuing it.
-    if line[..offset].trim().is_empty() {
-        return None;
-    }
+    // EXP-925: nothing but the break on the line is the COMMON shape, not an
+    // edge — web TipTap writes one `\` line per extra Shift+Enter. The caller
+    // gives that line the invisible marker instead of the bare two spaces,
+    // which would read as blank and end the block.
     (!code_span_ranges(line)
         .iter()
         .any(|span| span.contains(&offset)))
@@ -824,6 +874,7 @@ fn strip_matching_quote_markers<'a>(line: &str, next: &'a str) -> &'a str {
 #[cfg(test)]
 mod tests {
     use super::normalize_for_wysiwyg as normalize;
+    use super::restore_blank_line_markers;
 
     #[track_caller]
     fn assert_unchanged(markdown: &str) {
@@ -1063,8 +1114,67 @@ mod tests {
         // Mid-line and non-EOL backslashes are prose.
         assert_unchanged("back\\slash here\nmore");
         assert_unchanged("C:\\Users\\me\nnext line");
-        // A bare break marker would become a blank line and end the block.
-        assert_unchanged("alpha\n\\\nbeta");
+    }
+
+    /// EXP-925 — the shape web TipTap writes for consecutive Shift+Enters: a
+    /// hard break with NOTHING in front of it. It used to be left alone, so
+    /// the reader got a visible `\` on a line of its own; it now carries the
+    /// invisible marker and draws as the empty line it is.
+    #[test]
+    fn an_empty_hard_break_line_becomes_an_empty_line_not_a_backslash() {
+        const ZWSP: &str = "\u{200b}";
+        assert_eq!(normalize("alpha\n\\\nbeta"), format!("alpha\n{ZWSP}  \nbeta"));
+        // The live shape from EXP-924: a line, then two empty breaks.
+        assert_eq!(
+            normalize("line one\\\n\\\nline two"),
+            format!("line one  \n{ZWSP}  \nline two")
+        );
+        assert_eq!(
+            normalize("a\\\n\\\n\\\nb"),
+            format!("a  \n{ZWSP}  \n{ZWSP}  \nb")
+        );
+        // A list item's continuation keeps its indent, so the break stays
+        // inside the item.
+        assert_eq!(
+            normalize("- alpha\\\n  \\\n  beta"),
+            format!("- alpha  \n  {ZWSP}  \n  beta")
+        );
+        // Still nothing to break INTO: a trailing `\` that ends the block is
+        // literal text on every client.
+        assert_unchanged("alpha\n\\");
+        assert_unchanged("alpha\n\\\n\nbeta");
+    }
+
+    /// The marker is this editor's business: every save takes it back out as
+    /// the `\` the contract stores, indent and all.
+    #[test]
+    fn the_empty_break_marker_is_written_back_as_a_backslash() {
+        const ZWSP: &str = "\u{200b}";
+        assert_eq!(
+            restore_blank_line_markers(&format!("a  \n{ZWSP}  \nb")),
+            "a  \n\\\nb"
+        );
+        assert_eq!(
+            restore_blank_line_markers(&format!("- a  \n  {ZWSP}  \n  b")),
+            "- a  \n  \\\n  b"
+        );
+        // A marker the engine trimmed the spaces off still goes back.
+        assert_eq!(restore_blank_line_markers(&format!("a  \n{ZWSP}\nb")), "a  \n\\\nb");
+        // Text beside it is content, not a marker line.
+        let kept = format!("a  \n{ZWSP}x\nb");
+        assert_eq!(restore_blank_line_markers(&kept), kept);
+        // Nothing to do: the input comes back byte-identical.
+        assert_eq!(restore_blank_line_markers("a  \nb"), "a  \nb");
+    }
+
+    /// The pair is a fixpoint: normalize → restore → normalize lands on the
+    /// same bytes, so a description does not drift over repeated saves.
+    #[test]
+    fn the_empty_break_round_trip_is_stable() {
+        let normalized = normalize("line one\\\n\\\nline two");
+        let stored = restore_blank_line_markers(&normalized);
+        assert_eq!(stored, "line one  \n\\\nline two");
+        assert_eq!(normalize(&stored), normalized);
     }
 
     #[test]

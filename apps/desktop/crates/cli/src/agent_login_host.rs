@@ -82,7 +82,10 @@ pub type CodeInbox = Arc<Mutex<HashMap<String, flume::Sender<String>>>>;
 /// The two sentences a code command completes with — the clients show a
 /// failed row's `result` verbatim, and the success line is byte-identical on
 /// the desktop executor (`ui::agent_login`).
-pub const CODE_ENTERED: &str = "Code entered — the machine is finishing the sign-in.";
+///
+/// EXP-940: the success one is the phase the requester is IN — the ×4
+/// `SIGNING_IN` string — not a sentence about a machine finishing something.
+pub const CODE_ENTERED: &str = "Signing in…";
 pub const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
 
 /// EXP-765: run one `agent_login_code` command — type the code into the

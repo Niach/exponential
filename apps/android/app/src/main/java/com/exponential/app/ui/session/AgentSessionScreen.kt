@@ -144,6 +144,7 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.ConfigCommand
 import com.exponential.app.domain.ToolCallSummary
 import com.exponential.app.domain.ExpToolDisplay
+import com.exponential.app.domain.ExpToolGroup
 import com.exponential.app.domain.ExpToolRow
 import com.exponential.app.domain.ToolResultPreview
 import com.exponential.app.domain.ToolGroupSummary
@@ -326,6 +327,12 @@ fun RunFace(
     onOpenIssue: (String) -> Unit,
     /** The bar's right circle — the host's face switcher. */
     trailingBarSlot: @Composable () -> Unit,
+    /**
+     * EXP-931: the same switcher in the expanded composer's control row. The
+     * expanded composer covers the bar, so without this Issue / Changes /
+     * Results become unreachable while it is open.
+     */
+    composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
@@ -1294,6 +1301,7 @@ fun RunFace(
                 hasUsage = hasUsage,
                 onOpenUsage = { usageSheetOpen = true },
                 trailing = trailingBarSlot,
+                switcherSlot = composerSwitcherSlot,
             )
         } else {
             FloatingBottomBar(right = trailingBarSlot) { Spacer(Modifier.weight(1f)) }
@@ -1884,6 +1892,10 @@ private fun ActivityFeed(
                             items = row.items,
                             liveItemId = liveRowId,
                         )
+                        // EXP-948: a run of consecutive calls to ONE of our own
+                        // MCP tools is ONE captioned row ("Read 3 issues") —
+                        // our tools never hide inside "N other tools".
+                        is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items)
                         is AgentFeedRow.SubagentRun -> SubagentGroupRow(
                             run = row,
                             liveTail = live && row.id == rows.last().id,
@@ -3802,13 +3814,15 @@ private fun SubagentGroupRow(
 
 /**
  * EXP-916: one row of a LANE's projection ([projectLaneRows]) — an
- * edited-files card, or the single item's own row. A lane holds no tool runs
- * and no nested subagents, so those never reach here.
+ * edited-files card, a run of our own MCP calls (EXP-948), or the single item's
+ * own row. A lane holds no generic tool runs and no nested subagents, so those
+ * never reach here.
  */
 @Composable
 private fun LaneRow(row: AgentFeedRow, liveItemId: Long?, nested: Boolean = false) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
+        is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
         is AgentFeedRow.Single -> SubagentItemRow(row.item, nested = nested)
         else -> Unit
     }
@@ -4222,6 +4236,53 @@ private fun ToolGroupRow(items: List<AgentFeedItem.Tool>, liveTail: Boolean) {
     }
 }
 
+/**
+ * EXP-948: a run of consecutive calls to ONE of our own MCP tools, as ONE row.
+ * The generic group's fold — chevron, caption, expands to the individual rows —
+ * but under the Exponential mark the single call rows already wear, and
+ * captioned from the contract ("Reading 3 issues" → "Read 3 issues", plus
+ * ` · N failed`): our tools are the most meaningful rows a transcript has, and
+ * a pile of them used to disappear inside "N other tools".
+ */
+@Composable
+private fun ExpToolGroupRow(items: List<AgentFeedItem.Tool>, nested: Boolean = false) {
+    var expanded by remember { mutableStateOf(false) }
+    val caption = remember(items) { ExpToolGroup.expToolGroupCaption(items) }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (nested) Modifier.padding(vertical = 2.dp) else Modifier),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                contentDescription = if (expanded) "Collapse" else "Expand",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            ExponentialMark(size = 12.dp)
+            Text(
+                caption,
+                style = transcriptToolStyle(),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (expanded) {
+            Column(modifier = Modifier.padding(start = 22.dp)) {
+                items.forEach { ToolRow(it, nested = true) }
+            }
+        }
+    }
+}
+
 // Middle-truncate a tool detail (paths etc.) so head AND tail stay readable.
 // (TextOverflow.MiddleEllipsis needs a newer Compose than the pinned BOM.)
 private fun middleTruncate(s: String, max: Int = 72): String {
@@ -4306,6 +4367,18 @@ private fun SteerComposer(
     onOpenUsage: () -> Unit,
     /** The collapsed bar's right circle — the host's face switcher. */
     trailing: @Composable () -> Unit,
+    /**
+     * EXP-931: the SAME face switcher, the composer's size. While this
+     * composer is expanded it covers the work bar, and with it the bar's
+     * switcher circle — so the way to the linked Issue / Changes / Results
+     * moves in here, beside the usage ring, rather than disappearing. Exactly
+     * one of the two is mounted at a time.
+     *
+     * The lambda it is handed reports its MENU's open state: a menu opened
+     * from inside the composer takes focus out of the field, and that must not
+     * collapse the composer under its own open menu.
+     */
+    switcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
 ) {
     // EXP-893: ONE placeholder ×4 (`STEER_COMPOSER_PLACEHOLDER`); typing is
     // always allowed while the stream is down, the message just waits for it
@@ -4324,10 +4397,17 @@ private fun SteerComposer(
     // period, only with an empty draft and no queued image (never lose one),
     // and only while resumed (the photo picker backgrounds the activity).
     var fieldFocused by remember { mutableStateOf(false) }
+    // EXP-931: a menu opened from INSIDE this composer — the model picker, the
+    // inline face switcher — portals itself out and takes focus with it. That
+    // is not the reader leaving the composer, so neither collapse rule below
+    // may fire on it: the trigger would unmount under its own open menu.
+    var innerMenuOpen by remember { mutableStateOf(false) }
+    val innerMenuState = rememberUpdatedState(innerMenuOpen)
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val imeVisibleState = rememberUpdatedState(imeVisible)
     val draftState = rememberUpdatedState(value.text)
     val pendingState = rememberUpdatedState(pendingImages)
+    val workingState = rememberUpdatedState(working)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(expanded) {
         if (!expanded) return@LaunchedEffect
@@ -4340,7 +4420,29 @@ private fun SteerComposer(
             if (!hadFocus || ime) return@collectLatest
             delay(200)
             val empty = draftState.value.isBlank() && pendingState.value.isEmpty()
-            if (empty && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            if (empty && !innerMenuState.value &&
+                lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            ) {
+                onExpandedChange(false)
+            }
+        }
+    }
+    // EXP-931: once the agent picks the turn up, an expanded composer with
+    // nothing in it and nobody typing in it is just a lid over the work bar —
+    // it stands down so the bar, and the face switcher on it, come back. A
+    // focused field, a draft, a pending image or one of this composer's own
+    // menus all keep it open; the moment the reader taps the capsule (or a
+    // draft arrives) it expands again.
+    LaunchedEffect(expanded) {
+        if (!expanded) return@LaunchedEffect
+        snapshotFlow {
+            workingState.value && !fieldFocused && !imeVisibleState.value &&
+                draftState.value.isBlank() && pendingState.value.isEmpty() &&
+                !innerMenuState.value
+        }.collectLatest { idle ->
+            if (!idle) return@collectLatest
+            delay(200)
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                 onExpandedChange(false)
             }
         }
@@ -4380,6 +4482,8 @@ private fun SteerComposer(
                 contextPercent = contextPercent,
                 hasUsage = hasUsage,
                 onOpenUsage = onOpenUsage,
+                switcherSlot = switcherSlot,
+                onMenuOpenChange = { innerMenuOpen = it },
             )
         } else {
             // EXP-893: the folded composer IS the Work screen's bar — the
@@ -4427,6 +4531,10 @@ private fun ExpandedSteerComposer(
     contextPercent: Int?,
     hasUsage: Boolean,
     onOpenUsage: () -> Unit,
+    /** EXP-931: the face switcher, the usage ring's neighbour. */
+    switcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
+    /** EXP-931: this composer's own menus, so the host never collapses under one. */
+    onMenuOpenChange: (Boolean) -> Unit = {},
 ) {
     val canSend = (value.text.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
     // EXP-790: nothing to send and the agent mid-turn — the glyph is a Stop.
@@ -4514,12 +4622,19 @@ private fun ExpandedSteerComposer(
                         GlassPill(
                             modelLabel(model),
                             size = PillSize.Sm,
-                            onClick = { modelMenuOpen = true },
+                            onClick = {
+                                modelMenuOpen = true
+                                // EXP-931: an open menu is not a blur.
+                                onMenuOpenChange(true)
+                            },
                             modifier = Modifier.testTag("steer-model"),
                         )
                         GlassDropdownMenu(
                             expanded = modelMenuOpen,
-                            onDismissRequest = { modelMenuOpen = false },
+                            onDismissRequest = {
+                                modelMenuOpen = false
+                                onMenuOpenChange(false)
+                            },
                         ) {
                             modelChoices.forEach { alias ->
                                 GlassMenuItem(
@@ -4531,6 +4646,7 @@ private fun ExpandedSteerComposer(
                                     },
                                     onClick = {
                                         modelMenuOpen = false
+                                        onMenuOpenChange(false)
                                         if (live && alias != model) onPickModel(alias)
                                     },
                                 )
@@ -4553,6 +4669,9 @@ private fun ExpandedSteerComposer(
                     ContextRing(percent = contextPercent, size = 20.dp)
                 }
             }
+            // EXP-931: the face switcher, the ring's neighbour — the bar it
+            // normally rides is under this composer.
+            switcherSlot?.invoke(onMenuOpenChange)
             ComposerSubmitButton(
                 if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
                 contentDescription = if (stop) "Stop" else "Send",

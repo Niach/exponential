@@ -491,7 +491,13 @@ pub(crate) fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>
         // here too, so a run's Changes bar (which never builds the explicit
         // arm below) offers the recovery run like the review page's does.
         MergeSlot::Merge(target) => {
-            crate::work_header::merge_slot("diff-bar-merge", &target, true, cx)
+            crate::work_header::merge_slot(
+                "diff-bar-merge",
+                &target,
+                true,
+                crate::surface::PillSize::Sm,
+                cx,
+            )
         }
         MergeSlot::FixConflicts {
             issue_id,
@@ -509,6 +515,7 @@ pub(crate) fn render_merge_slot<V: Render>(merge: MergeSlot, cx: &mut Context<V>
                     &target,
                     false,
                     Some(crate::work_header::RETRY_MERGE_LABEL),
+                    crate::surface::PillSize::Sm,
                     cx,
                 )
             });

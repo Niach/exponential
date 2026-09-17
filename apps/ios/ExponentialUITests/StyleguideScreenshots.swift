@@ -358,6 +358,13 @@ final class StyleguideScreenshots: XCTestCase {
             app.staticTexts[Self.demoDeviceName].firstMatch.waitForExistence(timeout: 60),
             "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
         )
+        // EXP-944: device rows are COLLAPSED by default; the shot opens the
+        // demo device so its logins and their usage are in frame.
+        let deviceRow = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'device-row-'"))
+            .firstMatch
+        XCTAssertTrue(deviceRow.waitForExistence(timeout: 30), "No foldable device row")
+        deviceRow.tap()
         // EXP-909: the machine's own logins sit under its row — the subject
         // the retired `sg_usage` shot used to have a section of its own for.
         XCTAssertTrue(

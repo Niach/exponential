@@ -83,6 +83,59 @@ async fn backslash_hard_breaks_reach_the_engine_as_two_space_breaks(cx: &mut Tes
     );
 }
 
+/// EXP-925: two Shift+Enters in a row on the web write a hard break with
+/// NOTHING on its line, and that line used to survive the pre-pass untouched —
+/// so the IDE drew a bare `\` where every other client draws an empty line,
+/// and the vendored serializer then wrote it back ESCAPED (`\\`), turning the
+/// break into a permanent literal backslash on the first desktop save.
+///
+/// The pre-pass now gives such a line the invisible marker (the engine ends a
+/// block at the first line whose `trim()` is empty, so bare spaces could not
+/// carry it) and `restore_blank_line_markers` writes it back as the `\` the
+/// contract stores.
+#[gpui::test]
+async fn an_empty_hard_break_survives_as_an_empty_line(cx: &mut TestAppContext) {
+    let save = |markdown: &str, cx: &mut TestAppContext| {
+        let editor = cx.new(|cx| {
+            MarkdownEditor::from_markdown(cx, normalize_for_wysiwyg(markdown), None)
+        });
+        let saved = editor.update(cx, |editor, cx| editor.markdown(cx));
+        super::restore_blank_line_markers(&saved)
+    };
+
+    // The live EXP-924 shape. It stays ONE paragraph with an empty line in it,
+    // and what comes back out is a hard break, never a visible backslash.
+    for stored in [
+        "line one\\\n\\\nline two",
+        "a\\\n\\\n\\\nb",
+        "- alpha\\\n  \\\n  beta",
+    ] {
+        // The engine never sees a backslash-newline…
+        let normalized = normalize_for_wysiwyg(stored);
+        assert!(
+            !normalized.contains("\\\n") && !normalized.ends_with('\\'),
+            "a literal backslash reached the engine for {stored:?}: {normalized:?}"
+        );
+        // …and the marker never leaves it.
+        let saved = save(stored, cx);
+        assert!(
+            !saved.contains('\u{200b}'),
+            "the marker leaked into the save for {stored:?}: {saved:?}"
+        );
+        assert!(
+            !saved.contains("\\\\"),
+            "the break was escaped into a literal backslash for {stored:?}: {saved:?}"
+        );
+        // The empty line is still there, as the `\` line the contract stores.
+        assert!(
+            saved.lines().any(|line| line.trim() == "\\"),
+            "the empty line was dropped for {stored:?}: {saved:?}"
+        );
+        // …and the form it now stores is a fixpoint.
+        assert_eq!(save(&saved, cx), saved, "not a fixpoint: {saved:?}");
+    }
+}
+
 /// EXP-322: chip TITLES are display-only. They are injected into the string
 /// the editor shapes, never into the document — so a decorator that decorates
 /// EVERY token with a long title must leave the serialized bytes untouched.

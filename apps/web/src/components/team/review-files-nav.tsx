@@ -22,10 +22,14 @@ export function ReviewFilesNav({ teamSlug }: { teamSlug: string }) {
   const slot = useReviewFilesSlot()
   return (
     <>
+      {/* EXP-945: the run's Changes face names its own way back (the Run
+          face); a review falls back to the Reviews queue. */}
       <SidebarBackRow
-        label="Reviews"
+        label={slot?.back?.label ?? `Reviews`}
         onBack={() =>
-          void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
+          slot?.back
+            ? slot.back.onBack()
+            : void navigate({ to: `/t/$teamSlug/reviews`, params: { teamSlug } })
         }
       />
       <div
@@ -46,8 +50,8 @@ export function ReviewFilesNav({ teamSlug }: { teamSlug: string }) {
           </div>
         ) : (
           <FileDiffTree
-            // Re-keyed per review so the folds and the filter start fresh.
-            key={slot.issueId}
+            // Re-keyed per subject so the folds and the filter start fresh.
+            key={slot.subjectId}
             files={slot.files}
             selected={slot.selected}
             onSelect={slot.onSelect}

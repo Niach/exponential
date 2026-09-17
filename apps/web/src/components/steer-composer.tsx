@@ -101,6 +101,11 @@ export interface SteerComposerProps {
   /** EXP-877: the footer's trailing slot — the caller mounts the context ring
    *  inside its own usage popover here (`components/context-ring.tsx`). */
   usageSlot?: ReactNode
+  /** EXP-931: the phone's FACE SWITCHER, beside the usage ring. While this
+   *  composer is expanded it covers the work bar, and with it the bar's
+   *  switcher circle — so the way to the linked Issue / Changes / Results
+   *  moves in here rather than disappearing. Absent on md+. */
+  switcherSlot?: ReactNode
   /** EXP-893: the phone expands this composer out of a capsule — focus the
    *  field on mount. */
   autoFocus?: boolean
@@ -109,6 +114,14 @@ export interface SteerComposerProps {
    *  bar collapses back to its capsule on this (the draft lives in the store,
    *  so collapsing never loses text anyway). */
   onEmptyBlur?: () => void
+}
+
+/** EXP-931: a menu opened from INSIDE the composer (the model picker, the
+ *  inline face switcher) portals its content out of the root and takes focus
+ *  with it. That is not the reader leaving the composer, so it must not
+ *  collapse it: the trigger would unmount under its own open menu. */
+function hasOpenPopup(root: HTMLElement): boolean {
+  return root.querySelector(`[aria-haspopup][data-state="open"]`) !== null
 }
 
 export function SteerComposer({
@@ -121,6 +134,7 @@ export function SteerComposer({
   config,
   users,
   usageSlot,
+  switcherSlot,
   autoFocus = false,
   onEmptyBlur,
 }: SteerComposerProps) {
@@ -288,6 +302,7 @@ export function SteerComposer({
       if (!root) return
       const active = document.activeElement
       if (active && root.contains(active)) return
+      if (hasOpenPopup(root)) return
       if (filePickerOpenRef.current) return
       if (menu.open || confirming !== null) return
       const draft = store.getDraftSnapshot()
@@ -295,6 +310,26 @@ export function SteerComposer({
       onEmptyBlur()
     })
   }
+
+  // EXP-931: once the agent picks the turn up, an expanded composer with
+  // nothing in it and nobody typing in it is just a lid over the work bar —
+  // it stands down so the bar (and the face switcher on it) come back. A
+  // focused field, a draft or a pending image all keep it open; the moment
+  // either returns, the caller expands it again.
+  useEffect(() => {
+    if (!working || !onEmptyBlur) return
+    const root = rootRef.current
+    if (!root) return
+    const active = document.activeElement
+    if (active && root.contains(active)) return
+    if (hasOpenPopup(root)) return
+    if (filePickerOpenRef.current || menu.open || confirming !== null) return
+    const draft = store.getDraftSnapshot()
+    if (draft.text.trim().length > 0 || draft.images.length > 0) return
+    onEmptyBlur()
+    // `text`/`pendingImages` are the draft's rendered shape: the effect has to
+    // re-judge when the field empties out (a send) while the agent works.
+  }, [working, onEmptyBlur, menu.open, confirming, store, text, pendingImages])
 
   return (
     <div ref={rootRef} onBlur={handleBlur} data-testid="steer-composer">
@@ -452,6 +487,9 @@ export function SteerComposer({
               />
             ))}
           {usageSlot}
+          {/* EXP-931: the face switcher, the ring's neighbour — the bar it
+              normally rides is under this composer. */}
+          {switcherSlot}
         </div>
       </div>
       {/* EXP-724: `/clear` throws the conversation away, and the

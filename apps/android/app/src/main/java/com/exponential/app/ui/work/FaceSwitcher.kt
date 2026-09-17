@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +57,7 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
+import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-893: the Work screen's bottom-right circle — the face SWITCHER. With one
 // target it wears that destination's glyph and switches on tap; with two or
@@ -63,9 +66,20 @@ import com.exponential.app.ui.theme.Motion
 // and a green "changes are waiting" dot on it (`switcherBadge`).
 
 /**
+ * EXP-931: where the switcher is standing.
+ *
+ * [Circle] is the work bar's glass circle. [Inline] is the EXPANDED composer's
+ * control row, beside the usage ring and wearing exactly the ring's chrome:
+ * while that composer is open it covers the bar, and with it the bar's
+ * switcher — so the way to Issue / Changes / Results moves in there rather
+ * than disappearing. Exactly ONE of the two is ever mounted.
+ */
+enum class FaceSwitcherVariant { Circle, Inline }
+
+/**
  * The circle plus its menu. [runs] are the issue's own runs (EXP-886) the
  * menu names as `<device> · <when>` rows; [shownRunId] gets the check;
- * [diffStats] trails the Changes row with `+A -D` when the diff is a live one.
+ * [diffStats] trails the Changes row with `+A −D` when the diff is a live one.
  */
 @Composable
 fun FaceSwitcher(
@@ -78,9 +92,21 @@ fun FaceSwitcher(
     diffStats: Diff.Totals?,
     onPick: (SwitcherTarget) -> Unit,
     modifier: Modifier = Modifier,
+    variant: FaceSwitcherVariant = FaceSwitcherVariant.Circle,
+    /**
+     * EXP-931: the menu's open state, for a host that has to know. The
+     * expanded composer collapses itself once nobody is typing in it, and a
+     * menu opened from INSIDE it takes focus with it — which is not the reader
+     * leaving, so the trigger must not unmount under its own open menu.
+     */
+    onMenuOpenChange: (Boolean) -> Unit = {},
 ) {
     if (mode is SwitcherMode.Hidden) return
     var menuOpen by remember { mutableStateOf(false) }
+    val setMenuOpen: (Boolean) -> Unit = { open ->
+        menuOpen = open
+        onMenuOpenChange(open)
+    }
     val glyph: ImageVector = when (mode) {
         is SwitcherMode.Toggle -> targetGlyph(mode.target)
         is SwitcherMode.Menu -> if (menuOpen) ExpIcons.uiClose else ExpIcons.workFaces
@@ -90,55 +116,72 @@ fun FaceSwitcher(
         is SwitcherMode.Toggle -> targetLabel(mode.target)
         else -> if (menuOpen) "Close" else "Switch face"
     }
-    Box(modifier = modifier) {
-        BarCircle(
-            onClick = {
-                when (mode) {
-                    is SwitcherMode.Toggle -> onPick(mode.target)
-                    is SwitcherMode.Menu -> menuOpen = !menuOpen
-                    SwitcherMode.Hidden -> Unit
-                }
-            },
-            modifier = Modifier.testTag("work-face-switcher"),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                val reduceMotion = LocalReduceMotion.current
-                AnimatedContent(
-                    targetState = glyph,
-                    transitionSpec = {
-                        val spec = Motion.standard<Float>(reduceMotion)
-                        fadeIn(spec) togetherWith fadeOut(spec)
-                    },
-                    label = "face-switcher-glyph",
-                ) { icon ->
-                    Icon(
-                        icon,
-                        contentDescription = description,
-                        modifier = Modifier.size(22.dp),
-                        tint = Color.White,
-                    )
-                }
-                if (badge != null && !menuOpen) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 3.dp, y = (-3).dp)
-                            // The dot rides its own opaque disc so it stays
-                            // legible where it overlaps the glyph.
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(GlassTokens.OpaqueCardFill),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        BadgeDot(badge, busy = badgeBusy)
-                    }
+    val inline = variant == FaceSwitcherVariant.Inline
+    val onClick: () -> Unit = {
+        when (mode) {
+            is SwitcherMode.Toggle -> onPick(mode.target)
+            is SwitcherMode.Menu -> setMenuOpen(!menuOpen)
+            SwitcherMode.Hidden -> Unit
+        }
+    }
+    // EXP-931: the composer's control row is 20dp glyphs (the usage ring is),
+    // the bar's is the glass circle's 22dp on white.
+    val tint = if (inline) {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    } else {
+        Color.White
+    }
+    val content: @Composable () -> Unit = {
+        Box(contentAlignment = Alignment.Center) {
+            val reduceMotion = LocalReduceMotion.current
+            AnimatedContent(
+                targetState = glyph,
+                transitionSpec = {
+                    val spec = Motion.standard<Float>(reduceMotion)
+                    fadeIn(spec) togetherWith fadeOut(spec)
+                },
+                label = "face-switcher-glyph",
+            ) { icon ->
+                Icon(
+                    icon,
+                    contentDescription = description,
+                    modifier = Modifier.size(if (inline) 20.dp else 22.dp),
+                    tint = tint,
+                )
+            }
+            if (badge != null && !menuOpen) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 3.dp, y = (-3).dp)
+                        // The dot rides its own opaque disc so it stays
+                        // legible where it overlaps the glyph.
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(GlassTokens.OpaqueCardFill),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    BadgeDot(badge, busy = badgeBusy)
                 }
             }
+        }
+    }
+    Box(modifier = modifier) {
+        if (inline) {
+            IconButton(
+                onClick = onClick,
+                modifier = Modifier.testTag("work-face-switcher"),
+            ) { content() }
+        } else {
+            BarCircle(
+                onClick = onClick,
+                modifier = Modifier.testTag("work-face-switcher"),
+            ) { content() }
         }
         if (mode is SwitcherMode.Menu) {
             GlassDropdownMenu(
                 expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
+                onDismissRequest = { setMenuOpen(false) },
             ) {
                 mode.targets.forEach { target ->
                     SwitcherRow(
@@ -147,7 +190,7 @@ fun FaceSwitcher(
                         shownRunId = shownRunId,
                         diffStats = diffStats,
                         onClick = {
-                            menuOpen = false
+                            setMenuOpen(false)
                             onPick(target)
                         },
                     )
@@ -155,6 +198,9 @@ fun FaceSwitcher(
             }
         }
     }
+    // A switcher that leaves while its menu is open must not strand the host
+    // in "a menu is up" — the state goes with it.
+    DisposableEffect(Unit) { onDispose { onMenuOpenChange(false) } }
 }
 
 @Composable

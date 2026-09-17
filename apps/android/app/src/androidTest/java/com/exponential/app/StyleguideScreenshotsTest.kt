@@ -348,6 +348,10 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasTestTag("tab-devices")).performClick()
         flow.waitFor(hasText("Devices"), NAV_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
+        // EXP-944: device rows are collapsed by default; the shot opens the
+        // demo device so its logins and their usage are in frame.
+        composeRule.onAllNodes(hasText(DEMO_DEVICE_NAME, substring = true)).onFirst().performClick()
+        flow.waitFor(hasTestTag("device-login-row"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
 
@@ -407,7 +411,12 @@ class StyleguideScreenshotsTest {
         // EXP-909 follow-up: the gear IS the row's only control (the ⋯ menu
         // and its "Device settings" entry are gone ×4), and Update and Remove
         // are sections inside the sheet it opens.
-        composeRule.onAllNodes(hasTestTag("device-settings-button")).onFirst().performClick()
+        // EXP-944: the machine line is a tap target now, so it merges its
+        // descendants' semantics; the gear is looked up in the UNMERGED tree.
+        composeRule
+            .onAllNodes(hasTestTag("device-settings-button"), useUnmergedTree = true)
+            .onFirst()
+            .performClick()
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")

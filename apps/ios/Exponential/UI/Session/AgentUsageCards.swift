@@ -102,6 +102,11 @@ struct UsageWindows: View {
 /// Android `AgentUsageMini`.
 struct AgentUsageMini: View {
     let usage: AgentUsage?
+    /// EXP-944: pass a clock and the 5h and Week bars caption themselves with
+    /// when they reset (`resets in 2h 14m`, the wording every client shares).
+    /// Omitted = bars only, which is what the tight surfaces (the usage
+    /// sheet's other accounts, the account picker's preview) want.
+    var now: Date?
 
     private var windows: [UsageMiniWindow] {
         AgentUsagePresentation.miniWindows(usage)
@@ -110,28 +115,43 @@ struct AgentUsageMini: View {
     @ViewBuilder
     var body: some View {
         if !windows.isEmpty {
-            HStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
                 ForEach(windows) { window in
-                    HStack(spacing: 4) {
-                        Text(window.label)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                        AgentUsageTrack(
-                            percent: window.percent,
-                            severity: AgentUsagePresentation.severity(window.percent),
-                            height: 4
-                        )
-                        .frame(width: 24)
-                        Text(window.percent.map { "\(Int($0.rounded()))%" } ?? "—")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    VStack(spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(window.label)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(1)
+                            AgentUsageTrack(
+                                percent: window.percent,
+                                severity: AgentUsagePresentation.severity(window.percent),
+                                height: 4
+                            )
+                            .frame(width: 24)
+                            Text(window.percent.map { "\(Int($0.rounded()))%" } ?? "—")
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        }
+                        // Centred under its own bar, and only where there is a
+                        // reset to name (`miniWindowReset`).
+                        if let reset = resetCaption(window) {
+                            Text(reset)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                                .lineLimit(1)
+                        }
                     }
                 }
                 Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)
         }
+    }
+
+    private func resetCaption(_ window: UsageMiniWindow) -> String? {
+        guard let now else { return nil }
+        return AgentUsagePresentation.miniWindowReset(window, now: now)
     }
 }
 

@@ -38,9 +38,13 @@ export function ActionPickerList({
   onSelect: (actionId: string) => void
 }) {
   return (
-    <Command>
+    // EXP-946: shrinks with its host, like the issue picker beside it.
+    <Command className="min-h-0 flex-1">
       <CommandInput placeholder="Search actions" />
-      <CommandList data-testid="agent-composer-actions-picker">
+      <CommandList
+        data-testid="agent-composer-actions-picker"
+        className="min-h-0 flex-1"
+      >
         {actions === null ? (
           <div className="px-3 py-3 text-sm text-foreground/70">Loading…</div>
         ) : (
@@ -108,9 +112,12 @@ export function ActionPicker({
       <MobilePopoverTrigger asChild disabled={disabled}>
         {children}
       </MobilePopoverTrigger>
+      {/* EXP-946: capped to the space its side has, so it never runs off the
+          top of the window. */}
       <MobilePopoverContent
-        className="w-[20rem] p-0"
+        className="flex max-h-(--radix-popover-content-available-height) w-[20rem] flex-col overflow-hidden p-0"
         align="start"
+        collisionPadding={12}
         mobileTitle="Actions"
       >
         <ActionPickerList

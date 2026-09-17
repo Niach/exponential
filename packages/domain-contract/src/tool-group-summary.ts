@@ -18,6 +18,10 @@
 // - Only the first character of the whole caption is capitalised.
 // - Every call `think`/`switch_mode`/`other` → `Used N tools` (plus
 //   ` · N failed`); no calls at all → `No tool calls`.
+// - EXP-948: a call to one of OUR OWN MCP tools never reaches this caption at
+//   all — it breaks the run and takes its own row or its own captioned group
+//   (`exp-tool-group.ts`), so no Exponential call is ever counted as
+//   "N other tools".
 
 export interface ToolCallSummary {
   kind: string

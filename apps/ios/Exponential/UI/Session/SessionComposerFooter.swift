@@ -8,9 +8,12 @@ import SwiftUI
 /// spacer · the model pill (the session's `model` config option; picking one
 /// SENDS `/model <alias>` as a plain message, EXP-877; codex gets a plain
 /// label; hidden when the engine reported no model) · the usage ring, which
-/// opens the Usage sheet. Rides `GlassComposer`'s `tools:` slot, so the send
-/// button stays the card's own.
-struct SessionComposerFooter: View {
+/// opens the Usage sheet · EXP-931: on the phone the FACE SWITCHER, the ring's
+/// neighbour — this composer covers the work bar the switcher circle rides, so
+/// the way to the linked Issue / Changes / Results moves in here rather than
+/// disappearing. Rides `GlassComposer`'s `tools:` slot, so the send button
+/// stays the card's own.
+struct SessionComposerFooter<Switcher: View>: View {
     let planModeActive: Bool
     let attachEnabled: Bool
     let onAttach: () -> Void
@@ -22,6 +25,8 @@ struct SessionComposerFooter: View {
     let usageFraction: Double?
     let usageSeverity: AgentUsageSeverity
     let onUsage: () -> Void
+    /// EXP-931: the screen's ONE switcher, wearing this row's chrome.
+    @ViewBuilder let switcher: () -> Switcher
 
     var body: some View {
         Text(AgentFeed.planModeFooterLabel)
@@ -57,6 +62,11 @@ struct SessionComposerFooter: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Usage")
         .accessibilityIdentifier("session-context-ring")
+
+        // EXP-931: the face switcher, the ring's neighbour — the bar it
+        // normally rides is under this composer.
+        switcher()
+            .environment(\.workFaceSwitcherVariant, .inline)
     }
 
     @ViewBuilder

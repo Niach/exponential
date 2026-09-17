@@ -37,6 +37,7 @@ import com.exponential.app.domain.activeQuestionIds
 import com.exponential.app.domain.availableFaces
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingTarget
+import com.exponential.app.domain.faceShowsContextMenu
 import com.exponential.app.domain.fallbackFace
 import com.exponential.app.domain.groupSessionResults
 import com.exponential.app.domain.isSessionLive
@@ -45,6 +46,7 @@ import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.switcherBadge
 import com.exponential.app.domain.switcherMode
 import com.exponential.app.domain.switcherTargets
+import com.exponential.app.ui.issue.ChangesLoadState
 import com.exponential.app.ui.issue.ChangesViewModel
 import com.exponential.app.ui.issue.CommentThreadViewModel
 import com.exponential.app.ui.issue.IssueDetailViewModel
@@ -53,6 +55,7 @@ import com.exponential.app.ui.issue.IssueMenuActions
 import com.exponential.app.ui.issue.StartButtonUi
 import com.exponential.app.ui.issue.StartCircle
 import com.exponential.app.ui.issue.rememberIssueFaceController
+import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.RunFace
@@ -185,7 +188,6 @@ fun WorkScreen(
     // EXP-895: the raw `git diff` is parsed ONCE here — the Changes face draws
     // the files, the switcher row shows their totals.
     val parsedDiff = remember(latestDiff) { latestDiff?.let { Diff.parse(it) } }
-    val diffStats = remember(parsedDiff) { parsedDiff?.let { Diff.totals(it.files) } }
 
     // EXP-773/849: a Resume or an account switch lands a NEW row — the
     // continuation swaps into the same screen in place.
@@ -204,6 +206,35 @@ fun WorkScreen(
     // shown run's OWN issue-less one (EXP-734). It wears the header's action
     // slot now, because the bar's leading slot opens the changed-files sheet.
     val changesPrUrl = (issue?.prUrl ?: shownSession?.prUrl)?.takeIf { it.isNotBlank() }
+    // EXP-932: source B — the issue's open PR files, read only when there is
+    // no live diff to draw. It is resolved HERE, not inside the Changes face,
+    // because the switcher has to count the very files that face draws: it
+    // used to read the live diff alone, so its `+A −D` and the face's own
+    // summary could report different numbers for the same run (web's
+    // `changesFiles` / `changesStats`).
+    val changesVm: ChangesViewModel? = if (hasChanges && latestDiff == null && issueId != null) {
+        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
+            key = "changes:$issueId",
+        ) { factory -> factory.create(issueId) }
+    } else {
+        null
+    }
+    val prLoad by (changesVm?.load ?: remember { MutableStateFlow<ChangesLoadState?>(null) })
+        .collectAsStateWithLifecycle()
+    // The ONE list — both sources land in the shared model, exactly as the
+    // Reviews page does it.
+    val changesFiles: List<Diff.File> = remember(parsedDiff, prLoad) {
+        val load = prLoad
+        when {
+            parsedDiff != null -> parsedDiff.files
+            load is ChangesLoadState.Loaded -> load.files.map { it.toDiffFile() }
+            else -> emptyList()
+        }
+    }
+    // The switcher's `+A −M`: both halves, off the same files, or nothing.
+    val diffStats = remember(changesFiles) {
+        changesFiles.takeIf { it.isNotEmpty() }?.let { Diff.totals(it) }
+    }
     // EXP-879: the run's published screenshots, parsed off the synced blob.
     // Results is a SUB-FACE of Run — no shown run, no results — which the
     // `shownSession` read gives for free.
@@ -258,6 +289,17 @@ fun WorkScreen(
     val mode = switcherMode(targets)
     val dotTone = sessionDotTone(shownSession, issue?.prState, liveClock, awaitingInput)
     val badge = switcherBadge(face, dotTone, hasChanges)
+    val pickTarget: (SwitcherTarget) -> Unit = { target ->
+        when (target) {
+            is SwitcherTarget.Face -> faceName = target.face.name
+            is SwitcherTarget.Run -> {
+                shownSessionId = target.id
+                pinnedByUser = true
+                faceName = WorkFaceKind.Run.name
+            }
+            SwitcherTarget.StartCoding -> startCoding()
+        }
+    }
     val trailingSlot: @Composable () -> Unit = {
         if (mode !is SwitcherMode.Hidden) {
             FaceSwitcher(
@@ -267,17 +309,7 @@ fun WorkScreen(
                 runs = issueRuns,
                 shownRunId = shownSessionId,
                 diffStats = diffStats,
-                onPick = { target ->
-                    when (target) {
-                        is SwitcherTarget.Face -> faceName = target.face.name
-                        is SwitcherTarget.Run -> {
-                            shownSessionId = target.id
-                            pinnedByUser = true
-                            faceName = WorkFaceKind.Run.name
-                        }
-                        SwitcherTarget.StartCoding -> startCoding()
-                    }
-                },
+                onPick = pickTarget,
             )
         } else if (startUi != null && shownSessionId == null) {
             StartCircle(ui = startUi, onClick = { startCoding() })
@@ -285,6 +317,29 @@ fun WorkScreen(
             Spacer(Modifier.size(0.dp))
         }
     }
+    // EXP-931: the SAME switcher, the composer's size — it moves INTO the
+    // expanded composer's control row (beside the usage ring) because the
+    // composer covers the bar the circle rides on. The composer mounts this
+    // only while it is expanded and drops the bar's own circle then, so
+    // exactly one of the two is ever on screen.
+    val composerSwitcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? =
+        if (mode is SwitcherMode.Hidden) {
+            null
+        } else {
+            { onMenuOpenChange ->
+                FaceSwitcher(
+                    mode = mode,
+                    badge = badge,
+                    badgeBusy = shownSession?.agentBusy == true,
+                    runs = issueRuns,
+                    shownRunId = shownSessionId,
+                    diffStats = diffStats,
+                    onPick = pickTarget,
+                    variant = FaceSwitcherVariant.Inline,
+                    onMenuOpenChange = onMenuOpenChange,
+                )
+            }
+        }
 
     // ── The ended edge (EXP-696) ───────────────────────────────────────────
     // An issue-bound subject stays on screen (the pill flips Stop → Resume,
@@ -316,6 +371,8 @@ fun WorkScreen(
     val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
+    // EXP-930: the pool the overlay names its run rows from.
+    val graphIssues by graphVm.issues.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
@@ -357,7 +414,12 @@ fun WorkScreen(
                         { GithubHeaderAction(url) }
                     },
                     badge = { PrGraphBadge(graph) { graphSheetOpen = true } },
-                    menu = if (issueVm != null) {
+                    // EXP-934: the `…` belongs to the ISSUE, so it shows on the
+                    // Issue face alone (`faceShowsContextMenu`) — Run, Changes
+                    // and Results keep only the run's own verb. A Delete issue
+                    // beside a running agent acts on a subject that face is not
+                    // even showing.
+                    menu = if (issueVm != null && faceShowsContextMenu(face)) {
                         { IssueMenuActions(viewModel = issueVm, controller = issueController) }
                     } else {
                         null
@@ -389,18 +451,11 @@ fun WorkScreen(
                             padding = padding,
                             onOpenIssue = onOpenIssue,
                             trailingBarSlot = trailingSlot,
+                            composerSwitcherSlot = composerSwitcherSlot,
                         )
                     }
                 }
                 WorkFaceKind.Changes -> key(shownSessionId) {
-                    // Source B only when there is no live diff to show.
-                    val changesVm: ChangesViewModel? = if (latestDiff == null && issueId != null) {
-                        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(
-                            key = "changes:$issueId",
-                        ) { factory -> factory.create(issueId) }
-                    } else {
-                        null
-                    }
                     val changesMerging by (changesVm?.merging ?: remember { MutableStateFlow(false) })
                         .collectAsStateWithLifecycle()
                     val changesError by (changesVm?.actionError ?: remember { MutableStateFlow(null) })
@@ -468,8 +523,9 @@ fun WorkScreen(
                     }
                     ChangesFace(
                         padding = padding,
-                        diff = parsedDiff,
-                        changesViewModel = changesVm,
+                        // EXP-932: the files the switcher just counted.
+                        files = changesFiles,
+                        prLoad = prLoad,
                         merge = merge,
                         trailingBarSlot = trailingSlot,
                     )
@@ -488,6 +544,7 @@ fun WorkScreen(
         PrGraphSheet(
             graph = graph,
             face = face,
+            issues = graphIssues,
             nowMs = liveClock,
             merging = graphMerging,
             mergeError = graphMergeError,

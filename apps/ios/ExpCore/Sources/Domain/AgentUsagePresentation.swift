@@ -384,6 +384,18 @@ public enum AgentUsagePresentation {
         return "resets in \(minutes)m"
     }
 
+    /// EXP-944: the reset caption UNDER one mini bar, or nil for no caption —
+    /// web `agent-usage-mini.tsx` `windowReset`. Only the two WINDOWS carry
+    /// one: the per-model bar (`model:…`, "Fable") rides the weekly window's
+    /// reset, so repeating it would say the same time twice. A window with no
+    /// `resetsAt` (or an unreadable one) captions nothing.
+    public static func miniWindowReset(
+        _ window: UsageMiniWindow, now: Date = Date()
+    ) -> String? {
+        guard window.key == sessionWindowKey || window.key == weeklyWindowKey else { return nil }
+        return resetCountdown(resetsAt: window.resetsAt, now: now)
+    }
+
     /// EXP-804: the one-line badge for a run's usage wall — `Rate limited ·
     /// resets in 2h`, or bare `Rate limited` when the agent named no reset
     /// time. Nil when the run is not blocked.

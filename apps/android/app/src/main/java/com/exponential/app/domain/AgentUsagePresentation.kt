@@ -263,6 +263,18 @@ object AgentUsagePresentation {
     const val GROUP_WEEKLY = "weekly"
     const val GROUP_OTHER = "other"
 
+    /**
+     * EXP-944: the reset caption under ONE mini bar, or null when that bar
+     * carries none. Only the two WINDOWS get one: the per-model bar (`model:…`,
+     * "Fable") rides the weekly window's reset, so repeating it would print the
+     * same time twice, and a window the agent reported no `resetsAt` for says
+     * nothing at all. Byte-identical ×4 (web `windowReset`).
+     */
+    fun miniWindowReset(window: UsageMiniWindow, nowMs: Long): String? {
+        if (window.key != WINDOW_SESSION && window.key != WINDOW_WEEKLY) return null
+        return resetCountdown(window.resetsAt, nowMs)
+    }
+
     /** How many windows the mini form ever shows. */
     private const val MINI_WINDOW_CAP = 3
 

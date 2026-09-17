@@ -664,9 +664,16 @@ export function DeviceSettingsDialog({
             is a FIXED 20rem (the IDE's 320px) rather than a flex share, so a
             wider panel widens the settings column (its pickers and account
             line are what need the room); a mono `repo branch` path truncates.
-            Below `sm` the grid collapses back to the stacked phone sheet. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_20rem] sm:gap-5 sm:overflow-y-visible">
-          <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+            Below `sm` the grid collapses back to the stacked phone sheet.
+            EXP-939: the grid needs an explicit `minmax(0,1fr)` ROW — an
+            implicit `auto` row sizes to its content, so the columns never got
+            a height to scroll inside and the panel simply clipped the last
+            rows (the agent card's Plan mode). Each column's own children keep
+            their natural height (`*:shrink-0`); without that the flex column
+            squeezed every group instead, and a group is `overflow-hidden`, so
+            a fifth shared team was cut off with nothing to scroll. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_20rem] sm:grid-rows-[minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
+          <div className="flex shrink-0 flex-col gap-2 *:shrink-0 sm:min-h-0 sm:shrink sm:overflow-y-auto">
             {/* ── Name ─────────────────────────────────────────────────── */}
             <GlassGroup>
               <GlassInputRow
@@ -726,7 +733,11 @@ export function DeviceSettingsDialog({
               <>
                 <GlassSectionHeader label="Sharing" />
                 {teams.length > 0 ? (
-                  <GlassGroup>
+                  /* EXP-939: a long roster scrolls INSIDE the group instead of
+                     pushing the agent card off the column — the axes are named
+                     explicitly so the group's own `overflow-hidden` only keeps
+                     clipping sideways. */
+                  <GlassGroup className="max-h-56 *:shrink-0 overflow-x-hidden overflow-y-auto">
                     {teams.map((team) => (
                       <GlassToggleRow
                         key={team.id}
@@ -818,7 +829,7 @@ export function DeviceSettingsDialog({
           </div>
 
           {/* ── Worktrees (reported inventory + durable commands) ─────── */}
-          <div className="flex shrink-0 flex-col gap-2 sm:min-h-0 sm:shrink sm:overflow-y-auto">
+          <div className="flex shrink-0 flex-col gap-2 *:shrink-0 sm:min-h-0 sm:shrink sm:overflow-y-auto">
             <GlassSectionHeader
               label="Worktrees"
               trailing={

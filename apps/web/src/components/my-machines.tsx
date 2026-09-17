@@ -38,6 +38,7 @@ import {
   LiveDot,
 } from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
+import { cn } from "@/lib/utils"
 import {
   describeUpdateBlockers,
   deviceCanRefreshUsage,
@@ -78,6 +79,9 @@ const AddIcon = conceptIcon(`ui-add`)
 const SettingsIcon = conceptIcon(`nav-settings`)
 const CopyIcon = conceptIcon(`ui-copy`)
 const CheckIcon = conceptIcon(`ui-check`)
+// EXP-944: the fold chevron — the same affordance the session tree uses.
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
+const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 
 /** FEED-36: the caller's LIVE sessions per machine (`running`/`in_review`
  * off the synced coding_sessions shape), with the issue identifier joined
@@ -198,6 +202,19 @@ export function MyMachines({
 }) {
   const [addServerOpen, setAddServerOpen] = useState(false)
   const [settingsTargetId, setSettingsTargetId] = useState<string | null>(null)
+  // EXP-944: devices COLLAPSE. The list answers "which machines do I have and
+  // are they up" first; a machine's logins, their usage bars and its "Add
+  // account" are the second question, and three machines' worth of them made
+  // the first one unreadable. Session-only state: a fold is not a setting.
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const toggleExpanded = (deviceId: string) =>
+    setExpandedIds((current) => {
+      const next = new Set(current)
+      if (!next.delete(deviceId)) next.add(deviceId)
+      return next
+    })
   // EXP-909: 30 s, not the default minute — the login rows under each device
   // age their "as of …" captions on this clock, and so does the refresh loop.
   const now = useNow(30_000)
@@ -325,96 +342,130 @@ export function MyMachines({
             const healthBadge = healthBadgeLabel(
               deviceWorstHealth({ agentAccounts: device.agentAccounts }) ?? `ok`
             )
+            const expanded = expandedIds.has(device.deviceId)
             return (
-              <ListRow
+              <div
                 key={device.deviceId}
-                interactive
-                // `group` = the hover scope the trailing gear fades in on.
-                className={`group${online && !runnable ? ` opacity-60` : ``}`}
+                className={cn(
+                  `flex flex-col`,
+                  online && !runnable && `opacity-60`
+                )}
               >
-                <KindIcon className="size-4 shrink-0 text-foreground/70" />
-                {/* FEED-15: the native two-line row — name + version (+ Shared)
-                    on top, live/last-seen state beneath, the gear trailing. */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-baseline gap-1.5">
-                    <span className="min-w-0 truncate text-sm font-medium">
-                      {device.deviceLabel || device.deviceId}
-                    </span>
-                    {device.version && (
-                      <span
-                        className={`shrink-0 text-[10px] ${
-                          outdated
-                            ? `text-amber-500`
-                            : `text-muted-foreground/60`
-                        }`}
-                        title={
-                          outdated ? `Update available: ${latest}` : undefined
-                        }
-                      >
-                        v{device.version}
-                      </span>
+                <ListRow
+                  interactive
+                  aria-expanded={expanded}
+                  onClick={() => toggleExpanded(device.deviceId)}
+                  data-testid={`device-row-${device.deviceId}`}
+                  // `group` = the hover scope the trailing gear fades in on.
+                  className="group gap-2"
+                >
+                  {/* EXP-944: the whole row folds, so the chevron is an
+                      affordance, not a second target. */}
+                  <span
+                    aria-hidden
+                    className="flex shrink-0 items-center justify-center text-muted-foreground"
+                  >
+                    {expanded ? (
+                      <ChevronDownIcon className="size-3" />
+                    ) : (
+                      <ChevronRightIcon className="size-3" />
                     )}
-                    {device.isDefault && (
-                      <span
-                        className="shrink-0 text-muted-foreground"
-                        title={`Your default device — preselected when you start a coding session.`}
-                        aria-label="Default device"
+                  </span>
+                  <KindIcon className="size-4 shrink-0 text-foreground/70" />
+                  {/* FEED-15: the native two-line row — name + version (+ Shared)
+                      on top, live/last-seen state beneath, the gear trailing. */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-baseline gap-1.5">
+                      <span className="min-w-0 truncate text-sm font-medium">
+                        {device.deviceLabel || device.deviceId}
+                      </span>
+                      {device.version && (
+                        <span
+                          className={`shrink-0 text-[10px] ${
+                            outdated
+                              ? `text-amber-500`
+                              : `text-muted-foreground/60`
+                          }`}
+                          title={
+                            outdated ? `Update available: ${latest}` : undefined
+                          }
+                        >
+                          v{device.version}
+                        </span>
+                      )}
+                      {device.isDefault && (
+                        <span
+                          className="shrink-0 text-muted-foreground"
+                          title={`Your default device — preselected when you start a coding session.`}
+                          aria-label="Default device"
+                        >
+                          <DefaultIcon className="size-3 fill-current" />
+                        </span>
+                      )}
+                      {(device.sharedTeamIds?.length ?? 0) > 0 && (
+                        <span
+                          className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
+                          title={
+                            teamId && device.sharedTeamIds?.includes(teamId)
+                              ? `Shared with this team — teammates can start coding sessions on this device.`
+                              : `Shared with other teams.`
+                          }
+                        >
+                          Shared
+                        </span>
+                      )}
+                      {healthBadge && (
+                        <span className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500">
+                          {healthBadge}
+                        </span>
+                      )}
+                    </div>
+                    <DeviceStatusLine
+                      online={online}
+                      lastSeenAt={device.lastSeenAt}
+                    />
+                    {blockerLine && (
+                      <div
+                        className="truncate text-xs text-amber-500"
+                        title={blockerLine}
                       >
-                        <DefaultIcon className="size-3 fill-current" />
-                      </span>
-                    )}
-                    {(device.sharedTeamIds?.length ?? 0) > 0 && (
-                      <span
-                        className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
-                        title={
-                          teamId && device.sharedTeamIds?.includes(teamId)
-                            ? `Shared with this team — teammates can start coding sessions on this device.`
-                            : `Shared with other teams.`
-                        }
-                      >
-                        Shared
-                      </span>
-                    )}
-                    {healthBadge && (
-                      <span className="shrink-0 rounded-sm border border-amber-500/40 px-1 text-[10px] font-medium text-amber-500">
-                        {healthBadge}
-                      </span>
+                        {blockerLine}
+                      </div>
                     )}
                   </div>
-                  <DeviceStatusLine
-                    online={online}
-                    lastSeenAt={device.lastSeenAt}
-                  />
-                  {blockerLine && (
-                    <div
-                      className="truncate text-xs text-amber-500"
-                      title={blockerLine}
+                  {/* EXP-909 follow-up: the ONE trailing control — a ghost
+                      settings gear (no circle, no border), on the caller's own
+                      REGISTERED devices only. ≥md it fades in on row hover or
+                      keyboard focus; on phones it is always painted. An
+                      unregistered row gets nothing at all — no spacer. */}
+                  {device.registered && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
+                      aria-label={`Device settings for ${device.deviceLabel || device.deviceId}`}
+                      title="Device settings"
+                      onClick={(event) => {
+                        // The row folds; the gear opens settings.
+                        event.stopPropagation()
+                        setSettingsTargetId(device.deviceId)
+                      }}
                     >
-                      {blockerLine}
-                    </div>
+                      <SettingsIcon />
+                    </Button>
                   )}
-                  {/* EXP-909: the logins this device holds — every repair
-                      control lives on these rows. */}
-                  <DeviceLogins device={device} now={now} />
-                </div>
-                {/* EXP-909 follow-up: the ONE trailing control — a ghost
-                    settings gear (no circle, no border), on the caller's own
-                    REGISTERED devices only. ≥md it fades in on row hover or
-                    keyboard focus; on phones it is always painted. An
-                    unregistered row gets nothing at all — no spacer. */}
-                {device.registered && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
-                    aria-label={`Device settings for ${device.deviceLabel || device.deviceId}`}
-                    title="Device settings"
-                    onClick={() => setSettingsTargetId(device.deviceId)}
-                  >
-                    <SettingsIcon />
-                  </Button>
+                </ListRow>
+                {/* EXP-909: the logins this device holds — every repair control
+                    lives on these rows. EXP-944: they live in the FOLD now, and
+                    the icon and the gear above stay level with the name instead
+                    of centring themselves against the whole block. The inset
+                    lines the logins up under the device name. */}
+                {expanded && (
+                  <div className="pr-3 pb-2 pl-14">
+                    <DeviceLogins device={device} now={now} />
+                  </div>
                 )}
-              </ListRow>
+              </div>
             )
           })}
         </div>

@@ -13,7 +13,9 @@ import SwiftUI
 /// same copy on every face, so it reads as one thing:
 ///
 /// - Issue face → "Blocked by" + "In batch with" (issue chips)
-/// - Run face → the session tree (nested, live dots, tap opens the run)
+/// - Run face → EXP-930: a BATCH run's covered "Issues" first (the pill says
+///   `3 issues`, so the first thing behind it is those three), then the
+///   session tree (nested, live dots, tap opens the run)
 /// - Changes face → the PR stack bottom-up (identifiers, PR state, a batch's
 ///   issues folded underneath, "Merge stack" on the bottom entry)
 struct PrGraphBadge: View {
@@ -75,6 +77,10 @@ struct PrGraphBadge: View {
 struct PrGraphSheet: View {
     let graph: PrGraph.Graph
     let face: WorkFaceKind
+    /// EXP-930: every issue row the screen has synced — what gives a tree row
+    /// its own name (an issue run's title, a batch run's `EXP-874 +2`) instead
+    /// of the "Untitled issue" every issue-less row used to read.
+    var issues: [IssueEntity] = []
     let onOpenIssue: (String) -> Void
     let onOpenRun: (String) -> Void
     let onMergeStack: (String) -> Void
@@ -97,8 +103,9 @@ struct PrGraphSheet: View {
 
     private var title: String {
         switch face {
-        case .issue: "Related work"
-        case .run, .results: "Runs"
+        // EXP-930: the run face lists the batch's issues as well as its runs,
+        // so the sheet wears the neutral heading both sections sit under.
+        case .issue, .run, .results: "Related work"
         case .changes: "Pull requests"
         }
     }
@@ -130,10 +137,23 @@ struct PrGraphSheet: View {
 
     @ViewBuilder
     private var runSection: some View {
+        // EXP-930: a batch run links NO issue, so the covered set — which the
+        // graph resolved off `batch_issue_ids` (else the `exp/batch-…` branch)
+        // — is what the badge promised and therefore what leads here. The
+        // whole set, not "everything but me": this run IS the batch.
+        if let batch = graph.batch {
+            section("Issues") {
+                ForEach(batch.issues, id: \.id) { issue in
+                    issueRow(issue)
+                }
+            }
+        }
         if graph.tree.isEmpty {
-            emptyNote("This run has no parent and no child runs.")
+            if graph.batch == nil {
+                emptyNote("This run has no parent and no child runs.")
+            }
         } else {
-            section("Run tree") {
+            section("Runs") {
                 ForEach(graph.tree, id: \.session.id) { row in
                     runRow(row)
                 }
@@ -153,7 +173,16 @@ struct PrGraphSheet: View {
                     pulsing: session.agentBusy,
                     size: 8
                 )
-                Text(sessionRowTitle(issue: nil, session: session))
+                // EXP-930: named off the rows this screen holds — the run's own
+                // issue when it has one, the batch's covered set when it does
+                // not (`BatchRun.name` reads only the ones it covers).
+                Text(
+                    sessionRowTitle(
+                        issue: session.issueId.flatMap { id in issues.first { $0.id == id } },
+                        session: session,
+                        batchIssues: issues
+                    )
+                )
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
@@ -341,6 +370,10 @@ final class PrGraphModel {
     func issue(id: String) -> IssueEntity? {
         prIssues.first { $0.id == id } ?? blockers.first { $0.id == id }
     }
+
+    /// EXP-930: every issue row this model holds — the overlay names its tree
+    /// rows from it, the same pool `graph(...)` builds its answer on.
+    var knownIssues: [IssueEntity] { prIssues + blockers }
 
     /// The graph for a subject, ready for the badge and the overlay.
     ///

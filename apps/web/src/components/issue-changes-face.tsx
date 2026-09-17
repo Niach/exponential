@@ -101,6 +101,8 @@ export function IssueChangesFace({
         readOnly={readOnly}
         origin={origin}
         handlers={handlers}
+        /* EXP-934: the `…` belongs to the Issue face; Changes keeps GitHub. */
+        face="changes"
         action={
           issue.prUrl ? <PrGithubButton prUrl={issue.prUrl} /> : undefined
         }

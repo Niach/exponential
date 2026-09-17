@@ -449,6 +449,30 @@ class AgentUsagePresentationTest {
         assertEquals(3, mini.size)
     }
 
+    // EXP-944: the device list plans around a limit, so its mini bars caption
+    // WHEN they reset — the two windows only. Mirrored ×4 (`windowReset`).
+    @Test
+    fun `only the two windows caption their reset under the mini bar`() {
+        val mini = AgentUsagePresentation.miniWindows(
+            AgentUsagePresentation.parseUsage(groupsJson)!!,
+        )
+        assertEquals(
+            "resets in 2h 10m",
+            AgentUsagePresentation.miniWindowReset(mini[0], nowMs),
+        )
+        assertEquals(
+            "resets in 3d 14h",
+            AgentUsagePresentation.miniWindowReset(mini[1], nowMs),
+        )
+        // The per-model bar rides the weekly window's reset — saying it twice
+        // is the same time printed twice.
+        assertNull(AgentUsagePresentation.miniWindowReset(mini[2], nowMs))
+        // A window the agent reported no reset for says nothing at all.
+        assertNull(
+            AgentUsagePresentation.miniWindowReset(mini[0].copy(resetsAt = null), nowMs),
+        )
+    }
+
     @Test
     fun `mini windows fall back to report order`() {
         // A report with none of the three named windows (codex's credits +

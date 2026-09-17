@@ -1713,6 +1713,16 @@ impl ScreensPanel {
         &self.pr_diff
     }
 
+    /// EXP-945 — THIS window's run screen for `session_id`. The left column
+    /// paints the run's Changes tree the same way it paints a review's, so it
+    /// needs this window's viewer, not every window's ([`session_views`]).
+    pub(crate) fn run_screen(
+        &self,
+        session_id: &str,
+    ) -> Option<Entity<crate::session_screen::SessionScreenView>> {
+        self.session_view(session_id)
+    }
+
     /// EXP-818: the remembered origin of `screen`'s tab, if it has one.
     pub(crate) fn origin_of(&self, screen: &Screen) -> Option<TabOrigin> {
         let origin = match self.tabs.iter().find(|tab| tab.holds(screen)) {
@@ -3717,7 +3727,16 @@ impl Render for ScreensPanel {
                 .as_ref()
                 .filter(|screen| screen.carries_list())
                 .and_then(|screen| self.origin_of(screen));
-            let occupant = crate::shell::left_occupant_for(screen.as_ref(), origin.as_ref());
+            // EXP-945: the same run-diff test `shell::window_run_diff` makes,
+            // answered off `self` for the same double-lease reason.
+            let run_diff = match screen.as_ref() {
+                Some(Screen::Session { session_id }) => self
+                    .session_view(session_id)
+                    .is_some_and(|view| view.read(cx).run_face(cx) == RunFace::Diff),
+                _ => false,
+            };
+            let occupant =
+                crate::shell::left_occupant_for(screen.as_ref(), origin.as_ref(), run_diff);
             let available = (window.viewport_size().width
                 - px(crate::shell::left_column_width_for(occupant))
                 - px(2. * crate::shell::PANEL_MARGIN + 16.))

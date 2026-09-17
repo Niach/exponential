@@ -13,6 +13,7 @@ import {
 import { formatResetCountdown } from "@/lib/agent-usage"
 import { contract, toolGroupSummary } from "@exp/domain-contract"
 import { editCard, editRunEnd, isEditCall } from "@exp/domain-contract/edit-card"
+import { expToolRunEnd, isExpToolCall } from "@exp/domain-contract/exp-tool-group"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
 // app — see design-tokens.test.ts, which reads the same file by path).
@@ -651,6 +652,11 @@ export type FeedRow<T extends { id: number; kind: string }> =
    *  "N files edited" card (`@exp/domain-contract/edit-card` owns both the
    *  rule and the card's rows). */
   | { kind: `edits`; id: number; items: T[] }
+  /** EXP-948: a run of ≥2 consecutive same-lane calls to the SAME Exponential
+   *  MCP tool — its own visible, foldable row captioned "Read 3 issues"
+   *  (`@exp/domain-contract/exp-tool-group` owns rule and caption). Our tools
+   *  never disappear into a "N other tools" fold. */
+  | { kind: `expRun`; id: number; items: T[] }
   | { kind: `ask`; id: number; askId: string; items: T[] }
   | { kind: `subagent`; id: number; subagentId: string; items: T[] }
 
@@ -784,6 +790,7 @@ export function groupFeedRows<
   T extends {
     id: number
     kind: string
+    name?: string
     askId?: string
     subagentId?: string
     resolved?: boolean
@@ -865,6 +872,10 @@ export function groupFeedRows<
  *  - a `Workflow` call (EXP-850 §3) renders as its own CARD, so it never
  *    disappears inside a collapsed run — neither as the run's opener nor as a
  *    member of one;
+ *  - EXP-948: a call to one of OUR MCP tools breaks a command run exactly like
+ *    an edit does, and ≥2 consecutive calls to the SAME tool form their own
+ *    captioned `expRun` row ("Read 3 issues") instead of hiding as "N other
+ *    tools";
  *  - everything else that is a plain `tool` opens a run of ≥2 consecutive
  *    calls of the SAME lane. The lane is the opener's own `subagentId`, which
  *    is `undefined` in the main feed (subagent-scoped items were routed into
@@ -874,6 +885,7 @@ function scanToolRuns<
   T extends {
     id: number
     kind: string
+    name?: string
     toolKind?: string
     subagentId?: string
     workflowId?: string
@@ -895,6 +907,13 @@ function scanToolRuns<
   if (item.kind !== `tool` || item.workflowId !== undefined) {
     return { row: { kind: `single`, item }, end: i }
   }
+  // EXP-948: one of OURS opens a group of its own — a lone call is the single
+  // row it always was, ≥2 of the SAME tool are one captioned `expRun`.
+  if (isExpToolCall(item)) {
+    const end = expToolRunEnd(feed, i)
+    if (end === i) return { row: { kind: `single`, item }, end }
+    return { row: { kind: `expRun`, id: item.id, items: feed.slice(i, end + 1) }, end }
+  }
   const lane = item.subagentId
   let end = i
   while (
@@ -902,8 +921,10 @@ function scanToolRuns<
     feed[end + 1].kind === `tool` &&
     feed[end + 1].subagentId === lane &&
     feed[end + 1].workflowId === undefined &&
-    // EXP-916: an edit BREAKS a command run and never joins it.
-    !isEditCall(feed[end + 1])
+    // EXP-916: an edit BREAKS a command run and never joins it. EXP-948: so
+    // does one of our own MCP calls.
+    !isEditCall(feed[end + 1]) &&
+    !isExpToolCall(feed[end + 1])
   )
     end++
   if (end === i) return { row: { kind: `single`, item }, end }
@@ -921,6 +942,7 @@ export function groupLaneRows<
   T extends {
     id: number
     kind: string
+    name?: string
     toolKind?: string
     subagentId?: string
     workflowId?: string
@@ -985,7 +1007,8 @@ export function rowClass<T extends { id: number; kind: string }>(
   if (
     row.kind === `toolRun` ||
     row.kind === `subagent` ||
-    row.kind === `edits`
+    row.kind === `edits` ||
+    row.kind === `expRun`
   )
     return `tool`
   if (row.kind === `ask`) return `prose`
@@ -1671,6 +1694,10 @@ export interface ExpToolDisplay {
   blurb: string
   progressive: string
   done: string
+  /** EXP-948: the same two captions for a RUN of consecutive calls to this
+   *  tool, `{n}` = the member count (`expToolGroupCaption`). */
+  progressiveMany: string
+  doneMany: string
   subjectKey: string
   result: string
 }

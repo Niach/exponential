@@ -72,13 +72,18 @@ export function IssuePickerList({
   })
   const rows = useMemo(() => [...checked, ...matches], [checked, matches])
   return (
-    <Command shouldFilter={false}>
+    // EXP-946: the list SHRINKS with its host — the composer sits low, so the
+    // popover flips above and has to fit in whatever is left over the card.
+    <Command shouldFilter={false} className="min-h-0 flex-1">
       <CommandInput
         placeholder="Search issues"
         value={query}
         onValueChange={setQuery}
       />
-      <CommandList data-testid="agent-composer-issues-picker">
+      <CommandList
+        data-testid="agent-composer-issues-picker"
+        className="min-h-0 flex-1"
+      >
         <CommandEmpty>
           {eligible.length === 0
             ? `No codeable issues in repo-backed boards.`
@@ -142,9 +147,15 @@ export function IssuePicker({
       <MobilePopoverTrigger asChild disabled={disabled}>
         {children}
       </MobilePopoverTrigger>
+      {/* EXP-946: the picker used to open above the composer and run off the
+          TOP of the window — nothing capped it, so Radix had no fitting side
+          to choose and the panel simply overflowed. Capped to the space the
+          chosen side actually has (with a 12px gutter), it fits above when
+          there is room and flips below when there is not. */}
       <MobilePopoverContent
-        className="w-[22rem] p-0"
+        className="flex max-h-(--radix-popover-content-available-height) w-[22rem] flex-col overflow-hidden p-0"
         align="start"
+        collisionPadding={12}
         mobileTitle="Issues"
       >
         <IssuePickerList

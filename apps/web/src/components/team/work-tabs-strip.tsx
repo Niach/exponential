@@ -407,11 +407,34 @@ export function WorkTabsStrip({
   const renderChip = (chip: ChipModel, interactive: boolean) => {
     const active = chip.key === activeKey
     const reachable = interactive && !chip.folded
+    // EXP-907: the browser gesture — a MIDDLE click anywhere on a tab closes
+    // it, exactly like its ×. The mousedown is swallowed too, or Chrome opens
+    // its autoscroll cursor (and a middle click on the label's anchor role
+    // would try a new tab) before the auxclick ever lands. A live chip has no
+    // × and takes no middle click either (EXP-877).
+    const closable = reachable && !chip.live
     const body = (
       <div
         key={chip.key}
         data-testid={reachable ? `work-tab-${chip.key}` : undefined}
         data-active={active || undefined}
+        onMouseDown={
+          closable
+            ? (event) => {
+                if (event.button === 1) event.preventDefault()
+              }
+            : undefined
+        }
+        onAuxClick={
+          closable
+            ? (event) => {
+                if (event.button !== 1) return
+                event.preventDefault()
+                event.stopPropagation()
+                close([chip.key])
+              }
+            : undefined
+        }
         className={cn(
           `group/tab flex h-8 max-w-[15rem] shrink-0 items-center rounded-md border border-transparent`,
           active

@@ -54,9 +54,17 @@ const FACE_ICON: Record<WorkFaceKind, typeof IssueIcon> = {
   results: ResultsIcon,
 }
 
+/** EXP-931: where the switcher is standing. `circle` is the work bar's 52px
+ *  glass slot; `inline` is the EXPANDED composer's control row, where it sits
+ *  beside the usage ring and wears exactly the ring's chrome — the bar (and
+ *  its circle) are gone while the composer is open, and the linked Issue /
+ *  Changes / Results must stay reachable. */
+export type MobileFaceSwitcherVariant = `circle` | `inline`
+
 export interface MobileFaceSwitcherProps {
   /** The faces this subject has (`availableFaces`). */
   faces: readonly WorkFaceKind[]
+  variant?: MobileFaceSwitcherVariant
   /** The face on show. */
   face: WorkFaceKind
   /** The issue's runs of mine (`useIssueRuns`), switcher order. */
@@ -121,6 +129,7 @@ function BadgeDot({ tone }: { tone: SessionDotTone | `changes` }) {
 
 export function MobileFaceSwitcher({
   faces,
+  variant = `circle`,
   face,
   runs = [],
   viewedRunId = null,
@@ -138,6 +147,13 @@ export function MobileFaceSwitcher({
   const mode = switcherMode(targets)
   const badge = switcherBadge(face, sessionTone, hasChanges)
   const multipleRuns = runIds.length > 1
+  // EXP-931: the composer's row is 16px controls (`ContextRing` is a ghost
+  // `icon-xs` Button), the bar's is the 52px glass circle.
+  const inline = variant === `inline`
+  const buttonClass = inline
+    ? `inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast hover:bg-glass-active hover:text-foreground`
+    : cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)
+  const glyphClass = inline ? `size-4` : `size-5`
 
   const activate = (target: SwitcherTarget) => {
     if (target.kind === `startCoding`) {
@@ -166,10 +182,10 @@ export function MobileFaceSwitcher({
           mode.target.kind === `face` ? mode.target.face : mode.target.kind
         }
         onClick={() => activate(mode.target)}
-        className={cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)}
+        className={buttonClass}
       >
         <span className="relative flex">
-          <TargetIcon target={mode.target} className="size-5" />
+          <TargetIcon target={mode.target} className={glyphClass} />
           {badge && <BadgeDot tone={badge} />}
         </span>
       </button>
@@ -185,13 +201,13 @@ export function MobileFaceSwitcher({
           title="Switch view"
           data-testid="mobile-face-switcher"
           data-face-target="menu"
-          className={cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)}
+          className={buttonClass}
         >
           <span className="relative flex">
             {open ? (
-              <CloseIcon className="size-5" />
+              <CloseIcon className={glyphClass} />
             ) : (
-              <FacesIcon className="size-5" />
+              <FacesIcon className={glyphClass} />
             )}
             {badge && !open && <BadgeDot tone={badge} />}
           </span>

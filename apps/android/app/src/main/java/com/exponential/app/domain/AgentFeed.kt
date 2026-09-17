@@ -804,6 +804,15 @@ sealed interface AgentFeedRow {
         override val id get() = items.first().id
     }
 
+    /** EXP-948: a maximal run of ≥2 consecutive same-lane calls to the SAME
+     *  Exponential MCP tool — ONE captioned row ("Read 3 issues",
+     *  [ExpToolGroup.expToolGroupCaption]) instead of a pile of our own calls
+     *  hidden inside a generic "N other tools" fold. The rule lives in
+     *  [ExpToolGroup]; one of our calls never joins a plain tool run. */
+    data class ExpRun(val items: List<AgentFeedItem.Tool>) : AgentFeedRow {
+        override val id get() = items.first().id
+    }
+
     /** Every step of one askId ask, in step order — the card shows ONE step at
      *  a time and advances as the answers are acknowledged. */
     data class QuestionStepper(
@@ -872,6 +881,8 @@ val AgentFeedRow.rowClass: AgentRowClass
         // run, are machinery.
         is AgentFeedRow.ToolRun -> AgentRowClass.Tool
         is AgentFeedRow.Edits -> AgentRowClass.Tool
+        // EXP-948: a run of our own MCP calls is machinery too.
+        is AgentFeedRow.ExpRun -> AgentRowClass.Tool
         is AgentFeedRow.SubagentRun -> AgentRowClass.Tool
         is AgentFeedRow.QuestionStepper -> AgentRowClass.Prose
         is AgentFeedRow.Single -> when (item) {
@@ -1057,6 +1068,19 @@ private fun projectFeedRows(
                 if (EditCard.editCard(run).rows.isNotEmpty()) rows.add(AgentFeedRow.Edits(run))
                 i = end + 1
             }
+            // EXP-948: one of OURS opens a group of its own — a lone call is
+            // the single row it always was, ≥2 of the SAME tool are one
+            // captioned run. Scanned before the plain-tool branch, so our call
+            // can never be swallowed by a generic fold.
+            ExpToolGroup.isExpToolCall(item, workflowIds) -> {
+                val end = ExpToolGroup.expToolRunEnd(feed, i, workflowIds)
+                if (end == i) {
+                    rows.add(AgentFeedRow.Single(item))
+                } else {
+                    rows.add(AgentFeedRow.ExpRun(feed.subList(i, end + 1).map { it as AgentFeedItem.Tool }))
+                }
+                i = end + 1
+            }
             item is AgentFeedItem.Tool -> {
                 var end = i
                 while (end + 1 < feed.size) {
@@ -1064,7 +1088,9 @@ private fun projectFeedRows(
                     if (
                         next is AgentFeedItem.Tool &&
                         next.subagentId == null &&
-                        !EditCard.isEditCall(next, workflowIds)
+                        !EditCard.isEditCall(next, workflowIds) &&
+                        // EXP-948: our own call breaks a run like an edit does.
+                        !ExpToolGroup.isExpToolCall(next, workflowIds)
                     ) {
                         end++
                     } else {
@@ -1090,8 +1116,10 @@ private fun projectFeedRows(
 /**
  * EXP-916: a subagent LANE's items → render rows. A lane is already a flat
  * conversation (its own prose, the turns addressed to it, its tool calls), so
- * its ONE grouping is the edited-files card — by the same [EditCard] rule the
- * main lane uses, scoped to the items this lane actually holds.
+ * its groupings are the edited-files card — by the same [EditCard] rule the
+ * main lane uses, scoped to the items this lane actually holds — and, EXP-948,
+ * the run of our own MCP calls, which groups inside a lane exactly as it does
+ * outside one.
  */
 fun projectLaneRows(
     items: List<AgentFeedItem>,
@@ -1108,6 +1136,16 @@ fun projectLaneRows(
             if (EditCard.editCard(run).rows.isNotEmpty()) rows.add(AgentFeedRow.Edits(run))
             i = end + 1
             continue
+        }
+        // EXP-948: ≥2 consecutive calls to the SAME tool of ours are ONE
+        // captioned row here too; a lone call stays the single row it is.
+        if (ExpToolGroup.isExpToolCall(item, workflowIds)) {
+            val end = ExpToolGroup.expToolRunEnd(items, i, workflowIds)
+            if (end > i) {
+                rows.add(AgentFeedRow.ExpRun(items.subList(i, end + 1).map { it as AgentFeedItem.Tool }))
+                i = end + 1
+                continue
+            }
         }
         rows.add(AgentFeedRow.Single(item))
         i++

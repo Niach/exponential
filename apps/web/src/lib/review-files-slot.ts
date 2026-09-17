@@ -9,13 +9,20 @@
 //
 // A plain external store (`useSyncExternalStore`), not context: the sidebar
 // must not re-render the whole team layout on every pick.
+//
+// EXP-945: the RUN's Changes face publishes the same slot. A run's diff is
+// the same kind of context a review's is — its files, not the list it was
+// opened from — so the two share this one channel and the one panel rather
+// than the run growing a floating tree of its own inside the column. Only the
+// back row differs, which is why a publisher may name its own.
 
 import { useSyncExternalStore } from "react"
 import type { DiffFile } from "@exp/domain-contract/diff"
 
 export type ReviewFilesSlot = {
-  /** The review the files belong to — the tree re-keys on it. */
-  issueId: string
+  /** The subject the files belong to (a review's issue id, a run's session
+   *  id) — the tree re-keys on it. */
+  subjectId: string
   /** `loading` until the fetch lands; `error` shows the message instead. */
   status: `loading` | `files` | `none` | `error`
   files: readonly DiffFile[]
@@ -23,6 +30,9 @@ export type ReviewFilesSlot = {
   selected: string | null
   /** A pick in the tree — the page scrolls its diff. */
   onSelect: (path: string) => void
+  /** EXP-945: where the panel's back row goes. Absent = back to Reviews, the
+   *  review detail's own row. */
+  back?: { label: string; onBack: () => void }
 }
 
 let current: ReviewFilesSlot | null = null

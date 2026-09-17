@@ -261,4 +261,13 @@ class WorkFacesTest {
             phaseDotTone(live = false, connecting = true, awaitingInput = false, paused = true, stale = false).connecting,
         )
     }
+
+    // EXP-934 — mirrored by web `work-faces.test.ts` and iOS `WorkFacesTests`.
+    @Test
+    fun `shows the context menu on the issue face alone`() {
+        assertTrue(faceShowsContextMenu(WorkFaceKind.Issue))
+        assertFalse(faceShowsContextMenu(WorkFaceKind.Run))
+        assertFalse(faceShowsContextMenu(WorkFaceKind.Changes))
+        assertFalse(faceShowsContextMenu(WorkFaceKind.Results))
+    }
 }

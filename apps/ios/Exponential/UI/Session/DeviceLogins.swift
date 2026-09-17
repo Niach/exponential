@@ -22,6 +22,10 @@ import SwiftUI
 struct DeviceLogins: View {
     let viewModel: AgentsViewModel
     let device: SteerDevice
+    /// EXP-944: the clock the usage bars' reset countdowns age on. The device
+    /// list is where a limit is actually planned around, so its bars say WHEN
+    /// they reset; the tight surfaces pass nothing and get bars alone.
+    var now: Date?
     /// A team device: the rows are a statement, never a control — no menus and
     /// no "Add account".
     var readOnly = false
@@ -147,7 +151,7 @@ struct DeviceLogins: View {
         let age = AgentUsagePresentation.usageAge(row.usage)
         if !AgentUsagePresentation.miniWindows(row.usage).isEmpty {
             VStack(alignment: .leading, spacing: 2) {
-                AgentUsageMini(usage: row.usage)
+                AgentUsageMini(usage: row.usage, now: now)
                 if let age {
                     Text(age)
                         .font(.caption2)
@@ -190,30 +194,33 @@ struct DeviceLogins: View {
 
     @ViewBuilder
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
-        // ONE menu per state, byte-identical with web, the desktop rows and
-        // Android. A signed-out or refused login can only be signed in; a
-        // healthy one is picked as the machine's default or removed from it.
+        // ONE menu per state, byte-identical with web's `accountChipActions`,
+        // the desktop rows and Android. EXP-944: a signed-out or refused login
+        // keeps Sign in as its first, repairing entry — but no longer ENDS
+        // there: a dead NAMED profile can be removed too (codex logins expire
+        // far more often than claude's and were left with a menu of one). Only
+        // the ambient login still offers the sign-in alone; it is the CLI's
+        // own config dir, not ours to delete.
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
             }
-        } else {
-            if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
-                GlassMenuItem("Set as default", icon: AppIcons.uiSwap) {
-                    viewModel.useAccountHere(row)
-                }
+        }
+        if AgentAccountsRows.chipSetsDefault(row, canSwitchAccount: device.canSwitchAccount) {
+            GlassMenuItem("Set as default", icon: AppIcons.uiSwap) {
+                viewModel.useAccountHere(row)
             }
-            // EXP-862: gated on the machine's `account-remove` cap — the server
-            // refuses the command below it, and an older build would leave the
-            // queued row pending forever.
-            if AgentAccountsRows.canRemoveAccount(
-                row,
-                canAgentLogin: device.canAgentLogin,
-                canRemoveAccount: device.canRemoveAccount
-            ) {
-                GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
-                    onRemove(row)
-                }
+        }
+        // EXP-862: gated on the machine's `account-remove` cap — the server
+        // refuses the command below it, and an older build would leave the
+        // queued row pending forever.
+        if AgentAccountsRows.canRemoveAccount(
+            row,
+            canAgentLogin: device.canAgentLogin,
+            canRemoveAccount: device.canRemoveAccount
+        ) {
+            GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
+                onRemove(row)
             }
         }
     }

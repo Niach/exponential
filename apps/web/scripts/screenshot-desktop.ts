@@ -113,6 +113,24 @@ const FEED: Array<Record<string, unknown>> = [
     kind: `narration`,
     text: `On it. I'll measure before I change anything: a cold-start regression is usually one await on the wrong side of the first frame.`,
   },
+  // EXP-948: Exponential's own tool calls never fold into a generic tool run;
+  // consecutive calls of ONE tool group under their own caption ("Read 3
+  // issues"), which is what these three rows show in the steering shot.
+  {
+    kind: `tool`,
+    name: `mcp__exponential__exponential_issues_get`,
+    detail: `APP-5`,
+  },
+  {
+    kind: `tool`,
+    name: `mcp__exponential__exponential_issues_get`,
+    detail: `APP-14`,
+  },
+  {
+    kind: `tool`,
+    name: `mcp__exponential__exponential_issues_get`,
+    detail: `APP-16`,
+  },
   {
     kind: `narration`,
     text: `Reading the two entry points that run before the first frame, then I'll trace what each of them waits on.`,

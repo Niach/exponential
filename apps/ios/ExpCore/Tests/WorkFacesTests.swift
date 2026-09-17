@@ -283,4 +283,13 @@ final class WorkFacesTests: XCTestCase {
             ).connecting
         )
     }
+
+    // EXP-934 — mirrors web `shows the context menu on the issue face alone`
+    // and Android `WorkFacesTest`.
+    func testShowsTheContextMenuOnTheIssueFaceAlone() {
+        XCTAssertTrue(WorkFaces.faceShowsContextMenu(.issue))
+        XCTAssertFalse(WorkFaces.faceShowsContextMenu(.run))
+        XCTAssertFalse(WorkFaces.faceShowsContextMenu(.changes))
+        XCTAssertFalse(WorkFaces.faceShowsContextMenu(.results))
+    }
 }

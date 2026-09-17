@@ -62,6 +62,8 @@ pub mod commands;
 pub mod control_channel;
 /// EXP-846: the contract's `expToolDisplay` lookup (our MCP tools' rows).
 pub mod exp_tool;
+/// EXP-948: the rule that keeps a run of OUR calls visible, and its caption.
+pub mod exp_tool_group;
 pub mod feed;
 pub mod frames;
 pub mod history;
@@ -142,6 +144,9 @@ pub use history::{
 pub use journal::{ActivityJournal, JOURNAL_BYTE_CAP, JOURNAL_EVENT_CAP};
 pub use tool_group_summary::{tool_group_summary, ToolCallSummary, TOOL_GROUP_SUMMARY_SEPARATOR};
 pub use exp_tool::{exp_tool_display, exp_tool_row, exp_tool_subject_key, ExpToolDisplay};
+pub use exp_tool_group::{
+    exp_tool_group_caption, exp_tool_run_end, is_exp_tool_call, ExpToolGroupCall,
+};
 pub use publisher::{
     has_image_embed, image_localizer, localize_message, publish, ActivitySender, AttachmentHook,
     ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks, PublisherTickets,

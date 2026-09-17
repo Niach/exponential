@@ -43,6 +43,14 @@ struct AgentsView: View {
     /// the removal a chip is confirming.
     @State private var loginTarget: AgentLoginTarget?
     @State private var removeAccountTarget: AccountRemoveTarget?
+    /// EXP-944: devices COLLAPSE. The list answers "which machines do I have
+    /// and are they up" first; a machine's logins, their usage bars and its
+    /// "Add account" are the second question, and three machines' worth of
+    /// them made the first one unreadable. VIEW state: a fold is not a setting.
+    @State private var expandedDeviceIds: Set<String> = []
+    /// EXP-944: the clock the login rows' reset countdowns age on — the same
+    /// 30s beat the "as of …" captions already use.
+    @State private var now = Date()
 
     /// A pending "Remove account": the login the confirm names. Captured as a
     /// value so the sentence stays put even as the rows re-sync underneath.
@@ -77,6 +85,14 @@ struct AgentsView: View {
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
+        }
+        // EXP-944: the 30s beat the login rows' "as of …" captions and their
+        // reset countdowns age on — a countdown that never moves is a stamp.
+        .task {
+            while !Task.isCancelled {
+                now = Date()
+                try? await Task.sleep(for: .seconds(30))
+            }
         }
         .onAppear {
             if viewModel == nil {
@@ -241,54 +257,73 @@ struct AgentsView: View {
     /// build predating the registry shows up from relay presence alone and has
     /// nothing to rename, update or remove.
     private func deviceRow(_ vm: AgentsViewModel, _ device: SteerDevice) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                AppIcon(
-                    device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
-                    size: AppIcon.Size.medium
-                )
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+        let expanded = expandedDeviceIds.contains(device.deviceId)
+        // EXP-944: TOP-aligned — the kind glyph and the gear stay level with
+        // the device NAME instead of centring themselves against the block
+        // under it.
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                // Everything but the gear folds the row.
+                HStack(alignment: .top, spacing: 12) {
+                    // The fold chevron — the same affordance the run tree uses.
+                    // The whole leading block is the target, so this is an
+                    // affordance rather than a second button.
+                    AppIcon(
+                        expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight,
+                        size: AppIcon.Size.small
+                    )
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(deviceName(device))
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        if let version = device.version, !version.isEmpty {
-                            Text("v\(version)")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    AppIcon(
+                        device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                        size: AppIcon.Size.medium
+                    )
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(deviceName(device))
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white)
                                 .lineLimit(1)
+                            if let version = device.version, !version.isEmpty {
+                                Text("v\(version)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                    .lineLimit(1)
+                            }
+                            // EXP-622: the machine every device picker prefills.
+                            if device.isDefaultDevice {
+                                AppIcon(AppIcons.uiDeviceDefault, size: AppIcon.Size.small)
+                                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                                    .accessibilityLabel("Default device")
+                            }
+                            // EXP-432: a teammate's machine is attributed to its owner;
+                            // one of the caller's own that is shared with any team just
+                            // says so (the per-team toggles live in the settings sheet).
+                            if let owner = device.owner {
+                                Text("shared by \(owner.name)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                                    .lineLimit(1)
+                            } else if !device.sharedTeamIds.isEmpty {
+                                Text("Shared")
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+                                    .lineLimit(1)
+                            }
+                            // EXP-849: the worst health among this machine's logins —
+                            // a refused credential is its own state, not "signed out".
+                            healthBadge(vm, device)
                         }
-                        // EXP-622: the machine every device picker prefills.
-                        if device.isDefaultDevice {
-                            AppIcon(AppIcons.uiDeviceDefault, size: AppIcon.Size.small)
-                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                                .accessibilityLabel("Default device")
-                        }
-                        // EXP-432: a teammate's machine is attributed to its owner;
-                        // one of the caller's own that is shared with any team just
-                        // says so (the per-team toggles live in the settings sheet).
-                        if let owner = device.owner {
-                            Text("shared by \(owner.name)")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                                .lineLimit(1)
-                        } else if !device.sharedTeamIds.isEmpty {
-                            Text("Shared")
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                                .lineLimit(1)
-                        }
-                        // EXP-849: the worst health among this machine's logins —
-                        // a refused credential is its own state, not "signed out".
-                        healthBadge(vm, device)
+                        deviceStatusLine(device)
                     }
-                    deviceStatusLine(device)
-                }
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { toggleDeviceFold(device.deviceId) }
+                .accessibilityIdentifier("device-row-\(device.deviceId)")
 
                 // EXP-909: the settings gear, and nothing else. Starting a run
                 // is the Agent page composer's device picker (the ONE launcher),
@@ -311,24 +346,38 @@ struct AgentsView: View {
             // (a machine with two claude profiles would otherwise re-login the
             // active one, not the expired one that was tapped); a removal
             // confirms first. A teammate's shared server renders read-only.
-            DeviceLogins(
-                viewModel: vm,
-                device: device,
-                readOnly: !device.isMine,
-                onSignIn: { row in
-                    loginTarget = AgentLoginTarget(
-                        deviceId: device.deviceId,
-                        deviceLabel: deviceName(device),
-                        agent: row.agent,
-                        profileId: row.profileId
-                    )
-                },
-                onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) }
-            )
+            // EXP-944: they live in the FOLD now, inset under the device name,
+            // and "Add account" with them.
+            if expanded {
+                DeviceLogins(
+                    viewModel: vm,
+                    device: device,
+                    now: now,
+                    readOnly: !device.isMine,
+                    onSignIn: { row in
+                        loginTarget = AgentLoginTarget(
+                            deviceId: device.deviceId,
+                            deviceLabel: deviceName(device),
+                            agent: row.agent,
+                            profileId: row.profileId
+                        )
+                    },
+                    onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) }
+                )
+                .padding(.leading, 28)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .flatRow()
+    }
+
+    /// EXP-944: fold one machine open or shut. A set, not a single id: two
+    /// machines being compared stay open together.
+    private func toggleDeviceFold(_ deviceId: String) {
+        if expandedDeviceIds.remove(deviceId) == nil {
+            expandedDeviceIds.insert(deviceId)
+        }
     }
 
     /// EXP-849: the machine's health badge — the worst of its reported logins,

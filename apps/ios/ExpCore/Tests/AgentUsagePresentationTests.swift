@@ -240,6 +240,35 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.resetCountdown(resetsAt: "whenever", now: now))
     }
 
+    // EXP-944: under a mini bar, only the two WINDOWS carry a reset — the
+    // per-model bar ("Fable") rides the weekly window's, so repeating it would
+    // say the same time twice, and a window with no stamp captions nothing.
+    func testOnlyTheTwoWindowsCaptionTheirReset() {
+        func window(_ key: String, resetsAt: String?) -> UsageMiniWindow {
+            UsageMiniWindow(key: key, label: key, percent: 40, resetsAt: resetsAt)
+        }
+        XCTAssertEqual(
+            AgentUsagePresentation.miniWindowReset(
+                window("session", resetsAt: "2026-08-28T12:00:00Z"), now: now
+            ),
+            "resets in 2h"
+        )
+        XCTAssertEqual(
+            AgentUsagePresentation.miniWindowReset(
+                window("weekly", resetsAt: "2026-08-31T10:00:00Z"), now: now
+            ),
+            "resets in 3d"
+        )
+        XCTAssertNil(
+            AgentUsagePresentation.miniWindowReset(
+                window("model:fable", resetsAt: "2026-08-31T10:00:00Z"), now: now
+            )
+        )
+        XCTAssertNil(
+            AgentUsagePresentation.miniWindowReset(window("session", resetsAt: nil), now: now)
+        )
+    }
+
     // claude reports email + plan, codex may be signed out, an external
     // agent may report a provider and never an email. A machine that never probed is `unknown` —
     // which is NOT "signed out". EXP-694: an email wins outright — no "signed

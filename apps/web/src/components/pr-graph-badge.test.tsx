@@ -16,10 +16,22 @@ vi.mock(`@tanstack/react-router`, () => ({
 vi.mock(`@/hooks/use-open-session`, () => ({
   useOpenSession: () => openSession,
 }))
+// EXP-930: the chip's LINK half matters now — a batch row that does not open
+// its issue is the whole bug. The stub renders whatever link the overlay hands
+// it, so the assertions can see an anchor.
 vi.mock(`@/components/issue-chip`, () => ({
-  IssueChip: ({ issue }: { issue: { identifier: string } }) => (
-    <span data-testid={`chip-${issue.identifier}`}>{issue.identifier}</span>
-  ),
+  IssueChip: ({
+    issue,
+    link,
+  }: {
+    issue: { identifier: string }
+    link?: (props: Record<string, unknown>) => React.ReactElement
+  }) => {
+    const body = (
+      <span data-testid={`chip-${issue.identifier}`}>{issue.identifier}</span>
+    )
+    return link ? link({ children: body }) : body
+  },
 }))
 vi.mock(`@/components/issue-coding-rows`, () => ({
   PrStateBadge: ({ state }: { state: string | null }) => <span>{state}</span>,
@@ -91,6 +103,7 @@ function overlay(
       face={face}
       graph={graph}
       issues={input.issues}
+      boardSlugById={new Map([[`b1`, `web`]])}
       subjectIssue={input.issue ?? null}
       teamSlug="acme"
       onMergeStack={onMergeStack}
@@ -130,6 +143,30 @@ describe(`PrGraphOverlay`, () => {
     const names = screen.getAllByText(/LOWER|UPPER/).map((node) => node.textContent)
     expect(names).toEqual([`LOWER`, `UPPER`])
     expect(screen.getAllByTestId(`run-dot`)).toHaveLength(2)
+  })
+
+  // EXP-930: the pill on a batch run says `2 issues`; behind it those two
+  // issues, each opening. A batch row links NO issue (`issue_id` is null) —
+  // the covered set comes off `batch_issue_ids`, so keying the overlay off
+  // `issue_id` was what left it with nothing to show.
+  it(`lists the batch's issues on a batch run's run face`, () => {
+    const batchRun = {
+      ...session(`batch`),
+      issueId: null,
+      actionName: null,
+      batchIssueIds: [`bata`, `batb`],
+      branch: `exp/batch-1`,
+    } as unknown as CodingSession
+    overlay(`run`, {
+      session: batchRun,
+      issues: [batchA, batchB],
+      sessions: [batchRun],
+    })
+    expect(screen.getByText(`Issues`)).toBeTruthy()
+    expect(screen.getByTestId(`chip-BATA`).closest(`a`)).toBeTruthy()
+    expect(screen.getByTestId(`chip-BATB`).closest(`a`)).toBeTruthy()
+    // The run tree is still there, under the issues it covers.
+    expect(screen.getByText(`Runs`)).toBeTruthy()
   })
 
   it(`shows the stack bottom-up with Merge stack on the changes face`, () => {

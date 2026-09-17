@@ -2,6 +2,7 @@ package com.exponential.app.domain
 
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.ui.session.sessionRowTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -163,6 +164,34 @@ class PrGraphTest {
         val actionGraph =
             graph(null, listOf(issue("one")), session = action, sessions = listOf(action))
         assertNull(actionGraph.batch)
+    }
+
+    // EXP-930: what the OVERLAY draws on a batch's Run face — the covered
+    // issues above the run tree, and every tree row named off the synced
+    // rows. The sheet used to join no issue at all, so a batch whose issues
+    // were already in the store still read `Issue not synced yet`.
+    @Test
+    fun namesABatchRunsIssuesAndItsRunRows() {
+        val one = issue("one")
+        val two = issue("two")
+        val pool = listOf(one, two)
+        val batch = session("run", batchIssueIds = """["one","two"]""")
+        val child = session("child", parent = "run", issueId = "two")
+        val built = graph(null, pool, session = batch, sessions = listOf(batch, child))
+
+        // The `Issues` section the sheet now draws above `Runs`.
+        assertEquals(listOf("ONE", "TWO"), built.batch?.issues?.map { it.identifier })
+
+        val titles = built.tree.map { row ->
+            sessionRowTitle(
+                row.session,
+                row.session.issueId?.let { id -> pool.firstOrNull { it.id == id } },
+                batchRunIssues(row.session, pool),
+            )
+        }
+        assertEquals(listOf("Issue ONE", "Issue TWO"), titles)
+        // The bug itself: no joined issue, no name.
+        assertEquals("Issue not synced yet", sessionRowTitle(child, null))
     }
 
     @Test

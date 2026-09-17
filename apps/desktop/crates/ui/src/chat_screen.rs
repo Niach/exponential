@@ -58,7 +58,10 @@ use gpui_component::input::{InputEvent, InputState, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
 use gpui_component::popover::Popover;
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _};
+use gpui_component::{
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _,
+    WindowExt as _,
+};
 use sync::Store;
 
 use coding::{
@@ -308,6 +311,12 @@ pub(crate) struct ChatScreenView {
     /// renders on EVERY window redraw (a caret blink, a keystroke anywhere),
     /// and rebuilding the pool each time made typing crawl.
     team_pool: RefCell<Option<(TeamPoolKey, Rc<Vec<IssueRow>>)>>,
+    /// EXP-946: where the `#` and ▶ tools actually painted, captured at
+    /// prepaint (the `Popup` recipe). Their popovers pick the side with room
+    /// and cap themselves to it — gpui-component's `Popover` clamps but never
+    /// flips, so a picker taller than the room above ran off the window.
+    issue_tool_bounds: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
+    action_tool_bounds: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
     /// The team's connected repos (`repositories.list`, one fetch per team).
     team_repos: Vec<ActionRepoRow>,
     repos_team: Option<String>,
@@ -446,6 +455,8 @@ impl ChatScreenView {
             issue_search,
             issue_pick_selected: 0,
             team_pool: RefCell::new(None),
+            issue_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
+            action_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
             team_repos: Vec::new(),
             repos_team: None,
             chat_repo: None,
@@ -2018,7 +2029,7 @@ app that cannot start a stacked PR. Update it, or start anyway."
     }
 
     /// The `#` tool: the issue picker popover.
-    fn issue_tool(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn issue_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let (rows, checked, notes): (Rc<Vec<IssueRow>>, HashSet<String>, Vec<(String, SharedString)>) =
             match &self.subject {
                 Subject::Issues(issues) => (
@@ -2051,15 +2062,31 @@ app that cannot start a stacked PR. Update it, or start anyway."
                     Vec::new(),
                 ),
             };
+        let slot = self.issue_tool_bounds.clone();
         let trigger = crate::composer::composer_tool("chat-tool-issues", registry::EDITOR_ISSUE_REF, cx)
-            .tooltip("Pick issues");
-        issue_picker::issue_picker_popover(trigger, rows, &checked, &self.issue_search, notes, cx)
-            .into_any_element()
+            .tooltip("Pick issues")
+            .on_prepaint(move |bounds, _, _| slot.set(bounds));
+        // EXP-946: from where the tool actually is, not from a guess.
+        let fit = issue_picker::popover_fit(
+            self.issue_tool_bounds.get(),
+            window.viewport_size(),
+            issue_picker::POPOVER_WANTED_HEIGHT,
+        );
+        issue_picker::issue_picker_popover(
+            trigger,
+            rows,
+            &checked,
+            &self.issue_search,
+            notes,
+            fit,
+            cx,
+        )
+        .into_any_element()
     }
 
     /// The ▶ tool: the actions popover (builtins pinned first, Create
     /// action included; Chat is never listed).
-    fn action_tool(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn action_tool(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let actions: Vec<(String, String, Option<String>, Option<String>)> = self
             .actions
             .iter()
@@ -2084,17 +2111,26 @@ app that cannot start a stacked PR. Update it, or start anyway."
             _ => None,
         };
         let view = cx.entity().downgrade();
+        let slot = self.action_tool_bounds.clone();
         let trigger = crate::composer::composer_tool("chat-tool-actions", registry::ACTION_RUN, cx)
-            .tooltip("Run an action");
+            .tooltip("Run an action")
+            .on_prepaint(move |bounds, _, _| slot.set(bounds));
+        // EXP-946: flips and caps like the issue picker beside it.
+        let (anchor, max_height) = issue_picker::popover_fit(
+            self.action_tool_bounds.get(),
+            window.viewport_size(),
+            issue_picker::POPOVER_WANTED_HEIGHT,
+        );
         Popover::new("chat-action-picker")
             .p_1()
+            .anchor(anchor)
             .trigger(trigger)
             .content(move |_, _window, cx| {
                 let muted = cx.theme().muted_foreground;
                 let mut rows = v_flex()
                     .id("chat-action-picker-rows")
                     .w(px(360.))
-                    .max_h(px(360.))
+                    .max_h(max_height)
                     .overflow_y_scroll();
                 if !ready {
                     rows = rows.child(issue_picker::list_note("Loading actions…", cx));
@@ -2495,8 +2531,8 @@ impl Render for ChatScreenView {
                 .into_any_element(),
         )
         .strip(strip)
-        .tool(self.issue_tool(cx))
-        .tool(self.action_tool(cx))
+        .tool(self.issue_tool(window, cx))
+        .tool(self.action_tool(window, cx))
         .tool(
             // EXP-850 §13: the steer composers attach with the `ui-add` plus
             // ×4 — `editor-image` stays the comment/description editors'.

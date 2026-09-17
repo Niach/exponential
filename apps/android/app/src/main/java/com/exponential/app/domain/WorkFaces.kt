@@ -104,6 +104,17 @@ fun codingTarget(
     return newest(live) ?: newest(mine)
 }
 
+/**
+ * EXP-934: the top bar's `…` CONTEXT MENU (Share · Move to board · Unmark
+ * duplicate · Delete issue) belongs to the ISSUE, so it shows on the Issue
+ * face alone. On Run, Changes and Results the trailing slot carries the run's
+ * own verb (Stop / Resume) and nothing else — a Delete issue sitting beside a
+ * running agent acts on a subject that face is not even showing.
+ *
+ * Mirrored ×4 (web `faceShowsContextMenu`, iOS `faceShowsContextMenu`).
+ */
+fun faceShowsContextMenu(face: WorkFaceKind): Boolean = face == WorkFaceKind.Issue
+
 enum class PrimaryAction { Stop, Resume, Start, None }
 
 /** The top bar's trailing verb on the Run face, and the bottom-right circle's

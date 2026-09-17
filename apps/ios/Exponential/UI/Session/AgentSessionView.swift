@@ -100,10 +100,6 @@ struct AgentSessionView<Switcher: View>: View {
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
-    /// EXP-893: the latest diff's +/− counts, re-derived on the diff edge
-    /// rather than scanned on every frame the feed repaints.
-    @State private var diffAdditions = 0
-    @State private var diffDeletions = 0
     /// EXP-895: the worktree diff through the ONE parser — read on the diff
     /// edge, never per frame.
     @State private var parsedDiff = Diff.Parsed(files: [])
@@ -289,6 +285,11 @@ struct AgentSessionView<Switcher: View>: View {
             .onChange(of: model?.draftEditor.isEditing) { _, editing in
                 draftEditingChanged(editing)
             }
+            // EXP-931: and the same fold the moment the agent starts a turn
+            // under an empty, unfocused composer.
+            .onChange(of: model?.agentWorking) { _, _ in
+                if let model { collapseIdleComposer(model) }
+            }
             // EXP-893: the screen's Stop pill — the confirm is still this
             // view's, where the model is.
             .onChange(of: request) { _, request in
@@ -397,6 +398,20 @@ struct AgentSessionView<Switcher: View>: View {
         withAnimation(motion.standard) { composerExpanded = false }
     }
 
+    /// EXP-931: once the agent picks the turn up, an expanded composer with
+    /// nothing in it and nobody typing in it is just a lid over the work bar —
+    /// it stands down so the bar, and the face switcher on it, come back. A
+    /// focused field, a draft, a pending image or an open menu all keep it
+    /// open; focusing or typing expands it again.
+    private func collapseIdleComposer(_ model: AgentSessionModel) {
+        guard composerExpanded, model.agentWorking else { return }
+        guard model.draftEditor.isEditing == false else { return }
+        guard !showPhotoPicker, photoItems.isEmpty else { return }
+        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
+        guard composerMenu(model) == .none, slashConfirm == nil else { return }
+        withAnimation(motion.standard) { composerExpanded = false }
+    }
+
     /// EXP-893: the screen's request, consumed once.
     private func requestChanged(_ request: RunRequest?) {
         guard let request else { return }
@@ -408,21 +423,15 @@ struct AgentSessionView<Switcher: View>: View {
     }
 
     /// EXP-895: the worktree diff is parsed ONCE, here, off the edge — the
-    /// Changes face, the switcher's counts and the file sheet all read the
-    /// same `Diff.Parsed`.
+    /// Changes face and the file sheet read the same `Diff.Parsed` (EXP-932:
+    /// and the switcher totals the SAME files from the same model).
     private func diffChanged(_ diff: String?) {
         guard let diff else {
             parsedDiff = Diff.Parsed(files: [])
             selectedDiffPath = nil
-            diffAdditions = 0
-            diffDeletions = 0
             return
         }
-        let parsed = Diff.parse(diff)
-        parsedDiff = parsed
-        let totals = Diff.totals(parsed.files)
-        diffAdditions = totals.additions
-        diffDeletions = totals.deletions
+        parsedDiff = Diff.parse(diff)
     }
 
     // MARK: - Chrome report (EXP-893)
@@ -449,8 +458,6 @@ struct AgentSessionView<Switcher: View>: View {
         chrome.over = model.isOver
         chrome.cardPending = model.cardPending
         chrome.hasDiff = model.latestDiff != nil
-        chrome.additions = diffAdditions
-        chrome.deletions = diffDeletions
         chrome.canMerge = model.canMerge
         chrome.canKill = model.canKill
         chrome.continuationPending = startWatcher.sentCaption != nil || switchingAccount
@@ -1036,6 +1043,11 @@ struct AgentSessionView<Switcher: View>: View {
             // EXP-916: a run of edit calls is ONE card — the same file cards
             // the Changes face draws, stacked flush, the live one open.
             EditedFilesCard(items: items, liveItemId: liveToolRowId)
+        case let .expRun(items):
+            // EXP-948: a run of calls to the SAME Exponential tool folds into
+            // one contract-captioned row of our own ("Read 3 issues") instead
+            // of hiding inside a generic "N other tools".
+            ExpToolGroupRow(items: items, refs: markdownContext.issueRefs)
         case let .subagentRun(run):
             SubagentGroupRow(
                 run: run,
@@ -1922,7 +1934,11 @@ struct AgentSessionView<Switcher: View>: View {
                 onPickModel: { alias in sendModelSwitch(model, alias) },
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
-                onUsage: { showUsageSheet = true }
+                onUsage: { showUsageSheet = true },
+                // EXP-931: the bar's circle is behind this card — the way to
+                // Issue / Changes / Results comes with it. Exactly ONE
+                // switcher is mounted: the bar's, or this one.
+                switcher: switcher
             )
         } submit: {
             GlassComposerSubmitButton(
@@ -3502,6 +3518,66 @@ private struct ToolGroupRow: View {
     }
 }
 
+/// EXP-948 — a run of consecutive calls to the SAME Exponential MCP tool,
+/// collapsed into ONE row of our own: the Exponential mark every single call of
+/// ours already wears, plus the contract's plural caption ("Reading 3 issues" →
+/// "Read 3 issues · 1 failed"), expandable to the individual rows.
+///
+/// Our own calls never join a generic "N other tools" fold (`AgentFeed`'s
+/// projection breaks a tool run on them), so this is the only place a pile of
+/// them can collapse — and it says WHAT they did.
+private struct ExpToolGroupRow: View {
+    let items: [AgentFeedItem]
+    /// EXP-846: what an Exponential call's issue preview resolves against (the
+    /// run's team) and where a tap on it goes. Nil keeps the preview textual.
+    var refs: AgentIssueRefContext? = nil
+
+    @State private var expanded = false
+
+    /// The contract's own sentence — `ExpToolGroup.caption`, locked ×4 by the
+    /// shared fixture.
+    private var caption: String { ExpToolGroup.caption(items) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    ExpLogoMark(size: 11)
+                    Text(caption)
+                        .transcriptToolText(.medium)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Collapse tool calls" : "Expand tool calls")
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(items) { item in
+                        if case let .tool(
+                            _, name, detail, _, _, _, settled, failed, _, preview, output
+                        ) = item {
+                            ToolRow(
+                                name: name, detail: detail, failed: failed,
+                                nested: true,
+                                settled: settled, preview: preview, refs: refs,
+                                output: output
+                            )
+                        }
+                    }
+                }
+                .padding(.leading, 20)
+            }
+        }
+    }
+}
+
 /// A subagent's run (EXP-249): its `started` marker plus every tool call the
 /// desktop tagged with it, collapsed into one expandable row so a long subagent
 /// detour never buries the main thread's activity. The header always shows the
@@ -3649,6 +3725,10 @@ struct SubagentLaneRow: View {
             // A digest inside someone else's transcript: no row of it is the
             // live one — the subagent's own tab is where its work is read.
             EditedFilesCard(items: items)
+                .padding(.vertical, nested ? 2 : 0)
+        case let .expRun(items):
+            // EXP-948: the lane folds its own Exponential runs the same way.
+            ExpToolGroupRow(items: items, refs: context.issueRefs)
                 .padding(.vertical, nested ? 2 : 0)
         case let .single(item):
             SubagentItemRow(item: item, context: context, nested: nested)

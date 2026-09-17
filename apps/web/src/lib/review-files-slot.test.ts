@@ -6,8 +6,8 @@ import {
   type ReviewFilesSlot,
 } from "./review-files-slot"
 
-const slot = (issueId: string): ReviewFilesSlot => ({
-  issueId,
+const slot = (subjectId: string): ReviewFilesSlot => ({
+  subjectId,
   status: `files`,
   files: [],
   selected: null,

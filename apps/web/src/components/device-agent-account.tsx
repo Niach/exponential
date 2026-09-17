@@ -137,13 +137,18 @@ export function chipSetsDefault(
   return !chipSignsIn(row) && !row.active && canSwitchAccount
 }
 
-/** The entries this chip's menu shows, in order. */
+/** The entries this chip's menu shows, in order. EXP-944: a signed-out login
+ * keeps "Sign in" as its first (and only repairing) entry, but it no longer
+ * ENDS there — a dead named profile can be removed too, and codex logins,
+ * which are signed out far more often than claude's, were left with a menu of
+ * one. Only the ambient login still offers just the sign-in: it is the CLI's
+ * own config dir, not ours to delete. */
 export function accountChipActions(
   device: Pick<SteerDevice, `caps`>,
   row: AccountChipRow
 ): string[] {
-  if (chipSignsIn(row)) return [ACTION_SIGN_IN]
   const out: string[] = []
+  if (chipSignsIn(row)) out.push(ACTION_SIGN_IN)
   if (chipSetsDefault(row, deviceCanSwitchAccount(device))) {
     out.push(ACTION_SET_DEFAULT)
   }

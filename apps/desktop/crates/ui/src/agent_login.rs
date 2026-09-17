@@ -48,7 +48,8 @@ use gpui_component::{
     button::{Button, ButtonVariants as _, ButtonVariant},
     h_flex,
     notification::Notification,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, WindowExt as _,
+    spinner::Spinner,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 
@@ -78,7 +79,12 @@ const CODEX_SWITCH_OK: &str = "Sign out and sign in";
 /// The two sentences a code command completes with — byte-identical to the
 /// daemon executor (`cli::agent_login_host`); the clients show a failed
 /// row's `result` verbatim.
-const CODE_ENTERED: &str = "Code entered — the machine is finishing the sign-in.";
+///
+/// EXP-940: the success one is the phase the requester is IN, not a sentence
+/// about a machine finishing something. It is the ×4 `SIGNING_IN` string
+/// (web `agent-login-dialog.tsx`), so a client that does print the wire text
+/// prints exactly what its own spinner says.
+const CODE_ENTERED: &str = "Signing in…";
 const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
 
 /// EXP-765: the login tabs currently open, by agent id — where a handed-back
@@ -879,7 +885,24 @@ fn queue_login_command(
 /// How often the sign-in dialog asks the server what the machine answered.
 const LOGIN_DIALOG_POLL: Duration = Duration::from_secs(2);
 
+/// EXP-940 — the two lines the END of a sign-in says, byte-identical ×4 (web
+/// `agent-login-dialog.tsx` `SIGNED_IN` / `SIGN_IN_TIMED_OUT`).
+const SIGNED_IN: &str = "Signed in";
+const SIGN_IN_TIMED_OUT: &str = "The machine did not confirm the sign-in.";
+
+/// EXP-940 — how long the success notice stays up before the dialog closes
+/// itself (web `SUCCESS_LINGER_MS`).
+const SUCCESS_LINGER: Duration = Duration::from_millis(1_500);
+
+/// EXP-940 — how long a queued login waits for the machine to hand back its
+/// sign-in link before the dialog gives up and offers a retry. A probe plus a
+/// heartbeat is ~30s, so this is three beats of headroom (web
+/// `SIGN_IN_TIMEOUT_MS`). It bounds the WAIT only: once the link is up the
+/// person is in the loop, and a browser round-trip has no clock on it.
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// The ONE status line the sign-in dialog shows.
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum LoginDialogState {
     /// The command is on its way to the server.
     Queueing,
@@ -887,7 +910,18 @@ enum LoginDialogState {
     Waiting,
     /// The CLI's sign-in link (plus codex's device code).
     Link { url: String, code: Option<String> },
+    /// EXP-940: the machine reported the login. The dialog SAYS so for a beat
+    /// and then closes itself, instead of vanishing mid-sentence.
+    SignedIn,
     Failed(SharedString),
+}
+
+impl LoginDialogState {
+    /// Still waiting on the machine's first answer — the phase
+    /// [`SIGN_IN_TIMEOUT`] bounds.
+    fn waiting(&self) -> bool {
+        matches!(self, Self::Queueing | Self::Waiting)
+    }
 }
 
 /// EXP-862 — "Sign in to <agent>" as its own dialog: a title and ONE status
@@ -922,7 +956,13 @@ struct LoginDialogView {
     device_id: String,
     device_label: SharedString,
     agent: CodingAgent,
+    /// EXP-940: kept so "Try again" can re-queue the SAME login.
+    target: LoginTarget,
     state: LoginDialogState,
+    /// EXP-940: which attempt the phases belong to. A retry bumps it, so the
+    /// abandoned attempt's poll and its timeout land on a stale generation and
+    /// write nothing.
+    attempt: u64,
     /// What the device reported about the agent's logins when the dialog
     /// opened. The report MOVING is the success this dialog waits for — a new
     /// profile appearing, or an expired one going healthy again.
@@ -941,48 +981,74 @@ impl LoginDialogView {
     ) -> Self {
         let devices = sync::Store::global(cx).collections().devices.clone();
         let baseline = login_fingerprint(&device_id, agent, cx);
-        let subscriptions = vec![cx.observe_in(&devices, window, |this: &mut Self, _, window, cx| {
-            if login_fingerprint(&this.device_id, this.agent, cx) != this.baseline {
-                // The machine reported the login: the dialog has nothing left
-                // to say, and saying it twice is what the old inline notes did.
-                let label = this.device_label.clone();
-                let agent = this.agent;
-                native_dialog::close_then(window, cx, move |window, cx| {
-                    window.push_notification(
-                        Notification::success(SharedString::from(format!(
-                            "{} signed in on {label}.",
-                            agent.label()
-                        ))),
-                        cx,
-                    );
-                });
-                return;
-            }
-            cx.notify();
-        })];
-        let view = Self {
-            device_id: device_id.clone(),
+        // EXP-940: the landing no longer makes the dialog VANISH mid-sentence.
+        // It turns into "Signed in", and the dialog closes a beat later — so
+        // the flow ends with an answer.
+        let subscriptions = vec![cx.observe_in(
+            &devices,
+            window,
+            |this: &mut Self, _, window, cx| {
+                if this.state == LoginDialogState::SignedIn {
+                    return;
+                }
+                if login_fingerprint(&this.device_id, this.agent, cx) != this.baseline {
+                    this.state = LoginDialogState::SignedIn;
+                    // Nothing this attempt still has in flight may speak now.
+                    this.attempt = this.attempt.wrapping_add(1);
+                    cx.notify();
+                    let handle = window.window_handle();
+                    cx.spawn(async move |_, cx| {
+                        cx.background_executor().timer(SUCCESS_LINGER).await;
+                        let _ = cx.update(|cx| {
+                            let _ = handle.update(cx, |_, window, cx| {
+                                native_dialog::close_dialog_window(window, cx);
+                            });
+                        });
+                    })
+                    .detach();
+                    return;
+                }
+                cx.notify();
+            },
+        )];
+        let mut view = Self {
+            device_id,
             device_label,
             agent,
+            target,
             state: LoginDialogState::Queueing,
+            attempt: 0,
             baseline,
             _subscriptions: subscriptions,
         };
-        // The dialog opening IS the sign-in request (web parity): queue it now
-        // and poll the command row until the device answers.
+        view.request(cx);
+        view
+    }
+
+    /// The sign-in request itself: queue the `agent_login` command, poll the
+    /// row until the machine answers, and bound the wait. The dialog OPENING
+    /// runs it (web parity), and EXP-940's "Try again" runs it again.
+    fn request(&mut self, cx: &mut gpui::Context<Self>) {
+        self.attempt = self.attempt.wrapping_add(1);
+        let attempt = self.attempt;
+        self.state = LoginDialogState::Queueing;
+        // The baseline is re-read: a retry must not treat the report the LAST
+        // attempt already moved as this one's success.
+        self.baseline = login_fingerprint(&self.device_id, self.agent, cx);
+        cx.notify();
         if queries::trpc_client(cx).is_none() {
-            return Self {
-                state: LoginDialogState::Failed("Not signed in.".into()),
-                ..view
-            };
+            self.state = LoginDialogState::Failed("Not signed in.".into());
+            return;
         }
+        let device_id = self.device_id.clone();
+        let agent = self.agent;
+        let target = self.target.clone();
         cx.spawn(async move |this, cx| {
             // A fresh client per call: `TrpcClient` is not shareable, and
             // building one is a token-provider lookup, not a connection.
             let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
                 return;
             };
-            let target = target.clone();
             let queued = cx
                 .background_executor()
                 .spawn({
@@ -994,17 +1060,13 @@ impl LoginDialogView {
                 Ok(id) => id,
                 Err(err) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.state = LoginDialogState::Failed(err.user_message().into());
-                        cx.notify();
+                        this.settle(attempt, LoginDialogState::Failed(err.user_message().into()), cx)
                     });
                     return;
                 }
             };
             if this
-                .update(cx, |this, cx| {
-                    this.state = LoginDialogState::Waiting;
-                    cx.notify();
-                })
+                .update(cx, |this, cx| this.settle(attempt, LoginDialogState::Waiting, cx))
                 .is_err()
             {
                 return;
@@ -1028,15 +1090,34 @@ impl LoginDialogView {
                     continue;
                 }
                 let state = login_dialog_result(&row);
-                let _ = this.update(cx, |this, cx| {
-                    this.state = state;
-                    cx.notify();
-                });
+                let _ = this.update(cx, |this, cx| this.settle(attempt, state, cx));
                 return;
             }
         })
         .detach();
-        view
+        // EXP-940: a wait that never lands is a failure, not progress. The
+        // machine answers its commands on the beat, so silence past the bound
+        // gets the short error and a retry instead of an endless spinner.
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SIGN_IN_TIMEOUT).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.attempt == attempt && this.state.waiting() {
+                    this.state = LoginDialogState::Failed(SIGN_IN_TIMED_OUT.into());
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Write a phase that belongs to the LIVE attempt; an abandoned one (a
+    /// retry ran, or the login already landed) writes nothing.
+    fn settle(&mut self, attempt: u64, state: LoginDialogState, cx: &mut gpui::Context<Self>) {
+        if self.attempt != attempt {
+            return;
+        }
+        self.state = state;
+        cx.notify();
     }
 }
 
@@ -1117,19 +1198,57 @@ impl Render for LoginDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
+        let danger = theme.danger;
+        let foreground = theme.foreground;
         let line = match &self.state {
-            LoginDialogState::Queueing | LoginDialogState::Waiting => div()
+            // EXP-940: the wait SPINS. A line that never moves reads the same
+            // as a line that is stuck, which is what this dialog used to be.
+            LoginDialogState::Queueing | LoginDialogState::Waiting => h_flex()
+                .w_full()
+                .items_center()
+                .gap_2()
                 .text_sm()
                 .text_color(muted)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .child(Spinner::new().icon(crate::icons::registry::UI_LOADING)),
+                )
                 .child(SharedString::from(format!(
                     "Waiting for the sign-in link from {}. Open it on any device.",
                     self.device_label
                 )))
                 .into_any_element(),
-            LoginDialogState::Failed(message) => div()
+            // EXP-940: the landing SAYS so before the dialog goes.
+            LoginDialogState::SignedIn => h_flex()
+                .w_full()
+                .items_center()
+                .gap_2()
                 .text_sm()
-                .text_color(theme.danger)
-                .child(message.clone())
+                .text_color(foreground)
+                .child(
+                    div().flex_shrink_0().child(
+                        Icon::new(crate::icons::registry::UI_CHECK)
+                            .xsmall()
+                            .text_color(theme::tokens::GREEN.to_hsla()),
+                    ),
+                )
+                .child(SIGNED_IN)
+                .into_any_element(),
+            // EXP-940: a failure ENDS in a control, never in a sentence the
+            // reader can only close the window on.
+            LoginDialogState::Failed(message) => v_flex()
+                .w_full()
+                .gap_2()
+                .child(div().text_sm().text_color(danger).child(message.clone()))
+                .child(
+                    h_flex().child(
+                        Button::new("agent-login-retry")
+                            .outline()
+                            .label("Try again")
+                            .on_click(cx.listener(|this, _, _window, cx| this.request(cx))),
+                    ),
+                )
                 .into_any_element(),
             LoginDialogState::Link { url, code } => {
                 let copy = url.clone();

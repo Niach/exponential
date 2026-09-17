@@ -1,0 +1,475 @@
+[
+  {
+    "name": "a single Exponential call stays a single visible row",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "mcp__exponential__exponential_issues_get",
+        "toolKind": "other",
+        "detail": "EXP-901",
+        "settled": true
+      }
+    ],
+    "expected": ["tool@1"]
+  },
+  {
+    "name": "two calls to the same tool are their own group",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "mcp__exponential__exponential_issues_get",
+        "toolKind": "other",
+        "detail": "EXP-901",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "mcp__exponential__exponential_issues_get",
+        "toolKind": "other",
+        "detail": "EXP-944",
+        "settled": true
+      }
+    ],
+    "expected": ["expRun@1[1,2]: Read 2 issues"]
+  },
+  {
+    "name": "a running member keeps the progressive caption",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other"
+      }
+    ],
+    "expected": ["expRun@1[1,2,3]: Reading 3 issues"]
+  },
+  {
+    "name": "failed members append the failed count",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true,
+        "failed": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": ["expRun@1[1,2,3]: Read 3 issues · 1 failed"]
+  },
+  {
+    "name": "our tools break a command run and never join it",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "Bash",
+        "toolKind": "execute",
+        "detail": "bun install",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "Bash",
+        "toolKind": "execute",
+        "detail": "bun test",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_pr_open",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "Bash",
+        "toolKind": "execute",
+        "detail": "git push",
+        "settled": true
+      }
+    ],
+    "expected": ["run@1[1,2]", "tool@3", "tool@4"]
+  },
+  {
+    "name": "a group of ours sits between two command runs",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "Bash",
+        "toolKind": "execute",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "Bash",
+        "toolKind": "execute",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 5,
+        "kind": "tool",
+        "name": "Bash",
+        "toolKind": "execute",
+        "settled": true
+      },
+      {
+        "id": 6,
+        "kind": "tool",
+        "name": "Bash",
+        "toolKind": "execute",
+        "settled": true
+      }
+    ],
+    "expected": ["run@1[1,2]", "expRun@3[3,4]: Read 2 issues", "run@5[5,6]"]
+  },
+  {
+    "name": "different Exponential tools in sequence are separate rows",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_list",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "exponential_issues_list",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 5,
+        "kind": "tool",
+        "name": "exponential_comments_create",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": [
+      "expRun@1[1,2]: Read 2 issues",
+      "expRun@3[3,4]: Listed issues 2 times",
+      "tool@5"
+    ]
+  },
+  {
+    "name": "narration between two calls splits them",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "narration",
+        "text": "Now the other one."
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 5,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": [
+      "expRun@1[1,2]: Read 2 issues",
+      "narration@3",
+      "expRun@4[4,5]: Read 2 issues"
+    ]
+  },
+  {
+    "name": "every namespace resolves to the same contract row",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "mcp__exponential__exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential.exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": ["expRun@1[1,2,3]: Read 3 issues"]
+  },
+  {
+    "name": "another server's same-named tool is not ours",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "mcp__linear__issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "mcp__linear__issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": ["run@1[1,2]"]
+  },
+  {
+    "name": "a workflow call is its own card and never groups",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "workflowId": "w1",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "workflowId": "w1",
+        "settled": true
+      }
+    ],
+    "expected": ["tool@1", "tool@2"]
+  },
+  {
+    "name": "a subagent's calls stay in the subagent row",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "subagent",
+        "subagentId": "s1"
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "subagentId": "s1",
+        "settled": true
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "subagentId": "s1",
+        "settled": true
+      },
+      {
+        "id": 5,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": ["tool@1", "subagent@2(s1)", "tool@5"]
+  },
+  {
+    "name": "the subagent lane groups its own calls",
+    "lane": "s1",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "subagentId": "s1",
+        "settled": true
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "subagentId": "s1",
+        "settled": true
+      },
+      {
+        "id": 5,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": ["expRun@3[3,4]: Read 2 issues"]
+  },
+  {
+    "name": "the render window opens a fresh group at its boundary",
+    "start": 1,
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_issues_get",
+        "toolKind": "other",
+        "settled": true
+      }
+    ],
+    "expected": ["expRun@2[2,3]: Read 2 issues"]
+  },
+  {
+    "name": "a user turn between calls splits them and a lone call stays single",
+    "feed": [
+      {
+        "id": 1,
+        "kind": "tool",
+        "name": "exponential_sessions_message",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 2,
+        "kind": "user_message",
+        "text": "keep going"
+      },
+      {
+        "id": 3,
+        "kind": "tool",
+        "name": "exponential_sessions_message",
+        "toolKind": "other",
+        "settled": true
+      },
+      {
+        "id": 4,
+        "kind": "tool",
+        "name": "exponential_sessions_message",
+        "toolKind": "other"
+      }
+    ],
+    "expected": [
+      "tool@1",
+      "user@2",
+      "expRun@3[3,4]: Messaging 2 sessions"
+    ]
+  }
+]

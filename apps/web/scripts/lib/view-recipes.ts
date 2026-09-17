@@ -436,6 +436,20 @@ async function recipeOpenFirstThread(page: Page): Promise<void> {
  * a "Device settings" entry), and from `md` up it is `opacity-0` until its row
  * is hovered — so hover the row first; below `md` it is force-visible.
  */
+/** EXP-944: devices list rows are COLLAPSED by default; the catalog's Devices
+ *  shot shows a device's logins and their usage, so it opens the first row. */
+async function recipeExpandFirstDevice(page: Page): Promise<void> {
+  const row = page.locator(`[data-testid^="device-row-"]`).first()
+  if (!(await appears(row, 30_000))) {
+    throw new Error(
+      `no device row under "My devices": run bun run screenshots:desktop ` +
+        `(and set STEER_RELAY_URL)`
+    )
+  }
+  if ((await row.getAttribute(`aria-expanded`)) !== `true`) await row.click()
+  await page.getByText(/resets (in|soon)/).first().waitFor({ timeout: 15_000 })
+}
+
 async function recipeOpenMachineSettings(page: Page): Promise<void> {
   const gear = page.getByRole(`button`, { name: /^Device settings for/ })
   if (!(await appears(gear, 30_000))) {
@@ -635,6 +649,7 @@ export const RECIPES: Record<string, Recipe> = {
   expandFirstDiffFile: recipeExpandFirstDiffFile,
   openFirstThread: recipeOpenFirstThread,
   openMachineSettings: recipeOpenMachineSettings,
+  expandFirstDevice: recipeExpandFirstDevice,
   openAddServer: recipeOpenAddServer,
   openActionEditor: recipeOpenActionEditor,
   openAutomationsTab: recipeOpenAutomationsTab,
