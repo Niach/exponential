@@ -1,6 +1,5 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Check } from "lucide-react"
 import {
   MAX_TRIGGER_FILTER_IDS,
   actionTriggerEventValues,
@@ -28,17 +27,10 @@ import {
 import { buildStatusOptions } from "@/lib/team-statuses"
 import type { Board, IssueStatusRow, Label as TeamLabel } from "@/db/schema"
 import {
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
+  Combobox,
   Button,
   Label,
+  type PickerOption,
   TabsTrigger,
   GLASS_SELECT_TRIGGER,
   GlassGroup,
@@ -471,132 +463,139 @@ function EventFilterPickers({
 
   return (
     <div className="flex flex-wrap gap-2">
-      <FilterMultiSelect
-        anyLabel="Any board"
-        noun="board"
-        nounPlural="boards"
-        options={boardOptions}
-        selected={draft.boardIds}
+      <Combobox
+        multiple
+        max={MAX_TRIGGER_FILTER_IDS}
+        options={filterOptions(boardOptions)}
+        value={draft.boardIds}
         onChange={(boardIds) => set({ boardIds })}
+        triggerVariant="field"
+        mobileTitle="Any board"
+        placeholder="Filter boards..."
+        emptyText="No boards found."
+        width="sm"
+        renderTrigger={() =>
+          filterTrigger(
+            filterSummary(boardOptions, draft.boardIds, `Any board`, `board`, `boards`),
+            draft.boardIds.length === 0
+          )
+        }
       />
       {showLabels && (
-        <FilterMultiSelect
-          anyLabel="Any label"
-          noun="label"
-          nounPlural="labels"
-          options={labelOptions}
-          selected={draft.labelIds}
+        <Combobox
+          multiple
+          max={MAX_TRIGGER_FILTER_IDS}
+          options={filterOptions(labelOptions)}
+          value={draft.labelIds}
           onChange={(labelIds) => set({ labelIds })}
+          triggerVariant="field"
+          mobileTitle="Any label"
+          placeholder="Filter labels..."
+          emptyText="No labels found."
+          width="sm"
+          renderTrigger={() =>
+            filterTrigger(
+              filterSummary(labelOptions, draft.labelIds, `Any label`, `label`, `labels`),
+              draft.labelIds.length === 0
+            )
+          }
         />
       )}
       {showPriorities && (
-        <FilterMultiSelect
-          anyLabel="Any priority"
-          noun="priority"
-          nounPlural="priorities"
-          options={priorityOptions}
-          selected={draft.priorities}
+        <Combobox
+          multiple
+          max={MAX_TRIGGER_FILTER_IDS}
+          options={filterOptions(priorityOptions)}
+          value={draft.priorities}
           onChange={(priorities) =>
             set({ priorities: priorities as IssuePriority[] })
+          }
+          triggerVariant="field"
+          mobileTitle="Any priority"
+          placeholder="Filter priorities..."
+          emptyText="No priorities found."
+          width="sm"
+          renderTrigger={() =>
+            filterTrigger(
+              filterSummary(
+                priorityOptions,
+                draft.priorities,
+                `Any priority`,
+                `priority`,
+                `priorities`
+              ),
+              draft.priorities.length === 0
+            )
           }
         />
       )}
       {showStatuses && (
-        <FilterMultiSelect
-          anyLabel="Any status"
-          noun="status"
-          nounPlural="statuses"
-          options={statusOptions}
-          selected={draft.toStatusIds}
+        <Combobox
+          multiple
+          max={MAX_TRIGGER_FILTER_IDS}
+          options={filterOptions(statusOptions)}
+          value={draft.toStatusIds}
           onChange={(toStatusIds) => set({ toStatusIds })}
+          triggerVariant="field"
+          mobileTitle="Any status"
+          placeholder="Filter statuses..."
+          emptyText="No statuses found."
+          width="sm"
+          renderTrigger={() =>
+            filterTrigger(
+              filterSummary(
+                statusOptions,
+                draft.toStatusIds,
+                `Any status`,
+                `status`,
+                `statuses`
+              ),
+              draft.toStatusIds.length === 0
+            )
+          }
         />
       )}
     </div>
   )
 }
 
-// Compact multi-select chip (MobilePopover + Command, the board-picker
-// pattern) — selections cap at MAX_TRIGGER_FILTER_IDS, matching the server's
-// per-list limit.
-function FilterMultiSelect({
-  anyLabel,
-  noun,
-  nounPlural,
-  options,
-  selected,
-  onChange,
-}: {
-  anyLabel: string
-  noun: string
+// EXP-941: the popover+Command copy these four filters shared is now the
+// shared `Combobox` (multi-select, capped at MAX_TRIGGER_FILTER_IDS to match
+// the server's per-list limit). What stays local is the only thing the
+// primitive can't know: the filter's own `3 boards` summary, and the compact
+// chip that shows it.
+type FilterRow = { id: string; name: string }
+
+function filterOptions(rows: FilterRow[]): PickerOption[] {
+  return rows.map((row) => ({ value: row.id, label: row.name }))
+}
+
+function filterSummary(
+  rows: FilterRow[],
+  selected: string[],
+  anyLabel: string,
+  noun: string,
   nounPlural: string
-  options: { id: string; name: string }[]
-  selected: string[]
-  onChange: (ids: string[]) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const atCap = selected.length >= MAX_TRIGGER_FILTER_IDS
-  const toggle = (id: string) => {
-    if (selected.includes(id)) {
-      onChange(selected.filter((existing) => existing !== id))
-    } else if (!atCap) {
-      onChange([...selected, id])
-    }
+): string {
+  if (selected.length === 0) return anyLabel
+  if (selected.length === 1) {
+    return rows.find((row) => row.id === selected[0])?.name ?? `1 ${noun}`
   }
-  const summary =
-    selected.length === 0
-      ? anyLabel
-      : selected.length === 1
-        ? (options.find((option) => option.id === selected[0])?.name ??
-          `1 ${noun}`)
-        : `${selected.length} ${nounPlural}`
+  return `${selected.length} ${nounPlural}`
+}
+
+function filterTrigger(summary: string, empty: boolean) {
   return (
-    <MobilePopover open={open} onOpenChange={setOpen}>
-      <MobilePopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(
-            `h-8 font-normal`,
-            GLASS_SELECT_TRIGGER,
-            selected.length === 0 && `text-muted-foreground`
-          )}
-        >
-          {summary}
-        </Button>
-      </MobilePopoverTrigger>
-      <MobilePopoverContent
-        className="w-[14rem] p-0"
-        align="start"
-        mobileTitle={anyLabel}
-      >
-        <Command>
-          <CommandInput placeholder={`Filter ${nounPlural}...`} />
-          <CommandList>
-            <CommandEmpty>{`No ${nounPlural} found.`}</CommandEmpty>
-            <CommandGroup>
-              {options.map((option) => {
-                const isSelected = selected.includes(option.id)
-                return (
-                  <CommandItem
-                    key={option.id}
-                    value={`${option.name} ${option.id}`}
-                    disabled={!isSelected && atCap}
-                    onSelect={() => toggle(option.id)}
-                    className="flex items-center gap-2"
-                  >
-                    <span className="min-w-0 truncate text-sm">
-                      {option.name}
-                    </span>
-                    {isSelected && (
-                      <Check className="ml-auto size-3.5 shrink-0" />
-                    )}
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </MobilePopoverContent>
-    </MobilePopover>
+    <Button
+      variant="outline"
+      size="sm"
+      className={cn(
+        `h-8 font-normal`,
+        GLASS_SELECT_TRIGGER,
+        empty && `text-muted-foreground`
+      )}
+    >
+      {summary}
+    </Button>
   )
 }
