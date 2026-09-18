@@ -30,7 +30,7 @@ use sync::Store;
 use domain::options::get_issue_priority_config;
 use domain::{IssuePriority, IssueStatus};
 
-use crate::controls::glass_input;
+use crate::controls::{search_field, SearchFieldSize};
 use crate::icons::{option_icon, registry, resolved_status_icon};
 
 /// Hard cap per run: every checked issue adds a prompt section, and a batch
@@ -239,22 +239,21 @@ fn engine_row(row: &IssueRow) -> domain::issue_search::SearchRow<'_> {
     }
 }
 
-/// The search row heading the picker (EXP-768): the search glyph leading, a
-/// chrome-less field filling the row.
+/// The search row heading the picker (EXP-768): the row shell around ONE
+/// chrome-less [`search_field`] (EXP-963) — the glyph and the clear come from
+/// the shared field, never hand-drawn here, or the row would carry two search
+/// marks. The box tweaks stay: the SHELL owns the row's height (`py_3`), so
+/// the field must not add its own 36px rung on top of it.
 fn search_row(state: &Entity<InputState>, window: &Window, cx: &App) -> gpui::Div {
-    let muted = cx.theme().muted_foreground;
-    crate::surface::glass_row_shell()
-        .child(Icon::new(registry::NAV_SEARCH).small().text_color(muted))
-        .child(
-            div().flex_1().min_w_0().child(
-                glass_input(state, window, cx)
-                    .appearance(false)
-                    .h_auto()
-                    .px_0()
-                    .py_0()
-                    .cleanable(true),
-            ),
-        )
+    crate::surface::glass_row_shell().child(
+        div().flex_1().min_w_0().child(
+            search_field(state, SearchFieldSize::Md, window, cx)
+                .appearance(false)
+                .h_auto()
+                .px_0()
+                .py_0(),
+        ),
+    )
 }
 
 /// One muted, hairline-divided NOTE row (empty / no-match / overflow copy).

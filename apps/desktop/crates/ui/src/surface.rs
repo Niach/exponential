@@ -146,6 +146,80 @@ pub(crate) fn flat_row() -> Div {
     div().rounded(px(t::radius::MD))
 }
 
+/// EXP-963: the COMPACT density of [`flat_row`] — the web `ListRow
+/// density="compact"` / `SidebarMenuButton density="compact"` twin: the
+/// 28px one-line row the narrow column runs at (the rail's entries, the
+/// `ListNav` issue rows), the list's own 14px type, 8px of side padding and
+/// 8px between the glyph and the text. Same fills as the list row: the
+/// caller still applies the hover wash and the active fill.
+pub(crate) fn flat_row_compact() -> Div {
+    flat_row()
+        .flex()
+        .flex_row()
+        .h(px(FLAT_ROW_COMPACT_H))
+        .px_2()
+        .gap_2()
+        .items_center()
+        .text_sm()
+}
+
+/// The compact row's height (web `h-7`).
+pub(crate) const FLAT_ROW_COMPACT_H: f32 = 28.;
+
+/// The count badge's tone (EXP-963, web `Badge tone`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BadgeTone {
+    /// A count you parked (the rail's drafts): muted fill.
+    Muted,
+    /// A count that wants you (unread): the accent fill.
+    Primary,
+}
+
+/// Past this a [`count_badge`] reads `99+` (web `Badge max`).
+pub(crate) const COUNT_BADGE_MAX: usize = 99;
+
+/// EXP-963 — the COUNT badge, the web `Badge` twin: the smallest chip there
+/// is, a 16px capsule carrying a NUMBER and nothing else, 10px semibold so
+/// a count can climb without the box twitching. Zero renders NOTHING (a
+/// badge is a signal, and an empty signal is noise), past
+/// [`COUNT_BADGE_MAX`] it reads `99+`. PLACEMENT stays at the call site — a
+/// row's trailing edge, a rail glyph's corner — the badge owns only its
+/// shape. A `Pill` `Sm` is 24 tall and carries a word; this carries a
+/// quantity.
+pub(crate) fn count_badge(count: usize, tone: BadgeTone, cx: &App) -> Option<Div> {
+    if count == 0 {
+        return None;
+    }
+    let theme = cx.theme();
+    let (fill, ink) = match tone {
+        BadgeTone::Muted => (theme.muted, theme.muted_foreground),
+        BadgeTone::Primary => (theme.primary, theme.primary_foreground),
+    };
+    let label = if count > COUNT_BADGE_MAX {
+        format!("{COUNT_BADGE_MAX}+")
+    } else {
+        count.to_string()
+    };
+    Some(
+        div()
+            .flex()
+            .flex_row()
+            .flex_shrink_0()
+            .h(px(16.))
+            .min_w(px(16.))
+            .px(px(4.))
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .bg(fill)
+            .text_color(ink)
+            .text_size(px(10.))
+            .line_height(px(10.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child(SharedString::from(label)),
+    )
+}
+
 /// Card surface: radius 16, white 6% fill, white 10% hairline (mobile
 /// `GlassCard`). Layout (width/padding/gap) is the caller's job.
 pub(crate) fn glass_card() -> Div {

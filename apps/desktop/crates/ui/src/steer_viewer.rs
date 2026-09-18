@@ -89,7 +89,9 @@ use steer::{
 };
 use theme::tokens::transcript;
 
-use crate::controls::WebText as _;
+use crate::controls::{
+    disclosure_header, text_button, ChevronSide, TextButtonVariant, WebText as _,
+};
 use crate::icons::registry;
 use crate::screens::RunFace;
 use crate::slash_commands;
@@ -4613,7 +4615,6 @@ impl SteerSessionView {
         fold: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         // EXP-698: every body this renders is a CHAT body — the user bubble,
         // the plan card, the ask card, a stepper step — so the rhythm and the
         // code tint are set once, here.
@@ -4642,19 +4643,21 @@ impl SteerSessionView {
                     .child(view),
             )
             .child(
-                div()
-                    .id(("steer-body-toggle", id as usize))
-                    .mt_1()
-                    .cursor_pointer()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(if expanded { "Show less" } else { "Show more" })
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        if !this.expanded_bodies.insert(id) {
-                            this.expanded_bodies.remove(&id);
-                        }
-                        cx.notify();
-                    })),
+                // EXP-963: the shared in-place text toggle, not a muted line
+                // of this view's own.
+                text_button(
+                    ("steer-body-toggle", id as usize),
+                    if expanded { "Show less" } else { "Show more" },
+                    TextButtonVariant::Text,
+                    cx,
+                )
+                .mt_1()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    if !this.expanded_bodies.insert(id) {
+                        this.expanded_bodies.remove(&id);
+                    }
+                    cx.notify();
+                })),
             )
             .into_any_element()
     }
@@ -4666,40 +4669,37 @@ impl SteerSessionView {
         live_tail: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let expanded = self.expanded_groups.contains(&id);
+        // EXP-963: the shared disclosure header — the chevron, the muted rest
+        // brightening under the pointer and the whole line as the target come
+        // from `controls`, this row only says what it is made of.
         let mut column = v_flex().w_full().min_w_0().child(
-            tool_text(h_flex())
-                .id(("steer-tool-run", id as usize))
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .items_center()
-                .cursor_pointer()
-                .text_color(muted)
-                .child(
-                    Icon::new(if expanded {
-                        registry::UI_CHEVRON_DOWN
-                    } else {
-                        registry::UI_CHEVRON_RIGHT
-                    })
-                    .xsmall(),
-                )
-                .child(Icon::new(registry::CODING_TOOL).xsmall())
-                // EXP-785: the ONE caption every client derives from the
-                // group's calls ("Ran 3 commands · edited 2 files · 1 failed").
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .child(SharedString::from(tool_group_caption(items))),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    if !this.expanded_groups.insert(id) {
-                        this.expanded_groups.remove(&id);
-                    }
-                    cx.notify();
-                })),
+            tool_text(disclosure_header(
+                ("steer-tool-run", id as usize),
+                expanded,
+                ChevronSide::Leading,
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_2()
+                    .child(Icon::new(registry::CODING_TOOL).xsmall())
+                    // EXP-785: the ONE caption every client derives from the
+                    // group's calls ("Ran 3 commands · edited 2 files · 1
+                    // failed").
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(tool_group_caption(items))),
+                    ),
+                cx,
+            ))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                if !this.expanded_groups.insert(id) {
+                    this.expanded_groups.remove(&id);
+                }
+                cx.notify();
+            })),
         );
         if expanded {
             for item in items {
@@ -4744,39 +4744,33 @@ impl SteerSessionView {
         items: &[&FeedItem],
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let expanded = self.expanded_groups.contains(&id);
         let mut column = v_flex().w_full().min_w_0().child(
-            tool_text(h_flex())
-                .id(("steer-exp-tool-run", id as usize))
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .items_center()
-                .cursor_pointer()
-                .text_color(muted)
-                .child(
-                    Icon::new(if expanded {
-                        registry::UI_CHEVRON_DOWN
-                    } else {
-                        registry::UI_CHEVRON_RIGHT
-                    })
-                    .xsmall(),
-                )
-                // The app's own mark, exactly as a single call of ours draws it.
-                .child(Icon::from(crate::icons::ExpIcon::Logo).xsmall())
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .child(SharedString::from(exp_tool_group_caption(items))),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    if !this.expanded_groups.insert(id) {
-                        this.expanded_groups.remove(&id);
-                    }
-                    cx.notify();
-                })),
+            tool_text(disclosure_header(
+                ("steer-exp-tool-run", id as usize),
+                expanded,
+                ChevronSide::Leading,
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_2()
+                    // The app's own mark, exactly as a single call of ours
+                    // draws it.
+                    .child(Icon::from(crate::icons::ExpIcon::Logo).xsmall())
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(exp_tool_group_caption(items))),
+                    ),
+                cx,
+            ))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                if !this.expanded_groups.insert(id) {
+                    this.expanded_groups.remove(&id);
+                }
+                cx.notify();
+            })),
         );
         if expanded {
             for item in items {
@@ -4826,23 +4820,13 @@ impl SteerSessionView {
             Some(SubagentStatus::Started)
         ) && !summary.done;
 
-        let header = tool_text(h_flex())
-            .id(("steer-subagent", id as usize))
-            .w_full()
+        // EXP-963: everything the row is MADE of; the chevron, the muted rest
+        // and the pointer come from the shared disclosure header below — and
+        // only when there is something to open.
+        let content = h_flex()
+            .flex_1()
             .min_w_0()
             .gap_2()
-            .items_center()
-            .text_color(muted)
-            .when(expandable, |this| {
-                this.child(
-                    Icon::new(if expanded {
-                        registry::UI_CHEVRON_DOWN
-                    } else {
-                        registry::UI_CHEVRON_RIGHT
-                    })
-                    .xsmall(),
-                )
-            })
             .child(Icon::new(registry::CODING_SUBAGENT).xsmall())
             .child(
                 div()
@@ -4889,16 +4873,34 @@ impl SteerSessionView {
             // EXP-818: no per-row "Open" pill — the subagent strip over the
             // feed is the one way into a subagent's own conversation.
             .child(div().flex_1());
-        let header = header.when(expandable, |header| {
-            header
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    if !this.expanded_groups.insert(id) {
-                        this.expanded_groups.remove(&id);
-                    }
-                    cx.notify();
-                }))
-        });
+        let header = if expandable {
+            tool_text(disclosure_header(
+                ("steer-subagent", id as usize),
+                expanded,
+                ChevronSide::Leading,
+                content,
+                cx,
+            ))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                if !this.expanded_groups.insert(id) {
+                    this.expanded_groups.remove(&id);
+                }
+                cx.notify();
+            }))
+            .into_any_element()
+        } else {
+            // Nothing under it: the lane is a plain line, no chevron and no
+            // pointer over a fold that would not open.
+            tool_text(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .gap_2()
+                    .text_color(muted)
+                    .child(content),
+            )
+            .into_any_element()
+        };
         let mut column = v_flex().w_full().min_w_0().child(header);
         // EXP-856 §4: a duplicate edge on an ORDINARY subagent renders inline
         // under its group — and stays there when the group folds away.
@@ -5156,24 +5158,13 @@ impl SteerSessionView {
         let expanded = expandable && self.expanded_agents.contains(&key);
         let meta = crate::workflow_card::agent_meta(agent);
         let detail = crate::workflow_card::agent_detail(agent);
-        let mut row = tool_text(h_flex())
-            .id(("steer-workflow-agent", agent.index as usize))
-            .w_full()
+        // EXP-963: the row's own matter — the chevron and the fold behaviour
+        // ride the shared disclosure header, and only when it opens onto
+        // something.
+        let mut content = h_flex()
+            .flex_1()
             .min_w_0()
             .gap_1p5()
-            .items_center()
-            .pl_2()
-            .text_color(muted)
-            .when(expandable, |this| {
-                this.child(
-                    Icon::new(if expanded {
-                        registry::UI_CHEVRON_DOWN
-                    } else {
-                        registry::UI_CHEVRON_RIGHT
-                    })
-                    .xsmall(),
-                )
-            })
             .child(status_dot(tone))
             .child(
                 div()
@@ -5185,7 +5176,7 @@ impl SteerSessionView {
                 this.child(Spinner::new().xsmall())
             });
         if !meta.is_empty() {
-            row = row.child(
+            content = content.child(
                 div()
                     .flex_shrink_0()
                     .text_2xs()
@@ -5193,7 +5184,7 @@ impl SteerSessionView {
             );
         }
         if let Some(detail) = detail {
-            row = row.child(
+            content = content.child(
                 div()
                     .min_w_0()
                     .truncate()
@@ -5206,16 +5197,39 @@ impl SteerSessionView {
                     .child(SharedString::from(detail)),
             );
         }
-        let row = row.when(expandable, |row| {
+        let row = if expandable {
             let key = key.clone();
-            row.cursor_pointer()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    if !this.expanded_agents.insert(key.clone()) {
-                        this.expanded_agents.remove(&key);
-                    }
-                    cx.notify();
-                }))
-        });
+            tool_text(disclosure_header(
+                ("steer-workflow-agent", agent.index as usize),
+                expanded,
+                ChevronSide::Leading,
+                content,
+                cx,
+            ))
+            // The card's own indent and its tighter agent-row gap; every
+            // other chrome decision stays the shared header's.
+            .pl_2()
+            .gap_1p5()
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                if !this.expanded_agents.insert(key.clone()) {
+                    this.expanded_agents.remove(&key);
+                }
+                cx.notify();
+            }))
+            .into_any_element()
+        } else {
+            // A queued agent has produced nothing yet: a plain line.
+            tool_text(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .gap_1p5()
+                    .pl_2()
+                    .text_color(muted)
+                    .child(content),
+            )
+            .into_any_element()
+        };
         let mut column = v_flex().w_full().min_w_0().child(row);
         if expanded {
             let items = self.feed.items();

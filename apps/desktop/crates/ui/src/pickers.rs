@@ -21,8 +21,7 @@ use gpui::{
 use gpui_component::{
     button::Button,
     calendar::{Calendar, CalendarState},
-    checkbox::Checkbox,
-    input::{InputState},
+    input::InputState,
     menu::{PopupMenu, PopupMenuItem},
     popover::Popover,
     v_flex, ActiveTheme as _, Icon, Sizable as _, Side,
@@ -37,7 +36,6 @@ use domain::{IssuePriority, IssueStatus};
 
 use crate::icons::{option_icon, registry, resolved_status_icon};
 use crate::settings::parse_hex_color;
-use crate::controls::glass_input;
 
 /// A pick callback (the host owns the mutation — tRPC write vs local draft).
 pub(crate) type OnPick<V> = Rc<dyn Fn(V, &mut Window, &mut App)>;
@@ -334,7 +332,281 @@ pub(crate) fn user_menu_item(
 }
 
 // ---------------------------------------------------------------------------
-// Searchable label picker
+// EXP-963 — the ONE searchable picker (web `Combobox`, iOS/Android picker
+// sheets): a search field over rows, with the selection glyphs every client
+// draws
+// ---------------------------------------------------------------------------
+
+/// A row's leading glyph, built at render (a board's tinted icon, a label's
+/// colour dot).
+pub(crate) type PickerLead = Rc<dyn Fn(&App) -> gpui::AnyElement>;
+
+/// One option of a [`searchable_picker`] — the web `PickerOption`: `value`
+/// is the IDENTITY (two boards may share a name), `keywords` the search
+/// text (defaults to the label), `lead` the glyph before the label.
+pub(crate) struct PickerOption {
+    pub value: String,
+    pub label: SharedString,
+    pub keywords: Vec<String>,
+    pub lead: Option<PickerLead>,
+    /// An inert row — the CURRENT board of a move picker: it renders marked
+    /// and never fires.
+    pub disabled: bool,
+}
+
+impl PickerOption {
+    pub(crate) fn new(value: impl Into<String>, label: impl Into<SharedString>) -> Self {
+        let label = label.into();
+        Self {
+            value: value.into(),
+            keywords: vec![label.to_string()],
+            label,
+            lead: None,
+            disabled: false,
+        }
+    }
+
+    pub(crate) fn lead(mut self, lead: impl Fn(&App) -> gpui::AnyElement + 'static) -> Self {
+        self.lead = Some(Rc::new(lead));
+        self
+    }
+
+    pub(crate) fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    fn matches(&self, filter: &str) -> bool {
+        filter.is_empty()
+            || self
+                .keywords
+                .iter()
+                .any(|keyword| keyword.to_lowercase().contains(filter))
+    }
+}
+
+/// How a picker marks its rows — the arity decides the glyph (web
+/// `SelectionGlyph`, iOS `AgentIssuePickerSheet`, Android the same):
+/// SINGLE marks the picked row with a trailing `ui-check` and closes on
+/// pick; MULTI marks EVERY row with the leading `ui-selected` /
+/// `ui-unselected` circle pair (never a checkbox) and stays open, because a
+/// batch is several picks. `indeterminate` rows (a bulk edit over rows that
+/// disagree) wear `ui-indeterminate`.
+pub(crate) enum PickerSelection {
+    Single { current: Option<String> },
+    Multi {
+        selected: Vec<String>,
+        indeterminate: Vec<String>,
+    },
+}
+
+/// One row's mark.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SelectionState {
+    Selected,
+    Unselected,
+    Indeterminate,
+}
+
+impl PickerSelection {
+    fn is_multi(&self) -> bool {
+        matches!(self, PickerSelection::Multi { .. })
+    }
+
+    /// The mark a row with `value` wears — the pure half of the row
+    /// renderer, unit-tested below.
+    pub(crate) fn state_of(&self, value: &str) -> SelectionState {
+        match self {
+            PickerSelection::Single { current } => {
+                if current.as_deref() == Some(value) {
+                    SelectionState::Selected
+                } else {
+                    SelectionState::Unselected
+                }
+            }
+            PickerSelection::Multi {
+                selected,
+                indeterminate,
+            } => {
+                if selected.iter().any(|id| id == value) {
+                    SelectionState::Selected
+                } else if indeterminate.iter().any(|id| id == value) {
+                    SelectionState::Indeterminate
+                } else {
+                    SelectionState::Unselected
+                }
+            }
+        }
+    }
+}
+
+/// A pick: `(value, was_selected)`. A single picker also closes itself; a
+/// multi one toggles without closing.
+pub(crate) type OnPickOption = Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
+
+pub(crate) struct SearchablePickerParams {
+    pub options: Vec<PickerOption>,
+    pub selection: PickerSelection,
+    /// HOST-owned search input state (reset + focused on every open).
+    pub query: Entity<InputState>,
+    pub on_pick: OnPickOption,
+    /// The `CommandEmpty` copy once the filter matches nothing.
+    pub empty_text: &'static str,
+    /// The copy for a picker with NO options at all (`None` = the plain
+    /// empty text).
+    pub no_options_text: Option<&'static str>,
+    /// Popover width; `None` = intrinsic.
+    pub width: Option<gpui::Pixels>,
+}
+
+/// The web `SelectionGlyph`: the mark a picker row wears, by arity.
+/// `None` for an unpicked single row — that one carries nothing.
+pub(crate) fn selection_glyph(
+    multi: bool,
+    state: SelectionState,
+    cx: &App,
+) -> Option<Icon> {
+    let theme = cx.theme();
+    if !multi {
+        return (state == SelectionState::Selected).then(|| {
+            Icon::new(registry::UI_CHECK)
+                .size(px(14.))
+                .flex_shrink_0()
+                .text_color(theme.muted_foreground)
+        });
+    }
+    let (glyph, ink) = match state {
+        SelectionState::Selected => (registry::UI_SELECTED, theme.foreground),
+        SelectionState::Indeterminate => (registry::UI_INDETERMINATE, theme.foreground),
+        SelectionState::Unselected => (registry::UI_UNSELECTED, theme.muted_foreground),
+    };
+    Some(Icon::new(glyph).size(px(16.)).flex_shrink_0().text_color(ink))
+}
+
+/// EXP-963 — THE searchable picker: `trigger` opens a popover holding the
+/// small [`crate::controls::search_field`] (fresh and focused on every
+/// open, like the web `CommandInput`), a hairline, and the option rows that
+/// match, scroll-capped. Every per-subject popover (labels, move-to-board,
+/// the branch picker) is this one with different options.
+pub(crate) fn searchable_picker(
+    id: impl Into<ElementId>,
+    trigger: Button,
+    params: SearchablePickerParams,
+) -> Popover {
+    let id = id.into();
+    let SearchablePickerParams {
+        options,
+        selection,
+        query,
+        on_pick,
+        empty_text,
+        no_options_text,
+        width,
+    } = params;
+    let rows_id = ElementId::Name(SharedString::from(format!("{id:?}-rows")));
+    let query_for_open = query.clone();
+    let mut popover = Popover::new(id).p_1();
+    if let Some(width) = width {
+        popover = popover.w(width);
+    }
+    let multi = selection.is_multi();
+    popover
+        .trigger(trigger)
+        .on_open_change(move |open, window, cx| {
+            query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
+            if *open {
+                query_for_open.read(cx).focus_handle(cx).focus(window, cx);
+            }
+        })
+        .content(move |_, window, cx| {
+            let popover_state = cx.entity();
+            let filter = query.read(cx).value().trim().to_lowercase();
+            let mut column = v_flex().w_full().child(
+                crate::controls::search_field(
+                    &query,
+                    crate::controls::SearchFieldSize::Sm,
+                    window,
+                    cx,
+                )
+                .appearance(false),
+            );
+            if options.is_empty() {
+                if let Some(text) = no_options_text {
+                    return column.child(empty_picker_row(text, cx));
+                }
+            }
+            column = column.child(
+                div()
+                    .h(px(1.))
+                    .w_full()
+                    .my_1()
+                    .bg(cx.theme().border.opacity(0.5)),
+            );
+            let visible: Vec<&PickerOption> = options
+                .iter()
+                .filter(|option| option.matches(&filter))
+                .collect();
+            if visible.is_empty() {
+                return column.child(empty_picker_row(empty_text, cx));
+            }
+
+            use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+            let mut rows = v_flex()
+                .id(rows_id.clone())
+                .w_full()
+                .max_h(px(240.))
+                .overflow_y_scroll();
+            for option in visible {
+                let state = selection.state_of(&option.value);
+                let selected = state == SelectionState::Selected;
+                let value = option.value.clone();
+                let on_pick = on_pick.clone();
+                let popover_state = popover_state.clone();
+                let mut row = picker_row(
+                    ElementId::Name(SharedString::from(format!("picker-option-{value}"))),
+                    cx,
+                )
+                // EXP-963: a multi row that is picked wears the active fill
+                // (web `bg-glass-active`), so the batch reads at a glance.
+                .when(multi && selected, |row| {
+                    row.bg(t::glass::FILL_ACTIVE.to_hsla())
+                });
+                if multi {
+                    row = row.children(selection_glyph(true, state, cx));
+                }
+                if let Some(lead) = &option.lead {
+                    row = row.child(lead(cx));
+                }
+                row = row.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_nowrap()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .child(option.label.clone()),
+                );
+                if !multi {
+                    row = row.children(selection_glyph(false, state, cx));
+                }
+                if option.disabled {
+                    row = row.cursor_default();
+                } else {
+                    row = row.on_click(move |_, window, cx| {
+                        on_pick(&value, selected, window, cx);
+                        if !multi {
+                            popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                        }
+                    });
+                }
+                rows = rows.child(row);
+            }
+            column.child(rows)
+        })
+}
+
+// ---------------------------------------------------------------------------
+// The per-subject pickers, each ONE [`searchable_picker`] with its options
 // ---------------------------------------------------------------------------
 
 pub(crate) struct LabelPickerParams {
@@ -348,15 +620,27 @@ pub(crate) struct LabelPickerParams {
     pub width: Option<gpui::Pixels>,
 }
 
-/// Web `LabelPicker` (EXP-282 recipe, shared since EXP-288): "Filter
-/// labels…" input on top, live `contains()` filtering, checkbox + color-dot
-/// rows, scroll-capped list, empty states.
+/// A label's colour dot, the lead of its picker row.
+fn label_dot(color: Option<&str>) -> gpui::AnyElement {
+    let dot_color = color
+        .and_then(parse_hex_color)
+        .unwrap_or(gpui::opaque_grey(0.5, 1.0));
+    div()
+        .size_2p5()
+        .rounded_full()
+        .flex_shrink_0()
+        .bg(dot_color)
+        .into_any_element()
+}
+
+/// Web `LabelPicker` (EXP-282 recipe, shared since EXP-288): the MULTI
+/// [`searchable_picker`] over the team's labels — colour-dot rows behind the
+/// `ui-selected` / `ui-unselected` pair, toggling without closing.
 pub(crate) fn label_picker_popover(
     id: impl Into<ElementId>,
     trigger: Button,
     params: LabelPickerParams,
 ) -> Popover {
-    let id = id.into();
     let LabelPickerParams {
         labels,
         selected_ids,
@@ -364,103 +648,33 @@ pub(crate) fn label_picker_popover(
         on_toggle,
         width,
     } = params;
-    let rows_id = ElementId::Name(SharedString::from(format!("{id:?}-rows")));
-    let query_for_open = query.clone();
-    let mut popover = Popover::new(id).p_1();
-    if let Some(width) = width {
-        popover = popover.w(width);
-    }
-    popover
-        .trigger(trigger)
-        .on_open_change(move |open, window, cx| {
-            // Fresh search per open; the input takes focus like the web
-            // CommandInput.
-            query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
-            if *open {
-                query_for_open.read(cx).focus_handle(cx).focus(window, cx);
-            }
+    let options = labels
+        .iter()
+        .map(|label| {
+            let color = label.color.clone();
+            PickerOption::new(label.id.clone(), label.name.clone())
+                .lead(move |_| label_dot(color.as_deref()))
         })
-        .content(move |_, window, cx| {
-            let filter = query.read(cx).value().trim().to_lowercase();
-            let visible: Vec<&Label> = labels
-                .iter()
-                .filter(|label| filter.is_empty() || label.name.to_lowercase().contains(&filter))
-                .collect();
-
-            let mut column = v_flex()
-                .w_full()
-                .child(glass_input(&query, window, cx).small().appearance(false).cleanable(true));
-            if labels.is_empty() {
-                return column.child(empty_picker_row("No labels in this team", cx));
-            }
-            column = column.child(
-                div()
-                    .h(px(1.))
-                    .w_full()
-                    .my_1()
-                    .bg(cx.theme().border.opacity(0.5)),
-            );
-            if visible.is_empty() {
-                return column.child(empty_picker_row("No labels found.", cx));
-            }
-
-            // Label lists grow with the team — cap + scroll (EXP-46a).
-            use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
-            let mut rows = v_flex()
-                .id(rows_id.clone())
-                .w_full()
-                .max_h(px(240.))
-                .overflow_y_scroll();
-            for label in visible {
-                let checked = selected_ids.contains(&label.id);
-                let label_id = label.id.clone();
-                let on_toggle = on_toggle.clone();
-                let dot_color = label
-                    .color
-                    .as_deref()
-                    .and_then(parse_hex_color)
-                    .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-                rows = rows.child(
-                    picker_row(
-                        ElementId::Name(SharedString::from(format!("picker-label-{label_id}"))),
-                        cx,
-                    )
-                    // The row owns the click — a handler on the checkbox too
-                    // would double-toggle.
-                    .child(
-                        Checkbox::new(ElementId::Name(SharedString::from(format!(
-                            "picker-label-check-{label_id}"
-                        ))))
-                        .checked(checked),
-                    )
-                    .child(
-                        div()
-                            .size_2p5()
-                            .rounded_full()
-                            .flex_shrink_0()
-                            .bg(dot_color),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .whitespace_nowrap()
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .child(SharedString::from(label.name.clone())),
-                    )
-                    .on_click(move |_, window, cx| {
-                        on_toggle(&label_id, checked, window, cx);
-                    }),
-                );
-            }
-            column.child(rows)
-        })
+        .collect();
+    searchable_picker(
+        id,
+        trigger,
+        SearchablePickerParams {
+            options,
+            selection: PickerSelection::Multi {
+                selected: selected_ids,
+                indeterminate: Vec::new(),
+            },
+            query,
+            on_pick: Rc::new(move |label_id, was_selected, window, cx| {
+                on_toggle(label_id, was_selected, window, cx);
+            }),
+            empty_text: "No labels found.",
+            no_options_text: Some("No labels in this team"),
+            width,
+        },
+    )
 }
-
-// ---------------------------------------------------------------------------
-// Searchable move-to-board picker (EXP-316 — web `BoardPicker` parity)
-// ---------------------------------------------------------------------------
 
 pub(crate) struct BoardPickerParams {
     /// The team's boards, current one included (it renders checked+inert).
@@ -474,15 +688,15 @@ pub(crate) struct BoardPickerParams {
     pub width: Option<gpui::Pixels>,
 }
 
-/// Web `BoardPicker` ("Move to board..." command popover): search input on
-/// top, live `contains()` filtering, board-glyph rows with the current board
-/// checked; picking another board fires `on_pick` and closes the popover.
+/// Web `BoardPicker` ("Move to board..." command popover): the SINGLE
+/// [`searchable_picker`] over the team's boards — board-glyph rows, the
+/// current board checked and inert; picking another fires `on_pick` and
+/// closes.
 pub(crate) fn board_picker_popover(
     id: impl Into<ElementId>,
     trigger: Button,
     params: BoardPickerParams,
 ) -> Popover {
-    let id = id.into();
     let BoardPickerParams {
         boards,
         current_board_id,
@@ -490,96 +704,44 @@ pub(crate) fn board_picker_popover(
         on_pick,
         width,
     } = params;
-    let rows_id = ElementId::Name(SharedString::from(format!("{id:?}-rows")));
-    let query_for_open = query.clone();
-    let mut popover = Popover::new(id).p_1();
-    if let Some(width) = width {
-        popover = popover.w(width);
-    }
-    popover
-        .trigger(trigger)
-        .on_open_change(move |open, window, cx| {
-            // Fresh search per open; the input takes focus like the web
-            // CommandInput.
-            query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
-            if *open {
-                query_for_open.read(cx).focus_handle(cx).focus(window, cx);
-            }
-        })
-        .content(move |_, window, cx| {
-            let popover_state = cx.entity();
-            let filter = query.read(cx).value().trim().to_lowercase();
-            let visible: Vec<&Board> = boards
-                .iter()
-                .filter(|board| filter.is_empty() || board.name.to_lowercase().contains(&filter))
-                .collect();
-
-            let mut column = v_flex()
-                .w_full()
-                .child(glass_input(&query, window, cx).small().appearance(false).cleanable(true));
-            column = column.child(
-                div()
-                    .h(px(1.))
-                    .w_full()
-                    .my_1()
-                    .bg(cx.theme().border.opacity(0.5)),
-            );
-            if visible.is_empty() {
-                return column.child(empty_picker_row("No boards found.", cx));
-            }
-
-            use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
-            let mut rows = v_flex()
-                .id(rows_id.clone())
-                .w_full()
-                .max_h(px(240.))
-                .overflow_y_scroll();
-            for board in visible {
-                let is_current = board.id == current_board_id;
-                let board_id = board.id.clone();
-                let on_pick = on_pick.clone();
-                let popover_state = popover_state.clone();
-                let tint = board
-                    .color
-                    .as_deref()
-                    .and_then(parse_hex_color)
-                    .unwrap_or(cx.theme().muted_foreground);
-                let mut row = picker_row(
-                    ElementId::Name(SharedString::from(format!("picker-board-{board_id}"))),
-                    cx,
-                )
-                .child(
-                    crate::icons::board_icon(board)
+    let options = boards
+        .iter()
+        .map(|board| {
+            let board = board.clone();
+            let is_current = board.id == current_board_id;
+            PickerOption::new(board.id.clone(), board.name.clone())
+                .disabled(is_current)
+                .lead(move |cx| {
+                    let tint = board
+                        .color
+                        .as_deref()
+                        .and_then(parse_hex_color)
+                        .unwrap_or(cx.theme().muted_foreground);
+                    crate::icons::board_icon(&board)
                         .xsmall()
                         .text_color(tint)
-                        .flex_shrink_0(),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .whitespace_nowrap()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(SharedString::from(board.name.clone())),
-                );
-                if is_current {
-                    row = row.child(
-                        Icon::new(registry::UI_CHECK)
-                            .size_3()
-                            .flex_shrink_0()
-                            .text_color(cx.theme().muted_foreground),
-                    );
-                } else {
-                    row = row.on_click(move |_, window, cx| {
-                        on_pick(board_id.clone(), window, cx);
-                        popover_state.update(cx, |state, cx| state.dismiss(window, cx));
-                    });
-                }
-                rows = rows.child(row);
-            }
-            column.child(rows)
+                        .flex_shrink_0()
+                        .into_any_element()
+                })
         })
+        .collect();
+    searchable_picker(
+        id,
+        trigger,
+        SearchablePickerParams {
+            options,
+            selection: PickerSelection::Single {
+                current: Some(current_board_id),
+            },
+            query,
+            on_pick: Rc::new(move |board_id, _was_selected, window, cx| {
+                on_pick(board_id.to_string(), window, cx);
+            }),
+            empty_text: "No boards found.",
+            no_options_text: None,
+            width,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +835,39 @@ mod tests {
                 "Duplicate"
             ]
         );
+    }
+
+    /// EXP-963: the ONE selection rule — a single picker marks only the
+    /// current row, a multi one every row, and a disagreeing bulk row is
+    /// indeterminate before it is unselected.
+    #[test]
+    fn selection_state_follows_the_arity() {
+        let single = PickerSelection::Single {
+            current: Some("b".into()),
+        };
+        assert_eq!(single.state_of("a"), SelectionState::Unselected);
+        assert_eq!(single.state_of("b"), SelectionState::Selected);
+        let none = PickerSelection::Single { current: None };
+        assert_eq!(none.state_of("b"), SelectionState::Unselected);
+
+        let multi = PickerSelection::Multi {
+            selected: vec!["a".into()],
+            indeterminate: vec!["a".into(), "c".into()],
+        };
+        assert_eq!(multi.state_of("a"), SelectionState::Selected);
+        assert_eq!(multi.state_of("b"), SelectionState::Unselected);
+        assert_eq!(multi.state_of("c"), SelectionState::Indeterminate);
+    }
+
+    /// The search text is the keywords, case-insensitive, and an empty
+    /// filter keeps every row.
+    #[test]
+    fn options_filter_on_keywords() {
+        let option = PickerOption::new("id", "Mobile Bugs");
+        assert!(option.matches(""));
+        assert!(option.matches("bug"));
+        assert!(option.matches("mobile b"));
+        assert!(!option.matches("web"));
     }
 
     /// The pick a single-issue duplicate row emits must carry the duplicate

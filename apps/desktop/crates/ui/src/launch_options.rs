@@ -638,10 +638,14 @@ fn account_menu<V: Render>(
 /// after running an item's handler (gpui-component `popup_menu.rs`, both the
 /// `Item` and the `ElementItem` arm), so a checkbox menu built out of
 /// [`PopupMenuItem`] would close on every single toggle. The repo's own
-/// no-close multiselect is the label picker's `Popover` of checkbox rows
-/// ([`crate::pickers::label_picker_popover`]) — which is also the shape the
-/// web twin wears (`mcp-server-picker.tsx`: a popover of `Checkbox` command
-/// items) — so that is what this builds.
+/// no-close multiselect is the searchable picker's `Popover` of rows
+/// ([`crate::pickers::searchable_picker`]) — which is also the shape the
+/// web twin wears (`mcp-server-picker.tsx`: a popover of command items) — so
+/// that is what this builds.
+///
+/// EXP-941/EXP-963: a multi picker marks its rows with the leading
+/// `ui-selected`/`ui-unselected` circle pair and fills the picked ones
+/// ([`crate::pickers::selection_glyph`]), never with a checkbox.
 ///
 /// A server the target machine cannot satisfy is GREYED and carries its
 /// reason, but stays pickable: the launch blocker then names it, which is a
@@ -654,7 +658,6 @@ pub(crate) fn mcp_pick_popover<V: Render>(
     toggle: impl Fn(&mut V, &str) + 'static,
     cx: &mut Context<V>,
 ) -> gpui_component::popover::Popover {
-    use gpui_component::checkbox::Checkbox;
     use gpui_component::popover::Popover;
 
     let servers = servers.to_vec();
@@ -688,15 +691,20 @@ pub(crate) fn mcp_pick_popover<V: Render>(
                         cx,
                     )
                     .when(blocked.is_some(), |row| row.opacity(0.5))
-                    // The ROW owns the click — a handler on the checkbox too
-                    // would double-toggle (the label picker's rule).
-                    .child(
-                        Checkbox::new(SharedString::from(format!(
-                            "{row_prefix}-mcp-check-{}",
-                            server.id
-                        )))
-                        .checked(checked),
-                    )
+                    .when(checked, |row| {
+                        row.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+                    })
+                    // The ROW owns the click — the glyph is a MARK, not a
+                    // control, so there is no second handler to double-toggle.
+                    .children(crate::pickers::selection_glyph(
+                        true,
+                        if checked {
+                            crate::pickers::SelectionState::Selected
+                        } else {
+                            crate::pickers::SelectionState::Unselected
+                        },
+                        cx,
+                    ))
                     .child(
                         v_flex()
                             .flex_1()

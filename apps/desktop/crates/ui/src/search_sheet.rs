@@ -52,7 +52,7 @@ use sync::{SessionPhase, Store};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::OpenSearch;
-use crate::controls::glass_input;
+use crate::controls::{search_field, SearchFieldSize};
 use crate::icons::registry;
 use crate::issue_list::parse_hex_color;
 use crate::navigation::{active_team_id, nav_for_window, navigate, Screen};
@@ -341,14 +341,13 @@ impl Render for SearchSheetView {
                     .border_b_1()
                     .border_color(cx.theme().border.opacity(0.5))
                     .child(
-                        Icon::new(registry::NAV_SEARCH)
-                            .size_4()
-                            .flex_shrink_0()
-                            .text_color(muted),
-                    )
-                    .child(
+                        // EXP-963: the glyph rides INSIDE the shared search
+                        // field now — one mark, and the clear circle appears
+                        // beside the close button only once there is text.
                         div().flex_1().min_w_0().text_size(px(14.)).child(
-                            glass_input(&self.input, window, cx).appearance(false).p_0(),
+                            search_field(&self.input, SearchFieldSize::Md, window, cx)
+                                .appearance(false)
+                                .p_0(),
                         ),
                     )
                     .child(

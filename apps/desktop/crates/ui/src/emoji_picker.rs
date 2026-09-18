@@ -21,11 +21,11 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     popover::Popover,
-    v_flex, ActiveTheme as _, Sizable as _,
+    v_flex, ActiveTheme as _,
 };
 
 use crate::emoji;
-use crate::controls::glass_input;
+use crate::controls::{search_field, SearchFieldSize};
 
 /// Pick callback: the unicode the host inserts at its caret.
 pub(crate) type OnPickEmoji = Rc<dyn Fn(&str, &mut Window, &mut App)>;
@@ -242,10 +242,7 @@ impl Render for EmojiPicker {
             .gap_1()
             .capture_action(cx.listener(Self::on_enter))
             .child(
-                glass_input(&self.query, window, cx)
-                    .small()
-                    .appearance(false)
-                    .cleanable(true),
+                search_field(&self.query, SearchFieldSize::Sm, window, cx).appearance(false),
             )
             .child(div().h(px(1.)).w_full().bg(cx.theme().border.opacity(0.5)))
             .map(|column| {

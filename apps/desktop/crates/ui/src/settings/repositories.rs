@@ -48,7 +48,7 @@ use gpui_component::{
 use serde::{Deserialize, Serialize};
 use sync::Store;
 
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::{search_field, SearchFieldSize};
 use crate::github_connect::{copy, fetch_github_status, GithubStatus};
 use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
@@ -1331,10 +1331,7 @@ impl RepositoriesPane {
                 let mut column = v_flex()
                     .w_full()
                     .child(
-                        glass_input(&query, window, cx)
-                            .web_input_sm()
-                            .appearance(false)
-                            .cleanable(true),
+                        search_field(&query, SearchFieldSize::Sm, window, cx).appearance(false),
                     )
                     .child(
                         div()
