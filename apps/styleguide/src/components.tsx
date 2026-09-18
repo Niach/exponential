@@ -295,6 +295,7 @@ const PlayGlyph = conceptIcon(`action-run`)
 const MoreGlyph = conceptIcon(`ui-more`)
 const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
 const CloseGlyph = conceptIcon(`ui-close`)
+const BoldGlyph = conceptIcon(`editor-bold`)
 const WarningGlyph = conceptIcon(`ui-warning`)
 const ShellGlyph = conceptIcon(`session-shell`)
 const MergeGlyph = conceptIcon(`pr-merged`)
@@ -1167,7 +1168,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `ghost-icon-button`,
     title: `Ghost icon button`,
     kind: `Buttons & chips`,
-    blurb: `The SECONDARY icon button (EXP-862): the same 32px box and the same 16px glyph at 70% foreground, with no circle, no fill and no border at rest. Hover is the only paint it carries, the row wash under the MD corner, and the glyph goes full strength. Everything that is not the primary action wears this one: the "…" overflow, close, the folder and file-list toggles, the chevrons (back, fold, reorder), trash and remove, refresh. Put a circle here and the surface ends up with three things asking to be pressed and no way to tell which one it wants.`,
+    blurb: `The SECONDARY icon button (EXP-862): the same 32px box and the same 16px glyph at 70% foreground, with no circle, no fill and no border at rest. Hover is the only paint it carries, the row wash under the MD corner, and the glyph goes full strength; a toggle that is ON says so with aria-pressed and keeps that wash (the editor rail's marks, EXP-960). Everything that is not the primary action wears this one: the "…" overflow, close, the folder and file-list toggles, the chevrons (back, fold, reorder), trash and remove, refresh. Put a circle here and the surface ends up with three things asking to be pressed and no way to tell which one it wants.`,
     status: {
       web: ok(`buttonVariants variant="ghost" size="icon-sm"`, `packages/ui/src/button.tsx`),
       desktop: ok(`controls::ghost_icon_button`, DESKTOP_CONTROLS),
@@ -1178,10 +1179,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `one composable, two shapes: borderless drops the circle and the stroke and keeps the hover fill`
       ),
     },
-    leftovers: [
-      { file: `apps/web/src/components/issue-editor/formatting-rail.tsx`, note: `the rail's buttons are a CSS ghost-button system (styles.css .formatting-rail button)` },
-    ],
     island: () => (
+      // The last one is a TOGGLE held down: `aria-pressed` is the pressed
+      // state (EXP-960), the hover wash kept on — the editor rail's marks.
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="icon-sm" aria-label="More">
           <MoreGlyph />
@@ -1191,6 +1191,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         </Button>
         <Button variant="ghost" size="icon-sm" aria-label="Close">
           <CloseGlyph />
+        </Button>
+        <Button variant="ghost" size="icon-sm" aria-label="Bold" aria-pressed>
+          <BoldGlyph />
         </Button>
       </div>
     ),
@@ -1422,9 +1425,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ios: ok(`GlassTextField`, IOS_CONTROLS),
       android: ok(`GlassTextField`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
     },
-    leftovers: [
-      { file: `apps/web/src/components/issue-editor/formatting-rail.tsx`, note: `link URL field is a plain-CSS reimplementation (styles.css .rail-link-input)` },
-    ],
     island: () => (
       <div className="grid gap-3">
         <Input defaultValue="Fix the merge queue" />

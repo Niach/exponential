@@ -792,9 +792,9 @@
 }
 
 /* ── Formatting rail (EXP-568) ──
-   One button recipe for both chromes: the desktop selection bubble
-   (BubbleMenu → document.body) and the phone keyboard bar. Same 28×28 glyph
-   buttons the static toolbar used, so the muscle memory carries over. */
+   One row behind both chromes: the desktop selection bubble (BubbleMenu →
+   document.body) and the phone keyboard bar. The buttons are @exp/ui's ghost
+   icon button (EXP-960), so the sheet only owns the strip itself. */
 .formatting-rail {
   padding: 3px 4px;
   /* The rail never wraps — it scrolls sideways instead (EXP-247's rule,
@@ -802,78 +802,15 @@
   scrollbar-width: none;
 }
 
-.formatting-rail button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  transition:
-    color var(--motion-duration-fast) var(--motion-ease-standard),
-    background var(--motion-duration-fast) var(--motion-ease-standard);
-  flex-shrink: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .formatting-rail button {
-    transition: none;
-  }
-}
-
-.formatting-rail button:hover {
-  color: var(--foreground);
-  background: var(--accent);
-}
-
-.formatting-rail button.is-active {
-  color: var(--accent-foreground);
-  background: var(--accent);
-}
-
-/* EXP-727: the rail's one destructive action (Delete table on a phone). */
-.formatting-rail button.is-destructive,
-.formatting-rail button.is-destructive:hover {
-  color: var(--destructive);
-}
-
-.rail-separator {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
-  margin: 0 2px;
-  flex-shrink: 0;
-}
-
 /* EXP-587: the static insert strip under a desktop editor (emoji / image /
    attach). Rail buttons, no chrome: it reads as part of the text box.
    EXP-697: the side padding lines the FIRST GLYPH up with the text above —
-   .tiptap-content insets 1.25rem and the 14px glyph sits 7px into its 28px
-   button, so the bar starts 7px short of the text inset. */
+   .tiptap-content insets 1.25rem and the 1rem glyph sits 0.5rem into its
+   2rem ghost button (EXP-960), so the bar starts 0.5rem short of the text
+   inset. All rem: a px offset drifts by a pixel wherever the root scales. */
 .editor-insert-bar {
   margin-top: 2px;
-  padding: 0 calc(1.25rem - 7px);
-}
-
-/* The link mode's URL field — the rail's only text input. */
-.rail-link-input {
-  width: 12rem;
-  max-width: 60vw;
-  background: var(--muted);
-  border: 1px solid var(--input);
-  border-radius: 5px;
-  padding: 2px 7px;
-  font-size: 0.8rem;
-  color: var(--foreground);
-  outline: none;
-}
-
-.rail-link-input:focus {
-  border-color: var(--ring);
+  padding: 0 calc(1.25rem - 0.5rem);
 }
 
 /* Safari ignores scrollbar-width, and the universal ::-webkit-scrollbar rules

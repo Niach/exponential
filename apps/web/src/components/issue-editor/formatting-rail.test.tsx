@@ -214,7 +214,9 @@ describe(`FormattingRail button order`, () => {
       `Hide keyboard`,
     ])
     const button = screen.getByLabelText(`Delete table`)
-    expect(button.className).toContain(`is-destructive`)
+    expect(button.className).toContain(`text-destructive`)
+    // An action, not a toggle: no pressed state at all.
+    expect(button.getAttribute(`aria-pressed`)).toBeNull()
     fireEvent.click(button)
     expect(rec.commands).toEqual([`focus`, `deleteTable`])
   })
@@ -321,7 +323,9 @@ describe(`FormattingRail modes`, () => {
         onModeChange={vi.fn()}
       />
     )
-    expect(screen.getByLabelText(`Text`).className).toContain(`is-active`)
+    expect(screen.getByLabelText(`Text`).getAttribute(`aria-pressed`)).toBe(
+      `true`
+    )
 
     const listy = makeEditor({ active: { paragraph: true, bulletList: true } })
     render(
@@ -332,9 +336,9 @@ describe(`FormattingRail modes`, () => {
         onModeChange={vi.fn()}
       />
     )
-    expect(screen.getAllByLabelText(`Text`)[1].className).not.toContain(
-      `is-active`
-    )
+    expect(
+      screen.getAllByLabelText(`Text`)[1].getAttribute(`aria-pressed`)
+    ).toBe(`false`)
   })
 
   it(`edits a link and hands the mode back on apply`, () => {
