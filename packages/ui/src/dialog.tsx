@@ -10,6 +10,7 @@ import {
   SheetGrabber,
   useSheetDragHandleProps,
 } from "./sheet-chrome"
+import { isTypeaheadPortalInteraction } from "./typeahead"
 import { useSheetDrag } from "./use-sheet-drag"
 
 function Dialog({
@@ -64,6 +65,7 @@ function DialogContent({
   showCloseButton = true,
   mobile = `sheet`,
   ref,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -132,6 +134,16 @@ function DialogContent({
           MOBILE_ARMS[mobile],
           className
         )}
+        // The typeahead's anchored arm portals to document.body (EXP-54),
+        // so Radix takes a pointer-down on it as an OUTSIDE interaction and
+        // would close the dialog under the menu. Every dialog ignores that
+        // one; the caller's own guard runs first and its veto stands.
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event)
+          if (!event.defaultPrevented && isTypeaheadPortalInteraction(event)) {
+            event.preventDefault()
+          }
+        }}
         {...props}
       >
         <DialogPresentationContext.Provider value={mobile}>

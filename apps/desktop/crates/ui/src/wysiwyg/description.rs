@@ -106,6 +106,9 @@ pub struct WysiwygDescription {
     refs_refresh_scheduled: bool,
     completion_source: Option<Rc<dyn CompletionSource>>,
     completion: Option<ActiveCompletion>,
+    /// The completion menu's scroll (release review R5): ↑/↓ keep the
+    /// selected row in view past the cap.
+    completion_scroll: gpui::ScrollHandle,
     /// Images staged in create-dialog mode (`draft://` URLs; resolved at
     /// submit by the dialog's existing upload flow).
     staged: Vec<StagedImage>,
@@ -450,6 +453,7 @@ impl WysiwygDescription {
             refs_refresh_scheduled: false,
             completion_source,
             completion: None,
+            completion_scroll: gpui::ScrollHandle::new(),
             probed_sizes: HashMap::new(),
             failed_retry_scheduled: false,
             _subscriptions: subscriptions,
@@ -1206,6 +1210,7 @@ impl WysiwygDescription {
             if len > 0 {
                 completion.selected =
                     (completion.selected as isize + delta).rem_euclid(len) as usize;
+                self.completion_scroll.scroll_to_item(completion.selected);
                 cx.notify();
             }
         }
@@ -1417,6 +1422,7 @@ impl WysiwygDescription {
                 caret_bottom: caret.origin.y + caret.size.height,
             },
             rows,
+            &self.completion_scroll,
             window,
             cx,
         ))

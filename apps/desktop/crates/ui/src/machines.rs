@@ -569,8 +569,11 @@ impl MachinesSection {
         });
         // EXP-944: the whole line folds, so the chevron is an AFFORDANCE, not
         // a second target — the same fold glyph the session tree wears.
-        let expanded = self.expanded.contains(&device.device_id) || dev_expand_devices();
-        let toggle_id = device.device_id.clone();
+        // Keyed on the devices ROW id (the gear's key too), never the machine
+        // id: two rows with a NULL `device_id` must not fold as one or share
+        // an element id (release review R5).
+        let expanded = self.expanded.contains(&device.row_id) || dev_expand_devices();
+        let toggle_id = device.row_id.clone();
 
         // EXP-642: one row per device, the web `GlassRow` two-line shape —
         // icon · (name · version · default star · "Shared") over the status
@@ -578,7 +581,7 @@ impl MachinesSection {
         // gives way.
         let row_hover = theme.list_hover;
         let line = crate::surface::flat_row()
-            .id(SharedString::from(format!("machine-{}", device.device_id)))
+            .id(SharedString::from(format!("machine-{}", device.row_id)))
             .group(MACHINE_ROW_GROUP)
             .flex()
             .w_full()

@@ -15,21 +15,23 @@ import {
   Skeleton,
   UserAvatar,
   useIsMobile,
+  conceptIcon,
 } from "@exp/ui"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
-import {
-  CalendarDays,
-  Plus,
-  ChevronRight,
-  ListTodo,
-  User as UserIcon,
-} from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { formatDate } from "@/lib/utils"
 import { useToday } from "@/hooks/use-now"
 import { dueDateToneClass } from "@/lib/issue-due-date"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import type { IssueGroup } from "@/lib/board-view"
+
+// ×4 concepts, never raw glyphs (CLAUDE.md §Icons): the iOS list names the
+// same ones (`IssueListView.swift`).
+const AddIcon = conceptIcon(`ui-add`)
+const DueDateIcon = conceptIcon(`ui-due-date`)
+const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
+const EmptyIssuesIcon = conceptIcon(`ui-checklist`)
+const AvatarPlaceholderIcon = conceptIcon(`ui-avatar-placeholder`)
 
 // REV-46: the desktop IDE virtualizes this exact list (issue_list.rs
 // v_virtual_list — "the list can be long; virtualization is mandatory"). The
@@ -130,7 +132,7 @@ function AssigneeCell({
     <UserAvatar size={20} user={assignee} />
   ) : (
     <div className="size-5 rounded-full border border-dashed border-border flex items-center justify-center">
-      <UserIcon className="size-2.5 text-muted-foreground/50" />
+      <AvatarPlaceholderIcon className="size-2.5 text-muted-foreground/50" />
     </div>
   )
 
@@ -338,7 +340,7 @@ const IssueRow = memo(function IssueRow({
             <span
               className={`flex items-center gap-1 px-1 ${dueDateToneClass(issue.dueDate, today)}`}
             >
-              <CalendarDays className="size-3 shrink-0" />
+              <DueDateIcon className="size-3 shrink-0" />
               <span className="text-xs whitespace-nowrap">
                 {formatDate(issue.dueDate)}
               </span>
@@ -356,7 +358,7 @@ const IssueRow = memo(function IssueRow({
         {/* Both natives end the row with a disclosure chevron (Android draws
             one, iOS gets it from NavigationLink); desktop's table has no such
             affordance, so it stays mobile-only. */}
-        <ChevronRight className="size-4 shrink-0 text-muted-foreground md:hidden max-md:order-3" />
+        <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground md:hidden max-md:order-3" />
       </div>
     </IssueRowContextMenu>
   )
@@ -617,13 +619,13 @@ export function IssueList({
     return (
       <div>
         <EmptyState
-          icon={ListTodo}
+          icon={EmptyIssuesIcon}
           title="No issues yet"
           description="Create an issue to start tracking work."
         >
           {canCreate && (
             <Button size="sm" onClick={() => onNewIssue()}>
-              <Plus className="mr-1.5 size-4" />
+              <AddIcon className="mr-1.5 size-4" />
               New issue
             </Button>
           )}
@@ -690,7 +692,7 @@ export function IssueList({
                       )
                     }}
                   >
-                    <Plus className="size-3" />
+                    <AddIcon className="size-3" />
                   </Button>
                 ) : undefined
               }

@@ -1,23 +1,23 @@
+- Enhetsikoner: gi hver maskin sitt eget ikon i innstillingene, en skjerm, server eller laptop eller merket til Apple, Windows eller Linux, og velg blant 96 ikoner til boards og handlinger
+- Run-siden starter med agentens oppgaveliste, en kjøring i bakgrunnen beholder fanen sin mens den går, og fanene og linjene flukter med loggen
+- Enheter brettes til én rad hver, viser når et forbruksvindu nullstilles, og en innlogging kan fjernes fra en maskin; menyen på Work-skjermen ligger bare på Issue-siden, sidevelgeren teller kjøringens endrede filer og gjemmer seg i det utvidede skrivefeltet, og issuene i en batch-kjøring åpnes i et ark
+- Kall til Exponential står som sin egen gruppe, Read 3 issues i stedet for en generisk verktøykjøring, og en tur uten endrede filer viser ikke lenger et tomt kort
 - Stop i en økt som kjører, er nå en vanlig knapp i linjen, like høy som tilbakeknappen, i stedet for en pille med brukket kant
 - Radene i loggen til en kjøring overlapper ikke lenger hverandre, og chatten ruller fritt forbi kortet over skrivefeltet
 - En chatkjøring får navn etter det agenten arbeider med, i stedet for å hete «Chat» overalt
-- Én diff overalt: filene i en diff ligger i et tre du kan hoppe rundt i, og en agents endringer i én tur samles på ett kort «Edited files»
+- Én diff overalt: filene i en diff ligger i et tre du kan hoppe rundt i, og en agents endringer i én tur samles på ett kort «Edited files», med linjenumre, skjulte uendrede linjer du kan åpne, og omdøpte eller binære filer navngitt
 - Forbruket på ett sted: et panel viser kjøringens egen konto, grensevinduene dens og kontekstvinduet, pluss de andre innloggingene på maskinen
 - Enhetene bærer innloggingene: hver maskin viser sine agentinnlogginger med plan, tilstand og forbruk, og tannhjulet til en enhet rommer Update og Remove
-- En stack-fletting som mislykkes, sier nå hvorfor i stedet for å tie
 - Ett issue-søk: samme rangering bærer hver issueliste, hver velger og hver #-meny, med det øverste treffet allerede valgt
-- En kommando som kjører, viser bare de siste linjene sine, så lang utskrift ikke lenger oversvømmer kjøringen
-- En kjøring som blir taus, markeres som avsluttet og blir stående i listen i stedet for å forsvinne
-- Én Work-skjerm: et issue, kjøringen, endringene og resultatene er sider av samme skjerm, du bytter mellom dem fra linjen nederst, og Stop eller Resume ligger øverst til høyre
-- Én diff-visning: alle differ leses likt, med linjenumre, skjulte uendrede linjer du kan åpne, og omdøpte eller binære filer navngitt i stedet for vist tomme
+- En kommando som kjører, viser bare de siste linjene sine, og en kjøring som blir taus, markeres som avsluttet og blir stående i listen
+- Én Work-skjerm: et issue, kjøringen og endringene er sider av samme skjerm, du bytter mellom dem fra linjen nederst, og Stop eller Resume ligger øverst til høyre
 - Stablede pull requests: start et issue oppå det som blokkerer det, slå sammen hele kjeden med Merge stack, les stack- eller batch-merket på arbeidet, og svar på spørsmålet en nøstet kjøring sender deg
-- Resultater fra en kjøring: en kjøring som publiserer skjermbilder får en Results-side, gruppert etter tema, én rute per plattform, og et trykk viser hele bildet
-- Batch-kjøringer med navn: en kjøring over flere issues leser nå EXP-874 +2 ved siden av tittelen på det første issuet i stedet for «Batch run»
-- Meldinger som lander med en gang: en melding du skriver mens agenten jobber, når fram straks og står som sendt til den er lest, og Stop gir teksten tilbake til skrivefeltet
-- GitHub på plass: å koble til GitHub, legge til et repository og sette repositoryet til et board fungerer her som på datamaskinen, og feil vises der du er
-- Meldinger i kø: en melding som venter på agenten står i en linje over skrivefeltet, og Stop i en økt som kjører avbryter virkelig den pågående turen i stedet for å bli borte på veien
+- Resultater fra en kjøring: en kjøring som publiserer skjermbilder får en Results-side, gruppert etter tema, én rute per plattform
+- Batch-kjøringer med navn: en kjøring over flere issues leser EXP-874 +2 ved siden av tittelen på det første issuet i stedet for «Batch run»
+- Meldinger som lander med en gang: en melding du skriver mens agenten jobber, når fram straks og står som sendt til den er lest, en ventende melding står i en linje over skrivefeltet, og Stop gir teksten tilbake til skrivefeltet
+- GitHub på plass: å koble til GitHub, legge til et repository og sette repositoryet til et board fungerer som på datamaskinen, og feil vises der du er
 - Roligere knapper og tydeligere velgere: bare hovedhandlingen på en skjerm beholder en fylt sirkel, og agentvelgeren bærer merket til Claude Code eller Codex, mens enhetsmenyer starter med et laptop- eller serverikon
 - Agent-siden holder kjøringene dine: tidligere kjøringer brettes bak et tall du kan åpne, og når ingenting kjører, ligger skrivefeltet midt på siden
-- Issue-filtre er borte: filterknappen og pillene er borte fra board og innboks, søk dekker det de ble brukt til, og gruppering og statusbånd blir
-- Fortsett med e-post eller med en passnøkkel: logg inn med en 6-sifret kode du får tilsendt, eller med Face ID eller Touch ID; alle valgene står i én liste, og en ukjent e-post blir rett og slett en ny konto
+- Issue-filtre er borte: søk dekker det de ble brukt til, og gruppering og statusbånd blir
+- Fortsett med e-post eller med en passnøkkel: logg inn med en 6-sifret kode du får tilsendt, eller med Face ID eller Touch ID; alle valgene står i én Continue-liste
 - Bytt konto midt i en kjøring, og kom tilbake dit du kom fra: en Claude-kjøring på grensen sin kan fortsette på en annen konto, og forlater du en økt, havner du tilbake på issuet eller boardet du åpnet den fra

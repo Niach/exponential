@@ -447,7 +447,17 @@ async function recipeExpandFirstDevice(page: Page): Promise<void> {
     )
   }
   if ((await row.getAttribute(`aria-expanded`)) !== `true`) await row.click()
-  await page.getByText(/resets (in|soon)/).first().waitFor({ timeout: 15_000 })
+  await page
+    .locator(`[data-testid^="device-login-row-"]`)
+    .first()
+    .waitFor({ timeout: 15_000 })
+  // The usage caption ("resets in …") is optional: a login whose usage the
+  // heartbeat has not probed draws none, and the shot is still the row.
+  await page
+    .getByText(/resets (in|soon)/)
+    .first()
+    .waitFor({ timeout: 3_000 })
+    .catch(() => undefined)
 }
 
 async function recipeOpenMachineSettings(page: Page): Promise<void> {

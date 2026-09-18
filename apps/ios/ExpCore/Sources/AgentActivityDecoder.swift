@@ -158,7 +158,9 @@ public enum AgentActivityEvent: Equatable, Sendable {
     case backgroundTasks([AgentBackgroundTask])
     /// EXP-927 §2c: the agent's OWN task list, in full and in order — an empty
     /// array hides the block.
-    case taskList([AgentTaskListEntry])
+    /// Nil = the frame carried no readable `entries` array: KEEP the list
+    /// (web/Android/desktop parity); an empty array clears it.
+    case taskList([AgentTaskListEntry]?)
     /// EXP-861: the FULL current queue, latest-wins — an empty array clears
     /// the strip.
     case queue([QueuedMessage])
@@ -395,9 +397,10 @@ public enum AgentActivityDecoder {
     /// no text is dropped, a status this build cannot read is `pending`, and
     /// both the preview length and the entry count are re-applied here — the
     /// wire is a device's word, not ours. A frame without a readable `entries`
-    /// array reads as empty (the device's "no list"), never as "keep".
-    static func taskList(_ event: [String: Any]) -> [AgentTaskListEntry] {
-        guard let rows = event["entries"] as? [[String: Any]] else { return [] }
+    /// array is nil — "keep what you have", like the other three clients —
+    /// while an EMPTY array is the device's "no list" and clears it.
+    static func taskList(_ event: [String: Any]) -> [AgentTaskListEntry]? {
+        guard let rows = event["entries"] as? [[String: Any]] else { return nil }
         var entries: [AgentTaskListEntry] = []
         for row in rows {
             guard entries.count < AgentFeed.taskListMax else { break }

@@ -19,6 +19,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,7 +80,8 @@ enum class FaceSwitcherVariant { Circle, Inline }
 /**
  * The circle plus its menu. [runs] are the issue's own runs (EXP-886) the
  * menu names as `<device> · <when>` rows; [shownRunId] gets the check;
- * [diffStats] trails the Changes row with `+A −D` when the diff is a live one.
+ * [diffStats] trails the Changes row with `+A −D` whenever the Changes face
+ * has files to count (EXP-932: a live run's diff or the PR's drawn files).
  */
 @Composable
 fun FaceSwitcher(
@@ -199,8 +201,11 @@ fun FaceSwitcher(
         }
     }
     // A switcher that leaves while its menu is open must not strand the host
-    // in "a menu is up" — the state goes with it.
-    DisposableEffect(Unit) { onDispose { onMenuOpenChange(false) } }
+    // in "a menu is up" — the state goes with it. The LATEST callback, not the
+    // one the first composition captured: the host may have handed us a new
+    // lambda since.
+    val latestMenuOpenChange by rememberUpdatedState(onMenuOpenChange)
+    DisposableEffect(Unit) { onDispose { latestMenuOpenChange(false) } }
 }
 
 @Composable

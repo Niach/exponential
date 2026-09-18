@@ -349,6 +349,10 @@ final class PrGraphModel {
     private(set) var blockers: [IssueEntity] = []
     private(set) var relations: [IssueRelationEntity] = []
     private(set) var sessions: [CodingSessionEntity] = []
+    /// The issues the team's runs are bound to — a tree row's issue with no
+    /// pull request yet (and no blocker tie) is named off these rather than
+    /// falling through to "Untitled issue".
+    private(set) var sessionIssues: [IssueEntity] = []
 
     private let accountId: String
     private let db: DatabaseManager
@@ -369,11 +373,12 @@ final class PrGraphModel {
     /// instead of opening a fourth observation.
     func issue(id: String) -> IssueEntity? {
         prIssues.first { $0.id == id } ?? blockers.first { $0.id == id }
+            ?? sessionIssues.first { $0.id == id }
     }
 
     /// EXP-930: every issue row this model holds — the overlay names its tree
     /// rows from it, the same pool `graph(...)` builds its answer on.
-    var knownIssues: [IssueEntity] { prIssues + blockers }
+    var knownIssues: [IssueEntity] { prIssues + blockers + sessionIssues }
 
     /// The graph for a subject, ready for the badge and the overlay.
     ///
@@ -388,13 +393,13 @@ final class PrGraphModel {
         batchIssues: [IssueEntity] = []
     ) -> PrGraph.Graph {
         var byId: [String: IssueEntity] = [:]
-        for row in prIssues + blockers { byId[row.id] = row }
+        for row in prIssues + blockers + sessionIssues { byId[row.id] = row }
         if let issue { byId[issue.id] = issue }
         // Deterministic order: the PR rows first (they carry the stack), then
-        // anything only a blocker brought in.
+        // anything only a blocker brought in, then the runs' own issues.
         var pool: [IssueEntity] = []
         var seen = Set<String>()
-        for row in prIssues + blockers where !seen.contains(row.id) {
+        for row in prIssues + blockers + sessionIssues where !seen.contains(row.id) {
             seen.insert(row.id)
             pool.append(byId[row.id] ?? row)
         }
@@ -423,6 +428,7 @@ final class PrGraphModel {
             sessionTask?.cancel()
             sessionTask = nil
             sessions = []
+            sessionIssues = []
         }
         observePullRequests()
         observeBlockers()
@@ -477,16 +483,24 @@ final class PrGraphModel {
         }
     }
 
+    /// The team's runs, and the issues they are bound to in the SAME tracked
+    /// read — one observation, so a tree row is named the moment its run (or
+    /// its issue) syncs.
     private func observeSessions() {
         guard sessionTask == nil, let teamId else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db in
-            try CodingSessionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        let observation = ValueObservation.tracking { db -> ([CodingSessionEntity], [IssueEntity]) in
+            let sessions = try CodingSessionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            let ids = Array(Set(sessions.compactMap(\.issueId)))
+            guard !ids.isEmpty else { return (sessions, []) }
+            let issues = try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
+            return (sessions, issues)
         }
         sessionTask = Task { [weak self] in
             do {
-                for try await rows in observation.values(in: pool) {
+                for try await (rows, issues) in observation.values(in: pool) {
                     self?.sessions = rows
+                    self?.sessionIssues = issues
                 }
             } catch {}
         }

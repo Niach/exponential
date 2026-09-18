@@ -1,23 +1,23 @@
-- Stop dans une session en cours est maintenant un simple bouton de la barre, à la même hauteur que le bouton retour, au lieu d'une pilule au contour cassé
-- Les lignes du journal d'un run ne se chevauchent plus, et le chat défile en dehors de la carte au-dessus du champ de saisie
+- Icônes d'appareil : donnez à chaque machine son icône dans ses réglages, un écran, un serveur, un portable ou la marque Apple, Windows ou Linux, et choisissez parmi 96 icônes pour boards et actions
+- La face Run s'ouvre sur la liste de tâches de l'agent, un run en arrière-plan garde son onglet, et onglets et barres s'alignent sur le journal
+- Les appareils se replient sur une ligne, montrent quand une fenêtre d'usage repart, et un compte se retire d'une machine ; le menu de l'écran Work ne tient que sur la face Issue, le sélecteur de faces compte les fichiers changés et se range dans le champ déplié, et les issues d'un batch s'ouvrent dans une feuille
+- Les appels à Exponential forment leur propre groupe, Read 3 issues au lieu d'un run d'outil générique, et un tour sans fichier changé n'affiche plus de carte vide
+- Stop dans une session en cours est un simple bouton de la barre, à la même hauteur que le bouton retour, au lieu d'une pilule au contour cassé
+- Les lignes du journal d'un run ne se chevauchent plus, et le chat défile en dehors de la carte au-dessus du champ
 - Un run de chat prend le nom de ce sur quoi l'agent travaille, au lieu d'afficher « Chat » partout
-- Un seul diff partout : les fichiers d'un diff tiennent dans une arborescence où vous sautez, et les modifications d'un agent dans un tour se rassemblent dans une carte « Edited files »
-- L'usage au même endroit : un volet montre le compte du run, ses fenêtres de limite et la fenêtre de contexte, plus les autres comptes de cette machine
-- Les appareils portent les comptes : chaque machine liste ses comptes d'agent avec le forfait, l'état et l'usage, et la roue dentée d'un appareil contient Update et Remove
-- Une fusion de stack qui échoue dit maintenant pourquoi, au lieu de rester muette
-- Une seule recherche d'issues : le même classement porte chaque liste, chaque sélecteur et chaque menu #, le premier résultat étant déjà choisi
-- Une commande en cours n'affiche que ses dernières lignes, une longue sortie n'inonde plus le run
-- Un run qui se tait est marqué terminé et reste dans la liste au lieu de disparaître
-- Un seul écran Work : une issue, son run, les changements et les résultats sont des faces d'un même écran, que la barre du bas fait défiler, avec Stop ou Resume en haut à droite
-- Une seule vue de diff : tous les diffs se lisent pareil, avec des numéros de ligne, des lignes inchangées que vous pouvez déplier, et les fichiers renommés ou binaires nommés au lieu d'être vides
-- Pull requests empilées : lancez une issue par-dessus celle qui la bloque, fusionnez toute la chaîne avec Merge stack, lisez la pastille de stack ou de batch sur le travail, et répondez à la question qu'un run imbriqué vous envoie
-- Résultats d'un run : un run qui publie des captures gagne une face Results, groupée par sujet, une tuile par plateforme, et une touche montre l'image entière
-- Runs batch nommés : un run couvrant plusieurs issues affiche désormais EXP-874 +2 à côté du titre de la première issue au lieu de « Batch run »
-- Des messages qui arrivent tout de suite : un message écrit pendant que l'agent travaille lui parvient aussitôt et reste marqué envoyé jusqu'à sa lecture, et Stop remet le texte dans le champ de saisie
-- GitHub remis d'aplomb : connecter GitHub, ajouter un dépôt et fixer le dépôt d'un board se comportent ici comme sur l'ordinateur, et les erreurs s'affichent là où vous êtes
-- Messages en file d'attente : un message qui attend l'agent apparaît dans une barre au-dessus du champ de saisie, et Stop dans une session en cours interrompt vraiment le tour en train de tourner au lieu de se perdre en route
-- Des boutons plus discrets et des sélecteurs plus clairs : seule l'action principale d'un écran garde un cercle plein, et le sélecteur d'agent porte la marque Claude Code ou Codex, tandis que les menus d'appareils portent une icône d'ordinateur ou de serveur
-- La page Agent porte vos runs : les runs passés se replient derrière un compteur que vous pouvez ouvrir, et quand rien ne tourne, le champ de saisie se place au milieu de la page
-- Les filtres d'issues ont disparu : le bouton de filtre et ses pastilles quittent le board et la boîte de réception, la recherche couvre leur usage, et le regroupement et les bandes de statut restent
-- Continuer avec l'e-mail, ou avec une clé d'accès : connectez-vous avec un code à 6 chiffres envoyé par e-mail, ou avec Face ID ou Touch ID ; toutes les options tiennent dans une seule liste, et une adresse inconnue devient simplement un nouveau compte
+- Un seul diff partout : les fichiers tiennent dans une arborescence où vous sautez, et les modifications d'un tour se rassemblent dans une carte « Edited files », avec numéros de ligne, lignes inchangées dépliables, et fichiers renommés ou binaires nommés
+- L'usage au même endroit : un volet montre le compte du run, ses fenêtres de limite et la fenêtre de contexte, plus les autres comptes de la machine
+- Les appareils portent les comptes : chaque machine liste ses comptes d'agent avec le forfait, l'état et l'usage, et la roue d'un appareil contient Update et Remove
+- Une seule recherche d'issues : le même classement porte chaque liste, chaque sélecteur et chaque menu #, le premier résultat déjà choisi
+- Une commande en cours n'affiche que ses dernières lignes, et un run qui se tait est marqué terminé et reste dans la liste
+- Un seul écran Work : une issue, son run et les changements sont des faces d'un même écran, changées par la barre du bas, avec Stop ou Resume en haut à droite
+- Pull requests empilées : lancez une issue par-dessus celle qui la bloque, fusionnez la chaîne avec Merge stack, lisez la pastille stack ou batch sur le travail, et répondez à la question d'un run imbriqué
+- Résultats d'un run : celui qui publie des captures gagne une face Results, groupée par sujet, une tuile par plateforme
+- Runs batch nommés : un run couvrant plusieurs issues affiche EXP-874 +2 à côté du titre de la première au lieu de « Batch run »
+- Des messages qui arrivent tout de suite : un message écrit pendant que l'agent travaille lui parvient aussitôt et reste marqué envoyé jusqu'à sa lecture, un message en attente s'affiche dans une barre au-dessus du champ, et Stop remet le texte dans le champ
+- GitHub remis d'aplomb : connecter GitHub, ajouter un dépôt et fixer le dépôt d'un board se comportent comme sur l'ordinateur, et les erreurs s'affichent où vous êtes
+- Boutons plus discrets et sélecteurs plus clairs : seule l'action principale garde un cercle plein, le sélecteur d'agent porte la marque Claude Code ou Codex, et les menus d'appareils une icône d'ordinateur ou de serveur
+- La page Agent porte vos runs : les runs passés se replient derrière un compteur à ouvrir, et quand rien ne tourne, le champ de saisie se place au milieu
+- Les filtres d'issues ont disparu : la recherche couvre leur usage, et le regroupement et les bandes de statut restent
+- Continuer avec l'e-mail, ou avec une clé d'accès : connectez-vous avec un code à 6 chiffres envoyé par e-mail, ou avec Face ID ou Touch ID ; toutes les options tiennent dans une liste Continue
 - Changer de compte en cours de run, et revenir d'où vous veniez : un run Claude à sa limite peut continuer sur un autre compte, et quitter une session vous ramène à l'issue ou au board d'où vous l'aviez ouverte

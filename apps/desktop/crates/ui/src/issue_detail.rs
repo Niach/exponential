@@ -52,7 +52,6 @@ use sync::Store;
 use domain::rows::{Attachment, Issue};
 
 use crate::coding_flow::StartCodingControl;
-use crate::controls::{glass_input, WebControl as _};
 use crate::icons::{registry, ExpIcon};
 use crate::issue_files::{
     all_attachment_ids, attachment_label, description_embed, description_fragment,
@@ -2736,7 +2735,12 @@ impl Render for IssuePicker {
             .capture_action(cx.listener(Self::on_move_up))
             .capture_action(cx.listener(Self::on_move_down))
             .capture_action(cx.listener(Self::on_enter))
-            .child(glass_input(&self.search, window, cx).web_input_sm())
+            .child(crate::controls::search_field(
+                &self.search,
+                crate::controls::SearchFieldSize::Sm,
+                window,
+                cx,
+            ))
             .child(
                 div()
                     .id("issue-pick-scroll")

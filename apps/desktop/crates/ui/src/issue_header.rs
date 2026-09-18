@@ -62,6 +62,9 @@ pub struct IssueHeader {
     /// Search query of the move-to-board popover (EXP-316 — web
     /// `BoardPicker` parity, same host-owned-InputState recipe as labels).
     board_query: Entity<InputState>,
+    /// Release review R5: the label and board pickers' keyboard selections.
+    label_cursor: Entity<crate::pickers::PickerCursor>,
+    board_cursor: Entity<crate::pickers::PickerCursor>,
     /// The detail view's Start-coding control, rendered here as the "Agent"
     /// group (EXP-256, web parity — the entity stays owned by the detail
     /// view, which also reads its `resolved_repo` for the actions menu).
@@ -94,6 +97,8 @@ impl IssueHeader {
 
         let mut subscriptions = Vec::new();
         // Live label search re-filters the popover's rows (EXP-282).
+        let label_cursor = cx.new(|_| crate::pickers::PickerCursor::default());
+        let board_cursor = cx.new(|_| crate::pickers::PickerCursor::default());
         subscriptions.push(cx.observe(&label_query, |_, _, cx| cx.notify()));
         // Live board search re-filters the move-to-board popover (EXP-316).
         subscriptions.push(cx.observe(&board_query, |_, _, cx| cx.notify()));
@@ -150,6 +155,8 @@ impl IssueHeader {
             due_calendar,
             label_query,
             board_query,
+            label_cursor,
+            board_cursor,
             start_coding,
             merge_suppressed: false,
             badge_face: crate::pr_graph::BadgeFace::Issue,
@@ -453,6 +460,7 @@ impl IssueHeader {
                 labels,
                 selected_ids: selected,
                 query: self.label_query.clone(),
+                cursor: self.label_cursor.clone(),
                 on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
                     toggle_label(cx, issue_id.clone(), label_id.to_string(), was_selected);
                 }),
@@ -908,6 +916,7 @@ impl IssueHeader {
                     boards,
                     current_board_id: issue.board_id.clone(),
                     query: self.board_query.clone(),
+                    cursor: self.board_cursor.clone(),
                     // EXP-426: the pick confirms before moving — the canonical
                     // cross-client wording (web/iOS/Android share it).
                     on_pick: Rc::new(move |board_id: String, window, cx| {

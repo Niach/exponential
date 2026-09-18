@@ -53,6 +53,8 @@ pub(crate) struct IssueDraft {
     pub(crate) selected_label_ids: Vec<String>,
     /// EXP-288: the shared label picker's search input (host-owned).
     label_query: Entity<InputState>,
+    /// Release review R5: the label picker's keyboard selection.
+    label_cursor: Entity<crate::pickers::PickerCursor>,
     pub(crate) due_date: Option<NaiveDate>,
     due_calendar: Entity<CalendarState>,
     _subscriptions: Vec<Subscription>,
@@ -62,6 +64,7 @@ impl IssueDraft {
     pub(crate) fn new(team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
         let label_query = cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels…"));
+        let label_cursor = cx.new(|_| crate::pickers::PickerCursor::default());
 
         let mut subscriptions = Vec::new();
         // Due-date picks mirror into our state (web `onDueDateSelect`).
@@ -90,6 +93,7 @@ impl IssueDraft {
             solo_member_id,
             selected_label_ids: Vec::new(),
             label_query,
+            label_cursor,
             due_date: None,
             due_calendar,
             team_id,
@@ -311,6 +315,7 @@ impl IssueDraft {
                 labels,
                 selected_ids: self.selected_label_ids.clone(),
                 query: self.label_query.clone(),
+                cursor: self.label_cursor.clone(),
                 on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
                     let label_id = label_id.to_string();
                     view.update(cx, |this, cx| {

@@ -238,6 +238,73 @@ describe(`Combobox — shell`, () => {
     expect(document.querySelector(`[data-slot=command-input]`)).toBeNull()
   })
 
+  it(`keeps the keyboard when searchable is false: ↓ then Enter picks the second row`, () => {
+    const onChange = vi.fn()
+    render(
+      <Combobox
+        options={OPTIONS}
+        value={null}
+        onChange={onChange}
+        searchable={false}
+        mobileTitle="Pick one"
+      />
+    )
+    open()
+    // Radix's focus scope lands on the first tabbable thing in the content;
+    // with no search field that must be the cmdk root, or the arrows go
+    // nowhere.
+    const root = document.querySelector(`[data-slot=combobox-list]`)!
+    expect(document.activeElement).toBe(root)
+    fireEvent.keyDown(document.activeElement!, { key: `ArrowDown` })
+    fireEvent.keyDown(document.activeElement!, { key: `Enter` })
+    expect(onChange).toHaveBeenCalledWith(`b`)
+  })
+
+  it(`inputVariant=field draws the SearchField box around cmdk's input, with a clear`, () => {
+    const onQueryChange = vi.fn()
+    const { rerender } = render(
+      <ComboboxList
+        options={OPTIONS}
+        value={null}
+        onChange={vi.fn()}
+        inputVariant="field"
+        leading={<button type="button" aria-label="Back" />}
+        query=""
+        onQueryChange={onQueryChange}
+      />
+    )
+    const input = document.querySelector<HTMLInputElement>(
+      `[data-slot=command-input]`
+    )!
+    expect(input.closest(`[data-slot=search-field]`)).toBeTruthy()
+    expect(input.className).toContain(`bg-glass-card`)
+    expect(input.className).toContain(`pl-8`)
+    // The leading slot shares the row, inside the cmdk root.
+    expect(
+      input
+        .closest(`[data-slot=command-input-wrapper]`)!
+        .querySelector(`[aria-label=Back]`)
+    ).toBeTruthy()
+    expect(input.closest(`[data-slot=combobox-list]`)).toBeTruthy()
+    expect(screen.queryByLabelText(`Clear search`)).toBeNull()
+
+    rerender(
+      <ComboboxList
+        options={OPTIONS}
+        value={null}
+        onChange={vi.fn()}
+        inputVariant="field"
+        query="al"
+        onQueryChange={onQueryChange}
+      />
+    )
+    fireEvent.click(screen.getByLabelText(`Clear search`))
+    expect(onQueryChange).toHaveBeenCalledWith(``)
+    expect(document.activeElement).toBe(
+      document.querySelector(`[data-slot=command-input]`)
+    )
+  })
+
   it(`hands ranking over: shouldFilter=false keeps the caller's order`, () => {
     const onQueryChange = vi.fn()
     // Deliberately NOT alphabetical — the caller ranked these.

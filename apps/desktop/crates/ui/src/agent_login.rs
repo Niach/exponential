@@ -963,6 +963,11 @@ struct LoginDialogView {
     /// abandoned attempt's poll and its timeout land on a stale generation and
     /// write nothing.
     attempt: u64,
+    /// The live attempt's 2 s poll of the command row. HELD, not detached:
+    /// assigning the next attempt's task drops (cancels) this one, so a
+    /// "Try again" never leaves a poller behind (release review R5); the
+    /// loop also bails on its own once the attempt moved on.
+    poll: Option<gpui::Task<()>>,
     /// What the device reported about the agent's logins when the dialog
     /// opened. The report MOVING is the success this dialog waits for — a new
     /// profile appearing, or an expired one going healthy again.
@@ -1018,6 +1023,7 @@ impl LoginDialogView {
             target,
             state: LoginDialogState::Queueing,
             attempt: 0,
+            poll: None,
             baseline,
             _subscriptions: subscriptions,
         };
@@ -1043,7 +1049,7 @@ impl LoginDialogView {
         let device_id = self.device_id.clone();
         let agent = self.agent;
         let target = self.target.clone();
-        cx.spawn(async move |this, cx| {
+        self.poll = Some(cx.spawn(async move |this, cx| {
             // A fresh client per call: `TrpcClient` is not shareable, and
             // building one is a token-provider lookup, not a connection.
             let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
@@ -1073,6 +1079,14 @@ impl LoginDialogView {
             }
             loop {
                 cx.background_executor().timer(LOGIN_DIALOG_POLL).await;
+                // A retry (or the landing) moved the attempt on: this poll
+                // belongs to a dead generation and stops here.
+                let Ok(live) = this.read_with(cx, |this, _| this.attempt == attempt) else {
+                    return;
+                };
+                if !live {
+                    return;
+                }
                 let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
                     return;
                 };
@@ -1093,8 +1107,7 @@ impl LoginDialogView {
                 let _ = this.update(cx, |this, cx| this.settle(attempt, state, cx));
                 return;
             }
-        })
-        .detach();
+        }));
         // EXP-940: a wait that never lands is a failure, not progress. The
         // machine answers its commands on the beat, so silence past the bound
         // gets the short error and a retry instead of an endless spinner.

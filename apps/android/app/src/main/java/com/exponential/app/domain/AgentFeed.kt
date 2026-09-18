@@ -837,6 +837,9 @@ sealed interface AgentFeedRow {
     }
 
     data class ToolRun(val items: List<AgentFeedItem.Tool>) : AgentFeedRow {
+        init {
+            require(items.isNotEmpty()) { "ToolRun needs at least one member" }
+        }
         override val id get() = items.first().id
     }
 
@@ -844,6 +847,9 @@ sealed interface AgentFeedRow {
      *  "edited files" card, one row per path ([EditCard.editCard]). The rule
      *  lives in [EditCard]; an edit call never joins a plain tool run. */
     data class Edits(val items: List<AgentFeedItem.Tool>) : AgentFeedRow {
+        init {
+            require(items.isNotEmpty()) { "Edits needs at least one member" }
+        }
         override val id get() = items.first().id
     }
 
@@ -853,6 +859,9 @@ sealed interface AgentFeedRow {
      *  hidden inside a generic "N other tools" fold. The rule lives in
      *  [ExpToolGroup]; one of our calls never joins a plain tool run. */
     data class ExpRun(val items: List<AgentFeedItem.Tool>) : AgentFeedRow {
+        init {
+            require(items.isNotEmpty()) { "ExpRun needs at least one member" }
+        }
         override val id get() = items.first().id
     }
 
@@ -1023,8 +1032,8 @@ fun groupFeedRows(
     pendingQuestionsLast(nestWorkflowRows(projectFeedRows(feed, from, workflowIds), workflowIds))
 
 /** The projection WITHOUT the EXP-850 workflow nesting and without the S9
- *  reorder — every subagent run is a row of its own here, which is what makes
- *  [collectSubagents] see the workflow's agents too. */
+ *  reorder — every subagent run is a row of its own here (the same rows
+ *  [collectSubagents] builds, the workflow's agents included). */
 private fun projectFeedRows(
     feed: List<AgentFeedItem>,
     from: Int = 0,
@@ -1041,13 +1050,7 @@ private fun projectFeedRows(
     val stepsByAsk = feed.filterIsInstance<AgentFeedItem.Question>()
         .filter { it.askId != null }
         .groupBy { it.askId!! }
-    val markersBySubagent = feed.filterIsInstance<AgentFeedItem.Subagent>()
-        .groupBy { it.subagentId }
-    // EXP-773: prose and human turns are scoped too, so a subagent's whole
-    // conversation groups under its row instead of interleaving into main.
-    val itemsBySubagent = feed.filter { it !is AgentFeedItem.Subagent }
-        .mapNotNull { item -> item.subagentKey()?.let { it to item } }
-        .groupBy({ it.first }, { it.second })
+    val lanes = SubagentLanes.of(feed)
     val emittedAsks = mutableSetOf<String>()
     val emittedSubagents = mutableSetOf<String>()
     val rows = mutableListOf<AgentFeedRow>()
@@ -1057,36 +1060,7 @@ private fun projectFeedRows(
         val subagentId = item.feedLane()
         when {
             subagentId != null -> {
-                if (emittedSubagents.add(subagentId)) {
-                    val markers = markersBySubagent[subagentId].orEmpty()
-                    val scoped = itemsBySubagent[subagentId].orEmpty()
-                    val types = markers.map { it.agentType }.filter { it.isNotBlank() }
-                    rows.add(
-                        AgentFeedRow.SubagentRun(
-                            id = (markers.map { it.id } + scoped.map { it.id }).min(),
-                            subagentId = subagentId,
-                            agentType = types.firstOrNull { it != SUBAGENT_FALLBACK_TYPE }
-                                ?: types.firstOrNull()
-                                ?: SUBAGENT_FALLBACK_TYPE,
-                            completed = markers.any { it.completed },
-                            detail = markers.lastOrNull { it.detail != null }?.detail,
-                            // EXP-847: the first description any marker of this
-                            // run carried — the started edge normally, the
-                            // completed one when that is all we kept.
-                            title = markers.firstNotNullOfOrNull {
-                                it.title?.takeIf { t -> t.isNotBlank() }
-                            },
-                            items = scoped,
-                            toolCount = maxOf(
-                                scoped.count { it is AgentFeedItem.Tool },
-                                markers.mapNotNull { it.toolCalls }.maxOrNull() ?: 0,
-                            ),
-                            // EXP-850 (S4): the first marker that named a
-                            // workflow — this run belongs to that card.
-                            workflowId = markers.firstNotNullOfOrNull { it.workflowId },
-                        ),
-                    )
-                }
+                if (emittedSubagents.add(subagentId)) rows.add(lanes.run(subagentId))
                 i++
             }
             item is AgentFeedItem.Question && item.askId != null -> {
@@ -1108,7 +1082,7 @@ private fun projectFeedRows(
                 // EXP-938: [EditCard.editCard] drops a member with neither a
                 // patch nor a `detail`; a run it drops ENTIRELY emits no row,
                 // never a "0 files edited" card.
-                if (EditCard.editCard(run).rows.isNotEmpty()) rows.add(AgentFeedRow.Edits(run))
+                if (editRunHasRows(run)) rows.add(AgentFeedRow.Edits(run))
                 i = end + 1
             }
             // EXP-948: one of OURS opens a group of its own — a lone call is
@@ -1157,6 +1131,74 @@ private fun projectFeedRows(
 }
 
 /**
+ * EXP-938: does this edit run yield a card row at all? [EditCard.editCard]
+ * decides it exactly, but it PARSES every member's patch to do so, and the
+ * projection runs on every activity event over the whole feed — so a member
+ * that is certain to yield a row settles it first, without a parse: one with
+ * no patch and a non-blank `detail` (a stub row, EditCard's own rule), or one
+ * whose patch opens on a file header naming a path ([Diff.opensNamedFile], a
+ * READY row). Only a run with no such member pays for the full check.
+ */
+private fun editRunHasRows(run: List<AgentFeedItem.Tool>): Boolean =
+    run.any { member ->
+        val diff = member.diff
+        if (diff.isNullOrEmpty()) !member.detail?.trim().isNullOrEmpty() else Diff.opensNamedFile(diff)
+    } || EditCard.editCard(run).rows.isNotEmpty()
+
+/**
+ * The feed's subagent index: every lifecycle marker and every scoped item by
+ * subagent id, and the ONE builder of a [AgentFeedRow.SubagentRun] from them —
+ * shared by the full projection and by [collectSubagents], so the tabs and
+ * the group rows can never disagree.
+ */
+private class SubagentLanes private constructor(
+    private val markersBySubagent: Map<String, List<AgentFeedItem.Subagent>>,
+    private val itemsBySubagent: Map<String, List<AgentFeedItem>>,
+) {
+    fun run(subagentId: String): AgentFeedRow.SubagentRun {
+        val markers = markersBySubagent[subagentId].orEmpty()
+        val scoped = itemsBySubagent[subagentId].orEmpty()
+        val types = markers.map { it.agentType }.filter { it.isNotBlank() }
+        return AgentFeedRow.SubagentRun(
+            id = (markers.map { it.id } + scoped.map { it.id }).min(),
+            subagentId = subagentId,
+            agentType = types.firstOrNull { it != SUBAGENT_FALLBACK_TYPE }
+                ?: types.firstOrNull()
+                ?: SUBAGENT_FALLBACK_TYPE,
+            completed = markers.any { it.completed },
+            detail = markers.lastOrNull { it.detail != null }?.detail,
+            // EXP-847: the first description any marker of this run carried —
+            // the started edge normally, the completed one when that is all
+            // we kept.
+            title = markers.firstNotNullOfOrNull {
+                it.title?.takeIf { t -> t.isNotBlank() }
+            },
+            items = scoped,
+            toolCount = maxOf(
+                scoped.count { it is AgentFeedItem.Tool },
+                markers.mapNotNull { it.toolCalls }.maxOrNull() ?: 0,
+            ),
+            // EXP-850 (S4): the first marker that named a workflow — this run
+            // belongs to that card.
+            workflowId = markers.firstNotNullOfOrNull { it.workflowId },
+        )
+    }
+
+    companion object {
+        fun of(feed: List<AgentFeedItem>): SubagentLanes = SubagentLanes(
+            markersBySubagent = feed.filterIsInstance<AgentFeedItem.Subagent>()
+                .groupBy { it.subagentId },
+            // EXP-773: prose and human turns are scoped too, so a subagent's
+            // whole conversation groups under its row instead of
+            // interleaving into main.
+            itemsBySubagent = feed.filter { it !is AgentFeedItem.Subagent }
+                .mapNotNull { item -> item.subagentKey()?.let { it to item } }
+                .groupBy({ it.first }, { it.second }),
+        )
+    }
+}
+
+/**
  * EXP-916: a subagent LANE's items → render rows. A lane is already a flat
  * conversation (its own prose, the turns addressed to it, its tool calls), so
  * its groupings are the edited-files card — by the same [EditCard] rule the
@@ -1176,7 +1218,7 @@ fun projectLaneRows(
             val end = EditCard.editRunEnd(items, i, workflowIds)
             val run = items.subList(i, end + 1).map { it as AgentFeedItem.Tool }
             // EXP-938: a run whose every member is dropped is no row at all.
-            if (EditCard.editCard(run).rows.isNotEmpty()) rows.add(AgentFeedRow.Edits(run))
+            if (editRunHasRows(run)) rows.add(AgentFeedRow.Edits(run))
             i = end + 1
             continue
         }
@@ -1248,8 +1290,21 @@ fun orderedSteps(steps: List<AgentFeedItem.Question>): List<AgentFeedItem.Questi
 /** Every subagent seen in the feed, in first-appearance order (EXP-356) — the
  *  session screen renders one conversation tab per run, labeled and summarized
  *  exactly like its group row (iOS/web parity). */
-fun collectSubagents(feed: List<AgentFeedItem>): List<AgentFeedRow.SubagentRun> =
-    projectFeedRows(feed).filterIsInstance<AgentFeedRow.SubagentRun>()
+fun collectSubagents(feed: List<AgentFeedItem>): List<AgentFeedRow.SubagentRun> {
+    // Its own scan, not the full projection filtered: the session screen
+    // recomputes this on EVERY activity event, and the projection's edit-card
+    // and tool grouping (patch parses included) has nothing to do with which
+    // subagents exist. The rows are built by the projection's own builder, in
+    // the projection's own order — first appearance of a lane in the feed.
+    val lanes = SubagentLanes.of(feed)
+    val seen = mutableSetOf<String>()
+    val runs = mutableListOf<AgentFeedRow.SubagentRun>()
+    for (item in feed) {
+        val subagentId = item.feedLane() ?: continue
+        if (seen.add(subagentId)) runs.add(lanes.run(subagentId))
+    }
+    return runs
+}
 
 /**
  * EXP-850 (S3/S4): a workflow's own rows leave the main transcript — its

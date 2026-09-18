@@ -885,11 +885,14 @@ async fn pump_connection(
                             // `events`; a short array (it cannot happen, the
                             // zod requires one per event) leaves the tail of
                             // the page prepended unnumbered rather than
-                            // dropping it.
+                            // dropping it. A `None` slot is an event kind
+                            // this build does not know (compat review R6
+                            // #3): dropped AFTER the zip so the numbering of
+                            // its neighbours stays right.
                             let events = events
                                 .into_iter()
                                 .enumerate()
-                                .map(|(ix, event)| (seqs.get(ix).copied(), event))
+                                .filter_map(|(ix, event)| Some((seqs.get(ix).copied(), event?)))
                                 .collect();
                             let _ = events_tx.send(ViewerEvent::HistoryPage {
                                 request_id,
@@ -1292,6 +1295,20 @@ mod tests {
             ViewerEvent::HistoryPage {
                 request_id: "p1".to_string(),
                 events: vec![(Some(1), ActivityEvent::narration("older"))],
+                done: true,
+            }
+        );
+        // Compat review R6 #3: an event kind from a newer device inside a
+        // page is dropped on its own — the page still lands, `done` with it,
+        // and the surviving neighbour keeps ITS sequence (3, not 2).
+        conn.send(
+            r#"{"t":"history_chunk","requestId":"p2","events":[{"kind":"from_the_future"},{"kind":"narration","text":"kept"}],"seqs":[2,3],"done":true}"#,
+        );
+        assert_eq!(
+            harness.next_event(),
+            ViewerEvent::HistoryPage {
+                request_id: "p2".to_string(),
+                events: vec![(Some(3), ActivityEvent::narration("kept"))],
                 done: true,
             }
         );

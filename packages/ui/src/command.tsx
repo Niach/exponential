@@ -4,7 +4,18 @@ import * as React from "react"
 import { Command as CommandPrimitive } from "cmdk"
 import { SearchIcon } from "lucide-react"
 
+import { Button } from "./button"
 import { cn } from "./cn"
+import { conceptIcon } from "./icons.generated"
+import { FIELD_CHROME_CLASS } from "./input"
+import {
+  SEARCH_FIELD_CLEAR_CLASS,
+  SEARCH_FIELD_GLYPH_CLASS,
+  SEARCH_FIELD_INPUT_CLASS,
+} from "./search-field"
+
+const SearchGlyph = conceptIcon(`nav-search`)
+const ClearGlyph = conceptIcon(`ui-clear`)
 
 function Command({
   className,
@@ -26,15 +37,87 @@ function Command({
 
 function CommandInput({
   className,
+  leading,
+  variant = `inline`,
+  clearLabel,
+  ref,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  /** Rendered INSIDE the field row, before the search glyph — a host's back
+   *  arrow (the phone search sheet) that must share the row without leaving
+   *  the cmdk root, which owns the keyboard. */
+  leading?: React.ReactNode
+  /** `inline` (default) = the bare popover row: glyph, text, a hairline
+   *  under. `field` = the `SearchField` look around cmdk's own input — the
+   *  glass box with the glyph inside and a trailing clear once there is
+   *  something to clear (which puts the caret back) — for a host that is a
+   *  page (the phone search sheet) rather than a popover. */
+  variant?: `inline` | `field`
+  /** The `field` clear button's accessible name. */
+  clearLabel?: string
+}) {
+  const innerRef = React.useRef<HTMLInputElement | null>(null)
+  const setRef = (node: HTMLInputElement | null) => {
+    innerRef.current = node
+    if (typeof ref === `function`) {
+      ref(node)
+    } else if (ref) {
+      ref.current = node
+    }
+  }
+
+  if (variant === `field`) {
+    const showClear = (props.value ?? ``) !== ``
+    return (
+      <div
+        data-slot="command-input-wrapper"
+        data-variant="field"
+        className="flex items-center gap-2 border-b border-glass-stroke px-3 py-2"
+      >
+        {leading}
+        <div data-slot="search-field" className="relative w-full">
+          <SearchGlyph aria-hidden className={SEARCH_FIELD_GLYPH_CLASS} />
+          <CommandPrimitive.Input
+            ref={setRef}
+            data-slot="command-input"
+            className={cn(
+              FIELD_CHROME_CLASS,
+              SEARCH_FIELD_INPUT_CLASS,
+              showClear && `pr-8`,
+              className
+            )}
+            {...props}
+          />
+          {showClear && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              data-slot="search-field-clear"
+              aria-label={clearLabel ?? `Clear search`}
+              className={SEARCH_FIELD_CLEAR_CLASS}
+              onClick={() => {
+                props.onValueChange?.(``)
+                innerRef.current?.focus()
+              }}
+            >
+              <ClearGlyph aria-hidden />
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div
       data-slot="command-input-wrapper"
       className="flex h-9 items-center gap-2 border-b border-glass-stroke px-3"
     >
+      {leading}
       <SearchIcon className="size-4 shrink-0 opacity-50" />
       <CommandPrimitive.Input
+        ref={setRef}
         data-slot="command-input"
         className={cn(
           `flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-foreground/50 disabled:cursor-not-allowed disabled:opacity-50`,

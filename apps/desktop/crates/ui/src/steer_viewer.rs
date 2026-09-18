@@ -380,6 +380,9 @@ pub(crate) struct SteerSessionView {
     answer_cursor_for: Option<FeedItemId>,
     /// EXP-724: the open `/` menu, refreshed on every draft change.
     slash: Option<SlashMenu>,
+    /// The slash menu's scroll (release review R5): ↑/↓ keep the selected
+    /// command in view past the cap.
+    slash_scroll: ScrollHandle,
     /// The exact draft Escape dismissed the menu for — it stays shut until
     /// the draft changes again (and after an accept, so inserting `/clear`
     /// does not immediately re-open the menu on its own result).
@@ -668,6 +671,7 @@ impl SteerSessionView {
             answer_cursor: None,
             answer_cursor_for: None,
             slash: None,
+            slash_scroll: ScrollHandle::new(),
             slash_dismissed_for: None,
             pending_images: PendingImages::default(),
             sending: false,
@@ -2553,14 +2557,21 @@ impl SteerSessionView {
     /// shows its patch IN PLACE now, so the pane has exactly one thing to
     /// show and the tree beside it is how a big change is navigated.)
     fn changes_files(&self) -> Vec<coding::scm::DiffFile> {
+        self.changes_files_ref().to_vec()
+    }
+
+    /// The same files, BORROWED — the two render paths that read them every
+    /// frame (`diff_pane_files`, `render_diff_pane`) must not deep-copy the
+    /// whole diff per paint (release review R5).
+    fn changes_files_ref(&self) -> &[coding::scm::DiffFile] {
         self.changes
             .as_ref()
-            .map(|state| state.files.clone())
+            .map(|state| state.files.as_slice())
             // EXP-895: no published diff → what the branch pushed
             // (`Self::load_pr_changes`), so the Changes face exists for a
             // run whose host is gone.
-            .or_else(|| self.pr_changes.as_ref().map(|pr| pr.files.clone()))
-            .unwrap_or_default()
+            .or_else(|| self.pr_changes.as_ref().map(|pr| pr.files.as_slice()))
+            .unwrap_or(&[])
     }
 
     fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
@@ -2651,7 +2662,7 @@ impl SteerSessionView {
     /// selected one, the `Filter files` field and the folded directories. The
     /// sidebar panel reads them; the run stays the owner.
     pub(crate) fn diff_pane_files(&self) -> Vec<crate::diff_pane::PaneFile> {
-        self.changes_files()
+        self.changes_files_ref()
             .iter()
             .map(crate::diff_pane::PaneFile::new)
             .collect()
@@ -2681,7 +2692,7 @@ impl SteerSessionView {
         if self.run_face != RunFace::Diff {
             return None;
         }
-        let scoped = self.changes_files();
+        let scoped = self.changes_files_ref();
         if scoped.is_empty() {
             return None;
         }
@@ -2946,6 +2957,7 @@ impl SteerSessionView {
             let len = menu.items.len() as isize;
             if len > 0 {
                 menu.selected = (menu.selected as isize + delta).rem_euclid(len) as usize;
+                self.slash_scroll.scroll_to_item(menu.selected);
                 cx.notify();
             }
         }
@@ -3535,11 +3547,11 @@ pub(crate) fn tool_group_caption(items: &[&FeedItem]) -> String {
 /// "Read 3 issues" once they all settled, plus "· N failed"). The shared
 /// [`steer::exp_tool_group_caption`], fed the group's calls, ×4.
 pub(crate) fn exp_tool_group_caption(items: &[&FeedItem]) -> String {
-    let calls: Vec<steer::ExpToolGroupCall<'_>> = items
-        .iter()
-        .filter(|item| item.is_tool())
-        .map(|item| item.exp_tool_group_call())
-        .collect();
+    // Every member, like the fixture replay in `steer::feed` — a non-tool
+    // degrades inside `exp_tool_group_call` itself, so both read the same
+    // group (release review R3).
+    let calls: Vec<steer::ExpToolGroupCall<'_>> =
+        items.iter().map(|item| item.exp_tool_group_call()).collect();
     steer::exp_tool_group_caption(&calls)
 }
 
@@ -3991,7 +4003,9 @@ impl SteerSessionView {
             FeedRow::Edits { id, items } => self.render_edits_card(*id, items, cx),
             // EXP-948: a run of the SAME Exponential tool is its own captioned
             // row — our work is never folded away as "N other tools".
-            FeedRow::ExpRun { id, items } => self.render_exp_tool_run(*id, items, cx),
+            FeedRow::ExpRun { id, items } => {
+                self.render_exp_tool_run(*id, items, live_tail, cx)
+            }
             FeedRow::Ask { id, items, .. } => self.render_ask(*id, items, active, window, cx),
             FeedRow::Subagent { id, items, .. } => {
                 self.render_subagent(*id, items, window, cx)
@@ -4743,6 +4757,7 @@ impl SteerSessionView {
         &self,
         id: FeedItemId,
         items: &[&FeedItem],
+        live_tail: bool,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let expanded = self.expanded_groups.contains(&id);
@@ -4783,6 +4798,17 @@ impl SteerSessionView {
                             .child(self.render_tool_item(item, self.tool_row_mode(item), cx)),
                     );
                 }
+            }
+        } else if live_tail {
+            // Collapsed but still running — the newest call stays visible
+            // and expanded, exactly as a plain tool run keeps its (EXP-895).
+            if let Some(item) = items.last().filter(|item| item.is_tool()) {
+                column = column.child(
+                    div()
+                        .pl_5()
+                        .py_0p5()
+                        .child(self.render_tool_item(item, ToolRowMode::Live, cx)),
+                );
             }
         }
         column.into_any_element()
@@ -6866,6 +6892,7 @@ impl SteerSessionView {
             "steer-slash-menu",
             TypeaheadArm::Inline,
             rows,
+            &self.slash_scroll,
             window,
             cx,
         ))

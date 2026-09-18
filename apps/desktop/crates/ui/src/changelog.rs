@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-18-release-train",
+    date: "2026-09-18",
+    title: "Release train 2026-09-18",
+    summary: "Device icons, the run's task list, one picker everywhere, and a round of fixes from the release review.",
+    body: r#"- **Device icons**: every machine can carry its own icon, and the board and action picker grows to 96 icons.
+- **The run's task list**: the strip under a run leads with the agent's own task list, a background lane keeps its tab while it runs, and calls to Exponential group as "Read 3 issues" instead of a generic tool run.
+- **One picker**: every picker on the web opens the same searchable menu, and the keyboard works in every one of them again, including the status, priority, effort, model and device menus and the phone's issue search.
+- **Runs**: several runs on one issue fold behind a caret on the Runs tab, an empty task list clears instead of sticking, and a turn that changed no file no longer shows an empty edits card.
+- **Phones**: the Work screen's menu sits on the Issue face only, Stop and Resume are plain bar buttons, the face switcher counts the run's changed files and tucks into the composer, and a batch run's issues open in a sheet.
+- **Devices**: machines fold to one row each, usage windows say when they reset, and a login can be removed from a machine.
+- **Under the hood**: the transcript no longer re-parses every patch per frame on the desktop, iOS and Android, a stray invisible character can no longer leak from the desktop editor into a description, and typing with an IME no longer sends a message mid-composition."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-device-icons",
     date: "2026-09-18",
     title: "Device icons and 36 more board icons",
@@ -57,7 +73,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-component-foundation",
     date: "2026-09-18",
     title: "One picker, one search field, one date picker",
@@ -72,7 +88,7 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
     id: "2026-09-17-release-train",
     date: "2026-09-17",
     title: "Release train 2026-09-17",
@@ -89,7 +105,7 @@ const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
     id: "2026-09-tab-shell-polish",
     date: "2026-09-17",
     title: "Tabs keep their state, chats get their names",
@@ -101,7 +117,7 @@ const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
 
 /// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",

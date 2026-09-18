@@ -1,23 +1,23 @@
+- Enhetsikoner: ge varje maskin en egen ikon i dess inställningar, en skärm, server eller laptop eller märket för Apple, Windows eller Linux, och välj bland 96 ikoner till boards och åtgärder
+- Run-sidan inleds med agentens uppgiftslista, en körning i bakgrunden behåller sin flik medan den går, och flikarna och raderna ligger i linje med loggen
+- Enheter viks till en rad var, visar när ett förbrukningsfönster nollställs, och en inloggning kan tas bort från en maskin; Work-skärmens meny sitter bara på Issue-sidan, sidväxlaren räknar körningens ändrade filer och viks in i det utfällda skrivfältet, och issuena i en batch-körning öppnas i ett blad
+- Anrop till Exponential står som en egen grupp, Read 3 issues i stället för en allmän verktygskörning, och en tur utan ändrade filer visar inte längre ett tomt kort
 - Stop i en pågående session är nu en vanlig knapp i raden, lika hög som tillbakaknappen, i stället för ett piller med trasig kontur
 - Raderna i en körnings logg överlappar inte längre varandra, och chatten rullar fritt förbi kortet ovanför skrivfältet
 - En chattkörning får namn efter det agenten arbetar med, i stället för att heta ”Chat” överallt
-- En enda diff överallt: filerna i en diff ligger i ett träd du hoppar i, och en agents ändringar under en tur samlas på ett kort ”Edited files”
+- En enda diff överallt: filerna i en diff ligger i ett träd du hoppar i, och en agents ändringar under en tur samlas på ett kort ”Edited files”, med radnummer, dolda oförändrade rader som du kan öppna, och omdöpta eller binära filer namngivna
 - Förbrukningen på ett ställe: en ruta visar körningens eget konto, dess gränsfönster och kontextfönstret, plus de andra inloggningarna på maskinen
 - Enheterna bär inloggningarna: varje maskin listar sina agentinloggningar med plan, hälsa och förbrukning, och en enhets kugghjul rymmer Update och Remove
-- En stack-sammanslagning som misslyckas säger nu varför, i stället för att tiga
 - En enda issue-sökning: samma ordning bär varje issuelista, varje väljare och varje #-meny, med översta träffen redan vald
-- Ett kommando som kör visar bara sina sista rader, så lång utmatning dränker inte längre körningen
-- En körning som tystnar markeras som avslutad och står kvar i listan i stället för att försvinna
-- En enda Work-skärm: ett issue, dess körning, ändringarna och resultaten är sidor av samma skärm, du växlar mellan dem från raden längst ned, och Stop eller Resume sitter uppe till höger
-- En enda diff-vy: alla diffar läses likadant, med radnummer, dolda oförändrade rader som du kan öppna, och omdöpta eller binära filer namngivna i stället för tomma
+- Ett kommando som kör visar bara sina sista rader, och en körning som tystnar markeras som avslutad och står kvar i listan
+- En enda Work-skärm: ett issue, dess körning och ändringarna är sidor av samma skärm, du växlar mellan dem från raden längst ned, och Stop eller Resume sitter uppe till höger
 - Staplade pull requests: starta ett issue ovanpå det som blockerar det, slå ihop hela kedjan med Merge stack, läs stack- eller batch-märket på arbetet, och svara på frågan som en nästlad körning skickar dig
-- Resultat från en körning: en körning som publicerar skärmbilder får en Results-sida, grupperad efter ämne, en ruta per plattform, och en tryckning visar hela bilden
-- Batch-körningar med namn: en körning över flera issues läser nu EXP-874 +2 bredvid titeln på det första issuet i stället för ”Batch run”
-- Meddelanden som landar direkt: ett meddelande du skriver medan agenten arbetar når fram genast och står som skickat tills det lästs, och Stop lämnar tillbaka texten till skrivfältet
-- GitHub på plats: att koppla GitHub, lägga till ett repository och sätta ett boards repository fungerar här som på datorn, och fel visas där du är
-- Meddelanden i kö: ett meddelande som väntar på agenten står i en rad ovanför skrivfältet, och Stop i en pågående session avbryter verkligen den aktuella turen i stället för att tappas bort på vägen
+- Resultat från en körning: en körning som publicerar skärmbilder får en Results-sida, grupperad efter ämne, en ruta per plattform
+- Batch-körningar med namn: en körning över flera issues läser EXP-874 +2 bredvid titeln på det första issuet i stället för ”Batch run”
+- Meddelanden som landar direkt: ett meddelande du skriver medan agenten arbetar når fram genast och står som skickat tills det lästs, ett väntande meddelande står i en rad ovanför skrivfältet, och Stop lämnar tillbaka texten till skrivfältet
+- GitHub på plats: att koppla GitHub, lägga till ett repository och sätta ett boards repository fungerar som på datorn, och fel visas där du är
 - Lugnare knappar och tydligare väljare: bara skärmens huvudåtgärd behåller en fylld cirkel, och agentväljaren bär märket för Claude Code eller Codex, medan enhetsmenyer inleds med en laptop- eller serverikon
 - Agent-sidan håller dina körningar: tidigare körningar viks ihop bakom en siffra du kan öppna, och när inget kör sitter skrivfältet mitt på sidan
-- Issue-filtren är borta: filterknappen och dess pills är borta från board och inkorg, sökningen täcker vad de användes till, och gruppering och statusband blir kvar
-- Fortsätt med e-post eller med en nyckel: logga in med en 6-siffrig kod som skickas till dig, eller med Face ID eller Touch ID; alla val står i en enda lista, och en okänd e-postadress blir helt enkelt ett nytt konto
+- Issue-filtren är borta: sökningen täcker vad de användes till, och gruppering och statusband blir kvar
+- Fortsätt med e-post eller med en nyckel: logga in med en 6-siffrig kod som skickas till dig, eller med Face ID eller Touch ID; alla val står i en enda Continue-lista
 - Byt konto mitt i en körning, och tillbaka dit du kom ifrån: en Claude-körning vid sin gräns kan fortsätta på ett annat konto, och när du lämnar en session hamnar du åter på det issue eller det board du öppnade den från

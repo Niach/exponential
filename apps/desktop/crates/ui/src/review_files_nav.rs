@@ -28,7 +28,7 @@
 
 use gpui::{
     div, AnyElement, ClickEvent, Entity, IntoElement, ParentElement as _, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Window,
+    StatefulInteractiveElement as _, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_component::{v_flex, ActiveTheme as _};
 
@@ -43,8 +43,10 @@ use crate::session_screen::SessionScreenView;
 enum FilesSource {
     /// The review screen's shared diff view (EXP-916).
     Review(Entity<PrDiffView>),
-    /// A run sitting on its Changes face (EXP-945).
-    Run(Entity<SessionScreenView>),
+    /// A run sitting on its Changes face (EXP-945). Held WEAK: the panel
+    /// mirrors the screen, it must not keep a closed one alive (release
+    /// review R5); a source that no longer upgrades clears the watch.
+    Run(WeakEntity<SessionScreenView>),
 }
 
 /// The review's (or the run's) file tree as the left column's panel.
@@ -65,6 +67,19 @@ impl ReviewFilesNav {
     /// the active screen is one on its Changes face — that is exactly when the
     /// shell chose this occupant for it ([`crate::shell::window_run_diff`]).
     fn source(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<FilesSource> {
+        let source = self.resolve_source(window, cx);
+        if source.is_none() {
+            // Nothing to mirror: drop the watch (and the handle it held).
+            self.watched = None;
+        }
+        source
+    }
+
+    fn resolve_source(
+        &mut self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<FilesSource> {
         let panel = crate::screens::screens_for_window(window, cx)?;
         let run = crate::shell::window_run_diff(window, cx)
             .then(|| {
@@ -77,7 +92,7 @@ impl ReviewFilesNav {
             })
             .flatten();
         let source = match run {
-            Some(view) => FilesSource::Run(view),
+            Some(view) => FilesSource::Run(view.downgrade()),
             None => FilesSource::Review(panel.read(cx).pr_diff().clone()),
         };
         let stale = self
@@ -90,7 +105,7 @@ impl ReviewFilesNav {
                 // EXP-945: the run's own viewer, not the screen wrapper — the
                 // selection, the filter and the folds all live there.
                 FilesSource::Run(view) => {
-                    let inner = view.read(cx).inner().clone();
+                    let inner = view.upgrade()?.read(cx).inner().clone();
                     cx.observe(&inner, |_, _, cx| cx.notify())
                 }
             };
@@ -121,9 +136,11 @@ impl ReviewFilesNav {
                     cx,
                 )
                 .on_click(move |_: &ClickEvent, _window, cx| {
-                    view.update(cx, |view, cx| {
-                        view.set_run_face(crate::screens::RunFace::Run, cx);
-                    });
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |view, cx| {
+                            view.set_run_face(crate::screens::RunFace::Run, cx);
+                        });
+                    }
                 })
                 .into_any_element()
             }
@@ -170,7 +187,14 @@ impl Render for ReviewFilesNav {
             }
             // EXP-945: the SAME tree, the same chrome, the same callbacks —
             // only the owner of the state changed.
+            // A screen that is gone since `source()` ran: nothing to paint,
+            // and the watch on it goes.
+            Some(FilesSource::Run(screen)) if screen.upgrade().is_none() => {
+                self.watched = None;
+                div().into_any_element()
+            }
             Some(FilesSource::Run(screen)) => {
+                let screen = screen.upgrade().expect("checked by the arm above");
                 let view = screen.read(cx).inner().clone();
                 let (files, selected, filter, folded) = {
                     let view = view.read(cx);

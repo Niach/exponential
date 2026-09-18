@@ -44,6 +44,16 @@ struct RunChrome: Equatable {
 
 /// EXP-893: what the Work screen ASKS of the session view — the nav bar's
 /// Stop pill is the screen's, the kill confirm and the model are the view's.
-enum RunRequest: Equatable {
-    case stop
+/// A one-shot TOKEN: every request carries its own id, so a repeated Stop
+/// (the first one unconsumed, say, because no model was attached yet) is a
+/// new value and fires the view's `onChange` again.
+struct RunRequest: Equatable {
+    enum Kind: Equatable {
+        case stop
+    }
+
+    let id = UUID()
+    let kind: Kind
+
+    static var stop: RunRequest { RunRequest(kind: .stop) }
 }

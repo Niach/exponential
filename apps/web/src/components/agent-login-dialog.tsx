@@ -16,7 +16,6 @@
 // short error with a "Try again" that re-queues the login.
 import { useEffect, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { LoaderCircle } from "lucide-react"
 import type { Device } from "@/db/schema"
 import { useAgentLogin } from "@/hooks/use-agent-login"
 import { deviceCollection } from "@/lib/collections"
@@ -41,6 +40,7 @@ import {
 // Multi-client surface (iOS `AgentLoginSheet`, the IDE's login dialog) — a
 // CONCEPT, never a raw glyph.
 const CheckIcon = conceptIcon(`ui-check`)
+const LoadingIcon = conceptIcon(`ui-loading`)
 
 // EXP-940: the three lines the end of a sign-in can say, short and ×4.
 export const SIGNING_IN = `Signing in…`
@@ -204,7 +204,7 @@ export function AgentLoginDialog({
           {/* Who is signing in where — it stays put through every phase. */}
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {state.pending && (
-              <LoaderCircle className="size-3 shrink-0 animate-spin" />
+              <LoadingIcon className="size-3 shrink-0 animate-spin" />
             )}
             {statusText}
           </p>
@@ -229,7 +229,7 @@ export function AgentLoginDialog({
             // The code is in; the machine finishes on its own and reports the
             // login on its next heartbeat.
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3 shrink-0 animate-spin" />
+              <LoadingIcon className="size-3 shrink-0 animate-spin" />
               {SIGNING_IN}
             </p>
           ) : (

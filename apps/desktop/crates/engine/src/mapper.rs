@@ -1108,6 +1108,10 @@ impl Mapper {
         out: &mut MapOut,
     ) {
         if let Some(modes) = modes {
+            // EXP-927: a session start or resume forgets the `task_list`
+            // dedupe — the next list the agent publishes is restated whole,
+            // never swallowed as "unchanged" against a run that is gone.
+            self.task_list = None;
             self.config_state.current_mode =
                 Some(steer::truncate(&modes.current_mode_id.0, ID_MAX));
             self.config_state.modes = Some(
@@ -4158,6 +4162,62 @@ mod tests {
         mapper.on_update(&notify(plan()), &mut again);
         assert!(again.wire.is_empty(), "an identical list is not republished");
         assert!(matches!(again.local[0], LocalFeedEvent::Plan { .. }));
+    }
+
+    /// EXP-927 (release review R2): an EMPTY plan is a clearing edge — the
+    /// slot goes out as `entries: []` so a stale list unsticks on every
+    /// client — and a session (re)start forgets the dedupe, so the first list
+    /// of the new run is always restated.
+    #[test]
+    fn an_empty_plan_clears_the_slot_and_a_session_start_resets_the_dedupe() {
+        use agent_client_protocol::schema::v1::{
+            Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, SessionMode, SessionModeId,
+        };
+        let plan = || {
+            SessionUpdate::Plan(Plan::new(vec![PlanEntry::new(
+                "Read the issue",
+                PlanEntryPriority::Medium,
+                PlanEntryStatus::Pending,
+            )]))
+        };
+        let kinds = |out: &MapOut| -> Vec<String> {
+            out.wire
+                .iter()
+                .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut out);
+        assert_eq!(kinds(&out), vec!["task_list"]);
+
+        // The clear: an empty list is published once, whole, as empty.
+        let mut cleared = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::Plan(Plan::new(Vec::new()))), &mut cleared);
+        assert_eq!(kinds(&cleared), vec!["task_list"]);
+        let wire = serde_json::to_value(&cleared.wire[0]).expect("task_list serializes");
+        assert_eq!(wire["entries"], json!([]));
+        assert!(
+            matches!(&cleared.local[0], LocalFeedEvent::Plan { entries } if entries.is_empty()),
+            "the local lane sees the empty plan too"
+        );
+        let mut again = MapOut::default();
+        mapper.on_update(&notify(SessionUpdate::Plan(Plan::new(Vec::new()))), &mut again);
+        assert!(again.wire.is_empty(), "an identical (empty) list is not republished");
+
+        // The session (re)starts: the dedupe forgets, the same list goes out again.
+        mapper.on_update(&notify(plan()), &mut MapOut::default());
+        let mut deduped = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut deduped);
+        assert!(deduped.wire.is_empty());
+        let modes = SessionModeState::new(
+            SessionModeId::new("bypassPermissions"),
+            vec![SessionMode::new(SessionModeId::new("bypassPermissions"), "Build")],
+        );
+        mapper.on_session_state(Some(&modes), &[], &[], &mut MapOut::default());
+        let mut restated = MapOut::default();
+        mapper.on_update(&notify(plan()), &mut restated);
+        assert_eq!(kinds(&restated), vec!["task_list"], "restated after the (re)start");
     }
 
     #[test]

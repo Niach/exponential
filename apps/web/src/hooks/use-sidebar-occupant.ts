@@ -1,6 +1,6 @@
 import { useRouterState } from "@tanstack/react-router"
 import { sidebarOccupant, type SidebarOccupant } from "@/lib/detail-origin"
-import { useReviewFilesSlot } from "@/lib/review-files-slot"
+import { useReviewFilesSubjectId } from "@/lib/review-files-slot"
 
 // EXP-851 / EXP-870: which panel sits beside the rail — derived from the URL
 // alone (pathname + `?from=` + `?view=`), never click state, so every entry point drives
@@ -27,12 +27,16 @@ export function useSidebarOccupant(): SidebarOccupant {
   // A run publishes its tree only while its Changes face really draws (the
   // owner's live view). A teammate's read-only run, or a run still loading,
   // has nothing to put in the panel, so the URL alone must not swap it in or
-  // the panel would sit on "Loading changes" for good.
-  const slot = useReviewFilesSlot()
-  const onRun = /\/sessions\/[^/]+$/.test(pathname)
+  // the panel would sit on "Loading changes" for good. Only the published
+  // SUBJECT is read (a primitive), never the slot: the slot republishes a
+  // fresh object on every diff tick and file pick, and this hook sits under
+  // the whole team layout. It must be THIS run's tree — a slot left over
+  // from the previous review would otherwise swap the panel in for a frame.
+  const subjectId = useReviewFilesSubjectId()
+  const sessionId = /\/sessions\/([^/]+)$/.exec(pathname)?.[1] ?? null
   return sidebarOccupant(
     pathname,
     fromToken,
-    onRun && slot === null ? null : viewToken
+    sessionId !== null && subjectId !== sessionId ? null : viewToken
   )
 }

@@ -16,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -166,6 +167,21 @@ fun PrGraphSheet(
                 if (graph.tree.isEmpty()) {
                     EmptyNote("No runs on this work yet.")
                 }
+                // EXP-930: named off the SYNCED rows — its own issue, or (on
+                // a batch) the issues it covers. Derived ONCE per tree and
+                // issue pool, not per row per recomposition: a batch title
+                // indexes the whole pool.
+                val runTitles = remember(graph.tree, issues) {
+                    val byId = issues.associateBy { it.id }
+                    graph.tree.associate { row ->
+                        val session = row.session
+                        session.id to sessionRowTitle(
+                            session,
+                            session.issueId?.let(byId::get),
+                            batchRunIssues(session, issues),
+                        )
+                    }
+                }
                 graph.tree.forEach { row ->
                     val session = row.session
                     Row(
@@ -185,13 +201,7 @@ fun PrGraphSheet(
                         SessionToneDot(tone, busy = session.agentBusy)
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            // EXP-930: named off the SYNCED rows — its own
-                            // issue, or (on a batch) the issues it covers.
-                            sessionRowTitle(
-                                session,
-                                session.issueId?.let { id -> issues.firstOrNull { it.id == id } },
-                                batchRunIssues(session, issues),
-                            ),
+                            runTitles.getValue(session.id),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,

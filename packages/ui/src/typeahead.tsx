@@ -22,6 +22,8 @@ import { MENU_SURFACE_CLASS } from "./menu-surface"
 //    handler leaves it completely alone (no `preventDefault`, returns false).
 //  * Escape dismisses.
 //  * With no items nothing is handled at all.
+//  * A key that lands mid IME composition (`isComposing`) is the IME's, not
+//    ours: Enter there commits the candidate, never a row.
 //
 // `handleKeyDown` returns TRUE when the menu consumed the key: the host must
 // then do nothing else. Its event is typed structurally, not as a React
@@ -33,6 +35,8 @@ export interface TypeaheadKeyEvent {
   ctrlKey?: boolean
   altKey?: boolean
   shiftKey?: boolean
+  /** `KeyboardEvent.isComposing` (a React host passes `nativeEvent`'s). */
+  isComposing?: boolean
   preventDefault?: () => void
 }
 
@@ -87,6 +91,9 @@ export function useTypeahead<TItem>({
   }
 
   const handleKeyDown = (event: TypeaheadKeyEvent) => {
+    if (event.isComposing) {
+      return false
+    }
     if (count === 0) {
       return false
     }
@@ -233,6 +240,18 @@ export function placeTypeaheadMenu(
  *  `onInteractOutside`, and treat a mounted one as "a menu is open" when
  *  routing Escape. */
 export const TYPEAHEAD_PORTAL_SELECTOR = `[data-editor-autocomplete]`
+
+/** Whether a Radix outside-interaction (its `target` is the pointed-at
+ *  node) landed inside the anchored arm's portal. `DialogContent` and
+ *  `SheetContent` ignore that one by default. */
+export function isTypeaheadPortalInteraction(event: {
+  target: EventTarget | null
+}): boolean {
+  return (
+    event.target instanceof Element &&
+    event.target.closest(TYPEAHEAD_PORTAL_SELECTOR) !== null
+  )
+}
 
 export function TypeaheadMenu({
   placement = `below`,

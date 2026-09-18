@@ -347,7 +347,7 @@ struct ActionsListView: View {
         // the body keep their own top alignment inside the leading group.
         return HStack(spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
-                AppIcon(action?.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
+                AppIcon(ActionIconDisplay.iconName(for: action?.icon), size: AppIcon.Size.medium)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
                 VStack(alignment: .leading, spacing: 3) {
@@ -618,8 +618,9 @@ struct ActionsListView: View {
             // The builtin "Create action" row (EXP-257) wears the create
             // affordance; real actions keep the bolt.
             // EXP-273: the action's own curated glyph (the builtins set one too),
-            // falling back to the generic action mark.
-            AppIcon(action.icon ?? AppIcons.actionDefault, size: AppIcon.Size.medium)
+            // falling back to the generic action mark — also for a name only a
+            // newer build ships, which would otherwise draw nothing.
+            AppIcon(ActionIconDisplay.iconName(for: action.icon), size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
             VStack(alignment: .leading, spacing: 3) {

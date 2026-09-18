@@ -393,6 +393,9 @@ export function SteerComposer({
             onValueChange={(next) => store.setDraftText(next)}
             users={users}
             onKeyDown={(e) => {
+              // Mid IME composition every key is the IME's: Enter commits
+              // the candidate, it never sends.
+              if (e.nativeEvent.isComposing) return
               // The menu gets first refusal: with it open, Enter/Tab accept a
               // command and must NEVER send the half-typed draft.
               if (menu.handleKeyDown(e)) return

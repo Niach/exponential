@@ -3,6 +3,7 @@ import { renderHook, act } from "@testing-library/react"
 import {
   publishReviewFiles,
   useReviewFilesSlot,
+  useReviewFilesSubjectId,
   type ReviewFilesSlot,
 } from "./review-files-slot"
 
@@ -27,6 +28,26 @@ describe(`review files slot`, () => {
     const b = slot(`i2`)
     act(() => publishReviewFiles(b))
     expect(result.current).toBe(b)
+    act(() => publishReviewFiles(null))
+    expect(result.current).toBeNull()
+  })
+
+  it(`the subject selector is a primitive: a republish of the same subject is no render`, () => {
+    publishReviewFiles(null)
+    let renders = 0
+    const { result } = renderHook(() => {
+      renders++
+      return useReviewFilesSubjectId()
+    })
+    expect(result.current).toBeNull()
+    act(() => publishReviewFiles(slot(`i1`)))
+    expect(result.current).toBe(`i1`)
+    const after = renders
+    // A file pick republishes a FRESH object for the same subject.
+    act(() => publishReviewFiles({ ...slot(`i1`), selected: `a.ts` }))
+    expect(renders).toBe(after)
+    act(() => publishReviewFiles(slot(`i2`)))
+    expect(result.current).toBe(`i2`)
     act(() => publishReviewFiles(null))
     expect(result.current).toBeNull()
   })

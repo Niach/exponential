@@ -184,4 +184,36 @@ final class WorktreeResumeTests: XCTestCase {
         )
         XCTAssertEqual(composed.map(\.deviceId), ["mine"])
     }
+
+    // One malformed agent entry drops ALONE — the other agents' sign-in state
+    // and usage still render, instead of the whole map blanking.
+    func testComposeDropsAMalformedAgentEntryAlone() {
+        let rows = [
+            DeviceEntity(
+                id: "r1", userId: "me", deviceId: "mine", label: "mine", kind: "server",
+                agentAccounts: #"""
+                {"claude":{"signedIn":true,"email":"me@example.com","health":"ok"},
+                 "codex":{"signedIn":"yes"}}
+                """#,
+                agentUsage: #"""
+                {"claude":{"fetchedAt":"2026-08-11T10:00:00Z","windows":[{"key":"session","percent":40}]},
+                 "codex":5}
+                """#
+            )
+        ]
+        let composed = DeviceQueries.compose(rows: rows, users: [], teamId: nil, userId: "me")
+        let device = composed.first
+        XCTAssertEqual(device?.agentAccounts?.keys.sorted(), ["claude"])
+        XCTAssertEqual(device?.agentAccounts?["claude"]?.email, "me@example.com")
+        XCTAssertEqual(device?.agentUsage?.keys.sorted(), ["claude"])
+        XCTAssertEqual(device?.agentUsage?["claude"]?.windows?.first?.percent, 40)
+        // Wholly unreadable JSON still degrades to nil, as before.
+        let broken = DeviceEntity(
+            id: "r2", userId: "me", deviceId: "b", label: "b", kind: "server",
+            agentAccounts: "not json", agentUsage: "[]"
+        )
+        let brokenComposed = DeviceQueries.compose(rows: [broken], users: [], teamId: nil, userId: "me")
+        XCTAssertNil(brokenComposed.first?.agentAccounts)
+        XCTAssertNil(brokenComposed.first?.agentUsage)
+    }
 }

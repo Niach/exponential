@@ -433,5 +433,10 @@ final class PastRunsTests: XCTestCase {
         XCTAssertTrue(BatchRun.issueIds(nil).isEmpty)
         XCTAssertTrue(BatchRun.issueIds("not json").isEmpty)
         XCTAssertEqual(BatchRun.issueIds(#"[1,"","i-1"]"#), ["i-1"])
+        // A repeated id lists once, at its first position — the covered set
+        // is keyed by id and its `+N` counts distinct issues.
+        XCTAssertEqual(
+            BatchRun.issueIds(#"["i-2","i-1","i-2","i-3","i-1"]"#), ["i-2", "i-1", "i-3"]
+        )
     }
 }

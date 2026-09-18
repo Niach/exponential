@@ -117,14 +117,18 @@ struct AgentSessionView<Switcher: View>: View {
     /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
     /// rule). A non-empty draft or a pending image keeps it open regardless.
     @State private var composerExpanded = false
+    /// Set by `expandComposer`, cleared once the editor takes focus (or the
+    /// retry window passes): the EXP-931 idle fold stands down meanwhile.
+    @State private var composerFocusPending = false
     /// EXP-820: per ask id, the wire id of the EARLIER step being re-answered
     /// ("go back" in the stepper), or absent while the current step shows.
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
-    /// EXP-895: the worktree diff through the ONE parser — read on the diff
-    /// edge, never per frame.
-    @State private var parsedDiff = Diff.Parsed(files: [])
+    /// EXP-895: the model's ONE memoised parse (`AgentSessionModel.parsedDiff`)
+    /// — the Changes face, the file sheet and the Work screen's totals all
+    /// read the same `Diff.Parsed`.
+    private var parsedDiff: Diff.Parsed { model?.parsedDiff ?? Diff.Parsed(files: []) }
     /// The phone's file list, off the Changes bar's leading slot, and the path
     /// it last picked.
     @State private var diffFileSheet = false
@@ -315,7 +319,9 @@ struct AgentSessionView<Switcher: View>: View {
             }
             // EXP-893: the screen's Stop pill — the confirm is still this
             // view's, where the model is.
-            .onChange(of: request) { _, request in
+            // A request already set when this view mounts (a continuation
+            // swapping in under a tapped Stop) is consumed on appear too.
+            .onChange(of: request, initial: true) { _, request in
                 requestChanged(request)
             }
             // EXP-893: the +/− counts follow the diff edge, not the frame.
@@ -415,6 +421,9 @@ struct AgentSessionView<Switcher: View>: View {
     // EXP-802: the composer's focus lives on its editor model now (a UITextView
     // owns first responder), not in a `@FocusState`.
     private func draftEditingChanged(_ editing: Bool?) {
+        // The focus `expandComposer` asked for has landed: the idle fold may
+        // consider the composer again.
+        if editing == true { composerFocusPending = false }
         guard composerExpanded, editing == false, let model else { return }
         guard !showPhotoPicker, photoItems.isEmpty else { return }
         guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
@@ -428,6 +437,9 @@ struct AgentSessionView<Switcher: View>: View {
     /// open; focusing or typing expands it again.
     private func collapseIdleComposer(_ model: AgentSessionModel) {
         guard composerExpanded, model.agentWorking else { return }
+        // A composer the reader JUST opened: its focus lands a runloop later,
+        // so the field still reads as unfocused — never fold it under them.
+        guard !composerFocusPending else { return }
         guard model.draftEditor.isEditing == false else { return }
         guard !showPhotoPicker, photoItems.isEmpty else { return }
         guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty else { return }
@@ -439,22 +451,18 @@ struct AgentSessionView<Switcher: View>: View {
     private func requestChanged(_ request: RunRequest?) {
         guard let request else { return }
         self.request = nil
-        switch request {
+        switch request.kind {
         case .stop:
             if model?.canKill == true { showKillConfirm = true }
         }
     }
 
-    /// EXP-895: the worktree diff is parsed ONCE, here, off the edge — the
-    /// Changes face and the file sheet read the same `Diff.Parsed` (EXP-932:
-    /// and the switcher totals the SAME files from the same model).
+    /// EXP-895: the worktree diff is parsed ONCE, on the model (`parsedDiff`,
+    /// memoised on the diff string) — the Changes face, the file sheet and
+    /// the Work screen's switcher totals read the same `Diff.Parsed`. Off the
+    /// edge, only the file selection has to follow a vanished diff.
     private func diffChanged(_ diff: String?) {
-        guard let diff else {
-            parsedDiff = Diff.Parsed(files: [])
-            selectedDiffPath = nil
-            return
-        }
-        parsedDiff = Diff.parse(diff)
+        if diff == nil { selectedDiffPath = nil }
     }
 
     // MARK: - Chrome report (EXP-893)
@@ -1671,12 +1679,19 @@ struct AgentSessionView<Switcher: View>: View {
 
     private func expandComposer() {
         withAnimation(motion.standard) { composerExpanded = true }
+        // Holds the idle fold off until the focus below lands (or the retry
+        // window has passed — a field that never takes focus must not pin
+        // the composer open forever).
+        composerFocusPending = true
         // Programmatic focus needs the field mounted — one runloop hop, with
         // a 150ms retry in case the first lands before layout. EXP-802: the
         // same shape as IssueDetailBottomBar's, driven off the editor model.
         DispatchQueue.main.async { focusComposer() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             if composerExpanded, model?.draftEditor.isEditing == false { focusComposer() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            composerFocusPending = false
         }
     }
 

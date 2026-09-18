@@ -162,17 +162,39 @@ public extension SteerDevice {
     }
 
     /// EXP-849: keys this build has no agent for are dropped once, here, for
-    /// every reader of the row.
+    /// every reader of the row. One malformed ENTRY drops alone
+    /// (`FailableAgentAccount`) instead of blanking every agent's status.
     private static func decodeAgentAccounts(_ json: String?) -> [String: AgentAccount]? {
         guard let json else { return nil }
-        return (try? JSONDecoder().decode([String: AgentAccount].self, from: Data(json.utf8)))?
+        return (try? JSONDecoder().decode([String: FailableAgentAccount].self, from: Data(json.utf8)))?
+            .compactMapValues(\.value)
             .filter { AgentUsagePresentation.isContractAgent($0.key) }
     }
 
     private static func decodeAgentUsage(_ json: String?) -> [String: AgentUsage]? {
         guard let json else { return nil }
-        return (try? JSONDecoder().decode([String: AgentUsage].self, from: Data(json.utf8)))?
+        return (try? JSONDecoder().decode([String: FailableAgentUsage].self, from: Data(json.utf8)))?
+            .compactMapValues(\.value)
             .filter { AgentUsagePresentation.isContractAgent($0.key) }
+    }
+}
+
+/// An account entry that never throws: a malformed one is dropped instead of
+/// blanking the whole `agent_accounts` map (the `FailableUsageWindow` shape).
+private struct FailableAgentAccount: Decodable {
+    let value: AgentAccount?
+
+    init(from decoder: Decoder) throws {
+        value = try? AgentAccount(from: decoder)
+    }
+}
+
+/// Same for one agent's usage report in `agent_usage`.
+private struct FailableAgentUsage: Decodable {
+    let value: AgentUsage?
+
+    init(from decoder: Decoder) throws {
+        value = try? AgentUsage(from: decoder)
     }
 }
 

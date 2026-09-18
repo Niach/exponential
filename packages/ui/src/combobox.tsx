@@ -105,6 +105,12 @@ interface ComboboxListBaseProps<TValue extends string> {
   searchable?: boolean
   /** The filter field's placeholder. */
   placeholder?: string
+  /** Rendered inside the filter field's row, before the search glyph (a back
+   *  arrow). Inside the cmdk root, so the keys stay the list's. */
+  leading?: React.ReactNode
+  /** `field` draws the `SearchField` box (glyph inside, trailing clear)
+   *  around the filter input — for a page-like host; popovers stay `inline`. */
+  inputVariant?: `inline` | `field`
   /** Shown when the filter matches nothing. */
   emptyText?: React.ReactNode
   /** Controlled search text — for an external ranking engine. */
@@ -175,6 +181,8 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
     renderOption,
     searchable = true,
     placeholder,
+    leading,
+    inputVariant,
     emptyText = `No results`,
     query,
     onQueryChange,
@@ -205,12 +213,19 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
     <Command
       data-slot="combobox-list"
       shouldFilter={shouldFilter}
+      // With no search field nothing inside is tabbable, so the popover's
+      // focus scope would settle on its own container and cmdk's ↑/↓/Enter
+      // handler (on this root) would never run. Making the root itself
+      // focusable keeps the key owner where the field would have been.
+      tabIndex={searchable ? undefined : 0}
       // The sheet arm drops `className` on the content, so the height chain
       // has to start here or a capped popover never lets the list shrink.
       className={cn(`min-h-0 flex-1`, className)}
     >
       {searchable && (
         <CommandInput
+          leading={leading}
+          variant={inputVariant}
           placeholder={placeholder ?? `Search…`}
           value={query}
           onValueChange={onQueryChange}

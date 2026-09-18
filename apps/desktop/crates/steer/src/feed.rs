@@ -1472,6 +1472,11 @@ impl SteerFeed {
         self.rate_limit = None;
         // EXP-861: the replay carries the queue slot too, in the same burst.
         self.queue.clear();
+        // EXP-927: and the strip's two slots — a replay with no `task_list`
+        // or `background_tasks` in it means the run has none (web and iOS
+        // blank both on the swap too).
+        self.background_tasks.clear();
+        self.task_list.clear();
         // EXP-848: a swap with no `turn` in its replay means nobody has said
         // the agent is working, which is exactly `Ended`.
         self.turn_state = crate::frames::TurnState::default();
@@ -2292,6 +2297,18 @@ pub fn group_subagent_row_specs_into(
 /// run emits no row at all, never a "0 files edited" card (×4).
 fn edit_run_has_rows(items: &[FeedItem], run: &[usize]) -> bool {
     let members: Vec<_> = run.iter().map(|&ix| items[ix].edit_card_member()).collect();
+    // The grouping runs at the top of EVERY frame over the whole window, and
+    // `edit_card` parses every member's patch. A member with NO patch and a
+    // subject always yields a stub row (the card's pathless arm), so that
+    // alone settles the question without a parse. A patch alone proves
+    // nothing — a pathless one can parse to zero files — so the rest still
+    // takes the full check.
+    if members.iter().any(|member| {
+        member.diff.is_none_or(str::is_empty)
+            && member.detail.is_some_and(|detail| !detail.trim().is_empty())
+    }) {
+        return true;
+    }
     !domain::edit_card::edit_card(&members, None).rows.is_empty()
 }
 
@@ -3779,6 +3796,59 @@ mod tests {
         feed.apply(ActivityEvent::narration("no diff this time"));
         feed.apply_synced();
         assert_eq!(feed.latest_diff(), None);
+    }
+
+    /// Release review R3: the edit-run gate never parses a patch when a
+    /// member with NONE names its file — that member is a stub row on its
+    /// own. A patchless member with no subject still takes the full check
+    /// (and yields nothing).
+    #[test]
+    fn an_edit_run_with_a_subject_and_no_patch_has_rows_without_a_parse() {
+        let tool = |id: u64, detail: Option<&str>| FeedItem {
+            id,
+            kind: FeedKind::Tool {
+                name: "Edit".to_string(),
+                detail: detail.map(str::to_string),
+                subagent_id: None,
+                call_id: None,
+                tool_kind: ToolKind::parse("edit"),
+                settled: false,
+                failed: false,
+                diff: None,
+                output: None,
+                preview: None,
+            },
+            seq: None,
+        };
+        let items = vec![tool(1, None), tool(2, Some("  src/a.rs ")), tool(3, Some("   "))];
+        assert!(edit_run_has_rows(&items, &[1]));
+        assert!(edit_run_has_rows(&items, &[0, 1, 2]));
+        assert!(!edit_run_has_rows(&items, &[0]));
+        assert!(!edit_run_has_rows(&items, &[0, 2]), "a blank subject is no subject");
+    }
+
+    /// EXP-927 (release review R2): the swap blanks the strip's two slots
+    /// too — a replay that carries neither means the run has neither.
+    #[test]
+    fn the_swap_clears_the_task_list_and_background_tasks() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::task_list(vec![crate::frames::TaskListEntry {
+            content: "Read the issue".to_string(),
+            status: crate::frames::TaskListStatus::Pending,
+        }]));
+        feed.apply(ActivityEvent::background_tasks(vec![crate::BackgroundTask {
+            id: "b1".to_string(),
+            kind: crate::BackgroundTaskKind::Shell,
+            description: "Sleep in the background".to_string(),
+            tool_id: None,
+        }]));
+        assert_eq!(feed.task_list().len(), 1);
+        assert_eq!(feed.background_tasks().len(), 1);
+        feed.apply_reset();
+        feed.apply(ActivityEvent::narration("no strip this time"));
+        feed.apply_synced();
+        assert!(feed.task_list().is_empty());
+        assert!(feed.background_tasks().is_empty());
     }
 
     // ── Projections ────────────────────────────────────────────────────────

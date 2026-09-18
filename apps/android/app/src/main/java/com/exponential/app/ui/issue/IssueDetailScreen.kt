@@ -120,8 +120,9 @@ fun rememberIssueFaceController(): IssueFaceController = remember { IssueFaceCon
 
 /**
  * EXP-893: the Work screen's `…` menu for an issue subject — Share · Move to
- * board · Unmark duplicate · Delete. On every face (the host's app bar owns
- * it); Usage and "Open issue" never lived here. The MENU is available to
+ * board · Unmark duplicate · Delete. On the Issue face alone (the host's app
+ * bar owns it, gated by `faceShowsContextMenu`, EXP-934); Usage and "Open
+ * issue" never lived here. The MENU is available to
  * everyone; only the mutating items are moderator-gated.
  */
 @Composable

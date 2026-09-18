@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-18-release-train`,
+    date: `2026-09-18`,
+    title: `Release train 2026-09-18`,
+    summary: `Device icons, the run's task list, one picker everywhere, and a round of fixes from the release review.`,
+    body: `- **Device icons**: every machine can carry its own icon, and the board and action picker grows to 96 icons.
+- **The run's task list**: the strip under a run leads with the agent's own task list, a background lane keeps its tab while it runs, and calls to Exponential group as "Read 3 issues" instead of a generic tool run.
+- **One picker**: every picker on the web opens the same searchable menu, and the keyboard works in every one of them again, including the status, priority, effort, model and device menus and the phone's issue search.
+- **Runs**: several runs on one issue fold behind a caret on the Runs tab, an empty task list clears instead of sticking, and a turn that changed no file no longer shows an empty edits card.
+- **Phones**: the Work screen's menu sits on the Issue face only, Stop and Resume are plain bar buttons, the face switcher counts the run's changed files and tucks into the composer, and a batch run's issues open in a sheet.
+- **Devices**: machines fold to one row each, usage windows say when they reset, and a login can be removed from a machine.
+- **Under the hood**: the transcript no longer re-parses every patch per frame on the desktop, iOS and Android, a stray invisible character can no longer leak from the desktop editor into a description, and typing with an IME no longer sends a message mid-composition.`,
+  },
+  {
     id: `2026-09-18-device-icons`,
     date: `2026-09-18`,
     title: `Device icons and 36 more board icons`,

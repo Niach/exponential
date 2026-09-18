@@ -51,7 +51,10 @@ public enum BatchRun {
             let parsed = try? JSONSerialization.jsonObject(with: data),
             let items = parsed as? [Any]
         else { return [] }
-        return items.compactMap { $0 as? String }.filter { !$0.isEmpty }
+        // Deduped (first occurrence wins, order kept): the covered set names
+        // and lists these by id, so a repeated id must not surface twice.
+        var seen = Set<String>()
+        return items.compactMap { $0 as? String }.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     /// An issue-less, action-less run — the batch. (A chat run carries the

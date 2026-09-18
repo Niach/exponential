@@ -469,149 +469,158 @@ private fun MachineRow(
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // EXP-944: the machine line is the fold's toggle — but the TAP TARGET
+        // is the inner row (chevron, icon, name column), never the whole line:
+        // a clickable merges its descendants' semantics, and the gear beside it
+        // is a control of its own that must stay in the accessibility tree.
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClickLabel = if (expanded) "Collapse" else "Expand") {
-                    onToggleExpanded()
-                },
+            modifier = Modifier.fillMaxWidth(),
             // Expanded, the logins hang below this line, so the icon and the
             // gear sit level with the NAME instead of centring themselves
             // against a block that is no longer there.
             verticalAlignment = if (expanded) Alignment.Top else Alignment.CenterVertically,
         ) {
-            Icon(
-                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                deviceIcon(device),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (startable) TextEmphasis.Secondary else TextEmphasis.Tertiary,
-                ),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        device.displayLabel,
-                        style = MaterialTheme.typography.bodyMedium,
-                        // An unstartable machine greys out: it looks present but
-                        // can take nothing, so it must not read as fully available.
-                        color = if (blockedCaption != null) {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    val owner = device.owner
-                    if (owner != null) {
-                        Spacer(Modifier.width(6.dp))
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClickLabel = if (expanded) "Collapse" else "Expand") {
+                        onToggleExpanded()
+                    },
+                verticalAlignment = if (expanded) Alignment.Top else Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    deviceIcon(device),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (startable) TextEmphasis.Secondary else TextEmphasis.Tertiary,
+                    ),
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "shared by ${owner.name}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    } else if (device.version != null) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "v${device.version}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (outdated) {
-                                NeedsInputAmber
+                            device.displayLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            // An unstartable machine greys out: it looks present but
+                            // can take nothing, so it must not read as fully available.
+                            color = if (blockedCaption != null) {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
                             } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                                MaterialTheme.colorScheme.onSurface
                             },
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
+                        val owner = device.owner
+                        if (owner != null) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "shared by ${owner.name}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        } else if (device.version != null) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "v${device.version}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (outdated) {
+                                    NeedsInputAmber
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                                },
+                                maxLines = 1,
+                            )
+                        }
+                        // EXP-622: the machine every device picker prefills.
+                        if (device.isDefault) {
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                ExpIcons.uiDeviceDefault,
+                                contentDescription = "Default device",
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                modifier = Modifier.size(13.dp),
+                            )
+                        }
+                        if (device.isMine && device.sharedTeamIds.isNotEmpty()) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Shared",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                                maxLines = 1,
+                            )
+                        }
+                        // EXP-849: the machine's WORST account health. "Needs
+                        // re-login" (a credential that expired under the user — the
+                        // CLI still claims it is signed in) is deliberately distinct
+                        // from "Signed out" (a login nobody ever made). EXP-862: it
+                        // is the ONLY sign-in notice the row carries — the status
+                        // line below no longer names signed-out agents, and the
+                        // chips underneath say which login is which.
+                        val healthBadge = AgentHealthRules
+                            .deviceWorst(device.agentAccounts)
+                            ?.let(AgentHealthRules::badgeLabel)
+                        if (healthBadge != null) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                healthBadge,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeedsInputAmber,
+                                maxLines = 1,
+                                modifier = Modifier.testTag("device-health-badge"),
+                            )
+                        }
                     }
-                    // EXP-622: the machine every device picker prefills.
-                    if (device.isDefault) {
-                        Spacer(Modifier.width(6.dp))
-                        Icon(
-                            ExpIcons.uiDeviceDefault,
-                            contentDescription = "Default device",
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            modifier = Modifier.size(13.dp),
-                        )
-                    }
-                    if (device.isMine && device.sharedTeamIds.isNotEmpty()) {
-                        Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        // A pending update outranks the presence caption: the daemon is
+                        // about to restart, so "Online" would only read as a lie. But a
+                        // request parked behind live sessions (EXP-411) reads "Update
+                        // queued" without a spinner — it applies once they close.
+                        if (device.updateRequested && !device.updateBlocked) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(10.dp),
+                                strokeWidth = 1.5.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            )
+                        } else if (online && !device.updateQueued) {
+                            StaticDot(if (blockedCaption != null) NeedsInputAmber else ReviewGreen, size = 6.dp)
+                        }
                         Text(
-                            "Shared",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            when {
+                                device.updateQueued -> "Update queued"
+                                device.updateRequested -> "Updating…"
+                                blockedCaption != null -> blockedCaption
+                                online -> "Online"
+                                device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
+                                else -> "Offline"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (blockedCaption != null && !device.updateRequested) {
+                                NeedsInputAmber
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+                            },
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                     }
-                    // EXP-849: the machine's WORST account health. "Needs
-                    // re-login" (a credential that expired under the user — the
-                    // CLI still claims it is signed in) is deliberately distinct
-                    // from "Signed out" (a login nobody ever made). EXP-862: it
-                    // is the ONLY sign-in notice the row carries — the status
-                    // line below no longer names signed-out agents, and the
-                    // chips underneath say which login is which.
-                    val healthBadge = AgentHealthRules
-                        .deviceWorst(device.agentAccounts)
-                        ?.let(AgentHealthRules::badgeLabel)
-                    if (healthBadge != null) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            healthBadge,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = NeedsInputAmber,
-                            maxLines = 1,
-                            modifier = Modifier.testTag("device-health-badge"),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(2.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    // A pending update outranks the presence caption: the daemon is
-                    // about to restart, so "Online" would only read as a lie. But a
-                    // request parked behind live sessions (EXP-411) reads "Update
-                    // queued" without a spinner — it applies once they close.
-                    if (device.updateRequested && !device.updateBlocked) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(10.dp),
-                            strokeWidth = 1.5.dp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    } else if (online && !device.updateQueued) {
-                        StaticDot(if (blockedCaption != null) NeedsInputAmber else ReviewGreen, size = 6.dp)
-                    }
-                    Text(
-                        when {
-                            device.updateQueued -> "Update queued"
-                            device.updateRequested -> "Updating…"
-                            blockedCaption != null -> blockedCaption
-                            online -> "Online"
-                            device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
-                            else -> "Offline"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (blockedCaption != null && !device.updateRequested) {
-                            NeedsInputAmber
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
                 }
             }
             // The ONE control a device row carries (EXP-909 follow-up): the

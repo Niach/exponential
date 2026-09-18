@@ -1,4 +1,3 @@
-import { Tag, UserX } from "lucide-react"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { getIssuePriorityConfig, issuePriorityOptions } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -28,6 +27,8 @@ import { displayUserName } from "@/lib/user-display"
 
 // EXP-687: "Move to board" draws the SAME glyph on all four clients.
 const NavBoardsIcon = conceptIcon(`nav-boards`)
+const UnassignedIcon = conceptIcon(`ui-unassigned`)
+const LabelsIcon = conceptIcon(`settings-labels`)
 
 interface StatusSubmenuProps {
   // The RESOLVED team status row of this issue (EXP-314).
@@ -109,7 +110,7 @@ export function AssigneeSubmenu({
             }}
           />
         ) : (
-          <UserX className="size-4" />
+          <UnassignedIcon className="size-4" />
         )}
         Assignee
         <ContextMenuShortcut className={topLevelValueClass}>
@@ -276,7 +277,7 @@ export function LabelsSubmenu({
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
-        <Tag className="size-4" />
+        <LabelsIcon className="size-4" />
         Labels
         <ContextMenuShortcut className={topLevelValueClass}>
           {labelsLabel}

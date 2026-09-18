@@ -4586,8 +4586,10 @@ private fun SteerComposer(
     // inline face switcher — portals itself out and takes focus with it. That
     // is not the reader leaving the composer, so neither collapse rule below
     // may fire on it: the trigger would unmount under its own open menu.
-    var innerMenuOpen by remember { mutableStateOf(false) }
-    val innerMenuState = rememberUpdatedState(innerMenuOpen)
+    // Keyed per menu (`model`, `switcher`): one closing must not clear the
+    // other's guard.
+    var innerMenus by remember { mutableStateOf(emptySet<String>()) }
+    val innerMenuState = rememberUpdatedState(innerMenus.isNotEmpty())
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val imeVisibleState = rememberUpdatedState(imeVisible)
     val draftState = rememberUpdatedState(value.text)
@@ -4620,12 +4622,19 @@ private fun SteerComposer(
     // draft arrives) it expands again.
     LaunchedEffect(expanded) {
         if (!expanded) return@LaunchedEffect
+        // The blur rule's latch, here too: "nobody typing in it" is only
+        // true of a composer somebody has REACHED. One whose auto-focus never
+        // landed (a hardware keyboard, a node not yet placed) is not snapped
+        // shut 200ms after opening.
+        var hadFocus = false
         snapshotFlow {
-            workingState.value && !fieldFocused && !imeVisibleState.value &&
+            val idle = workingState.value && !fieldFocused && !imeVisibleState.value &&
                 draftState.value.isBlank() && pendingState.value.isEmpty() &&
                 !innerMenuState.value
-        }.collectLatest { idle ->
-            if (!idle) return@collectLatest
+            fieldFocused to idle
+        }.collectLatest { (focused, idle) ->
+            if (focused) hadFocus = true
+            if (!hadFocus || !idle) return@collectLatest
             delay(200)
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                 onExpandedChange(false)
@@ -4668,7 +4677,7 @@ private fun SteerComposer(
                 hasUsage = hasUsage,
                 onOpenUsage = onOpenUsage,
                 switcherSlot = switcherSlot,
-                onMenuOpenChange = { innerMenuOpen = it },
+                onMenuOpenChange = { id, open -> innerMenus = if (open) innerMenus + id else innerMenus - id },
             )
         } else {
             // EXP-893: the folded composer IS the Work screen's bar — the
@@ -4694,6 +4703,10 @@ private fun SteerComposer(
     }
 }
 
+/** EXP-931: the expanded composer's own menus, as the keys of its open set. */
+private const val COMPOSER_MENU_MODEL = "model"
+private const val COMPOSER_MENU_SWITCHER = "switcher"
+
 @Composable
 private fun ExpandedSteerComposer(
     value: TextFieldValue,
@@ -4718,8 +4731,10 @@ private fun ExpandedSteerComposer(
     onOpenUsage: () -> Unit,
     /** EXP-931: the face switcher, the usage ring's neighbour. */
     switcherSlot: (@Composable (onMenuOpenChange: (Boolean) -> Unit) -> Unit)? = null,
-    /** EXP-931: this composer's own menus, so the host never collapses under one. */
-    onMenuOpenChange: (Boolean) -> Unit = {},
+    /** EXP-931: this composer's own menus, so the host never collapses under
+     *  one — keyed per menu, so the model picker and the face switcher never
+     *  clear each other's guard. */
+    onMenuOpenChange: (id: String, open: Boolean) -> Unit = { _, _ -> },
 ) {
     val canSend = (value.text.isNotBlank() || pendingImages.isNotEmpty()) && !sending && live
     // EXP-790: nothing to send and the agent mid-turn — the glyph is a Stop.
@@ -4810,7 +4825,7 @@ private fun ExpandedSteerComposer(
                             onClick = {
                                 modelMenuOpen = true
                                 // EXP-931: an open menu is not a blur.
-                                onMenuOpenChange(true)
+                                onMenuOpenChange(COMPOSER_MENU_MODEL, true)
                             },
                             modifier = Modifier.testTag("steer-model"),
                         )
@@ -4818,7 +4833,7 @@ private fun ExpandedSteerComposer(
                             expanded = modelMenuOpen,
                             onDismissRequest = {
                                 modelMenuOpen = false
-                                onMenuOpenChange(false)
+                                onMenuOpenChange(COMPOSER_MENU_MODEL, false)
                             },
                         ) {
                             modelChoices.forEach { alias ->
@@ -4831,7 +4846,7 @@ private fun ExpandedSteerComposer(
                                     },
                                     onClick = {
                                         modelMenuOpen = false
-                                        onMenuOpenChange(false)
+                                        onMenuOpenChange(COMPOSER_MENU_MODEL, false)
                                         if (live && alias != model) onPickModel(alias)
                                     },
                                 )
@@ -4856,7 +4871,7 @@ private fun ExpandedSteerComposer(
             }
             // EXP-931: the face switcher, the ring's neighbour — the bar it
             // normally rides is under this composer.
-            switcherSlot?.invoke(onMenuOpenChange)
+            switcherSlot?.invoke { open -> onMenuOpenChange(COMPOSER_MENU_SWITCHER, open) }
             ComposerSubmitButton(
                 if (stop) ExpIcons.uiStop else ExpIcons.uiSubmit,
                 contentDescription = if (stop) "Stop" else "Send",
