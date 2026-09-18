@@ -1,20 +1,30 @@
 # @exp/styleguide
 
-The gallery for the cross-platform screenshot store (EXP-566): every view in
-`@exp/view-catalog`, with its web / web-mobile / desktop / iOS / Android shots
-side by side, so a board on one platform can be compared with the same
-board on the others.
+The reference page for the whole product's surface, in **three modes** picked
+from one segmented bar at the top of the sidebar (EXP-941):
+
+| mode | what it holds | where it comes from |
+| --- | --- | --- |
+| **Views** | every screen in `@exp/view-catalog`, with its web / web-mobile / desktop / iOS / Android shots side by side | photographs in `shots/` (EXP-566) |
+| **Components** | the glass control set — the REAL `@exp/ui` component wherever one owns the form | rendered live at build time (EXP-698 / EXP-887) |
+| **Style** | the values the controls are made of: colour, shape & size, type, motion, and the icon registry | `@exp/design-tokens` and `packages/icons` |
+
+Everything the page does happens WITHIN the current mode: the filter, `j`/`k`,
+the summary line. A hash always wins — `#pill` switches to Components and then
+shows the entry — and `1` / `2` / `3` switch modes, with the last one
+remembered in `localStorage`.
 
 The output is ONE self-contained HTML file plus a copy of `shots/` — no
 runtime dependencies IN THE OUTPUT, `open dist/index.html` works with no
-server. (The build itself uses `@exp/ui` + React to render the Components
-group's islands.)
+server. (The build itself uses `@exp/ui` + React to render the islands.)
 
 ```bash
 bun run dev:styleguide      # http://localhost:4173, re-reads the store per request (restart after a component edit; ?recompile=1 rebuilds the css)
 bun run build:styleguide    # writes apps/styleguide/dist/
 bun run shots:check         # build --check: fails on missing / undeclared shots
 ```
+
+## Views
 
 Per platform a view is either **captured**, **missing** or **n/a**:
 
@@ -25,10 +35,43 @@ Per platform a view is either **captured**, **missing** or **n/a**:
 - **undeclared** — a file in `shots/` that no view/platform pair claims. Either
   the catalog entry was renamed or the file is stale.
 
+Only this mode has shots at all, so the toolbar's **Fit to height** toggle and
+the 1:1 lightbox hint are hidden in the other two.
+
+## The spec model
+
+Components and Style are ONE array, `COMPONENTS` in `src/components.tsx`, so
+every gate runs over all of it. A spec carries no mode field: `kind` is the
+sub-group inside a mode and `modeOf(spec)` derives the mode from it, which
+makes a mis-sorted entry impossible rather than merely gated.
+
+- **Components** kinds: `Inputs & pickers`, `Buttons & chips`, `Lists & rows`,
+  `Surfaces`, `Feedback`.
+- **Style** kinds (`STYLE_KINDS`): `Colour`, `Shape & size`, `Type`, `Motion`,
+  `Icons`.
+- `KIND_ORDER` is the nav order within a mode; `MODES` holds the three
+  `{ id, label, blurb }`.
+
+### `leftovers` — what the product still draws by hand
+
+The per-platform status table says whether a control EXISTS on a platform. It
+cannot say whether the app bothers to use it, so a spec may carry
+
+```ts
+leftovers: [
+  { file: `apps/web/src/components/inbox/inbox-view.tsx`, note: `a hand-rolled 28px muted disc` },
+]
+```
+
+which renders under the table as **Still drawn by hand** and adds ONE extra
+yellow dot to the nav link. `bun test` gates it: every file exists, every note
+is one line of at most 120 characters. Fix the call site, delete the row —
+that is the only way the dot goes away.
+
 ## Components
 
-The last sidebar group is **Components** (EXP-698), and nothing in it is a
-screenshot. Since EXP-887 most entries are **islands**: the REAL `@exp/ui`
+Nothing in this mode is a screenshot. Since EXP-887 most entries are
+**islands**: the REAL `@exp/ui`
 component, rendered to static markup inside a declarative shadow root and
 painted by the package's own stylesheet, compiled once per build
 (`@exp/ui/island`). The page shows the control the product ships, not a
@@ -40,13 +83,13 @@ What stays hand-written HTML/CSS driven by `@exp/design-tokens`
 owns: the **compositions** (app shell, settings page header, comment card,
 sheet shell, composer, markdown blocks, menu surface, tab bar, bulk bar, usage
 bar, session bar, relations card, the GitHub connect pair) and the **token**
-swatch tables. Two entries — **sheet shell** and **menu surface** — have their
-web symbol in `packages/ui` and still keep a demo, because a closed Radix portal
-renders nothing at all statically; `PORTAL_ONLY_IDS` names them and the test
-checks the exception stays honest.
+swatch tables. Three entries — **sheet shell**, **menu surface** and
+**dialog** — have their web symbol in `packages/ui` and still keep a demo,
+because a closed Radix portal renders nothing at all statically;
+`PORTAL_ONLY_IDS` names them and the test checks the exception stays honest.
 
-`shots/` holds nothing for these, `views.json` declares nothing — the group is
-synthetic — and `--check` never sees them.
+`shots/` holds nothing for these, `views.json` declares nothing — the two
+synthetic modes have no catalog entry at all — and `--check` never sees them.
 
 The set is deliberately SMALL, and shrinking it counts as progress. There is no
 chip and no header button: both were the **pill** under a second name, so the
@@ -111,21 +154,49 @@ radius is a ladder step.
 1. **The component lives in `packages/ui/src/<name>.tsx`** and is exported from
    `src/index.ts`. If it is not in the package it is not an entry — put it there
    first, or the gate will refuse the spec.
-2. **One spec in `src/components.tsx`**: id, title, kind, blurb, the four
-   platform rows (`web` pointing at `packages/ui/src/<name>.tsx`) and
-   `island: () => <Name …fixture />`. The fixture is the RESTING state: no live
-   data, `noop` callbacks, glyphs through `conceptIcon`.
+2. **One spec in `src/components.tsx`**: id, title, a Components `kind`, blurb,
+   the four platform rows (`web` pointing at `packages/ui/src/<name>.tsx`),
+   optional `leftovers`, and `island: () => <Name …fixture />`. The fixture is
+   the RESTING state: no live data, `noop` callbacks, glyphs through
+   `conceptIcon`.
 3. `bun test` (from `apps/styleguide`, or `bun run test:shots` from the root),
    then `bun run build:styleguide` and open `dist/index.html`.
 
 The island limits are `@exp/ui`'s (see its README): a closed Radix **portal**
-renders nothing, `AvatarImage` never renders (use initials), a `Select` with a
-value shows an empty trigger unless you pass `renderValue`, Inter is not loaded
-here, and the island never paints its own ground — the `.cmp-demo` canvas does.
+renders nothing, `AvatarImage` never renders (use initials), a `Select` shows an
+empty trigger once it HAS a value (so the entry shows the placeholder arm),
+Inter is not loaded here, and the island never paints its own ground — the
+`.cmp-demo` canvas does.
 
 EXP-895's `FileDiffList` slots straight in: a fixture array of files beside the
 spec, `island: () => <FileDiffList files={FIXTURE} />`, four platform rows, done
 — no CSS, no lookalike, no capture lane.
+
+## Style
+
+A Style entry documents a VALUE, not a control, so it names whichever file
+happens to SPEND the token and is normally a hand-written swatch table driven
+by `@exp/design-tokens` — `tokens-palette` (the surface palette, the fixed
+semantic accents and the diff pair), `tokens-radius`, `tokens-size`,
+`tokens-type` and `tokens-motion`. Adding a colour to a token group adds its
+swatch, its `.cmp-swatch .box.fill-*` rule and its `:root` var at once: all
+three are generated from the same object (`swatchFills` / `colorVars`), because
+a demo here may not carry a colour literal.
+
+**The one island exception (EXP-941):** a Style entry whose web file lives
+under `packages/ui/` MAY be an island. `tokens-icons` is the reason — the icon
+registry is best documented by rendering its own glyphs, and its source is a
+generated `.ts`, not a component file. Everywhere else the rule still holds
+both ways: a web symbol under `packages/ui/*.tsx` is an island, and nothing
+else is.
+
+### Adding a Style entry
+
+1. Pick the `kind` (`Colour`, `Shape & size`, `Type`, `Motion`, `Icons`).
+2. Name the four files that hold the value — the generated token or icon
+   outputs, not a call site that happens to read them.
+3. Hand-write `render`, using only `.cmp-*` blocks and `var(--…)`; declare any
+   new var in `styles.ts`'s `:root` from the tokens, or the gate fails.
 
 `SHOTS_DIR` points both commands at another store (scratch copies, tests);
 by default it is the repo-root `shots/`.
@@ -133,5 +204,5 @@ by default it is the repo-root `shots/`.
 Deploys as a Coolify STATIC app serving `apps/styleguide/dist` — no runtime, so
 the build step is the whole deploy.
 
-Keyboard: `j`/`k` or arrows move between views, `/` focuses the filter, clicking
-a shot opens it 1:1, `Esc` closes.
+Keyboard: `1` / `2` / `3` switch mode, `j`/`k` or arrows move within it, `/`
+focuses the filter, clicking a shot opens it 1:1, `Esc` closes.

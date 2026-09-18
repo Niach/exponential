@@ -10,6 +10,30 @@
  * widths ARE literals: those are Tailwind steps, not tokens.
  */
 
+import { designTokens } from "@exp/design-tokens"
+
+/** `mutedForeground` → `muted-foreground`, so a token key names its own var. */
+export function tokenSlug(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()
+}
+
+/**
+ * One swatch fill per entry of a token colour GROUP (EXP-941). The Style mode
+ * draws `palette`, `semantic` and `diff` in full, and a demo may not carry a
+ * colour literal — so the rules are generated from the same objects that
+ * generate the `--<prefix>-*` vars in `styles.ts`. Adding a token adds its
+ * swatch; there is nothing to keep in sync.
+ */
+function swatchFills(prefix: string, group: Record<string, string>): string {
+  return Object.keys(group)
+    .filter((key) => !key.startsWith(`$`))
+    .map(
+      (key) =>
+        `.cmp-swatch .box.fill-${prefix}-${tokenSlug(key)} { background: var(--${prefix}-${tokenSlug(key)}); }`
+    )
+    .join(`\n`)
+}
+
 export const componentStyles = `
 /* ---------------------------------------------------------------- layout */
 .cmp-stack { display: grid; gap: 12px; }
@@ -782,4 +806,41 @@ export const componentStyles = `
 .cmp-motion .box.ease-standard { transition-timing-function: var(--ease); }
 .cmp-motion .box.ease-decelerate { transition-timing-function: var(--ease-decelerate); }
 .cmp-motion .box.ease-accelerate { transition-timing-function: var(--ease-accelerate); }
+
+/* ---------------------------------------------------------------- dialog */
+/* The centred modal (EXP-941). A radius-XL card on the OPAQUE card fill under
+   a card hairline — a dialog dims the page behind it, and an alpha fill would
+   still show the row it covers — with a title, one line of body and a footer
+   whose LAST capsule is the primary. Cancel is borderless: two boxed buttons
+   side by side ask the reader to choose between two equals. */
+.cmp-dialog {
+  max-width: 340px;
+  padding: 20px;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--stroke);
+  background: var(--opaque-card);
+}
+.cmp-dialog .title { font-size: 16px; font-weight: 600; }
+.cmp-dialog .text { margin-top: 8px; font-size: 14px; color: var(--fg-70); }
+.cmp-dialog .footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.cmp-dialog .footer .cmp-pill.borderless { background: transparent; border-color: transparent; }
+.cmp-dialog .footer .cmp-pill.borderless:hover { background: var(--active); }
+
+/* ------------------------------------------------------------------ type */
+/* The type scale as SPECIMENS, set in the page's own font: Inter is not loaded
+   here (no webfont fetch, a file:// page has to work), so the family is named as a
+   value rather than faked with a fallback that is not it. */
+.cmp-type { display: grid; gap: 14px; }
+.cmp-type .line { display: grid; gap: 2px; }
+.cmp-type .label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-fg); }
+.cmp-type .value { font-size: 11px; color: var(--fg-50); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+.cmp-type .text { color: var(--fg-85); }
+.cmp-type .text.size-type-base { font-size: var(--type-base); }
+.cmp-type .text.size-type-body { font-size: var(--type-body); line-height: var(--type-body-lh); }
+.cmp-type .text.size-type-tool { font-size: var(--type-tool); line-height: var(--type-tool-lh); }
+
+/* Every colour of the three token groups, generated (see swatchFills). */
+${swatchFills(`pal`, designTokens.palette)}
+${swatchFills(`sem`, designTokens.semantic)}
+${swatchFills(`diff`, designTokens.diff)}
 `

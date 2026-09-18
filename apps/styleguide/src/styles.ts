@@ -5,13 +5,26 @@
  * webfont fetch, works over `file://`).
  */
 
-import { componentStyles } from "./component-styles.ts"
+import { componentStyles, tokenSlug } from "./component-styles.ts"
 
 import { designTokens } from "@exp/design-tokens"
 
 const { palette, glass, radius, size, motion } = designTokens
 const bezier = (points: readonly number[]): string => `cubic-bezier(${points.join(`, `)})`
 const ease = bezier(motion.ease.standard)
+
+/**
+ * Every colour of a token GROUP as `--<prefix>-<key>` lines for the `:root`
+ * block (EXP-941). The Style mode's palette table draws one swatch per entry
+ * and the hand-written demos may not carry a literal, so the whole group has
+ * to arrive here — generated, never transcribed.
+ */
+function colorVars(prefix: string, group: Record<string, string>): string {
+  return Object.entries(group)
+    .filter(([key]) => !key.startsWith(`$`))
+    .map(([key, value]) => `  --${prefix}-${tokenSlug(key)}: ${value};`)
+    .join(`\n`)
+}
 
 const page = `
 :root {
@@ -79,6 +92,18 @@ ${Object.entries(designTokens.avatar).filter(([k]) => !k.startsWith(`$`)).map(([
      showing the row underneath it. Two layers, one background shorthand. */
   --menu-bg: linear-gradient(var(--card), var(--card)) var(--popover);
   --opaque-card: linear-gradient(var(--card), var(--card)) var(--card-solid);
+  /* EXP-941, Style mode: the three colour groups as swatch fills, and the type
+     scale as the sizes the specimen lines are set in. Generated from the same
+     token objects the natives read, so a swatch cannot lie about its value. */
+${colorVars(`pal`, palette)}
+${colorVars(`sem`, designTokens.semantic)}
+${colorVars(`diff`, designTokens.diff)}
+  --type-family: ${designTokens.type.fontFamily};
+  --type-base: ${designTokens.type.baseSize}px;
+  --type-body: ${designTokens.transcript.bodySize}px;
+  --type-body-lh: ${designTokens.transcript.bodyLineHeight}px;
+  --type-tool: ${designTokens.transcript.toolSize}px;
+  --type-tool-lh: ${designTokens.transcript.toolLineHeight}px;
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 /* EXP-887 — a byte-for-byte MIRROR of packages/ui/src/styles.css's root font
@@ -127,6 +152,54 @@ a { color: inherit; text-decoration: none; }
 .brand h1 { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; color: var(--muted-fg); }
 .brand p { margin: 4px 0 0; font-size: 12px; color: var(--muted-fg); }
 .filter-wrap { position: sticky; top: 0; z-index: 2; padding: 8px 12px 10px; background: var(--sidebar); }
+/* EXP-941 — the three modes, as the product's own segmented capsule: 36 tall,
+   padding 3, the section fill under the section stroke, and the picked segment
+   taking the active fill. It rides the sticky block with the filter, because
+   the two are one control: pick a mode, then narrow it. */
+.mode-bar {
+  display: flex;
+  gap: 3px;
+  height: 36px;
+  padding: 3px;
+  margin-bottom: 8px;
+  border-radius: 9999px;
+  background: var(--section);
+  border: 1px solid var(--stroke-section);
+}
+.mode-btn {
+  /* Grow from the LABEL, never from an equal third: a third of the sidebar is
+     narrower than the word Components, and a mode bar that ellipsises its own
+     mode names is worse than an uneven one. */
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.mode-btn:hover { color: var(--fg); }
+.mode-btn[aria-pressed="true"] { background: var(--active); color: var(--fg); }
+.mode-btn .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mode-btn .count { flex: none; font-size: 11px; color: var(--muted-fg); }
+.mode-btn[aria-pressed="true"] .count { color: var(--fg-70); }
+
+/* One mode's nav at a time — and one mode's sections, since a .view is already
+   hidden unless it is the active entry. */
+.mode-section { display: none; }
+body[data-mode="views"] .mode-section[data-mode="views"],
+body[data-mode="components"] .mode-section[data-mode="components"],
+body[data-mode="style"] .mode-section[data-mode="style"] { display: block; }
+/* The size toggle and the shot hints only mean anything against a screenshot. */
+body:not([data-mode="views"]) .views-only { display: none; }
 .filter {
   width: 100%;
   height: 32px;
@@ -279,6 +352,10 @@ body.actual figure.shot img { max-height: none; max-width: none; }
   border-radius: var(--r-xl);
   background: linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
 }
+/* The icon registry is a TABLE of 228 rows, not a control specimen: it gets
+   the full reading column instead of the phone-width canvas every other demo
+   is measured against. */
+.view.component[data-view="tokens-icons"] .cmp-demo { width: min(100%, 880px); }
 .cmp-status { margin-top: 22px; border-collapse: collapse; font-size: 12px; }
 .cmp-status th {
   width: 64px;
@@ -297,6 +374,15 @@ body.actual figure.shot img { max-height: none; max-width: none; }
 .cmp-status .note { display: block; margin-top: 2px; color: var(--muted-fg); max-width: 60ch; }
 .cmp-status tr.leftover .note { color: var(--warn); }
 .cmp-status tr.na td { color: var(--muted-fg); }
+
+/* EXP-941 — the call sites that still draw this semantic by hand. The status
+   table above says the control EXISTS on a platform; this says the product
+   ignores it anyway, which is the half no file path can imply. */
+.leftovers { margin-top: 20px; max-width: 78ch; }
+.leftovers-head { font-size: 12px; color: var(--warn); }
+.leftovers ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 12px; }
+.leftovers code { color: var(--fg-70); font-size: 12px; }
+.leftovers .note { display: block; color: var(--muted-fg); }
 
 /* Lightbox */
 dialog.lightbox {
