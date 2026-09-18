@@ -51,9 +51,7 @@ import {
   DropdownMenuTrigger,
   Input,
   Switch,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  ColorPicker,
   LABEL_COLORS,
   STATUS_COLORS,
   ColorSwatchGrid,
@@ -205,8 +203,14 @@ function StatusRow({
         {isBuiltin ? (
           <StatusTile option={option} />
         ) : (
-          <Popover>
-            <PopoverTrigger asChild>
+          /* EXP-941: the shared picker, wearing the row's own status tile as
+             its trigger — one popover, one swatch grid, one palette. */
+          <ColorPicker
+            value={option.colorHex ?? ``}
+            onChange={persistColor}
+            colors={STATUS_COLORS}
+            align="start"
+            renderTrigger={() => (
               <button
                 type="button"
                 aria-label={`Change color of ${option.name}`}
@@ -215,17 +219,8 @@ function StatusRow({
               >
                 <StatusTile option={option} />
               </button>
-            </PopoverTrigger>
-            {/* Bounded so the swatch grid WRAPS — `w-auto` let it stretch the
-                popover to one 20-swatch row wider than a phone screen. */}
-            <PopoverContent className="w-64 p-2" align="start">
-              <ColorSwatchGrid
-                colors={STATUS_COLORS}
-                value={option.colorHex}
-                onChange={persistColor}
-              />
-            </PopoverContent>
-          </Popover>
+            )}
+          />
         )}
 
         {isBuiltin ? (

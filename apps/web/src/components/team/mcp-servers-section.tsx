@@ -22,6 +22,7 @@ import type { Device, User } from "@/db/schema"
 import {
   conceptIcon,
   Button,
+  BARE_FIELD_CLASS,
   Input,
   Pill,
   GlassGroup,
@@ -826,7 +827,8 @@ function ChipsRow({
           autoCorrect="off"
           spellCheck={false}
           className={cn(
-            `h-6 min-w-[8rem] flex-1 rounded-none border-0 bg-transparent px-0 font-mono text-xs shadow-none focus-visible:ring-0`,
+            BARE_FIELD_CLASS,
+            `h-6 min-w-[8rem] font-mono text-xs md:text-xs`,
             invalid && `text-destructive`
           )}
           onChange={(event) => {

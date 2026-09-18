@@ -4,7 +4,7 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, IssueLabel } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import { formatDateForMutation, type IssuePriority } from "@/lib/domain"
+import { type IssuePriority } from "@/lib/domain"
 import { statusUpdatePayload, type StatusRowOption } from "@/lib/team-statuses"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 
@@ -23,7 +23,8 @@ export interface IssuePropertyHandlers {
   handlePriorityChange: (priority: IssuePriority) => Promise<void>
   handleAssigneeChange: (assigneeId: string | null) => Promise<void>
   handleToggleLabel: (labelId: string) => Promise<void>
-  handleDueDateSelect: (date: Date | undefined) => Promise<void>
+  /** `YYYY-MM-DD`, or null to clear — the wire format (REV2-49). */
+  handleDueDateSelect: (date: string | null) => Promise<void>
   /** EXP-57: the server renumbers the issue in the target board, so both the
    *  board slug AND the identifier change — awaits the issues txId, then hops
    *  to the issue's new canonical URL. */
@@ -106,12 +107,11 @@ export function useIssuePropertyHandlers({
     await trpc.issueLabels.add.mutate({ issueId, labelId })
   }
 
-  const handleDueDateSelect = async (date: Date | undefined) => {
+  // `YYYY-MM-DD` straight through: the picker already speaks the wire format,
+  // so nothing here converts a `Date` (and nothing can shift a day by a zone).
+  const handleDueDateSelect = async (date: string | null) => {
     if (readOnly || !issueId) return
-    await trpc.issues.update.mutate({
-      id: issueId,
-      dueDate: formatDateForMutation(date),
-    })
+    await trpc.issues.update.mutate({ id: issueId, dueDate: date })
   }
 
   const handleUnmarkDuplicate = () => {

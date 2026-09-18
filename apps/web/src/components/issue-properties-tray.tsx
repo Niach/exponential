@@ -1,5 +1,4 @@
 import type { Board, Issue, User } from "@/db/schema"
-import { parseLocalDate } from "@/lib/utils"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { mergeTargetProps } from "@/hooks/use-agents-data"
 import type { IssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -50,7 +49,7 @@ export function IssuePropertiesTray({
   const isMember = useIsTeamMember(teamId, currentUserId ?? ``)
   const steerConfig = useSteerConfig()
   const prOpen = issue.prState === `open`
-  const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
+  const dueDate = issue.dueDate ?? null
 
   const mergeButton =
     currentUserId && isMember && prOpen ? (

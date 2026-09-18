@@ -24,7 +24,7 @@ import {
 } from "@/lib/storage/media-upload"
 import { isInlineMediaAttachment } from "@/lib/attachment-files"
 import { useSession } from "@/hooks/use-session"
-import { cn, parseLocalDate } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
@@ -454,7 +454,7 @@ export function IssueDetailView({
       />
     ) : null
 
-  const dueDate = issue.dueDate ? parseLocalDate(issue.dueDate) : undefined
+  const dueDate = issue.dueDate ?? null
 
   // EXP-698 r5 — the phone's properties SHEET is the create form's row list,
   // not the desktop chip band: Status / Priority / Assignee / Due date /

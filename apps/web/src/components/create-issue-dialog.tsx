@@ -11,12 +11,7 @@ import {
   Pill,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
-import {
-  formatDateForMutation,
-  toIssueDescription,
-  type IssuePriority,
-} from "@/lib/domain"
-import { parseLocalDate } from "@/lib/utils"
+import { toIssueDescription, type IssuePriority } from "@/lib/domain"
 import { useTeamLabels } from "@/hooks/use-team-data"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
@@ -138,7 +133,7 @@ export function CreateIssueDialog({
   const [priority, setPriority] = useState<IssuePriority>(`none`)
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([])
   const [assigneeId, setAssigneeId] = useState<string | null>(null)
-  const [dueDate, setDueDate] = useState<Date | undefined>()
+  const [dueDate, setDueDate] = useState<string | null>(null)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   // EXP-878: the draft's NON-inline attachments, already uploaded. Images and
   // clips never live here — they are in the description as final URLs.
@@ -194,7 +189,7 @@ export function CreateIssueDialog({
     priority,
     assigneeId,
     labelIds: selectedLabelIds,
-    dueDate: formatDateForMutation(dueDate),
+    dueDate,
     attachmentCount: draftFiles.length,
   }
 
@@ -240,7 +235,7 @@ export function CreateIssueDialog({
     setPriority(seed.priority)
     setSelectedLabelIds(seed.labelIds)
     setAssigneeId(seed.assigneeId)
-    setDueDate(seed.dueDate ? parseLocalDate(seed.dueDate) : undefined)
+    setDueDate(seed.dueDate ?? null)
     // Intentionally keyed on the row identity alone: re-running this on every
     // `boards`/`labels` snapshot would overwrite what the person is typing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -306,7 +301,7 @@ export function CreateIssueDialog({
     setPriority(`none`)
     setAssigneeId(soleMemberId)
     setSelectedLabelIds([])
-    setDueDate(undefined)
+    setDueDate(null)
   }
 
   const handleToggleLabel = (labelId: string) => {
@@ -532,7 +527,7 @@ export function CreateIssueDialog({
         // EXP-878: already final `/api/attachments/{id}` URLs — nothing is
         // uploaded after the create any more.
         description: toIssueDescription(descriptionRef.current) ?? undefined,
-        dueDate: formatDateForMutation(dueDate) ?? undefined,
+        dueDate: dueDate ?? undefined,
         labelIds: selectedLabelIds.length > 0 ? selectedLabelIds : undefined,
         draftId: draftRowExistsRef.current
           ? sessionDraftIdRef.current

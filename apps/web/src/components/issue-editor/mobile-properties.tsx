@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { forwardRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { CalendarDays, Plus, User as UserIcon } from "lucide-react"
+import { Plus, User as UserIcon } from "lucide-react"
 import type { Label as LabelRow, User } from "@/db/schema"
 import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -11,7 +11,6 @@ import {
 } from "@/lib/team-statuses"
 import { labelCollection } from "@/lib/collections"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { formatDate } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
@@ -29,16 +28,16 @@ import {
 import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import {
   OptionDropdownMenu,
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
   Button,
-  Calendar,
+  conceptIcon,
+  DatePicker,
   GlassCard,
   GlassSectionHeader,
   Pill,
   UserAvatar,
 } from "@exp/ui"
+
+const DueDateGlyph = conceptIcon(`ui-due-date`)
 
 // Full-width tappable property row: label left, value right — the web
 // counterpart of the native create form's metadata card rows (EXP-247).
@@ -75,7 +74,8 @@ export interface IssueEditorMobilePropertiesProps {
   selectedLabelIds: string[]
   teamId: string
   users: User[]
-  dueDate: Date | undefined
+  /** `YYYY-MM-DD`, or null for "no due date" (REV2-49: no time of day). */
+  dueDate: string | null
   hideAssignee?: boolean
   hideDueDateChip?: boolean
   /** EXP-698 r5 (the issue detail's phone sheet only): a Board row after Due
@@ -101,7 +101,7 @@ export interface IssueEditorMobilePropertiesProps {
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
-  onDueDateSelect: (date: Date | undefined) => void | Promise<void>
+  onDueDateSelect: (date: string | null) => void | Promise<void>
 }
 
 export function IssueEditorMobileProperties({
@@ -249,30 +249,27 @@ export function IssueEditorMobileProperties({
         )}
 
         {!hideDueDateChip && (
-          <MobilePopover>
-            <MobilePopoverTrigger asChild>
+          <DatePicker
+            value={dueDate}
+            onChange={(date) => {
+              void onDueDateSelect(date)
+            }}
+            disabled={disabled}
+            mobileTitle="Due date"
+            placeholder="No date"
+            renderTrigger={({ label }) => (
               <PropertyRow
                 label="Due date"
                 disabled={disabled}
                 value={
                   <>
-                    <CalendarDays className="size-3.5" />
-                    {dueDate ? formatDate(dueDate) : `No date`}
+                    <DueDateGlyph className="size-3.5" />
+                    {label}
                   </>
                 }
               />
-            </MobilePopoverTrigger>
-            <MobilePopoverContent mobileTitle="Due date">
-              <Calendar
-                mode="single"
-                selected={dueDate}
-                onSelect={(date) => {
-                  void onDueDateSelect(date)
-                }}
-                className="mx-auto"
-              />
-            </MobilePopoverContent>
-          </MobilePopover>
+            )}
+          />
         )}
 
         {board && (

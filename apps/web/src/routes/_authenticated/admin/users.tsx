@@ -4,6 +4,8 @@ import { ArrowDown, ArrowUp, Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import {
+  Alert,
+  AlertDescription,
   Pill,
   Button,
   Input,
@@ -222,9 +224,9 @@ function AdminUsers() {
       />
 
       {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       <div className="rounded-md border">

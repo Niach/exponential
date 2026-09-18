@@ -33,12 +33,10 @@ import {
   SheetTitle,
   GlassSectionHeader,
   ListRow,
+  BARE_FIELD_CLASS,
   SEGMENTED_ROW,
   SEGMENTED_ROW_COMPACT,
-  SEGMENTED_TAB,
-  Tabs,
-  TabsList,
-  TabsTrigger,
+  SegmentedControl,
   Textarea,
   conceptIcon,
   LiveDot,
@@ -189,23 +187,15 @@ export function SupportThreadList({
       {/* EXP-851: the Open/Resolved strip and the Inbox / My issues strip are
           ONE control — same trigger sizing, same row padding. */}
       <div className={compact ? SEGMENTED_ROW_COMPACT : SEGMENTED_ROW}>
-        <Tabs
+        <SegmentedControl
           value={filter}
-          onValueChange={(value) => setFilter(value as SupportFilter)}
-          className="w-fit shrink-0"
-        >
-          <TabsList>
-            {([`open`, `resolved`] as const).map((tab) => {
-              const TabIcon = TAB_ICON[tab]
-              return (
-                <TabsTrigger key={tab} value={tab} className={SEGMENTED_TAB}>
-                  <TabIcon />
-                  {tab === `open` ? `Open` : `Resolved`}
-                </TabsTrigger>
-              )
-            })}
-          </TabsList>
-        </Tabs>
+          onValueChange={setFilter}
+          options={([`open`, `resolved`] as const).map((tab) => ({
+            value: tab,
+            label: tab === `open` ? `Open` : `Resolved`,
+            icon: TAB_ICON[tab],
+          }))}
+        />
       </div>
       <div className={cn(`min-h-0 flex-1 overflow-y-auto`, TAB_BAR_CLEARANCE)}>
         <div
@@ -598,7 +588,13 @@ export function SupportConversation({
                   : `Add an internal note… (never sent to the reporter)`
               }
               rows={2}
-              className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
+              // The Composer card IS this field's box; `px-3 py-2` restates
+              // the Textarea's own padding, which the bare recipe's `p-0`
+              // would otherwise strip.
+              className={cn(
+                BARE_FIELD_CLASS,
+                `min-h-16 px-3 py-2 focus-visible:border-transparent dark:bg-transparent`
+              )}
             />
           </Composer>
         </div>

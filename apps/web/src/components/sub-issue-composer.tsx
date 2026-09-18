@@ -182,7 +182,7 @@ export function SubIssueComposer({
             }
             // A sub-issue inherits its parent's schedule in practice; the due
             // date is one chip too many for a two-line form.
-            dueDate={undefined}
+            dueDate={null}
             hideDueDateChip
             onDueDateSelect={() => {}}
             disabled={creating}
