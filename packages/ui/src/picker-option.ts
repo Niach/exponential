@@ -32,4 +32,9 @@ export interface PickerOption<TValue extends string = string> {
   hint?: ReactNode
   /** Rendered, never pickable. */
   disabled?: boolean
+  /** Multi arm only (EXP-957): what THIS row reads as, when membership in the
+   *  picker's `value` is not the whole story — a bulk edit over several
+   *  issues marks a label on all of them `true`, on some `"indeterminate"`.
+   *  Omitted = derived from `value`. */
+  checked?: boolean | `indeterminate`
 }

@@ -108,6 +108,22 @@ describe(`Combobox — single`, () => {
     fireEvent.click(all[0]!)
     expect(onChange).toHaveBeenCalledWith(null)
   })
+
+  it(`indeterminate marks no row, not even the none row`, () => {
+    render(
+      <Combobox
+        options={OPTIONS}
+        value={null}
+        onChange={vi.fn()}
+        noneLabel="Unassign"
+        indeterminate
+        mobileTitle="Assignee"
+      />
+    )
+    open()
+    expect(rows()).toHaveLength(4)
+    expect(glyphs(`check`)).toHaveLength(0)
+  })
 })
 
 describe(`Combobox — multiple`, () => {
@@ -149,6 +165,31 @@ describe(`Combobox — multiple`, () => {
     open()
     fireEvent.click(rows()[0]!)
     expect(onChange).toHaveBeenCalledWith([`b`])
+  })
+
+  it(`a row's checked wins over the value array, and indeterminate joins on pick`, () => {
+    const onChange = vi.fn()
+    render(
+      <Combobox
+        multiple
+        options={[
+          { value: `a`, label: `Alpha`, checked: true },
+          { value: `b`, label: `Beta`, checked: `indeterminate` },
+          { value: `c`, label: `Gamma` },
+        ]}
+        value={[`a`]}
+        onChange={onChange}
+        mobileTitle="Labels"
+      />
+    )
+    open()
+    expect(glyphs(`selected`)).toHaveLength(1)
+    expect(glyphs(`indeterminate`)).toHaveLength(1)
+    expect(glyphs(`unselected`)).toHaveLength(1)
+    expect(rows()[1]!.getAttribute(`aria-pressed`)).toBe(`mixed`)
+    // "On some" reads as not-yet-picked: a pick puts it on ALL.
+    fireEvent.click(rows()[1]!)
+    expect(onChange).toHaveBeenCalledWith([`a`, `b`])
   })
 
   it(`disables the unselected rows at the cap, never the picked ones`, () => {

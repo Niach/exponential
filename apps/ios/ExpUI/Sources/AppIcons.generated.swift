@@ -133,6 +133,7 @@ public enum AppIcons {
         "circle-check",
         "circle-dashed",
         "circle-dot",
+        "circle-minus",
         "circle-question-mark",
         "circle-slash",
         "circle-stop",
@@ -650,6 +651,8 @@ public enum AppIcons {
     public static let uiHelp: String = "circle-question-mark"
     /// Concept `ui-icon-placeholder`.
     public static let uiIconPlaceholder: String = "circle-dashed"
+    /// Concept `ui-indeterminate`.
+    public static let uiIndeterminate: String = "circle-minus"
     /// Concept `ui-info`.
     public static let uiInfo: String = "info"
     /// Concept `ui-invite`.
