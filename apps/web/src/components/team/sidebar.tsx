@@ -83,11 +83,9 @@ const UiAddIcon = conceptIcon(`ui-add`)
 const UiCheckIcon = conceptIcon(`ui-check`)
 const UiInviteIcon = conceptIcon(`ui-invite`)
 
-// EXP-862: the sidebar's COMPACT density — 28px rows at the list's own type
-// size. Every arm of the 17rem slot runs at it (the list nav's rows and the
-// compact inbox are exactly as tall); `size="sm"` alone would also drop the
-// label to 12px, which is a different decision.
-const SIDEBAR_ROW_COMPACT = `h-7 text-sm`
+// EXP-862: every arm of the 17rem slot runs at the sidebar's COMPACT density
+// — `SidebarMenuButton density="compact"` (EXP-962), whose rationale lives
+// with the prop in `packages/ui/src/sidebar.tsx`.
 
 // EXP-870: one motion for every width and slide in the column — the shared
 // motion tokens (styles.css, packages/design-tokens).
@@ -320,7 +318,7 @@ export function TeamSidebar({
                           Reviews. */}
                       <SidebarMenu>
                         <SidebarMenuItem>
-                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                          <SidebarMenuButton asChild density="compact">
                             <Link to="/t/$teamSlug/inbox" params={{ teamSlug }}>
                               <NavInboxIcon className="h-4 w-4" />
                               <span>Inbox</span>
@@ -334,7 +332,7 @@ export function TeamSidebar({
                             almost always would be noise. */}
                         {draftCount > 0 && (
                           <SidebarMenuItem>
-                            <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                            <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/drafts" params={{ teamSlug }}>
                                 <NavDraftsIcon className="h-4 w-4" />
                                 <span>Drafts</span>
@@ -345,7 +343,7 @@ export function TeamSidebar({
                         )}
                         {team?.helpdeskEnabled === true && (
                           <SidebarMenuItem>
-                            <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                            <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/support" params={{ teamSlug }}>
                                 <NavSupportIcon className="h-4 w-4" />
                                 <span>Support</span>
@@ -357,7 +355,7 @@ export function TeamSidebar({
                         {/* EXP-686: Devices · Actions · Automations, the three
                             surfaces the old Agents entry bundled. */}
                         <SidebarMenuItem>
-                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                          <SidebarMenuButton asChild density="compact">
                             <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
                               <NavDevicesIcon className="h-4 w-4" />
                               <span>Devices</span>
@@ -365,7 +363,7 @@ export function TeamSidebar({
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>
-                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                          <SidebarMenuButton asChild density="compact">
                             <Link to="/t/$teamSlug/actions" params={{ teamSlug }}>
                               <NavActionsIcon className="h-4 w-4" />
                               <span>Actions</span>
@@ -373,7 +371,7 @@ export function TeamSidebar({
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>
-                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                          <SidebarMenuButton asChild density="compact">
                             <Link
                               to="/t/$teamSlug/automations"
                               params={{ teamSlug }}
@@ -384,7 +382,7 @@ export function TeamSidebar({
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                         <SidebarMenuItem>
-                          <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                          <SidebarMenuButton asChild density="compact">
                             <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
                               <NavReviewsIcon className="h-4 w-4" />
                               <span>Reviews</span>
@@ -403,8 +401,8 @@ export function TeamSidebar({
                         <SidebarMenuItem>
                           <SidebarMenuButton
                             asChild
+                            density="compact"
                             className={cn(
-                              SIDEBAR_ROW_COMPACT,
                               // A pinned action is driving the composer: its
                               // row owns the highlight (EXP-862).
                               agentPage &&
@@ -441,7 +439,7 @@ export function TeamSidebar({
                       <SidebarMenu>
                         {!boards || boards.length === 0 ? (
                           <SidebarMenuItem>
-                            <SidebarMenuButton disabled className={SIDEBAR_ROW_COMPACT}>
+                            <SidebarMenuButton disabled density="compact">
                               <NavBoardsIcon className="h-4 w-4" />
                               <span className="text-muted-foreground">
                                 No boards yet
@@ -453,7 +451,7 @@ export function TeamSidebar({
                             const TypeIcon = getBoardIcon(board)
                             return (
                               <SidebarMenuItem key={board.id}>
-                                <SidebarMenuButton asChild className={SIDEBAR_ROW_COMPACT}>
+                                <SidebarMenuButton asChild density="compact">
                                   <Link
                                     to="/t/$teamSlug/boards/$boardSlug"
                                     params={{

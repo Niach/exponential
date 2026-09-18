@@ -3,6 +3,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   conceptIcon,
   getBoardIcon,
+  Badge,
   Button,
   DropdownMenu,
   DropdownMenuContent,
@@ -97,19 +98,19 @@ export function DraftsCountBadge({
   placement: BadgePlacement
 }) {
   const count = useDraftEntries(teamId).length
-  if (count === 0) return null
+  // EXP-962: `Badge` owns the shape, the zero and the 99+ cap; the rail owns
+  // only where it hangs.
   return (
-    <span
+    <Badge
+      count={count}
       data-testid="drafts-count-badge"
       className={cn(
-        `pointer-events-none absolute flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] leading-none font-semibold text-muted-foreground tabular-nums`,
+        `absolute`,
         placement === `row`
           ? `right-2 top-1/2 -translate-y-1/2`
           : `-right-0.5 -top-0.5`
       )}
-    >
-      {count > 99 ? `99+` : count}
-    </span>
+    />
   )
 }
 

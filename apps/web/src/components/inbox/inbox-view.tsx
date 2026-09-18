@@ -43,10 +43,12 @@ function relativeTime(value: Date | string): string {
 }
 
 // EXP-862: the sidebar arm runs at the COMPACT density — 28px rows, no
-// avatar circle (the bare glyph leads), one line, the title truncating. The
-// full page keeps the two-line reading row with its circle and stamp.
-const COMPACT_ROW = `h-7 items-center gap-2 px-2 py-0`
-const FULL_ROW = `items-start px-3 py-2`
+// avatar circle (the bare glyph leads), one line, the title truncating —
+// which is `ListRow density="compact"` since EXP-962. The full page keeps the
+// two-line reading row with its circle and stamp: its own layout override,
+// because a row whose second line is a stamp must hang its glyph from the TOP
+// rather than centre it.
+const PAGE_READING_ROW = `items-start px-3 py-2`
 
 function RowGlyph({
   icon: Icon,
@@ -313,8 +315,9 @@ export function InboxView({
                 <ListRow
                   key={`message:${latest.id}`}
                   interactive
+                  density={compact ? `compact` : `list`}
                   className={cn(
-                    compact ? COMPACT_ROW : FULL_ROW,
+                    !compact && PAGE_READING_ROW,
                     g.unread === 0 && `opacity-60`
                   )}
                   onClick={() => void markGroupRead(g)}
@@ -361,8 +364,9 @@ export function InboxView({
                   key={`support:${g.teamId ?? `unknown`}`}
                   asChild
                   interactive
+                  density={compact ? `compact` : `list`}
                   className={cn(
-                    compact ? COMPACT_ROW : FULL_ROW,
+                    !compact && PAGE_READING_ROW,
                     g.unread === 0 && `opacity-60`
                   )}
                 >
@@ -454,8 +458,9 @@ export function InboxView({
                 asChild
                 interactive
                 active={g.issue.identifier === activeIssueIdentifier}
+                density={compact ? `compact` : `list`}
                 className={cn(
-                  compact ? COMPACT_ROW : FULL_ROW,
+                  !compact && PAGE_READING_ROW,
                   g.unread === 0 &&
                     g.issue.identifier !== activeIssueIdentifier &&
                     `opacity-60`

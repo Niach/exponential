@@ -8,6 +8,7 @@ import {
   type EditCardView,
 } from "@exp/domain-contract/edit-card"
 
+import { Button } from "./button"
 import { cn } from "./cn"
 import { FileDiffCard } from "./file-diff-card"
 import { truncatedLinesNote } from "./file-diff-list"
@@ -119,14 +120,15 @@ export function EditedFilesCard({
         </p>
       )}
       {more !== null && !liveBeyondPreview && (
-        <button
-          type="button"
+        <Button
+          variant="text"
+          size="inline"
           onClick={() => setExpanded((v) => !v)}
-          className="w-full border-t border-glass-stroke px-3 py-1 text-left text-xs text-muted-foreground transition-colors duration-fast hover:bg-glass-active/50 hover:text-foreground"
+          className="w-full justify-start rounded-none border-t border-glass-stroke px-3 py-1 hover:bg-glass-active/50"
           data-testid="edited-files-more"
         >
           {expanded ? contract.diffUi.showLess : more}
-        </button>
+        </Button>
       )}
     </div>
   )

@@ -4,7 +4,7 @@ import { conceptIcon } from "./icons.generated"
 import { FileDiffTree } from "./file-diff-tree"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./sheet"
 import type { DiffFile } from "@exp/domain-contract/diff"
-import { MOBILE_WORK_CIRCLE_CLASS } from "./mobile-work-bar"
+import { FabButton } from "./fab-chrome"
 
 // EXP-895: the phone's file list. A 64-wide column beside a diff leaves neither
 // readable, so on a phone `FileDiffList`'s aside is gone and the list lives in a
@@ -30,13 +30,11 @@ export function ChangesFileSheet({
   const [open, setOpen] = useState(false)
   return (
     <>
-      <button
-        type="button"
+      <FabButton
         aria-label={CHANGED_FILES_TITLE}
         title={CHANGED_FILES_TITLE}
         data-testid="changes-file-sheet-button"
         onClick={() => setOpen(true)}
-        className={MOBILE_WORK_CIRCLE_CLASS}
       >
         {/* EXP-916: Android's `FileListCircle` — an 18px white glyph over
             the count in the secondary emphasis. */}
@@ -46,7 +44,7 @@ export function ChangesFileSheet({
             {files.length}
           </span>
         </span>
-      </button>
+      </FabButton>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="bottom"

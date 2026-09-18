@@ -13,7 +13,7 @@ import {
   GitPullRequest,
   MonitorUp,
 } from "lucide-react"
-import { conceptIcon, FAB_CHROME_CLASS, Pill, GlassRow, LiveDot } from "@exp/ui"
+import { conceptIcon, FabButton, Pill, GlassRow, LiveDot } from "@exp/ui"
 import type { CodingSession, Issue, Board } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
@@ -36,9 +36,9 @@ const ActionRunIcon = conceptIcon(`action-run`)
 // EXP-897: the PR stack's glyph — a concept, never a raw lucide import.
 const StackIcon = conceptIcon(`pr-stack`)
 
-// EXP-568: the floating mobile bar's 52px circles (issue-detail-mobile-bar.tsx
-// owns the bar itself; the coding circle's gating lives here).
-const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full ${FAB_CHROME_CLASS}`
+// EXP-568: the floating mobile bar's 52px circle is `FabButton` (EXP-962);
+// issue-detail-mobile-bar.tsx owns the bar itself, the coding circle's gating
+// lives here.
 
 // EXP-616: the coding / PR rows are glass CARDS now, not full-bleed
 // `border-t` divider rows. Both exported pieces mount as independent siblings
@@ -388,14 +388,9 @@ function RemoteStartRow({
 
   if (variant === `fab`) {
     return (
-      <button
-        type="button"
-        aria-label="Start coding"
-        onClick={start}
-        className={cn(FAB_CIRCLE_CLASS, `text-foreground`)}
-      >
+      <FabButton emphasis="primary" aria-label="Start coding" onClick={start}>
         <ActionRunIcon className="size-5" />
-      </button>
+      </FabButton>
     )
   }
 

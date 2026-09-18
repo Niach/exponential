@@ -478,26 +478,22 @@ function SessionContinuationBand({ session }: { session: CodingSession }) {
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground">
       {from && (
         <div className="flex min-w-0 flex-col items-start">
-          <button
-            type="button"
-            className="underline-offset-2 hover:underline"
+          <Button
+            variant="link"
+            size="inline"
             onClick={() => openSession(from)}
           >
             {`${CONTINUATION_NOTE} · started ${relativeTime(from.startedAt)}`}
-          </button>
+          </Button>
           <span className="text-muted-foreground/70">
             {CONTINUATION_COST_NOTE}
           </span>
         </div>
       )}
       {next && (
-        <button
-          type="button"
-          className="underline-offset-2 hover:underline"
-          onClick={() => openSession(next)}
-        >
+        <Button variant="link" size="inline" onClick={() => openSession(next)}>
           {`Continues in a newer run · started ${relativeTime(next.startedAt)}`}
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -533,22 +529,24 @@ function StackPositionBand({
     >
       <span>{stackPositionLine(at.position, at.size, at.below?.identifier ?? null)}</span>
       {at.below && (
-        <Link
-          to="/t/$teamSlug/reviews/$issueIdentifier"
-          params={{ teamSlug, issueIdentifier: at.below.identifier }}
-          className="font-mono underline-offset-2 hover:underline"
-        >
-          {`↓ #${at.below.identifier}`}
-        </Link>
+        <Button variant="link" size="inline" asChild className="font-mono">
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: at.below.identifier }}
+          >
+            {`↓ #${at.below.identifier}`}
+          </Link>
+        </Button>
       )}
       {at.above && (
-        <Link
-          to="/t/$teamSlug/reviews/$issueIdentifier"
-          params={{ teamSlug, issueIdentifier: at.above.identifier }}
-          className="font-mono underline-offset-2 hover:underline"
-        >
-          {`↑ #${at.above.identifier}`}
-        </Link>
+        <Button variant="link" size="inline" asChild className="font-mono">
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: at.above.identifier }}
+          >
+            {`↑ #${at.above.identifier}`}
+          </Link>
+        </Button>
       )}
     </div>
   )
@@ -613,14 +611,15 @@ function EscalationBand({
         const issue = child.issueId ? byId.get(child.issueId) : undefined
         const name = issue?.identifier ?? child.id.slice(0, 8)
         return (
-          <button
+          <Button
             key={child.id}
-            type="button"
-            className="min-w-0 truncate text-left underline-offset-2 hover:underline"
+            variant="link"
+            size="inline"
+            className="min-w-0 justify-start truncate text-left text-current"
             onClick={() => openSession(child)}
           >
             {`Run ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
-          </button>
+          </Button>
         )
       })}
     </div>

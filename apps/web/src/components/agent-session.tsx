@@ -15,7 +15,7 @@ import { editCard } from "@exp/domain-contract/edit-card"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
 import { splitIssueRefs } from "@/lib/issue-refs"
-import { ArrowDown, Check, ChevronDown, ChevronRight, X } from "lucide-react"
+import { ArrowDown, Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
   MobileFaceSwitcher,
@@ -60,6 +60,8 @@ import {
   ComposerSubmit,
   ExponentialLogo,
   ImagePreviewDialog,
+  AttachmentThumb,
+  DisclosureHeader,
 } from "@exp/ui"
 import { availableFaces, phaseDotTone } from "@/lib/work-faces"
 import { publishReviewFiles } from "@/lib/review-files-slot"
@@ -218,8 +220,6 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
 const UiChecklistIcon = conceptIcon(`ui-checklist`)
-const UiChevronUpIcon = conceptIcon(`ui-chevron-up`)
-const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
 const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
@@ -2103,17 +2103,13 @@ function TaskListBlock({
   summary: TaskListSummary
 }) {
   const [open, setOpen] = useState(false)
-  const Chevron = open ? UiChevronDownIcon : UiChevronUpIcon
   return (
     <div className="flex min-w-0 flex-col gap-0.5" data-testid="session-task-list">
-      <Button
-        variant="ghost"
-        className={cn(
-          `h-auto w-full min-w-0 justify-start gap-1.5 rounded-sm p-0 text-left font-normal has-[>svg]:px-0 text-muted-foreground hover:bg-transparent hover:text-foreground`,
-          TRANSCRIPT_TOOL_TEXT
-        )}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+      <DisclosureHeader
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+        chevron="trailing"
+        className={cn(`gap-1.5`, TRANSCRIPT_TOOL_TEXT)}
       >
         <UiChecklistIcon className="size-3 shrink-0" />
         <span className="min-w-0 flex-1 truncate" title={summary.current}>
@@ -2122,8 +2118,7 @@ function TaskListBlock({
         <span className="shrink-0 tabular-nums">
           {summary.completed}/{summary.total}
         </span>
-        <Chevron className="size-3 shrink-0" />
-      </Button>
+      </DisclosureHeader>
       {open && (
         <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto overscroll-contain">
           {entries.map((entry, index) => (
@@ -2452,13 +2447,14 @@ function ShowMoreButton({
   onToggle: () => void
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="text"
+      size="inline"
+      className="mt-1 font-medium"
       onClick={onToggle}
-      className="mt-1 text-[0.6875rem] font-medium text-muted-foreground hover:text-foreground"
     >
       {expanded ? `Show less` : `Show more`}
-    </button>
+    </Button>
   )
 }
 
@@ -2584,18 +2580,14 @@ const UserMessageBubble = memo(function UserMessageBubble({
         {hasImages && (
           <div className={cn(`flex flex-col gap-2`, body && `mt-2`)}>
             {attachmentIds.map((id, i) => (
-              <button
+              <AttachmentThumb
                 key={id}
-                type="button"
-                onClick={() => setPreview(i)}
-                className="block"
-              >
-                <img
-                  src={`/api/attachments/${id}`}
-                  alt={`Image ${i + 1}`}
-                  className="max-h-64 w-auto max-w-full rounded-md border border-glass-stroke-card"
-                />
-              </button>
+                size="inline"
+                src={`/api/attachments/${id}`}
+                alt={`Image ${i + 1}`}
+                openLabel={`Open image ${i + 1}`}
+                onOpen={() => setPreview(i)}
+              />
             ))}
           </div>
         )}
@@ -3294,13 +3286,14 @@ function AskStepperCard({
                   onAnswered={() => setEditingId(null)}
                 />
                 {current && (
-                  <button
-                    type="button"
-                    className="mt-1.5 text-xs text-muted-foreground hover:text-foreground"
+                  <Button
+                    variant="text"
+                    size="inline"
+                    className="mt-1.5"
                     onClick={() => setEditingId(null)}
                   >
                     {BACK_TO_CURRENT_STEP}
-                  </button>
+                  </Button>
                 )}
               </div>
             ) : (
@@ -3321,16 +3314,15 @@ function AskStepperCard({
             editing ? (
               // EXP-820: the step the ask is on, folded while another is
               // being revisited — the way forward again.
-              <button
-                type="button"
-                className="mt-1 flex w-full items-center gap-1.5 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setEditingId(null)}
+              <DisclosureHeader
+                open={false}
+                onToggle={() => setEditingId(null)}
+                className="mt-1 gap-1.5 py-1 text-xs"
               >
-                <ChevronRight className="size-3 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">
                   {submitStep ? `Review answers` : current.item.text}
                 </span>
-              </button>
+              </DisclosureHeader>
             ) : (
               <div className="mt-1.5">
                 <div className="text-sm text-foreground/90">
@@ -3526,18 +3518,13 @@ function SubagentGroupRow({ items }: { items: FeedItem[] }) {
   }
   return (
     <div className={cn(`min-w-0`, TRANSCRIPT_TOOL_TEXT)}>
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full min-w-0 items-center gap-2 pl-0.5 text-left text-muted-foreground hover:text-foreground"
+      <DisclosureHeader
+        open={expanded}
+        onToggle={() => setExpanded((v) => !v)}
+        className="pl-0.5"
       >
-        {expanded ? (
-          <ChevronDown className="size-3 shrink-0" />
-        ) : (
-          <ChevronRight className="size-3 shrink-0" />
-        )}
         {header}
-      </button>
+      </DisclosureHeader>
       {duplicate && (
         <div className="pl-0.5 pt-0.5">
           <DuplicateWarningRow detail={duplicate} />
@@ -3688,13 +3675,7 @@ function ToolRow({
   const exp = expToolDisplay(item.name)
   if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />
   const headline = (
-    <div
-      className={cn(
-        `flex min-w-0 items-center gap-2`,
-        TRANSCRIPT_TOOL_TEXT,
-        failed && `text-rose-400`
-      )}
-    >
+    <>
       <CodingToolIcon
         className={cn(
           `size-3 shrink-0`,
@@ -3714,36 +3695,32 @@ function ToolRow({
         </span>
       )}
       {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
-      {item.output !== undefined && (
-        <>
-          {/* The chevron sits on the TRAILING edge (iOS/Android parity): a
-              leading one would indent the log-carrying rows out of line with
-              every other tool row in the same run. */}
-          <span className="min-w-0 flex-1" />
-          {open ? (
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
-          ) : (
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground/60" />
-          )}
-        </>
-      )}
-    </div>
+    </>
+  )
+  const headlineClassName = cn(
+    `flex min-w-0 items-center gap-2`,
+    TRANSCRIPT_TOOL_TEXT,
+    failed && `text-rose-400`
   )
   return (
     <div className={cn(`min-w-0 pl-0.5`, !flush && `py-0.5`)}>
       {item.output === undefined ? (
-        headline
+        <div className={headlineClassName}>{headline}</div>
       ) : (
         // The output is the only thing a row-level toggle has to reveal —
         // EXP-916 moved an edit's patch into its run's edited-files card.
-        <button
-          type="button"
-          onClick={() => setPinned(!open)}
-          className="w-full min-w-0 text-left"
+        // The chevron sits on the TRAILING edge (iOS/Android parity): a
+        // leading one would indent the log-carrying rows out of line with
+        // every other tool row in the same run.
+        <DisclosureHeader
+          chevron="trailing"
+          open={open}
+          onToggle={() => setPinned(!open)}
           aria-label={open ? `Hide the output` : `Show the output`}
+          className={headlineClassName}
         >
           {headline}
-        </button>
+        </DisclosureHeader>
       )}
       {/* EXP-916: an edit call's patch belongs to the edited-files CARD its
           run forms (`groupFeedRows`), never to a lone tool row. */}
@@ -4014,24 +3991,16 @@ function ToolGroupRow({
   const caption = useMemo(() => toolGroupCaption(items), [items])
   return (
     <div className="min-w-0">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className={cn(
-          `flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground hover:text-foreground`,
-          TRANSCRIPT_TOOL_TEXT
-        )}
+      <DisclosureHeader
+        open={expanded}
+        onToggle={() => setExpanded((v) => !v)}
+        className={cn(`pl-0.5`, TRANSCRIPT_TOOL_TEXT)}
       >
-        {expanded ? (
-          <ChevronDown className="size-3 shrink-0" />
-        ) : (
-          <ChevronRight className="size-3 shrink-0" />
-        )}
         <CodingToolIcon className="size-3 shrink-0 text-muted-foreground/60" />
         <span className="min-w-0 truncate font-medium" title={caption}>
           {caption}
         </span>
-      </button>
+      </DisclosureHeader>
       {expanded ? (
         <div className="ml-5">
           {items.map((item) => (
@@ -4066,19 +4035,11 @@ function ExpToolGroupRow({ items }: { items: ToolItem[] }) {
   const caption = useMemo(() => expToolGroupCaption(items), [items])
   return (
     <div className="min-w-0">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className={cn(
-          `flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground hover:text-foreground`,
-          TRANSCRIPT_TOOL_TEXT
-        )}
+      <DisclosureHeader
+        open={expanded}
+        onToggle={() => setExpanded((v) => !v)}
+        className={cn(`pl-0.5`, TRANSCRIPT_TOOL_TEXT)}
       >
-        {expanded ? (
-          <ChevronDown className="size-3 shrink-0" />
-        ) : (
-          <ChevronRight className="size-3 shrink-0" />
-        )}
         <ExponentialLogo
           variant="light"
           size={12}
@@ -4087,7 +4048,7 @@ function ExpToolGroupRow({ items }: { items: ToolItem[] }) {
         <span className="min-w-0 truncate font-medium" title={caption}>
           {caption}
         </span>
-      </button>
+      </DisclosureHeader>
       {expanded && (
         <div className="ml-5">
           {items.map((item) => (

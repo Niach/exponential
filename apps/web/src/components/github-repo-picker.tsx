@@ -29,6 +29,7 @@ import {
   Button,
   ComboboxList,
   Input,
+  ListEmpty,
   Pill,
   GLASS_CARD_CLASS,
   conceptIcon,
@@ -375,9 +376,7 @@ export function GithubRepoPicker({
       )}
 
       {empty && !needsReauth && suspendedAccounts.length === 0 && (
-        <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
-          {GH_NONE_GRANTED}
-        </div>
+        <ListEmpty className="rounded-md border">{GH_NONE_GRANTED}</ListEmpty>
       )}
 
       {/* FEED-30: the list explains itself. A missing repo is (almost) always

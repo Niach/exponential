@@ -1,5 +1,5 @@
 import { Link, useMatchRoute, useParams } from "@tanstack/react-router"
-import { FAB_CHROME_CLASS, conceptIcon } from "@exp/ui"
+import { FAB_CHROME_CLASS, FabButton, conceptIcon } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { readLastVisited } from "@/lib/last-visited"
@@ -146,11 +146,11 @@ function TabDot({ className }: { className: string }) {
 // The detached circular FAB beside the nav pill — one slot, whatever the
 // active surface puts in it. EXP-827: on a board the slot is ONE 52px
 // capsule with two 52px arms — Start chat | New issue — split by a hairline
-// (`FAB_GROUP_CLASS` + `FAB_ARM_CLASS`); elsewhere a single circle.
-const FAB_CHROME = `pointer-events-auto shrink-0 ${FAB_CHROME_CLASS} text-foreground`
-const FAB_CLASS = `${FAB_CHROME} relative flex size-[3.25rem] items-center justify-center rounded-full`
-const FAB_GROUP_CLASS = `${FAB_CHROME} flex h-[3.25rem] items-stretch overflow-hidden rounded-full`
-const FAB_ARM_CLASS = `relative flex w-[3.25rem] items-center justify-center text-foreground transition-colors active:bg-glass-active`
+// (`FAB_GROUP_CLASS` + `FAB_ARM_CLASS`); elsewhere a single `FabButton`
+// circle (EXP-962). The capsule is the circle STRETCHED, so it says 52px the
+// same way the circle does, never `3.25rem`.
+const FAB_GROUP_CLASS = `pointer-events-auto flex h-[52px] shrink-0 items-stretch overflow-hidden rounded-full text-foreground ${FAB_CHROME_CLASS}`
+const FAB_ARM_CLASS = `relative flex w-[52px] items-center justify-center text-foreground transition-colors active:bg-glass-active`
 
 function tabClass(active: boolean): string {
   return cn(
@@ -320,16 +320,17 @@ export function MobileTabBar({
           </Link>
         </div>
       ) : (
-        <Link
-          to="/t/$teamSlug/agent"
-          params={{ teamSlug }}
-          aria-label="Start chat"
-          data-testid="chat-button"
-          className={FAB_CLASS}
-        >
-          <ActionChatIcon className="size-5" />
-          <AgentDot teamId={team?.id} />
-        </Link>
+        <FabButton asChild emphasis="primary" className="relative">
+          <Link
+            to="/t/$teamSlug/agent"
+            params={{ teamSlug }}
+            aria-label="Start chat"
+            data-testid="chat-button"
+          >
+            <ActionChatIcon className="size-5" />
+            <AgentDot teamId={team?.id} />
+          </Link>
+        </FabButton>
       )}
     </div>
   )
