@@ -30,12 +30,10 @@ import {
   AttachmentThumb,
   Pill,
   conceptIcon,
-} from "@exp/ui"
-import {
   Composer,
   ComposerSubmit,
   ComposerTool,
-} from "@/components/composer"
+} from "@exp/ui"
 import {
   MentionTextarea,
   type MentionTextareaHandle,

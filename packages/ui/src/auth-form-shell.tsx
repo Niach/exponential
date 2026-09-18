@@ -1,12 +1,12 @@
 import type { ReactNode } from "react"
-import { ExponentialLogo } from "@/components/exponential-logo"
+import { ExponentialLogo } from "./exponential-logo"
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@exp/ui"
+} from "./card"
 
 interface AuthFormShellProps {
   children: ReactNode

@@ -1,15 +1,10 @@
 import { useState } from "react"
 import { contract } from "@exp/domain-contract"
-import {
-  conceptIcon,
-  FileDiffTree,
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@exp/ui"
+import { conceptIcon } from "./icons.generated"
+import { FileDiffTree } from "./file-diff-tree"
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./sheet"
 import type { DiffFile } from "@exp/domain-contract/diff"
-import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
+import { MOBILE_WORK_CIRCLE_CLASS } from "./mobile-work-bar"
 
 // EXP-895: the phone's file list. A 64-wide column beside a diff leaves neither
 // readable, so on a phone `FileDiffList`'s aside is gone and the list lives in a

@@ -1,10 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
-import {
-  ChangesFileSheet,
-  CHANGED_FILES_TITLE,
-} from "@/components/changes-file-sheet"
+import { ChangesFileSheet, CHANGED_FILES_TITLE } from "./changes-file-sheet"
 
 const file = (filename: string): DiffFile =>
   fromPullFile({

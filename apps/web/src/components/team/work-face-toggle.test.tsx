@@ -7,7 +7,7 @@ import {
   runFaceLabel,
   WorkFaceToggle,
 } from "@/components/team/work-face-toggle"
-import { RUN_TITLE_CLASS, WorkHeader } from "@/components/work-header"
+import { RUN_TITLE_CLASS, WorkHeader } from "@exp/ui"
 import { ISSUE_TITLE_FIELD_CLASS } from "@/components/issue-title-field"
 import {
   MERGE_PR_LABEL,

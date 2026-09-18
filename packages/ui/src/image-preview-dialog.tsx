@@ -1,18 +1,65 @@
-import { Dialog, DialogContent, DialogTitle } from "@exp/ui"
+import { Dialog, DialogContent, DialogTitle } from "./dialog"
 
 export type PreviewMediaKind = `image` | `video` | `audio`
 
-interface ImagePreviewDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+interface PreviewMediaProps {
   src: string
   alt?: string
-  // Accessible dialog title (sr-only) — usually the filename or alt text.
+  // The media's name — the audio arm's visible caption, and the dialog's
+  // accessible title around it.
   label: string
   /** EXP-824: the same viewer plays a clip. Defaults to an image. */
   kind?: PreviewMediaKind
   /** Poster frame shown until a video starts (video only). */
   poster?: string
+}
+
+interface ImagePreviewDialogProps extends PreviewMediaProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+/**
+ * The lightbox's BODY on its own — the image / video / audio switch, with no
+ * dialog around it, so a host that cannot run a Radix portal (the styleguide's
+ * islands) still renders the specimen.
+ */
+export function PreviewMedia({
+  src,
+  alt,
+  label,
+  kind = `image`,
+  poster,
+}: PreviewMediaProps) {
+  if (kind === `video`) {
+    // Only mounted while open, so autoplay fires on every open and the
+    // stream stops the moment the dialog unmounts.
+    return (
+      <video
+        src={src}
+        poster={poster}
+        controls
+        autoPlay
+        playsInline
+        className="max-h-[85vh] w-auto max-w-full rounded-md bg-black object-contain"
+      />
+    )
+  }
+  if (kind === `audio`) {
+    return (
+      <div className="flex min-w-72 flex-col gap-2 p-2">
+        <span className="truncate text-sm">{label}</span>
+        <audio src={src} controls autoPlay className="w-full" />
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="max-h-[85vh] w-auto max-w-full rounded-md object-contain"
+    />
+  )
 }
 
 /**
@@ -46,29 +93,13 @@ export function ImagePreviewDialog({
         aria-describedby={undefined}
       >
         <DialogTitle className="sr-only">{label}</DialogTitle>
-        {kind === `video` ? (
-          // Only mounted while open, so autoplay fires on every open and the
-          // stream stops the moment the dialog unmounts.
-          <video
-            src={src}
-            poster={poster}
-            controls
-            autoPlay
-            playsInline
-            className="max-h-[85vh] w-auto max-w-full rounded-md bg-black object-contain"
-          />
-        ) : kind === `audio` ? (
-          <div className="flex min-w-72 flex-col gap-2 p-2">
-            <span className="truncate text-sm">{label}</span>
-            <audio src={src} controls autoPlay className="w-full" />
-          </div>
-        ) : (
-          <img
-            src={src}
-            alt={alt}
-            className="max-h-[85vh] w-auto max-w-full rounded-md object-contain"
-          />
-        )}
+        <PreviewMedia
+          src={src}
+          alt={alt}
+          label={label}
+          kind={kind}
+          poster={poster}
+        />
       </DialogContent>
     </Dialog>
   )

@@ -38,7 +38,9 @@ describe(`@exp/ui styles.css`, () => {
 
   it(`owns every shared utility the app used to declare`, () => {
     // The motion durations, the glass recipes and the full-screen gradient.
-    // App-only utilities (`emoji-glyph`) deliberately stay in apps/web.
+    // EXP-961: `emoji-glyph` joined them when the picker moved in — the colour
+    // -emoji face is the picker's own, and an app that kept only the component
+    // would draw ☺-style outlines.
     for (const name of [
       `duration-fast`,
       `duration-standard`,
@@ -49,10 +51,12 @@ describe(`@exp/ui styles.css`, () => {
       `glass-chrome-card`,
       `glass-chrome-bottom`,
       `bg-app-gradient`,
+      `emoji-glyph`,
     ]) {
       expect(css, `missing @utility ${name}`).toContain(`@utility ${name} {`)
     }
-    expect(css).not.toContain(`@utility emoji-glyph`)
+    // The picker's per-group content-visibility box rides with it.
+    expect(css).toContain(`.emoji-picker-section {`)
   })
 
   // EXP-895: the diff view moved into the package, so the `.diff-code` scope

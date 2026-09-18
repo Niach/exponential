@@ -21,15 +21,7 @@ import {
   MobileFaceSwitcher,
   type MobileFaceSwitcherProps,
 } from "@/components/mobile-face-switcher"
-import {
-  MOBILE_WORK_BAR_CLEARANCE,
-  MOBILE_WORK_CIRCLE_CLASS,
-  MobileWorkBar,
-  MobileWorkCapsule,
-} from "@/components/mobile-work-bar"
 import { MergeCapsule } from "@/components/issue-changes-face"
-import { PrGithubButton } from "@/components/pr-github-button"
-import { ChangesFileSheet } from "@/components/changes-file-sheet"
 import { ChangesView } from "@/components/changes-view"
 import { TitleStateDot } from "@/components/issue-mobile-header"
 import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
@@ -50,6 +42,24 @@ import {
   MobilePopoverContent,
   MobilePopoverTrigger,
   IssueChip as IssueChipView,
+  MOBILE_WORK_BAR_CLEARANCE,
+  MOBILE_WORK_CIRCLE_CLASS,
+  MobileWorkBar,
+  MobileWorkCapsule,
+  PrGithubButton,
+  ChangesFileSheet,
+  AgentMark,
+  AgentBrandMark,
+  ContextRing,
+  SessionResultsView,
+  parseSessionResults,
+  RUN_TITLE_CLASS,
+  WORK_COLUMN_CLASS,
+  WorkHeader,
+  Composer,
+  ComposerSubmit,
+  ExponentialLogo,
+  ImagePreviewDialog,
 } from "@exp/ui"
 import { availableFaces, phaseDotTone } from "@/lib/work-faces"
 import { publishReviewFiles } from "@/lib/review-files-slot"
@@ -67,7 +77,6 @@ import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
 import { useSessionUsageRefreshOnOpen } from "@/hooks/use-session-usage-refresh"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { UsageWindows } from "@/components/agent-usage-bar"
-import { AgentMark } from "@/components/agent-picker"
 import {
   ACCOUNTS_SECTION_TITLE,
   activeAccountIndex,
@@ -152,9 +161,7 @@ import {
   type WorkflowState,
 } from "@/lib/agent-feed"
 import { workingCaption } from "@/lib/working-caption"
-import { AgentBrandMark } from "@/components/agent-brand-mark"
 import { SteerComposer } from "@/components/steer-composer"
-import { ContextRing } from "@/components/context-ring"
 import {
   MergePrPill,
   ResumeRunPill,
@@ -169,13 +176,6 @@ import {
   type WorkFace,
   type WorkFaceItem,
 } from "@/components/team/work-face-toggle"
-import { SessionResultsView } from "@/components/session-results-view"
-import { parseSessionResults } from "@/lib/session-results"
-import {
-  RUN_TITLE_CLASS,
-  WORK_COLUMN_CLASS,
-  WorkHeader,
-} from "@/components/work-header"
 import { useCanResumeOn } from "@/hooks/use-resume-run"
 import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-card"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
@@ -199,9 +199,6 @@ import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
-import { Composer, ComposerSubmit } from "@/components/composer"
-import { ExponentialLogo } from "@/components/exponential-logo"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
@@ -1043,7 +1040,13 @@ export function AgentSessionView({
   )
   const usageSlot = !usageAvailable
     ? null
-    : usageOverlay(<ContextRing usage={sessionUsage} showEmpty={showEmptyRing} />)
+    : usageOverlay(
+        <ContextRing
+          percent={contextPercent(sessionUsage)}
+          tone={severity(contextPercent(sessionUsage) ?? 0)}
+          showEmpty={showEmptyRing}
+        />
+      )
 
   /** EXP-893: the phone's state dot — the header title's, and the switcher
    *  badge's off the Run face. */
@@ -1144,7 +1147,8 @@ export function AgentSessionView({
         composerVisible && usageAvailable
           ? usageOverlay(
               <ContextRing
-                usage={sessionUsage}
+                percent={contextPercent(sessionUsage)}
+                tone={severity(contextPercent(sessionUsage) ?? 0)}
                 showEmpty={showEmptyRing}
                 className={cn(
                   MOBILE_WORK_CIRCLE_CLASS,
@@ -1297,7 +1301,10 @@ export function AgentSessionView({
           )}
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
-            <SessionResultsView results={results} />
+            <SessionResultsView
+              results={results}
+              attachmentSrc={(id) => `/api/attachments/${id}`}
+            />
           </div>
         </div>
       ) : showDiffFace ? (

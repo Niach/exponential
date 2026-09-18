@@ -4,19 +4,17 @@ import {
   conceptIcon,
   PILL_PRIMARY_PAINT,
   type SessionDotTone,
-} from "@exp/ui"
-import { cn } from "@/lib/utils"
-import { PrGithubButton } from "@/components/pr-github-button"
-import { useReviewFiles } from "@/hooks/use-review-files"
-import { useSteerConfig } from "@/components/agent-session"
-import { ChangesFileSheet } from "@/components/changes-file-sheet"
-import { ChangesView } from "@/components/changes-view"
-import { IssueMobileHeader } from "@/components/issue-mobile-header"
-import {
   MOBILE_WORK_BAR_CLEARANCE,
   MOBILE_WORK_CAPSULE_CLASS,
   MobileWorkBar,
-} from "@/components/mobile-work-bar"
+  ChangesFileSheet,
+  PrGithubButton,
+} from "@exp/ui"
+import { cn } from "@/lib/utils"
+import { useReviewFiles } from "@/hooks/use-review-files"
+import { useSteerConfig } from "@/components/agent-session"
+import { ChangesView } from "@/components/changes-view"
+import { IssueMobileHeader } from "@/components/issue-mobile-header"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { MERGE_PR_LABEL } from "@/components/run-action-pills"
 import { SessionMergePill } from "@/components/session-merge-button"

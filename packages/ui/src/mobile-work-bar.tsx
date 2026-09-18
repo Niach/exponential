@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react"
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset"
-import { FAB_CHROME_CLASS } from "@exp/ui"
-import { cn } from "@/lib/utils"
+import { FAB_CHROME_CLASS } from "./fab-chrome"
+import { useKeyboardInset } from "./use-keyboard-inset"
+import { cn } from "./cn"
 
 // EXP-893: the phone's ONE floating bottom bar — `[left circle] [centre
 // capsule] [right circle]`, the glass recipe of EXP-568's issue bar and the

@@ -1,7 +1,8 @@
-import { conceptIcon, Button } from "@exp/ui"
+import { conceptIcon } from "./icons.generated"
+import { Button } from "./button"
 import { contract } from "@exp/domain-contract"
-import { cn } from "@/lib/utils"
-import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
+import { cn } from "./cn"
+import { MOBILE_WORK_CIRCLE_CLASS } from "./mobile-work-bar"
 
 // EXP-916: THE GitHub control of every diff surface — the PR page in a new
 // tab. One component, three shapes, so the words (the contract's) and the

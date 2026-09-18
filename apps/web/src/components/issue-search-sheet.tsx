@@ -13,13 +13,13 @@ import {
   useIsMobile,
   conceptIcon,
   type PickerOption,
+  BoardGlyph,
 } from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
 import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
 import type { IssueSearchRow } from "@/lib/issue-search"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import { BoardGlyph } from "@/components/board-glyph"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)

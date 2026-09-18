@@ -2,7 +2,16 @@ import { useEffect, useRef, useState } from "react"
 import type * as React from "react"
 import { Files } from "lucide-react"
 import { toast } from "sonner"
-import { conceptIcon, useIsMobile, Pill, type SessionDotTone } from "@exp/ui"
+import {
+  conceptIcon,
+  useIsMobile,
+  Pill,
+  type SessionDotTone,
+  MOBILE_WORK_BAR_CLEARANCE,
+  WORK_COLUMN_CLASS,
+  WorkHeader,
+  PrGithubButton,
+} from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
@@ -36,7 +45,6 @@ import { IssueTimeline } from "@/components/issue-timeline"
 import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
-import { MOBILE_WORK_BAR_CLEARANCE } from "@/components/mobile-work-bar"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import { IssueRelationsSection } from "@/components/issue-relations-card"
@@ -47,9 +55,7 @@ import { WidgetSubmissionCard } from "@/components/widget-submission-card"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
-import { WORK_COLUMN_CLASS, WorkHeader } from "@/components/work-header"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
-import { PrGithubButton } from "@/components/pr-github-button"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
 

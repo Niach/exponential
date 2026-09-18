@@ -5,6 +5,8 @@ import { inArray, useLiveQuery } from "@tanstack/react-db"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
+  agentLabel,
+  AgentBrandMark,
   conceptIcon,
   Button,
   ContextMenu,
@@ -40,8 +42,6 @@ import {
   useCollapsedTabGroups,
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
-import { agentLabel } from "@/components/agent-picker"
-import { AgentBrandMark } from "@/components/agent-brand-mark"
 import {
   LIVE_DOT_TONE_BY_SESSION_TONE,
   RunningIndicator,

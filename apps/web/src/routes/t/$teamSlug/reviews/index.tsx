@@ -15,6 +15,7 @@ import {
   DialogTitle,
   ListRow,
   GlassSectionHeader,
+  BoardGlyph,
 } from "@exp/ui"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenComposer } from "@/hooks/use-open-composer"
@@ -37,7 +38,6 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import { BoardGlyph } from "@/components/board-glyph"
 import { pageTitle } from "@/lib/page-title"
 
 // Cross-board review queue: every issue in the team with an open PR,

@@ -16,9 +16,9 @@ import {
   ContextMenuSubTrigger,
   UserAvatar,
   type PickerOption,
+  BoardGlyph,
 } from "@exp/ui"
 import { displayUserName } from "@/lib/user-display"
-import { BoardGlyph } from "@/components/board-glyph"
 
 // EXP-957 — every submenu BODY here is the Combobox's menu arm: the rows are
 // `ComboboxMenuItems` over `PickerOption`s, so the selection glyph is the

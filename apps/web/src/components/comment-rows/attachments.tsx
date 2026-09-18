@@ -18,6 +18,8 @@ import {
 import {
   Button,
   IconTooltip,
+  ImagePreviewDialog,
+  type PreviewMediaKind,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -28,10 +30,6 @@ import {
   AlertDialogTitle,
 } from "@exp/ui"
 import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
-import {
-  ImagePreviewDialog,
-  type PreviewMediaKind,
-} from "@/components/image-preview-dialog"
 
 interface CommentAttachmentsProps {
   attachments: Attachment[]

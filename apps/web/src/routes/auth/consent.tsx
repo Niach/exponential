@@ -3,8 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import { LoaderCircle } from "lucide-react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
-import { AuthFormShell } from "@/components/auth-form-shell"
-import { Button, Checkbox, Label, Switch } from "@exp/ui"
+import { Button, Checkbox, Label, Switch, AuthFormShell } from "@exp/ui"
 import { pageTitle } from "@/lib/page-title"
 
 // Scope-selection consent screen for the MCP OAuth flow. The authorize

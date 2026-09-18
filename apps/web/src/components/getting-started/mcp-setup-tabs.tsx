@@ -1,12 +1,16 @@
 import { useState } from "react"
 import { Check, Copy, Plug } from "lucide-react"
 import { Link, useParams } from "@tanstack/react-router"
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from "@exp/ui"
 import {
+  Button,
   ClaudeIcon,
   CursorIcon,
   OpenAiIcon,
-} from "@/components/icons/brand-icons"
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@exp/ui"
 import {
   buildCodexMcpAddCommand,
   buildMcpAddCommand,

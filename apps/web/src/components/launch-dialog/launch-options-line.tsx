@@ -1,4 +1,5 @@
 import {
+  AgentPicker,
   Button,
   Combobox,
   GlassGroup,
@@ -11,7 +12,6 @@ import {
   Switch,
   conceptIcon,
 } from "@exp/ui"
-import { AgentPicker } from "@/components/agent-picker"
 import {
   CLI_DEFAULT_EFFORT,
   CLI_DEFAULT_MODEL,
@@ -39,7 +39,7 @@ import { NO_REPO } from "@/lib/chat-repo"
 // (EXP-792). The notes the dialog's option pane used to carry (not ready /
 // no desktop / waiting / the batch guards) live on the same line.
 //
-// EXP-862: the Agent pick is THE shared picker (`components/agent-picker`,
+// EXP-862: the Agent pick is THE shared picker (@exp/ui `agent-picker`,
 // icon-only), the Device menu rows carry the machine's kind glyph like its
 // trigger, and the Account left the overflow for the line itself as soon as
 // the machine reports two logins for the picked agent.
@@ -114,7 +114,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           }}
           width="sm"
         />
-        {/* EXP-862: THE agent picker (`components/agent-picker`) — the brand
+        {/* EXP-862: THE agent picker (@exp/ui `agent-picker`) — the brand
             mark and a chevron, the name only in the menu and the tooltip. */}
         <AgentPicker
           size="sm"

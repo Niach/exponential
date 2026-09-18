@@ -10,6 +10,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  MOBILE_WORK_CIRCLE_CLASS,
 } from "@exp/ui"
 import { isLiveRun } from "@/lib/past-runs"
 import { cn } from "@/lib/utils"
@@ -28,7 +29,6 @@ import {
   issueRunOption,
   RunSessionDot,
 } from "@/components/issue-run-switcher"
-import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
 
 // EXP-893: the phone's FACE SWITCHER — the bottom-right circle of the Work
 // screen, the desktop face toggle's touch twin. With exactly one other

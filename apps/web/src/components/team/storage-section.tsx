@@ -13,6 +13,7 @@ import { buildAttachmentPosterUrl } from "@/lib/storage/issue-attachments"
 import { formatDuration } from "@/lib/storage/video-metadata"
 import { formatStorage, UsageBar } from "@/components/team/billing-section"
 import {
+  ImagePreviewDialog,
   Pill,
   Button,
   GlassRow,
@@ -26,7 +27,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@exp/ui"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 
 type StorageList = Awaited<
   ReturnType<typeof trpc.attachments.listForTeam.query>

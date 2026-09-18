@@ -3,9 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
-import { Button, Label } from "@exp/ui"
-import { AuthFormShell } from "@/components/auth-form-shell"
-import { PasswordInput } from "@/components/password-input"
+import { Button, Label, AuthFormShell, PasswordInput } from "@exp/ui"
 import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/auth/reset-password`)({

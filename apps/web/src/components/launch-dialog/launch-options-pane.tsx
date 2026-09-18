@@ -1,11 +1,11 @@
 import {
+  AgentPickerTabs,
   Combobox,
   conceptIcon,
   GlassGroup,
   GlassToggleRow,
   type PickerOption,
 } from "@exp/ui"
-import { AgentPickerTabs } from "@/components/agent-picker"
 import {
   agentAllowsBlankModel,
   agentEffortValues,

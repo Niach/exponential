@@ -1,10 +1,9 @@
 import { useMemo, type ReactNode } from "react"
-import { conceptIcon, Button } from "@exp/ui"
+import { conceptIcon, Button, PrGithubButton } from "@exp/ui"
 import { contract } from "@exp/domain-contract"
 import { summaryLabel, totals, type DiffFile } from "@exp/domain-contract/diff"
 import { cn } from "@/lib/utils"
 import type { SessionMergeTargetProps } from "@/hooks/use-agents-data"
-import { PrGithubButton } from "@/components/pr-github-button"
 import { SessionMergePill } from "@/components/session-merge-button"
 
 // EXP-916: the REVIEWS header, and only Reviews. A run's Changes face lost its

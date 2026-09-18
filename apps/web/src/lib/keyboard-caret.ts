@@ -1,4 +1,5 @@
 import type { EditorView } from "@tiptap/pm/view"
+import { KEYBOARD_MIN_OCCLUSION, keyboardOcclusion } from "@exp/ui"
 
 // EXP-198: mobile on-screen keyboards OVERLAY the layout viewport instead of
 // resizing it (the `interactive-widget=resizes-visual` default on Android
@@ -12,22 +13,15 @@ import type { EditorView } from "@tiptap/pm/view"
 // padding when the content itself ends behind the keyboard and there is no
 // scroll room left.
 
-/** Keyboard heights start well above this; URL-bar show/hide resizes the
- *  layout viewport itself and stays near 0. */
-export const KEYBOARD_MIN_OCCLUSION = 80
+// EXP-961: the occlusion threshold and the measurement itself live in
+// `@exp/ui` beside `useKeyboardInset`, the phone bars' consumer — re-exported
+// here so this module stays the one place the keyboard rules are read from.
+export { KEYBOARD_MIN_OCCLUSION, keyboardOcclusion }
+
 /** Clearance under the caret so the line being written (and a hint of the
  *  next one) stays visible above the keyboard. */
 const CARET_BOTTOM_MARGIN = 56
 const CARET_TOP_MARGIN = 12
-
-/** Pixels of the layout viewport hidden behind the on-screen keyboard. */
-export function keyboardOcclusion(
-  layoutViewportHeight: number,
-  visualOffsetTop: number,
-  visualHeight: number
-) {
-  return Math.max(0, layoutViewportHeight - (visualOffsetTop + visualHeight))
-}
 
 /** How far scrollTop must change (positive = scroll down) so the caret sits
  *  inside the visible band with margin clearance. Never scrolls the caret's

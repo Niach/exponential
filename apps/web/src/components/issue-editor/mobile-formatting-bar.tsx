@@ -6,7 +6,7 @@ import {
   type FormattingRailMode,
 } from "@/components/issue-editor/formatting-rail"
 import type { MarkdownEditorImageUploadConfig } from "@/components/issue-editor/markdown-editor"
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset"
+import { useKeyboardInset } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
 // EXP-568 — the phone editor chrome: the formatting rail riding the top edge

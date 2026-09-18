@@ -19,6 +19,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
 import {
@@ -51,11 +54,6 @@ import {
   renumberImageMarkers,
 } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
-import {
-  Composer,
-  ComposerSubmit,
-  ComposerTool,
-} from "@/components/composer"
 import {
   MentionTextarea,
   type MentionTextareaHandle,
@@ -99,7 +97,7 @@ export interface SteerComposerProps {
    *  refs and `:` emoji work without it. */
   users: User[]
   /** EXP-877: the footer's trailing slot — the caller mounts the context ring
-   *  inside its own usage popover here (`components/context-ring.tsx`). */
+   *  inside its own usage popover here (`ContextRing` in @exp/ui). */
   usageSlot?: ReactNode
   /** EXP-931: the phone's FACE SWITCHER, beside the usage ring. While this
    *  composer is expanded it covers the work bar, and with it the bar's

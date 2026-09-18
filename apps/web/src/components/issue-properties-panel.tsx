@@ -1,5 +1,5 @@
 import { Megaphone } from "lucide-react"
-import { conceptIcon, Combobox, Pill, DatePicker } from "@exp/ui"
+import { conceptIcon, Combobox, Pill, DatePicker, BoardGlyph } from "@exp/ui"
 import type { User } from "@/db/schema"
 import type { IssuePriority, IssueSource } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -17,7 +17,6 @@ import {
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
-import { BoardGlyph } from "@/components/board-glyph"
 
 export interface IssuePropertiesPanelProps {
   // EXP-314: the RESOLVED team status row. The duplicate-category row stays in

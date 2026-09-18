@@ -11,6 +11,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
+  BoardGlyph,
 } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
@@ -20,7 +21,6 @@ import { compareBoards, useTeamMemberships } from "@/hooks/use-team-data"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { usePinnedEntries } from "@/hooks/use-pins"
-import { BoardGlyph } from "@/components/board-glyph"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 

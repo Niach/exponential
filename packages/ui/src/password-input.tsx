@@ -1,8 +1,11 @@
 import { useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
-import { Button, Input } from "@exp/ui"
-import { cn } from "@/lib/utils"
+import { Button } from "./button"
+import { Input } from "./input"
+import { cn } from "./cn"
 
+// The eye pair stays a RAW lucide import: this is a web-only auth surface, no
+// native client draws it, and the registry has no eye-off concept to name.
 type PasswordInputProps = Omit<React.ComponentProps<typeof Input>, `type`>
 
 // A password Input with a show/hide toggle (used on the auth pages).

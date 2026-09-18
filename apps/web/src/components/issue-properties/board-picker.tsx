@@ -1,9 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { boardCollection } from "@/lib/collections"
-import { Combobox, Pill, type PickerOption } from "@exp/ui"
+import { Combobox, Pill, type PickerOption, BoardGlyph } from "@exp/ui"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
-import { BoardGlyph } from "@/components/board-glyph"
 import type { Board } from "@/db/schema"
 
 interface BoardPickerProps {

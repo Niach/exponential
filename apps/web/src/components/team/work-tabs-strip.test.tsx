@@ -32,10 +32,6 @@ vi.mock(`@/hooks/use-work-tabs`, () => ({
   setTabGroupCollapsed: vi.fn(),
   updateWorkTabs,
 }))
-vi.mock(`@/components/agent-picker`, () => ({ agentLabel: (a: string) => a }))
-vi.mock(`@/components/agent-brand-mark`, () => ({
-  AgentBrandMark: () => null,
-}))
 vi.mock(`@/components/agent-session-row`, () => ({
   LIVE_DOT_TONE_BY_SESSION_TONE: { muted: `muted` },
   RunningIndicator: () => null,

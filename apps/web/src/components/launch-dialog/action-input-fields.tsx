@@ -7,12 +7,12 @@ import {
   Label,
   GlassGroup,
   type PickerOption,
+  BoardGlyph,
 } from "@exp/ui"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
 import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
-import { BoardGlyph } from "@/components/board-glyph"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the
 // free-text kinds — the composer's own text is the run's instructions):

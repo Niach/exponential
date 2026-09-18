@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Check, ChevronDown } from "lucide-react"
 import { boardCollection } from "@/lib/collections"
-import { BoardGlyph } from "@/components/board-glyph"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   Pill,
+  BoardGlyph,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { toIssueDescription, type IssuePriority } from "@/lib/domain"

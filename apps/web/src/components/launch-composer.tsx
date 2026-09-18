@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { MAX_START_PROMPT } from "@exp/db-schema/domain"
 import type { User } from "@/db/schema"
-import { Composer, ComposerSubmit, ComposerTool } from "@/components/composer"
 import {
   MentionTextarea,
   type MentionTextareaHandle,
@@ -12,7 +11,7 @@ import { ActionPicker } from "@/components/launch-dialog/action-picker"
 import { IssuePicker } from "@/components/launch-dialog/issue-picker"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
 import { SubjectChips } from "@/components/launch-dialog/subject-chips"
-import { AttachmentThumb, Pill, conceptIcon } from "@exp/ui"
+import { AttachmentThumb, Pill, conceptIcon, Composer, ComposerSubmit, ComposerTool } from "@exp/ui"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"

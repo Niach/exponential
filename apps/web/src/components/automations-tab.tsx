@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Ellipsis, LoaderCircle, Pencil, Trash2 } from "lucide-react"
 import {
+  AGENT_LABELS,
   conceptIcon,
   getActionIcon,
   Button,
@@ -45,7 +46,6 @@ import {
   AutomationDialog,
   REQUIRED_INPUTS_HINT,
 } from "@/components/automation-dialog"
-import { AGENT_LABELS } from "@/components/agent-picker"
 
 // The Automations tab (EXP-530; own rows since EXP-583): every synced
 // `automations` row as a dense row, joined client-side with its action, the

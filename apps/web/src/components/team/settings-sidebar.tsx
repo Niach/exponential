@@ -16,13 +16,13 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  BoardGlyph,
 } from "@exp/ui"
 import {
   NEW_BOARD_LABEL,
   SETTINGS_BOARDS_GROUP,
   SETTINGS_NAV,
 } from "@/routes/t/$teamSlug/settings/-shared"
-import { BoardGlyph } from "@/components/board-glyph"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 

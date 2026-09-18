@@ -1,22 +1,24 @@
 import type { ReactNode } from "react"
 import { contract } from "@exp/domain-contract"
 
-import { ClaudeIcon, CodexIcon } from "@/components/icons/brand-icons"
+import { ClaudeIcon, CodexIcon } from "./brand-icons"
+import { Button } from "./button"
 import {
-  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  SegmentedControl,
-  SEGMENTED_ROW,
+} from "./dropdown-menu"
+import { SegmentedControl } from "./segmented-control"
+import { SEGMENTED_ROW } from "./tabs"
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-  conceptIcon,
-} from "@exp/ui"
-import { cn } from "@/lib/utils"
+} from "./tooltip"
+import { conceptIcon } from "./icons.generated"
+import { cn } from "./cn"
 
 // EXP-862: ONE agent picker per platform (web here, desktop
 // `coding_selects::agent_picker`, iOS `AgentPickerMenu`, Android
