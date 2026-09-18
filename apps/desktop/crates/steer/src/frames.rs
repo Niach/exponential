@@ -1664,10 +1664,20 @@ pub enum ViewerFrame {
     /// EXP-783: one page of older transcript, answering this viewer's
     /// [`ClientFrame::HistoryPage`]. Never part of the live feed — the client
     /// PREPENDS these events instead of appending them.
+    ///
+    /// `events` is decoded PER EVENT ([`tolerant_events`]): an event whose
+    /// `kind` this build does not know lands as `None` in its slot rather
+    /// than failing the whole page — the way the live `activity` frame skips
+    /// unknown kinds one at a time and the journal reader skips unknown
+    /// lines. One slot per wire element keeps `seqs` aligned; the consumer
+    /// drops the `None`s after zipping. Before this, one event from a newer
+    /// device made the page an "unparseable frame", its `done` never landed,
+    /// and the viewer's in-flight ask stayed set until the socket dropped.
     #[serde(rename_all = "camelCase")]
     HistoryChunk {
         request_id: String,
-        events: Vec<ActivityEvent>,
+        #[serde(deserialize_with = "tolerant_events")]
+        events: Vec<Option<ActivityEvent>>,
         #[serde(default)]
         seqs: Vec<u64>,
         done: bool,
@@ -1690,6 +1700,22 @@ pub enum ViewerFrame {
         #[serde(default)]
         message: Option<String>,
     },
+}
+
+/// Decode a page's `events` array one element at a time: a malformed or
+/// unknown-kind element becomes `None` in its slot instead of poisoning the
+/// page (mirrors `history::read_journal_seq`'s per-line skip). The array
+/// itself must still be an array — a page with no `events` key at all stays
+/// non-conforming.
+fn tolerant_events<'de, D>(deserializer: D) -> Result<Vec<Option<ActivityEvent>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .map(|value| serde_json::from_value::<ActivityEvent>(value).ok())
+        .collect())
 }
 
 impl ViewerFrame {
@@ -3485,6 +3511,42 @@ mod tests {
         // An event kind from a newer desktop: dropped, socket untouched.
         assert_eq!(
             ViewerFrame::parse(r#"{"t":"activity","event":{"kind":"hologram"},"seq":0}"#),
+            None
+        );
+    }
+
+    #[test]
+    fn history_chunk_skips_unknown_event_kinds_per_event() {
+        // Compat review R6 #3: a page holding one event from a newer device
+        // used to fail as a whole — `done` never landed and the viewer's
+        // in-flight ask stayed set, leaving "load earlier" dead until the
+        // socket reconnected. Now the unknown slot is `None`, the known
+        // event and the paging fields still land, and `seqs` stays aligned.
+        assert_eq!(
+            ViewerFrame::parse(
+                r#"{"t":"history_chunk","requestId":"p3","events":[{"kind":"narration","text":"older"},{"kind":"from_the_future","payload":{"x":1}}],"seqs":[7,8],"done":true}"#
+            )
+            .unwrap(),
+            ViewerFrame::HistoryChunk {
+                request_id: "p3".to_string(),
+                events: vec![Some(ActivityEvent::narration("older")), None],
+                seqs: vec![7, 8],
+                done: true,
+            }
+        );
+        // A malformed element (not even an object) is skipped the same way.
+        let ViewerFrame::HistoryChunk { events, done, .. } = ViewerFrame::parse(
+            r#"{"t":"history_chunk","requestId":"p4","events":[42,{"kind":"narration","text":"kept"}],"seqs":[1,2],"done":false}"#,
+        )
+        .unwrap() else {
+            panic!("expected a history chunk");
+        };
+        assert_eq!(events, vec![None, Some(ActivityEvent::narration("kept"))]);
+        assert!(!done);
+        // The array itself is still required: a page without one stays
+        // non-conforming.
+        assert_eq!(
+            ViewerFrame::parse(r#"{"t":"history_chunk","requestId":"p5","done":true}"#),
             None
         );
     }
