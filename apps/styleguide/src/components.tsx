@@ -823,10 +823,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-962: the fold toggle INSIDE a row, and the whole of it is one line of bare text — a 12px chevron pointing right folded and down open, the label muted and brightening under the pointer, \`aria-expanded\` stating the fold, the entire line the target. The steer feed's tool groups, its Exponential calls, its subagent lanes and its long bodies, the workflow card's agents and the issue group's own header each drew this by hand before it was one component. \`chevron="trailing"\` parks the glyph at the far edge instead, for a row whose siblings carry none and must not indent out of line with them. It is NOT the group band above: that is a filled strip heading a LIST. And it may not contain another button — a fold's own action renders beside it, because a button inside a button is invalid markup.`,
     status: {
       web: ok(`DisclosureHeader`, `packages/ui/src/disclosure-header.tsx`),
-      desktop: leftover(
-        `SteerViewer::render_tool_run / render_exp_tool_run / render_subagent`,
-        `apps/desktop/crates/ui/src/steer_viewer.rs`,
-        `every fold builds its own chevron row inline; there is no shared header`
+      desktop: ok(
+        `controls::disclosure_header`,
+        DESKTOP_CONTROLS,
+        `EXP-963: the steer feed's tool groups, Exponential runs, subagent lanes and workflow agents fold on it`
       ),
       ios: leftover(
         `ToolGroupRow / ExpToolGroupRow / SubagentGroupRow`,
@@ -921,7 +921,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. EXP-962 gave it a second density: \`compact\` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and \`SidebarMenuButton density="compact"\` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.`,
     status: {
       web: ok(`ListRow`, WEB_GLASS_ROWS),
-      desktop: ok(`surface::flat_row`, DESKTOP_SURFACE),
+      desktop: ok(
+        `surface::flat_row / flat_row_compact`,
+        DESKTOP_SURFACE,
+        `EXP-963: flat_row_compact is the 28px density the rail's entries run at`
+      ),
       ios: ok(`FlatRow / .flatRow()`, IOS_THEME),
       android: ok(`Modifier.flatRow()`, ANDROID_GLASS),
     },
@@ -1405,10 +1409,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `Button variant="text" / variant="link", size="inline"`,
         `packages/ui/src/button.tsx`
       ),
-      desktop: leftover(
-        `session_extras::fold_toggle`,
-        DESKTOP_SESSION_EXTRAS,
-        `private to the output card, and steer_viewer writes the same muted line again for a body fold`
+      desktop: ok(
+        `controls::text_button (TextButtonVariant::Text / Link)`,
+        DESKTOP_CONTROLS,
+        `EXP-963: the output card's and the body's Show more, the edited-files footer ride it`
       ),
       ios: leftover(
         `Button("Show more").buttonStyle(.plain)`,
@@ -1501,10 +1505,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `EXP-962: the smallest chip there is — a 16px capsule carrying a NUMBER and nothing else, 10px semibold and tabular so a count can climb without the box twitching. \`muted\` is a count you parked (the rail's drafts), \`primary\` one that wants you (unread). Zero renders NOTHING, because a badge is a signal and an empty signal is noise, and past \`max\` it reads \`99+\`. PLACEMENT stays at the call site — a row's trailing edge, a nav glyph's corner — so the badge owns only its shape. A \`Pill size="sm"\` is 24 tall and carries a word; this carries a quantity.`,
     status: {
       web: ok(`Badge`, `packages/ui/src/badge.tsx`),
-      desktop: leftover(
-        `sidebar::rail_badge_element`,
-        `apps/desktop/crates/ui/src/sidebar.rs`,
-        `the rail's badge is a 6px dot, a glyph or a sync spinner: the IDE has no numeric badge at all`
+      desktop: ok(
+        `surface::count_badge`,
+        DESKTOP_SURFACE,
+        `EXP-963: RailBadge::Count hangs it on the rail's Drafts entry`
       ),
       ios: leftover(
         `GlassSegmentedControl`,
@@ -1620,12 +1624,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `36 tall, padding 0/12, radius 12, card fill under a card stroke; focus swaps the stroke to active — no ring. Placeholder at 50%.`,
     status: {
       web: ok(`Input`, `packages/ui/src/input.tsx`),
-      desktop: {
-        state: `leftover`,
-        symbol: `controls::glass_input`,
-        file: DESKTOP_CONTROLS,
-        note: `focus swaps the stroke to strokeActive, no ring (EXP-720); the radius is still theme-wide (10, not 12)`,
-      },
+      desktop: ok(
+        `controls::glass_input`,
+        DESKTOP_CONTROLS,
+        `focus swaps the stroke to strokeActive, no ring (EXP-720); the corner is radius.lg (EXP-963)`
+      ),
       ios: ok(`GlassTextField`, IOS_CONTROLS),
       android: ok(`GlassTextField`, `${ANDROID_COMPONENTS}/GlassTextField.kt`),
     },
@@ -2957,10 +2960,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/combobox.tsx`,
         `PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu`
       ),
-      desktop: leftover(
-        `pickers::board_picker_popover`,
+      desktop: ok(
+        `pickers::searchable_picker`,
         `apps/desktop/crates/ui/src/pickers.rs`,
-        `one popover per subject (board, label, due date) — not yet one generic searchable picker`
+        `EXP-963: PickerOption + PickerSelection Single/Multi; the label and board popovers wrap it`
       ),
       ios: leftover(
         `GlassPickerSheet`,
@@ -3070,10 +3073,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The ONE "filter this list" field: the text field with the search glyph INSIDE it and a ghost clear that appears only once there is something to clear — and puts the caret back in the field, so typing continues. Eight of them existed at five heights, most a bare Input re-dressed by hand and none with either affordance, while both natives had drawn exactly this for years. Two rungs: md is the stock 36 field, sm the 28 one dense columns use — the Reviews file filter, a sidebar filter. It is an Input, not a new box: every chrome decision still comes from there.`,
     status: {
       web: ok(`SearchField`, `packages/ui/src/search-field.tsx`),
-      desktop: leftover(
-        `controls::glass_input`,
+      desktop: ok(
+        `controls::search_field`,
         DESKTOP_CONTROLS,
-        `the generic field with .cleanable(true): a trailing clear, but no search glyph anywhere on the IDE`
+        `EXP-963: SearchFieldSize::Md 36 / Sm 28; the diff pane filter, every picker query and the search dialog draw it`
       ),
       ios: ok(`GlassSheetSearchField`, IOS_CONTROLS),
       android: ok(`GlassSheetSearchField`, `${ANDROID_COMPONENTS}/GlassSheet.kt`),

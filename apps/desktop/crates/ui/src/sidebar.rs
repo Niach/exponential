@@ -603,9 +603,13 @@ pub(crate) enum RailBadge {
     Dot(Hsla),
     Icon(ExpIcon, Hsla),
     Syncing,
+    /// EXP-963: a COUNT — the web rail's `Badge` (EXP-962): the Drafts
+    /// entry's pile, muted. Zero renders nothing (the badge's own rule).
+    Count(usize, crate::surface::BadgeTone),
 }
 
-/// One badge element at `glyph_px` (dots keep their fixed 6px regardless).
+/// One badge element at `glyph_px` (dots keep their fixed 6px regardless;
+/// a count is the 16px capsule).
 fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyElement {
     match badge {
         RailBadge::Dot(color) => div()
@@ -613,6 +617,10 @@ fn rail_badge_element(badge: RailBadge, glyph_px: f32, cx: &App) -> gpui::AnyEle
             .flex_shrink_0()
             .rounded_full()
             .bg(color)
+            .into_any_element(),
+        RailBadge::Count(count, tone) => div()
+            .flex_shrink_0()
+            .children(crate::surface::count_badge(count, tone, cx))
             .into_any_element(),
         RailBadge::Icon(icon, color) => Icon::from(icon)
             .with_size(px(glyph_px))
@@ -660,11 +668,17 @@ fn rail_compact_button(
         .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .child(lead)
         .when_some(badge, |this, badge| {
+            // A count capsule overhangs the glyph's corner (web `-top-0.5
+            // -right-0.5`); the dots and glyphs sit inside it.
+            let (top, right) = match badge {
+                RailBadge::Count(..) => (-2., -2.),
+                _ => (3., 3.),
+            };
             this.child(
                 div()
                     .absolute()
-                    .top(px(3.))
-                    .right(px(3.))
+                    .top(px(top))
+                    .right(px(right))
                     .child(rail_badge_element(badge, 10., cx)),
             )
         })
@@ -714,17 +728,14 @@ fn rail_row_lead(
     // the caller already applied). The glass active fill carries the
     // selection (no 2px marker bar — the row fill IS the marker at this
     // width).
-    h_flex()
+    // EXP-963: the COMPACT list row (web `SidebarMenuButton density=
+    // "compact"` / `ListRow density="compact"`): 28 tall, 8px sides, 8px
+    // between the glyph and the text.
+    crate::surface::flat_row_compact()
         .id(id)
         .w_full()
-        .h(px(28.))
-        .px_1p5()
-        .gap_2()
-        .items_center()
         .flex_shrink_0()
-        .rounded(cx.theme().radius)
         .cursor_pointer()
-        .text_sm()
         .when(active, |this| {
             this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
         })
@@ -1727,18 +1738,23 @@ impl Render for RailView {
         // EXP-878: Drafts — a CONDITIONAL entry directly under Inbox, shown
         // only while this user has drafts in the active team (or is standing
         // on the page itself, so the rail never yanks the row out from under
-        // the screen you are looking at). No badge: number badges are gone
-        // (EXP-880), and drafts are a pile to clear, not an alert.
-        let has_drafts = active_team_id(&self.nav, cx)
-            .is_some_and(|id| !crate::drafts::drafts_in_team(&id, cx).is_empty());
+        // the screen you are looking at). EXP-963: it carries the pile's
+        // COUNT as the muted badge the web rail wears (EXP-962) — a count
+        // you parked, not an alert, which is what the muted tone says.
+        let draft_count = active_team_id(&self.nav, cx)
+            .map(|id| crate::drafts::drafts_in_team(&id, cx).len())
+            .unwrap_or(0);
         let on_drafts = matches!(resolved_screen(&self.nav, cx), Some(Screen::Drafts));
-        let drafts_entry = (has_drafts || on_drafts).then(|| {
+        let drafts_entry = (draft_count > 0 || on_drafts).then(|| {
             self.rail_screen_entry(
                 "rail-drafts",
                 Icon::from(icons::registry::NAV_DRAFTS),
                 "Drafts",
                 Screen::Drafts,
-                None,
+                Some(RailBadge::Count(
+                    draft_count,
+                    crate::surface::BadgeTone::Muted,
+                )),
                 cx,
             )
         });

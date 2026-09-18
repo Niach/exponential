@@ -28,7 +28,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::{glass_input, search_field, SearchFieldSize, WebControl as _};
 use crate::github_connect::{
     copy, fetch_github_repos, is_repo_full_name, lookup_repo, reauth_logins, GithubRepo,
     GithubReposResult,
@@ -734,11 +734,7 @@ impl Render for AddRepositoryDialogView {
                         .cloned()
                         .collect();
 
-                    body = body.child(
-                        glass_input(&self.query, window, cx)
-                            .web_input_sm()
-                            .cleanable(true),
-                    );
+                    body = body.child(search_field(&self.query, SearchFieldSize::Sm, window, cx));
                     if visible.is_empty() {
                         body = body.child(self.message(copy::NO_REPOS_FOUND, cx));
                     } else {

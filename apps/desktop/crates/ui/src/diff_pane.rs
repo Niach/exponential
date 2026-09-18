@@ -54,7 +54,7 @@ use domain::diff::{additions_label, deletions_label, summary_label, DiffStatus, 
 use domain::diff_tree::{diff_file_tree, DiffTreeKind, DiffTreeNode};
 
 use crate::changes_bar::MergeTarget;
-use crate::controls::{glass_input, WebControl as _, WebText as _};
+use crate::controls::{search_field, SearchFieldSize, WebControl as _, WebText as _};
 use crate::diff::{status_color, status_letter};
 use crate::icons::registry;
 
@@ -335,7 +335,7 @@ pub(crate) fn file_tree<V: Render>(
             div().px_2().pb_1p5().child(
                 div()
                     .w_full()
-                    .child(glass_input(state, window, cx).small().cleanable(true)),
+                    .child(search_field(state, SearchFieldSize::Sm, window, cx)),
             ),
         );
     }

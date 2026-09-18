@@ -60,7 +60,7 @@ use crate::diff::{file_rows, render_diff_row, DiffOptions, RowShape};
 use steer::feed::FeedItemId;
 use steer::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 
-use crate::controls::WebText as _;
+use crate::controls::{text_button, TextButtonVariant, WebText as _};
 use crate::icons::registry;
 
 /// A card's own click listener — the host's `cx.listener(..)`, so this module
@@ -375,7 +375,6 @@ pub(crate) fn render_extras(
 ) -> Option<AnyElement> {
     let tool = extras.for_item(item)?;
     let output = tool.output.as_ref()?;
-    let muted = cx.theme().muted_foreground;
     let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
     // EXP-910: this renderer serves the RUNNING row only (steer_viewer's
     // `ToolRowMode::Live`), so its log is a TAIL — the last few lines, the
@@ -386,29 +385,31 @@ pub(crate) fn render_extras(
         output, item, expanded, true, on_kill, cx,
     ));
     if output.rows().len() > OUTPUT_PREVIEW_ROWS {
-        column = column.child(fold_toggle(item, expanded, on_toggle, muted));
+        column = column.child(fold_toggle(item, expanded, on_toggle, cx));
     }
     Some(column.into_any_element())
 }
 
-/// The `Show more` / `Show less` line under a folded output card.
+/// The `Show more` / `Show less` line under a folded output card — the shared
+/// in-place text toggle (EXP-963, [`controls::text_button`]), not a hand-rolled
+/// muted line of its own.
 fn fold_toggle(
     item: FeedItemId,
     expanded: bool,
     on_toggle: CardClick,
-    muted: gpui::Hsla,
+    cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(("session-extras-toggle", item as usize))
-        .mt_0p5()
-        .cursor_pointer()
-        .text_xs()
-        .text_color(muted)
-        .child(if expanded { "Show less" } else { "Show more" })
-        .on_click(move |event: &ClickEvent, window, cx| {
-            cx.stop_propagation();
-            on_toggle(event, window, cx);
-        })
+    text_button(
+        ("session-extras-toggle", item as usize),
+        if expanded { "Show less" } else { "Show more" },
+        TextButtonVariant::Text,
+        cx,
+    )
+    .mt_0p5()
+    .on_click(move |event: &ClickEvent, window, cx| {
+        cx.stop_propagation();
+        on_toggle(event, window, cx);
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -529,18 +530,21 @@ pub(crate) fn render_edit_card(
             } else {
                 more
             };
+            // EXP-963: the shared in-place text toggle — 12px, the web
+            // `Button variant="text" size="inline"` rung, one step up from
+            // the 11px caption this used to hand-roll.
             card = card.child(
-                div()
-                    .id(("session-edit-card-more", id as usize))
-                    .px_1()
-                    .cursor_pointer()
-                    .text_2xs()
-                    .text_color(muted)
-                    .child(SharedString::from(label))
-                    .on_click(move |event: &ClickEvent, window, cx| {
-                        cx.stop_propagation();
-                        on_toggle_more(event, window, cx);
-                    }),
+                text_button(
+                    ("session-edit-card-more", id as usize),
+                    SharedString::from(label),
+                    TextButtonVariant::Text,
+                    cx,
+                )
+                .px_1()
+                .on_click(move |event: &ClickEvent, window, cx| {
+                    cx.stop_propagation();
+                    on_toggle_more(event, window, cx);
+                }),
             );
         }
     }
@@ -796,7 +800,6 @@ pub(crate) fn render_wire_extras(
     cx: &App,
 ) -> Option<AnyElement> {
     let printed = output.filter(|text| !text.trim().is_empty())?;
-    let muted = cx.theme().muted_foreground;
     let mut column = v_flex().w_full().min_w_0().gap_1().pl_5().pt_1();
     // A settled log is COMPACT until it is asked for: the headline already
     // says what ran and whether it failed.
@@ -810,7 +813,7 @@ pub(crate) fn render_wire_extras(
             cx,
         ));
     }
-    column = column.child(fold_toggle(item, expanded, on_toggle, muted));
+    column = column.child(fold_toggle(item, expanded, on_toggle, cx));
     Some(column.into_any_element())
 }
 
