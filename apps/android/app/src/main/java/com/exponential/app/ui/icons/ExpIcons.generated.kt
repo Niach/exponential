@@ -1339,6 +1339,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `circle-minus`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "circle-minus",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M2 12A10 10 0 1 0 22 12A10 10 0 1 0 2 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 12h8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `circle-question-mark`: ImageVector by lazy {
         ImageVector.Builder(
             name = "circle-question-mark",
@@ -6522,6 +6547,7 @@ public object ExpIcons {
         "circle-check" -> `circle-check`
         "circle-dashed" -> `circle-dashed`
         "circle-dot" -> `circle-dot`
+        "circle-minus" -> `circle-minus`
         "circle-question-mark" -> `circle-question-mark`
         "circle-slash" -> `circle-slash`
         "circle-stop" -> `circle-stop`
@@ -7035,6 +7061,8 @@ public object ExpIcons {
     public val uiHelp: ImageVector get() = `circle-question-mark`
     /** Concept `ui-icon-placeholder`. */
     public val uiIconPlaceholder: ImageVector get() = `circle-dashed`
+    /** Concept `ui-indeterminate`. */
+    public val uiIndeterminate: ImageVector get() = `circle-minus`
     /** Concept `ui-info`. */
     public val uiInfo: ImageVector get() = `info`
     /** Concept `ui-invite`. */

@@ -754,8 +754,12 @@ describe(`the Tier A pickers (EXP-941)`, () => {
     expect(occurrences(markup, `data-selected-glyph="check"`)).toBe(1)
     // …multi marks EVERY row with the leading circle pair, never a checkbox.
     expect(occurrences(markup, `data-selected-glyph="selected"`)).toBe(2)
-    expect(occurrences(markup, `data-selected-glyph="unselected"`)).toBe(2)
+    expect(occurrences(markup, `data-selected-glyph="unselected"`)).toBe(1)
+    // …and a row that is on SOME of the edited issues wears the third glyph
+    // (EXP-957), never a Minus beside a blank gutter.
+    expect(occurrences(markup, `data-selected-glyph="indeterminate"`)).toBe(1)
     expect(markup).not.toContain(`data-slot="checkbox"`)
+    expect(spec(`combobox`).blurb).toContain(`ComboboxMenuItems`)
     // And "nothing picked" is a ROW that reports null, not a sentinel string.
     expect(occurrences(markup, `data-combobox-none="true"`)).toBe(1)
     // A closed portal renders nothing, so the demo carries the trigger AND

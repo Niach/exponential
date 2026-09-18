@@ -1,28 +1,30 @@
-import { Tag, UserX, X } from "lucide-react"
+import { Tag, UserX } from "lucide-react"
 import type { Issue, Label, Board, User } from "@/db/schema"
 import { getIssuePriorityConfig, issuePriorityOptions } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import {
   StatusIcon,
-  statusColorClass,
-  statusColorStyle,
+  toStatusMenuOptions,
 } from "@/components/issue-properties/status-dropdown"
 import {
-  ICON_COMPONENTS,
+  ComboboxMenuItems,
   conceptIcon,
-  ContextMenuCheckboxItem,
-  ContextMenuItem,
-  ContextMenuRadioGroup,
-  ContextMenuRadioItem,
   ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   UserAvatar,
+  type PickerOption,
 } from "@exp/ui"
 import { displayUserName } from "@/lib/user-display"
 import { BoardGlyph } from "@/components/board-glyph"
+
+// EXP-957 — every submenu BODY here is the Combobox's menu arm: the rows are
+// `ComboboxMenuItems` over `PickerOption`s, so the selection glyph is the
+// primitive's (a trailing `ui-check`, or the circle pair on the multi arm) and
+// not the menu's own radio dot / checkbox tick. The triggers stay hand-drawn:
+// they mirror the ROW's current value (EXP-59), which is not a picker concern.
 
 // EXP-687: "Move to board" draws the SAME glyph on all four clients.
 const NavBoardsIcon = conceptIcon(`nav-boards`)
@@ -53,25 +55,17 @@ export function StatusSubmenu({
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[14rem]">
-        <ContextMenuRadioGroup value={status.id}>
-          {options.map((option) => {
-            const Icon = ICON_COMPONENTS[option.icon]
-
-            return (
-              <ContextMenuRadioItem
-                key={option.id}
-                value={option.id}
-                onSelect={() => onSelect(option)}
-              >
-                <Icon
-                  className={`size-4 ${statusColorClass(option)}`}
-                  style={statusColorStyle(option)}
-                />
-                {option.name}
-              </ContextMenuRadioItem>
-            )
-          })}
-        </ContextMenuRadioGroup>
+        <ComboboxMenuItems
+          menu="context"
+          options={toStatusMenuOptions(options)}
+          value={status.id}
+          onChange={(id) => {
+            const picked = options.find((option) => option.id === id)
+            if (picked) {
+              onSelect(picked)
+            }
+          }}
+        />
       </ContextMenuSubContent>
     </ContextMenuSub>
   )
@@ -92,6 +86,15 @@ export function AssigneeSubmenu({
   topLevelValueClass,
   onSelect,
 }: AssigneeSubmenuProps) {
+  // The same rows the `AssigneePicker` builds: the id is the identity, the
+  // name and the email are only search terms.
+  const options: PickerOption[] = orderedUsers.map((user) => ({
+    value: user.id,
+    label: displayUserName(user, user.id),
+    keywords: [displayUserName(user, user.id), user.email ?? ``],
+  }))
+  const usersById = new Map(orderedUsers.map((user) => [user.id, user]))
+
   return (
     <ContextMenuSub>
       <ContextMenuSubTrigger>
@@ -116,38 +119,29 @@ export function AssigneeSubmenu({
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[15rem]">
-        <ContextMenuRadioGroup value={assigneeId ?? `__unassigned__`}>
-          <ContextMenuRadioItem
-            value="__unassigned__"
-            onSelect={() => onSelect(null)}
-          >
-            <X className="size-4 text-muted-foreground" />
-            Unassigned
-          </ContextMenuRadioItem>
-
-          {orderedUsers.length === 0 ? (
-            <ContextMenuItem disabled inset>
-              No team members yet
-            </ContextMenuItem>
-          ) : (
-            orderedUsers.map((user) => {
-              const name = displayUserName(user, user.id)
-              return (
-                <ContextMenuRadioItem
-                  key={user.id}
-                  value={user.id}
-                  onSelect={() => onSelect(user.id)}
-                >
-                  <UserAvatar
-                    size={20}
-                    user={{ id: user.id, name, image: user.image }}
-                  />
-                  <span className="truncate">{name}</span>
-                </ContextMenuRadioItem>
-              )
-            })
+        <ComboboxMenuItems
+          menu="context"
+          options={options}
+          value={assigneeId}
+          onChange={onSelect}
+          noneLabel="Unassigned"
+          emptyText="No team members yet"
+          renderOption={(option) => (
+            <>
+              <UserAvatar
+                size={20}
+                user={{
+                  id: option.value,
+                  name: String(option.label),
+                  image: usersById.get(option.value)?.image ?? null,
+                }}
+              />
+              <span className="min-w-0 flex-1 truncate text-sm">
+                {option.label}
+              </span>
+            </>
           )}
-        </ContextMenuRadioGroup>
+        />
       </ContextMenuSubContent>
     </ContextMenuSub>
   )
@@ -179,22 +173,17 @@ export function PrioritySubmenu({
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[14rem]">
-        <ContextMenuRadioGroup value={priority}>
-          {issuePriorityOptions.map((option) => {
-            const Icon = option.icon
-
-            return (
-              <ContextMenuRadioItem
-                key={option.value}
-                value={option.value}
-                onSelect={() => onSelect(option.value)}
-              >
-                <Icon className={`size-4 ${option.color}`} />
-                {option.label}
-              </ContextMenuRadioItem>
-            )
-          })}
-        </ContextMenuRadioGroup>
+        <ComboboxMenuItems
+          menu="context"
+          options={issuePriorityOptions}
+          value={priority}
+          onChange={(next) => {
+            // There is no none row here, so the single arm never reports null.
+            if (next) {
+              onSelect(next)
+            }
+          }}
+        />
       </ContextMenuSubContent>
     </ContextMenuSub>
   )
@@ -218,9 +207,13 @@ export function BoardSubmenu({
   topLevelValueClass,
   onSelect,
 }: BoardSubmenuProps) {
-  const currentName = boards.find(
-    (board) => board.id === boardId
-  )?.name
+  const boardsById = new Map(boards.map((board) => [board.id, board]))
+  const currentName = boardsById.get(boardId)?.name
+  const options: PickerOption[] = boards.map((board) => ({
+    value: board.id,
+    label: board.name,
+    disabled: board.id === boardId,
+  }))
 
   return (
     <ContextMenuSub>
@@ -232,29 +225,28 @@ export function BoardSubmenu({
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[15rem]">
-        <ContextMenuRadioGroup value={boardId}>
-          {boards.length === 0 ? (
-            <ContextMenuItem disabled inset>
-              No boards yet
-            </ContextMenuItem>
-          ) : (
-            boards.map((board) => (
-              <ContextMenuRadioItem
-                key={board.id}
-                value={board.id}
-                disabled={board.id === boardId}
-                onSelect={() => {
-                  if (board.id !== boardId) {
-                    onSelect(board.id)
-                  }
-                }}
-              >
-                <BoardGlyph board={board} className="size-3.5" />
-                <span className="truncate">{board.name}</span>
-              </ContextMenuRadioItem>
-            ))
-          )}
-        </ContextMenuRadioGroup>
+        <ComboboxMenuItems
+          menu="context"
+          options={options}
+          value={boardId}
+          onChange={(next) => {
+            if (next && next !== boardId) {
+              onSelect(next)
+            }
+          }}
+          emptyText="No boards yet"
+          renderOption={(option) => {
+            const board = boardsById.get(option.value)
+            return (
+              <>
+                {board && <BoardGlyph board={board} className="size-3.5" />}
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {option.label}
+                </span>
+              </>
+            )
+          }}
+        />
       </ContextMenuSubContent>
     </ContextMenuSub>
   )
@@ -275,6 +267,11 @@ export function LabelsSubmenu({
 }: LabelsSubmenuProps) {
   const labelsLabel =
     selectedLabelIds.size > 0 ? `${selectedLabelIds.size} selected` : `None`
+  const options: PickerOption[] = labels.map((label) => ({
+    value: label.id,
+    label: label.name,
+    dot: label.color,
+  }))
 
   return (
     <ContextMenuSub>
@@ -286,28 +283,30 @@ export function LabelsSubmenu({
         </ContextMenuShortcut>
       </ContextMenuSubTrigger>
       <ContextMenuSubContent className="w-[15rem]">
-        {labels.length === 0 ? (
-          <ContextMenuItem disabled inset>
-            No labels yet
-          </ContextMenuItem>
-        ) : (
-          labels.map((label) => (
-            <ContextMenuCheckboxItem
-              key={label.id}
-              checked={selectedLabelIds.has(label.id)}
-              onSelect={(event) => {
-                event.preventDefault()
-                onToggle(label.id)
-              }}
-            >
-              <div
-                className="size-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: label.color }}
-              />
-              <span className="truncate">{label.name}</span>
-            </ContextMenuCheckboxItem>
-          ))
-        )}
+        <ComboboxMenuItems
+          menu="context"
+          multiple
+          options={options}
+          value={[...selectedLabelIds]}
+          onChange={(next) => {
+            // The host toggles ONE label at a time (two tRPC calls, add and
+            // remove), so read the single changed id back off the array the
+            // multi arm reports.
+            const added = next.find((id) => !selectedLabelIds.has(id))
+            if (added !== undefined) {
+              onToggle(added)
+              return
+            }
+            const nextIds = new Set(next)
+            const removed = [...selectedLabelIds].find(
+              (id) => !nextIds.has(id)
+            )
+            if (removed !== undefined) {
+              onToggle(removed)
+            }
+          }}
+          emptyText="No labels yet"
+        />
       </ContextMenuSubContent>
     </ContextMenuSub>
   )

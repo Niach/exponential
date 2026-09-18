@@ -4,6 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
 import type { Board, Issue, Label, User } from "@/db/schema"
 
+// cmdk (the Combobox rows the submenus render) measures with ResizeObserver
+// and scrolls the active row into view; jsdom has neither.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub as never
+Element.prototype.scrollIntoView ??= function scrollIntoView() {}
+
 const mockState = vi.hoisted(() => ({
   addLabelMutate: vi.fn(),
   createRelationMutate: vi.fn(),
@@ -71,83 +81,72 @@ vi.mock(`@/components/issue-picker-dialog`, () => ({
     ) : null,
 }))
 
-vi.mock(`@exp/ui`, async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  ContextMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  ContextMenuTrigger: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuLabel: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuSeparator: () => <hr />,
-  ContextMenuSub: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuSubContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuSubTrigger: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuShortcut: ({ children }: { children: ReactNode }) => (
-    <span>{children}</span>
-  ),
-  ContextMenuGroup: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuRadioGroup: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  ContextMenuItem: ({
-    children,
-    disabled,
-    onSelect,
-  }: {
-    children: ReactNode
-    disabled?: boolean
-    onSelect?: (event: Event) => void
-  }) => (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onSelect?.({ preventDefault() {} } as Event)}
-    >
-      {children}
-    </button>
-  ),
-  ContextMenuRadioItem: ({
-    children,
-    onSelect,
-  }: {
-    children: ReactNode
-    onSelect?: (event: Event) => void
-  }) => (
-    <button
-      type="button"
-      onClick={() => onSelect?.({ preventDefault() {} } as Event)}
-    >
-      {children}
-    </button>
-  ),
-  ContextMenuCheckboxItem: ({
-    children,
-    onSelect,
-  }: {
-    children: ReactNode
-    onSelect?: (event: Event) => void
-  }) => (
-    <button
-      type="button"
-      onClick={() => onSelect?.({ preventDefault() {} } as Event)}
-    >
-      {children}
-    </button>
-  ),
-}))
+vi.mock(`@exp/ui`, async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+  // EXP-957: the ContextMenu* wrappers below are plain divs, so there is no
+  // Radix menu root for the real `ComboboxMenuItems` rows to live in. Swap in
+  // the Combobox's OTHER arm — cmdk renders fine in jsdom — so the selection
+  // arithmetic and the row labels stay the primitive's, not a stub's.
+  const ComboboxList = actual.ComboboxList as (
+    props: Record<string, unknown>
+  ) => ReactNode
+
+  return {
+    ...actual,
+    ComboboxMenuItems: ({
+      menu: _menu,
+      emptyText: _emptyText,
+      ...props
+    }: Record<string, unknown>) => (
+      <ComboboxList {...props} searchable={false} />
+    ),
+    ContextMenu: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuTrigger: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuContent: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuLabel: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuSeparator: () => <hr />,
+    ContextMenuSub: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuSubContent: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuSubTrigger: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuShortcut: ({ children }: { children: ReactNode }) => (
+      <span>{children}</span>
+    ),
+    ContextMenuGroup: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    ContextMenuItem: ({
+      children,
+      disabled,
+      onSelect,
+    }: {
+      children: ReactNode
+      disabled?: boolean
+      onSelect?: (event: Event) => void
+    }) => (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onSelect?.({ preventDefault() {} } as Event)}
+      >
+        {children}
+      </button>
+    ),
+  }
+})
 
 function buildIssue(overrides: Partial<Issue> = {}): Issue {
   return {

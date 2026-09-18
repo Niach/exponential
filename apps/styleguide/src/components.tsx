@@ -319,6 +319,12 @@ const LABEL_OPTIONS: PickerOption[] = [
   { value: `docs`, label: `docs`, dot: `#22c55e` },
 ]
 
+/* The same labels mid bulk-edit (EXP-957): `checked` overrides membership in
+   `value` for the glyph, so "design" reads as on-some without being picked. */
+const BULK_LABEL_OPTIONS: PickerOption[] = LABEL_OPTIONS.map((option) =>
+  option.value === `design` ? { ...option, checked: `indeterminate` } : option
+)
+
 /* Local midnight, the way `parseDateValue` reads the wire format — `new
    Date("2026-03-08")` alone is UTC and renders the 7th west of Greenwich. */
 const DUE_DATE_FIXTURE = new Date(`2026-03-08T00:00:00`)
@@ -2627,12 +2633,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `combobox`,
     title: `Combobox`,
     kind: `Inputs & pickers`,
-    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. The demo shows both triggers beside the bare ComboboxList, since a closed portal renders nothing.`,
+    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. The demo shows both triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all.`,
     status: {
       web: ok(
-        `Combobox / ComboboxList`,
+        `Combobox / ComboboxList / ComboboxMenuItems`,
         `packages/ui/src/combobox.tsx`,
-        `PickerOption (picker-option.ts) is the row shape; ComboboxList is the body without the popover`
+        `PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu`
       ),
       desktop: leftover(
         `pickers::board_picker_popover`,
@@ -2650,6 +2656,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `only the ROW is shared — every picker sheet re-assembles sheet + search field + rows by hand`
       ),
     },
+    leftovers: [
+      { file: `apps/web/src/components/issue-run-switcher.tsx`, note: `run rows are DropdownMenuCheckboxItem: the menu's tick, not the picker's check` },
+      { file: `apps/web/src/components/mobile-face-switcher.tsx`, note: `same run rows as the run switcher, on the phone face menu` },
+    ],
     island: () => (
       <div className="grid gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -2685,10 +2695,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
               placeholder="Search people"
             />
           </div>
+          {/* A bulk edit: "design" sits on SOME of the edited issues. */}
           <div className="w-[14rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
             <ComboboxList
               multiple
-              options={LABEL_OPTIONS}
+              options={BULK_LABEL_OPTIONS}
               value={[`bug`, `mobile`]}
               onChange={noop}
               max={3}

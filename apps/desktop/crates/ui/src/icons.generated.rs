@@ -138,6 +138,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "circle-check" => ExpIcon::CircleCheck,
         "circle-dashed" => ExpIcon::CircleDashed,
         "circle-dot" => ExpIcon::CircleDot,
+        "circle-minus" => ExpIcon::CircleMinus,
         "circle-question-mark" => ExpIcon::CircleQuestionMark,
         "circle-slash" => ExpIcon::CircleSlash,
         "circle-stop" => ExpIcon::CircleStop,
@@ -652,6 +653,8 @@ pub const UI_GITHUB: ExpIcon = ExpIcon::Github;
 pub const UI_HELP: ExpIcon = ExpIcon::CircleQuestionMark;
 /// Registry concept `ui-icon-placeholder` -> Lucide `circle-dashed`.
 pub const UI_ICON_PLACEHOLDER: ExpIcon = ExpIcon::CircleDashed;
+/// Registry concept `ui-indeterminate` -> Lucide `circle-minus`.
+pub const UI_INDETERMINATE: ExpIcon = ExpIcon::CircleMinus;
 /// Registry concept `ui-info` -> Lucide `info`.
 pub const UI_INFO: ExpIcon = ExpIcon::Info;
 /// Registry concept `ui-invite` -> Lucide `user-plus`.

@@ -1,20 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
-import {
-  Check,
-  Flag,
-  ListTodo,
-  Minus,
-  Tag,
-  Trash2,
-  CircleUser,
-  X,
-} from "lucide-react"
+import { Flag, ListTodo, Tag, Trash2, CircleUser, X } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import {
   conceptIcon,
-  ICON_COMPONENTS,
   Button,
+  ComboboxMenuItems,
   Pill,
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +13,7 @@ import {
   DropdownMenuTrigger,
   Separator,
   UserAvatar,
+  type PickerOption,
 } from "@exp/ui"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
@@ -40,10 +32,7 @@ import {
   statusUpdatePayload,
   type StatusRowOption,
 } from "@/lib/team-statuses"
-import {
-  statusColorClass,
-  statusColorStyle,
-} from "@/components/issue-properties/status-dropdown"
+import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import { displayUserName } from "@/lib/user-display"
 
 // Bulk action bar: rendered by the board / My Issues views as an in-flow row
@@ -75,6 +64,20 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks
 }
 
+// EXP-957: what the WHOLE selection already reads as for one property — the
+// value every selected issue shares, or `mixed` when they disagree. `null` is
+// a real value for a nullable field (an unassigned issue), so the two are
+// reported separately: `mixed` is what the menus pass as `indeterminate`, and
+// it is the only thing that tells "all unassigned" from "they disagree".
+function sharedValue<T>(
+  issues: Issue[],
+  read: (issue: Issue) => T
+): { value: T | null; mixed: boolean } {
+  const first = issues.length > 0 ? read(issues[0]!) : null
+  const mixed = issues.some((issue) => read(issue) !== first)
+  return { value: mixed ? null : first, mixed }
+}
+
 export function BulkActionBar({
   issues,
   issueLabelMap,
@@ -85,7 +88,11 @@ export function BulkActionBar({
 }: BulkActionBarProps) {
   const [busy, setBusy] = useState(false)
   const issueIds = useMemo(() => issues.map((issue) => issue.id), [issues])
-  const { options: teamStatusOptions } = useTeamStatusesContext()
+  const {
+    options: teamStatusOptions,
+    byId: statusById,
+    resolve: resolveStatus,
+  } = useTeamStatusesContext()
 
   // EXP-698 r5: while a selection lives, THIS bar is the phone's bottom
   // chrome — the tab bar and its FAB step aside (`use-mobile-chrome.tsx`),
@@ -100,6 +107,47 @@ export function BulkActionBar({
   const orderedUsers = useMemo(
     () => [...users].sort((left, right) => left.name.localeCompare(right.name)),
     [users]
+  )
+
+  // EXP-957 — the menu rows and the value they mark. `statusRows` stays around
+  // beside its menu options because a pick reports an id and `applyStatus`
+  // needs the ROW (the fallback set's synthetic ids are not in `statusById`).
+  const statusRows = useMemo(
+    () => creatableStatusOptions(teamStatusOptions),
+    [teamStatusOptions]
+  )
+  const statusMenuOptions = useMemo(
+    () => toStatusMenuOptions(statusRows),
+    [statusRows]
+  )
+  const sharedStatus = useMemo(
+    () => sharedValue(issues, (issue) => resolveStatus(issue).id),
+    [issues, resolveStatus]
+  )
+  const sharedPriority = useMemo(
+    () => sharedValue(issues, (issue) => issue.priority),
+    [issues]
+  )
+  const sharedAssignee = useMemo(
+    () => sharedValue(issues, (issue) => issue.assigneeId),
+    [issues]
+  )
+
+  const usersById = useMemo(
+    () => new Map(orderedUsers.map((user) => [user.id, user])),
+    [orderedUsers]
+  )
+  const assigneeOptions = useMemo<PickerOption[]>(
+    () =>
+      orderedUsers.map((user) => {
+        const name = displayUserName(user, user.id)
+        return {
+          value: user.id,
+          label: name,
+          keywords: [name, user.email ?? ``],
+        }
+      }),
+    [orderedUsers]
   )
 
   // Sequential chunk loop; awaiting only the LAST txId is enough — Electric
@@ -176,6 +224,47 @@ export function BulkActionBar({
             }),
       (txId) => issueLabelCollection.utils.awaitTxId(txId)
     )
+  }
+
+  // The multi arm's `checked` carries the tri-state (a label on SOME of the
+  // selection is `"indeterminate"`); `value` stays the honest membership array
+  // the toggle arithmetic runs on, so `onChange` reports exactly one changed
+  // id — the row that was picked.
+  const labelOptions = useMemo<PickerOption[]>(
+    () =>
+      labels.map((label) => {
+        const state = labelState(label)
+        return {
+          value: label.id,
+          label: label.name,
+          dot: label.color,
+          checked:
+            state === `all`
+              ? true
+              : state === `some`
+                ? (`indeterminate` as const)
+                : false,
+        }
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- labelState reads exactly these.
+    [labels, issues, issueLabelMap]
+  )
+  const selectedLabelIds = useMemo(
+    () =>
+      labelOptions
+        .filter((option) => option.checked === true)
+        .map((option) => option.value),
+    [labelOptions]
+  )
+
+  const toggleLabelId = (next: string[]) => {
+    const before = new Set(selectedLabelIds)
+    const after = new Set(next)
+    const toggledId =
+      next.find((id) => !before.has(id)) ??
+      selectedLabelIds.find((id) => !after.has(id))
+    const label = labels.find((row) => row.id === toggledId)
+    if (label) void toggleLabel(label)
   }
 
   const deleteSelected = async () => {
@@ -261,25 +350,27 @@ export function BulkActionBar({
             collisionPadding={12}
             className="w-[11rem]"
           >
-            {/* No duplicate-CATEGORY row here: bulk marking has no
+            {/* EXP-957: the rows are the Combobox's MENU arm, so the mark
+              shows what the whole selection ALREADY has — a bulk menu used to
+              show no current value at all. Nothing is marked when the selected
+              issues disagree (`indeterminate`).
+              No duplicate-CATEGORY row here: bulk marking has no
               canonical-issue picker, and status='duplicate' without
               duplicateOfId breaks the pairing invariant (single-issue paths
               intercept via the picker). */}
-            {creatableStatusOptions(teamStatusOptions).map((option) => {
-              const Icon = ICON_COMPONENTS[option.icon]
-              return (
-                <DropdownMenuItem
-                  key={option.id}
-                  onSelect={() => void applyStatus(option)}
-                >
-                  <Icon
-                    className={`size-4 ${statusColorClass(option)}`}
-                    style={statusColorStyle(option)}
-                  />
-                  {option.name}
-                </DropdownMenuItem>
-              )
-            })}
+            <ComboboxMenuItems
+              menu="dropdown"
+              options={statusMenuOptions}
+              value={sharedStatus.value}
+              indeterminate={sharedStatus.mixed}
+              onChange={(statusId) => {
+                if (statusId === null) return
+                const row =
+                  statusById.get(statusId) ??
+                  statusRows.find((option) => option.id === statusId)
+                if (row) void applyStatus(row)
+              }}
+            />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -302,18 +393,16 @@ export function BulkActionBar({
             collisionPadding={12}
             className="w-[11rem]"
           >
-            {issuePriorityOptions.map((option) => {
-              const Icon = option.icon
-              return (
-                <DropdownMenuItem
-                  key={option.value}
-                  onSelect={() => void applyPriority(option.value)}
-                >
-                  <Icon className={`size-4 ${option.color}`} />
-                  {option.label}
-                </DropdownMenuItem>
-              )
-            })}
+            <ComboboxMenuItems
+              menu="dropdown"
+              options={issuePriorityOptions}
+              value={sharedPriority.value}
+              indeterminate={sharedPriority.mixed}
+              onChange={(priority) => {
+                if (priority === null) return
+                void applyPriority(priority)
+              }}
+            />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -339,25 +428,31 @@ export function BulkActionBar({
               collisionPadding={12}
               className="w-[13rem]"
             >
-              <DropdownMenuItem onSelect={() => void applyAssignee(null)}>
-                <X className="size-4 text-muted-foreground" />
-                Unassigned
-              </DropdownMenuItem>
-              {orderedUsers.map((user) => {
-                const name = displayUserName(user, user.id)
-                return (
-                  <DropdownMenuItem
-                    key={user.id}
-                    onSelect={() => void applyAssignee(user.id)}
-                  >
+              {/* "Unassigned" is the primitive's none row now, and it is
+                marked only when EVERY selected issue is unassigned. */}
+              <ComboboxMenuItems
+                menu="dropdown"
+                options={assigneeOptions}
+                value={sharedAssignee.value}
+                indeterminate={sharedAssignee.mixed}
+                noneLabel="Unassigned"
+                onChange={(assigneeId) => void applyAssignee(assigneeId)}
+                renderOption={(option) => (
+                  <>
                     <UserAvatar
                       size={20}
-                      user={{ id: user.id, name, image: user.image }}
+                      user={{
+                        id: option.value,
+                        name: String(option.label),
+                        image: usersById.get(option.value)?.image ?? null,
+                      }}
                     />
-                    <span className="truncate">{name}</span>
-                  </DropdownMenuItem>
-                )
-              })}
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {option.label}
+                    </span>
+                  </>
+                )}
+              />
             </DropdownMenuContent>
           </DropdownMenu>
         )}
@@ -381,37 +476,18 @@ export function BulkActionBar({
             collisionPadding={12}
             className="w-[13rem]"
           >
-            {labels.length === 0 ? (
-              <DropdownMenuItem disabled>No labels yet</DropdownMenuItem>
-            ) : (
-              labels.map((label) => {
-                const state = labelState(label)
-                return (
-                  <DropdownMenuItem
-                    key={label.id}
-                    // preventDefault keeps the menu open across toggles so a
-                    // multi-label sweep is one visit.
-                    onSelect={(event) => {
-                      event.preventDefault()
-                      void toggleLabel(label)
-                    }}
-                  >
-                    <span className="flex size-4 shrink-0 items-center justify-center">
-                      {state === `all` ? (
-                        <Check className="size-4" />
-                      ) : state === `some` ? (
-                        <Minus className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </span>
-                    <div
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: label.color }}
-                    />
-                    <span className="truncate">{label.name}</span>
-                  </DropdownMenuItem>
-                )
-              })
-            )}
+            {/* The tri-state (on all / on some / on none of the selection) is
+              the primitive's circle-check / circle-minus / circle glyph, and
+              the multi arm keeps the menu open by itself, so a multi-label
+              sweep is still one visit. */}
+            <ComboboxMenuItems
+              menu="dropdown"
+              multiple
+              options={labelOptions}
+              value={selectedLabelIds}
+              onChange={toggleLabelId}
+              emptyText="No labels yet"
+            />
           </DropdownMenuContent>
         </DropdownMenu>
 

@@ -10,6 +10,15 @@ import {
   CommandItem,
   CommandList,
 } from "./command"
+import {
+  ComboboxOptionBody,
+  SelectionGlyph,
+  isMultiple,
+  resolveSelection,
+  selectedValuesOf,
+  type ComboboxSelection,
+  type RenderComboboxOption,
+} from "./combobox-core"
 import { GLASS_SELECT_TRIGGER } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
 import {
@@ -46,11 +55,11 @@ import { Pill } from "./pill"
 // `ComboboxList` is the same body without the popover, for an inline host (a
 // tab, a sheet that is already open) and for the styleguide island — a closed
 // Radix portal renders nothing, so the gallery shows the trigger beside the
-// bare list.
+// bare list. `ComboboxMenuItems` (combobox-menu.tsx, EXP-957) is the third
+// arm: the same rows as items INSIDE a Radix menu, for the right-click
+// submenus and the bulk bar. The selection arithmetic and the glyph live in
+// combobox-core.tsx, shared by every arm and exported by none.
 
-const CheckGlyph = conceptIcon(`ui-check`)
-const SelectedGlyph = conceptIcon(`ui-selected`)
-const UnselectedGlyph = conceptIcon(`ui-unselected`)
 const ChevronGlyph = conceptIcon(`ui-chevron-down`)
 
 /** The four popover widths the app actually used, as literals — Tailwind
@@ -69,10 +78,7 @@ interface ComboboxListBaseProps<TValue extends string> {
   options: readonly PickerOption<TValue>[]
   /** The row BODY only. The selection glyph stays the primitive's, so a
    *  custom row can never invent a seventh "this is picked" language. */
-  renderOption?: (
-    option: PickerOption<TValue>,
-    state: { selected: boolean }
-  ) => React.ReactNode
+  renderOption?: RenderComboboxOption<TValue>
   /** The filter field. On by default; pass `false` for a short fixed list. */
   searchable?: boolean
   /** The filter field's placeholder. */
@@ -96,27 +102,6 @@ interface ComboboxListBaseProps<TValue extends string> {
   panel?: React.ReactNode
   className?: string
 }
-
-interface ComboboxSingleSelection<TValue extends string> {
-  multiple?: false
-  value: TValue | null
-  onChange: (value: TValue | null) => void
-  /** A first row that reports `null` ("Unassign", "None"). */
-  noneLabel?: string
-}
-
-interface ComboboxMultiSelection<TValue extends string> {
-  multiple: true
-  value: readonly TValue[]
-  onChange: (value: TValue[]) => void
-  /** At the cap the unselected rows go disabled; the picked ones still toggle
-   *  off, or the user would be stuck. */
-  max?: number
-}
-
-type ComboboxSelection<TValue extends string> =
-  | ComboboxSingleSelection<TValue>
-  | ComboboxMultiSelection<TValue>
 
 type ComboboxListProps<TValue extends string> =
   ComboboxListBaseProps<TValue> & ComboboxSelection<TValue>
@@ -149,54 +134,6 @@ interface ComboboxShellProps<TValue extends string> {
 type ComboboxProps<TValue extends string> = ComboboxListProps<TValue> &
   ComboboxShellProps<TValue>
 
-function isMultiple<TValue extends string>(
-  selection: ComboboxSelection<TValue>
-): selection is ComboboxMultiSelection<TValue> {
-  return selection.multiple === true
-}
-
-function selectedValuesOf<TValue extends string>(
-  selection: ComboboxSelection<TValue>
-): readonly TValue[] {
-  if (isMultiple(selection)) {
-    return selection.value
-  }
-  return selection.value === null ? [] : [selection.value]
-}
-
-/** The row body every option gets unless `renderOption` replaces it. */
-function ComboboxOptionBody<TValue extends string>({
-  option,
-}: {
-  option: PickerOption<TValue>
-}) {
-  const Glyph = option.icon
-  return (
-    <>
-      {option.dot !== undefined && (
-        <span
-          aria-hidden
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: option.dot }}
-        />
-      )}
-      {Glyph ? (
-        <Glyph
-          aria-hidden
-          className={cn(`size-4 shrink-0`, option.color)}
-          style={option.colorHex ? { color: option.colorHex } : undefined}
-        />
-      ) : null}
-      <span className="min-w-0 flex-1 truncate text-sm">{option.label}</span>
-      {option.hint !== undefined && (
-        <span className="ml-2 shrink-0 text-xs text-muted-foreground">
-          {option.hint}
-        </span>
-      )}
-    </>
-  )
-}
-
 /** The picker BODY — search field, rows, footer — with no popover around it.
  *  `Combobox` renders this inside its content; an inline host renders it on
  *  its own. */
@@ -228,26 +165,8 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
     )
   }
 
-  const multiple = isMultiple(props)
-  const selected = selectedValuesOf(props)
-  const selectedSet = new Set<string>(selected)
-  const atCap =
-    isMultiple(props) && props.max !== undefined && selected.length >= props.max
-
-  const pick = (option: PickerOption<TValue>) => {
-    if (isMultiple(props)) {
-      const next = selectedSet.has(option.value)
-        ? props.value.filter((entry) => entry !== option.value)
-        : [...props.value, option.value]
-      props.onChange(next)
-      return
-    }
-    props.onChange(option.value)
-  }
-
-  const single = isMultiple(props) ? undefined : props
-  const noneLabel = single?.noneLabel
-  const nothingPicked = selected.length === 0
+  const selection = resolveSelection(props)
+  const { multiple, noneLabel, noneMarked } = selection
 
   return (
     <Command
@@ -289,22 +208,20 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                   data-combobox-none="true"
                   keywords={[noneLabel]}
                   className="flex items-center gap-2.5"
-                  onSelect={() => single?.onChange(null)}
+                  onSelect={() => selection.pickNone()}
                 >
                   <span className="min-w-0 flex-1 truncate text-sm">
                     {noneLabel}
                   </span>
-                  {nothingPicked && (
-                    <CheckGlyph
-                      aria-hidden
-                      data-selected-glyph="check"
-                      className="ml-auto size-3.5 shrink-0"
-                    />
-                  )}
+                  <SelectionGlyph
+                    arity="single"
+                    state={noneMarked ? `selected` : `unselected`}
+                  />
                 </CommandItem>
               )}
               {options.map((option) => {
-                const isSelected = selectedSet.has(option.value)
+                const state = selection.stateOf(option)
+                const isSelected = state === `selected`
                 return (
                   <CommandItem
                     key={option.value}
@@ -313,44 +230,27 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
                       option.keywords ??
                       (typeof option.label === `string` ? [option.label] : [])
                     }
-                    disabled={
-                      option.disabled === true ||
-                      (multiple && atCap && !isSelected)
+                    disabled={selection.isDisabled(option)}
+                    aria-pressed={
+                      multiple
+                        ? state === `indeterminate`
+                          ? `mixed`
+                          : isSelected
+                        : undefined
                     }
-                    aria-pressed={multiple ? isSelected : undefined}
                     className={cn(
                       `flex items-center gap-2.5`,
                       multiple && isSelected && `bg-glass-active`
                     )}
-                    onSelect={() => pick(option)}
+                    onSelect={() => selection.pick(option)}
                   >
-                    {multiple ? (
-                      isSelected ? (
-                        <SelectedGlyph
-                          aria-hidden
-                          data-selected-glyph="selected"
-                          className="size-4 shrink-0 text-foreground"
-                        />
-                      ) : (
-                        <UnselectedGlyph
-                          aria-hidden
-                          data-selected-glyph="unselected"
-                          className="size-4 shrink-0 text-muted-foreground"
-                        />
-                      )
-                    ) : null}
+                    {multiple && <SelectionGlyph arity="multi" state={state} />}
                     {renderOption ? (
                       renderOption(option, { selected: isSelected })
                     ) : (
                       <ComboboxOptionBody option={option} />
                     )}
-                    {!multiple && isSelected && (
-                      <CheckGlyph
-                        aria-hidden
-                        data-selected-glyph="check"
-                        className="ml-auto size-3.5 shrink-0"
-                      />
-                    )}
+                    {!multiple && <SelectionGlyph arity="single" state={state} />}
                   </CommandItem>
                 )
               })}

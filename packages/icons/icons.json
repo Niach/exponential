@@ -269,6 +269,7 @@
     "ui-repeat": "repeat",
     "ui-selected": "circle-check",
     "ui-unselected": "circle",
+    "ui-indeterminate": "circle-minus",
     "ui-selector": "chevrons-up-down",
     "ui-minus": "minus",
     "ui-clock": "clock",
