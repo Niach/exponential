@@ -33,13 +33,202 @@ use theme::tokens as t;
 /// `focus_bordered(false)` mutes the component's own focused style and the
 /// active stroke rides the caller refinement, which `Input` replays last.
 /// Every `Input` goes through this — construct with it, never `Input::new`.
+///
+/// EXP-963: the corner is the FIELD rung, `radius::LG` (12) — the web
+/// `rounded-lg` input, iOS/Android `GlassTextField`. gpui-component paints
+/// every control at `theme.radius` (the row's 10), which left the desktop's
+/// fields one step tighter than the other three clients'; the refinement is
+/// replayed after the component's own `.rounded(theme.radius)`, so it wins
+/// without forking the theme (buttons and rows keep their 10).
 pub(crate) fn glass_input(state: &Entity<InputState>, window: &Window, cx: &App) -> Input {
     let focused = state.focus_handle(cx).is_focused(window);
     Input::new(state)
         .focus_bordered(false)
+        .rounded(px(t::radius::LG))
         .when(focused, |input| {
             input.border_color(t::glass::STROKE_ACTIVE.to_hsla())
         })
+}
+
+/// The two rungs of the search field (EXP-963, web `SearchField size`):
+/// `Md` is the stock 36px field, `Sm` the 28px one dense columns use (the
+/// diff pane's file filter, a picker's own search row).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SearchFieldSize {
+    Md,
+    Sm,
+}
+
+/// The `Sm` search field's height: the compact ROW rung (web `h-7`, the
+/// sidebar's 28px one-line row — [`crate::surface::flat_row_compact`]), not
+/// a control rung: a filter sits over rows of that height and reads as one
+/// of them.
+pub(crate) const SEARCH_FIELD_SM_H: f32 = 28.;
+
+/// EXP-963 — the ONE "filter this list" field, the desktop twin of the web
+/// `SearchField` and the natives' `GlassSheetSearchField`: the text field
+/// with the `nav-search` glyph INSIDE it and a ghost `ui-clear` circle that
+/// appears only once there is something to clear — and puts the caret back
+/// in the field, so typing continues. It is a [`glass_input`], not a new
+/// box: every chrome decision (fill, hairline, focus stroke, radius) still
+/// comes from there, and a host inside a popover still chains
+/// `.appearance(false)` to go chrome-less.
+///
+/// The clear is OURS, not gpui-component's `cleanable(true)`: that one draws
+/// an `X` from the component's own icon set, and the registry's clear glyph
+/// (the circled cross every other client draws) is a different mark.
+pub(crate) fn search_field(
+    state: &Entity<InputState>,
+    size: SearchFieldSize,
+    window: &Window,
+    cx: &App,
+) -> Input {
+    use gpui_component::button::{Button, ButtonVariants as _};
+    let muted = cx.theme().muted_foreground;
+    let glyph = match size {
+        SearchFieldSize::Md => 16.,
+        SearchFieldSize::Sm => 14.,
+    };
+    let has_text = !state.read(cx).value().is_empty();
+    let input = glass_input(state, window, cx).prefix(
+        Icon::new(crate::icons::registry::NAV_SEARCH)
+            .size(px(glyph))
+            .flex_shrink_0()
+            .text_color(muted),
+    );
+    let input = match size {
+        SearchFieldSize::Md => input.web_input(),
+        // `Styled::h`, named: `Input` has an inherent `h` of its own that
+        // only sizes a MULTI-line editor, and it would shadow the box height.
+        SearchFieldSize::Sm => Styled::h(input.small(), px(SEARCH_FIELD_SM_H)),
+    };
+    if !has_text {
+        return input;
+    }
+    let clear_target = state.clone();
+    input.suffix(
+        Button::new(("search-field-clear", state.entity_id()))
+            .ghost()
+            .cursor_pointer()
+            .xsmall()
+            .tab_stop(false)
+            .icon(
+                Icon::new(crate::icons::registry::UI_CLEAR)
+                    .size(px(glyph))
+                    .text_color(muted),
+            )
+            .tooltip("Clear search")
+            .on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                clear_target.update(cx, |input, cx| input.set_value("", window, cx));
+                clear_target.read(cx).focus_handle(cx).focus(window, cx);
+            }),
+    )
+}
+
+/// Which edge a [`disclosure_header`]'s chevron sits on (web `chevron`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChevronSide {
+    /// Before the label, the way a tree folds (the default).
+    Leading,
+    /// At the far edge after a spacer — for a row whose siblings carry no
+    /// chevron and must not indent out of line with them (the tool row's
+    /// output fold).
+    Trailing,
+}
+
+/// EXP-963 — the DISCLOSURE header, the web `DisclosureHeader` twin: the
+/// one-line fold toggle a feed row, a subagent lane, a tool group or a
+/// workflow agent opens and closes with. Muted at rest and brightening under
+/// the pointer, a 12px chevron pointing right folded and down open, the
+/// WHOLE line the target. `content` is the row's own text and glyphs (an
+/// `h_flex` the caller builds — it keeps every caption and spinner it had);
+/// the caller chains its `.on_click` and its type rung (`tool_text`) after.
+///
+/// It is NOT the group band (`surface::glass_section_band_fold`): that is a
+/// filled strip heading a LIST; this is bare text heading a fold INSIDE a
+/// row. And it may not contain another button — a fold's own action renders
+/// beside it, never inside it.
+pub(crate) fn disclosure_header(
+    id: impl Into<gpui::ElementId>,
+    open: bool,
+    chevron: ChevronSide,
+    content: impl gpui::IntoElement,
+    cx: &App,
+) -> gpui::Stateful<Div> {
+    use gpui::InteractiveElement as _;
+    let theme = cx.theme();
+    let glyph = Icon::new(if open {
+        crate::icons::registry::UI_CHEVRON_DOWN
+    } else {
+        crate::icons::registry::UI_CHEVRON_RIGHT
+    })
+    .xsmall()
+    .flex_shrink_0();
+    let foreground = theme.foreground;
+    let row = div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_center()
+        .cursor_pointer()
+        .text_color(theme.muted_foreground)
+        .hover(move |style| style.text_color(foreground));
+    match chevron {
+        ChevronSide::Leading => row.child(glyph).child(content),
+        ChevronSide::Trailing => row
+            .child(content)
+            .child(div().flex_1().min_w_0())
+            .child(glyph),
+    }
+}
+
+/// The two text-button variants (EXP-963, web `Button variant="text" |
+/// "link"` at `size="inline"`): what happens when the words are pressed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TextButtonVariant {
+    /// Toggles something IN PLACE (a fold's Show more / Show less): muted,
+    /// brightens under the pointer, never underlines.
+    Text,
+    /// GOES somewhere (a session band's "Continues in a newer run"): the
+    /// primary colour, underlined under the pointer.
+    Link,
+}
+
+/// EXP-963 — a control made of WORDS: 12px, no box, no height of its own,
+/// sitting in the run of muted text around it. The caller chains
+/// `.on_click`. Anything that wants a box is the pill or a `Button`.
+pub(crate) fn text_button(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+    variant: TextButtonVariant,
+    cx: &App,
+) -> gpui::Stateful<Div> {
+    use gpui::InteractiveElement as _;
+    let theme = cx.theme();
+    let button = div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .text_xs()
+        .cursor_pointer()
+        .child(label.into());
+    match variant {
+        TextButtonVariant::Text => {
+            let foreground = theme.foreground;
+            button
+                .text_color(theme.muted_foreground)
+                .hover(move |style| style.text_color(foreground))
+        }
+        TextButtonVariant::Link => button
+            .text_color(theme.primary)
+            .hover(|style| style.text_decoration_1()),
+    }
 }
 
 // EXP-698: the rung names match the TOKEN ladder (`size::CONTROL_*`), which
