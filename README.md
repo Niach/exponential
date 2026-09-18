@@ -8,7 +8,7 @@
 **The next generation dev platform for teams.** Issues, customer feedback, and coding agents in one realtime tracker. Agents run on your own machines, on your own subscription. Web, macOS, Linux, Windows, iOS, Android.
 
 <p align="center">
-  <img src="./docs/images/hero.webp" alt="The Exponential board in the browser, with the Start coding sheet on iPhone" width="100%">
+  <img src="./docs/images/hero.webp" alt="The Exponential board in the browser, with the Agent page on iPhone" width="100%">
 </p>
 
 - **Cloud**: [app.exponential.at](https://app.exponential.at/?ref=github), free for up to three people
@@ -18,10 +18,11 @@
 
 ## What you get
 
-- **Issues** with statuses, priorities, labels, due dates, markdown, @mentions. Realtime sync on every client via [ElectricSQL](https://electric-sql.com).
-- **Boards backed by a GitHub repo**: one issue, one branch, one PR, tracked on the issue. Or one combined PR for a batch.
-- **Start coding**: hand an issue to Claude Code or Codex from the desktop app. It plans, codes in a worktree, and opens the PR.
-- **Live steer**: watch and redirect a running session from your phone.
+- **Issues** with statuses, priorities, labels, due dates, markdown, @mentions and #issue references, drafts that follow you across devices. Realtime sync on every client via [ElectricSQL](https://electric-sql.com).
+- **Boards backed by a GitHub repo**: one issue, one branch, one PR, tracked on the issue. One combined PR for a batch, or a stack of PRs for issues that block each other, merged from the review queue.
+- **Start coding**: hand an issue to Claude Code or Codex from any client, on any of your machines. It plans, codes in a worktree, and opens the PR.
+- **One Work screen**: the issue, its run and its changes side by side. Watch the transcript, answer the agent's questions, read the diff and the screenshots it publishes, from your phone or the desktop. Runs keep their history on the machine that ran them.
+- **Your machines, your logins**: every desktop and server lists its agent accounts with plan, usage and reset times; switch a run to another account when one hits its limit.
 - **Actions & automations**: reusable team prompts, run on demand or on a schedule or an issue event, on your own machines.
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts runs on.
 - **Feedback widget & helpdesk**: a script tag for your site; bug reports with annotated screenshots land as issues, support requests as email tickets in a shared inbox.
