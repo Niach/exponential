@@ -16,8 +16,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  ImagePreviewDialog,
 } from "@exp/ui"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import { cn } from "@/lib/utils"
 
 /** Pull the attachment id out of a `/api/attachments/{id}` (relative or

@@ -21,6 +21,7 @@
   "dependencies": {
     "@exp/db-schema": "workspace:*",
     "@exp/domain-contract": "workspace:*",
+    "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",
     "@radix-ui/react-progress": "^1.1.7",
     "@tailwindcss/node": "^4.3.0",

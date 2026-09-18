@@ -1,5 +1,7 @@
+import type { ComponentProps } from "react"
 import type { LucideIcon } from "lucide-react"
 
+import { cn } from "./cn"
 import { IconDisc } from "./icon-disc"
 
 // A centered teaching empty state: icon + title + description + an actions slot.
@@ -25,5 +27,23 @@ export function EmptyState({
         </div>
       )}
     </div>
+  )
+}
+
+// The compact in-list empty line — the same line `CommandEmpty` draws inside a
+// `Command`, for the lists that have no Command around them (the emoji
+// picker's grid). `EmptyState` above is the page-sized one.
+export function ListEmpty({ className, children, ...props }: ComponentProps<`p`>) {
+  return (
+    <p
+      data-slot="list-empty"
+      className={cn(
+        `px-1 py-6 text-center text-sm text-muted-foreground`,
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </p>
   )
 }

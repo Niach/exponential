@@ -1,14 +1,15 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from "react"
-import { Button, GlassSectionHeader } from "@exp/ui"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
+import { Button } from "./button"
+import { GlassSectionHeader } from "./glass-rows"
+import { ImagePreviewDialog } from "./image-preview-dialog"
 import {
   groupSessionResults,
   SESSION_RESULT_TILE_HEIGHT,
   sessionResultTileHeightFitting,
   sessionResultTileWidth,
   type SessionResultEntry,
-} from "@/lib/session-results"
-import { cn } from "@/lib/utils"
+} from "./session-results"
+import { cn } from "./cn"
 
 // EXP-879: the RESULTS face — the screenshots a run published with
 // `exponential_sessions_results`, read off the synced `coding_sessions.results`
@@ -50,10 +51,12 @@ function useContentWidth(ref: RefObject<HTMLElement | null>): number {
 function ResultTile({
   entry,
   height,
+  src,
   onOpen,
 }: {
   entry: SessionResultEntry
   height: number
+  src: string
   onOpen: () => void
 }) {
   return (
@@ -68,7 +71,7 @@ function ResultTile({
       )}
     >
       <img
-        src={`/api/attachments/${entry.attachmentId}`}
+        src={src}
         alt={entry.label}
         loading="lazy"
         // ONE height for the whole page (the 320px base, or the fitted one on
@@ -91,8 +94,12 @@ function ResultTile({
 
 export function SessionResultsView({
   results,
+  attachmentSrc,
 }: {
   results: readonly SessionResultEntry[]
+  /** The URL a published shot reads from — the app owns the route, this
+   *  package only owns the tiles. */
+  attachmentSrc: (attachmentId: string) => string
 }) {
   const [preview, setPreview] = useState<SessionResultEntry | null>(null)
   const groups = groupSessionResults(results)
@@ -118,6 +125,7 @@ export function SessionResultsView({
                 key={`${entry.topic}/${entry.label}/${entry.attachmentId}`}
                 entry={entry}
                 height={height}
+                src={attachmentSrc(entry.attachmentId)}
                 onOpen={() => setPreview(entry)}
               />
             ))}
@@ -130,7 +138,7 @@ export function SessionResultsView({
           onOpenChange={(open) => {
             if (!open) setPreview(null)
           }}
-          src={`/api/attachments/${preview.attachmentId}`}
+          src={attachmentSrc(preview.attachmentId)}
           alt={preview.label}
           label={preview.label}
         />

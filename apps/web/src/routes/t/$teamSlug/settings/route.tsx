@@ -1,10 +1,9 @@
 import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
 import { Fragment, useEffect, useRef, useState } from "react"
-import { Separator, SEGMENTED_ITEM, SEGMENTED_LIST, conceptIcon } from "@exp/ui"
+import { Separator, SEGMENTED_ITEM, SEGMENTED_LIST, conceptIcon, BoardGlyph } from "@exp/ui"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { cn } from "@/lib/utils"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { BoardGlyph } from "@/components/board-glyph"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import {
   NEW_BOARD_LABEL,

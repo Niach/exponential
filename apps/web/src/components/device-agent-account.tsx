@@ -41,6 +41,7 @@ import type {
   DeviceAgentProfileEntry,
 } from "@/db/schema"
 import {
+  agentLabel,
   conceptIcon,
   Button,
   Input,
@@ -75,7 +76,6 @@ import {
 } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
-import { agentLabel } from "@/components/agent-picker"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
 const SwapIcon = conceptIcon(`ui-swap`)

@@ -14,6 +14,7 @@ import {
   SheetTitle,
   Input,
   TYPEAHEAD_PORTAL_SELECTOR,
+  BoardGlyph,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
 import type { IssuePriority } from "@/lib/domain"
@@ -23,7 +24,6 @@ import {
   type MarkdownEditorImageUploadConfig,
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
-import { BoardGlyph } from "@/components/board-glyph"
 import { IssueEditorChips } from "@/components/issue-editor/chips"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 

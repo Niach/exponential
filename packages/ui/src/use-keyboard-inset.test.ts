@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
-import { useKeyboardInset } from "@/hooks/use-keyboard-inset"
+import { useKeyboardInset } from "./use-keyboard-inset"
 
 // EXP-568 — the phone formatting bar rides this value, so a missed listener
 // leaves the rail parked under the keyboard (resize) or drifting off the

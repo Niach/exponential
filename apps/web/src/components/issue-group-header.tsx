@@ -1,13 +1,9 @@
 import type { CSSProperties, ReactNode } from "react"
 
-import {
-  statusColorClass,
-  statusColorStyle,
-} from "@/components/issue-properties/status-dropdown"
+import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { type IssueStatus } from "@/lib/domain"
-import { conceptIcon, ICON_COMPONENTS, hexWithAlpha } from "@exp/ui"
+import { IssueGroupBand, hexWithAlpha } from "@exp/ui"
 import type { StatusRowOption } from "@/lib/team-statuses"
-import { cn } from "@/lib/utils"
 
 // EXP-862: ONE issue group band on the web. The board's big list and the
 // sidebar's issue lists (the board list nav, My issues) draw the SAME header
@@ -16,10 +12,9 @@ import { cn } from "@/lib/utils"
 // `render_board_nav` / `render_my_issues_nav` take the big list's band the
 // same way.
 //
-// Two densities: `list` is the board page's sticky, edge-to-edge band,
-// `compact` the 17rem sidebar's rounded strip.
-
-const ChevronRightGlyph = conceptIcon(`ui-chevron-right`)
+// EXP-961: the band itself is `IssueGroupBand` in @exp/ui; this file is the
+// DATA half — it resolves a team status row into the band's glyph and wash,
+// the way `components/issue-chip.tsx` does for `IssueChip`.
 
 // Status-tinted washes — the Tailwind palette colors the old rgba literals
 // encoded (zinc-500/zinc-300/yellow-500/green-500/blue-500), matching the
@@ -50,9 +45,6 @@ export function statusGroupWash(status: StatusRowOption): Wash {
   }
 }
 
-/** Mobile's un-tinted header (EXP-620). */
-const NO_WASH: Wash = { className: `` }
-
 export function IssueGroupHeader({
   status,
   count,
@@ -78,52 +70,21 @@ export function IssueGroupHeader({
   density?: `list` | `compact`
   className?: string
 }) {
-  const Icon = ICON_COMPONENTS[status.icon]
-  const wash = tinted ? statusGroupWash(status) : NO_WASH
-  const compact = density === `compact`
   return (
-    <div
-      data-slot="issue-group-header"
-      className={cn(
-        `group flex items-center justify-between`,
-        compact
-          ? `mb-1 rounded-md px-2 py-1`
-          : // md+: backdrop-blur is load-bearing — the tint is translucent and
-            // rows scroll under the sticky band. Below md there is no band and
-            // no pinning (EXP-620), so the content just sits 24px in (the
-            // 16px gutter plus 8px).
-            `max-md:px-2 max-md:py-2 md:sticky md:top-0 md:z-10 md:border-b md:border-border/40 md:py-1.5 md:pl-3 md:pr-6 md:backdrop-blur-md`,
-        wash.className,
-        className
-      )}
-      style={wash.style}
-    >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-      >
-        <ChevronRightGlyph
-          className={cn(
-            `size-3 shrink-0 text-muted-foreground transition-transform duration-fast ease-standard motion-reduce:transition-none`,
-            open && `rotate-90`
-          )}
-        />
-        {Icon && (
-          <Icon
-            className={cn(`size-3.5 shrink-0`, statusColorClass(status))}
-            style={statusColorStyle(status)}
-          />
-        )}
-        <span className="min-w-0 truncate text-sm font-medium">
-          {status.name}
-        </span>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {count}
-        </span>
-      </button>
-      {trailing}
-    </div>
+    <IssueGroupBand
+      glyph={{
+        icon: status.icon,
+        colorClass: statusColorClass(status),
+        colorHex: status.builtinKey ? undefined : status.colorHex,
+      }}
+      name={status.name}
+      count={count}
+      open={open}
+      onToggle={onToggle}
+      trailing={trailing}
+      wash={tinted ? statusGroupWash(status) : undefined}
+      density={density}
+      className={className}
+    />
   )
 }

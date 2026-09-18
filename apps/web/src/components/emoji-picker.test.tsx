@@ -1,134 +1,61 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { EmojiPicker } from "@/components/emoji-picker"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
 
-// EXP-551 — the picker against a small dataset (the real generated JSON is
-// exercised in lib/emoji.test.ts). Mocked at the module boundary lib/emoji.ts
-// dynamic-imports, so the lazy path is the one under test.
-vi.mock(`@/lib/emoji.generated.json`, () => ({
-  default: {
-    version: `test`,
-    groups: [
-      `Smileys & emotion`,
-      `People & body`,
-      `Animals & nature`,
-      `Food & drink`,
-      `Travel & places`,
-      `Activities`,
-      `Objects`,
-      `Symbols`,
-      `Flags`,
-    ],
-    emojis: [
-      { u: `😀`, l: `grinning face`, g: 0, s: [`grinning`], t: [`happy`] },
-      { u: `😄`, l: `grinning face with smiling eyes`, g: 0, s: [`smile`], t: [] },
-      {
-        u: `👍`,
-        l: `thumbs up`,
-        g: 1,
-        s: [`+1`, `thumbsup`],
-        t: [`yes`],
-        k: [`👍🏻`, `👍🏼`, `👍🏽`, `👍🏾`, `👍🏿`],
-      },
-      { u: `🐛`, l: `bug`, g: 2, s: [`bug`], t: [`insect`] },
-      { u: `🎉`, l: `party popper`, g: 5, s: [`tada`], t: [`celebration`] },
-    ],
-  },
+// EXP-551 — the BINDING half: the picker's grid and popover are @exp/ui's
+// (packages/ui/src/emoji-picker.test.tsx covers them), this file only checks
+// what the app adds — the lazy dataset load on open and the per-device
+// recents.
+
+const useEmojiData = vi.hoisted(() => vi.fn())
+const pushRecentEmoji = vi.hoisted(() => vi.fn(() => [`🎉`]))
+const readRecentEmoji = vi.hoisted(() => vi.fn(() => [] as string[]))
+
+vi.mock(`@/lib/emoji`, () => ({
+  useEmojiData,
+  pushRecentEmoji,
+  readRecentEmoji,
 }))
 
-function memoryStorage(): Storage {
-  const map = new Map<string, string>()
-  return {
-    get length() {
-      return map.size
+import { EmojiPickerPopover } from "@/components/emoji-picker"
+
+const DATA = {
+  dataset: {
+    version: `test`,
+    groups: [`Smileys & emotion`],
+    emojis: [{ u: `🎉`, l: `party popper`, g: 0, s: [`tada`], t: [] }],
+  },
+  groups: [
+    {
+      index: 0,
+      label: `Smileys & emotion`,
+      emojis: [{ u: `🎉`, l: `party popper`, g: 0, s: [`tada`], t: [] }],
     },
-    clear: () => map.clear(),
-    getItem: (key: string) => map.get(key) ?? null,
-    key: (index: number) => [...map.keys()][index] ?? null,
-    removeItem: (key: string) => void map.delete(key),
-    setItem: (key: string, value: string) => void map.set(key, value),
-  }
+  ],
+  byShortcode: new Map(),
+  byUnicode: new Map(),
 }
 
-describe(`EmojiPicker`, () => {
-  beforeAll(() => {
-    Object.defineProperty(window, `localStorage`, {
-      value: memoryStorage(),
-      configurable: true,
-    })
-  })
-  beforeEach(() => {
-    window.localStorage.clear()
-  })
-
-  it(`renders the groups once the dataset loads and picks the unicode`, async () => {
-    const onPick = vi.fn()
-    render(<EmojiPicker onPick={onPick} />)
-    await waitFor(() =>
-      expect(screen.getByRole(`heading`, { name: `Smileys & emotion` })).toBeTruthy()
+describe(`EmojiPickerPopover (binding)`, () => {
+  it(`loads the dataset only once opened, and records the pick`, async () => {
+    useEmojiData.mockImplementation((enabled: boolean) =>
+      enabled ? (DATA as never) : null
     )
-    // Every group renders (an empty one simply has no cells).
-    expect(screen.getByRole(`heading`, { name: `Flags` })).toBeTruthy()
+    const onPick = vi.fn()
+    render(
+      <EmojiPickerPopover onPick={onPick}>
+        <button type="button">Emoji</button>
+      </EmojiPickerPopover>
+    )
+    // Closed: the hook is asked for nothing.
+    expect(useEmojiData).toHaveBeenCalledWith(false)
+    expect(readRecentEmoji).toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole(`button`, { name: `party popper` }))
+    fireEvent.click(screen.getByText(`Emoji`))
+    await waitFor(() => expect(useEmojiData).toHaveBeenCalledWith(true))
+    const cell = await screen.findByRole(`button`, { name: `party popper` })
+
+    fireEvent.click(cell)
+    expect(pushRecentEmoji).toHaveBeenCalledWith(`🎉`)
     expect(onPick).toHaveBeenCalledWith(`🎉`, expect.objectContaining({ u: `🎉` }))
-    // Recorded as a recent (base unicode).
-    expect(JSON.parse(window.localStorage.getItem(`exp.emojiRecent`)!)).toEqual([
-      `🎉`,
-    ])
-  })
-
-  it(`shows a Recent section for previous picks`, async () => {
-    window.localStorage.setItem(`exp.emojiRecent`, JSON.stringify([`🐛`, `🎉`]))
-    render(<EmojiPicker onPick={() => {}} />)
-    await waitFor(() =>
-      expect(screen.getByRole(`heading`, { name: `Recent` })).toBeTruthy()
-    )
-    const recent = screen.getByRole(`region`, { name: `Recent` })
-    const cells = recent.querySelectorAll(`button`)
-    expect([...cells].map((c) => c.textContent)).toEqual([`🐛`, `🎉`])
-  })
-
-  it(`filters by search and Enter picks the first result`, async () => {
-    const onPick = vi.fn()
-    render(<EmojiPicker onPick={onPick} />)
-    const search = await screen.findByLabelText(`Search emoji`)
-    await act(async () => {
-      fireEvent.change(search, { target: { value: `tad` } })
-    })
-    await waitFor(() =>
-      expect(screen.getByRole(`button`, { name: `party popper` })).toBeTruthy()
-    )
-    expect(screen.queryByRole(`button`, { name: `bug` })).toBeNull()
-    expect(screen.queryByRole(`heading`, { name: `Flags` })).toBeNull()
-
-    fireEvent.keyDown(search, { key: `Enter` })
-    expect(onPick).toHaveBeenCalledWith(`🎉`, expect.objectContaining({ u: `🎉` }))
-  })
-
-  it(`says so when nothing matches`, async () => {
-    render(<EmojiPicker onPick={() => {}} />)
-    const search = await screen.findByLabelText(`Search emoji`)
-    await act(async () => {
-      fireEvent.change(search, { target: { value: `zzz` } })
-    })
-    await waitFor(() => expect(screen.getByText(`No emoji found`)).toBeTruthy())
-  })
-
-  it(`offers no skin-tone picker and always inserts the base glyph`, async () => {
-    // EXP-600: only the yellow ones — a record's `k` variants never render
-    // and a stale stored tone from before the removal changes nothing.
-    window.localStorage.setItem(`exp.emojiSkinTone`, `3`)
-    const onPick = vi.fn()
-    render(<EmojiPicker onPick={onPick} />)
-    await screen.findByRole(`heading`, { name: `People & body` })
-    expect(screen.queryByRole(`radiogroup`, { name: `Skin tone` })).toBeNull()
-    const thumbs = screen.getByRole(`button`, { name: `thumbs up` })
-    expect(thumbs.textContent).toBe(`👍`)
-    fireEvent.click(thumbs)
-    expect(onPick).toHaveBeenCalledWith(`👍`, expect.objectContaining({ u: `👍` }))
-    expect(JSON.parse(window.localStorage.getItem(`exp.emojiRecent`)!)).toEqual([
-      `👍`,
-    ])
   })
 })

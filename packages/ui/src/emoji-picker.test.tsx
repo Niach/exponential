@@ -1,0 +1,119 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
+import type { EmojiDataset } from "@exp/emoji"
+import { EmojiPicker } from "./emoji-picker"
+import { indexEmojiData } from "./emoji-search"
+
+// EXP-551 — the picker against a small dataset (the real generated JSON is
+// exercised in the app's lib/emoji.test.ts). The data and the recents are
+// props here: the lazy load and the per-device recents are the app's binding
+// (apps/web/src/components/emoji-picker.tsx).
+const FIXTURE: EmojiDataset = {
+  version: `test`,
+  groups: [
+    `Smileys & emotion`,
+    `People & body`,
+    `Animals & nature`,
+    `Food & drink`,
+    `Travel & places`,
+    `Activities`,
+    `Objects`,
+    `Symbols`,
+    `Flags`,
+  ],
+  emojis: [
+    { u: `😀`, l: `grinning face`, g: 0, s: [`grinning`], t: [`happy`] },
+    { u: `😄`, l: `grinning face with smiling eyes`, g: 0, s: [`smile`], t: [] },
+    {
+      u: `👍`,
+      l: `thumbs up`,
+      g: 1,
+      s: [`+1`, `thumbsup`],
+      t: [`yes`],
+      k: [`👍🏻`, `👍🏼`, `👍🏽`, `👍🏾`, `👍🏿`],
+    },
+    { u: `🐛`, l: `bug`, g: 2, s: [`bug`], t: [`insect`] },
+    { u: `🎉`, l: `party popper`, g: 5, s: [`tada`], t: [`celebration`] },
+  ],
+}
+
+const data = indexEmojiData(FIXTURE)
+
+describe(`EmojiPicker`, () => {
+  it(`renders the groups once the dataset loads and picks the unicode`, async () => {
+    const onPick = vi.fn()
+    const { rerender } = render(
+      <EmojiPicker data={null} recent={[]} onPick={onPick} />
+    )
+    // No data yet: the skeleton, never a group.
+    expect(screen.queryByRole(`heading`, { name: `Smileys & emotion` })).toBeNull()
+    rerender(<EmojiPicker data={data} recent={[]} onPick={onPick} />)
+    await waitFor(() =>
+      expect(screen.getByRole(`heading`, { name: `Smileys & emotion` })).toBeTruthy()
+    )
+    // Every group renders (an empty one simply has no cells).
+    expect(screen.getByRole(`heading`, { name: `Flags` })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole(`button`, { name: `party popper` }))
+    expect(onPick).toHaveBeenCalledWith(`🎉`, expect.objectContaining({ u: `🎉` }))
+  })
+
+  it(`shows a Recent section for previous picks`, async () => {
+    render(<EmojiPicker data={data} recent={[`🐛`, `🎉`]} onPick={() => {}} />)
+    await waitFor(() =>
+      expect(screen.getByRole(`heading`, { name: `Recent` })).toBeTruthy()
+    )
+    const recent = screen.getByRole(`region`, { name: `Recent` })
+    const cells = recent.querySelectorAll(`button`)
+    expect([...cells].map((c) => c.textContent)).toEqual([`🐛`, `🎉`])
+  })
+
+  it(`filters by search and Enter picks the first result`, async () => {
+    const onPick = vi.fn()
+    render(<EmojiPicker data={data} recent={[]} onPick={onPick} />)
+    const search = await screen.findByLabelText(`Search emoji`)
+    await act(async () => {
+      fireEvent.change(search, { target: { value: `tad` } })
+    })
+    await waitFor(() =>
+      expect(screen.getByRole(`button`, { name: `party popper` })).toBeTruthy()
+    )
+    expect(screen.queryByRole(`button`, { name: `bug` })).toBeNull()
+    expect(screen.queryByRole(`heading`, { name: `Flags` })).toBeNull()
+
+    fireEvent.keyDown(search, { key: `Enter` })
+    expect(onPick).toHaveBeenCalledWith(`🎉`, expect.objectContaining({ u: `🎉` }))
+  })
+
+  it(`says so when nothing matches`, async () => {
+    render(<EmojiPicker data={data} recent={[]} onPick={() => {}} />)
+    const search = await screen.findByLabelText(`Search emoji`)
+    await act(async () => {
+      fireEvent.change(search, { target: { value: `zzz` } })
+    })
+    await waitFor(() => expect(screen.getByText(`No emoji found`)).toBeTruthy())
+  })
+
+  it(`offers no skin-tone picker and always inserts the base glyph`, async () => {
+    // EXP-600: only the yellow ones — a record's `k` variants never render.
+    const onPick = vi.fn()
+    render(<EmojiPicker data={data} recent={[]} onPick={onPick} />)
+    await screen.findByRole(`heading`, { name: `People & body` })
+    expect(screen.queryByRole(`radiogroup`, { name: `Skin tone` })).toBeNull()
+    const thumbs = screen.getByRole(`button`, { name: `thumbs up` })
+    expect(thumbs.textContent).toBe(`👍`)
+    fireEvent.click(thumbs)
+    expect(onPick).toHaveBeenCalledWith(`👍`, expect.objectContaining({ u: `👍` }))
+  })
+
+  it(`draws every cell as the 36px ghost icon button`, () => {
+    render(<EmojiPicker data={data} recent={[]} onPick={() => {}} />)
+    const cell = screen.getByRole(`button`, { name: `bug` })
+    expect(cell.getAttribute(`data-slot`)).toBe(`button`)
+    expect(cell.getAttribute(`data-variant`)).toBe(`ghost`)
+    // `size-9` is 36px tall; `w-full` stretches it across its grid column.
+    expect(cell.className).toContain(`size-9`)
+    expect(cell.className).toContain(`w-full`)
+    expect(cell.className).toContain(`emoji-glyph`)
+  })
+})

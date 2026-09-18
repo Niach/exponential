@@ -74,9 +74,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
   LiveDot,
+  BoardGlyph,
 } from "@exp/ui"
 import { BranchCombobox } from "@/components/branch-combobox"
-import { BoardGlyph } from "@/components/board-glyph"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import {
   GithubRepoPicker,

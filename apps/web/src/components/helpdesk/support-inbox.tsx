@@ -40,11 +40,9 @@ import {
   Textarea,
   conceptIcon,
   LiveDot,
-} from "@exp/ui"
-import {
   Composer,
   ComposerSubmit,
-} from "@/components/composer"
+} from "@exp/ui"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { IssueChip } from "@/components/issue-chip"
 import { cn } from "@/lib/utils"

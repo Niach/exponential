@@ -1,8 +1,4 @@
 import { useEffect, useState } from "react"
-import {
-  KEYBOARD_MIN_OCCLUSION,
-  keyboardOcclusion,
-} from "@/lib/keyboard-caret"
 
 // EXP-568 — how many pixels of the LAYOUT viewport the on-screen keyboard
 // currently covers, so a bar pinned to the bottom of the page can ride above
@@ -13,6 +9,19 @@ import {
 // Both visualViewport events matter: `resize` fires when the keyboard opens
 // or closes, `scroll` when iOS PANS the visual viewport (offsetTop moves
 // while the height stays put) — missing the latter leaves the bar drifting.
+
+/** Keyboard heights start well above this; URL-bar show/hide resizes the
+ *  layout viewport itself and stays near 0. */
+export const KEYBOARD_MIN_OCCLUSION = 80
+
+/** Pixels of the layout viewport hidden behind the on-screen keyboard. */
+export function keyboardOcclusion(
+  layoutViewportHeight: number,
+  visualOffsetTop: number,
+  visualHeight: number
+) {
+  return Math.max(0, layoutViewportHeight - (visualOffsetTop + visualHeight))
+}
 
 export interface KeyboardInset {
   /** Pixels hidden behind the keyboard; 0 when it is closed. */

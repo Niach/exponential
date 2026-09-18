@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import {
+  AgentPicker,
+  agentLabel,
   Button,
   Dialog,
   DialogContent,
@@ -9,7 +11,6 @@ import {
   DialogTitle,
   GlassGroup,
 } from "@exp/ui"
-import { AgentPicker, agentLabel } from "@/components/agent-picker"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
   addAccountLoginTarget,

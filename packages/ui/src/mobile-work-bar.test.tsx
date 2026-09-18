@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { MobileWorkBar, MobileWorkCapsule } from "@/components/mobile-work-bar"
+import { MobileWorkBar, MobileWorkCapsule } from "./mobile-work-bar"
 
 // EXP-893: the phone's ONE floating bar — three slots, or an expanded node
 // that replaces the left two while the trailing circle stays mounted.

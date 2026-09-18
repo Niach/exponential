@@ -23,13 +23,13 @@ import {
   isVideoContentType,
 } from "@/lib/storage/issue-attachments"
 import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
-import { ImagePreviewDialog } from "@/components/image-preview-dialog"
 import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  ImagePreviewDialog,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 

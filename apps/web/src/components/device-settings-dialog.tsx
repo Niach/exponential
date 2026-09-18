@@ -27,6 +27,7 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
+  AgentPicker,
   AlertDialogHeader,
   AlertDialogTitle,
   Dialog,
@@ -55,7 +56,6 @@ import {
   showDeviceUpdateButton,
   type SteerDevice,
 } from "@/lib/steer-devices"
-import { AgentPicker } from "@/components/agent-picker"
 import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,

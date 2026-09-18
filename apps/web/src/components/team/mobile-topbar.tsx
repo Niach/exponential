@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   UserAvatar,
+  BoardGlyph,
 } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
@@ -22,7 +23,6 @@ import {
   resolveBoardTarget,
   useMobileChromeVisible,
 } from "@/components/team/mobile-tab-bar"
-import { BoardGlyph } from "@/components/board-glyph"
 
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.

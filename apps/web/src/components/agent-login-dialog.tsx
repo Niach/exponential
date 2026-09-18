@@ -28,8 +28,8 @@ import {
   agentLoginLanded,
   AgentLoginOutcome,
 } from "@/components/device-agent-account"
-import { agentLabel } from "@/components/agent-picker"
 import {
+  agentLabel,
   Button,
   Dialog,
   DialogContent,

@@ -3,7 +3,12 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
-import { DiffCounts, useIsMobile, type SessionDotTone } from "@exp/ui"
+import {
+  DiffCounts,
+  parseSessionResults,
+  useIsMobile,
+  type SessionDotTone,
+} from "@exp/ui"
 import { useNow } from "@/hooks/use-now"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useIssueRuns } from "@/hooks/use-agents-data"
@@ -22,7 +27,6 @@ import { IssueDetailView } from "@/components/issue-detail-view"
 import { MobileFaceSwitcher } from "@/components/mobile-face-switcher"
 import { selectIssueRuns } from "@/lib/past-runs"
 import { availableFaces, codingTarget, isSessionLive } from "@/lib/work-faces"
-import { parseSessionResults } from "@/lib/session-results"
 import {
   ISSUE_FACE_LABEL,
   RESULTS_FACE_LABEL,

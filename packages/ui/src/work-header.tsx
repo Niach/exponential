@@ -1,6 +1,5 @@
 import type { ReactNode, Ref } from "react"
-import { DETAIL_STICKY_BAND_CLASS } from "@/components/team/app-shell"
-import { cn } from "@/lib/utils"
+import { cn } from "./cn"
 
 // EXP-877: the ONE work header — the issue route and the session route both
 // render it, so the title never moves between an issue and its run (the
@@ -10,6 +9,25 @@ import { cn } from "@/lib/utils"
 //   Row 1: the title (an editable field for issues, static text for runs)
 //          | the right cluster on the SAME line, top-aligned
 //   Row 2: the properties tray (issue-bound faces only)
+
+/**
+ * EXP-760: the issue detail's sticky band — title + properties — pinned to the
+ * top of the view's own scroller, IDE parity (`issue_header.rs`).
+ *
+ * `glass-chrome-card`, not `glass-chrome-top`: the band sits INSIDE the cutout
+ * panel, whose `--glass-fill-panel` layer the window-edge scrim does not
+ * account for (see styles.css) — the panel's own ground has to be repainted
+ * under the scrim or the band reads as a black bar over the card.
+ *
+ * The blur is safe HERE and not on `MAIN_PANEL_CLASS`: this node hosts no
+ * `position: fixed` overlay of its own (the property pickers portal to
+ * `document.body`, outside it), while the panel is the ancestor of every
+ * dialog and sheet the app opens.
+ */
+export const DETAIL_STICKY_BAND_CLASS = [
+  `sticky top-0 z-10`,
+  `glass-chrome-card border-b border-glass-stroke`,
+].join(` `)
 
 /** The reading column every face shares: issue body, transcript, diff. */
 export const WORK_COLUMN_CLASS = `mx-auto w-full max-w-4xl`

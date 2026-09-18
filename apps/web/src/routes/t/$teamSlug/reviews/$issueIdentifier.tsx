@@ -28,19 +28,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  MOBILE_WORK_BAR_CLEARANCE,
+  MOBILE_WORK_CIRCLE_CLASS,
+  MobileWorkBar,
+  ChangesFileSheet,
+  PrGithubButton,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
-import { ChangesFileSheet } from "@/components/changes-file-sheet"
 import { ChangesTopBar } from "@/components/changes-top-bar"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
 import { ChangesView } from "@/components/changes-view"
 import { MergeCapsule } from "@/components/issue-changes-face"
-import { PrGithubButton } from "@/components/pr-github-button"
-import {
-  MOBILE_WORK_BAR_CLEARANCE,
-  MOBILE_WORK_CIRCLE_CLASS,
-  MobileWorkBar,
-} from "@/components/mobile-work-bar"
 import { useSteerConfig } from "@/components/agent-session"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { publishReviewFiles } from "@/lib/review-files-slot"

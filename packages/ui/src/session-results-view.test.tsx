@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { SessionResultsView } from "@/components/session-results-view"
-import type { SessionResultEntry } from "@/lib/session-results"
+import { SessionResultsView } from "./session-results-view"
+import type { SessionResultEntry } from "./session-results"
 
 // EXP-879: the results face — one band per topic, one tile per entry, the
 // label under the shot and the shared lightbox behind a tap.
@@ -19,6 +19,7 @@ describe(`SessionResultsView`, () => {
   it(`bands the topics and draws one tile per entry`, () => {
     render(
       <SessionResultsView
+        attachmentSrc={(id) => `/api/attachments/${id}`}
         results={[
           entry({}),
           entry({ label: `ios`, attachmentId: `att-2` }),
@@ -55,7 +56,12 @@ describe(`SessionResultsView`, () => {
   })
 
   it(`opens the lightbox on the tapped tile`, () => {
-    render(<SessionResultsView results={[entry({ label: `android` })]} />)
+    render(
+      <SessionResultsView
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+        results={[entry({ label: `android` })]}
+      />
+    )
     expect(document.querySelector(`[role="dialog"]`)).toBeNull()
     fireEvent.click(screen.getByTestId(`session-result-att-1`))
     const dialog = document.querySelector(`[role="dialog"]`)
@@ -66,7 +72,12 @@ describe(`SessionResultsView`, () => {
   })
 
   it(`draws nothing without results`, () => {
-    render(<SessionResultsView results={[]} />)
+    render(
+      <SessionResultsView
+        attachmentSrc={(id) => `/api/attachments/${id}`}
+        results={[]}
+      />
+    )
     expect(document.querySelectorAll(`img`).length).toBe(0)
   })
 })

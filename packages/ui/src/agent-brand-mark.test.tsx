@@ -1,6 +1,6 @@
 import { render } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { AgentBrandMark } from "@/components/agent-brand-mark"
+import { AgentBrandMark } from "./agent-brand-mark"
 
 // EXP-850 §5: the brand mark beside the working caption.
 describe(`AgentBrandMark`, () => {

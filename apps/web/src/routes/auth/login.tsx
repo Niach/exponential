@@ -8,9 +8,7 @@ import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { oauthErrorMessage } from "@/lib/deep-link"
 import { useState } from "react"
-import { conceptIcon, Button, Input, Label } from "@exp/ui"
-import { AuthFormShell } from "@/components/auth-form-shell"
-import { PasswordInput } from "@/components/password-input"
+import { conceptIcon, Button, Input, Label, AuthFormShell, PasswordInput } from "@exp/ui"
 import {
   OAuthProviderButtons,
   useOAuthSignIn,

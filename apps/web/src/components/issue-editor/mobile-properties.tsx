@@ -14,7 +14,6 @@ import { useTeamBoards } from "@/hooks/use-team-data"
 import { displayUserName } from "@/lib/user-display"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
-import { BoardGlyph } from "@/components/board-glyph"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import {
   IssueRelationsAdd,
@@ -39,6 +38,7 @@ import {
   GlassSectionHeader,
   Pill,
   UserAvatar,
+  BoardGlyph,
 } from "@exp/ui"
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)

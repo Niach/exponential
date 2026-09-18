@@ -46,6 +46,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   Label,
+  ExponentialLogo,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -75,7 +76,6 @@ import {
 import { builtinExpTools } from "@/lib/agent-feed"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useNow } from "@/hooks/use-now"
-import { ExponentialLogo } from "@/components/exponential-logo"
 import { cn } from "@/lib/utils"
 
 const McpIcon = conceptIcon(`settings-mcp`)

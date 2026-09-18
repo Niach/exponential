@@ -19,7 +19,7 @@
 // `DeviceLogins.swift`, Android `DeviceLoginRows`); the ordering, the label and
 // the two empty strings live in `lib/agent-usage.ts`.
 import { useMemo, useState } from "react"
-import { conceptIcon, Button } from "@exp/ui"
+import { AgentMark, conceptIcon, Button } from "@exp/ui"
 import {
   deviceLoginRows,
   healthBadgeLabel,
@@ -37,7 +37,6 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { addableAgents } from "@/lib/agent-account-add"
-import { AgentMark } from "@/components/agent-picker"
 import { AddAccountDialog } from "@/components/add-account-dialog"
 import { UsageMini } from "@/components/agent-usage-mini"
 import { requestAgentLogin } from "@/components/agent-login-dialog"

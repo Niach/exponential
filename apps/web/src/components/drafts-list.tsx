@@ -1,13 +1,13 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
-import { BoardGlyph } from "@/components/board-glyph"
 import {
   EmptyState,
   Button,
   GlassSectionHeader,
   ListRow,
   conceptIcon,
+  BoardGlyph,
 } from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { relativeTime } from "@/components/comment-rows/format"

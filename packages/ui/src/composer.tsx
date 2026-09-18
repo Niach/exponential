@@ -1,7 +1,8 @@
 import * as React from "react"
 
-import { cn } from "@/lib/utils"
-import { conceptIcon, Button } from "@exp/ui"
+import { cn } from "./cn"
+import { conceptIcon } from "./icons.generated"
+import { Button } from "./button"
 
 // EXP-790: the send glyph is ONE concept everywhere a composer renders —
 // comments, support replies, steering, the chat launcher — and a working
