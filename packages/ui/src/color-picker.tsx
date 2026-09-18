@@ -12,6 +12,13 @@ interface ColorPickerProps {
   id?: string
   /** Read-only surfaces still SHOW the swatch; the grid just never opens. */
   disabled?: boolean
+  /** EXP-941: a bespoke trigger, so the two surfaces that hand-wired their own
+   *  `Popover` + `ColorSwatchGrid` (the labels and statuses settings rows, whose
+   *  trigger is a table cell rather than a form field) can use THIS component
+   *  instead of a second copy of it. Must be ONE element — it is wrapped
+   *  `asChild`, exactly like the default trigger. */
+  renderTrigger?: (value: string) => React.ReactNode
+  align?: `start` | `center` | `end`
 }
 
 // EXP-862: THE colour picker — the twin of `IconPicker`, so the board form's
@@ -24,11 +31,16 @@ export function ColorPicker({
   colors,
   id,
   disabled = false,
+  renderTrigger,
+  align = `start`,
 }: ColorPickerProps) {
   const [open, setOpen] = useState(false)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
+        {renderTrigger ? (
+          renderTrigger(value)
+        ) : (
         <Button
           id={id}
           type="button"
@@ -50,8 +62,9 @@ export function ColorPicker({
             <span className="size-4 rounded-full border border-dashed border-current" />
           )}
         </Button>
+        )}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-3">
+      <PopoverContent align={align} className="w-auto p-3">
         {/* 8 × 28px cells + 7 × 6px gaps — the icon grid's column count, so
             the two popovers line up swatch for swatch. */}
         <div className="w-[266px]">

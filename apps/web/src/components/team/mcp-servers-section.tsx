@@ -43,6 +43,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Label,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -800,9 +801,9 @@ function ChipsRow({
   }
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
-      <label htmlFor={id} className="text-sm text-foreground">
+      <Label htmlFor={id} className="font-normal">
         {label}
-      </label>
+      </Label>
       <div className="flex flex-wrap items-center gap-1.5">
         {values.map((value) => (
           <Pill key={value} size="sm">

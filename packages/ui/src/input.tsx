@@ -2,6 +2,16 @@ import * as React from "react"
 
 import { cn } from "./cn"
 
+// EXP-941 — "undress the field, the row is the chrome".
+//
+// Seven surfaces (the glass input/search rows here, the board form's title,
+// the action editor's name, the MCP server rows, the support composer, the
+// issue title field) strip an `Input` down to bare text so the row or card
+// AROUND it draws the box. That was one long class string copy-pasted seven
+// times; it is this constant now. Compose with `cn(BARE_FIELD_CLASS, …)` and
+// add only what the surface itself changes (alignment, padding, colour).
+export const BARE_FIELD_CLASS = `h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
+
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<`input`>>(
   ({ className, type, ...props }, ref) => {
     return (
