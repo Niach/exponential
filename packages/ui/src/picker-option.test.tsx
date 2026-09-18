@@ -1,30 +1,17 @@
 import { describe, expect, it } from "vitest"
 import { CircleIcon } from "lucide-react"
 
-import type { GlassPickerOption } from "./glass-rows"
-import type { IssueOption } from "./issue-option"
 import type { PickerOption } from "./picker-option"
 
-// EXP-941: the four option shapes collapsed into ONE. These are compile-time
-// assertions with a runtime tail — if `IssueOption` ever stops being a
-// `PickerOption`, or `GlassPickerOption` stops being a slice of it, this file
-// fails to typecheck, which is the whole point of the exercise.
+// EXP-941: the four option shapes collapsed into ONE; EXP-958 removed the two
+// narrowings (`IssueOption`, `GlassPickerOption`) with the shells that needed
+// them. These are compile-time assertions with a runtime tail — the app's
+// status tables narrow `PickerOption` on their own side now, and a row built
+// with every slot must still BE a PickerOption or this file stops compiling.
 
 describe(`PickerOption`, () => {
-  it(`is what an IssueOption is, with three slots made required`, () => {
-    const status: IssueOption<`backlog`> = {
-      value: `backlog`,
-      label: `Backlog`,
-      icon: CircleIcon,
-      color: `text-muted-foreground`,
-    }
-    // The narrowing direction: every IssueOption IS a PickerOption.
-    const asPicker: PickerOption<`backlog`> = status
-    expect(asPicker.value).toBe(`backlog`)
-    expect(asPicker.label).toBe(`Backlog`)
-
-    // …and the shared optional slots are available on it.
-    const rich: IssueOption<`urgent`> = {
+  it(`carries every slot a picker row may draw`, () => {
+    const rich: PickerOption<`urgent`> = {
       value: `urgent`,
       label: `Urgent`,
       icon: CircleIcon,
@@ -34,28 +21,15 @@ describe(`PickerOption`, () => {
       hint: `default`,
       dot: `#ef4444`,
       disabled: true,
+      checked: `indeterminate`,
     }
     expect(rich.keywords).toEqual([`p0`, `now`])
+    expect(rich.checked).toBe(`indeterminate`)
   })
 
-  it(`is what a GlassPickerOption is a slice of`, () => {
-    const row: GlassPickerOption = {
-      value: `main`,
-      label: `main`,
-      disabled: false,
-    }
-    const asPicker: PickerOption = row
-    expect(asPicker.value).toBe(`main`)
-
-    // A full PickerOption still fits a row picker — the slice is a subset.
-    const full: PickerOption = {
-      value: `dev`,
-      label: `dev`,
-      icon: CircleIcon,
-      hint: `default`,
-    }
-    const narrowed: GlassPickerOption = full
-    expect(narrowed.label).toBe(`dev`)
+  it(`needs only a value and a label`, () => {
+    const bare: PickerOption = { value: `main`, label: `main` }
+    expect(bare.icon).toBeUndefined()
   })
 
   it(`carries a ReactNode label, not just a string`, () => {

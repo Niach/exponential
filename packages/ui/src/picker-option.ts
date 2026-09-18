@@ -7,8 +7,11 @@ import type { ReactNode } from "react"
 // `GlassPickerOption`, and two anonymous `{ id, name }` shapes inside the
 // launch dialog), so a row rendered in one picker could not be handed to
 // another. This is their union: `value` + `label` are the only required
-// fields, everything else is a slot a row MAY draw. `Combobox`,
-// `OptionDropdownMenu` and the glass picker rows all render from it.
+// fields, everything else is a slot a row MAY draw. Since EXP-958 it is the
+// ONLY option shape the package knows: every arm of `Combobox` renders from
+// it, and the two narrowings are gone with the shells that needed them (the
+// app's status/priority tables keep their own required-slot view of it in
+// `lib/domain.ts`, beside the tables).
 //
 // It is deliberately presentational — no ids, no records, no async state. A
 // caller maps its own domain rows into these once, at the call site.

@@ -100,6 +100,9 @@ function ComboboxMenuItems<TValue extends string>(
             role={role}
             aria-checked={state === `indeterminate` ? `mixed` : isSelected}
             data-selected-state={state}
+            // cmdk stamps the popover arm's rows with their value; the menu
+            // arm does the same, so a test finds a row by identity on both.
+            data-value={option.value}
             disabled={selection.isDisabled(option)}
             className={cn(className)}
             onSelect={onPick(option)}
