@@ -130,9 +130,13 @@ struct WorkScreen: View {
     /// retained model — the socket outlives the session VIEW, so this is right
     /// on the Issue face too, where that view (and the `RunChrome` it reports)
     /// is unmounted and its last snapshot would be a stale, partial count.
-    private var shownDiff: String? {
+    private var shownDiff: String? { shownModel?.latestDiff }
+
+    /// The shown run's retained model (the socket owner), if the store still
+    /// holds one — nil once it was reaped or before a run is shown.
+    private var shownModel: AgentSessionModel? {
         guard let shownSessionId else { return nil }
-        return deps.steerSessions.peek(accountId: accountId, sessionId: shownSessionId)?.latestDiff
+        return deps.steerSessions.peek(accountId: accountId, sessionId: shownSessionId)
     }
 
     /// EXP-932: whether the run HAS a diff — the mounted view's report, else
@@ -436,12 +440,14 @@ struct WorkScreen: View {
                 }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
-                // `…` menu into one shared shape.
-                if face == .run, primaryAction == .stop || primaryAction == .resume {
+                // `…` menu into one shared shape. Mounted for the whole Run
+                // face — `runPill` draws nothing while there is no Stop or
+                // Resume — because an item inserted and removed on the action
+                // edge sometimes failed to reappear. No spacer: nothing
+                // trails the pill on this face, and a fixed one only inset it
+                // from the edge.
+                if face == .run {
                     ToolbarItem(placement: .topBarTrailing) { runPill }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                    }
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     // EXP-895: on the Changes face GitHub rides the HEADER's
@@ -715,10 +721,17 @@ struct WorkScreen: View {
             .onChange(of: availableFaces) { _, faces in
                 facesChanged(faces)
             }
-            // EXP-932: the switcher's `+N −M`, off the diff edge — the ONE
-            // parse the Changes face runs, read from every face.
+            // EXP-932: the switcher's `+N −M`, off the diff edge — totalled
+            // from the model's ONE memoised parse (`parsedDiff`), the same
+            // files the Changes face draws; nothing is parsed a second time.
             .onChange(of: shownDiff, initial: true) { _, diff in
-                changesTotals = diff.map { Diff.totals(Diff.parse($0).files) }
+                changesTotals = diff == nil ? nil : shownModel.map { Diff.totals($0.parsedDiff.files) }
+            }
+            // EXP-934: the `…` is the Issue face's, so its overlay leaves with
+            // the face — whichever path moved it (a tap, a vanished face, a
+            // continuation swapping in).
+            .onChange(of: face) { _, _ in
+                menuOpen = false
             }
             // EXP-893: the session view's report, held across the Issue face
             // (where the emitter is unmounted and the preference resets).
@@ -881,8 +894,7 @@ struct WorkScreen: View {
 
     private func switchFace(_ next: WorkFaceKind) {
         UIApplication.endEditing()
-        // EXP-934: the `…` is the Issue face's, so its overlay leaves with it.
-        menuOpen = false
+        // EXP-934: the `…` overlay closes off the `face` edge (`withLifecycle`).
         face = next
     }
 

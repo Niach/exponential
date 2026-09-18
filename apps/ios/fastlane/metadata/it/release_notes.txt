@@ -1,23 +1,23 @@
-- Stop in una sessione dal vivo ora è un semplice pulsante della barra, alto quanto il pulsante indietro, invece di una pillola dal contorno spezzato
-- Le righe del registro di un'esecuzione non si sovrappongono più, e la chat scorre libera dalla scheda sopra il campo di scrittura
-- Un run di chat prende il nome da ciò su cui l'agente sta lavorando, invece di leggere «Chat» ovunque
-- Un solo diff ovunque: i file di un diff stanno in un albero in cui salti, e le modifiche di un agente in un turno si raccolgono in una scheda «Edited files»
-- L'uso in un unico posto: un pannello mostra l'account dell'esecuzione, le sue finestre di limite e la finestra di contesto, più gli altri account di quella macchina
+- Icone dei dispositivi: dai a ogni macchina la sua icona nelle impostazioni, un monitor, un server, un portatile o il segno di Apple, Windows o Linux, e scegli fra 96 icone per board e azioni
+- La faccia Run si apre con l'elenco dei compiti dell'agente, un'esecuzione in secondo piano tiene la sua scheda, e schede e barre si allineano al registro
+- I dispositivi si ripiegano su una riga, mostrano quando una finestra d'uso si azzera, e un account si può togliere da una macchina; il menu della schermata Work sta solo sulla faccia Issue, il selettore di facce conta i file cambiati e rientra nel campo aperto, e gli issue di un batch si aprono in un foglio
+- Le chiamate a Exponential si leggono come un gruppo a sé, Read 3 issues invece di una generica esecuzione di strumento, e un turno senza file cambiati non mostra più una scheda vuota
+- Stop in una sessione dal vivo ora è un semplice pulsante della barra, alto quanto il pulsante indietro, non una pillola dal contorno spezzato
+- Le righe del registro di un'esecuzione non si sovrappongono più, e la chat scorre libera dalla scheda sopra il campo
+- Un run di chat prende il nome da ciò su cui l'agente lavora, invece di leggere «Chat» ovunque
+- Un solo diff ovunque: i file di un diff stanno in un albero in cui salti, e le modifiche di un turno si raccolgono in una scheda «Edited files», con i numeri di riga, le righe invariate che puoi aprire, e i file rinominati o binari nominati
+- L'uso in un unico posto: un pannello mostra l'account dell'esecuzione, le sue finestre di limite e la finestra di contesto, più gli altri account della macchina
 - I dispositivi portano gli account: ogni macchina elenca i suoi account agente con piano, stato e uso, e la rotella di un dispositivo tiene Update e Remove
-- Un merge di stack che fallisce ora dice perché, invece di restare in silenzio
 - Una sola ricerca degli issue: lo stesso ordinamento regge ogni elenco, ogni selettore e ogni menu #, con il primo risultato già scelto
-- Un comando in corso mostra solo le sue ultime righe, così un output lungo non inonda più l'esecuzione
-- Un'esecuzione che tace viene segnata come finita e resta nell'elenco invece di sparire
-- Una sola schermata Work: un issue, la sua esecuzione, le modifiche e i risultati sono facce di una stessa schermata, si cambia dalla barra in basso, e Stop o Resume sta in alto a destra
-- Una sola vista del diff: ogni diff si legge allo stesso modo, con i numeri di riga, le righe invariate che puoi aprire, e i file rinominati o binari nominati invece che vuoti
-- Pull request impilate: avvia un issue sopra quello che lo blocca, unisci l'intera catena con Merge stack, leggi il distintivo di stack o di batch sul lavoro, e rispondi alla domanda che ti manda un'esecuzione annidata
-- Risultati di un'esecuzione: un'esecuzione che pubblica schermate guadagna una faccia Results, raggruppata per argomento, un riquadro per piattaforma, e un tocco mostra l'immagine intera
-- Esecuzioni batch con un nome: un'esecuzione su più issue ora legge EXP-874 +2 accanto al titolo del primo issue invece di «Batch run»
-- Messaggi che arrivano subito: un messaggio scritto mentre l'agente lavora gli arriva all'istante e resta segnato come inviato finché non lo legge, e Stop riporta il testo nel campo di scrittura
-- GitHub a posto: collegare GitHub, aggiungere un repository e impostare il repository di una board funzionano qui come sul computer, e gli errori si vedono dove sei
-- Messaggi in coda: un messaggio che aspetta l'agente compare in una barra sopra il campo di scrittura, e Stop in una sessione dal vivo interrompe davvero il turno in corso invece di perdersi per strada
-- Pulsanti più discreti e selettori più chiari: solo l'azione principale di una schermata tiene un cerchio pieno, e il selettore dell'agente porta il segno di Claude Code o Codex, mentre i menu dei dispositivi si aprono con un'icona di portatile o di server
-- La pagina Agent tiene i tuoi run: i run passati si ripiegano dietro un conteggio che puoi aprire, e quando non gira nulla il campo di scrittura sta al centro della pagina
-- I filtri degli issue sono spariti: il pulsante filtro e le sue pastiglie lasciano board e posta in arrivo, la ricerca copre quello che facevano, e raggruppamento e bande di stato restano
-- Continua con l'email, o con una passkey: accedi con un codice di 6 cifre inviato per email, oppure con Face ID o Touch ID; tutte le opzioni stanno in un unico elenco, e un'email sconosciuta diventa semplicemente un nuovo account
+- Un comando in corso mostra solo le sue ultime righe, e un'esecuzione che tace viene segnata come finita e resta nell'elenco
+- Una sola schermata Work: un issue, la sua esecuzione e le modifiche sono facce di una schermata, si cambia dalla barra in basso, e Stop o Resume sta in alto a destra
+- Pull request impilate: avvia un issue sopra quello che lo blocca, unisci la catena con Merge stack, leggi il distintivo di stack o batch sul lavoro, e rispondi alla domanda di un'esecuzione annidata
+- Risultati di un'esecuzione: quella che pubblica schermate guadagna una faccia Results, raggruppata per argomento, un riquadro per piattaforma
+- Esecuzioni batch con un nome: un'esecuzione su più issue legge EXP-874 +2 accanto al titolo del primo invece di «Batch run»
+- Messaggi che arrivano subito: un messaggio scritto mentre l'agente lavora gli arriva all'istante e resta segnato come inviato finché non lo legge, un messaggio in attesa compare in una barra sopra il campo, e Stop riporta il testo nel campo
+- GitHub a posto: collegare GitHub, aggiungere un repository e impostare il repository di una board funzionano come sul computer, e gli errori si vedono dove sei
+- Pulsanti più discreti e selettori più chiari: solo l'azione principale tiene un cerchio pieno, il selettore dell'agente porta il segno di Claude Code o Codex, e i menu dei dispositivi si aprono con icona di portatile o server
+- La pagina Agent tiene i tuoi run: i run passati si ripiegano dietro un conteggio che puoi aprire, e quando non gira nulla il campo sta al centro
+- I filtri degli issue sono spariti: la ricerca copre quello che facevano, e raggruppamento e bande di stato restano
+- Continua con l'email, o con una passkey: accedi con un codice di 6 cifre inviato per email, oppure con Face ID o Touch ID; tutte le opzioni stanno in un elenco Continue
 - Cambio account a metà esecuzione, e ritorno da dove sei arrivato: un'esecuzione Claude al limite può proseguire con un altro account, e uscire da una sessione ti riporta all'issue o alla board da cui l'avevi aperta

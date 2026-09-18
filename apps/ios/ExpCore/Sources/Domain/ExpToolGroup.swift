@@ -109,7 +109,14 @@ public enum ExpToolGroup {
         let template = running
             ? DomainContract.expToolProgressiveMany[index]
             : DomainContract.expToolDoneMany[index]
-        let caption = template.replacingOccurrences(of: "{n}", with: String(items.count))
+        // The FIRST `{n}` only — the TS source of truth is `String.replace`
+        // with a string pattern, which never touches a second occurrence.
+        let caption: String
+        if let slot = template.range(of: "{n}") {
+            caption = template.replacingCharacters(in: slot, with: String(items.count))
+        } else {
+            caption = template
+        }
         let failed = items.filter { item in
             guard case let .tool(_, _, _, _, _, _, _, failed, _, _, _) = item else { return false }
             return failed

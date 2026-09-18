@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -51,9 +52,14 @@ class PrGraphViewModel @Inject constructor(
         if (subject.value != next) subject.value = next
     }
 
+    /** The ONE full-table issue observation every derived flow below reads —
+     *  three of them used to open three. */
+    private val allIssues = dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
     val graph: StateFlow<PrGraph.Graph> = combine(
         subject,
-        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+        allIssues,
         dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() },
     ) { current, issues, sessions, relations ->
@@ -75,7 +81,7 @@ class PrGraphViewModel @Inject constructor(
      */
     val batchIssues: StateFlow<List<IssueEntity>> = combine(
         subject,
-        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+        allIssues,
         dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
     ) { current, issues, sessions ->
         val session = current.sessionId?.let { id -> sessions.firstOrNull { it.id == id } }
@@ -88,8 +94,7 @@ class PrGraphViewModel @Inject constructor(
      * said `Issue not synced yet` about issues that were already in the store.
      */
     val issues: StateFlow<List<IssueEntity>> =
-        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        allIssues.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _merging = MutableStateFlow(false)
     val merging: StateFlow<Boolean> = _merging

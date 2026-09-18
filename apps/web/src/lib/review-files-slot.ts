@@ -60,3 +60,15 @@ function snapshot(): ReviewFilesSlot | null {
 export function useReviewFilesSlot(): ReviewFilesSlot | null {
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
+
+function subjectSnapshot(): string | null {
+  return current?.subjectId ?? null
+}
+
+/** Only WHOSE files are published — a primitive snapshot, so a subscriber
+ *  that merely asks "is a tree up for this subject?" (the team layout, via
+ *  `useSidebarOccupant`) does not re-render on every diff tick or file pick
+ *  the full slot republishes. */
+export function useReviewFilesSubjectId(): string | null {
+  return useSyncExternalStore(subscribe, subjectSnapshot, subjectSnapshot)
+}

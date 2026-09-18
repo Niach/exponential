@@ -227,6 +227,48 @@ pub(crate) fn visible_rows(
     (checked_ixs, hidden, no_matches)
 }
 
+/// Release review R5: [`visible_rows`] memoised by the HOST. The popover's
+/// content runs on every render of a composer that repaints at 60 fps while
+/// a hosted run is busy (the live dot), and ranking the whole open-issue
+/// pool each frame was measurable. Keyed on the pool's identity (the `Rc`
+/// pointer — a rebuilt pool is a new key), the query and the checked set;
+/// nothing else feeds the ranking.
+#[derive(Default)]
+pub(crate) struct VisibleRowsMemo {
+    key: Option<(usize, String, HashSet<String>)>,
+    value: (Vec<usize>, usize, bool),
+    /// How many times the ranking actually ran (the tests read it).
+    computed: usize,
+}
+
+impl VisibleRowsMemo {
+    pub(crate) fn get(
+        &mut self,
+        rows: &Rc<Vec<IssueRow>>,
+        checked: &HashSet<String>,
+        query: &str,
+    ) -> (Vec<usize>, usize, bool) {
+        let pool = Rc::as_ptr(rows) as usize;
+        let hit = self
+            .key
+            .as_ref()
+            .is_some_and(|(seen_pool, seen_query, seen_checked)| {
+                *seen_pool == pool && seen_query == query && seen_checked == checked
+            });
+        if !hit {
+            self.value = visible_rows(rows, checked, query);
+            self.key = Some((pool, query.to_string(), checked.clone()));
+            self.computed += 1;
+        }
+        self.value.clone()
+    }
+
+    #[cfg(test)]
+    fn computed(&self) -> usize {
+        self.computed
+    }
+}
+
 /// The engine's borrowed view of a checklist row.
 fn engine_row(row: &IssueRow) -> domain::issue_search::SearchRow<'_> {
     domain::issue_search::SearchRow {
@@ -380,6 +422,9 @@ pub(crate) trait IssuePickerHost: Render + Sized {
     /// The selected POSITION in the currently visible list (not a row index).
     fn picker_selected(&self) -> usize;
     fn set_picker_selected(&mut self, position: usize);
+    /// The host's [`VisibleRowsMemo`] — interior-mutable, because the
+    /// content closure only ever READS the host while it paints.
+    fn picker_memo(&self) -> &std::cell::RefCell<VisibleRowsMemo>;
     /// Check/uncheck one row; the popover stays open.
     fn toggle_picked_issue(
         &mut self,
@@ -434,7 +479,12 @@ pub(crate) fn issue_picker_popover<V: IssuePickerHost>(
         })
         .content(move |_, window, cx| {
             let query = search.read(cx).value().to_string();
-            let (visible, hidden, no_matches) = visible_rows(&rows, &checked, &query);
+            // Memoised on the host: the same pool, query and checked set
+            // never rank twice (release review R5).
+            let (visible, hidden, no_matches) = match view.upgrade() {
+                Some(host) => host.read(cx).picker_memo().borrow_mut().get(&rows, &checked, &query),
+                None => visible_rows(&rows, &checked, &query),
+            };
             // The host's selection is clamped to what is on screen, so a
             // narrowing query always leaves a real row selected.
             let selected = view
@@ -620,6 +670,34 @@ mod tests {
         assert_eq!(state_hint(IssueStatus::Backlog, Some("merged")), Some("PR merged"));
         assert_eq!(state_hint(IssueStatus::Done, None), Some("done"));
         assert_eq!(state_hint(IssueStatus::InReview, Some("open")), None);
+    }
+
+    /// Release review R5: the memo ranks once per (pool, query, checked) and
+    /// hands back the same answer `visible_rows` would; a new pool, a new
+    /// query or a changed checked set each rank again.
+    #[test]
+    fn the_visible_rows_memo_ranks_once_per_key() {
+        let rows: Rc<Vec<IssueRow>> = Rc::new(
+            (0..5)
+                .map(|n| row(&format!("i{n}"), &format!("EXP-{n}"), &format!("Title {n}")))
+                .collect(),
+        );
+        let mut checked: HashSet<String> = HashSet::new();
+        let mut memo = VisibleRowsMemo::default();
+        assert_eq!(memo.get(&rows, &checked, ""), visible_rows(&rows, &checked, ""));
+        memo.get(&rows, &checked, "");
+        memo.get(&rows, &checked, "");
+        assert_eq!(memo.computed(), 1, "the same key never ranks twice");
+        assert_eq!(memo.get(&rows, &checked, "Title 3"), visible_rows(&rows, &checked, "Title 3"));
+        assert_eq!(memo.computed(), 2, "a new query ranks");
+        checked.insert("i2".to_string());
+        assert_eq!(memo.get(&rows, &checked, "Title 3"), visible_rows(&rows, &checked, "Title 3"));
+        assert_eq!(memo.computed(), 3, "a changed checked set ranks");
+        let rebuilt: Rc<Vec<IssueRow>> = Rc::new(rows.as_ref().clone());
+        memo.get(&rebuilt, &checked, "Title 3");
+        assert_eq!(memo.computed(), 4, "a rebuilt pool is a new key");
+        memo.get(&rebuilt, &checked, "Title 3");
+        assert_eq!(memo.computed(), 4);
     }
 
     /// Checked rows pin first whatever the query; the rest is the shared

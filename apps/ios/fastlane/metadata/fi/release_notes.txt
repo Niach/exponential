@@ -1,23 +1,23 @@
+- Laiteikonit: anna jokaiselle koneelle oma ikoni sen asetuksissa, näyttö, palvelin tai kannettava tai Applen, Windowsin tai Linuxin merkki, ja valitse boardeille ja toiminnoille 96 ikonin joukosta
+- Run-puoli alkaa agentin tehtävälistalla, taustalla käyvä ajo pitää välilehtensä, ja välilehdet ja palkit asettuvat samaan linjaan tapahtumien kanssa
+- Laitteet taittuvat yhdelle riville, näyttävät milloin käyttöikkuna nollautuu, ja kirjautumisen voi poistaa koneelta; Work-näkymän valikko on vain Issue-puolella, puolenvaihtaja laskee ajon muuttuneet tiedostot ja sujahtaa avattuun kirjoituskenttään, ja batch-ajon issuet aukeavat arkille
+- Kutsut Exponentialiin luetaan omana ryhmänään, Read 3 issues yleisen työkaluajon sijaan, eikä vuoro, joka ei muuttanut tiedostoa, näytä enää tyhjää korttia
 - Stop käynnissä olevassa istunnossa on nyt tavallinen palkin painike, yhtä korkea kuin takaisin-painike, eikä enää pilleri, jonka reunus piirtyi rikki
 - Ajon tapahtumarivit eivät enää mene päällekkäin, ja keskustelu vierii vapaaksi kirjoituskentän yläpuolisesta kortista
 - Chat-ajo saa nimensä siitä, mitä agentti tekee, eikä lue enää kaikkialla ”Chat”
-- Yksi diff kaikkialla: diffin tiedostot ovat puussa, jossa voit hypellä, ja agentin yhden vuoron muokkaukset kokoontuvat yhteen ”Edited files” -korttiin
+- Yksi diff kaikkialla: diffin tiedostot ovat puussa, jossa voit hypellä, ja yhden vuoron muokkaukset kokoontuvat yhteen ”Edited files” -korttiin, rivinumeroineen, piilotetut muuttumattomat rivit saa auki, ja uudelleennimetyt tai binääriset tiedostot nimetään
 - Käyttö yhdessä paikassa: näkymä kertoo ajon oman tilin, sen rajaikkunat ja konteksti-ikkunan sekä koneen muut kirjautumiset
 - Laitteet kantavat kirjautumiset: jokainen kone listaa agenttikirjautumisensa tilauksen, kunnon ja käytön kanssa, ja laitteen ratas pitää sisällään Updaten ja Removen
-- Epäonnistunut stackin yhdistäminen kertoo nyt syyn sen sijaan, että vaikenisi
 - Yksi issue-haku: sama järjestys ohjaa jokaista issue-listaa, valitsinta ja #-valikkoa, ja ylin tulos on valmiiksi valittu
-- Käynnissä oleva komento näyttää vain viimeiset rivinsä, joten pitkä tuloste ei enää hukuta ajoa
-- Ajo, joka hiljenee, merkitään päättyneeksi ja jää listalle sen sijaan, että katoaisi
-- Yksi Work-näkymä: issue, sen ajo, muutokset ja tulokset ovat nyt saman näkymän puolia, vaihdat niiden välillä alapalkista, ja Stop tai Resume on oikeassa yläkulmassa
-- Yksi diff-näkymä: jokainen diff näyttää samalta, rivinumeroineen, piilotetut muuttumattomat rivit saa auki, ja uudelleennimetyt tai binääriset tiedostot nimetään tyhjän sijaan
+- Käynnissä oleva komento näyttää vain viimeiset rivinsä, ja ajo, joka hiljenee, merkitään päättyneeksi ja jää listalle
+- Yksi Work-näkymä: issue, sen ajo ja muutokset ovat saman näkymän puolia, vaihdat niiden välillä alapalkista, ja Stop tai Resume on oikeassa yläkulmassa
 - Pinotut pull requestit: käynnistä issue sen päälle joka estää sen, yhdistä koko ketju Merge stackilla, lue työn päällä oleva stack- tai batch-merkki, ja vastaa kysymykseen jonka sisäkkäinen ajo lähettää
-- Ajon tulokset: kuvakaappauksia julkaiseva ajo saa Results-puolen, ryhmiteltynä aiheittain, yksi ruutu kutakin alustaa kohden, ja napautus näyttää koko kuvan
-- Batch-ajot nimellä: useaa issueta kattava ajo lukee nyt EXP-874 +2 ensimmäisen issuen otsikon vieressä eikä ”Batch run”
-- Viestit menevät heti perille: agentin työskennellessä kirjoitettu viesti menee sille heti ja näkyy lähetettynä kunnes se luetaan, ja Stop palauttaa tekstin kirjoituskenttään
-- GitHub kuntoon: GitHubin yhdistäminen, repositorion lisääminen ja boardin repositorion asettaminen toimivat täällä kuten työpöydällä, ja virheet näkyvät siinä missä olet
-- Jonossa olevat viestit: agenttia odottava viesti näkyy palkissa kirjoituskentän yläpuolella, ja Stop käynnissä olevassa istunnossa keskeyttää oikeasti meneillään olevan vuoron sen sijaan että katoaisi matkalla
+- Ajon tulokset: kuvakaappauksia julkaiseva ajo saa Results-puolen, ryhmiteltynä aiheittain, yksi ruutu kutakin alustaa kohden
+- Batch-ajot nimellä: useaa issueta kattava ajo lukee EXP-874 +2 ensimmäisen issuen otsikon vieressä eikä ”Batch run”
+- Viestit menevät heti perille: agentin työskennellessä kirjoitettu viesti menee sille heti ja näkyy lähetettynä kunnes se luetaan, odottava viesti näkyy palkissa kirjoituskentän yläpuolella, ja Stop palauttaa tekstin kirjoituskenttään
+- GitHub kuntoon: GitHubin yhdistäminen, repositorion lisääminen ja boardin repositorion asettaminen toimivat kuten työpöydällä, ja virheet näkyvät siinä missä olet
 - Hillitymmät painikkeet ja selkeämmät valitsimet: vain näkymän päätoiminto säilyttää täytetyn ympyrän, ja agenttivalitsin kantaa Claude Coden tai Codexin merkkiä, kun taas laitevalikot alkavat kannettavan tai palvelimen kuvakkeella
 - Agent-sivu pitää ajosi: menneet ajot taittuvat luvun taakse, jonka voit avata, ja kun mikään ei ole käynnissä, kirjoituskenttä asettuu keskelle sivua
-- Issue-suodattimet ovat poissa: suodatinpainike ja sen pillerit lähtivät boardilta ja saapuneista, haku kattaa sen mihin niitä käytettiin, ja ryhmittely ja tilapalkit jäävät
-- Jatka sähköpostilla tai avainkoodilla: kirjaudu sisään sähköpostiin lähetetyllä 6-numeroisella koodilla tai Face ID:llä tai Touch ID:llä; kaikki vaihtoehdot ovat yhdessä listassa, ja tuntemattomasta osoitteesta syntyy yksinkertaisesti uusi tili
+- Issue-suodattimet ovat poissa: haku kattaa sen mihin niitä käytettiin, ja ryhmittely ja tilapalkit jäävät
+- Jatka sähköpostilla tai avainkoodilla: kirjaudu sisään sähköpostiin lähetetyllä 6-numeroisella koodilla tai Face ID:llä tai Touch ID:llä; kaikki vaihtoehdot ovat yhdessä Continue-listassa
 - Tilin vaihto kesken ajon ja paluu sinne mistä tulit: rajaansa törmännyt Claude-ajo voi jatkaa toisella tilillä, ja istunnosta poistuminen vie takaisin siihen issueen tai boardiin, josta sen avasit

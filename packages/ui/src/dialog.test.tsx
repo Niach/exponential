@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { fireEvent, render, screen } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
 import {
   AlertDialog,
   AlertDialogContent,
@@ -184,5 +184,78 @@ describe(`SheetContent`, () => {
     expect(grabber()).toBeNull()
     expect(screen.getByText(`Close`)).toBeTruthy()
     expect(panel(`sheet-content`).className).toContain(`backdrop-blur-2xl`)
+  })
+})
+
+// The typeahead's anchored arm portals to document.body, outside every
+// modal's subtree, so Radix would take a pointer-down on it as an OUTSIDE
+// interaction and close the dialog under the menu. Both shells ignore that
+// one by default; a caller's own `onInteractOutside` still runs first and
+// its preventDefault stands.
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+function outsideNode(attrs: Record<string, string> = {}) {
+  const node = document.createElement(`div`)
+  for (const [key, value] of Object.entries(attrs)) {
+    node.setAttribute(key, value)
+  }
+  document.body.appendChild(node)
+  return node
+}
+
+describe(`DialogContent / SheetContent outside interactions`, () => {
+  it(`keeps the dialog open under a pointer-down on the typeahead portal`, async () => {
+    const onOpenChange = vi.fn()
+    render(
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogTitle>Edit</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    )
+    // Radix attaches its document pointerdown listener on a 0ms timer.
+    await tick()
+    const menu = outsideNode({ "data-editor-autocomplete": `` })
+    fireEvent.pointerDown(menu)
+    expect(onOpenChange).not.toHaveBeenCalled()
+
+    const elsewhere = outsideNode()
+    fireEvent.pointerDown(elsewhere)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it(`runs the caller's guard first and honours its veto`, async () => {
+    const onOpenChange = vi.fn()
+    const guard = vi.fn((event: { preventDefault: () => void }) =>
+      event.preventDefault()
+    )
+    render(
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent onInteractOutside={guard}>
+          <DialogTitle>Edit</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    )
+    await tick()
+    fireEvent.pointerDown(outsideNode())
+    expect(guard).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it(`the sheet does the same`, async () => {
+    const onOpenChange = vi.fn()
+    render(
+      <Sheet open onOpenChange={onOpenChange}>
+        <SheetContent side="bottom">
+          <SheetTitle>Edit</SheetTitle>
+        </SheetContent>
+      </Sheet>
+    )
+    await tick()
+    fireEvent.pointerDown(outsideNode({ "data-editor-autocomplete": `` }))
+    expect(onOpenChange).not.toHaveBeenCalled()
+    fireEvent.pointerDown(outsideNode())
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })

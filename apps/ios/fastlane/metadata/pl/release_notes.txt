@@ -1,23 +1,23 @@
+- Ikony urządzeń: w ustawieniach każdej maszyny nadasz jej własną ikonę, monitor, serwer albo laptop czy znak Apple, Windows lub Linux, a dla boardów i akcji wybierasz z 96 ikon
+- Strona Run zaczyna się listą zadań agenta, przebieg w tle zachowuje swoją zakładkę, a zakładki i paski równają się z zapisem
+- Urządzenia składają się do jednego wiersza, pokazują, kiedy odnawia się okno limitu, a logowanie można usunąć z maszyny; menu ekranu Work siedzi tylko na stronie Issue, przełącznik stron liczy zmienione pliki przebiegu i chowa się w rozwiniętym polu pisania, a issues przebiegu batch otwierają się w arkuszu
+- Wywołania do Exponentiala stoją jako własna grupa, Read 3 issues zamiast ogólnego uruchomienia narzędzia, a tura, która nie zmieniła żadnego pliku, nie pokazuje już pustej karty zmian
 - Stop w trwającej sesji to teraz zwykły przycisk na pasku, tej samej wysokości co przycisk wstecz, zamiast pigułki z pękniętym obrysem
 - Wiersze zapisu przebiegu już na siebie nie nachodzą, a czat przewija się obok karty nad polem pisania
 - Przebieg czatu bierze nazwę od tego, nad czym pracuje agent, zamiast wszędzie pokazywać „Chat”
-- Jeden diff wszędzie: pliki diffa stoją w drzewie, po którym skaczesz, a zmiany agenta z jednej tury zbierają się w jednej karcie „Edited files”
+- Jeden diff wszędzie: pliki diffa stoją w drzewie, po którym skaczesz, a zmiany agenta z jednej tury zbierają się w jednej karcie „Edited files”, z numerami wierszy, ukrytymi niezmienionymi wierszami do rozwinięcia i nazwanymi plikami po zmianie nazwy lub binarnymi
 - Zużycie w jednym miejscu: panel pokazuje własne konto przebiegu, jego okna limitów i okno kontekstu, a do tego pozostałe logowania na tej maszynie
 - Urządzenia niosą logowania: każda maszyna wypisuje swoje konta agenta z planem, stanem i zużyciem, a zębatka urządzenia mieści Update i Remove
-- Nieudane scalenie stacku mówi teraz dlaczego, zamiast milczeć
 - Jedno wyszukiwanie issue: to samo uszeregowanie niesie każdą listę issue, każdy wybór i każde menu #, a górny wynik jest już zaznaczony
-- Działające polecenie pokazuje tylko swoje ostatnie wiersze, więc długie wyjście nie zalewa już przebiegu
-- Przebieg, który milknie, zostaje oznaczony jako zakończony i zostaje na liście, zamiast znikać
-- Jeden ekran Work: issue, jego przebieg, zmiany i wyniki są teraz stronami jednego ekranu, przełączasz je paskiem na dole, a Stop albo Resume siedzi w prawym górnym rogu
-- Jeden widok diffa: każdy diff czyta się tak samo, z numerami wierszy, ukrytymi niezmienionymi wierszami, które możesz rozwinąć, i nazwanymi plikami po zmianie nazwy lub binarnymi zamiast pustki
+- Działające polecenie pokazuje tylko swoje ostatnie wiersze, a przebieg, który milknie, zostaje oznaczony jako zakończony i zostaje na liście
+- Jeden ekran Work: issue, jego przebieg i zmiany są stronami jednego ekranu, przełączasz je paskiem na dole, a Stop albo Resume siedzi w prawym górnym rogu
 - Ułożone pull requesty: uruchom issue na tym, które je blokuje, scal cały łańcuch przez Merge stack, odczytaj plakietkę stacka albo batcha na pracy i odpowiedz na pytanie, które wyśle ci zagnieżdżony przebieg
-- Wyniki przebiegu: przebieg, który publikuje zrzuty ekranu, dostaje stronę Results, pogrupowaną tematami, po jednym kafelku na platformę, a dotknięcie pokazuje cały obraz
-- Przebiegi batch z nazwą: przebieg obejmujący kilka issues czyta teraz EXP-874 +2 obok tytułu pierwszego issue zamiast „Batch run”
-- Wiadomości docierają od razu: wiadomość napisana, gdy agent pracuje, trafia do niego natychmiast i widnieje jako wysłana, dopóki jej nie przeczyta, a Stop oddaje tekst do pola pisania
-- GitHub uporządkowany: połączenie GitHuba, dodanie repozytorium i ustawienie repozytorium boardu działają tu tak jak na komputerze, a błędy widać tam, gdzie jesteś
-- Wiadomości w kolejce: wiadomość czekająca na agenta widnieje na pasku nad polem pisania, a Stop w trwającej sesji naprawdę przerywa bieżącą turę, zamiast ginąć po drodze
+- Wyniki przebiegu: przebieg, który publikuje zrzuty ekranu, dostaje stronę Results, pogrupowaną tematami, po jednym kafelku na platformę
+- Przebiegi batch z nazwą: przebieg obejmujący kilka issues czyta EXP-874 +2 obok tytułu pierwszego issue zamiast „Batch run”
+- Wiadomości docierają od razu: wiadomość napisana, gdy agent pracuje, trafia do niego natychmiast i widnieje jako wysłana, dopóki jej nie przeczyta, wiadomość czekająca widnieje na pasku nad polem pisania, a Stop oddaje tekst do pola pisania
+- GitHub uporządkowany: połączenie GitHuba, dodanie repozytorium i ustawienie repozytorium boardu działają tak jak na komputerze, a błędy widać tam, gdzie jesteś
 - Spokojniejsze przyciski i czytelniejsze listy wyboru: wypełnione kółko zostaje tylko przy głównej akcji ekranu, a wybór agenta nosi znak Claude Code albo Codex, podczas gdy menu urządzeń zaczyna się ikoną laptopa lub serwera
 - Strona Agent trzyma twoje uruchomienia: minione uruchomienia składają się za licznikiem, który możesz otworzyć, a gdy nic nie działa, pole pisania stoi na środku strony
-- Filtry issues zniknęły: przycisk filtra i jego pigułki opuściły board i skrzynkę, wyszukiwanie pokrywa to, do czego służyły, a grupowanie i pasy statusów zostają
-- Kontynuuj e-mailem albo kluczem dostępu: zaloguj się sześciocyfrowym kodem wysłanym na pocztę albo przez Face ID czy Touch ID; wszystkie opcje są na jednej liście, a nieznany adres po prostu staje się nowym kontem
+- Filtry issues zniknęły: wyszukiwanie pokrywa to, do czego służyły, a grupowanie i pasy statusów zostają
+- Kontynuuj e-mailem albo kluczem dostępu: zaloguj się sześciocyfrowym kodem wysłanym na pocztę albo przez Face ID czy Touch ID; wszystkie opcje są na jednej liście Continue
 - Zmiana konta w trakcie przebiegu i powrót tam, skąd przyszedłeś: przebieg Claude na limicie może iść dalej na innym koncie, a wyjście z sesji odsyła cię z powrotem do issue albo boardu, z którego ją otworzyłeś

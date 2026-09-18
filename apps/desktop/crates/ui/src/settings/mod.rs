@@ -1155,39 +1155,30 @@ pub(crate) fn danger_zone(
         )
 }
 
-/// Inline destructive error box (web `text-destructive` / bordered error).
+/// Inline destructive error box (web `text-destructive` / bordered error):
+/// the shared inline alert (EXP-970) in its destructive variant, so every
+/// settings error and the repository dialog's banner are ONE banner.
 pub(crate) fn error_notice(message: SharedString, cx: &App) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(cx.theme().danger.opacity(0.5))
-        .bg(cx.theme().danger.opacity(0.1))
-        .text_sm()
-        .text_color(cx.theme().danger)
-        .child(message)
+    crate::controls::alert(crate::controls::AlertVariant::Destructive, None, cx).child(message)
 }
 
 /// §4.9 plan-cap surface: a neutral "Upgrade on the web" notice — never an
-/// in-app purchase/pricing UI.
+/// in-app purchase/pricing UI. The shared inline alert (EXP-970) in its
+/// default variant: the message is its title line, the hint its description.
 pub(crate) fn upgrade_notice(message: SharedString, cx: &App) -> impl IntoElement {
-    v_flex()
-        .gap_1()
-        .px_3()
-        .py_2()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(cx.theme().primary.opacity(0.4))
-        .bg(cx.theme().primary.opacity(0.05))
-        .text_sm()
-        .child(message)
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child("Upgrade on the web to raise this limit."),
-        )
+    let muted = cx.theme().muted_foreground;
+    crate::controls::alert(crate::controls::AlertVariant::Default, None, cx).child(
+        v_flex()
+            .min_w_0()
+            .gap_1()
+            .child(crate::controls::alert_title(message))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child("Upgrade on the web to raise this limit."),
+            ),
+    )
 }
 
 /// `#rrggbb` → Hsla (label/board colors are stored as hex strings).

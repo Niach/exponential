@@ -1,23 +1,23 @@
+- Eszközikonok: minden gépnek saját ikont adhatsz a beállításaiban, monitort, szervert vagy laptopot, vagy az Apple, a Windows vagy a Linux jelét, a boardokhoz és akciókhoz pedig 96 ikon közül választhatsz
+- A Run arc az ügynök feladatlistájával indul, a háttérben futó menet megtartja a fülét, a fülek és sávok pedig a naplóhoz igazodnak
+- Az eszközök egy-egy sorba hajtódnak, mutatják, mikor áll vissza egy használati ablak, és egy bejelentkezés eltávolítható a gépről; a Work képernyő menüje csak az Issue arcon ül, az arcváltó számolja a futás módosított fájljait és a kinyitott szerkesztőmezőbe húzódik, egy batch futás issue-i pedig lapon nyílnak meg
+- Az Exponential hívásai saját csoportként állnak, Read 3 issues az általános eszközfutás helyett, és a fájlt nem módosító kör már nem mutat üres kártyát
 - A futó munkamenetben a Stop mostantól sima sávgomb, ugyanolyan magas, mint a vissza gomb, nem pedig tabletta törött kerettel
 - Egy futás naplójának sorai már nem csúsznak egymásra, és a beszélgetés elgördül a szerkesztőmező fölötti kártya mellől
 - A csevegőfutás arról kapja a nevét, amin az ügynök dolgozik, ahelyett hogy mindenhol „Chat” állna
-- Egy diff mindenhol: a diff fájljai fában állnak, amelyben ugrálhatsz, az ügynök egy körben tett módosításai pedig egyetlen „Edited files” kártyára gyűlnek
+- Egy diff mindenhol: a diff fájljai fában állnak, amelyben ugrálhatsz, egy kör módosításai pedig egyetlen „Edited files” kártyára gyűlnek, sorszámokkal, kinyitható változatlan sorokkal, az átnevezett és bináris fájlok névvel
 - A használat egy helyen: egy panel mutatja a futás saját fiókját, a korlátablakait és a kontextusablakot, valamint a gép többi bejelentkezését
 - Az eszközök hordozzák a bejelentkezéseket: minden gép felsorolja az ügynökfiókjait csomaggal, állapottal és használattal, egy eszköz fogaskereke pedig az Update és a Remove helye
-- A sikertelen stack-egyesítés mostantól megmondja, miért, ahelyett hogy hallgatna
 - Egyetlen issue-kereső: ugyanaz a sorrend hajtja minden issue-listát, választót és #-menüt, a legfelső találat pedig már ki van jelölve
-- A futó parancs csak az utolsó sorait mutatja, így a hosszú kimenet nem árasztja el a futást
-- Az elnémuló futás befejezettként jelenik meg, és a listán marad ahelyett, hogy eltűnne
-- Egyetlen Work képernyő: egy issue, a futása, a változások és az eredmények ugyanannak a képernyőnek az arcai, az alsó sávval válthatsz köztük, a Stop vagy a Resume pedig jobbra fent ül
-- Egyetlen diffnézet: minden diff ugyanúgy olvasható, sorszámokkal, kinyitható változatlan sorokkal, az átnevezett és bináris fájlok pedig névvel szerepelnek üresen mutatás helyett
-- Egymásra épülő pull requestek: indíts egy issue-t arra, ami blokkolja, fűzd össze az egész láncot a Merge stackkel, olvasd le a munkán a stack- vagy batch-jelvényt, és válaszolj a kérdésre, amit egy beágyazott futás küld
-- Egy futás eredményei: a képernyőképeket közzétevő futás Results arcot kap, téma szerint csoportosítva, platformonként egy csempével, és egy koppintás megmutatja a teljes képet
-- Batch futások néven: a több issue-t lefedő futás mostantól EXP-874 +2 feliratot mutat az első issue címe mellett a „Batch run” helyett
-- Az üzenetek azonnal célba érnek: az ügynök munkája közben írt üzenet rögtön eljut hozzá, és elküldöttként áll, amíg el nem olvassa, a Stop pedig visszaadja a szöveget a szerkesztőmezőbe
-- A GitHub rendbe téve: a GitHub összekapcsolása, a tároló hozzáadása és a board tárolójának beállítása itt úgy működik, mint az asztali gépen, a hibák pedig ott jelennek meg, ahol vagy
-- Sorban álló üzenetek: az ügynökre váró üzenet a szerkesztőmező fölötti sávban látszik, az élő munkamenetben a Stop pedig tényleg megszakítja a futó kört, ahelyett hogy útközben elveszne
+- A futó parancs csak az utolsó sorait mutatja, az elnémuló futás pedig befejezettként marad a listán
+- Egyetlen Work képernyő: egy issue, a futása és a változások ugyanannak a képernyőnek az arcai, az alsó sávval válthatsz köztük, a Stop vagy a Resume pedig jobbra fent ül
+- Egymásra épülő pull requestek: indíts egy issue-t arra, ami blokkolja, fűzd össze a láncot a Merge stackkel, olvasd le a munkán a stack- vagy batch-jelvényt, és válaszolj egy beágyazott futás kérdésére
+- Egy futás eredményei: a képernyőképeket közzétevő futás Results arcot kap, téma szerint csoportosítva, platformonként egy csempével
+- Batch futások néven: a több issue-t lefedő futás EXP-874 +2 feliratot mutat az első issue címe mellett a „Batch run” helyett
+- Az üzenetek azonnal célba érnek: az ügynök munkája közben írt üzenet rögtön eljut hozzá, és elküldöttként áll, amíg el nem olvassa, a várakozó üzenet a szerkesztőmező fölötti sávban látszik, a Stop pedig visszaadja a szöveget a mezőbe
+- A GitHub rendbe téve: a GitHub összekapcsolása, a tároló hozzáadása és a board tárolójának beállítása úgy működik, mint az asztali gépen, a hibák pedig ott jelennek meg, ahol vagy
 - Csendesebb gombok és világosabb választók: kitöltött kört csak a képernyő fő művelete kap, az ügynökválasztó a Claude Code vagy a Codex jelét viseli, az eszközmenük pedig laptop- vagy szerverikonnal kezdenek
 - Az Agent oldal tartja a futásaidat: a korábbi futások egy szám mögé hajtódnak össze, amit kinyithatsz, és ha semmi sem fut, a szerkesztőmező az oldal közepén ül
-- Az issue-szűrők eltűntek: a szűrőgomb és a pirulái elhagyták a boardot és a beérkezetteket, a keresés lefedi, amire használták őket, a csoportosítás és a státuszsávok maradnak
-- Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen listában van, és egy ismeretlen e-mail-cím egyszerűen új fiók lesz
+- Az issue-szűrők eltűntek: a keresés lefedi, amire használták őket, a csoportosítás és a státuszsávok maradnak
+- Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen Continue listában van
 - Fiókváltás futás közben, és vissza oda, ahonnan jöttél: a korlátjába ütköző Claude-futás másik fiókkal folytatható, a munkamenetből kilépve pedig visszakerülsz arra az issue-ra vagy boardra, ahonnan megnyitottad

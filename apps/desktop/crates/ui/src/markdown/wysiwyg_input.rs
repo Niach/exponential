@@ -272,16 +272,27 @@ pub fn restore_blank_line_markers(markdown: &str) -> String {
             continue;
         }
         if !lines[index].is_empty() {
-            fence = fence_opener(lines[index]);
+            let line = lines[index];
+            fence = fence_opener(line);
             // EXP-925: an empty hard-break line goes back to the `\` the
             // contract stores — the marker is this editor's business and must
-            // never leave it.
-            match empty_break_line(lines[index]) {
+            // never leave it. Inside an indented-code run the line is code
+            // bytes, never a break (the same rule the blank-run arm takes).
+            let in_code = line_inside_indented_code(&lines, index);
+            match empty_break_line(line).filter(|_| !in_code) {
                 Some(indent) => {
                     changed = true;
                     out.push(Cow::Owned(format!("{indent}\\")));
                 }
-                None => out.push(Cow::Borrowed(lines[index])),
+                // Release review R3: a marker with text beside it (the user
+                // typed on the marker line) or one inside code is STRIPPED,
+                // not stored — a stray U+200B in the markdown poisons every
+                // other client.
+                None if line.contains(EMPTY_BREAK_MARKER) => {
+                    changed = true;
+                    out.push(Cow::Owned(line.replace(EMPTY_BREAK_MARKER, "")));
+                }
+                None => out.push(Cow::Borrowed(line)),
             }
             index += 1;
             continue;
@@ -333,8 +344,23 @@ fn empty_break_line(line: &str) -> Option<&str> {
 /// CommonMark folds such blanks into ONE indented code block, so they are
 /// code bytes, not trimmed empty paragraphs.
 fn blank_run_inside_indented_code(lines: &[&str], start: usize, end: usize) -> bool {
-    let indented = |line: &str| !line.is_empty() && strip_block_indent(line).is_none();
-    start > 0 && end < lines.len() && indented(lines[start - 1]) && indented(lines[end])
+    start > 0 && end < lines.len() && indented_code(lines[start - 1]) && indented_code(lines[end])
+}
+
+/// Whether the (non-empty) line at `index` is an indented-code line sitting
+/// between two more of them — a run, not a nested list item's continuation,
+/// which also happens to start four columns in.
+fn line_inside_indented_code(lines: &[&str], index: usize) -> bool {
+    indented_code(lines[index])
+        && index > 0
+        && index + 1 < lines.len()
+        && indented_code(lines[index - 1])
+        && indented_code(lines[index + 1])
+}
+
+/// Four or more leading spaces on a non-empty line: an indented code line.
+fn indented_code(line: &str) -> bool {
+    !line.is_empty() && strip_block_indent(line).is_none()
 }
 
 // -- 2. Inline images ------------------------------------------------------
@@ -1160,11 +1186,34 @@ mod tests {
         );
         // A marker the engine trimmed the spaces off still goes back.
         assert_eq!(restore_blank_line_markers(&format!("a  \n{ZWSP}\nb")), "a  \n\\\nb");
-        // Text beside it is content, not a marker line.
+        // Text beside it is content, not a marker line — and the marker is
+        // STRIPPED from it, never stored (release review R3).
         let kept = format!("a  \n{ZWSP}x\nb");
-        assert_eq!(restore_blank_line_markers(&kept), kept);
+        assert_eq!(restore_blank_line_markers(&kept), "a  \nx\nb");
+        assert_eq!(
+            restore_blank_line_markers(&format!("a  \nmid{ZWSP}dle {ZWSP}\nb")),
+            "a  \nmiddle \nb"
+        );
         // Nothing to do: the input comes back byte-identical.
         assert_eq!(restore_blank_line_markers("a  \nb"), "a  \nb");
+    }
+
+    /// Release review R3: a marker line INSIDE an indented-code run is code,
+    /// never a hard break — and it never leaks either. A four-column line
+    /// that is a nested list item's continuation is not a run and keeps its
+    /// break.
+    #[test]
+    fn a_marker_inside_indented_code_is_never_a_hard_break_and_never_leaks() {
+        const ZWSP: &str = "\u{200b}";
+        assert_eq!(
+            restore_blank_line_markers(&format!("p\n\n    code\n    {ZWSP}  \n    more")),
+            "p\n\n    code\n      \n    more"
+        );
+        assert!(!restore_blank_line_markers(&format!("    a\n    {ZWSP}\n    b")).contains(ZWSP));
+        assert_eq!(
+            restore_blank_line_markers(&format!("- a\n  - b  \n    {ZWSP}  \n    c")),
+            "- a\n  - b  \n    \\\n    c"
+        );
     }
 
     /// The pair is a fixpoint: normalize → restore → normalize lands on the

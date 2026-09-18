@@ -7,7 +7,12 @@ import {
   useState,
 } from "react"
 import type { User } from "@/db/schema"
-import { Textarea, TypeaheadMenu, useTypeahead } from "@exp/ui"
+import {
+  Textarea,
+  TypeaheadMenu,
+  readTypeaheadViewport,
+  useTypeahead,
+} from "@exp/ui"
 import {
   EmojiCandidateRow,
   IssueCandidateRow,
@@ -166,24 +171,43 @@ export const MentionTextarea = forwardRef<
   // bottom of the screen. A field near the TOP of the window has no room
   // there, and the menu used to run straight off it, so measure both sides
   // and flip; whichever side wins is capped to the room it has and scrolls.
+  // The room is the VISUAL viewport's (`readTypeaheadViewport`): with the
+  // phone keyboard up it is shorter than `innerHeight`, and it moves while
+  // the keyboard animates, so the measure re-runs on its resize/scroll while
+  // the menu is open.
   const wrapRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [above, setAbove] = useState(true)
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null)
   useLayoutEffect(() => {
-    const wrap = wrapRef.current
-    const el = menuRef.current
-    if (!wrap || !el) return
-    const rect = wrap.getBoundingClientRect()
-    const gutter = 12
-    const roomAbove = Math.max(0, rect.top - gutter)
-    const roomBelow = Math.max(0, window.innerHeight - rect.bottom - gutter)
-    // `scrollHeight` is the FULL list even while a cap is on it, so the
-    // choice never depends on the cap the last open left behind.
-    const fitsAbove = el.scrollHeight <= roomAbove
-    const next = fitsAbove || roomAbove >= roomBelow
-    setAbove(next)
-    setMenuMaxHeight(Math.round(next ? roomAbove : roomBelow))
+    const measure = () => {
+      const wrap = wrapRef.current
+      const el = menuRef.current
+      if (!wrap || !el) return
+      const rect = wrap.getBoundingClientRect()
+      const viewport = readTypeaheadViewport()
+      const gutter = 12
+      const roomAbove = Math.max(0, rect.top - viewport.top - gutter)
+      const roomBelow = Math.max(
+        0,
+        viewport.top + viewport.height - rect.bottom - gutter
+      )
+      // `scrollHeight` is the FULL list even while a cap is on it, so the
+      // choice never depends on the cap the last open left behind.
+      const fitsAbove = el.scrollHeight <= roomAbove
+      const next = fitsAbove || roomAbove >= roomBelow
+      setAbove(next)
+      setMenuMaxHeight(Math.round(next ? roomAbove : roomBelow))
+    }
+    measure()
+    const vv = window.visualViewport
+    if (menu === null || !vv) return
+    vv.addEventListener(`resize`, measure)
+    vv.addEventListener(`scroll`, measure)
+    return () => {
+      vv.removeEventListener(`resize`, measure)
+      vv.removeEventListener(`scroll`, measure)
+    }
   }, [menu, candidateCount])
 
   const sync = (next: string, caret: number) => {
@@ -317,7 +341,18 @@ export const MentionTextarea = forwardRef<
     // Anything the open menu consumed (arrows, a plain Enter/Tab, Escape) the
     // host never sees; a modified Enter (Cmd/Ctrl+Enter = send in the comment
     // composer) is never consumed, so the send shortcut always gets through.
-    if (typeahead.handleKeyDown(e)) return
+    // Nor is a key mid IME composition (`isComposing` lives on the native
+    // event): Enter there commits the candidate, never a row.
+    const handled = typeahead.handleKeyDown({
+      key: e.key,
+      metaKey: e.metaKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      shiftKey: e.shiftKey,
+      isComposing: e.nativeEvent.isComposing,
+      preventDefault: () => e.preventDefault(),
+    })
+    if (handled) return
     onKeyDown?.(e)
   }
 

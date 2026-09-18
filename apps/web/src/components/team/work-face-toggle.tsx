@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import {
+  Button,
   conceptIcon,
   DropdownMenu,
   DropdownMenuTrigger,
@@ -70,7 +71,10 @@ export function WorkFaceToggle({
   items: readonly WorkFaceItem[]
   runMenu?: WorkFaceRunMenu
 }) {
-  const hasRunMenu = (runMenu?.runs.length ?? 0) > 1
+  // The caret hangs off the `Runs` segment, so it needs BOTH several runs
+  // and that segment to hang from.
+  const hasRunMenu =
+    (runMenu?.runs.length ?? 0) > 1 && items.some((item) => item.face === `run`)
   if (items.length < 2 && !hasRunMenu) return null
   return (
     <Tabs
@@ -105,15 +109,17 @@ export function WorkFaceToggle({
               </TabsTrigger>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <Button
                     type="button"
-                    className="inline-flex h-full items-center rounded-full pr-2.5 pl-0.5 opacity-70 outline-none hover:opacity-100 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    variant="ghost"
+                    size="icon"
+                    className="h-full w-auto rounded-full pr-2.5 pl-0.5 opacity-70 hover:bg-transparent hover:opacity-100 dark:hover:bg-transparent"
                     title="Switch run"
                     aria-label="Switch run"
                     data-testid="issue-run-switcher"
                   >
                     <UiChevronDownIcon className="size-3" />
-                  </button>
+                  </Button>
                 </DropdownMenuTrigger>
                 <IssueRunMenuContent
                   runs={runMenu.runs}

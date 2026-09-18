@@ -63,10 +63,19 @@ jobs:
       # Only the merge: re-collecting needs cargo/gradle/network and runs in
       # test.yml's `desktop` and `android` jobs.
       - run: bun run --filter @exp/licenses generate
+      # EXP-273/EXP-924 — the one icon registry; the desktop's glyph table and
+      # svg assets are generator output too.
+      - run: bun run --filter @exp/icons generate
       - name: Fail if the committed generated files drifted
         run: |
           git diff --exit-code -- \
             apps/desktop/crates/domain/src/contract.generated.rs \
+            apps/desktop/crates/ui/src/icons.generated.rs \
+            apps/desktop/assets/icons \
+            packages/icons/src \
+            packages/ui/src/icons.generated.ts \
+            apps/ios/ExpUI/Sources/AppIcons.generated.swift \
+            apps/android/app/src/main/java/com/exponential/app/ui/icons/ExpIcons.generated.kt \
             apps/desktop/crates/theme/src/tokens.generated.rs \
             apps/desktop/assets/emoji.json \
             apps/web/src/lib/emoji.generated.json \

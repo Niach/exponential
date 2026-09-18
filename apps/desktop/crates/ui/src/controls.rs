@@ -651,10 +651,16 @@ pub(crate) enum TypeaheadArm {
 /// ([`plan_typeahead`]) and hands gpui the corner to hang from, so a long
 /// list near the bottom of the window opens upward instead of being slid
 /// over the caret.
+///
+/// `scroll` is the HOST's handle on the capped list (release review R5): the
+/// host calls `scroll_to_item(selected)` from its ↑/↓ handlers so a keyboard
+/// move past the cap brings the selected row into view; a hover move never
+/// scrolls.
 pub(crate) fn typeahead_menu(
     id: impl Into<ElementId>,
     arm: TypeaheadArm,
     rows: Vec<AnyElement>,
+    scroll: &gpui::ScrollHandle,
     window: &Window,
     cx: &App,
 ) -> AnyElement {
@@ -663,6 +669,7 @@ pub(crate) fn typeahead_menu(
     let surface = v_flex()
         .id(id)
         .occlude()
+        .track_scroll(scroll)
         .p_1()
         .gap_0p5()
         .bg(theme.popover)

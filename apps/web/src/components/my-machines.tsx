@@ -483,7 +483,6 @@ export function MyMachines({
               return (
                 <ListRow
                   key={device.deviceId}
-                  interactive
                   className={online && !runnable ? `opacity-60` : undefined}
                 >
                   <KindIcon className="size-4 shrink-0 text-foreground/70" />

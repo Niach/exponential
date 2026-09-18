@@ -1,23 +1,23 @@
+- Ikony zařízení: každému stroji dáš v jeho nastavení vlastní ikonu, monitor, server nebo notebook či značku Apple, Windows nebo Linux, a pro boardy i akce vybíráš z 96 ikon
+- Tvář Run začíná seznamem úkolů agenta, běh na pozadí si drží svou záložku a záložky i lišty sedí v jedné linii s přepisem
+- Zařízení se složí do jednoho řádku, ukážou, kdy se limitní okno obnoví, a přihlášení jde ze stroje odebrat; nabídka obrazovky Work sedí jen na tváři Issue, přepínač tváří počítá změněné soubory běhu a schová se do rozbaleného pole pro psaní, a issues batch běhu se otevřou v listu
+- Volání do Exponentialu stojí jako vlastní skupina, Read 3 issues místo obecného běhu nástroje, a tah, který nezměnil žádný soubor, už neukáže prázdnou kartu úprav
 - Stop v běžící relaci je teď obyčejné tlačítko v liště, stejně vysoké jako tlačítko zpět, místo pilulky s rozbitým obrysem
 - Řádky v přepisu běhu se už nepřekrývají a chat se posouvá mimo kartu nad polem pro psaní
 - Chatovací běh nese jméno toho, na čem agent pracuje, místo aby všude hlásil „Chat“
-- Jeden diff všude: soubory diffu stojí ve stromu, ve kterém skáčeš, a úpravy agenta z jednoho tahu se sbírají do jedné karty „Edited files“
+- Jeden diff všude: soubory diffu stojí ve stromu, ve kterém skáčeš, a úpravy agenta z jednoho tahu se sbírají do jedné karty „Edited files“, s čísly řádků, se skrytými nezměněnými řádky k rozbalení a s pojmenovanými přejmenovanými i binárními soubory
 - Spotřeba na jednom místě: přehled ukáže vlastní účet běhu, jeho limitní okna i kontextové okno a k tomu ostatní přihlášení na tom stroji
 - Zařízení nesou přihlášení: každý stroj vypíše své účty agenta s tarifem, stavem a spotřebou a ozubené kolo zařízení skrývá Update a Remove
-- Neúspěšné sloučení stacku teď řekne proč, místo aby mlčelo
 - Jedno hledání issue: stejné řazení nese každý seznam issue, každý výběr i každou #-nabídku a horní výsledek je rovnou vybraný
-- Běžící příkaz ukáže jen své poslední řádky, takže dlouhý výstup už běh nezaplaví
-- Běh, který ztichne, se označí jako ukončený a zůstane v seznamu, místo aby zmizel
-- Jedna obrazovka Work: issue, jeho běh, změny i výsledky jsou teď tváře jedné obrazovky, přepínáš je lištou dole a Stop či Resume sedí vpravo nahoře
-- Jeden pohled na diff: každý diff vypadá stejně, s čísly řádků, se skrytými nezměněnými řádky, které si můžeš rozbalit, a s pojmenovanými přejmenovanými i binárními soubory místo prázdna
+- Běžící příkaz ukáže jen své poslední řádky a běh, který ztichne, se označí jako ukončený a zůstane v seznamu
+- Jedna obrazovka Work: issue, jeho běh a změny jsou tváře jedné obrazovky, přepínáš je lištou dole a Stop či Resume sedí vpravo nahoře
 - Naskládané pull requesty: issue můžeš spustit nad tím, které ho blokuje, celý řetěz spojit přes Merge stack, na práci vidíš odznak stacku nebo batche a odpovíš na dotaz, který ti pošle vnořený běh
-- Výsledky z běhu: běh, který nahraje snímky obrazovky, dostane tvář Results seskupenou podle témat, jednu dlaždici na platformu, a klepnutím ji uvidíš celou
-- Batch běhy podle jména: běh přes několik issues teď čte EXP-874 +2 vedle názvu prvního issue místo „Batch run“
-- Zprávy dorazí hned: zpráva napsaná, když agent pracuje, jde k němu okamžitě a svítí jako odeslaná, dokud ji nepřečte, a Stop vrátí text zpátky do pole pro psaní
-- GitHub srovnaný: připojení GitHubu, přidání repozitáře i nastavení repozitáře boardu se tu chovají stejně jako na desktopu a chyby se ukážou tam, kde právě jsi
-- Zprávy ve frontě: zpráva, která čeká na agenta, je vidět v liště nad polem pro psaní, a Stop v běžící relaci skutečně přeruší probíhající tah, místo aby se cestou ztratil
+- Výsledky z běhu: běh, který nahraje snímky obrazovky, dostane tvář Results seskupenou podle témat, jednu dlaždici na platformu
+- Batch běhy podle jména: běh přes několik issues čte EXP-874 +2 vedle názvu prvního issue místo „Batch run“
+- Zprávy dorazí hned: zpráva napsaná, když agent pracuje, jde k němu okamžitě a svítí jako odeslaná, dokud ji nepřečte, čekající zpráva je vidět v liště nad polem pro psaní a Stop vrátí text do pole pro psaní
+- GitHub srovnaný: připojení GitHubu, přidání repozitáře i nastavení repozitáře boardu se chovají stejně jako na desktopu a chyby se ukážou tam, kde právě jsi
 - Tišší tlačítka a jasnější výběry: plný kroužek si nechá jen hlavní akce obrazovky a výběr agenta nese značku Claude Code nebo Codex, zatímco nabídky zařízení začínají ikonou notebooku či serveru
 - Stránka Agent drží tvoje běhy: minulé běhy se složí za počet, který můžeš otevřít, a když nic neběží, sedí pole pro psaní uprostřed stránky
-- Filtry issues jsou pryč: tlačítko filtru a jeho štítky zmizely z boardu i z doručených, hledání pokryje, k čemu sloužily, a seskupení i pásy stavů zůstávají
-- Pokračovat e-mailem nebo přístupovým klíčem: přihlas se šestimístným kódem, který ti přijde e-mailem, nebo přes Face ID či Touch ID; všechny možnosti jsou v jednom seznamu a neznámý e-mail se prostě stane novým účtem
+- Filtry issues jsou pryč: hledání pokryje, k čemu sloužily, a seskupení i pásy stavů zůstávají
+- Pokračovat e-mailem nebo přístupovým klíčem: přihlas se šestimístným kódem, který ti přijde e-mailem, nebo přes Face ID či Touch ID; všechny možnosti jsou v jednom seznamu Continue
 - Změna účtu uprostřed běhu a návrat tam, odkud jsi přišel: běh Claude, který narazí na limit, může pokračovat pod jiným účtem, a odchod z relace tě vrátí na issue nebo board, odkud jsi ji otevřel

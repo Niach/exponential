@@ -33,6 +33,13 @@ const GLYPH_CLASS = {
   sm: `left-2 size-3.5`,
 } as const
 
+/** The glyph's place inside the field, and the clear button's — shared with
+ *  `CommandInput`'s `field` variant, which draws this same field around cmdk's
+ *  own input (the phone search sheet: cmdk must stay the key owner). */
+export const SEARCH_FIELD_GLYPH_CLASS = `pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground ${GLYPH_CLASS.md}`
+export const SEARCH_FIELD_INPUT_CLASS = `${SIZE_CLASS.md} [&::-webkit-search-cancel-button]:hidden`
+export const SEARCH_FIELD_CLEAR_CLASS = `absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground`
+
 type SearchFieldProps = Omit<
   React.ComponentProps<typeof Input>,
   `value` | `onChange` | `size`
@@ -100,7 +107,7 @@ const SearchField = React.forwardRef<HTMLInputElement, SearchFieldProps>(
             size="icon-xs"
             data-slot="search-field-clear"
             aria-label={clearLabel ?? `Clear search`}
-            className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground"
+            className={SEARCH_FIELD_CLEAR_CLASS}
             onClick={() => {
               onValueChange(``)
               innerRef.current?.focus()

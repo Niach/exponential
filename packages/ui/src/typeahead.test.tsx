@@ -113,6 +113,17 @@ describe(`useTypeahead`, () => {
     expect(onAccept).not.toHaveBeenCalled()
   })
 
+  it(`leaves a key mid IME composition to the IME`, () => {
+    const { hook, onAccept } = setup()
+    for (const key of [`Enter`, `Tab`, `ArrowDown`, `ArrowUp`, `Escape`]) {
+      const result = press(hook, key, { isComposing: true })
+      expect(result.handled, key).toBe(false)
+      expect(result.preventDefault, key).not.toHaveBeenCalled()
+    }
+    expect(onAccept).not.toHaveBeenCalled()
+    expect(hook.result.current.active).toBe(0)
+  })
+
   it(`ignores a key it does not own`, () => {
     const { hook } = setup()
     const result = press(hook, `a`)

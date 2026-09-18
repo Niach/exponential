@@ -305,6 +305,9 @@ pub(crate) struct ChatScreenView {
     /// the popover currently lists (↑/↓ move it, hover moves it, Enter
     /// toggles that row).
     issue_pick_selected: usize,
+    /// Release review R5: the `#` picker's ranked list, memoised so a busy
+    /// run's 60 fps repaint never re-ranks the pool.
+    issue_pick_memo: RefCell<issue_picker::VisibleRowsMemo>,
     /// EXP-868: the `#` tool's pool while nothing is picked, keyed by the
     /// team and the revisions of every collection it reads. The composer
     /// renders on EVERY window redraw (a caret blink, a keystroke anywhere),
@@ -453,6 +456,7 @@ impl ChatScreenView {
             pending_icon: None,
             issue_search,
             issue_pick_selected: 0,
+            issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
             team_pool: RefCell::new(None),
             issue_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
             action_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
@@ -2062,9 +2066,18 @@ app that cannot start a stacked PR. Update it, or start anyway."
                 ),
             };
         let slot = self.issue_tool_bounds.clone();
+        let view_id = cx.entity_id();
         let trigger = crate::composer::composer_tool("chat-tool-issues", registry::EDITOR_ISSUE_REF, cx)
             .tooltip("Pick issues")
-            .on_prepaint(move |bounds, _, _| slot.set(bounds));
+            // The fit below reads the bounds this prepaint stored LAST frame;
+            // a tool that moved repaints once so the popover is measured from
+            // where it is now (release review R5). Steady state: no notify.
+            .on_prepaint(move |bounds, _, cx| {
+                if slot.get() != bounds {
+                    slot.set(bounds);
+                    cx.notify(view_id);
+                }
+            });
         // EXP-946: from where the tool actually is, not from a guess.
         let fit = issue_picker::popover_fit(
             self.issue_tool_bounds.get(),
@@ -2111,9 +2124,16 @@ app that cannot start a stacked PR. Update it, or start anyway."
         };
         let view = cx.entity().downgrade();
         let slot = self.action_tool_bounds.clone();
+        let view_id = cx.entity_id();
         let trigger = crate::composer::composer_tool("chat-tool-actions", registry::ACTION_RUN, cx)
             .tooltip("Run an action")
-            .on_prepaint(move |bounds, _, _| slot.set(bounds));
+            // Same as the issue tool: a moved trigger repaints once.
+            .on_prepaint(move |bounds, _, cx| {
+                if slot.get() != bounds {
+                    slot.set(bounds);
+                    cx.notify(view_id);
+                }
+            });
         // EXP-946: flips and caps like the issue picker beside it.
         let (anchor, max_height) = issue_picker::popover_fit(
             self.action_tool_bounds.get(),
@@ -2454,6 +2474,10 @@ impl issue_picker::IssuePickerHost for ChatScreenView {
 
     fn set_picker_selected(&mut self, position: usize) {
         self.issue_pick_selected = position;
+    }
+
+    fn picker_memo(&self) -> &RefCell<issue_picker::VisibleRowsMemo> {
+        &self.issue_pick_memo
     }
 
     fn toggle_picked_issue(

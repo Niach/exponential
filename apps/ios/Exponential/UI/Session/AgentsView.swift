@@ -324,6 +324,11 @@ struct AgentsView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { toggleDeviceFold(device.deviceId) }
+                // One button named after the machine — the fold is a tap
+                // target, so VoiceOver reads it as one and says what it opens.
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(device.deviceLabel)
                 .accessibilityIdentifier("device-row-\(device.deviceId)")
 
                 // EXP-909: the settings gear, and nothing else. Starting a run

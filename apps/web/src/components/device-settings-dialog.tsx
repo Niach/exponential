@@ -771,10 +771,8 @@ export function DeviceSettingsDialog({
                 <GlassSectionHeader label="Sharing" />
                 {teams.length > 0 ? (
                   /* EXP-939: a long roster scrolls INSIDE the group instead of
-                     pushing the agent card off the column — the axes are named
-                     explicitly so the group's own `overflow-hidden` only keeps
-                     clipping sideways. */
-                  <GlassGroup className="max-h-56 *:shrink-0 overflow-x-hidden overflow-y-auto">
+                     pushing the agent card off the column. */
+                  <GlassGroup scroll className="max-h-56 *:shrink-0">
                     {teams.map((team) => (
                       <GlassToggleRow
                         key={team.id}

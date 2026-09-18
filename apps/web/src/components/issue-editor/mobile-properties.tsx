@@ -1,7 +1,6 @@
 import type { ReactNode } from "react"
 import { forwardRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Plus, User as UserIcon } from "lucide-react"
 import type { Label as LabelRow, User } from "@/db/schema"
 import type { IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -42,6 +41,8 @@ import {
 } from "@exp/ui"
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)
+const AddGlyph = conceptIcon(`ui-add`)
+const UnassignedGlyph = conceptIcon(`ui-unassigned`)
 
 // Full-width tappable property row: label left, value right — the web
 // counterpart of the native create form's metadata card rows (EXP-247).
@@ -252,7 +253,7 @@ export function IssueEditorMobileProperties({
                     </>
                   ) : (
                     <>
-                      <UserIcon className="size-3.5" />
+                      <UnassignedGlyph className="size-3.5" />
                       Unassigned
                     </>
                   )
@@ -343,7 +344,7 @@ export function IssueEditorMobileProperties({
                 size="sm"
                 mode="action"
                 disabled={disabled}
-                leading={<Plus />}
+                leading={<AddGlyph />}
               >
                 Label
               </Pill>
@@ -378,7 +379,7 @@ function MobileRelationsSection({
           <IssueRelationsAdd
             issueId={issueId}
             trigger={
-              <Pill size="sm" mode="action" leading={<Plus />} className="self-start">
+              <Pill size="sm" mode="action" leading={<AddGlyph />} className="self-start">
                 Add relation
               </Pill>
             }

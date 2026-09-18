@@ -244,12 +244,21 @@ function GlassRow({
   )
 }
 
-function GlassGroup({ className, ...props }: React.ComponentProps<`div`>) {
+function GlassGroup({
+  className,
+  scroll = false,
+  ...props
+}: React.ComponentProps<`div`> & {
+  /** A long roster scrolls INSIDE the group (EXP-939): the vertical axis
+   *  opens, the group keeps clipping sideways. The host caps the height. */
+  scroll?: boolean
+}) {
   return (
     <div
       data-slot="glass-group"
       className={cn(
-        `flex flex-col divide-y divide-glass-stroke overflow-hidden rounded-lg bg-glass-row`,
+        `flex flex-col divide-y divide-glass-stroke rounded-lg bg-glass-row`,
+        scroll ? `overflow-x-hidden overflow-y-auto` : `overflow-hidden`,
         className
       )}
       {...props}

@@ -444,11 +444,100 @@ impl PickerSelection {
 /// multi one toggles without closing.
 pub(crate) type OnPickOption = Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
 
+/// Release review R5: the keyboard model of a [`searchable_picker`], HOST-
+/// owned like its query field — the popover's content closure runs on a
+/// bare `&mut App` and can only reach state through a handle. `selected` is
+/// a POSITION in the filtered list: the top row on every open and every
+/// query change, ↑/↓ move it (wrapping, skipping rows that cannot be
+/// picked), hovering a row moves it too (ONE highlight, the web `Combobox`
+/// and the desktop `issue_picker` recipe), Enter picks it.
+#[derive(Default)]
+pub(crate) struct PickerCursor {
+    selected: usize,
+    query: String,
+}
+
+impl PickerCursor {
+    pub(crate) fn selected(&self) -> usize {
+        self.selected
+    }
+
+    fn set(&mut self, position: usize) {
+        self.selected = position;
+    }
+
+    fn reset(&mut self) {
+        self.selected = 0;
+        self.query.clear();
+    }
+
+    /// A changed query puts the top row back under the selection.
+    fn sync_query(&mut self, query: &str) {
+        if self.query != query {
+            self.query = query.to_string();
+            self.selected = 0;
+        }
+    }
+}
+
+/// The nearest pickable position at or after `selected` (wrapping to the
+/// front), or `None` when no row can be picked — a narrowing query always
+/// leaves a real row selected.
+pub(crate) fn clamp_picker_selection(selected: usize, enabled: &[bool]) -> Option<usize> {
+    if enabled.is_empty() {
+        return None;
+    }
+    let start = selected.min(enabled.len() - 1);
+    (0..enabled.len())
+        .map(|step| (start + step) % enabled.len())
+        .find(|&ix| enabled[ix])
+}
+
+/// The selection one step (`delta` = ±1) from `selected`: wraps at both
+/// ends and skips rows that cannot be picked.
+pub(crate) fn step_picker_selection(
+    selected: usize,
+    delta: isize,
+    enabled: &[bool],
+) -> Option<usize> {
+    let len = enabled.len();
+    if len == 0 || !enabled.iter().any(|on| *on) {
+        return None;
+    }
+    let mut ix = selected.min(len - 1);
+    loop {
+        ix = (ix as isize + delta).rem_euclid(len as isize) as usize;
+        if enabled[ix] {
+            return Some(ix);
+        }
+    }
+}
+
+/// One ↑/↓ handler on the query field's own action: move the cursor and
+/// repaint the view the popover paints inside (the base popover's recipe).
+fn cursor_move_listener<A: gpui::Action>(
+    cursor: &Entity<PickerCursor>,
+    delta: isize,
+    enabled: Vec<bool>,
+    parent_view_id: gpui::EntityId,
+) -> impl Fn(&A, &mut Window, &mut App) + 'static {
+    let cursor = cursor.clone();
+    move |_, _window, cx| {
+        let current = cursor.read(cx).selected();
+        if let Some(next) = step_picker_selection(current, delta, &enabled) {
+            cursor.update(cx, |cursor, _| cursor.set(next));
+            cx.notify(parent_view_id);
+        }
+    }
+}
+
 pub(crate) struct SearchablePickerParams {
     pub options: Vec<PickerOption>,
     pub selection: PickerSelection,
     /// HOST-owned search input state (reset + focused on every open).
     pub query: Entity<InputState>,
+    /// HOST-owned keyboard selection (reset on every open and query change).
+    pub cursor: Entity<PickerCursor>,
     pub on_pick: OnPickOption,
     /// The `CommandEmpty` copy once the filter matches nothing.
     pub empty_text: &'static str,
@@ -498,6 +587,7 @@ pub(crate) fn searchable_picker(
         options,
         selection,
         query,
+        cursor,
         on_pick,
         empty_text,
         no_options_text,
@@ -505,6 +595,7 @@ pub(crate) fn searchable_picker(
     } = params;
     let rows_id = ElementId::Name(SharedString::from(format!("{id:?}-rows")));
     let query_for_open = query.clone();
+    let cursor_for_open = cursor.clone();
     let mut popover = Popover::new(id).p_1();
     if let Some(width) = width {
         popover = popover.w(width);
@@ -514,13 +605,20 @@ pub(crate) fn searchable_picker(
         .trigger(trigger)
         .on_open_change(move |open, window, cx| {
             query_for_open.update(cx, |input, cx| input.set_value("", window, cx));
+            // Fresh selection per open: the top row.
+            cursor_for_open.update(cx, |cursor, _| cursor.reset());
             if *open {
                 query_for_open.read(cx).focus_handle(cx).focus(window, cx);
             }
         })
         .content(move |_, window, cx| {
+            use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
             let popover_state = cx.entity();
+            // The view this popover paints inside: a keyboard or hover move
+            // repaints it, exactly as the base popover repaints itself.
+            let parent_view_id = window.current_view();
             let filter = query.read(cx).value().trim().to_lowercase();
+            cursor.update(cx, |cursor, _| cursor.sync_query(&filter));
             let mut column = v_flex().w_full().child(
                 crate::controls::search_field(
                     &query,
@@ -549,19 +647,67 @@ pub(crate) fn searchable_picker(
             if visible.is_empty() {
                 return column.child(empty_picker_row(empty_text, cx));
             }
+            // The keyboard model: which rows can be picked, where the cursor
+            // sits (clamped to what is on screen), and what Enter picks.
+            let enabled: Vec<bool> = visible.iter().map(|option| !option.disabled).collect();
+            let cursor_at = clamp_picker_selection(cursor.read(cx).selected(), &enabled);
+            let target: Option<(String, bool)> = cursor_at.map(|ix| {
+                let option = visible[ix];
+                (
+                    option.value.clone(),
+                    selection.state_of(&option.value) == SelectionState::Selected,
+                )
+            });
+            let list_active = cx.theme().list_active;
+            column = column
+                .capture_action(cursor_move_listener::<gpui_component::input::MoveUp>(
+                    &cursor,
+                    -1,
+                    enabled.clone(),
+                    parent_view_id,
+                ))
+                .capture_action(cursor_move_listener::<gpui_component::input::MoveDown>(
+                    &cursor,
+                    1,
+                    enabled,
+                    parent_view_id,
+                ))
+                .capture_action({
+                    let on_pick = on_pick.clone();
+                    let popover_state = popover_state.clone();
+                    move |_: &gpui_component::input::Enter, window, cx: &mut App| {
+                        let Some((value, was_selected)) = target.clone() else {
+                            return;
+                        };
+                        on_pick(&value, was_selected, window, cx);
+                        if !multi {
+                            popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                        }
+                        cx.notify(parent_view_id);
+                    }
+                })
+                .capture_action({
+                    let popover_state = popover_state.clone();
+                    move |_: &gpui_component::input::Escape, window, cx: &mut App| {
+                        popover_state.update(cx, |state, cx| state.dismiss(window, cx));
+                        cx.notify(parent_view_id);
+                        cx.stop_propagation();
+                    }
+                });
 
-            use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
             let mut rows = v_flex()
                 .id(rows_id.clone())
                 .w_full()
                 .max_h(px(240.))
                 .overflow_y_scroll();
-            for option in visible {
+            for (position, option) in visible.into_iter().enumerate() {
                 let state = selection.state_of(&option.value);
                 let selected = state == SelectionState::Selected;
                 let value = option.value.clone();
                 let on_pick = on_pick.clone();
                 let popover_state = popover_state.clone();
+                let disabled = option.disabled;
+                let cursor = cursor.clone();
                 let mut row = picker_row(
                     ElementId::Name(SharedString::from(format!("picker-option-{value}"))),
                     cx,
@@ -570,6 +716,26 @@ pub(crate) fn searchable_picker(
                 // (web `bg-glass-active`), so the batch reads at a glance.
                 .when(multi && selected, |row| {
                     row.bg(t::glass::FILL_ACTIVE.to_hsla())
+                })
+                // ONE highlight: the cursor's row. Hovering MOVES the cursor
+                // onto the row under the pointer (EXP-892) rather than
+                // painting a second tint.
+                .when(cursor_at == Some(position), |row| row.bg(list_active))
+                .on_hover(move |hovered, _window, cx| {
+                    if !*hovered || disabled {
+                        return;
+                    }
+                    let moved = cursor.update(cx, |cursor, _| {
+                        if cursor.selected() == position {
+                            false
+                        } else {
+                            cursor.set(position);
+                            true
+                        }
+                    });
+                    if moved {
+                        cx.notify(parent_view_id);
+                    }
                 });
                 if multi {
                     row = row.children(selection_glyph(true, state, cx));
@@ -612,6 +778,8 @@ pub(crate) fn searchable_picker(
 pub(crate) struct LabelPickerParams {
     pub labels: Vec<Label>,
     pub selected_ids: Vec<String>,
+    /// HOST-owned keyboard selection (release review R5).
+    pub cursor: Entity<PickerCursor>,
     /// HOST-owned search input state (reset + focused on every open).
     pub query: Entity<InputState>,
     /// `(label_id, was_selected)` — toggles WITHOUT closing the popover.
@@ -644,6 +812,7 @@ pub(crate) fn label_picker_popover(
     let LabelPickerParams {
         labels,
         selected_ids,
+        cursor,
         query,
         on_toggle,
         width,
@@ -666,6 +835,7 @@ pub(crate) fn label_picker_popover(
                 indeterminate: Vec::new(),
             },
             query,
+            cursor,
             on_pick: Rc::new(move |label_id, was_selected, window, cx| {
                 on_toggle(label_id, was_selected, window, cx);
             }),
@@ -680,6 +850,8 @@ pub(crate) struct BoardPickerParams {
     /// The team's boards, current one included (it renders checked+inert).
     pub boards: Vec<Board>,
     pub current_board_id: String,
+    /// HOST-owned keyboard selection (release review R5).
+    pub cursor: Entity<PickerCursor>,
     /// HOST-owned search input state (reset + focused on every open).
     pub query: Entity<InputState>,
     /// Picked a DIFFERENT board (the current row never fires).
@@ -700,6 +872,7 @@ pub(crate) fn board_picker_popover(
     let BoardPickerParams {
         boards,
         current_board_id,
+        cursor,
         query,
         on_pick,
         width,
@@ -734,6 +907,7 @@ pub(crate) fn board_picker_popover(
                 current: Some(current_board_id),
             },
             query,
+            cursor,
             on_pick: Rc::new(move |board_id, _was_selected, window, cx| {
                 on_pick(board_id.to_string(), window, cx);
             }),
@@ -882,5 +1056,55 @@ mod tests {
         let pick = StatusPick::from_resolved(duplicate);
         assert_eq!(pick.category, IssueStatusCategory::Duplicate);
         assert_eq!(pick.anchor, IssueStatus::Duplicate);
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::{clamp_picker_selection, step_picker_selection, PickerCursor};
+
+    /// Release review R5: the clamp lands on a pickable row at or after the
+    /// cursor (wrapping), and `None` only when nothing can be picked.
+    #[test]
+    fn the_clamp_lands_on_a_pickable_row() {
+        assert_eq!(clamp_picker_selection(0, &[true, true]), Some(0));
+        assert_eq!(clamp_picker_selection(5, &[true, true]), Some(1), "past the end: the last");
+        assert_eq!(clamp_picker_selection(0, &[false, true, true]), Some(1), "skips an inert top row");
+        assert_eq!(clamp_picker_selection(2, &[true, false, false]), Some(0), "wraps to the front");
+        assert_eq!(clamp_picker_selection(0, &[false, false]), None);
+        assert_eq!(clamp_picker_selection(0, &[]), None);
+    }
+
+    /// ↑/↓ wrap at both ends and skip rows that cannot be picked.
+    #[test]
+    fn a_step_wraps_and_skips_inert_rows() {
+        let all = [true, true, true];
+        assert_eq!(step_picker_selection(0, 1, &all), Some(1));
+        assert_eq!(step_picker_selection(2, 1, &all), Some(0), "down off the end wraps");
+        assert_eq!(step_picker_selection(0, -1, &all), Some(2), "up off the top wraps");
+        let inert_middle = [true, false, true];
+        assert_eq!(step_picker_selection(0, 1, &inert_middle), Some(2));
+        assert_eq!(step_picker_selection(2, -1, &inert_middle), Some(0));
+        assert_eq!(step_picker_selection(0, 1, &[true]), Some(0), "a lone row stays");
+        assert_eq!(step_picker_selection(0, 1, &[false, false]), None);
+        assert_eq!(step_picker_selection(0, 1, &[]), None);
+    }
+
+    /// The cursor goes back to the top on every query change and on reset,
+    /// and stays put while the query is unchanged.
+    #[test]
+    fn the_cursor_resets_on_a_query_change_and_on_open() {
+        let mut cursor = PickerCursor::default();
+        cursor.sync_query("");
+        cursor.set(3);
+        cursor.sync_query("");
+        assert_eq!(cursor.selected(), 3, "an unchanged query keeps the cursor");
+        cursor.sync_query("bu");
+        assert_eq!(cursor.selected(), 0, "a new query puts the top row under it");
+        cursor.set(2);
+        cursor.reset();
+        assert_eq!(cursor.selected(), 0);
+        cursor.sync_query("bu");
+        assert_eq!(cursor.selected(), 0, "reset forgot the query too");
     }
 }

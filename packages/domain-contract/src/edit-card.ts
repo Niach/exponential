@@ -109,6 +109,21 @@ export function editRunEnd<
   return end
 }
 
+/**
+ * A cheap SUFFICIENT check for "this run's card lists at least one file",
+ * for a feed projection that must decide whether a run emits a row without
+ * parsing every member's patch on every tick. Strictly one-directional:
+ * TRUE never lies (a member with no patch and a non-empty `detail` is
+ * always a stub row of the card), FALSE decides nothing — a run of
+ * patch-bearing members needs the full `editCard(...).rows.length` check,
+ * since a patch can parse to no path (bare hunks with no `detail`).
+ */
+export function editRunHasRows(items: readonly EditCardFeedItem[]): boolean {
+  return items.some(
+    (item) => !item.diff && (item.detail?.trim() ?? ``) !== ``
+  )
+}
+
 export type EditRowState = `ready` | `pending` | `done` | `failed`
 
 export interface EditCardRow {

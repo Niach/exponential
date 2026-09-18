@@ -12,7 +12,12 @@ import {
 } from "@/lib/steer-commands"
 import { formatResetCountdown } from "@/lib/agent-usage"
 import { contract, toolGroupSummary } from "@exp/domain-contract"
-import { editCard, editRunEnd, isEditCall } from "@exp/domain-contract/edit-card"
+import {
+  editCard,
+  editRunEnd,
+  editRunHasRows,
+  isEditCall,
+} from "@exp/domain-contract/edit-card"
 import { expToolRunEnd, isExpToolCall } from "@exp/domain-contract/exp-tool-group"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
@@ -901,7 +906,11 @@ function scanToolRuns<
     const items = feed.slice(i, end + 1)
     // EXP-938: `editCard` drops a member with neither a patch nor a `detail`;
     // a run it drops ENTIRELY emits no row, never a "0 files edited" card.
-    if (editCard(items).rows.length === 0) return { row: null, end }
+    // `editRunHasRows` is the cheap sufficient pre-check (a stub member is
+    // always a row); only when it cannot tell is every patch parsed here.
+    if (!editRunHasRows(items) && editCard(items).rows.length === 0) {
+      return { row: null, end }
+    }
     return { row: { kind: `edits`, id: item.id, items }, end }
   }
   if (item.kind !== `tool` || item.workflowId !== undefined) {

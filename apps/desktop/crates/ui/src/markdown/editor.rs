@@ -921,6 +921,9 @@ pub struct MarkdownEditor {
     on_commit: Option<ChangeCallback>,
     completion_source: Option<Rc<dyn CompletionSource>>,
     completion: Option<ActiveCompletion>,
+    /// The completion menu's scroll (release review R5): ↑/↓ keep the
+    /// selected row in view past the cap.
+    completion_scroll: ScrollHandle,
     /// Shared image cache (create with [`MarkdownEditor::images`] to reuse in
     /// a sibling [`MarkdownView`]).
     images: Entity<ImageCache>,
@@ -968,6 +971,7 @@ impl MarkdownEditor {
             on_commit: None,
             completion_source: None,
             completion: None,
+            completion_scroll: ScrollHandle::new(),
             images,
             transport: None,
             upload_issue_id: None,
@@ -1343,6 +1347,7 @@ impl MarkdownEditor {
             if len > 0 {
                 let next = (completion.selected as isize + delta).rem_euclid(len);
                 completion.selected = next as usize;
+                self.completion_scroll.scroll_to_item(next as usize);
                 cx.notify();
             }
         }
@@ -1832,8 +1837,12 @@ impl MarkdownEditor {
         // The caret LINE's edges in window coordinates: the menu primitive
         // measures the room on both sides itself.
         let origin = bounds.get().origin;
+        // The 8px is the field's inner padding on both axes: the text starts
+        // one padding step below the box's top edge, so the caret line does
+        // too (release review R5: without it the menu overlapped the line).
         let caret_left = origin.x + caret_x + px(8.);
-        let caret_bottom = origin.y + scroll.y + line_height * (position.line as f32 + 1.);
+        let caret_bottom =
+            origin.y + scroll.y + line_height * (position.line as f32 + 1.) + px(8.);
         let caret_top = caret_bottom - line_height;
 
         let items = completion.items.clone();
@@ -1886,6 +1895,7 @@ impl MarkdownEditor {
                 caret_bottom,
             },
             rows,
+            &self.completion_scroll,
             window,
             cx,
         ))

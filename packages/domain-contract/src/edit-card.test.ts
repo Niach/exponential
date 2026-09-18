@@ -23,6 +23,7 @@ import {
   editCardMoreLabel,
   editCardTitle,
   editRunEnd,
+  editRunHasRows,
   isEditCall,
   renderEditCard,
   EDIT_CARD_PREVIEW,
@@ -120,6 +121,34 @@ describe(`edited-files cards (EXP-916)`, () => {
     expect(names).toContain(`failed`)
     expect(names).toContain(`subagent`)
     expect(names).toContain(`window`)
+  })
+
+  test(`editRunHasRows is a sufficient check: true never lies`, () => {
+    // Over the fixture: every run it says has rows really does.
+    for (const item of fixture) {
+      const feed = item.feed
+      for (let i = 0; i < feed.length; i++) {
+        if (!isEditCall(feed[i])) continue
+        const end = editRunEnd(feed, i)
+        const run = feed.slice(i, end + 1)
+        if (editRunHasRows(run)) {
+          expect(editCard(run).rows.length, item.name).toBeGreaterThan(0)
+        }
+        i = end
+      }
+    }
+    const edit = (over: Partial<EditCardFeedItem>): EditCardFeedItem => ({
+      id: 1,
+      kind: `tool`,
+      toolKind: `edit`,
+      ...over,
+    })
+    // A stub (detail, no patch) is always a row.
+    expect(editRunHasRows([edit({ detail: `src/a.ts` })])).toBe(true)
+    // A patch alone decides nothing here — the full check runs.
+    expect(editRunHasRows([edit({ diff: `@@ -1 +1 @@\n-a\n+b\n` })])).toBe(false)
+    expect(editRunHasRows([edit({ detail: `  ` }), edit({})])).toBe(false)
+    expect(editRunHasRows([])).toBe(false)
   })
 
   test(`the rule reads only kind, toolKind and workflowId`, () => {

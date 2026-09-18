@@ -40,9 +40,14 @@ const mockState = vi.hoisted(() => {
     issues,
     results: [...issues] as unknown[],
     navigate: vi.fn(),
+    mobile: false,
   }
 })
 
+vi.mock(`@exp/ui`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@exp/ui")>()),
+  useIsMobile: () => mockState.mobile,
+}))
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => mockState.navigate,
 }))
@@ -83,6 +88,56 @@ describe(`IssueSearchSheet`, () => {
   beforeEach(() => {
     mockState.navigate.mockReset()
     mockState.results = [...mockState.issues]
+    mockState.mobile = false
+  })
+
+  // EXP-971: the phone arm's back arrow rides INSIDE the primitive's field
+  // row, so the one field is still cmdk's and Enter opens the top result.
+  it(`the phone arm keeps the keyboard: Enter opens the top result`, () => {
+    mockState.mobile = true
+    open()
+
+    const input = document.querySelector(`[data-slot=command-input]`)!
+    expect(document.querySelectorAll(`[data-slot=command-input]`).length).toBe(1)
+    const wrapper = input.closest(`[data-slot=command-input-wrapper]`)!
+    expect(wrapper.querySelector(`[aria-label=Back]`)).toBeTruthy()
+    // The arrow and the field are one row, and the field is the SearchField
+    // look drawn around cmdk's own input — not a second field beside it.
+    expect(document.querySelectorAll(`[data-slot=search-field]`).length).toBe(1)
+    expect(input.closest(`[data-slot=search-field]`)).toBeTruthy()
+    // The pill radius rides the root's `**:` variant, like the desktop arm's
+    // wrapper height does.
+    expect(input.closest(`[data-slot=combobox-list]`)!.className).toContain(
+      `data-[slot=command-input]:rounded-full`
+    )
+    expect(screen.queryByLabelText(`Clear search`)).toBeNull()
+
+    fireEvent.keyDown(input, { key: `Enter` })
+
+    expect(mockState.navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: {
+        teamSlug: `acme`,
+        boardSlug: `core`,
+        issueIdentifier: `EXP-1`,
+      },
+    })
+  })
+
+  it(`the phone arm's field clears like SearchField: empty, caret back`, () => {
+    mockState.mobile = true
+    open()
+
+    const input = document.querySelector<HTMLInputElement>(
+      `[data-slot=command-input]`
+    )!
+    fireEvent.change(input, { target: { value: `alp` } })
+    const clear = screen.getByLabelText(`Clear search`)
+    expect(input.className).toContain(`pr-8`)
+    fireEvent.click(clear)
+    expect(input.value).toBe(``)
+    expect(screen.queryByLabelText(`Clear search`)).toBeNull()
+    expect(document.activeElement).toBe(input)
   })
 
   it(`renders one shared search field over the engine's rows`, () => {

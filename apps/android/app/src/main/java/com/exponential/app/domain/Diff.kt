@@ -461,6 +461,28 @@ object Diff {
     }
 
     /**
+     * EXP-938 (perf): does [text] OPEN on a file header that names a path — a
+     * `diff --git <a> <b>` line (rule 1) or a bare `--- <path>` opener (rule
+     * 5) — so [parse] is certain to seal a pathed file from its first
+     * section? Decided on the first line alone, with the parser's own path
+     * rules, so a caller asking only "any row at all?" can skip the parse.
+     * The one way such a section still ends pathless is a LATER header line
+     * with an empty name (`+++ a/`, `rename to `), which git never writes.
+     */
+    fun opensNamedFile(text: String): Boolean {
+        val first = text.substringBefore('\n')
+        return when {
+            first.startsWith("diff --git ") ->
+                !diffGitNewPath(first.substring("diff --git ".length)).isNullOrEmpty()
+            first.startsWith("--- ") -> {
+                val payload = cutPath(first.substring(4))
+                payload != "/dev/null" && payload.isNotEmpty() && stripAb(payload).isNotEmpty()
+            }
+            else -> false
+        }
+    }
+
+    /**
      * A hunks-only patch whose path and status the CALLER knows (GitHub's
      * PullFile, the desktop's per-file `git diff` wrappers). Nothing in
      * [patch] may change either one. A missing or empty patch is a file with

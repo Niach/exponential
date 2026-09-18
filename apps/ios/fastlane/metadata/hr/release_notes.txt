@@ -1,23 +1,23 @@
+- Ikone uređaja: svakom stroju daš vlastitu ikonu u njegovim postavkama, monitor, poslužitelj ili prijenosnik ili znak Applea, Windowsa ili Linuxa, a za boardove i akcije biraš među 96 ikona
+- Lice Run počinje agentovim popisom zadataka, izvođenje u pozadini zadržava svoju karticu dok traje, a kartice i trake poravnavaju se sa zapisom
+- Uređaji se sklapaju u po jedan redak, pokazuju kada se obnavlja prozor potrošnje, a prijava se može ukloniti sa stroja; izbornik zaslona Work stoji samo na licu Issue, birač lica broji promijenjene datoteke izvođenja i uvlači se u otvoreno polje za pisanje, a issuei batch izvođenja otvaraju se u listu
+- Pozivi prema Exponentialu čitaju se kao vlastita skupina, Read 3 issues umjesto općenitog izvođenja alata, a potez koji nije promijenio nijednu datoteku više ne pokazuje praznu karticu
 - Stop u sesiji koja traje sada je običan gumb u traci, jednake visine kao gumb za natrag, umjesto pilule s razbijenim obrubom
 - Retci u zapisu izvođenja više se ne preklapaju, a razgovor se pomiče mimo kartice iznad polja za pisanje
 - Izvođenje razgovora nosi ime onoga na čemu agent radi, umjesto da posvuda piše „Chat“
-- Jedan diff posvuda: datoteke diffa stoje u stablu po kojem skačeš, a izmjene agenta u jednom potezu skupljaju se u jednu karticu „Edited files“
+- Jedan diff posvuda: datoteke diffa stoje u stablu po kojem skačeš, a izmjene jednog poteza skupljaju se u jednu karticu „Edited files“, s brojevima redaka, skrivenim nepromijenjenim recima koje možeš otvoriti i imenovanim preimenovanim ili binarnim datotekama
 - Potrošnja na jednom mjestu: prikaz pokazuje vlastiti račun izvođenja, njegove prozore ograničenja i kontekstni prozor te ostale prijave na tom stroju
 - Uređaji nose prijave: svaki stroj popisuje svoje agentske prijave s planom, stanjem i potrošnjom, a zupčanik uređaja drži Update i Remove
-- Neuspjelo spajanje stacka sada kaže zašto, umjesto da šuti
 - Jedna pretraga issuea: isti poredak nosi svaki popis issuea, svaki birač i svaki #-izbornik, a prvi je rezultat već odabran
-- Naredba koja radi pokazuje samo svoje posljednje retke, pa dugačak ispis više ne preplavljuje izvođenje
-- Izvođenje koje utihne označava se kao završeno i ostaje na popisu umjesto da nestane
-- Jedan zaslon Work: issue, njegovo izvođenje, promjene i rezultati sada su lica jednog zaslona, biraš ih trakom pri dnu, a Stop ili Resume stoji gore desno
-- Jedan prikaz diffa: svaki diff izgleda isto, s brojevima redaka, skrivenim nepromijenjenim recima koje možeš otvoriti i imenovanim preimenovanim ili binarnim datotekama umjesto praznine
+- Naredba koja radi pokazuje samo svoje posljednje retke, a izvođenje koje utihne označava se kao završeno i ostaje na popisu
+- Jedan zaslon Work: issue, njegovo izvođenje i promjene lica su jednog zaslona, biraš ih trakom pri dnu, a Stop ili Resume stoji gore desno
 - Složeni pull requestovi: pokreni issue povrh onoga koji ga blokira, spoji cijeli lanac pomoću Merge stack, pročitaj oznaku stacka ili batcha na radu i odgovori na pitanje koje ti pošalje ugniježđeno izvođenje
-- Rezultati izvođenja: izvođenje koje objavi snimke zaslona dobiva lice Results, grupirano po temi, jedna pločica po platformi, a dodirom vidiš cijelu sliku
-- Batch izvođenja s imenom: izvođenje preko više issuea sada piše EXP-874 +2 uz naslov prvog issuea umjesto „Batch run“
-- Poruke koje odmah stignu: poruka napisana dok agent radi stiže mu odmah i stoji kao poslana dok je ne pročita, a Stop vraća tekst u polje za pisanje
-- GitHub posložen: povezivanje GitHuba, dodavanje repozitorija i postavljanje repozitorija boarda ovdje rade kao na računalu, a pogreške se vide ondje gdje jesi
-- Poruke u redu čekanja: poruka koja čeka agenta vidi se u traci iznad polja za pisanje, a Stop u sesiji uživo doista prekida potez koji traje umjesto da se izgubi putem
+- Rezultati izvođenja: izvođenje koje objavi snimke zaslona dobiva lice Results, grupirano po temi, jedna pločica po platformi
+- Batch izvođenja s imenom: izvođenje preko više issuea piše EXP-874 +2 uz naslov prvog issuea umjesto „Batch run“
+- Poruke koje odmah stignu: poruka napisana dok agent radi stiže mu odmah i stoji kao poslana dok je ne pročita, poruka koja čeka vidi se u traci iznad polja za pisanje, a Stop vraća tekst u polje za pisanje
+- GitHub posložen: povezivanje GitHuba, dodavanje repozitorija i postavljanje repozitorija boarda rade kao na računalu, a pogreške se vide ondje gdje jesi
 - Tiši gumbi i jasniji izbornici: puni kružić zadržava samo glavna radnja zaslona, a izbor agenta nosi znak Claude Codea ili Codexa, dok izbornici uređaja počinju ikonom prijenosnika ili poslužitelja
 - Stranica Agent drži tvoja izvođenja: prošla se izvođenja sklapaju iza broja koji možeš otvoriti, a kad ništa ne radi, polje za pisanje stoji na sredini stranice
-- Filtri issuea su nestali: gumb filtra i njegove pilule napustili su board i pristiglo, pretraga pokriva ono za što su služili, a grupiranje i trake statusa ostaju
-- Nastavi e-poštom ili pristupnim ključem: prijavi se šesteroznamenkastim kodom koji stigne e-poštom ili putem Face ID-a odnosno Touch ID-a; sve mogućnosti stoje u jednom popisu, a nepoznata adresa jednostavno postaje novi račun
+- Filtri issuea su nestali: pretraga pokriva ono za što su služili, a grupiranje i trake statusa ostaju
+- Nastavi e-poštom ili pristupnim ključem: prijavi se šesteroznamenkastim kodom koji stigne e-poštom ili putem Face ID-a odnosno Touch ID-a; sve mogućnosti stoje u jednom popisu Continue
 - Promjena računa usred izvođenja i povratak odakle si došao: Claude izvođenje na ograničenju može nastaviti na drugom računu, a izlazak iz sesije vraća te na issue ili board odakle si je otvorio

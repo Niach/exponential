@@ -8,6 +8,7 @@ import {
   SheetGrabber,
   useSheetDragHandleProps,
 } from "./sheet-chrome"
+import { isTypeaheadPortalInteraction } from "./typeahead"
 import { useSheetDrag } from "./use-sheet-drag"
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -58,6 +59,7 @@ function SheetContent({
   showCloseButton = side !== `bottom`,
   showGrabber = side === `bottom`,
   ref,
+  onInteractOutside,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: `top` | `right` | `bottom` | `left`
@@ -124,6 +126,14 @@ function SheetContent({
             `inset-x-0 bottom-0 h-auto max-h-[90dvh] rounded-t-3xl border-t bg-glass-bottom data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom`,
           className
         )}
+        // A pointer-down on the typeahead's body portal is not "outside"
+        // (see DialogContent); the caller's own guard runs first.
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event)
+          if (!event.defaultPrevented && isTypeaheadPortalInteraction(event)) {
+            event.preventDefault()
+          }
+        }}
         {...props}
       >
         <SheetDragProvider value={side === `bottom` ? handleProps : null}>

@@ -1,23 +1,23 @@
+- Pictograme de dispozitiv: dă fiecărei mașini pictograma ei în setări, un monitor, un server, un laptop ori semnul Apple, Windows sau Linux, și alege dintre 96 de pictograme pentru boarduri și acțiuni
+- Fața Run începe cu lista de sarcini a agentului, o rulare în fundal își păstrează fila, iar filele și barele se aliniază cu jurnalul
+- Dispozitivele se pliază la câte un rând, arată când se resetează o fereastră de consum, iar un cont poate fi scos de pe o mașină; meniul ecranului Work stă doar pe fața Issue, selectorul de fețe numără fișierele schimbate și intră în câmpul desfăcut, iar issue-urile unui batch se deschid într-o foaie
+- Apelurile către Exponential apar ca grup propriu, Read 3 issues în loc de o rulare generică de unealtă, iar o tură fără fișiere schimbate nu mai arată un card gol
 - Stop într-o sesiune vie este acum un buton simplu din bară, la aceeași înălțime cu butonul înapoi, în loc de o pastilă cu conturul rupt
 - Rândurile din jurnalul unei rulări nu se mai suprapun, iar conversația derulează liber pe lângă cardul de deasupra câmpului de scris
 - O rulare de chat își ia numele din ceea ce lucrează agentul, în loc să scrie „Chat” peste tot
-- Un singur diff peste tot: fișierele unui diff stau într-un arbore prin care sari, iar modificările agentului dintr-o tură se strâng într-un card „Edited files”
+- Un singur diff peste tot: fișierele unui diff stau într-un arbore prin care sari, iar modificările unei ture se strâng într-un card „Edited files”, cu numere de rând, rânduri neschimbate pe care le poți deschide, și fișiere redenumite sau binare numite
 - Consumul într-un singur loc: un panou arată contul propriu al rulării, ferestrele lui de limită și fereastra de context, plus celelalte conturi de pe acea mașină
 - Dispozitivele poartă conturile: fiecare mașină își listează conturile de agent cu plan, stare și consum, iar rotița unui dispozitiv ține Update și Remove
-- O îmbinare de stack care eșuează spune acum de ce, în loc să tacă
 - O singură căutare de issue: aceeași ordonare poartă fiecare listă, fiecare selector și fiecare meniu #, cu primul rezultat deja ales
-- O comandă în curs arată doar ultimele ei rânduri, așa că o ieșire lungă nu mai inundă rularea
-- O rulare care tace e marcată ca încheiată și rămâne în listă în loc să dispară
-- Un singur ecran Work: un issue, rularea lui, modificările și rezultatele sunt fețe ale aceluiași ecran, treci între ele din bara de jos, iar Stop sau Resume stă în colțul din dreapta sus
-- O singură vedere de diff: orice diff se citește la fel, cu numere de rând, rânduri neschimbate pe care le poți deschide, și fișiere redenumite sau binare numite în loc să apară goale
-- Pull request-uri stivuite: pornește un issue peste cel care îl blochează, unește tot lanțul cu Merge stack, citește insigna de stack sau de batch de pe lucrare și răspunde la întrebarea pe care ți-o trimite o rulare imbricată
-- Rezultatele unei rulări: o rulare care publică capturi de ecran capătă o față Results, grupată pe teme, câte o dală pentru fiecare platformă, iar o atingere arată imaginea întreagă
-- Rulări batch cu nume: o rulare peste mai multe issue-uri scrie acum EXP-874 +2 lângă titlul primului issue în loc de „Batch run”
-- Mesaje care ajung imediat: un mesaj scris în timp ce agentul lucrează ajunge la el pe loc și rămâne marcat ca trimis până e citit, iar Stop îți dă textul înapoi în câmpul de scris
-- GitHub pus la punct: conectarea GitHub, adăugarea unui repository și setarea repositoryului unui board funcționează aici ca pe calculator, iar erorile apar acolo unde ești
-- Mesaje în coadă: un mesaj care așteaptă agentul apare într-o bară deasupra câmpului de scris, iar Stop într-o sesiune vie întrerupe cu adevărat tura în curs în loc să se piardă pe drum
-- Butoane mai discrete și selectoare mai clare: doar acțiunea principală a unui ecran păstrează un cerc plin, iar selectorul de agent poartă semnul Claude Code sau Codex, în timp ce meniurile de dispozitive încep cu o pictogramă de laptop sau de server
+- O comandă în curs arată doar ultimele ei rânduri, iar o rulare care tace e marcată ca încheiată și rămâne în listă
+- Un singur ecran Work: un issue, rularea lui și modificările sunt fețe ale aceluiași ecran, treci între ele din bara de jos, iar Stop sau Resume stă în colțul din dreapta sus
+- Pull request-uri stivuite: pornește un issue peste cel care îl blochează, unește lanțul cu Merge stack, citește insigna de stack sau de batch de pe lucrare și răspunde la întrebarea unei rulări imbricate
+- Rezultatele unei rulări: cea care publică capturi de ecran capătă o față Results, grupată pe teme, câte o dală pentru fiecare platformă
+- Rulări batch cu nume: o rulare peste mai multe issue-uri scrie EXP-874 +2 lângă titlul primului issue în loc de „Batch run”
+- Mesaje care ajung imediat: un mesaj scris în timp ce agentul lucrează ajunge la el pe loc și rămâne marcat ca trimis până e citit, un mesaj în așteptare apare într-o bară deasupra câmpului, iar Stop îți dă textul înapoi în câmpul de scris
+- GitHub pus la punct: conectarea GitHub, adăugarea unui repository și setarea repositoryului unui board funcționează ca pe calculator, iar erorile apar acolo unde ești
+- Butoane mai discrete și selectoare mai clare: doar acțiunea principală păstrează un cerc plin, selectorul de agent poartă semnul Claude Code sau Codex, iar meniurile de dispozitive încep cu o pictogramă de laptop sau de server
 - Pagina Agent îți ține rulările: rulările trecute se pliază în spatele unui număr pe care îl poți deschide, iar când nu rulează nimic, câmpul de scris stă la mijlocul paginii
-- Filtrele de issue-uri au dispărut: butonul de filtrare și pastilele lui au plecat din board și din inbox, căutarea acoperă la ce erau folosite, iar gruparea și benzile de status rămân
-- Continuă cu e-mailul sau cu o cheie de acces: intră cu un cod din 6 cifre trimis pe e-mail, ori cu Face ID sau Touch ID; toate variantele stau într-o singură listă, iar o adresă necunoscută devine pur și simplu un cont nou
+- Filtrele de issue-uri au dispărut: căutarea acoperă la ce erau folosite, iar gruparea și benzile de status rămân
+- Continuă cu e-mailul sau cu o cheie de acces: intră cu un cod din 6 cifre trimis pe e-mail, ori cu Face ID sau Touch ID; toate variantele stau într-o listă Continue
 - Schimbare de cont în mijlocul rulării și înapoi de unde ai venit: o rulare Claude la limită poate continua pe alt cont, iar ieșirea dintr-o sesiune te duce înapoi la issue-ul sau boardul din care ai deschis-o

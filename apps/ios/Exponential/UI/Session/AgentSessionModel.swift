@@ -125,6 +125,18 @@ final class AgentSessionModel {
     private(set) var answerTracker = AgentAnswerTracker()
     /// The most recent worktree diff — each one replaces the previous.
     private(set) var latestDiff: String?
+    /// EXP-895/EXP-932: `latestDiff` parsed ONCE, memoised on its source —
+    /// the Changes face, the file sheet and the Work screen's switcher totals
+    /// all read this, so a diff edge costs one main-thread parse, not one per
+    /// reader. Empty when there is no diff.
+    @ObservationIgnored private var parsedDiffCache: (source: String, parsed: Diff.Parsed)?
+    var parsedDiff: Diff.Parsed {
+        guard let latestDiff else { return Diff.Parsed(files: []) }
+        if let cache = parsedDiffCache, cache.source == latestDiff { return cache.parsed }
+        let parsed = Diff.parse(latestDiff)
+        parsedDiffCache = (latestDiff, parsed)
+        return parsed
+    }
     /// EXP-773: where an ENDED run's transcript is coming from. The relay has
     /// no room for a finished session, so it asks the device that ran it to
     /// republish its on-disk journal; these are the three answers. Nil on a
@@ -2483,8 +2495,10 @@ final class AgentSessionModel {
             backgroundTasks = tasks
         case let .taskList(entries):
             // EXP-927 §2c: the FULL list, latest-wins — an empty array hides
-            // the block. Present-tense state, like the tasks beside it.
-            guard !prependingPage else { return }
+            // the block. Present-tense state, like the tasks beside it. A
+            // frame with no readable list (nil) keeps the current one, as on
+            // web/Android/desktop.
+            guard !prependingPage, let entries else { return }
             taskList = entries
         case let .queue(messages):
             // EXP-861: the FULL current queue, latest-wins (replace whole) —

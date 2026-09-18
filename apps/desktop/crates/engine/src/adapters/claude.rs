@@ -521,6 +521,9 @@ struct State {
     /// The native id last put on a response or notification `_meta`, so an
     /// init that reports the same one publishes nothing.
     published_native_id: Option<String>,
+    /// Whether an init frame has been seen: the CLI re-announces one per
+    /// turn under the SAME id, so a later init under a NEW id is a `/clear`.
+    saw_init: bool,
     /// EXP-784: the rate-limit slot's adapter-side state.
     rate_limit: RateLimitState,
     /// EXP-784: message ids of `<synthetic>` messages seen at `message_start`,
@@ -2044,12 +2047,23 @@ impl ClaudeSession {
             SystemSubtype::Init => {
                 let mut state = self.lock();
                 let mut republish = None;
+                let mut cleared_context = false;
+                let first_init = !std::mem::replace(&mut state.saw_init, true);
                 if !system.session_id.is_empty() {
                     state.native_session_id = Some(system.session_id.clone());
                     // EXP-784: a `/clear` re-inits under a NEW uuid. The run
                     // record must follow it or a resume reopens the dead
                     // conversation; the same id again is not news.
                     if state.published_native_id.as_deref() != Some(system.session_id.as_str()) {
+                        // A LATER init under a new id is a cleared
+                        // conversation (the first may lawfully differ from
+                        // the pin): its todo list went with it, so the Task*
+                        // lane is forgotten and an empty plan goes out below
+                        // (the mapper's `task_list: []`).
+                        cleared_context = !first_init;
+                        if cleared_context {
+                            state.plan_tasks.clear();
+                        }
                         state.published_native_id = Some(system.session_id.clone());
                         republish = Some(system.session_id.clone());
                     }
@@ -2123,6 +2137,9 @@ impl ClaudeSession {
                 drop(state);
                 if let Some(native) = republish {
                     self.publish_native_id(cx, &native);
+                }
+                if cleared_context {
+                    self.notify(cx, SessionUpdate::Plan(Plan::new(Vec::new())));
                 }
                 self.publish_commands(cx);
                 self.publish_config(cx);
@@ -2834,8 +2851,12 @@ impl ClaudeSession {
         if name == "TodoWrite" {
             let entries = todo_entries(&input);
             // EXP-927: the plan lane is the MAIN thread's list (the strip's
-            // first block ×4); a subagent's own list never replaces it.
-            if !entries.is_empty() && parent.is_none() {
+            // first block ×4); a subagent's own list never replaces it. An
+            // EMPTY list on the main thread goes out too: it is the agent
+            // clearing its list, and the mapper turns it into the
+            // `task_list {entries: []}` every client needs to unstick a
+            // stale "2 open" (release review R2).
+            if parent.is_none() {
                 self.notify(cx, SessionUpdate::Plan(Plan::new(entries)));
             }
             return;

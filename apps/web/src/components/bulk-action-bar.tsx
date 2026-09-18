@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Flag, ListTodo, Tag, Trash2, CircleUser, X } from "lucide-react"
+import { Flag, Trash2, X } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
 import { issueCollection, issueLabelCollection } from "@/lib/collections"
 import {
@@ -340,7 +340,7 @@ export function BulkActionBar({
               disabled={busy}
               aria-label="Set status"
             >
-              <ListTodo className="size-4" />
+              <StatusIcon className="size-4" />
               <span className="hidden md:inline">Status</span>
             </Button>
           </DropdownMenuTrigger>
@@ -418,7 +418,7 @@ export function BulkActionBar({
                 disabled={busy}
                 aria-label="Set assignee"
               >
-                <CircleUser className="size-4" />
+                <AssigneeIcon className="size-4" />
                 <span className="hidden md:inline">Assignee</span>
               </Button>
             </DropdownMenuTrigger>
@@ -466,7 +466,7 @@ export function BulkActionBar({
               disabled={busy}
               aria-label="Set labels"
             >
-              <Tag className="size-4" />
+              <LabelsIcon className="size-4" />
               <span className="hidden md:inline">Labels</span>
             </Button>
           </DropdownMenuTrigger>
@@ -538,6 +538,10 @@ export function BulkActionBar({
 }
 
 const StartCodingIcon = conceptIcon(`action-run`)
+// ×4 concepts (iOS `IssueListView` bulk bar): status, assignee, labels.
+const StatusIcon = conceptIcon(`ui-checklist`)
+const AssigneeIcon = conceptIcon(`ui-assignee`)
+const LabelsIcon = conceptIcon(`settings-labels`)
 
 // EXP-642: bulk "Start coding" — the desktop/iOS/Android selection bars have
 // had it since EXP-439, only web lacked it. Gates, in order: member, relay

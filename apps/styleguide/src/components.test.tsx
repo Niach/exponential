@@ -413,9 +413,13 @@ describe(`a circle is the primary action, a rounded square is a picker (EXP-771/
     expect(occurrences(markup, `aria-label="Pick an icon"`)).toBe(1)
     expect(occurrences(markup, `border-dashed`)).toBe(1)
     expect(occurrences(markup, `aria-label="Icon: flag"`)).toBe(1)
+    // EXP-924: the third trigger offers the device set.
+    expect(occurrences(markup, `aria-label="Icon: os-linux"`)).toBe(1)
     // The trigger and every grid cell take the MD step, never the circle.
     expect(occurrences(markup, `rounded-md`)).toBeGreaterThan(10)
-    expect(occurrences(markup, `aria-pressed="true"`)).toBe(1)
+    // One pressed cell per filled picker: the board grid's flag and the
+    // device set's os-linux.
+    expect(occurrences(markup, `aria-pressed="true"`)).toBe(2)
     // The primary circle beside them is the counter-example.
     expect(markup).toContain(`data-variant="glass" data-size="icon-sm"`)
   })
@@ -521,6 +525,25 @@ describe(`component stylesheet`, () => {
   })
 })
 
+/**
+ * The names a desktop status `symbol` string makes claims about:
+ * `controls::alert / alert_title` → `alert`, `alert_title`;
+ * `glass_input(…).mask_toggle()` → `glass_input`, `mask_toggle`;
+ * `theme::glass::FILL_*` → the prefix `FILL_*`; a `{…}` group is skipped.
+ */
+function symbolNames(symbol: string): string[] {
+  const names: string[] = []
+  for (const part of symbol.split(` / `)) {
+    const chunk = part.replace(/\([^)]*\)/g, ``).trim().split(/\s+/)[0] ?? ``
+    if (chunk === `` || chunk.includes(`{`)) continue
+    for (const piece of chunk.split(`.`)) {
+      const last = piece.split(`::`).at(-1) ?? ``
+      if (last !== `` && /^[A-Za-z_][\w*]*$/.test(last)) names.push(last)
+    }
+  }
+  return names
+}
+
 describe(`status table`, () => {
   test(`every platform is accounted for, and every named file exists`, () => {
     for (const spec of COMPONENTS) {
@@ -539,6 +562,36 @@ describe(`status table`, () => {
         )
       }
     }
+  })
+
+  // Release review R5: a desktop `ok` symbol must NAME something that exists
+  // in the file it points at, or the table lies. Cheap on purpose: the file
+  // is read once per entry and the LAST `::` segment of each name is looked
+  // up as a declaration (`fn`/`struct`/`enum`/`const`/`static`/`mod`/`trait`/
+  // `type`), an enum-variant line or an `icon_named!`-generated enum; a
+  // trailing `*` is a prefix wildcard, a `{…}` group is skipped, and a
+  // parenthesised tail is dropped.
+  test(`every desktop ok symbol names a declaration in its file`, () => {
+    const escape = (name: string) => name.replace(/[.*+?^${}()|[\]\\]/g, `\\$&`)
+    const declared = (source: string, name: string): boolean => {
+      const word = name.endsWith(`*`) ? `${escape(name.slice(0, -1))}\\w*` : escape(name)
+      return (
+        new RegExp(`\\b(fn|struct|enum|const|static|mod|trait|type)\\s+${word}\\b`).test(source) ||
+        new RegExp(`^\\s*${word}\\s*[,({]`, `m`).test(source) ||
+        new RegExp(`\\bicon_named!\\(\\s*${word}\\b`).test(source)
+      )
+    }
+    const undeclared: string[] = []
+    for (const spec of COMPONENTS) {
+      const status = spec.status.desktop
+      if (status.state !== `ok` || status.symbol === undefined || status.file === undefined) continue
+      const source = readFileSync(resolve(REPO_ROOT, status.file), `utf8`)
+      for (const name of symbolNames(status.symbol)) {
+        if (!declared(source, name)) undeclared.push(`${spec.id}: ${name} (${status.file})`)
+      }
+    }
+    // Every miss at once, so a table with three stale names reads as three.
+    expect(undeclared).toEqual([])
   })
 
   test(`a web symbol in @exp/ui is an island, and nothing else is`, () => {
