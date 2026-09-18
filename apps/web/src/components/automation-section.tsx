@@ -35,7 +35,6 @@ import {
   GLASS_SELECT_TRIGGER,
   GlassGroup,
   GlassInputRow,
-  GlassPickerRow,
   GlassTabsRow,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
@@ -189,12 +188,16 @@ export function AutomationTriggerFields({
 
       {draft.kind === `schedule` && (
         <>
-          <GlassPickerRow
-            label="Every"
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle="Every"
             value={draft.interval}
-            onValueChange={(value) =>
-              set({ interval: value as ActionScheduleInterval })
-            }
+            onChange={(value) => {
+              if (value !== null) {
+                set({ interval: value as ActionScheduleInterval })
+              }
+            }}
             options={(
               Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]
             ).map((interval) => ({
@@ -203,10 +206,14 @@ export function AutomationTriggerFields({
             }))}
           />
           {draft.interval === `weekly` && (
-            <GlassPickerRow
-              label="Weekday"
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Weekday"
               value={String(draft.weekday)}
-              onValueChange={(value) => set({ weekday: Number(value) })}
+              onChange={(value) => {
+                if (value !== null) set({ weekday: Number(value) })
+              }}
               options={WEEKDAYS.map((weekday) => ({
                 value: String(weekday),
                 label: weekdayName(weekday),
@@ -214,10 +221,14 @@ export function AutomationTriggerFields({
             />
           )}
           {draft.interval === `monthly` && (
-            <GlassPickerRow
-              label="Day of month"
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Day of month"
               value={String(draft.dayOfMonth)}
-              onValueChange={(value) => set({ dayOfMonth: Number(value) })}
+              onChange={(value) => {
+                if (value !== null) set({ dayOfMonth: Number(value) })
+              }}
               options={MONTH_DAYS.map((day) => ({
                 value: String(day),
                 label: `Day ${day}`,
@@ -237,10 +248,14 @@ export function AutomationTriggerFields({
 
       {draft.kind === `event` && (
         <>
-          <GlassPickerRow
-            label="When"
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle="When"
             value={draft.event}
-            onValueChange={(value) => set({ event: value as ActionTriggerEvent })}
+            onChange={(value) => {
+              if (value !== null) set({ event: value as ActionTriggerEvent })
+            }}
             options={actionTriggerEventValues.map((event) => ({
               value: event,
               label: TRIGGER_EVENT_LABELS[event],
@@ -290,11 +305,15 @@ export function AutomationDevicePicker({
   return (
     // EXP-616: a grouped-form row — "Runs on" leads, the machine trails.
     <GlassGroup>
-      <GlassPickerRow
-        label="Runs on"
-        value={deviceId ?? undefined}
-        onValueChange={onChange}
-        placeholder="Select a device"
+      <Combobox
+        triggerVariant="row"
+        searchable={false}
+        mobileTitle="Runs on"
+        value={deviceId}
+        onChange={(value) => {
+          if (value !== null) onChange(value)
+        }}
+        triggerLabel="Select a device"
         options={[
           ...(unknownDeviceId
             ? [

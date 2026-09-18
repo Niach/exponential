@@ -1,24 +1,19 @@
 import { Megaphone } from "lucide-react"
-import {
-  conceptIcon,
-  Pill,
-  OptionDropdownMenu,
-  DatePicker,
-} from "@exp/ui"
+import { conceptIcon, Combobox, Pill, DatePicker } from "@exp/ui"
 import type { User } from "@/db/schema"
-import {
-  ISSUE_PRIORITY_FALLBACK,
-  type IssuePriority,
-  type IssueSource,
-} from "@/lib/domain"
+import type { IssuePriority, IssueSource } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { cn } from "@/lib/utils"
 import {
+  getPriorityConfig,
   priorities,
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
-import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
+import {
+  toStatusMenuOption,
+  toStatusMenuOptions,
+} from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import { BoardPicker } from "@/components/issue-properties/board-picker"
@@ -153,46 +148,57 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const { options: teamStatusOptions, byId: statusById } =
     useTeamStatusesContext()
 
+  // EXP-958: both chips draw the RESOLVED property the panel was handed,
+  // never the picker's matched option — the resolvers already fall back for a
+  // value the table does not carry (REV2-85), where a match would be empty.
+  const statusTrigger = toStatusMenuOption(status)
+  const StatusTriggerIcon = statusTrigger.icon
+  const priorityTrigger = getPriorityConfig(priority)
+
   const statusControl = (
-    <OptionDropdownMenu
+    <Combobox
+      searchable={false}
       value={status.id}
-      fallbackValue={status.id}
       disabled={disabled}
       options={toStatusMenuOptions(teamStatusOptions)}
-      onSelect={(id) => {
+      width="sm"
+      onChange={(id) => {
+        if (!id) return
         const picked = statusById.get(id)
         if (picked) void onStatusChange(picked)
       }}
       mobileTitle="Status"
-      renderTrigger={(selected) => {
-        const Icon = selected.icon
-        return (
-          <Pill mode="action" disabled={disabled}>
-            <Icon
-              className={`!h-3 !w-3 ${selected.color}`}
-              style={
-                selected.colorHex ? { color: selected.colorHex } : undefined
-              }
-            />
-            {selected.label}
-          </Pill>
-        )
-      }}
+      renderTrigger={() => (
+        <Pill mode="action" disabled={disabled}>
+          <StatusTriggerIcon
+            className={`!h-3 !w-3 ${statusTrigger.color}`}
+            style={
+              statusTrigger.colorHex
+                ? { color: statusTrigger.colorHex }
+                : undefined
+            }
+          />
+          {statusTrigger.label}
+        </Pill>
+      )}
     />
   )
 
   const priorityControl = (
-    <OptionDropdownMenu
+    <Combobox
+      searchable={false}
       value={priority}
-      fallbackValue={ISSUE_PRIORITY_FALLBACK}
       disabled={disabled}
       options={priorities}
-      onSelect={onPriorityChange}
+      width="sm"
+      onChange={(next) => {
+        if (next) void onPriorityChange(next)
+      }}
       mobileTitle="Priority"
-      renderTrigger={(selected) => (
+      renderTrigger={() => (
         <Pill mode="action" disabled={disabled}>
-          <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
-          {selected.label}
+          <PriorityIcon priority={priorityTrigger.value} className="!h-3 !w-3" />
+          {priorityTrigger.label}
         </Pill>
       )}
     />

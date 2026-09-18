@@ -64,7 +64,6 @@ import {
   GlassCard,
   GlassGroup,
   GlassInputRow,
-  GlassPickerRow,
   GlassRow,
   GlassSectionHeader,
   GlassTabsRow,
@@ -792,12 +791,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     island: () => (
       <GlassGroup>
-        <GlassPickerRow
-          label="Repository"
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Repository"
           value="exp"
-          onValueChange={noop}
+          onChange={noop}
           options={[{ value: `exp`, label: `niach/exponential` }]}
-          renderValue={(option) => option?.label}
         />
         <GlassInputRow id="demo-group-slug" label="Slug" defaultValue="mobile-app" />
         <GlassToggleRow
@@ -868,19 +868,20 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Lists & rows`,
     blurb: `The rhythm every grouped row inherits: padding 12/16, gap 12, 14px text. The shell never draws a stroke — the group's hairlines do.`,
     status: {
-      web: ok(`GlassInputRow / GlassToggleRow / GlassPickerRow`, WEB_GLASS_ROWS),
+      web: ok(`GlassInputRow / GlassToggleRow / Combobox triggerVariant="row"`, WEB_GLASS_ROWS),
       desktop: ok(`surface::glass_row_shell`, DESKTOP_SURFACE),
       ios: ok(`GlassPickerRow`, IOS_OPTION_ROWS),
       android: ok(`PickerRow`, ANDROID_SHEET_ROWS),
     },
     island: () => (
       <GlassGroup>
-        <GlassPickerRow
-          label="Agent"
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Agent"
           value="claude"
-          onValueChange={noop}
+          onChange={noop}
           options={[{ value: `claude`, label: `claude` }]}
-          renderValue={(option) => option?.label}
         />
         <GlassInputRow id="demo-shell-prefix" label="Branch prefix" defaultValue="exp/" />
         <GlassToggleRow
@@ -899,33 +900,41 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Lists & rows`,
     blurb: `Label left, value right-aligned at 70% foreground, a 14px chevron at 50%. The whole row is the target, never just the value.`,
     status: {
-      web: ok(`GlassPickerRow`, WEB_GLASS_ROWS),
+      web: ok(
+        `Combobox triggerVariant="row"`,
+        `packages/ui/src/combobox.tsx`,
+        `EXP-958: the row IS the picker — its own Select and sheet are gone`
+      ),
       desktop: ok(`surface::glass_picker_row`, DESKTOP_SURFACE),
       ios: ok(`GlassPickerRow`, IOS_OPTION_ROWS),
       android: ok(`PickerRow`, ANDROID_SHEET_ROWS),
     },
     island: () => (
       <GlassGroup>
-        <GlassPickerRow
-          label="Status"
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Status"
           value="in_review"
-          onValueChange={noop}
+          onChange={noop}
           options={[{ value: `in_review`, label: `In review` }]}
-          renderValue={(option) => option?.label}
         />
-        <GlassPickerRow
-          label="Assignee"
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Assignee"
           value="danny"
-          onValueChange={noop}
+          onChange={noop}
           options={[{ value: `danny`, label: `Danny` }]}
-          renderValue={(option) => option?.label}
         />
-        <GlassPickerRow
-          label="Due date"
-          value=""
-          onValueChange={noop}
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Due date"
+          value={null}
+          onChange={noop}
           options={[]}
-          placeholder="No date"
+          triggerLabel="No date"
         />
       </GlassGroup>
     ),
@@ -995,19 +1004,21 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           <TabsTrigger value="merged">Merged</TabsTrigger>
           <TabsTrigger value="all">All</TabsTrigger>
         </GlassTabsRow>
-        <GlassPickerRow
-          label="APP-14"
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="APP-14"
           value="two"
-          onValueChange={noop}
+          onChange={noop}
           options={[{ value: `two`, label: `2 files` }]}
-          renderValue={(option) => option?.label}
         />
-        <GlassPickerRow
-          label="APP-21"
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="APP-21"
           value="seven"
-          onValueChange={noop}
+          onChange={noop}
           options={[{ value: `seven`, label: `7 files` }]}
-          renderValue={(option) => option?.label}
         />
       </GlassGroup>
     ),
@@ -2633,7 +2644,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `combobox`,
     title: `Combobox`,
     kind: `Inputs & pickers`,
-    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. The demo shows both triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all.`,
+    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. EXP-957 added the third arm, ComboboxMenuItems: the same rows as items INSIDE a Radix context or dropdown menu, for the issue row's right-click submenus and the bulk bar, which retires the menu's own radio dot and checkbox tick; and a bulk edit over rows that disagree draws ui-indeterminate (circle-minus) on a multi row, or marks nothing at all on a single. EXP-958 folded the last two closed single-selects onto it — the status and priority menu, whose desktop arm marked no row at all, and the settings picker row, which was a Select on desktop and a hand-rolled sheet on the phone — as searchable={false} pickers with two more triggers: row (the glass form ladder's picker row, label leading, value trailing) and inline (one word of the muted sentence under the composer, which collapses to plain text with a single option). The demo shows the four triggers beside the bare ComboboxList, since a closed portal renders nothing — and a menu arm cannot render outside its menu at all.`,
     status: {
       web: ok(
         `Combobox / ComboboxList / ComboboxMenuItems`,
@@ -2656,10 +2667,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `only the ROW is shared — every picker sheet re-assembles sheet + search field + rows by hand`
       ),
     },
-    leftovers: [
-      { file: `apps/web/src/components/issue-run-switcher.tsx`, note: `run rows are DropdownMenuCheckboxItem: the menu's tick, not the picker's check` },
-      { file: `apps/web/src/components/mobile-face-switcher.tsx`, note: `same run rows as the run switcher, on the phone face menu` },
-    ],
     island: () => (
       <div className="grid gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -2682,6 +2689,46 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             onChange={noop}
           />
         </div>
+        {/* EXP-958: the row trigger inside a glass group, and the inline
+            word inside the composer's muted sentence — one with a choice,
+            one collapsed to plain text because there is nothing to choose. */}
+        <div className="w-[20rem]">
+          <GlassGroup>
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Runs on"
+              options={[
+                { value: `macbook`, label: `MacBook Pro` },
+                { value: `homeserver`, label: `homeserver` },
+              ]}
+              value="macbook"
+              onChange={noop}
+            />
+          </GlassGroup>
+        </div>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <Combobox
+            triggerVariant="inline"
+            searchable={false}
+            mobileTitle="Device"
+            width="sm"
+            options={[
+              { value: `macbook`, label: `MacBook Pro` },
+              { value: `homeserver`, label: `homeserver` },
+            ]}
+            value="macbook"
+            onChange={noop}
+          />
+          <Combobox
+            triggerVariant="inline"
+            searchable={false}
+            mobileTitle="Model"
+            options={[{ value: `default`, label: `CLI default` }]}
+            value="default"
+            onChange={noop}
+          />
+        </p>
         {/* The bare bodies. `cmdk` only hides its empty row once its client
             effects have registered the items, so the static specimen hides it
             the way the running list does. */}

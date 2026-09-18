@@ -58,20 +58,33 @@ vi.mock(`@exp/ui`, async (importOriginal) => ({
       </button>
     </div>
   ),
-  OptionDropdownMenu: ({
-    onSelect,
+  // EXP-958: the status and priority chips are `Combobox`es now — the same
+  // popover every other picker opens, stubbed down to its trigger and one
+  // "pick the second row" button.
+  Combobox: ({
+    onChange,
     options,
     renderTrigger,
+    value,
   }: {
-    onSelect: (value: string) => void
+    onChange: (value: string | null) => void
     options: Array<{ label: string; value: string }>
-    renderTrigger: (selected: { label: string; value: string }) => ReactNode
+    renderTrigger?: (state: {
+      selected: Array<{ label: string; value: string }>
+      summary: string
+      open: boolean
+    }) => ReactNode
+    value: string | null
   }) => (
     <div>
-      {renderTrigger(options[0])}
+      {renderTrigger?.({
+        selected: options.filter((option) => option.value === value),
+        summary: ``,
+        open: false,
+      })}
       <button
         type="button"
-        onClick={() => onSelect(options[1]?.value ?? options[0].value)}
+        onClick={() => onChange(options[1]?.value ?? options[0].value)}
       >
         Select {options[0].label}
       </button>

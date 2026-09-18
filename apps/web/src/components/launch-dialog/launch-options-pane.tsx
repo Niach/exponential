@@ -1,9 +1,9 @@
 import {
+  Combobox,
   conceptIcon,
   GlassGroup,
-  GlassPickerRow,
   GlassToggleRow,
-  type GlassPickerOption,
+  type PickerOption,
 } from "@exp/ui"
 import { AgentPickerTabs } from "@/components/agent-picker"
 import {
@@ -38,7 +38,7 @@ import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
 
 const ResumeBranchIcon = conceptIcon(`ui-branch`)
 
-// Radix Select forbids an empty-string item value; the blank "CLI default"
+// An empty string is no usable option identity; the blank "CLI default"
 // model/effort rides this sentinel inside the dialog only.
 export const CLI_DEFAULT_EFFORT = `cli-default`
 export const CLI_DEFAULT_MODEL = `cli-default`
@@ -129,7 +129,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
   const modelSentinel = CLI_DEFAULT_MODEL
   const effortSentinel = CLI_DEFAULT_EFFORT
   const sentinelLabel = `CLI default`
-  const modelOptions: GlassPickerOption[] = [
+  const modelOptions: PickerOption[] = [
     ...(automation || agentAllowsBlankModel(agent)
       ? [{ value: modelSentinel, label: sentinelLabel }]
       : []),
@@ -140,7 +140,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         }))
       : []),
   ]
-  const effortOptions: GlassPickerOption[] = [
+  const effortOptions: PickerOption[] = [
     { value: effortSentinel, label: sentinelLabel },
     ...(pinned
       ? agentEffortValues(agent).map((value) => ({
@@ -172,21 +172,29 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           {`Not ready on ${device!.deviceLabel || device!.deviceId}. Run the doctor there.`}
         </div>
       )}
-      <GlassPickerRow
-        label="Model"
+      <Combobox
+        triggerVariant="row"
+        searchable={false}
+        mobileTitle="Model"
         value={model === `` ? modelSentinel : model}
-        onValueChange={(value) =>
-          onModelChange(value === modelSentinel ? `` : value)
-        }
+        onChange={(value) => {
+          if (value !== null) {
+            onModelChange(value === modelSentinel ? `` : value)
+          }
+        }}
         options={modelOptions}
         disabled={!pinned}
       />
-      <GlassPickerRow
-        label={agent === `codex` ? `Reasoning` : `Effort`}
+      <Combobox
+        triggerVariant="row"
+        searchable={false}
+        mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
         value={effortValue === `` ? effortSentinel : effortValue}
-        onValueChange={(value) =>
-          onEffortChange(automation && value === effortSentinel ? `` : value)
-        }
+        onChange={(value) => {
+          if (value !== null) {
+            onEffortChange(automation && value === effortSentinel ? `` : value)
+          }
+        }}
         options={effortOptions}
         disabled={
           automation

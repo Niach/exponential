@@ -98,6 +98,21 @@ describe(`GithubRepoPicker (FEED-30)`, () => {
     ])
   })
 
+  // FEED-42 through EXP-958's shared picker body: a row tap IS the add, so it
+  // reports the repo and leaves no selection marker behind.
+  it(`a row tap adds the repo and marks nothing`, async () => {
+    const onSelect = renderPicker()
+
+    const row = (await screen.findByText(`acme/app`)).closest(
+      `[data-slot=command-item]`
+    )
+    expect(row).toBeTruthy()
+    fireEvent.click(row!)
+
+    expect(onSelect).toHaveBeenCalledWith(reposResult().repos[0])
+    expect(document.querySelector(`[data-selected-glyph]`)).toBeNull()
+  })
+
   it(`"Install on another account" opens the install URL; "Refresh" the OAuth re-auth`, async () => {
     const popup = { focus: vi.fn(), closed: true }
     const open = vi

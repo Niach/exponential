@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
 import {
@@ -9,14 +9,10 @@ import {
   DialogContent,
   DialogTitle,
   Button,
-  SearchField,
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
+  ComboboxList,
   useIsMobile,
   conceptIcon,
+  type PickerOption,
 } from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
 import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
@@ -24,10 +20,10 @@ import type { IssueSearchRow } from "@/lib/issue-search"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { BoardGlyph } from "@/components/board-glyph"
-import { Search } from "lucide-react"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
+const SearchGlyph = conceptIcon(`nav-search`)
 
 interface IssueSearchSheetProps {
   open: boolean
@@ -53,14 +49,21 @@ interface SearchResult extends IssueSearchRow {
 
 const NO_ROWS: SearchResult[] = []
 
-// One search experience, two presentations: a full-screen bottom sheet on
-// mobile (reached from the topbar) and a centered cmdk dialog on desktop
-// (reached from the sidebar or Cmd/Ctrl+F). The search logic is the shared
-// engine (EXP-892, `useIssueSearchResults`: instant local ranking over the
-// synced rows, the server's full-text pass spliced in behind); the desktop
-// container is a `Command` so keyboard users get the shared list contract
-// (top row selected, ↑/↓, Enter, hover moves the selection), while mobile
-// stays touch-only.
+// One engine, one body, two shells.
+//
+// The engine is the shared one (EXP-892, `useIssueSearchResults`: instant
+// local ranking over the synced rows, the server's full-text pass spliced in
+// behind). The body is the shared picker (EXP-941/EXP-958, `ComboboxList`):
+// the search field, the rows and the empty state all come from it, so this
+// surface can no longer drift from every other searchable list — cmdk owns
+// the keyboard model (top row selected as results arrive, ↑/↓, Enter opens,
+// hover moves the selection) and its own filter stays OFF, since `results` is
+// already the local+server merge. Picking NAVIGATES, so `value={null}`: no
+// row is ever the picked one and none wears a check.
+//
+// Only the shell differs: a full-screen page-like sheet on mobile (reached
+// from the topbar, back arrow above the field) and a centered dialog on
+// desktop (reached from the sidebar or Cmd/Ctrl+F).
 export function IssueSearchSheet({
   open,
   onOpenChange,
@@ -111,6 +114,22 @@ export function IssueSearchSheet({
     emptyQuery: `none`,
   })
 
+  // The option carries the IDENTITY only; the row it stands for is looked up
+  // here (two issues can share a title).
+  const options = useMemo<PickerOption[]>(
+    () =>
+      results.map((issue) => ({
+        value: issue.id,
+        label: issue.title,
+        keywords: [issue.identifier, issue.title],
+      })),
+    [results]
+  )
+  const resultById = useMemo(
+    () => new Map<string, SearchResult>(results.map((i) => [i.id, i])),
+    [results]
+  )
+
   const handleOpenChange = (o: boolean) => {
     onOpenChange(o)
     if (!o) setQuery(``)
@@ -131,10 +150,24 @@ export function IssueSearchSheet({
     })
   }
 
+  // cmdk's input takes no `autoFocus`, and both shells are Radix dialogs whose
+  // own open-focus lands on the first tabbable child — the back arrow on
+  // mobile. So the field is focused explicitly once the shell is mounted.
+  const shellRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    const frame = requestAnimationFrame(() => {
+      shellRef.current
+        ?.querySelector<HTMLInputElement>(`[data-slot=command-input]`)
+        ?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open])
+
   const emptyState =
     query.trim() === `` ? (
       <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-        <Search className="size-8 mb-3 opacity-50" />
+        <SearchGlyph className="size-8 mb-3 opacity-50" />
         <p className="text-sm">Type to search issues</p>
       </div>
     ) : (
@@ -143,7 +176,9 @@ export function IssueSearchSheet({
       </div>
     )
 
-  const resultRow = (issue: SearchResult) => {
+  const renderOption = (option: PickerOption) => {
+    const issue = resultById.get(option.value)
+    if (!issue) return null
     const board = boardMap.get(issue.boardId)
     return (
       <>
@@ -163,19 +198,43 @@ export function IssueSearchSheet({
     )
   }
 
+  // The list is the whole body; the shell caps its height, so the primitive's
+  // own 18.75rem cap comes off.
+  const list = (className?: string) => (
+    <ComboboxList
+      options={options}
+      value={null}
+      onChange={(id) => {
+        const issue = id === null ? undefined : resultById.get(id)
+        if (issue) handlePick(issue)
+      }}
+      shouldFilter={false}
+      query={query}
+      onQueryChange={setQuery}
+      placeholder="Search issues..."
+      emptyText={emptyState}
+      renderOption={renderOption}
+      className={className}
+      listClassName="max-h-none"
+    />
+  )
+
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={handleOpenChange}>
         {/* Page-like, not a sheet: it covers the whole screen, so it takes
             the New-issue page's chrome instead — no grabber, no radius, a
-            leading back arrow where a sheet would have nothing (EXP-687). */}
+            leading back arrow where a sheet would have nothing (EXP-687).
+            The arrow is its own slim row above the field, which the shared
+            body owns. */}
         <SheetContent
+          ref={shellRef}
           side="bottom"
           showGrabber={false}
           className="top-0 flex h-[100dvh] max-h-none flex-col gap-0 rounded-none p-0"
         >
           <SheetTitle className="sr-only">Search issues</SheetTitle>
-          <div className="flex items-center gap-2 border-b border-border/50 px-3 py-3">
+          <div className="flex items-center border-b border-border/50 px-3 py-2">
             <Button
               type="button"
               variant="ghost"
@@ -186,72 +245,26 @@ export function IssueSearchSheet({
             >
               <UiBackIcon className="size-4" />
             </Button>
-            <SearchField
-              size="md"
-              value={query}
-              onValueChange={setQuery}
-              placeholder="Search issues..."
-              aria-label="Search issues"
-              clearLabel="Clear issue search"
-              autoFocus
-              className="border-none text-base shadow-none focus-visible:ring-0 md:text-sm"
-            />
           </div>
-          <div className="flex-1 overflow-y-auto">
-            {results.length === 0 && emptyState}
-            {results.map((issue) => (
-              <Button
-                key={issue.id}
-                type="button"
-                variant="ghost"
-                onClick={() => handlePick(issue)}
-                className="flex h-auto w-full items-center justify-start gap-3 rounded-none px-4 py-3 text-left font-normal hover:bg-accent active:bg-accent/70 border-b border-border/30"
-              >
-                {resultRow(issue)}
-              </Button>
-            ))}
-          </div>
+          {list(
+            `**:data-[slot=command-input]:text-base **:data-[slot=command-input-wrapper]:h-12 **:data-[slot=command-input-wrapper]:border-border/50`
+          )}
         </SheetContent>
       </Sheet>
     )
   }
 
-  // Desktop: cmdk owns the keyboard model (ArrowUp/Down move the highlighted
-  // row, Enter opens it, the first result is pre-selected as results arrive).
-  // Its internal filtering is off — `results` is already the local+server
-  // merge — so items render exactly as computed.
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
+        ref={shellRef}
         showCloseButton={false}
         className="p-0 sm:p-0 gap-0 flex flex-col overflow-hidden sm:top-[15%] sm:max-h-[60vh] sm:translate-y-0 sm:max-w-lg"
       >
         <DialogTitle className="sr-only">Search issues</DialogTitle>
-        <Command
-          shouldFilter={false}
-          className="min-h-0 bg-transparent **:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50"
-        >
-          <CommandInput
-            value={query}
-            onValueChange={setQuery}
-            placeholder="Search issues..."
-            autoFocus
-            className="text-base md:text-sm"
-          />
-          <CommandList className="max-h-none flex-1 overflow-y-auto">
-            <CommandEmpty className="p-0">{emptyState}</CommandEmpty>
-            {results.map((issue) => (
-              <CommandItem
-                key={issue.id}
-                value={issue.id}
-                onSelect={() => handlePick(issue)}
-                className="gap-3 rounded-none px-4 py-3 cursor-pointer border-b border-border/30"
-              >
-                {resultRow(issue)}
-              </CommandItem>
-            ))}
-          </CommandList>
-        </Command>
+        {list(
+          `**:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50`
+        )}
       </DialogContent>
     </Dialog>
   )

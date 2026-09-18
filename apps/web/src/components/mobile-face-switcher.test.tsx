@@ -136,8 +136,12 @@ describe(`MobileFaceSwitcher`, () => {
       />
     )
     openMenu()
-    expect(screen.queryByTestId(`mobile-face-run-live`)).toBeNull()
-    const other = screen.getByTestId(`mobile-face-run-ended`)
+    const runRow = (id: string) =>
+      document.querySelector(
+        `[data-testid="mobile-face-switcher-menu"] [data-value="${id}"]`
+      )
+    expect(runRow(`live`)).toBeNull()
+    const other = runRow(`ended`)!
     expect(other.textContent).toContain(`macbook`)
     fireEvent.click(other)
     expect(onOpenRun).toHaveBeenCalledWith(ended.session)

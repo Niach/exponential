@@ -3,7 +3,7 @@ import { forwardRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { Plus, User as UserIcon } from "lucide-react"
 import type { Label as LabelRow, User } from "@/db/schema"
-import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
+import type { IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   creatableStatusOptions,
@@ -22,12 +22,16 @@ import {
   useIssueRelations,
 } from "@/components/issue-relations-card"
 import {
+  getPriorityConfig,
   priorities,
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
-import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import {
-  OptionDropdownMenu,
+  toStatusMenuOption,
+  toStatusMenuOptions,
+} from "@/components/issue-properties/status-dropdown"
+import {
+  Combobox,
   Button,
   conceptIcon,
   DatePicker,
@@ -150,61 +154,71 @@ export function IssueEditorMobileProperties({
   )
   const labels = (labelRows ?? []) as LabelRow[]
 
+  // EXP-958: both rows draw the RESOLVED property this form holds, never the
+  // picker's matched option — a duplicate-status issue is not in
+  // `creatableStatusOptions` and an unknown priority is not in the table, so
+  // a match would be empty where the resolver already falls back (REV2-85).
+  const statusTrigger = toStatusMenuOption(status)
+  const StatusTriggerIcon = statusTrigger.icon
+  const priorityTrigger = getPriorityConfig(priority)
+
   return (
     <div className="mx-3 my-3 flex flex-col gap-4">
       <GlassCard className="divide-y divide-glass-stroke overflow-hidden">
-        <OptionDropdownMenu
+        <Combobox
+          searchable={false}
           value={status.id}
-          fallbackValue={status.id}
           disabled={disabled || disableStatus}
           options={toStatusMenuOptions(statusOptions)}
-          onSelect={(id) => {
+          width="sm"
+          onChange={(id) => {
+            if (!id) return
             const picked = byId.get(id)
             if (picked) void onStatusChange(picked)
           }}
           mobileTitle="Status"
-          renderTrigger={(selected) => {
-            const Icon = selected.icon
-            return (
-              <PropertyRow
-                label="Status"
-                disabled={disabled || disableStatus}
-                value={
-                  <>
-                    <Icon
-                      className={`!h-3.5 !w-3.5 ${selected.color}`}
-                      style={
-                        selected.colorHex
-                          ? { color: selected.colorHex }
-                          : undefined
-                      }
-                    />
-                    {selected.label}
-                  </>
-                }
-              />
-            )
-          }}
+          renderTrigger={() => (
+            <PropertyRow
+              label="Status"
+              disabled={disabled || disableStatus}
+              value={
+                <>
+                  <StatusTriggerIcon
+                    className={`!h-3.5 !w-3.5 ${statusTrigger.color}`}
+                    style={
+                      statusTrigger.colorHex
+                        ? { color: statusTrigger.colorHex }
+                        : undefined
+                    }
+                  />
+                  {statusTrigger.label}
+                </>
+              }
+            />
+          )}
         />
 
-        <OptionDropdownMenu
+        <Combobox
+          searchable={false}
           value={priority}
-          fallbackValue={ISSUE_PRIORITY_FALLBACK}
           disabled={disabled}
           options={priorities}
-          onSelect={onPriorityChange}
+          width="sm"
+          onChange={(next) => {
+            if (next) void onPriorityChange(next)
+          }}
           mobileTitle="Priority"
-          renderTrigger={(selected) => (
+          renderTrigger={() => (
             <PropertyRow
               label="Priority"
               disabled={disabled}
               value={
                 <>
                   <PriorityIcon
-                    priority={selected.value}
+                    priority={priorityTrigger.value}
                     className="!h-3.5 !w-3.5"
                   />
-                  {selected.label}
+                  {priorityTrigger.label}
                 </>
               }
             />

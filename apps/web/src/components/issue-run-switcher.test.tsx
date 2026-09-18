@@ -101,12 +101,18 @@ describe(`the Runs segment's run menu`, () => {
     const ended = row({ id: `ended` })
     render(toggle([live, ended], vi.fn(), `live`))
     openMenu()
-    const options = document.querySelectorAll(`[data-testid^="issue-run-option-"]`)
+    // EXP-958: the rows are the Combobox's menu arm — a single select, so
+    // the run on show wears the picker's trailing check and nothing else.
+    const options = document.querySelectorAll(
+      `[data-testid="issue-run-switcher-menu"] [role="menuitemradio"]`
+    )
     expect(options).toHaveLength(2)
     expect(options[0]?.textContent).toBe(`macbook · Live`)
     expect(options[1]?.textContent).toMatch(/^macbook · .+ago$/)
-    expect(options[0]?.getAttribute(`data-state`)).toBe(`checked`)
-    expect(options[1]?.getAttribute(`data-state`)).toBe(`unchecked`)
+    expect(options[0]?.getAttribute(`data-selected-state`)).toBe(`selected`)
+    expect(options[1]?.getAttribute(`data-selected-state`)).toBe(`unselected`)
+    expect(options[0]?.querySelector(`[data-selected-glyph="check"]`)).toBeTruthy()
+    expect(options[1]?.querySelector(`[data-selected-glyph]`)).toBeNull()
   })
 
   it(`opens the picked run without selecting a face`, () => {
@@ -127,7 +133,11 @@ describe(`the Runs segment's run menu`, () => {
     openMenu()
     expect(onRun).not.toHaveBeenCalled()
     act(() => {
-      fireEvent.click(screen.getByTestId(`issue-run-option-b`))
+      fireEvent.click(
+        document.querySelector(
+          `[data-testid="issue-run-switcher-menu"] [data-value="b"]`
+        )!
+      )
     })
     expect(onOpen).toHaveBeenCalledWith(b.session)
     expect(onRun).not.toHaveBeenCalled()

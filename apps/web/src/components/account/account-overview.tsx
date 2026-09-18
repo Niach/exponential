@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import {
+  Combobox,
   GlassGroup,
-  GlassPickerRow,
   UserAvatar,
 } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
@@ -72,14 +72,23 @@ export function AccountOverview({
           in it. Captured from the browser on first load; explicit here. */}
       <GlassGroup>
         <div className="flex flex-col">
-          <GlassPickerRow
-            label="Timezone"
+          {/* EXP-958: the ONE settings row that keeps its search field — the
+              tz database is hundreds of zones, and the Select this replaced
+              had type-ahead of its own. */}
+          <Combobox
+            triggerVariant="row"
+            mobileTitle="Timezone"
             value={timezone}
-            onValueChange={handleTimezone}
+            onChange={(zone) => {
+              if (zone !== null) handleTimezone(zone)
+            }}
             options={timezoneOptions(timezone).map((zone) => ({
               value: zone,
               label: zone,
             }))}
+            placeholder="Search zones…"
+            emptyText="No matching timezone."
+            width="lg"
           />
           <p className="px-4 pb-3 text-xs text-foreground/50">
             Used to schedule your daily digest email.

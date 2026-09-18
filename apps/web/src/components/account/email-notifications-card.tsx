@@ -2,9 +2,9 @@ import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import {
   conceptIcon,
+  Combobox,
   Switch,
   GlassGroup,
-  GlassPickerRow,
   GlassToggleRow,
 } from "@exp/ui"
 import type { NotificationType } from "@/lib/domain"
@@ -190,10 +190,14 @@ export function EmailNotificationsCard({
 
       <GlassGroup>
         <div className="flex flex-col">
-          <GlassPickerRow
-            label="Delivery"
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle="Delivery"
             value={digest}
-            onValueChange={(next) => handleDigest(next as DigestCadence)}
+            onChange={(next) => {
+              if (next !== null) handleDigest(next as DigestCadence)
+            }}
             options={[
               { value: `off`, label: `Hourly digest` },
               { value: `daily`, label: `Daily digest` },
@@ -207,10 +211,14 @@ export function EmailNotificationsCard({
 
         {digest === `daily` && (
           <div className="flex flex-col">
-            <GlassPickerRow
-              label="Send time"
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Send time"
               value={String(digestHour)}
-              onValueChange={(next) => handleDigestHour(Number(next))}
+              onChange={(next) => {
+                if (next !== null) handleDigestHour(Number(next))
+              }}
               options={HOUR_OPTIONS.map((hour) => ({
                 value: String(hour),
                 label: `${hour}:00`,
