@@ -525,67 +525,6 @@ export const componentStyles = `
 .cmp-sheet .header .trailing { margin-left: auto; }
 .cmp-sheet .content { display: grid; gap: 12px; padding: 0 16px 16px; }
 
-/* ------------------------------------------------------------- composer */
-/* ONE composer for comments, steering and support replies. The card is the
-   chrome, so the field inside it is borderless; the tools are ghosts, because
-   four boxed buttons under a box is three boxes too many. */
-.cmp-composer {
-  border-radius: var(--r-xl);
-  background: var(--card);
-  border: 1px solid var(--stroke);
-}
-/* Floating over a feed — the mobile bottom bar — it must be OPAQUE or the
-   conversation reads straight through it. */
-.cmp-composer.opaque { background: var(--opaque-card); border-color: var(--stroke-strong); }
-.cmp-composer .strip { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 6px 0; }
-.cmp-composer .strip .item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--ctl-sm);
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  background: var(--row);
-  color: var(--fg-70);
-  font-size: 12px;
-}
-.cmp-composer .strip .glyph { width: 12px; height: 12px; }
-.cmp-composer .field {
-  display: block;
-  width: 100%;
-  min-height: 36px;
-  padding: 10px 12px;
-  border: none;
-  background: none;
-  color: var(--fg);
-  font: inherit;
-  font-size: 14px;
-  line-height: 20px;
-  resize: none;
-  outline: none;
-}
-.cmp-composer .field::placeholder { color: var(--fg-50); }
-.cmp-composer .tools { display: flex; align-items: center; gap: 2px; padding: 0 6px 6px; }
-.cmp-composer .tool, .cmp-composer .submit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: var(--ctl-sm);
-  height: var(--ctl-sm);
-  border-radius: 50%;
-  border: none;
-  background: none;
-  color: var(--fg-50);
-  cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.cmp-composer .tool:hover { background: var(--active); color: var(--fg); }
-/* Submit is the only tinted glyph in the row — still a ghost circle. */
-.cmp-composer .submit { margin-left: auto; color: var(--primary); }
-.cmp-composer .submit:hover { background: var(--active); }
-.cmp-composer .glyph { width: 16px; height: 16px; }
-
 /* ------------------------------------------------- markdown / steer feed */
 /* The chat-sized block set. Only the person's turn gets a bubble; the agent's
    narration is bare text, because a wall of bubbles is unreadable at length. */

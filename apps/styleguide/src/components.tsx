@@ -45,19 +45,34 @@ import { contract } from "@exp/domain-contract"
 import { parseDiff } from "@exp/domain-contract/diff"
 import { editCard } from "@exp/domain-contract/edit-card"
 import {
+  AgentBrandMark,
+  AgentPicker,
+  AgentPickerTabs,
   Alert,
   AlertDescription,
   AlertTitle,
   AttachmentThumb,
+  AuthFormShell,
+  BoardGlyph,
   Button,
   Calendar,
+  ChangesFileSheet,
+  ClaudeIcon,
+  CodexIcon,
   Checkbox,
   Combobox,
   ComboboxList,
   ColorPicker,
   ColorSwatchGrid,
+  Composer,
+  ComposerSubmit,
+  ComposerTool,
+  ContextRing,
+  CursorIcon,
   DatePicker,
   EditedFilesCard,
+  EmojiPicker,
+  ExponentialLogo,
   FAB_CHROME_CLASS,
   FileDiffCard,
   FileDiffTree,
@@ -74,15 +89,25 @@ import {
   IconPicker,
   IconSwatchGrid,
   Input,
+  IssueGroupBand,
   IssueChip,
   Label,
   LiveDot,
   ListRow,
+  ListEmpty,
+  MOBILE_WORK_CIRCLE_CLASS,
   Meter,
+  MobileWorkCapsule,
+  OpenAiIcon,
+  PasswordInput,
   Pill,
+  PrGithubButton,
+  PreviewMedia,
+  RUN_TITLE_CLASS,
   RichTab,
   SearchField,
   SegmentedControl,
+  SessionResultsView,
   Select,
   SelectTrigger,
   SelectValue,
@@ -96,8 +121,13 @@ import {
   TypeaheadMenu,
   TypeaheadRow,
   UserAvatar,
+  WORK_COLUMN_CLASS,
+  WorkHeader,
   conceptIcon,
+  indexEmojiData,
+  type EmojiDataset,
   type PickerOption,
+  type SessionResultEntry,
   type StatusGlyphProps,
 } from "@exp/ui"
 
@@ -114,8 +144,6 @@ import {
   svgFlag,
   svgGitMerge,
   svgGithub,
-  svgHash,
-  svgImage,
   svgInbox,
   svgListTodo,
   svgLock,
@@ -124,8 +152,6 @@ import {
   svgPlay,
   svgPlus,
   svgRefresh,
-  svgSend,
-  svgSmile,
   svgTag,
   svgTerminal,
   svgTrash,
@@ -299,6 +325,13 @@ const BoldGlyph = conceptIcon(`editor-bold`)
 const WarningGlyph = conceptIcon(`ui-warning`)
 const ShellGlyph = conceptIcon(`session-shell`)
 const MergeGlyph = conceptIcon(`pr-merged`)
+const EditorImageGlyph = conceptIcon(`editor-image`)
+const AttachGlyph = conceptIcon(`ui-attach`)
+const IssueRefGlyph = conceptIcon(`editor-issue-ref`)
+const EmojiGlyph = conceptIcon(`editor-emoji`)
+const PropertiesGlyph = conceptIcon(`ui-properties`)
+const CommentGlyph = conceptIcon(`notification-issue-comment`)
+const WorkFacesGlyph = conceptIcon(`work-faces`)
 
 /* A neutral stand-in for a picked screenshot: the island loads no network
    image, so the thumb's crop and hairline read against a flat data-URI tile. */
@@ -522,33 +555,6 @@ function richTab(options: RichTabOptions): string {
   ].join(``)
 }
 
-interface ComposerOptions {
-  placeholder: string
-  tools: string[]
-  /** One attachment, to show the strip; the real one wraps. */
-  attachment?: string
-  submit?: string
-  opaque?: boolean
-}
-
-function composer(options: ComposerOptions): string {
-  const { placeholder, tools, attachment, submit = svgSend, opaque = false } = options
-  const strip =
-    attachment === undefined
-      ? ``
-      : `<div class="strip"><span class="item">${svgImage}<span class="label">${escapeHtml(attachment)}</span></span></div>`
-  return [
-    `<div class="cmp-composer${opaque ? ` opaque` : ``}">`,
-    strip,
-    `<textarea class="field" rows="1" placeholder="${escapeHtml(placeholder)}"></textarea>`,
-    `<div class="tools">`,
-    tools.map((glyph) => `<button class="tool" type="button">${glyph}</button>`).join(``),
-    `<button class="submit" type="button">${submit}</button>`,
-    `</div>`,
-    `</div>`,
-  ].join(``)
-}
-
 function swatch(name: string, value: string, box: string): string {
   return [
     `<div class="cmp-swatch">`,
@@ -732,6 +738,34 @@ const TREE_FILES = [
     ].join(`\n`)
   ).files[0]
 )
+
+/* EXP-551: a six-emoji stand-in for the generated dataset. Only the groups
+   that carry an emoji are listed — the picker renders one band per group, and
+   nine empty bands would be a specimen of nothing. The labels are the
+   generator's own (`EMOJI_GROUP_LABELS`), spelled out here so the styleguide
+   keeps no dependency on the dataset package. */
+const EMOJI_FIXTURE: EmojiDataset = {
+  version: `16.0.0`,
+  groups: [`Smileys & emotion`, `Animals & nature`],
+  emojis: [
+    { u: `\u{1F600}`, l: `grinning face`, g: 0, s: [`grinning`], t: [`smile`] },
+    { u: `\u{1F602}`, l: `face with tears of joy`, g: 0, s: [`joy`], t: [`laugh`] },
+    { u: `\u{1F389}`, l: `party popper`, g: 0, s: [`tada`], t: [`celebration`] },
+    { u: `\u{1F436}`, l: `dog face`, g: 1, s: [`dog`], t: [`pet`] },
+    { u: `\u{1F431}`, l: `cat face`, g: 1, s: [`cat`], t: [`pet`] },
+    { u: `\u{1F984}`, l: `unicorn`, g: 1, s: [`unicorn`], t: [`fantasy`] },
+  ],
+}
+
+/* EXP-879: two topics, two labels each — the shape a run publishes when it
+   shot one screen on two platforms. The probed size gives each tile its
+   aspect; the src is the flat data-URI tile, because an island loads nothing. */
+const SESSION_RESULTS_FIXTURE: SessionResultEntry[] = [
+  { topic: `Issue header`, label: `web`, attachmentId: `a1`, width: 1440, height: 900 },
+  { topic: `Issue header`, label: `ios`, attachmentId: `a2`, width: 390, height: 844 },
+  { topic: `Emoji picker`, label: `web`, attachmentId: `a3`, width: 1440, height: 900 },
+  { topic: `Emoji picker`, label: `android`, attachmentId: `a4`, width: 412, height: 915 },
+]
 
 /* -------------------------------------------------------------- the specs */
 
@@ -1626,7 +1660,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       },
     },
     leftovers: [
-      { file: `apps/web/src/components/mobile-work-bar.tsx`, note: `MOBILE_WORK_CIRCLE_CLASS` },
       { file: `apps/web/src/components/issue-coding-rows.tsx`, note: `FAB_CIRCLE_CLASS repeats it minus one class` },
       { file: `apps/web/src/components/team/mobile-tab-bar.tsx`, note: `FAB_CLASS spells 52px as 3.25rem` },
     ],
@@ -1747,25 +1780,86 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `composer`,
     title: `Composer`,
     kind: `Surfaces`,
-    blurb: `ONE composer for comments, steering and support replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. The steer variant carries only attach and send. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it.`,
+    blurb: `ONE composer for comments, steering and support replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. EXP-877's \`inline\` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. EXP-961 moved it into @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.`,
     status: {
-      web: ok(`Composer`, `apps/web/src/components/composer.tsx`),
+      web: ok(`Composer / ComposerTool / ComposerSubmit`, `packages/ui/src/composer.tsx`),
       desktop: ok(`composer::glass_composer`, `apps/desktop/crates/ui/src/composer.rs`),
       ios: ok(`GlassComposer`, `apps/ios/ExpUI/Sources/GlassComposer.swift`),
       android: ok(`GlassComposer`, `${ANDROID_COMPONENTS}/GlassComposer.kt`),
     },
-    render: () =>
-      [
-        `<div class="cmp-stack">`,
-        composer({
-          placeholder: `Leave a comment`,
-          attachment: `screenshot.png`,
-          tools: [svgImage, svgPaperclip, svgHash, svgSmile],
-        }),
-        composer({ placeholder: `Steer the run`, tools: [svgPlus], submit: svgSend }),
-        composer({ placeholder: `Reply`, tools: [svgPaperclip], opaque: true }),
-        `</div>`,
-      ].join(``),
+    island: () => (
+      <div className="grid gap-3">
+        {/* The comment card: the pending strip, the mention field undressed to
+            the card's chrome, four tools and the round send. */}
+        <Composer
+          strip={
+            <div className="flex flex-wrap items-center gap-2 px-2 pt-2">
+              <AttachmentThumb
+                src={THUMB_FIXTURE_SRC}
+                removeLabel="Remove image"
+                onRemove={noop}
+              />
+            </div>
+          }
+          tools={
+            <>
+              <ComposerTool aria-label="Add image" title="Add image">
+                <EditorImageGlyph />
+              </ComposerTool>
+              <ComposerTool aria-label="Attach files" title="Attach files">
+                <AttachGlyph />
+              </ComposerTool>
+              <ComposerTool aria-label="Insert issue reference" title="Insert issue reference">
+                <IssueRefGlyph />
+              </ComposerTool>
+              <ComposerTool aria-label="Insert emoji" title="Insert emoji">
+                <EmojiGlyph />
+              </ComposerTool>
+            </>
+          }
+          submit={<ComposerSubmit aria-label="Send comment" />}
+        >
+          <Textarea
+            rows={2}
+            placeholder="Leave a comment"
+            className="min-h-16 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
+          />
+        </Composer>
+        {/* EXP-877: the steer card — one row, the send glyph bottom-aligned
+            beside the field so it stays put while the field grows. */}
+        <Composer
+          inline
+          tools={
+            <ComposerTool aria-label="Attach files" title="Attach files">
+              <PlusGlyph />
+            </ComposerTool>
+          }
+          submit={<ComposerSubmit />}
+        >
+          <Textarea
+            rows={1}
+            placeholder="Steer the run"
+            className="max-h-32 min-h-9 w-full border-none bg-transparent px-3 py-2 shadow-none focus-visible:border-transparent"
+          />
+        </Composer>
+        {/* The reply arm floats over a feed, so the fill is opaque. */}
+        <Composer
+          opaque
+          tools={
+            <ComposerTool aria-label="Attach files" title="Attach files">
+              <AttachGlyph />
+            </ComposerTool>
+          }
+          submit={<ComposerSubmit />}
+        >
+          <Textarea
+            rows={1}
+            placeholder="Reply"
+            className="min-h-9 border-none bg-transparent text-sm shadow-none focus-visible:border-transparent dark:bg-transparent"
+          />
+        </Composer>
+      </div>
+    ),
   },
   {
     id: `markdown`,
@@ -2425,7 +2519,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `empty-state`,
     title: `Empty state`,
     kind: `Feedback`,
-    blurb: `What a list says when it has nothing: the 48px icon disc, one semibold title, one muted sentence that TEACHES the next step rather than restating the emptiness, and an optional actions slot under it — all on a centred column of at most 28rem. Never a bare "No results".`,
+    blurb: `What a PAGE says when it has nothing: the 48px icon disc, one semibold title, one muted sentence that TEACHES the next step rather than restating the emptiness, and an optional actions slot under it — all on a centred column of at most 28rem. Never a bare "No results". Its in-list sibling is \`ListEmpty\` (same file, its own entry below): one muted line inside a list that filtered down to nothing, where a teaching block would be wrong.`,
     status: {
       web: ok(`EmptyState`, `packages/ui/src/empty-state.tsx`),
       desktop: ok(`controls::empty_state`, DESKTOP_CONTROLS),
@@ -2910,6 +3004,599 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             Could not load teams. Check the connection and try again.
           </AlertDescription>
         </Alert>
+      </div>
+    ),
+  },
+  {
+    id: `password-input`,
+    title: `Password input`,
+    kind: `Inputs & pickers`,
+    blurb: `The auth pages' masked field: the stock Input with a ghost eye hung inside its right gutter, which flips the type between \`password\` and \`text\`. It is the one field a typo cannot be proof-read in, so the reveal is not optional chrome. The eye pair stays a RAW lucide import on purpose — no native client draws it and the shared registry has no eye-off concept to name. EXP-961 moved it into @exp/ui with the rest of the auth surface.`,
+    status: {
+      web: ok(`PasswordInput`, `packages/ui/src/password-input.tsx`),
+      desktop: ok(
+        `glass_input(…).mask_toggle()`,
+        `apps/desktop/crates/ui/src/login.rs`,
+        `the only other client with the reveal: render_email_step wires mask_toggle onto the shared field`
+      ),
+      ios: leftover(
+        `GlassTextField(isSecure: true)`,
+        `apps/ios/ExpUI/Sources/GlassControls.swift`,
+        `a bare SecureField arm — no reveal, so a mistyped password can only be fixed by clearing the field`
+      ),
+      android: leftover(
+        `GlassTextField(visualTransformation = …)`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/components/GlassTextField.kt`,
+        `LoginScreen passes PasswordVisualTransformation() inline and draws no trailing eye`
+      ),
+    },
+    island: () => (
+      <div className="grid max-w-sm gap-3">
+        <Label htmlFor="demo-password">Password</Label>
+        <PasswordInput id="demo-password" defaultValue="hunter2hunter2" />
+      </div>
+    ),
+  },
+  {
+    id: `auth-shell`,
+    title: `Auth form shell`,
+    kind: `Surfaces`,
+    blurb: `The frame every signed-out page wears: the logo and wordmark centred above a card, a centred title and one line of description inside it, the flow's own fields, then a footer line under them and the Privacy · Terms pair below the card. Login, signup, the OTP step, the invite page, the device-code page and the MCP consent screen all open in it, which is why the column is capped at 24rem — a sign-in form that spans a desktop viewport reads as a settings page.`,
+    status: {
+      web: ok(`AuthFormShell`, `packages/ui/src/auth-form-shell.tsx`),
+      desktop: ok(
+        `LoginView::render`,
+        `apps/desktop/crates/ui/src/login.rs`,
+        `the brand block + glass_card at l.1151 mirror this shell; it is inlined in the screen, not a symbol of its own`
+      ),
+      ios: leftover(
+        `LoginView`,
+        `apps/ios/Exponential/UI/Auth/LoginView.swift`,
+        `a plain ScrollView/VStack: no shared shell, so each auth flow re-states its own header and footer`
+      ),
+      android: leftover(
+        `LoginScreen`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/auth/LoginScreen.kt`,
+        `same — the card, the brand row and the legal line are built inline in the screen`
+      ),
+    },
+    island: () => (
+      <AuthFormShell
+        title="Welcome back"
+        description="Sign in to continue to Exponential"
+        footer={
+          <p className="pt-4 text-center text-sm text-muted-foreground">
+            No account yet? <span className="text-foreground underline">Create one</span>
+          </p>
+        }
+      >
+        <div className="grid gap-3">
+          <Label htmlFor="demo-auth-email">Email</Label>
+          <Input id="demo-auth-email" defaultValue="mina@example.com" />
+        </div>
+      </AuthFormShell>
+    ),
+  },
+  {
+    id: `logo`,
+    title: `Logo mark`,
+    kind: `Icons`,
+    blurb: `The product's own mark — a disc with three swept curves cut OUT of it, never a glyph from the registry (the icon set is Lucide, and this is not something we may restyle). Two variants: \`dark\` paints the fixed brand ink for a light ground, \`light\` takes \`currentColor\` so it inherits whatever it sits in. Every client keeps its own copy of the geometry, so the entry names all four.`,
+    status: {
+      web: ok(`ExponentialLogo`, `packages/ui/src/exponential-logo.tsx`),
+      desktop: ok(
+        `ExpIcon::Logo`,
+        `apps/desktop/assets/icons/logo.svg`,
+        `the variant is generated by icon_named! off the assets dir; logo-white.svg is the inverted arm`
+      ),
+      ios: ok(
+        `ExpLogoMark`,
+        `apps/ios/Exponential/UI/Components/ExpLogoMark.swift`,
+        `drawn with a SwiftUI Canvas rather than an asset, so it scales with Dynamic Type`
+      ),
+      android: leftover(
+        `ExponentialMark`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/components/BrandMark.kt`,
+        `paints the splash drawable and scales the box around it: one size, no light/dark variant`
+      ),
+    },
+    island: () => (
+      <div className="flex items-center gap-6">
+        <span className="flex size-12 items-center justify-center rounded-lg bg-white">
+          <ExponentialLogo variant="dark" size={32} />
+        </span>
+        <ExponentialLogo variant="light" size={32} />
+        <span className="flex items-center gap-2">
+          <ExponentialLogo variant="light" size={20} />
+          <span className="text-xl font-semibold">Exponential</span>
+        </span>
+      </div>
+    ),
+  },
+  {
+    id: `brand-marks`,
+    title: `Brand marks`,
+    kind: `Icons`,
+    blurb: `The agents' own marks, deliberately OUTSIDE the Lucide registry: a brand mark is not a glyph we may recolour or swap, so it never resolves through \`conceptIcon\`. Claude keeps its real path in its own orange (\`CLAUDE_FILL\`) on all four clients; Codex is the CLI's own mark; the OpenAI and Cursor marks are simplified silhouettes for the MCP setup tabs, which only need recognisability beside a name. \`AgentBrandMark\` is the resolver every run surface uses — and an agent this build ships no mark for falls back to the neutral \`settings-agents\` concept rather than wearing claude's, the same rule on all four.`,
+    status: {
+      web: ok(
+        `ClaudeIcon / CodexIcon / AgentBrandMark`,
+        `packages/ui/src/brand-icons.tsx`,
+        `the resolver is agent-brand-mark.tsx; the picker's AgentMark shares these paths`
+      ),
+      desktop: ok(
+        `coding_selects::agent_mark`,
+        `apps/desktop/assets/icons/claude.svg`,
+        `ExpIcon::Claude / ExpIcon::Codex off the bundled brand SVGs; codex.svg is the pair`
+      ),
+      ios: ok(
+        `AgentBrandMark.image(_:)`,
+        `apps/ios/Exponential/UI/Session/AgentBrandMark.swift`,
+        `resolves Assets.xcassets/agent-<id>; an id outside contract.codingAgent gets the neutral glyph`
+      ),
+      android: ok(
+        `agentIconPainter / agentIconTint`,
+        `${ANDROID_COMPONENTS}/SheetOptionRows.kt`,
+        `drawable/ic_agent_claude.xml keeps its own orange (tint Unspecified); every other mark takes content colour`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-4">
+        <div className="flex items-center gap-4">
+          <ClaudeIcon className="size-6" />
+          <CodexIcon className="size-6" />
+          <OpenAiIcon className="size-6" />
+          <CursorIcon className="size-6" />
+        </div>
+        <div className="flex items-center gap-4 text-muted-foreground">
+          <AgentBrandMark agent="claude" className="size-4" />
+          <AgentBrandMark agent="codex" className="size-4" />
+          <AgentBrandMark agent="some-acp-binary" className="size-4" />
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: `board-glyph`,
+    title: `Board glyph`,
+    kind: `Buttons & chips`,
+    blurb: `EXP-449: a board is ALWAYS its curated icon tinted with its own colour — the anonymous colour dot is gone from every picker, breadcrumb, caption and switcher. The icon name is a Lucide name straight out of the shared registry (EXP-273), so all four clients resolve the same art; a board with none falls back on its shape, the code glyph for a repo-backed board and the kanban grid for the rest.`,
+    status: {
+      web: ok(`BoardGlyph`, `packages/ui/src/board-glyph.tsx`, `getBoardIcon in board-icons.ts is the name resolver`),
+      desktop: ok(
+        `icons::board_glyph`,
+        `apps/desktop/crates/ui/src/icons.rs`,
+        `board_icon is the glyph; the tint is applied at the call site (sidebar::rail_board_icon)`
+      ),
+      ios: leftover(
+        `BoardTypeDisplay.iconName(for:)`,
+        `apps/ios/ExpUI/Sources/BoardIconDisplay.swift`,
+        `name resolution only: every call site applies its own .foregroundStyle(Color(hex:)), so the tint is copy-pasted`
+      ),
+      android: ok(`BoardIcon`, `${ANDROID_COMPONENTS}/BoardIconUi.kt`),
+    },
+    island: () => (
+      <div className="flex items-center gap-4">
+        <BoardGlyph board={{ icon: `rocket`, color: `#f97316` }} className="size-5" />
+        <BoardGlyph board={{ icon: `bug`, color: `#ef4444` }} className="size-5" />
+        <BoardGlyph board={{ icon: `megaphone`, color: `#3b82f6` }} className="size-5" />
+        {/* No stored icon: a repo-backed board reads as the code glyph. */}
+        <BoardGlyph board={{ repositoryId: `repo-1`, color: `#a855f7` }} className="size-5" />
+      </div>
+    ),
+  },
+  {
+    id: `issue-group-band`,
+    title: `Issue group band`,
+    kind: `Lists & rows`,
+    blurb: `EXP-862: ONE group header for every issue list — the board's big list and the sidebar's narrow ones. A fold chevron, the status glyph, the name, the group's FULL size (not the windowed row count), and the group's own trailing action outside the fold button, because a button inside a button is invalid markup. Two densities: \`list\` is the board page's sticky edge-to-edge band, whose backdrop blur is load-bearing (rows scroll under a translucent tint), \`compact\` the 17rem sidebar's rounded strip. The status is passed IN as a resolved glyph and the tint as a resolved wash, so the component never learns the team's status rows.`,
+    status: {
+      web: ok(
+        `IssueGroupBand`,
+        `packages/ui/src/issue-group-band.tsx`,
+        `components/issue-group-header.tsx is the binding that resolves the glyph and the wash`
+      ),
+      desktop: ok(
+        `IssueListView::render_group_header`,
+        `apps/desktop/crates/ui/src/issue_list.rs`,
+        `render_board_nav / render_my_issues_nav take the same band at the narrow column's density`
+      ),
+      ios: leftover(
+        `IssueListView.statusHeader`,
+        `apps/ios/Exponential/UI/Issue/IssueListView.swift`,
+        `private per screen; MyIssuesView.statusHeader is a second copy and does not fold at all`
+      ),
+      android: leftover(
+        `GroupHeader`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/myissues/MyIssuesScreen.kt`,
+        `private; the board list draws its own StatusHeader in ui/issue/IssueListScreen.kt`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-4">
+        <div>
+          <IssueGroupBand
+            glyph={BACKLOG_GLYPH}
+            name="Backlog"
+            count={24}
+            open
+            onToggle={noop}
+            wash={{ className: `bg-muted-foreground/10` }}
+            trailing={
+              <Button variant="ghost" size="icon-sm" aria-label="New issue">
+                <PlusGlyph />
+              </Button>
+            }
+          />
+          <ListRow interactive>
+            <span className="min-w-0 flex-1 truncate">APP-14 · Fix the merge queue</span>
+          </ListRow>
+          <ListRow interactive>
+            <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
+          </ListRow>
+        </div>
+        {/* The sidebar's rung, folded, over a CUSTOM row's own hex wash. */}
+        <IssueGroupBand
+          density="compact"
+          glyph={{ icon: `circle`, colorHex: `#a855f7` }}
+          name="Waiting on design"
+          count={3}
+          open={false}
+          onToggle={noop}
+          wash={{ style: { backgroundColor: `#a855f71a` } }}
+        />
+      </div>
+    ),
+  },
+  {
+    id: `work-bar`,
+    title: `Work bar`,
+    kind: `Surfaces`,
+    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · switcher) and the changes (files · Merge · switcher). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED, because the switcher owns lookups that must not re-run on every expand. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
+    status: {
+      web: ok(
+        `MobileWorkBar / MobileWorkCapsule`,
+        `packages/ui/src/mobile-work-bar.tsx`,
+        `MOBILE_WORK_CIRCLE_CLASS composes FAB_CHROME_CLASS; the clearance constant is the faces' scroll padding`
+      ),
+      desktop: na(`no floating phone bar: the IDE's bottom edge is the terminal session bar`),
+      ios: ok(
+        `FloatingBottomBar / FloatingBarCircle / FloatingBarCapsule`,
+        `apps/ios/ExpUI/Sources/FloatingBottomBar.swift`,
+        `FloatingBarCluster is the Reviews layout, where the slots hug their content`
+      ),
+      android: ok(
+        `FloatingBottomBar / BarCircle / BarCapsule`,
+        `${ANDROID_COMPONENTS}/FloatingBottomBar.kt`,
+        `the reference geometry the other three phones are locked to (EXP-916)`
+      ),
+    },
+    island: () => (
+      <div className="flex items-end gap-2.5">
+        <span className={MOBILE_WORK_CIRCLE_CLASS}>
+          <PropertiesGlyph className="size-5" />
+        </span>
+        <MobileWorkCapsule>
+          <CommentGlyph className="size-5 shrink-0" />
+          <span className="min-w-0 truncate">Comment</span>
+        </MobileWorkCapsule>
+        <span className={MOBILE_WORK_CIRCLE_CLASS}>
+          <WorkFacesGlyph className="size-5" />
+        </span>
+      </div>
+    ),
+    leftovers: [
+      {
+        file: `apps/web/src/components/issue-changes-face.tsx`,
+        note: `the Merge capsule wears MOBILE_WORK_CAPSULE_CLASS on a SessionMergePill instead of MobileWorkCapsule`,
+      },
+      {
+        file: `apps/web/src/routes/t/$teamSlug/reviews/$issueIdentifier.tsx`,
+        note: `the Reviews bar builds its Close PR slot as a raw button on MOBILE_WORK_CIRCLE_CLASS`,
+      },
+    ],
+  },
+  {
+    id: `work-header`,
+    title: `Work header`,
+    kind: `Surfaces`,
+    blurb: `EXP-877: the ONE header the issue route and the session route share, so the title never moves when the face flips between an issue and its run. Row 1 is the title — an editable field for an issue, static text at exactly the field's padding and weight for a run — with the right cluster top-aligned on the SAME line; row 2 is the properties tray, absent on issue-less runs. It is sticky at the top of the view's own scroller and rides the 896px reading column every other face uses (body, transcript, diff). The band repaints the panel's own ground under the window scrim, or it reads as a black bar over the card.`,
+    status: {
+      web: ok(
+        `WorkHeader`,
+        `packages/ui/src/work-header.tsx`,
+        `WORK_COLUMN_CLASS, RUN_TITLE_CLASS and DETAIL_STICKY_BAND_CLASS ship with it`
+      ),
+      desktop: ok(
+        `work_header::render_work_header`,
+        `apps/desktop/crates/ui/src/work_header.rs`,
+        `WORK_COLUMN_W is the same 896; header_action_size picks the pill rung by PLACEMENT`
+      ),
+      ios: leftover(
+        `WorkTitle`,
+        `apps/ios/Exponential/UI/Work/WorkTitle.swift`,
+        `the header is the system nav bar's .toolbar in WorkScreen.swift — no sticky band and no tray row`
+      ),
+      android: leftover(
+        `WorkTopBar`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/WorkTopBar.kt`,
+        `an M3 TopAppBar: the trailing verbs match, but there is no properties tray under it`
+      ),
+    },
+    island: () => (
+      <WorkHeader
+        title={<h1 className={RUN_TITLE_CLASS}>Fix the merge queue</h1>}
+        trailing={
+          <Button variant="ghost" size="icon-sm" aria-label="More">
+            <MoreGlyph />
+          </Button>
+        }
+        tray={
+          <div className={`flex flex-wrap items-center gap-2 px-5 pt-1 ${WORK_COLUMN_CLASS}`}>
+            <Pill mode="select" leading={<StatusGlyph {...BACKLOG_GLYPH} className="size-3.5" />}>
+              Backlog
+            </Pill>
+            <Pill mode="select" leading={<MergeGlyph className="size-3.5" />}>
+              exp/APP-14
+            </Pill>
+          </div>
+        }
+      />
+    ),
+  },
+  {
+    id: `changes-file-sheet`,
+    title: `Changed files sheet`,
+    kind: `Buttons & chips`,
+    blurb: `EXP-895: the phone's file list. A 64-wide column beside a diff leaves neither readable, so below md the Changes face's aside is gone and the tree lives in a bottom sheet hung off the work bar's LEADING slot. The trigger is the bar's own 52px circle carrying the files glyph over the COUNT, which is the whole affordance — a reader has to know how many files a PR touches before deciding to open it. A pick closes the sheet and reports the path; the card list scrolls to it. The sheet is a closed Radix portal at rest, so the specimen is the trigger.`,
+    status: {
+      web: ok(
+        `ChangesFileSheet`,
+        `packages/ui/src/changes-file-sheet.tsx`,
+        `the sheet holds the same FileDiffTree the md+ column does; the title is contract.diffUi.changedFilesTitle`
+      ),
+      desktop: na(
+        `no sheet: the IDE has room for the column, so the file tree is the ReviewFilesNav panel (review_files_nav.rs)`
+      ),
+      ios: ok(
+        `DiffFileListSheet`,
+        `apps/ios/Exponential/UI/Issue/DiffFileListSheet.swift`,
+        `DiffFilesBarCircle in the same file is the bar trigger`
+      ),
+      android: ok(
+        `DiffFileListSheet`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/issue/DiffFileListSheet.kt`,
+        `FileListCircle is the reference the web trigger copies (18px glyph over the count)`
+      ),
+    },
+    island: () => <ChangesFileSheet files={TREE_FILES} onSelect={noop} />,
+  },
+  {
+    id: `pr-github-button`,
+    title: `Open on GitHub`,
+    kind: `Buttons & chips`,
+    blurb: `EXP-916: THE GitHub control of every diff surface — the PR page in a new tab — as one component in three shapes, so the words (the contract's) and the behaviour are written once. \`ghost\` is the work header's action slot beside Merge; \`circle\` is a phone work-bar slot, for a run with no issue header to hang it on, and takes its chrome whole from the bar's circle recipe; \`glass\` is the Reviews header's action row beside Close PR and Merge PR. Each shape keeps the \`data-testid\` its surface had before they were merged.`,
+    status: {
+      web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
+      desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
+      ios: leftover(
+        `PrChangesFace.githubToolbarButton`,
+        `apps/ios/Exponential/UI/Issue/PrChangesFace.swift`,
+        `private; WorkScreen.swift holds a second inline copy under the same accessibility id`
+      ),
+      android: ok(
+        `GithubHeaderAction`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/WorkTopBar.kt`,
+        `the header arm only — the bar circle has no Android twin`
+      ),
+    },
+    island: () => (
+      <div className="flex items-end gap-3">
+        <PrGithubButton prUrl="https://github.com/niach/exponential/pull/961" />
+        <PrGithubButton
+          prUrl="https://github.com/niach/exponential/pull/961"
+          variant="circle"
+        />
+        <PrGithubButton
+          prUrl="https://github.com/niach/exponential/pull/961"
+          variant="glass"
+        />
+      </div>
+    ),
+  },
+  {
+    id: `context-ring`,
+    title: `Context ring`,
+    kind: `Feedback`,
+    blurb: `EXP-877: how full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone is the session's, not the ring's: the app maps its own thresholds onto normal / warning / danger and passes one in. A run nothing has measured renders NOTHING unless \`showEmpty\` says the run has other usage worth opening.`,
+    status: {
+      web: ok(
+        `ContextRing`,
+        `packages/ui/src/context-ring.tsx`,
+        `ringGeometry + RING_TONE_CLASS ship with it; the app's lib/context-ring.ts derives percent and tone`
+      ),
+      desktop: ok(
+        `usage_sheet::context_ring`,
+        `apps/desktop/crates/ui/src/usage_sheet.rs`,
+        `mounted by steer_viewer::render_context_ring; the percentage comes from usage_bar::context_percent`
+      ),
+      ios: ok(`ContextRing`, `apps/ios/ExpUI/Sources/ContextRing.swift`),
+      android: ok(`ContextRing`, `${ANDROID_COMPONENTS}/ContextRing.kt`),
+    },
+    island: () => (
+      <div className="flex items-center gap-3">
+        <ContextRing percent={null} showEmpty />
+        <ContextRing percent={30} />
+        <ContextRing percent={80} tone="warning" />
+        <ContextRing percent={97} tone="danger" />
+      </div>
+    ),
+  },
+  {
+    id: `agent-picker`,
+    title: `Agent picker`,
+    kind: `Inputs & pickers`,
+    blurb: `EXP-862: ONE agent picker per platform, so the trigger can never drift into a per-surface copy again — the composer's options row, the device settings' "Default agent" row and the launch pane all render this. The trigger is ICON-ONLY: the brand mark plus a chevron, with the name in the menu rows and in the tooltip, which doubles as its accessible name. \`AgentPickerTabs\` is the same picker as a segmented STRIP, for the launch pane where the agents sit side by side rather than behind a chevron. The menu is a portal, so the specimen is the closed trigger at both rungs.`,
+    status: {
+      web: ok(
+        `AgentPicker / AgentPickerTabs`,
+        `packages/ui/src/agent-picker.tsx`,
+        `AgentMenuItems is exported on its own for a row's "…" menu; agentLabel names an id this build does not ship`
+      ),
+      desktop: ok(
+        `coding_selects::agent_picker`,
+        `apps/desktop/crates/ui/src/coding_selects.rs`,
+        `agent_menu_items is the shared row set, exactly like the web arm`
+      ),
+      ios: ok(
+        `AgentPickerMenu`,
+        `apps/ios/ExpUI/Sources/GlassMenu.swift`,
+        `AgentOptionsRow (UI/Agent/AgentOptionsRow.swift) is the composer's host`
+      ),
+      android: ok(
+        `AgentPickerPill`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt`,
+        `AgentMenuItems in the same file is the shared row set`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-4">
+        <div className="flex items-center gap-4">
+          <AgentPicker value="claude" onChange={noop} agents={[`claude`, `codex`]} />
+          <AgentPicker
+            size="sm"
+            value="codex"
+            onChange={noop}
+            agents={[`claude`, `codex`]}
+          />
+        </div>
+        <AgentPickerTabs value="claude" onChange={noop} agents={[`claude`, `codex`]} />
+      </div>
+    ),
+  },
+  {
+    id: `lightbox`,
+    title: `Media lightbox`,
+    kind: `Surfaces`,
+    blurb: `EXP-316/EXP-824: the shared viewer a picture, a clip or an audio attachment opens in — the description editor's image node, the storage table's filename, a results tile. The dialog is borderless and HUGS its media instead of spanning the viewport, and it is the one dialog that stays a full-screen page below sm rather than dropping to a sheet: a lightbox wants the whole screen. The video arm mounts only while open, so autoplay fires on every open and the stream stops the moment it unmounts. The dialog is a portal, so the island is its BODY (\`PreviewMedia\`) — the same switch, without the frame.`,
+    status: {
+      web: ok(
+        `ImagePreviewDialog / PreviewMedia`,
+        `packages/ui/src/image-preview-dialog.tsx`,
+        `PreviewMedia is the non-portal body, split out so a static host can render the specimen`
+      ),
+      desktop: ok(
+        `image_preview::open_image_preview`,
+        `apps/desktop/crates/ui/src/image_preview.rs`,
+        `EXP-284: a real OS window sized to the probed aspect; open_media_preview is the clip arm`
+      ),
+      ios: leftover(
+        `.quickLookPreview($previewURL)`,
+        `apps/ios/Exponential/UI/Components/AttachmentStrips.swift`,
+        `the system QuickLook sheet, not our chrome: no shared component and no in-app audio caption`
+      ),
+      android: leftover(
+        `ResultPreviewDialog`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/ResultsFace.kt`,
+        `private and results-only; an issue attachment hands off to another app (ui/issue/AttachmentOpen.kt)`
+      ),
+    },
+    island: () => (
+      <div className="w-fit rounded-lg border border-glass-stroke-card bg-glass-card-opaque p-2">
+        <PreviewMedia src={THUMB_FIXTURE_SRC} alt="Merge queue" label="merge-queue.png" />
+      </div>
+    ),
+  },
+  {
+    id: `session-results`,
+    title: `Session results`,
+    kind: `Lists & rows`,
+    blurb: `EXP-879: the screenshots a run published with \`exponential_sessions_results\`, read off the synced jsonb. One group band per topic over a wrapping strip of tiles, so an iOS, an Android and a web shot of ONE screen read as one row — which only works because every tile is the same height and takes its width from the probed aspect (a 4:3 desktop frame stands in when the upload could not be measured). On a narrow column the whole page scales down by ONE factor, the widest tile's overflow, rather than letting a row clip or each row pick its own size. Tapping a tile opens the shared lightbox. The tile URL is passed in: this package owns the tiles, the app owns the route.`,
+    status: {
+      web: ok(
+        `SessionResultsView`,
+        `packages/ui/src/session-results-view.tsx`,
+        `the pure rules (grouping, tile width, the fitting factor) are session-results.ts, mirrored byte for byte ×4`
+      ),
+      desktop: ok(`session_results::render`, `apps/desktop/crates/ui/src/session_results.rs`),
+      ios: ok(`SessionResultsFace`, `apps/ios/Exponential/UI/Work/SessionResultsFace.swift`),
+      android: ok(
+        `ResultsFace`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/ResultsFace.kt`,
+        `ResultTile + ResultPreviewDialog sit in the same file`
+      ),
+    },
+    island: () => (
+      <SessionResultsView
+        results={SESSION_RESULTS_FIXTURE}
+        attachmentSrc={() => THUMB_FIXTURE_SRC}
+      />
+    ),
+  },
+  {
+    id: `emoji-picker`,
+    title: `Emoji picker`,
+    kind: `Inputs & pickers`,
+    blurb: `EXP-551: the picker the description toolbar and the comment composer share — a search field, a Recent row, then the dataset's groups. A pick hands the caller the UNICODE to insert, never a \`:shortcode:\`, and always the BASE record (EXP-600 dropped the skin-tone row on every client). The 36px cell IS the ghost icon button stretched across its grid column: only the colour-emoji face and the glyph size are the picker's own. The DATA is passed in — the app lazy-loads the generated dataset and keeps the per-device recents — and the ranked search is the shared rule the three natives mirror by hand. Category headers are the one surface that stays uppercase.`,
+    status: {
+      web: ok(
+        `EmojiPicker / EmojiPickerPopover`,
+        `packages/ui/src/emoji-picker.tsx`,
+        HEADER_EXCEPTION
+      ),
+      desktop: ok(
+        `emoji_picker::EmojiPicker`,
+        `apps/desktop/crates/ui/src/emoji_picker.rs`,
+        `emoji_picker_popover is the shared trigger; the grid is 8 cells wide, the popover's width driver`
+      ),
+      ios: ok(
+        `EmojiPickerSheet`,
+        `apps/ios/Exponential/UI/Markdown/EmojiPickerSheet.swift`,
+        `the index and recents live in ExpUI/Sources/EmojiCatalog.swift`
+      ),
+      android: ok(
+        `EmojiPickerSheet`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/emoji/EmojiPickerSheet.kt`,
+        `rememberEmojiData / rememberEmojiPrefs are its dataset and recents halves`
+      ),
+    },
+    island: () => (
+      <div className="w-[21rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-popover">
+        <EmojiPicker
+          data={indexEmojiData(EMOJI_FIXTURE)}
+          recent={[`\u{1F389}`, `\u{1F436}`]}
+          onPick={noop}
+          autoFocusSearch={false}
+        />
+      </div>
+    ),
+  },
+  {
+    id: `list-empty`,
+    title: `In-list empty line`,
+    kind: `Feedback`,
+    blurb: `The compact sibling of the empty state: one muted centred line INSIDE a list that filtered down to nothing, exactly the line \`CommandEmpty\` draws, for the lists that have no Command around them. It is deliberately not the teaching block — a search that matched nothing needs a different QUERY, not a next step, and a 48px icon disc under a search field reads as a page having gone wrong.`,
+    status: {
+      web: ok(`ListEmpty`, `packages/ui/src/empty-state.tsx`, `EmptyState in the same file is the page-sized one`),
+      desktop: ok(
+        `pickers::empty_picker_row`,
+        `apps/desktop/crates/ui/src/pickers.rs`,
+        `the CommandEmpty row every picker shares; controls::empty_state is the page-sized counterpart`
+      ),
+      ios: leftover(
+        `Text("No emoji found")`,
+        `apps/ios/Exponential/UI/Markdown/EmojiPickerSheet.swift`,
+        `every list inlines its own Text: there is no shared line, and DeviceLogins.emptyLine is a private third copy`
+      ),
+      android: leftover(
+        `ChangesEmptyRow`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/work/ChangesFace.kt`,
+        `private to one face; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized`
+      ),
+    },
+    island: () => (
+      <div className="w-72 overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
+        <ListEmpty>No emoji found</ListEmpty>
       </div>
     ),
   },
