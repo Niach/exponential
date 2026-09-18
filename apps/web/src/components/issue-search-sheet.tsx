@@ -258,7 +258,13 @@ export function IssueSearchSheet({
               className="rounded-full text-base"
             />
           </div>
-          {list(undefined, false)}
+          {/* The rows are the page's own flat list (the pre-EXP-958 form):
+              full width, a hairline between rows, no card and no highlight
+              box — a touch list has no keyboard cursor to show. */}
+          {list(
+            `**:data-[slot=command-group]:p-0 **:data-[slot=command-item]:rounded-none **:data-[slot=command-item]:border-b **:data-[slot=command-item]:border-border/30 **:data-[slot=command-item]:px-4 **:data-[slot=command-item]:py-3 **:data-[slot=command-item]:data-[selected=true]:bg-transparent **:data-[slot=command-item]:active:bg-accent/70`,
+            false
+          )}
         </SheetContent>
       </Sheet>
     )
