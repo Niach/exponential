@@ -354,8 +354,10 @@ body.actual figure.shot img { max-height: none; max-width: none; }
 }
 /* The icon registry is a TABLE of 228 rows, not a control specimen: it gets
    the full reading column instead of the phone-width canvas every other demo
-   is measured against. */
+   is measured against. The combobox shows its single and multi lists SIDE BY
+   SIDE, which is the whole point of that entry, and needs two 14rem columns. */
 .view.component[data-view="tokens-icons"] .cmp-demo { width: min(100%, 880px); }
+.view.component[data-view="combobox"] .cmp-demo { width: min(100%, 620px); }
 .cmp-status { margin-top: 22px; border-collapse: collapse; font-size: 12px; }
 .cmp-status th {
   width: 64px;

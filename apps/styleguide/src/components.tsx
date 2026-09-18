@@ -41,14 +41,22 @@ import { designTokens } from "@exp/design-tokens"
 // (`conceptIcon`) but not the table, and this entry documents the table; the
 // package rides in with `@exp/ui`, which owns the generated file shown here.
 import { SEMANTIC_ICONS } from "@exp/icons"
+import { contract } from "@exp/domain-contract"
 import { parseDiff } from "@exp/domain-contract/diff"
 import { editCard } from "@exp/domain-contract/edit-card"
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
   AttachmentThumb,
   Button,
+  Calendar,
   Checkbox,
+  Combobox,
+  ComboboxList,
   ColorPicker,
   ColorSwatchGrid,
+  DatePicker,
   EditedFilesCard,
   FAB_CHROME_CLASS,
   FileDiffCard,
@@ -74,6 +82,8 @@ import {
   Meter,
   Pill,
   RichTab,
+  SearchField,
+  SegmentedControl,
   Select,
   SelectTrigger,
   SelectValue,
@@ -81,13 +91,14 @@ import {
   Skeleton,
   StatusGlyph,
   Switch,
-  Tabs,
-  TabsList,
   TabsTrigger,
   TeamAvatar,
   Textarea,
+  TypeaheadMenu,
+  TypeaheadRow,
   UserAvatar,
   conceptIcon,
+  type PickerOption,
   type StatusGlyphProps,
 } from "@exp/ui"
 
@@ -285,11 +296,33 @@ const PlayGlyph = conceptIcon(`action-run`)
 const MoreGlyph = conceptIcon(`ui-more`)
 const ChevronDownGlyph = conceptIcon(`ui-chevron-down`)
 const CloseGlyph = conceptIcon(`ui-close`)
+const WarningGlyph = conceptIcon(`ui-warning`)
 const ShellGlyph = conceptIcon(`session-shell`)
 const MergeGlyph = conceptIcon(`pr-merged`)
 
 /* A neutral stand-in for a picked screenshot: the island loads no network
    image, so the thumb's crop and hairline read against a flat data-URI tile. */
+/* The two option shapes the app really hands a picker (EXP-941): a person,
+   whose email is the SEARCH text and not the label, and a label, whose colour
+   is a dot. `value` is the identity — two boards may share a name — so a
+   duplicate label is never a bug. */
+const ASSIGNEE_OPTIONS: PickerOption[] = [
+  { value: `mina`, label: `Mina Kay`, keywords: [`Mina Kay`, `mina@example.com`], hint: `you` },
+  { value: `jonas`, label: `Jonas Stern`, keywords: [`Jonas Stern`, `jonas@example.com`] },
+  { value: `sam`, label: `Sam Lee`, keywords: [`Sam Lee`, `sam@example.com`] },
+]
+
+const LABEL_OPTIONS: PickerOption[] = [
+  { value: `bug`, label: `bug`, dot: `#ef4444` },
+  { value: `mobile`, label: `mobile`, dot: `#3b82f6` },
+  { value: `design`, label: `design`, dot: `#a855f7` },
+  { value: `docs`, label: `docs`, dot: `#22c55e` },
+]
+
+/* Local midnight, the way `parseDateValue` reads the wire format — `new
+   Date("2026-03-08")` alone is UTC and renders the 7th west of Greenwich. */
+const DUE_DATE_FIXTURE = new Date(`2026-03-08T00:00:00`)
+
 /* The whole registry, in the generator's own order: concept id beside the
    Lucide glyph it resolves to. Read from the map rather than transcribed —
    a hand-written table is exactly the drift this entry exists to catch. */
@@ -977,21 +1010,46 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `segmented`,
     title: `Segmented control`,
     kind: `Inputs & pickers`,
-    blurb: `The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry.`,
+    blurb: `The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry — EXP-941 made that second form a prop rather than a second component, so the settings strips and the free-floating ones are one control. Eight strips wired their own Tabs + TabsList + N triggers by hand before, and drifted in padding and in whether a segment carried a glyph; the class recipe still lives in tabs.tsx, which other surfaces read directly.`,
     status: {
-      web: ok(`TabsList`, `packages/ui/src/tabs.tsx`),
+      web: ok(
+        `SegmentedControl`,
+        `packages/ui/src/segmented-control.tsx`,
+        `the SEGMENTED_* class constants stay in tabs.tsx byte-identical; this renders the strip from an option array`
+      ),
       desktop: ok(`controls::segmented`, DESKTOP_CONTROLS),
       ios: ok(`GlassSegmentedControl`, IOS_SEGMENTED),
       android: ok(`GlassSegmentedControl`, `${ANDROID_COMPONENTS}/GlassSegmentedControl.kt`),
     },
     island: () => (
-      <Tabs value="issues">
-        <TabsList>
-          <TabsTrigger value="issues">Issues</TabsTrigger>
-          <TabsTrigger value="actions">Actions</TabsTrigger>
-          <TabsTrigger value="automations">Automations</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="grid gap-4">
+        <SegmentedControl
+          value="issues"
+          onValueChange={noop}
+          options={[
+            { value: `issues`, label: `Issues` },
+            { value: `actions`, label: `Actions` },
+            { value: `automations`, label: `Automations` },
+          ]}
+        />
+        {/* `embedded` is the SAME control as a glass group's first row — see
+            embedded tabs row, which is this arm inside its group. */}
+        <GlassGroup>
+          <SegmentedControl
+            embedded
+            value="open"
+            onValueChange={noop}
+            options={[
+              { value: `open`, label: `Open` },
+              { value: `merged`, label: `Merged` },
+            ]}
+          />
+          <GlassRow interactive>
+            <span className="min-w-0 flex-1 truncate">EXP-941 · Styleguide foundation</span>
+            <Pill>in review</Pill>
+          </GlassRow>
+        </GlassGroup>
+      </div>
     ),
   },
   {
@@ -2562,6 +2620,242 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             </div>
           )
         })}
+      </div>
+    ),
+  },
+  {
+    id: `combobox`,
+    title: `Combobox`,
+    kind: `Inputs & pickers`,
+    blurb: `The ONE searchable picker. Its shell — MobilePopover over Command — was copy-pasted about twelve times, and every copy re-decided four things a reader can see: what a picked row LOOKS like, what value= carries, how wide the popover is, and what "nothing picked" is called. Selection is now fixed and matches both natives: SINGLE select marks the picked row with a trailing ui-check, MULTI marks EVERY row with the leading ui-selected / ui-unselected circle pair (iOS AgentIssuePickerSheet.swift, Android AgentIssuePickerSheet.kt) — never a checkbox, which would make web the odd client out. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null, which retires six sentinel strings. Single closes on pick, a multi stays open because a batch is several picks. The demo shows both triggers beside the bare ComboboxList, since a closed portal renders nothing.`,
+    status: {
+      web: ok(
+        `Combobox / ComboboxList`,
+        `packages/ui/src/combobox.tsx`,
+        `PickerOption (picker-option.ts) is the row shape; ComboboxList is the body without the popover`
+      ),
+      desktop: leftover(
+        `pickers::board_picker_popover`,
+        `apps/desktop/crates/ui/src/pickers.rs`,
+        `one popover per subject (board, label, due date) — not yet one generic searchable picker`
+      ),
+      ios: leftover(
+        `GlassPickerSheet`,
+        `apps/ios/ExpUI/Sources/GlassSheet.swift`,
+        `a sheet per subject over GlassSheetRow; the selection glyphs agree, the generic picker does not exist`
+      ),
+      android: leftover(
+        `GlassSheetRow`,
+        `${ANDROID_COMPONENTS}/GlassSheet.kt`,
+        `only the ROW is shared — every picker sheet re-assembles sheet + search field + rows by hand`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-[13rem]">
+            <Combobox
+              mobileTitle="Assignee"
+              triggerVariant="field"
+              options={ASSIGNEE_OPTIONS}
+              value="jonas"
+              onChange={noop}
+              noneLabel="Unassign"
+            />
+          </div>
+          <Combobox
+            mobileTitle="Labels"
+            triggerLabel="Labels"
+            multiple
+            options={LABEL_OPTIONS}
+            value={[]}
+            onChange={noop}
+          />
+        </div>
+        {/* The bare bodies. `cmdk` only hides its empty row once its client
+            effects have registered the items, so the static specimen hides it
+            the way the running list does. */}
+        <div className="flex flex-wrap items-start gap-3 [&_[cmdk-empty]]:hidden">
+          <div className="w-[14rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
+            <ComboboxList
+              options={ASSIGNEE_OPTIONS}
+              value="jonas"
+              onChange={noop}
+              noneLabel="Unassign"
+              placeholder="Search people"
+            />
+          </div>
+          <div className="w-[14rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
+            <ComboboxList
+              multiple
+              options={LABEL_OPTIONS}
+              value={[`bug`, `mobile`]}
+              onChange={noop}
+              max={3}
+              placeholder="Search labels"
+            />
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: `search-field`,
+    title: `Search field`,
+    kind: `Inputs & pickers`,
+    blurb: `The ONE "filter this list" field: the text field with the search glyph INSIDE it and a ghost clear that appears only once there is something to clear — and puts the caret back in the field, so typing continues. Eight of them existed at five heights, most a bare Input re-dressed by hand and none with either affordance, while both natives had drawn exactly this for years. Two rungs: md is the stock 36 field, sm the 28 one dense columns use — the Reviews file filter, a sidebar filter. It is an Input, not a new box: every chrome decision still comes from there.`,
+    status: {
+      web: ok(`SearchField`, `packages/ui/src/search-field.tsx`),
+      desktop: leftover(
+        `controls::glass_input`,
+        DESKTOP_CONTROLS,
+        `the generic field with .cleanable(true): a trailing clear, but no search glyph anywhere on the IDE`
+      ),
+      ios: ok(`GlassSheetSearchField`, IOS_CONTROLS),
+      android: ok(`GlassSheetSearchField`, `${ANDROID_COMPONENTS}/GlassSheet.kt`),
+    },
+    island: () => (
+      <div className="grid gap-3">
+        <SearchField value="" onValueChange={noop} placeholder="Search issues" />
+        <SearchField value="merge queue" onValueChange={noop} placeholder="Search issues" />
+        <SearchField
+          size="sm"
+          value="file-diff"
+          onValueChange={noop}
+          placeholder={contract.diffUi.filterPlaceholder}
+          aria-label={contract.diffUi.filterPlaceholder}
+        />
+      </div>
+    ),
+  },
+  {
+    id: `date-picker`,
+    title: `Date picker`,
+    kind: `Inputs & pickers`,
+    blurb: `The ONE date picker. Popover + Calendar was inlined three times — the properties panel, the editor chips, the mobile tray — and each copy converted between a Date and the wire's YYYY-MM-DD its own way, two of them through new Date(value), which the spec parses as UTC and which therefore shows the PREVIOUS day west of Greenwich. This one speaks the wire format on both sides and converts in exactly one place. A due date is a DATE, never an instant (REV2-49), so there is no time arm; the trigger is a Pill showing the short form, and Clear is a row under the grid rather than a second control beside it.`,
+    status: {
+      web: ok(
+        `DatePicker`,
+        `packages/ui/src/date-picker.tsx`,
+        `parseDateValue / formatDateLabel are the only place the wire date becomes a Date`
+      ),
+      desktop: ok(`pickers::due_date_popover`, `apps/desktop/crates/ui/src/pickers.rs`),
+      ios: ok(
+        `DueDateSheet`,
+        `apps/ios/Exponential/UI/Issue/Sheets/DueDateSheet.swift`,
+        `CreateIssueView keeps a second unfoldable form, UI/Issue/DueDatePicker.swift`
+      ),
+      android: ok(
+        `DueDateSheet`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/issue/DueDateSheet.kt`,
+        `the grid itself is IssueDatePickerDialog.kt`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <DatePicker value="2026-03-08" onChange={noop} />
+          <DatePicker value={null} onChange={noop} />
+        </div>
+        {/* The grid the trigger opens — a closed portal renders nothing. */}
+        <div className="w-fit overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
+          <Calendar
+            mode="single"
+            selected={DUE_DATE_FIXTURE}
+            defaultMonth={DUE_DATE_FIXTURE}
+          />
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: `typeahead`,
+    title: `Typeahead menu`,
+    kind: `Inputs & pickers`,
+    blurb: `The menu that follows what someone is TYPING — @ mentions, # issue refs, : emoji, / commands — as opposed to the combobox, which owns its own field. Three copies existed, each re-implementing the same active index, the same wrap and the same above/below flip, and only one of them told its host whether it had handled the key: the other two signalled it by NOT calling the host's handler, which is how a menu ends up swallowing a send shortcut. One hook owns the keys now: arrows move and wrap, a plain Enter or Tab accepts, Enter with Cmd or Ctrl is the composer's send and passes straight through untouched, Escape dismisses, and with no items nothing is handled at all.`,
+    status: {
+      web: ok(
+        `useTypeahead / TypeaheadMenu / TypeaheadRow`,
+        `packages/ui/src/typeahead.tsx`,
+        `handleKeyDown returns true when the menu ate the key; its event is typed structurally, so ProseMirror fits`
+      ),
+      desktop: leftover(
+        `markdown::autocomplete::completion_row_content`,
+        `apps/desktop/crates/ui/src/markdown/autocomplete.rs`,
+        `the ROW is shared; the menu chrome is a one-off in each of three hosts, and the slash menu is a fourth`
+      ),
+      ios: ok(
+        `EditorAutocompleteMenu`,
+        `apps/ios/Exponential/UI/Markdown/EditorAutocompleteMenu.swift`,
+        `the slash menu is separate: UI/Session/SlashCommandMenu.swift`
+      ),
+      android: ok(
+        `AutocompleteMenu`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/markdown/AutocompleteMenu.kt`,
+        `the rows are AutocompleteRows in the same file`
+      ),
+    },
+    leftovers: [
+      {
+        file: `apps/web/src/components/issue-editor/markdown-editor.tsx`,
+        note: `caret-anchored createPortal body, not yet TypeaheadMenu (EXP-959)`,
+      },
+    ],
+    island: () => (
+      // The menu is ABSOLUTE and hangs under its host, so the specimen gives
+      // it a field to hang from and reserves the room underneath.
+      <div className="relative h-56">
+        <div className="relative">
+          <Textarea rows={2} defaultValue="Ping @mi about " />
+          <TypeaheadMenu placement="below">
+            <TypeaheadRow active>
+              <UserAvatar user={{ id: `user-mk`, name: `Mina Kay` }} size={20} />
+              <span className="min-w-0 flex-1 truncate">Mina Kay</span>
+              <span className="shrink-0 text-xs text-muted-foreground">mina@example.com</span>
+            </TypeaheadRow>
+            <TypeaheadRow>
+              <IssueChip identifier="EXP-941" title="Styleguide foundation" status={BACKLOG_GLYPH} />
+            </TypeaheadRow>
+            <TypeaheadRow>
+              <span className="shrink-0 text-base">🎉</span>
+              <span className="min-w-0 flex-1 truncate">tada</span>
+            </TypeaheadRow>
+          </TypeaheadMenu>
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: `alert`,
+    title: `Alert`,
+    kind: `Feedback`,
+    blurb: `The inline banner: a message that belongs to the page it interrupts, not a toast that flies past and not a dialog that blocks. Two variants only — the neutral card fill for a notice, and the destructive tint for a failure — and the leading glyph earns its own column only when one is passed. The admin console carried two byte-identical copies of the destructive recipe before this existed.`,
+    status: {
+      web: ok(`Alert / AlertTitle / AlertDescription`, `packages/ui/src/alert.tsx`),
+      desktop: na(
+        `no shared inline alert: the banners are private one-offs, e.g. fn banner in settings/add_repository_dialog.rs`
+      ),
+      ios: na(`no boxed banner: an error renders as a red Text line on DesignTokens.Semantic.red`),
+      android: leftover(
+        `GlassNotice`,
+        `${ANDROID_COMPONENTS}/GlassNotice.kt`,
+        `the boxed inline message, but with no title slot and no destructive variant — callers pass the red themselves`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-3">
+        <Alert>
+          <WarningGlyph aria-hidden />
+          <AlertTitle>This device is offline</AlertTitle>
+          <AlertDescription>
+            Sessions started here will queue until it reconnects.
+          </AlertDescription>
+        </Alert>
+        <Alert variant="destructive">
+          <AlertDescription>
+            Could not load teams. Check the connection and try again.
+          </AlertDescription>
+        </Alert>
       </div>
     ),
   },

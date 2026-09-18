@@ -28,6 +28,8 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+import { contract } from "@exp/domain-contract"
+import { formatDateLabel } from "@exp/ui"
 import { GROUPS, VIEWS } from "@exp/view-catalog"
 import {
   ISLAND_CLIENT_SCRIPT,
@@ -742,5 +744,70 @@ describe(`leftovers (EXP-941)`, () => {
       const expected = COMPONENT_PLATFORMS.length + ((spec.leftovers ?? []).length > 0 ? 1 : 0)
       expect(`${spec.id}:${occurrences(link, `<span class="dot `)}`).toBe(`${spec.id}:${expected}`)
     }
+  })
+})
+
+describe(`the Tier A pickers (EXP-941)`, () => {
+  test(`the combobox demo shows BOTH selection languages and the none row`, () => {
+    const markup = islandBody(`combobox`)
+    // Single select marks the picked row with a trailing check…
+    expect(occurrences(markup, `data-selected-glyph="check"`)).toBe(1)
+    // …multi marks EVERY row with the leading circle pair, never a checkbox.
+    expect(occurrences(markup, `data-selected-glyph="selected"`)).toBe(2)
+    expect(occurrences(markup, `data-selected-glyph="unselected"`)).toBe(2)
+    expect(markup).not.toContain(`data-slot="checkbox"`)
+    // And "nothing picked" is a ROW that reports null, not a sentinel string.
+    expect(occurrences(markup, `data-combobox-none="true"`)).toBe(1)
+    // A closed portal renders nothing, so the demo carries the trigger AND
+    // the bare list (the icon-picker pattern).
+    expect(occurrences(markup, `data-slot="combobox-list"`)).toBe(2)
+    expect(markup).toContain(`data-slot="popover-trigger"`)
+    expect(spec(`combobox`).blurb).toContain(`ui-selected`)
+  })
+
+  test(`the search field shows the glyph always and the clear only when filled`, () => {
+    const markup = islandBody(`search-field`)
+    expect(occurrences(markup, `data-slot="search-field"`)).toBe(3)
+    // Two of the three carry a value, and only those two draw a clear.
+    expect(occurrences(markup, `data-slot="search-field-clear"`)).toBe(2)
+    expect(markup).toContain(`lucide-search`)
+    // The dense rung is the Reviews file filter, named by the contract.
+    expect(markup).toContain(contract.diffUi.filterPlaceholder)
+  })
+
+  test(`the segmented control is the component now, in both its forms`, () => {
+    const markup = islandBody(`segmented`)
+    expect(markup).toContain(`data-slot="segmented-control"`)
+    // The embedded arm is a glass group's first row, not a second component.
+    expect(markup).toContain(`data-slot="glass-tabs-row"`)
+    expect(occurrences(markup, `data-slot="tabs-trigger"`)).toBe(5)
+    const web = COMPONENTS.find((entry) => entry.id === `segmented`)?.status.web
+    expect(web?.symbol).toBe(`SegmentedControl`)
+    expect(web?.file).toBe(`packages/ui/src/segmented-control.tsx`)
+  })
+
+  test(`the date picker shows both trigger states and the grid they open`, () => {
+    const markup = islandBody(`date-picker`)
+    // `Mar 8` is formatDateLabel's own output — a literal here would be the
+    // one place the page could disagree with the component.
+    expect(markup).toContain(formatDateLabel(new Date(`2026-03-08T00:00:00`)))
+    expect(markup).toContain(`Due date`)
+    expect(occurrences(markup, `data-slot="calendar"`)).toBe(1)
+  })
+
+  test(`the typeahead demo is a menu under a field, with one active row`, () => {
+    const markup = islandBody(`typeahead`)
+    expect(occurrences(markup, `data-slot="typeahead-menu"`)).toBe(1)
+    expect(markup).toContain(`data-placement="below"`)
+    expect(occurrences(markup, `data-slot="typeahead-row"`)).toBe(3)
+    expect(occurrences(markup, `aria-selected="true"`)).toBe(1)
+  })
+
+  test(`the alert demo shows both variants, and the glyph earns its column`, () => {
+    const markup = islandBody(`alert`)
+    expect(occurrences(markup, `data-slot="alert"`)).toBe(2)
+    expect(occurrences(markup, `data-slot="alert-title"`)).toBe(1)
+    expect(occurrences(markup, `data-slot="alert-description"`)).toBe(2)
+    expect(markup).toContain(`text-destructive`)
   })
 })

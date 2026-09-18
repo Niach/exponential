@@ -135,6 +135,16 @@ card box — shown bare and again as the grouped-rows variant the call site make
 EXP-904 added **floating chrome** (`FAB_CHROME_CLASS`, the phone bar's glass paint; size and radius stay at the
 call site) and **attachment thumbnail**, the composers' 64px pending tile with its corner remove badge.
 
+EXP-941 added the picker set the app had been copy-pasting: **combobox** (the
+ONE searchable picker — its demo puts both triggers beside the two bare
+`ComboboxList`s, because a closed portal renders nothing, and the test pins the
+two selection languages: a trailing check for single, the leading circle pair
+for multi), **search field**, **date picker**, **typeahead menu** and **alert**,
+plus entries for primitives the page had never shown at all (checkbox, switch,
+select, colour picker, field label, team avatar, live dot & status glyph, empty
+state, skeleton, dialog). **Segmented control** now renders the real
+`SegmentedControl`, in both its floating and its `embedded` form.
+
 Under each control is a per-platform table naming the ONE symbol and file that
 is supposed to match it on Web / Desktop / iOS / Android, marked `ok`,
 `leftover` (it exists but still disagrees; the note says how) or `n/a` (that
