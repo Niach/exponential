@@ -2,9 +2,12 @@ import { act, fireEvent, render, renderHook, screen } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  TYPEAHEAD_MENU_WIDTH,
+  TYPEAHEAD_PORTAL_SELECTOR,
   TYPEAHEAD_ROW_CLASS,
   TypeaheadMenu,
   TypeaheadRow,
+  placeTypeaheadMenu,
   useTypeahead,
 } from "./typeahead"
 
@@ -168,6 +171,130 @@ describe(`TypeaheadMenu`, () => {
       `[data-slot=typeahead-menu]`
     )!
     expect(menu.style.maxHeight).toBe(`240px`)
+  })
+})
+
+// EXP-959: the editor's arm. The caret rect goes in; the menu comes out
+// fixed, flipped when it must, and outside the host's subtree.
+
+const VIEWPORT = { top: 0, height: 800, width: 1200, innerHeight: 800 }
+const caret = (top: number, left = 100) => ({ top, bottom: top + 20, left })
+
+describe(`placeTypeaheadMenu`, () => {
+  it(`hangs below the caret with a gap and the room below, capped`, () => {
+    const placed = placeTypeaheadMenu(caret(100), VIEWPORT)
+    expect(placed.placement).toBe(`below`)
+    expect(placed.style).toEqual({ left: 100, top: 124, maxHeight: 320 })
+  })
+
+  it(`flips above when the room below is short and above has more`, () => {
+    const placed = placeTypeaheadMenu(caret(700), VIEWPORT)
+    expect(placed.placement).toBe(`above`)
+    // bottom is measured against innerHeight; maxHeight = 700 - 8 - 4.
+    expect(placed.style).toEqual({ left: 100, bottom: 104, maxHeight: 320 })
+    // A shorter window: 192px below the caret, 252px above → above, capped
+    // to the room there minus the gap.
+    const tight = placeTypeaheadMenu(caret(260), { ...VIEWPORT, height: 480 })
+    expect(tight.placement).toBe(`above`)
+    expect(tight.style.maxHeight).toBe(248)
+  })
+
+  it(`stays below when neither side has room, capped to the room below`, () => {
+    // 60px of room on either side: below wins the tie, and the cap never
+    // goes under the minimum.
+    const placed = placeTypeaheadMenu(caret(30), {
+      ...VIEWPORT,
+      height: 110,
+    })
+    expect(placed.placement).toBe(`below`)
+    expect(placed.style.maxHeight).toBe(48)
+  })
+
+  it(`measures against the visual viewport, not the window`, () => {
+    // The keyboard is up: the visible band is 320px tall starting at 0. A
+    // caret 200px down has 100px below and 192px above, so it flips.
+    const placed = placeTypeaheadMenu(caret(200), { ...VIEWPORT, height: 320 })
+    expect(placed.placement).toBe(`above`)
+    expect(placed.style.bottom).toBe(604)
+    expect(placed.style.maxHeight).toBe(188)
+  })
+
+  it(`clamps horizontally to the viewport`, () => {
+    expect(placeTypeaheadMenu(caret(100, 2), VIEWPORT).style.left).toBe(8)
+    expect(placeTypeaheadMenu(caret(100, 1180), VIEWPORT).style.left).toBe(
+      1200 - TYPEAHEAD_MENU_WIDTH - 8
+    )
+  })
+})
+
+describe(`TypeaheadMenu anchored`, () => {
+  it(`portals to the body, fixed, above a dialog, and stamps the contract`, () => {
+    const { container } = render(
+      <div data-host>
+        <TypeaheadMenu anchor={caret(100)}>rows</TypeaheadMenu>
+      </div>
+    )
+    expect(container.querySelector(`[data-slot=typeahead-menu]`)).toBeNull()
+    const menu = document.body.querySelector<HTMLElement>(
+      `[data-slot=typeahead-menu]`
+    )!
+    expect(menu.parentElement).toBe(document.body)
+    expect(menu.matches(TYPEAHEAD_PORTAL_SELECTOR)).toBe(true)
+    expect(menu.getAttribute(`role`)).toBe(`listbox`)
+    expect(menu.getAttribute(`data-placement`)).toBe(`below`)
+    expect(menu.className).toContain(`fixed`)
+    // The surface recipe's own z-50 must lose to the dialog-clearing z-[60].
+    expect(menu.className).toContain(`z-[60]`)
+    expect(menu.className).not.toContain(`z-50`)
+    expect(menu.className).toContain(`pointer-events-auto`)
+    expect(menu.className).not.toContain(`absolute`)
+    expect(menu.style.position).toBe(``)
+    expect(menu.style.left).toBe(`100px`)
+    expect(menu.style.top).toBe(`124px`)
+    expect(menu.style.maxHeight).not.toBe(``)
+  })
+
+  it(`lets an explicit maxHeight win over the measured one`, () => {
+    render(
+      <TypeaheadMenu anchor={caret(100)} maxHeight={120}>
+        rows
+      </TypeaheadMenu>
+    )
+    expect(
+      document.body.querySelector<HTMLElement>(`[data-slot=typeahead-menu]`)!
+        .style.maxHeight
+    ).toBe(`120px`)
+  })
+
+  it(`reports a lost anchor on an outside scroll or a resize, not on its own`, () => {
+    const onAnchorLost = vi.fn()
+    const ref = { current: null as HTMLDivElement | null }
+    render(
+      <TypeaheadMenu anchor={caret(100)} onAnchorLost={onAnchorLost} ref={ref}>
+        <div data-inner>rows</div>
+      </TypeaheadMenu>
+    )
+    expect(ref.current?.matches(TYPEAHEAD_PORTAL_SELECTOR)).toBe(true)
+    fireEvent.scroll(ref.current!.querySelector(`[data-inner]`)!)
+    fireEvent.scroll(ref.current!)
+    expect(onAnchorLost).not.toHaveBeenCalled()
+    fireEvent.scroll(document)
+    expect(onAnchorLost).toHaveBeenCalledTimes(1)
+    fireEvent(window, new Event(`resize`))
+    expect(onAnchorLost).toHaveBeenCalledTimes(2)
+  })
+
+  it(`stops listening once unmounted`, () => {
+    const onAnchorLost = vi.fn()
+    const { unmount } = render(
+      <TypeaheadMenu anchor={caret(100)} onAnchorLost={onAnchorLost}>
+        rows
+      </TypeaheadMenu>
+    )
+    unmount()
+    expect(document.body.querySelector(`[data-slot=typeahead-menu]`)).toBeNull()
+    fireEvent.scroll(document)
+    expect(onAnchorLost).not.toHaveBeenCalled()
   })
 })
 

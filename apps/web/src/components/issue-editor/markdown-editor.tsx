@@ -1,11 +1,11 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
 } from "react"
-import { createPortal } from "react-dom"
 import { type Editor, useEditor, EditorContent } from "@tiptap/react"
 import { EditorState, NodeSelection, TextSelection } from "@tiptap/pm/state"
 import { StarterKit } from "@tiptap/starter-kit"
@@ -53,7 +53,12 @@ import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
 import { EditorTableControls } from "@/components/issue-editor/table-controls"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { IssueRefHoverLayer } from "@/components/issue-editor/issue-ref-hover-layer"
-import { MENU_SURFACE_CLASS, useIsMobile, useTypeahead } from "@exp/ui"
+import {
+  TypeaheadMenu,
+  useIsMobile,
+  useTypeahead,
+  type TypeaheadAnchor,
+} from "@exp/ui"
 import {
   findEmojiByShortcode,
   pushRecentEmoji,
@@ -272,7 +277,6 @@ export const MarkdownEditor = forwardRef<
     const [autocomplete, setAutocomplete] =
       useState<EditorAutocompleteActive | null>(null)
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
-    const menuRef = useRef<HTMLDivElement | null>(null)
     // The positioning origin for the table hover overlay (EXP-726).
     const wrapperRef = useRef<HTMLDivElement | null>(null)
 
@@ -718,73 +722,25 @@ export const MarkdownEditor = forwardRef<
 
     keyHandlerRef.current = (event) => typeahead.handleKeyDown(event)
 
-    // Anchor the menu at the trigger char in VIEWPORT coordinates and portal
-    // it to document.body with position:fixed — inside the create-issue
-    // dialog the editor sits in an overflow-y-auto scroll region that used to
-    // clip the popup and inflate scrollHeight (EXP-54). Recomputed per
+    // The menu hangs off the trigger char through `TypeaheadMenu`'s anchored
+    // arm (EXP-959): the caret rect in VIEWPORT coordinates goes in, and the
+    // arm portals to document.body at fixed coordinates — inside the
+    // create-issue dialog the editor sits in an overflow-y-auto scroll region
+    // that used to clip the popup and inflate scrollHeight (EXP-54) — flips
+    // above the caret when the room below runs out, and closes on any
+    // outside scroll or resize rather than chasing the caret. Recomputed per
     // keystroke — every doc change re-reports the token with fresh positions.
-    // Clamped to the viewport horizontally; flips above the caret when there
-    // is no room below.
-    const menuStyle = (() => {
+    const anchor = ((): TypeaheadAnchor | null => {
       if (!editor || !autocomplete) return null
       if (candidateCount === 0) return null
       try {
         const coords = editor.view.coordsAtPos(autocomplete.from)
-        const menuWidth = 288 // w-72
-        const viewportPad = 8
-        // Fit within the VISUAL viewport — with the mobile keyboard open it
-        // is shorter than window.innerHeight, and a menu sized against the
-        // layout viewport would open underneath the keyboard (EXP-198).
-        const vv = window.visualViewport
-        const visibleTop = vv?.offsetTop ?? 0
-        const visibleBottom = visibleTop + (vv?.height ?? window.innerHeight)
-        const left = Math.max(
-          viewportPad,
-          Math.min(coords.left, window.innerWidth - menuWidth - viewportPad)
-        )
-        const spaceBelow = visibleBottom - coords.bottom - viewportPad
-        const spaceAbove = coords.top - visibleTop - viewportPad
-        // Above the dialog (shadcn DialogContent is z-50).
-        const base = { left, zIndex: 60 }
-        if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-          return {
-            ...base,
-            bottom: window.innerHeight - coords.top + 4,
-            maxHeight: Math.max(48, Math.min(spaceAbove - 4, 320)),
-          }
-        }
-        return {
-          ...base,
-          top: coords.bottom + 4,
-          maxHeight: Math.max(48, Math.min(spaceBelow - 4, 320)),
-        }
+        return { top: coords.top, bottom: coords.bottom, left: coords.left }
       } catch {
         return null
       }
     })()
-
-    // A fixed-position popup detaches from the caret the moment any ancestor
-    // scroll region moves (dialog body, page, sheet) — close it instead of
-    // chasing the caret. Scrolling inside the menu itself stays allowed.
-    const menuOpen = Boolean(editable && autocomplete && menuStyle)
-    useEffect(() => {
-      if (!menuOpen) return
-      const close = (event: Event) => {
-        if (
-          event.target instanceof Node &&
-          menuRef.current?.contains(event.target)
-        ) {
-          return
-        }
-        setAutocomplete(null)
-      }
-      window.addEventListener(`scroll`, close, true)
-      window.addEventListener(`resize`, close)
-      return () => {
-        window.removeEventListener(`scroll`, close, true)
-        window.removeEventListener(`resize`, close)
-      }
-    }, [menuOpen])
+    const closeMenu = useCallback(() => setAutocomplete(null), [])
 
     return (
       <div
@@ -833,64 +789,42 @@ export const MarkdownEditor = forwardRef<
             <EditorTableControls editor={editor} wrapperRef={wrapperRef} />
           </>
         ) : null}
-        {/* EXP-959 leftover: the caret-anchored portal is not yet TypeaheadMenu. */}
-        {editable && autocomplete && menuStyle
-          ? createPortal(
-              <div
-                ref={menuRef}
-                // Radix modal dialogs set pointer-events:none on <body> while
-                // open; this portal lives outside the DialogContent subtree,
-                // so it must re-enable pointer events itself or every click
-                // falls through to the dialog beneath (EXP-54). The data
-                // attribute lets dialog hosts whitelist interactions here in
-                // their onInteractOutside guards.
-                data-editor-autocomplete=""
-                className={cn(
-                  MENU_SURFACE_CLASS,
-                  `pointer-events-auto fixed w-72 overflow-y-auto`
-                )}
-                // `menuStyle` carries the caret-anchored position, the
-                // clamped max-height and zIndex 60 — above the shadcn dialog
-                // (z-50) the editor may sit in, so it outranks the surface
-                // recipe's own z-50.
-                style={menuStyle}
-              >
-                {autocomplete.kind === `mention` &&
-                  mentionCandidates.map((user, i) => (
-                    <UserCandidateRow
-                      key={user.id}
-                      user={user}
-                      active={i === activeIndex}
-                      onSelect={() => insertActive(i)}
-                      onHover={() => typeahead.setActive(i)}
-                    />
-                  ))}
-                {autocomplete.kind === `issueRef` &&
-                  issueCandidates.map((issue, i) => (
-                    <IssueCandidateRow
-                      key={issue.id}
-                      issue={issue}
-                      active={i === activeIndex}
-                      onSelect={() => insertActive(i)}
-                      onHover={() => typeahead.setActive(i)}
-                    />
-                  ))}
-                {autocomplete.kind === `emoji` &&
-                  emojiCandidates.map((emoji, i) => (
-                    <EmojiCandidateRow
-                      key={emoji.u}
-                      emoji={emoji}
-                      unicode={emoji.u}
-                      query={autocomplete.query}
-                      active={i === activeIndex}
-                      onSelect={() => insertActive(i)}
-                      onHover={() => typeahead.setActive(i)}
-                    />
-                  ))}
-              </div>,
-              document.body
-            )
-          : null}
+        {editable && autocomplete && anchor ? (
+          <TypeaheadMenu anchor={anchor} onAnchorLost={closeMenu}>
+            {autocomplete.kind === `mention` &&
+              mentionCandidates.map((user, i) => (
+                <UserCandidateRow
+                  key={user.id}
+                  user={user}
+                  active={i === activeIndex}
+                  onSelect={() => insertActive(i)}
+                  onHover={() => typeahead.setActive(i)}
+                />
+              ))}
+            {autocomplete.kind === `issueRef` &&
+              issueCandidates.map((issue, i) => (
+                <IssueCandidateRow
+                  key={issue.id}
+                  issue={issue}
+                  active={i === activeIndex}
+                  onSelect={() => insertActive(i)}
+                  onHover={() => typeahead.setActive(i)}
+                />
+              ))}
+            {autocomplete.kind === `emoji` &&
+              emojiCandidates.map((emoji, i) => (
+                <EmojiCandidateRow
+                  key={emoji.u}
+                  emoji={emoji}
+                  unicode={emoji.u}
+                  query={autocomplete.query}
+                  active={i === activeIndex}
+                  onSelect={() => insertActive(i)}
+                  onHover={() => typeahead.setActive(i)}
+                />
+              ))}
+          </TypeaheadMenu>
+        ) : null}
       </div>
     )
   }

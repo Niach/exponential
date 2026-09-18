@@ -13,6 +13,7 @@ import {
   SheetContent,
   SheetTitle,
   Input,
+  TYPEAHEAD_PORTAL_SELECTOR,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
 import type { IssuePriority } from "@/lib/domain"
@@ -28,16 +29,17 @@ import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-pr
 
 const UiBackIcon = conceptIcon(`ui-back`)
 
-// The editor's @/# autocomplete popup portals to document.body (EXP-54 — the
-// dialog's scroll region would clip it), and EXP-568's formatting rail does
-// the same, so Radix sees interactions with either as OUTSIDE the modal
-// content and would close the dialog. Whitelist them.
+// The editor's @/# autocomplete popup — `TypeaheadMenu`'s anchored arm —
+// portals to document.body (EXP-54 — the dialog's scroll region would clip
+// it), and EXP-568's formatting rail does the same, so Radix sees
+// interactions with either as OUTSIDE the modal content and would close the
+// dialog. Whitelist them.
 function isEditorAutocompleteInteraction(event: {
   target: EventTarget | null
 }): boolean {
   return (
     event.target instanceof Element &&
-    (event.target.closest(`[data-editor-autocomplete]`) !== null ||
+    (event.target.closest(TYPEAHEAD_PORTAL_SELECTOR) !== null ||
       event.target.closest(`[data-editor-rail]`) !== null)
   )
 }
@@ -52,7 +54,7 @@ function isEditorInnerLayerEscape(event: {
 }): boolean {
   // The autocomplete portals to document.body, so the Escape's target is the
   // editor itself — a mounted portal is the "menu is open" signal.
-  if (document.querySelector(`[data-editor-autocomplete]`) !== null) {
+  if (document.querySelector(TYPEAHEAD_PORTAL_SELECTOR) !== null) {
     return true
   }
   return (

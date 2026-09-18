@@ -2830,12 +2830,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `typeahead`,
     title: `Typeahead menu`,
     kind: `Inputs & pickers`,
-    blurb: `The menu that follows what someone is TYPING — @ mentions, # issue refs, : emoji, / commands — as opposed to the combobox, which owns its own field. Three copies existed, each re-implementing the same active index, the same wrap and the same above/below flip, and only one of them told its host whether it had handled the key: the other two signalled it by NOT calling the host's handler, which is how a menu ends up swallowing a send shortcut. One hook owns the keys now: arrows move and wrap, a plain Enter or Tab accepts, Enter with Cmd or Ctrl is the composer's send and passes straight through untouched, Escape dismisses, and with no items nothing is handled at all.`,
+    blurb: `The menu that follows what someone is TYPING — @ mentions, # issue refs, : emoji, / commands — as opposed to the combobox, which owns its own field. Three copies existed, each re-implementing the same active index, the same wrap and the same above/below flip, and only one of them told its host whether it had handled the key: the other two signalled it by NOT calling the host's handler, which is how a menu ends up swallowing a send shortcut. One hook owns the keys now: arrows move and wrap, a plain Enter or Tab accepts, Enter with Cmd or Ctrl is the composer's send and passes straight through untouched, Escape dismisses, and with no items nothing is handled at all. The menu has two arms: absolute under a textarea, or anchored to a caret rect in the editor, where it portals to the body at fixed coordinates and flips above the caret when the room below runs out.`,
     status: {
       web: ok(
         `useTypeahead / TypeaheadMenu / TypeaheadRow`,
         `packages/ui/src/typeahead.tsx`,
-        `handleKeyDown returns true when the menu ate the key; its event is typed structurally, so ProseMirror fits`
+        `handleKeyDown returns true when the menu ate the key; the editor's caret menu is the anchored arm (EXP-959)`
       ),
       desktop: leftover(
         `markdown::autocomplete::completion_row_content`,
@@ -2853,15 +2853,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the rows are AutocompleteRows in the same file`
       ),
     },
-    leftovers: [
-      {
-        file: `apps/web/src/components/issue-editor/markdown-editor.tsx`,
-        note: `caret-anchored createPortal body, not yet TypeaheadMenu (EXP-959)`,
-      },
-    ],
     island: () => (
       // The menu is ABSOLUTE and hangs under its host, so the specimen gives
-      // it a field to hang from and reserves the room underneath.
+      // it a field to hang from and reserves the room underneath. The
+      // editor's anchored arm (`anchor`, EXP-959) is a portal to
+      // document.body, which a static island cannot draw.
       <div className="relative h-56">
         <div className="relative">
           <Textarea rows={2} defaultValue="Ping @mi about " />
