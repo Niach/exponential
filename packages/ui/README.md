@@ -14,9 +14,10 @@ its data passed in, and the app keeps the binding beside its own state (see
 | | |
 | --- | --- |
 | `styles.css` | The theme: `@import "tailwindcss"`, `@theme inline`, `:root, :host`, `.dark`, the base layer, the motion/glass `@utility` recipes and the `.issue-chip` box. An app imports THIS instead of `tailwindcss`. |
-| the shadcn set | 33 modules — `button`, `dialog`, `sheet`, `select`, `dropdown-menu`, `command`, `sidebar`, `calendar`, `pill`, `glass-rows`, the colour/icon pickers … |
+| the shadcn set | 34 modules — `button`, `dialog`, `sheet`, `select`, `dropdown-menu`, `command`, `sidebar`, `calendar`, `alert`, `pill`, `glass-rows`, the colour/icon pickers … |
 | primitives | `IssueChip` + `ChipRemoveButton`, `StatusGlyph`, `UserAvatar`, `TeamAvatar`, `LiveDot`, `RichTab`, `EmptyState`, `GlassCard`, `IconDisc`, `IconTooltip`, `MobilePopover`, `OptionDropdownMenu` |
-| helpers | `cn` / `getInitials`, `MENU_SURFACE_CLASS`, `GLASS_CARD_CLASS`, `avatar-color`, `label-colors`, `board-icons`, `session-dot`, `status-icons`, `icons.generated` (the committed `@exp/icons` output), `useIsMobile`, `useSheetDrag` |
+| pickers (EXP-941) | `PickerOption` (the ONE option shape; `IssueOption` and `GlassPickerOption` narrow it), `Combobox` + `ComboboxList` (searchable single/multi select on `MobilePopover` + `Command`: trailing check for single, the leading `ui-selected`/`ui-unselected` pair for multi, `noneLabel` instead of sentinel values, `width` as an enum), `SearchField` (an `Input` with the search glyph and a clear button, `size` md/sm), `SegmentedControl` (the capsule from an option array), `DatePicker` (`YYYY-MM-DD` in and out, never a `Date`), `useTypeahead` + `TypeaheadMenu` + `TypeaheadRow` (the free-text menu under a textarea or editor) |
+| helpers | `cn` / `getInitials`, `MENU_SURFACE_CLASS`, `GLASS_CARD_CLASS`, `BARE_FIELD_CLASS` (a field undressed inside a row), `avatar-color`, `label-colors`, `board-icons`, `session-dot`, `status-icons`, `icons.generated` (the committed `@exp/icons` output), `useIsMobile`, `useSheetDrag` |
 
 `src/icons.generated.ts` is written by `bun run --filter @exp/icons generate` —
 never hand-edit it.
@@ -134,3 +135,8 @@ Duplication that looks removable and is not:
   needs its open/close delays; folding it into `popover` would lose them.
 - **`Button size="xs"`** — 5 of its 8 call sites are destructive or row-shaped
   ghost buttons that no `Pill` mode covers.
+- **`OptionDropdownMenu` and `GlassPickerRow` beside `Combobox`** — the two
+  closed single-selects (a status menu with no search, a settings row) still
+  draw their own shells; folding them onto `Combobox` is EXP-958, because the
+  desktop arm of `OptionDropdownMenu` shows no check mark today and ~30 status
+  and priority call sites would change visibly.
