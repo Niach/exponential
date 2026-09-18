@@ -53,7 +53,7 @@ import { EditorInsertBar } from "@/components/issue-editor/formatting-rail"
 import { EditorTableControls } from "@/components/issue-editor/table-controls"
 import { EditorMobileFormattingBar } from "@/components/issue-editor/mobile-formatting-bar"
 import { IssueRefHoverLayer } from "@/components/issue-editor/issue-ref-hover-layer"
-import { MENU_SURFACE_CLASS, useIsMobile } from "@exp/ui"
+import { MENU_SURFACE_CLASS, useIsMobile, useTypeahead } from "@exp/ui"
 import {
   findEmojiByShortcode,
   pushRecentEmoji,
@@ -271,7 +271,6 @@ export const MarkdownEditor = forwardRef<
     // extension) driving the floating candidate menu below.
     const [autocomplete, setAutocomplete] =
       useState<EditorAutocompleteActive | null>(null)
-    const [activeIndex, setActiveIndex] = useState(0)
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
     const menuRef = useRef<HTMLDivElement | null>(null)
     // The positioning origin for the table hover overlay (EXP-726).
@@ -369,10 +368,8 @@ export const MarkdownEditor = forwardRef<
         }),
         ArrowInputRules,
         EditorAutocompleteExtension.configure({
-          onStateChange: (active) => {
-            setAutocomplete(active)
-            setActiveIndex(0)
-          },
+          // The active row resets itself: a new token is a new `resetKey`.
+          onStateChange: (active) => setAutocomplete(active),
           onKeyDown: (event) => keyHandlerRef.current(event),
         }),
         Placeholder.configure({
@@ -633,12 +630,32 @@ export const MarkdownEditor = forwardRef<
       autocomplete?.kind === `emoji` && emojiData
         ? searchEmoji(emojiData, autocomplete.query, 8)
         : []
-    const candidateCount =
+    // Only one kind is ever offered at a time, so the open menu's rows are ONE
+    // list — accepted by INDEX, which is all `insertActive` needs.
+    const candidates =
       autocomplete?.kind === `mention`
-        ? mentionCandidates.length
+        ? mentionCandidates
         : autocomplete?.kind === `issueRef`
-          ? issueCandidates.length
-          : emojiCandidates.length
+          ? issueCandidates
+          : autocomplete?.kind === `emoji`
+            ? emojiCandidates
+            : []
+    const candidateCount = candidates.length
+
+    // EXP-941: the arrows, the wrap, the plain-Enter/Tab accept and the
+    // Escape are the shared @exp/ui hook's — the same one the comment
+    // composer and the steering `/` menu run. `handleKeyDown` takes a
+    // structural event, so ProseMirror's native KeyboardEvent fits it, and
+    // its TRUE is exactly the "handled" a PM keymap must report.
+    const typeahead = useTypeahead<(typeof candidates)[number]>({
+      items: candidates,
+      onAccept: (_candidate, index) => insertActive(index),
+      onDismiss: () => setAutocomplete(null),
+      resetKey: autocomplete
+        ? `${autocomplete.kind}:${autocomplete.from}:${autocomplete.query}`
+        : null,
+    })
+    const activeIndex = typeahead.active
 
     // Replace the in-progress `@query`/`#query` token with the canonical
     // plain-text interchange form (`@<email>` / `#<IDENTIFIER>`). insertText
@@ -699,30 +716,7 @@ export const MarkdownEditor = forwardRef<
       insertEmoji(exact, false)
     }, [autocomplete, emojiData])
 
-    keyHandlerRef.current = (event) => {
-      if (!autocomplete || candidateCount === 0) return false
-      if (event.key === `ArrowDown`) {
-        setActiveIndex((i) => (i + 1) % candidateCount)
-        return true
-      }
-      if (event.key === `ArrowUp`) {
-        setActiveIndex((i) => (i - 1 + candidateCount) % candidateCount)
-        return true
-      }
-      if (
-        (event.key === `Enter` || event.key === `Tab`) &&
-        !event.metaKey &&
-        !event.ctrlKey
-      ) {
-        insertActive(activeIndex)
-        return true
-      }
-      if (event.key === `Escape`) {
-        setAutocomplete(null)
-        return true
-      }
-      return false
-    }
+    keyHandlerRef.current = (event) => typeahead.handleKeyDown(event)
 
     // Anchor the menu at the trigger char in VIEWPORT coordinates and portal
     // it to document.body with position:fixed — inside the create-issue
@@ -839,6 +833,7 @@ export const MarkdownEditor = forwardRef<
             <EditorTableControls editor={editor} wrapperRef={wrapperRef} />
           </>
         ) : null}
+        {/* EXP-959 leftover: the caret-anchored portal is not yet TypeaheadMenu. */}
         {editable && autocomplete && menuStyle
           ? createPortal(
               <div
@@ -867,7 +862,7 @@ export const MarkdownEditor = forwardRef<
                       user={user}
                       active={i === activeIndex}
                       onSelect={() => insertActive(i)}
-                      onHover={() => setActiveIndex(i)}
+                      onHover={() => typeahead.setActive(i)}
                     />
                   ))}
                 {autocomplete.kind === `issueRef` &&
@@ -877,7 +872,7 @@ export const MarkdownEditor = forwardRef<
                       issue={issue}
                       active={i === activeIndex}
                       onSelect={() => insertActive(i)}
-                      onHover={() => setActiveIndex(i)}
+                      onHover={() => typeahead.setActive(i)}
                     />
                   ))}
                 {autocomplete.kind === `emoji` &&
@@ -889,7 +884,7 @@ export const MarkdownEditor = forwardRef<
                       query={autocomplete.query}
                       active={i === activeIndex}
                       onSelect={() => insertActive(i)}
-                      onHover={() => setActiveIndex(i)}
+                      onHover={() => typeahead.setActive(i)}
                     />
                   ))}
               </div>,

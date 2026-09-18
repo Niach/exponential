@@ -7,8 +7,7 @@ import {
   useState,
 } from "react"
 import type { User } from "@/db/schema"
-import { MENU_SURFACE_CLASS, Textarea } from "@exp/ui"
-import { cn } from "@/lib/utils"
+import { Textarea, TypeaheadMenu, useTypeahead } from "@exp/ui"
 import {
   EmojiCandidateRow,
   IssueCandidateRow,
@@ -42,6 +41,13 @@ type AutocompleteMenu = {
   /** `emoji` only: the closing colon has been typed (`:tada:`). */
   closed?: boolean
 }
+
+/** The open menu's rows as ONE list — `useTypeahead` (EXP-941) owns the active
+ *  index, and only one kind of candidate is ever offered at a time. */
+type Candidate =
+  | { kind: `mention`; user: User }
+  | { kind: `issueRef`; issue: ResolvedIssueRef }
+  | { kind: `emoji`; emoji: EmojiRecord }
 
 interface MentionTextareaProps extends Omit<
   React.ComponentProps<typeof Textarea>,
@@ -97,7 +103,6 @@ export const MentionTextarea = forwardRef<
   const caretReadWhileFocusedRef = useRef(false)
   const issueRefs = useIssueRefs()
   const [menu, setMenu] = useState<AutocompleteMenu | null>(null)
-  const [active, setActive] = useState(0)
   const emojiData = useEmojiData(menu?.kind === `emoji`)
 
   const people = users
@@ -127,12 +132,35 @@ export const MentionTextarea = forwardRef<
     menu?.kind === `emoji` && emojiData
       ? searchEmoji(emojiData, menu.query, 8)
       : []
-  const candidateCount =
+  const candidates: Candidate[] =
     menu?.kind === `mention`
-      ? mentionCandidates.length
+      ? mentionCandidates.map((user) => ({ kind: `mention`, user }))
       : menu?.kind === `issueRef`
-        ? issueCandidates.length
-        : emojiCandidates.length
+        ? issueCandidates.map((issue) => ({ kind: `issueRef`, issue }))
+        : menu?.kind === `emoji`
+          ? emojiCandidates.map((emoji) => ({ kind: `emoji`, emoji }))
+          : []
+  const candidateCount = candidates.length
+
+  // EXP-941: the arrows, the wrap, the plain-Enter/Tab accept, the Escape and
+  // the "a modified Enter is the composer's send, not ours" rule all live in
+  // the shared hook — the `/` menu and the TipTap editor run the same one.
+  const typeahead = useTypeahead<Candidate>({
+    items: candidates,
+    onAccept: (candidate) => {
+      if (candidate.kind === `mention`) {
+        insertMention(candidate.user)
+      } else if (candidate.kind === `issueRef`) {
+        insertIssueRef(candidate.issue)
+      } else {
+        insertEmoji(candidate.emoji, true)
+      }
+    },
+    onDismiss: () => setMenu(null),
+    // A new token (or a new kind of token) starts at the top row again.
+    resetKey: menu ? `${menu.kind}:${menu.start}:${menu.query}` : null,
+  })
+  const active = typeahead.active
 
   // EXP-946: the menu opens ABOVE the field — a composer normally sits at the
   // bottom of the screen. A field near the TOP of the window has no room
@@ -177,14 +205,12 @@ export const MentionTextarea = forwardRef<
         query: mention[1].toLowerCase(),
         start: caret - mention[1].length - 1,
       })
-      setActive(0)
     } else if (issueRef) {
       setMenu({
         kind: `issueRef`,
         query: issueRef[1].toLowerCase(),
         start: caret - issueRef[1].length - 1,
       })
-      setActive(0)
     } else if (emoji) {
       setMenu({
         kind: `emoji`,
@@ -192,7 +218,6 @@ export const MentionTextarea = forwardRef<
         start: caret - emoji.length,
         closed: emoji.closed,
       })
-      setActive(0)
     } else {
       setMenu(null)
     }
@@ -233,16 +258,6 @@ export const MentionTextarea = forwardRef<
   const insertEmoji = (emoji: EmojiRecord, trailingSpace: boolean) => {
     pushRecentEmoji(emoji.u)
     insertToken(emoji.u, trailingSpace)
-  }
-
-  const insertActive = () => {
-    if (menu?.kind === `mention` && mentionCandidates[active]) {
-      insertMention(mentionCandidates[active])
-    } else if (menu?.kind === `issueRef` && issueCandidates[active]) {
-      insertIssueRef(issueCandidates[active])
-    } else if (menu?.kind === `emoji` && emojiCandidates[active]) {
-      insertEmoji(emojiCandidates[active], true)
-    }
   }
 
   // `:tada:` typed in full commits the exact shortcode at once (no trailing
@@ -299,35 +314,10 @@ export const MentionTextarea = forwardRef<
   }))
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (menu && candidateCount > 0) {
-      if (e.key === `ArrowDown`) {
-        e.preventDefault()
-        setActive((a) => (a + 1) % candidateCount)
-        return
-      }
-      if (e.key === `ArrowUp`) {
-        e.preventDefault()
-        setActive((a) => (a - 1 + candidateCount) % candidateCount)
-        return
-      }
-      // Plain Enter/Tab accept the highlighted candidate; a modified Enter
-      // (Cmd/Ctrl+Enter = send in the comment composer) falls through to the
-      // host — a menu must never swallow the send shortcut.
-      if (
-        (e.key === `Enter` || e.key === `Tab`) &&
-        !e.metaKey &&
-        !e.ctrlKey
-      ) {
-        e.preventDefault()
-        insertActive()
-        return
-      }
-      if (e.key === `Escape`) {
-        e.preventDefault()
-        setMenu(null)
-        return
-      }
-    }
+    // Anything the open menu consumed (arrows, a plain Enter/Tab, Escape) the
+    // host never sees; a modified Enter (Cmd/Ctrl+Enter = send in the comment
+    // composer) is never consumed, so the send shortcut always gets through.
+    if (typeahead.handleKeyDown(e)) return
     onKeyDown?.(e)
   }
 
@@ -341,16 +331,10 @@ export const MentionTextarea = forwardRef<
         onKeyDown={handleKeyDown}
       />
       {menu && candidateCount > 0 && (
-        <div
+        <TypeaheadMenu
           ref={menuRef}
-          style={
-            menuMaxHeight === null ? undefined : { maxHeight: menuMaxHeight }
-          }
-          className={cn(
-            MENU_SURFACE_CLASS,
-            `absolute w-72 overflow-x-hidden overflow-y-auto`,
-            above ? `bottom-full mb-1` : `top-full mt-1`
-          )}
+          placement={above ? `above` : `below`}
+          maxHeight={menuMaxHeight ?? undefined}
         >
           {menu.kind === `mention` &&
             mentionCandidates.map((u, i) => (
@@ -359,7 +343,7 @@ export const MentionTextarea = forwardRef<
                 user={u}
                 active={i === active}
                 onSelect={() => insertMention(u)}
-                onHover={() => setActive(i)}
+                onHover={() => typeahead.setActive(i)}
               />
             ))}
           {menu.kind === `issueRef` &&
@@ -369,7 +353,7 @@ export const MentionTextarea = forwardRef<
                 issue={issue}
                 active={i === active}
                 onSelect={() => insertIssueRef(issue)}
-                onHover={() => setActive(i)}
+                onHover={() => typeahead.setActive(i)}
               />
             ))}
           {menu.kind === `emoji` &&
@@ -381,10 +365,10 @@ export const MentionTextarea = forwardRef<
                 query={menu.query}
                 active={i === active}
                 onSelect={() => insertEmoji(emoji, true)}
-                onHover={() => setActive(i)}
+                onHover={() => typeahead.setActive(i)}
               />
             ))}
-        </div>
+        </TypeaheadMenu>
       )}
     </div>
   )
