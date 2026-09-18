@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
 import {
+  SearchField,
   Sheet,
   SheetContent,
   SheetTitle,
@@ -200,7 +201,7 @@ export function IssueSearchSheet({
 
   // The list is the whole body; the shell caps its height, so the primitive's
   // own 18.75rem cap comes off.
-  const list = (className?: string) => (
+  const list = (className?: string, searchable = true) => (
     <ComboboxList
       options={options}
       value={null}
@@ -209,6 +210,7 @@ export function IssueSearchSheet({
         if (issue) handlePick(issue)
       }}
       shouldFilter={false}
+      searchable={searchable}
       query={query}
       onQueryChange={setQuery}
       placeholder="Search issues..."
@@ -225,8 +227,10 @@ export function IssueSearchSheet({
         {/* Page-like, not a sheet: it covers the whole screen, so it takes
             the New-issue page's chrome instead — no grabber, no radius, a
             leading back arrow where a sheet would have nothing (EXP-687).
-            The arrow is its own slim row above the field, which the shared
-            body owns. */}
+            EXP-971: the arrow and the field share ONE header row — the
+            shared SearchField sits inline beside the arrow and drives the
+            same query the body renders, so the list starts directly under
+            it instead of under a second, field-only row. */}
         <SheetContent
           ref={shellRef}
           side="bottom"
@@ -234,7 +238,7 @@ export function IssueSearchSheet({
           className="top-0 flex h-[100dvh] max-h-none flex-col gap-0 rounded-none p-0"
         >
           <SheetTitle className="sr-only">Search issues</SheetTitle>
-          <div className="flex items-center border-b border-border/50 px-3 py-2">
+          <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
             <Button
               type="button"
               variant="ghost"
@@ -245,10 +249,16 @@ export function IssueSearchSheet({
             >
               <UiBackIcon className="size-4" />
             </Button>
+            <SearchField
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search issues..."
+              aria-label="Search issues"
+              autoFocus
+              className="rounded-full text-base"
+            />
           </div>
-          {list(
-            `**:data-[slot=command-input]:text-base **:data-[slot=command-input-wrapper]:h-12 **:data-[slot=command-input-wrapper]:border-border/50`
-          )}
+          {list(undefined, false)}
         </SheetContent>
       </Sheet>
     )
