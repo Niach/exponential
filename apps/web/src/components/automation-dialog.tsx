@@ -16,8 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogCancel,
+  Combobox,
   GlassGroup,
-  GlassPickerRow,
 } from "@exp/ui"
 import {
   defaultDeviceId,
@@ -209,11 +209,15 @@ export function AutomationDialog({
               {/* EXP-616: the grouped-form row — "Action" leads, the picked
                   action trails. */}
               <GlassGroup>
-                <GlassPickerRow
-                  label="Action"
-                  value={actionId}
-                  onValueChange={setActionId}
-                  placeholder="Select an action"
+                <Combobox
+                  triggerVariant="row"
+                  searchable={false}
+                  mobileTitle="Action"
+                  value={actionId === `` ? null : actionId}
+                  onChange={(value) => {
+                    if (value !== null) setActionId(value)
+                  }}
+                  triggerLabel="Select an action"
                   options={actionOptions.map((action) => {
                     const ActionIcon = getActionIcon(action)
                     return {

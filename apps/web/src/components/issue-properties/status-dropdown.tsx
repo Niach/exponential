@@ -1,10 +1,5 @@
 import type { CSSProperties } from "react"
-import {
-  Button,
-  ICON_COMPONENTS,
-  OptionDropdownMenu,
-  StatusGlyph,
-} from "@exp/ui"
+import { Button, Combobox, ICON_COMPONENTS, StatusGlyph } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { useDuplicateInterception } from "@/hooks/use-duplicate-interception"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -90,9 +85,9 @@ export function IssueStatusIcon({
 }
 
 /**
- * Adapt a status row to the shared `IssueOption` menu vocabulary. `value` is
+ * Adapt a status row to the shared `IssueOption` picker vocabulary. `value` is
  * the row id (or `builtin:<key>` for a constructed fallback), which is what
- * every picker's `onSelect` hands back.
+ * every picker's `onChange` hands back.
  */
 export function toStatusMenuOption(
   option: StatusRowOption
@@ -137,38 +132,40 @@ export function StatusDropdown({
   })
 
   const menuOptions = toStatusMenuOptions(options)
+  // EXP-958: the trigger draws the issue's RESOLVED row, never the picker's
+  // matched option — the resolver already falls back for an unknown value
+  // (REV2-85), and some menus leave the current row out entirely (a duplicate
+  // issue inside `creatableStatusOptions`), where a match would be empty.
+  const trigger = toStatusMenuOption(current)
+  const TriggerIcon = trigger.icon
 
   return (
     <>
-      <OptionDropdownMenu
+      <Combobox
+        searchable={false}
         value={current.id}
-        fallbackValue={current.id}
         disabled={disabled}
         options={menuOptions}
         mobileTitle="Status"
-        onSelect={(id) => {
+        width="sm"
+        onChange={(id) => {
+          if (!id) return
           const picked = byId.get(id)
           if (picked) handleStatusChange(picked)
         }}
-        renderTrigger={(selected) => {
-          const Icon = selected.icon
-
-          return (
-            <Button
-              variant="ghost"
-              className="h-8 w-8 md:h-5 md:w-5 p-0"
-              disabled={disabled}
-              aria-label={`Change status (current: ${selected.label})`}
-            >
-              <Icon
-                className={`h-3.5 w-3.5 ${selected.color}`}
-                style={
-                  selected.colorHex ? { color: selected.colorHex } : undefined
-                }
-              />
-            </Button>
-          )
-        }}
+        renderTrigger={() => (
+          <Button
+            variant="ghost"
+            className="h-8 w-8 md:h-5 md:w-5 p-0"
+            disabled={disabled}
+            aria-label={`Change status (current: ${trigger.label})`}
+          >
+            <TriggerIcon
+              className={`h-3.5 w-3.5 ${trigger.color}`}
+              style={trigger.colorHex ? { color: trigger.colorHex } : undefined}
+            />
+          </Button>
+        )}
       />
       {duplicatePicker}
     </>

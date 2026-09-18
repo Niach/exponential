@@ -3,8 +3,9 @@ import { relativeTime } from "@/components/comment-rows/format"
 import type { PastRunRow } from "@/hooks/use-agents-data"
 import {
   SESSION_DOT_CLASS,
-  DropdownMenuCheckboxItem,
+  ComboboxMenuItems,
   DropdownMenuContent,
+  type PickerOption,
 } from "@exp/ui"
 import {
   isLiveRun,
@@ -26,6 +27,11 @@ import { cn } from "@/lib/utils"
 // time, or the word `Live` in its place for a live-status run, which also
 // wears the running dot. Desktop `work_header::face_toggle`'s run menu; the
 // phones list the same rows in the face switcher (`mobile-face-switcher`).
+//
+// EXP-958: the rows are the Combobox's menu arm (`ComboboxMenuItems`), a
+// single select whose picked row wears the picker's trailing check — not the
+// dropdown's own checkbox tick, which was the last "this is picked" idiom
+// the run menu drew on its own.
 
 /** The `<when>` segment of a run's entry: `Live` for a live-status run, else
  *  when it ended (empty when the row stamped no honest time). */
@@ -51,7 +57,27 @@ export function issueRunEntryLabel(row: {
   })
 }
 
-/** The caret's menu: one checkbox row per run, the one on show checked. */
+/** One run as a picker row: the session id is the identity, the byline the
+ *  label. `runSessionDot` draws the leading dot the byline carries. */
+export function issueRunOption(row: PastRunRow): PickerOption<string> {
+  return { value: row.session.id, label: issueRunEntryLabel(row) }
+}
+
+/** The dot before a run's byline: running for a live-status run, muted
+ *  otherwise. Shared with the phone's face switcher. */
+export function RunSessionDot({ live }: { live: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        `size-1.5 shrink-0 rounded-full`,
+        live ? SESSION_DOT_CLASS.running : SESSION_DOT_CLASS.muted
+      )}
+    />
+  )
+}
+
+/** The caret's menu: one row per run, the one on show checked. */
 export function IssueRunMenuContent({
   runs,
   checkedRunId,
@@ -64,6 +90,7 @@ export function IssueRunMenuContent({
   checkedRunId?: string
   onOpen: (session: CodingSession) => void
 }) {
+  const byId = new Map(runs.map((row) => [row.session.id, row]))
   return (
     // Wider than the stock menu: a long device name must not push the
     // `<when>` (`Live`) out of sight.
@@ -72,26 +99,21 @@ export function IssueRunMenuContent({
       className="max-w-[360px]"
       data-testid="issue-run-switcher-menu"
     >
-      {runs.map((row) => {
-        const live = isLiveRun(row.session)
-        return (
-          <DropdownMenuCheckboxItem
-            key={row.session.id}
-            checked={row.session.id === checkedRunId}
-            onSelect={() => onOpen(row.session)}
-            data-testid={`issue-run-option-${row.session.id}`}
-          >
-            <span
-              aria-hidden
-              className={cn(
-                `size-1.5 shrink-0 rounded-full`,
-                live ? SESSION_DOT_CLASS.running : SESSION_DOT_CLASS.muted
-              )}
-            />
-            <span className="min-w-0 truncate">{issueRunEntryLabel(row)}</span>
-          </DropdownMenuCheckboxItem>
-        )
-      })}
+      <ComboboxMenuItems
+        menu="dropdown"
+        options={runs.map(issueRunOption)}
+        value={checkedRunId ?? null}
+        onChange={(id) => {
+          const row = id === null ? undefined : byId.get(id)
+          if (row) onOpen(row.session)
+        }}
+        renderOption={(option) => (
+          <>
+            <RunSessionDot live={isLiveRun(byId.get(option.value)!.session)} />
+            <span className="min-w-0 truncate">{option.label}</span>
+          </>
+        )}
+      />
     </DropdownMenuContent>
   )
 }

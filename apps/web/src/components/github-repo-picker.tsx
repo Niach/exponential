@@ -1,14 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
 import type { ReactNode } from "react"
-import {
-  ExternalLink,
-  Github,
-  LoaderCircle,
-  Lock,
-  Plus,
-  RefreshCw,
-  TriangleAlert,
-} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc-client"
 import { isRepoFullName } from "@/lib/repo-full-name"
@@ -36,16 +27,20 @@ import {
 } from "@/lib/github-connect-copy"
 import {
   Button,
+  ComboboxList,
   Input,
   Pill,
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
   GLASS_CARD_CLASS,
+  conceptIcon,
 } from "@exp/ui"
+
+const GithubGlyph = conceptIcon(`ui-github`)
+const PrivateGlyph = conceptIcon(`ui-private`)
+const LoadingGlyph = conceptIcon(`ui-loading`)
+const ExternalLinkGlyph = conceptIcon(`ui-external-link`)
+const AddGlyph = conceptIcon(`ui-add`)
+const RefreshGlyph = conceptIcon(`ui-refresh`)
+const WarningGlyph = conceptIcon(`ui-warning`)
 
 export type PickerRepo = {
   fullName: string
@@ -92,9 +87,9 @@ type ReposResult = {
 // surface uses the built-in inline install CTA; `installEmptyState` remains
 // for callers that need a custom App-absent state.
 //
-// `variant="plain"` drops the Command's own card chrome for hosts that already
+// `variant="plain"` drops the list's own card chrome for hosts that already
 // provide a glass surface (the Add-repository dialog); inline hosts keep the
-// default bordered card.
+// default glass card.
 
 // The connect hop must open synchronously inside a click handler or popup
 // blockers eat it — shared by the picker, the one-step trigger shortcut and
@@ -255,7 +250,7 @@ export function GithubRepoPicker({
   if (loading && !data) {
     return (
       <div className="flex items-center gap-2 rounded-md border px-3 py-6 text-sm text-muted-foreground">
-        <LoaderCircle className="h-4 w-4 animate-spin" />
+        <LoadingGlyph className="h-4 w-4 animate-spin" />
         {GH_PICKER_LOADING}
       </div>
     )
@@ -266,7 +261,7 @@ export function GithubRepoPicker({
     if (installEmptyState) return <>{installEmptyState}</>
     return (
       <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
-        <Github className="mt-0.5 h-4 w-4 shrink-0" />
+        <GithubGlyph className="mt-0.5 h-4 w-4 shrink-0" />
         <span>{GH_PICKER_NOT_CONFIGURED}</span>
       </div>
     )
@@ -279,18 +274,18 @@ export function GithubRepoPicker({
     return (
       <div className="space-y-3">
         <div className="flex items-start gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground">
-          <Github className="mt-0.5 h-4 w-4 shrink-0" />
+          <GithubGlyph className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{GH_PICKER_NOT_INSTALLED}</span>
         </div>
         {/* flex-wrap: narrow hosts (mobile-width dialogs) must wrap the
             refresh button instead of clipping it (EXP-390). */}
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" onClick={openConnect}>
-            <Github className="mr-2 h-4 w-4" />
+            <GithubGlyph className="mr-2 h-4 w-4" />
             {GH_CONNECT_GITHUB}
           </Button>
           <Pill mode="action" onClick={() => void refresh(true)}>
-            <RefreshCw />
+            <RefreshGlyph />
             {GH_PICKER_CONNECTED_CHECK}
           </Pill>
         </div>
@@ -327,7 +322,7 @@ export function GithubRepoPicker({
           state reads as "you have no repositories" (REV2-29). */}
       {suspendedAccounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <Github className="h-4 w-4 shrink-0" />
+          <GithubGlyph className="h-4 w-4 shrink-0" />
           <span className="min-w-0 flex-1">
             {ghPickerSuspendedBanner(suspendedAccounts)}
           </span>
@@ -336,12 +331,12 @@ export function GithubRepoPicker({
 
       {needsReauth && (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-muted-foreground">
-          <TriangleAlert className="h-4 w-4 shrink-0 text-amber-500" />
+          <WarningGlyph className="h-4 w-4 shrink-0 text-amber-500" />
           <span className="min-w-0 flex-1">
             {ghPickerReauthBanner(reauthAccounts, empty)}
           </span>
           <Pill mode="action" onClick={openConnect}>
-            <RefreshCw />
+            <RefreshGlyph />
             {GH_RECONNECT_GITHUB}
           </Pill>
         </div>
@@ -352,32 +347,31 @@ export function GithubRepoPicker({
       )}
 
       {!empty && (
-        <Command
+        // EXP-958: the shared picker body (`ComboboxList`), inline — no
+        // popover, this card IS the host. FEED-42 says tap adds, so nothing
+        // is ever "the picked repo": `value={null}` marks no row.
+        <ComboboxList
+          options={data.repos.map((repo) => ({
+            value: repo.fullName,
+            label: repo.fullName,
+            icon: GithubGlyph,
+            hint: repo.private ? (
+              <PrivateGlyph className="size-3.5" aria-label="Private" />
+            ) : undefined,
+          }))}
+          value={null}
+          onChange={(fullName) => {
+            const repo = data.repos.find((r) => r.fullName === fullName)
+            if (repo) onSelect(repo)
+          }}
+          placeholder={GH_SEARCH_PLACEHOLDER}
+          emptyText={GH_NO_MATCH}
           // EXP-903: the framed arm is the canonical glass card — XL
           // radius and the card hairline, not the `rounded-md border` this
           // had drifted to.
           className={variant === `plain` ? undefined : GLASS_CARD_CLASS}
-        >
-          <CommandInput placeholder={GH_SEARCH_PLACEHOLDER} />
-          <CommandList className={cn(`max-h-[min(20rem,50dvh)]`, listClassName)}>
-            <CommandEmpty>{GH_NO_MATCH}</CommandEmpty>
-            <CommandGroup>
-              {data.repos.map((repo) => (
-                <CommandItem
-                  key={repo.fullName}
-                  value={repo.fullName}
-                  onSelect={() => onSelect(repo)}
-                >
-                  <Github className="mr-2 h-4 w-4 shrink-0" />
-                  <span className="truncate">{repo.fullName}</span>
-                  {repo.private && (
-                    <Lock className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+          listClassName={cn(`max-h-[min(20rem,50dvh)]`, listClassName)}
+        />
       )}
 
       {empty && !needsReauth && suspendedAccounts.length === 0 && (
@@ -410,7 +404,7 @@ export function GithubRepoPicker({
                     className="inline-flex items-center gap-0.5 text-foreground underline-offset-2 hover:underline"
                   >
                     {githubInstallationLabel(inst)}
-                    <ExternalLink className="h-3 w-3" />
+                    <ExternalLinkGlyph className="h-3 w-3" />
                   </a>
                   {index < manageLinks.length - 1 && `, `}
                 </span>
@@ -423,12 +417,12 @@ export function GithubRepoPicker({
         )}
         <div className="flex flex-wrap items-center gap-2">
           <Pill mode="action" onClick={refreshAccess} disabled={loading}>
-            <RefreshCw />
+            <RefreshGlyph />
             {GH_REFRESH}
           </Pill>
           {data.installUrl && (
             <Pill mode="action" onClick={openInstall}>
-              <Plus />
+              <AddGlyph />
               {GH_INSTALL_ANOTHER}
             </Pill>
           )}
@@ -457,7 +451,7 @@ export function GithubRepoPicker({
             disabled={!isRepoFullName(lookupName.trim()) || lookupBusy}
             onClick={() => void lookup()}
           >
-            {lookupBusy ? <LoaderCircle className="animate-spin" /> : null}
+            {lookupBusy ? <LoadingGlyph className="animate-spin" /> : null}
             {GH_LOOK_UP}
           </Pill>
         </div>

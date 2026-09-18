@@ -2,11 +2,11 @@ import { useState } from "react"
 import type { CodingSession } from "@/db/schema"
 import {
   conceptIcon,
+  ComboboxMenuItems,
   DiffCounts,
   SESSION_DOT_CLASS,
   type SessionDotTone,
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -24,7 +24,10 @@ import {
   type WorkFaceKind,
 } from "@/lib/work-faces"
 import type { PastRunRow } from "@/hooks/use-agents-data"
-import { issueRunEntryLabel } from "@/components/issue-run-switcher"
+import {
+  issueRunOption,
+  RunSessionDot,
+} from "@/components/issue-run-switcher"
 import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
 
 // EXP-893: the phone's FACE SWITCHER — the bottom-right circle of the Work
@@ -37,6 +40,12 @@ import { MOBILE_WORK_CIRCLE_CLASS } from "@/components/mobile-work-bar"
 // what waits behind it: the session's state off the Run face, a green dot
 // for changes on it. Pure rules in `lib/work-faces.ts`; iOS
 // `WorkFaceSwitcher`, Android `FaceSwitcherCircle` mirror it.
+//
+// EXP-958: the run rows are the Combobox's menu arm (`ComboboxMenuItems`),
+// the same rows the desktop-width run switcher draws: a single select with
+// the picker's trailing check on the run on show, never the dropdown's own
+// checkbox tick. `switcherTargets` keeps the run targets contiguous, so the
+// first one renders the whole block and the rest are skipped.
 
 const IssueIcon = conceptIcon(`ui-issue`)
 const RunIcon = conceptIcon(`nav-devices`)
@@ -219,29 +228,36 @@ export function MobileFaceSwitcher({
         sideOffset={8}
         data-testid="mobile-face-switcher-menu"
       >
-        {mode.targets.map((target) => {
+        {mode.targets.map((target, index) => {
           if (target.kind === `run`) {
-            const row = runs.find((entry) => entry.session.id === target.id)
-            if (!row) return null
-            const live = isLiveRun(row.session)
+            const first = mode.targets.findIndex((entry) => entry.kind === `run`)
+            if (index !== first) return null
+            const runRows = mode.targets.flatMap((entry) =>
+              entry.kind === `run`
+                ? runs.filter((row) => row.session.id === entry.id)
+                : []
+            )
             return (
-              <DropdownMenuCheckboxItem
-                key={`run-${target.id}`}
-                checked={target.id === viewedRunId}
-                onSelect={() => activate(target)}
-                data-testid={`mobile-face-run-${target.id}`}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    `size-1.5 shrink-0 rounded-full`,
-                    live ? SESSION_DOT_CLASS.running : SESSION_DOT_CLASS.muted
-                  )}
-                />
-                <span className="min-w-0 truncate">
-                  {issueRunEntryLabel(row)}
-                </span>
-              </DropdownMenuCheckboxItem>
+              <ComboboxMenuItems
+                key="runs"
+                menu="dropdown"
+                options={runRows.map(issueRunOption)}
+                value={viewedRunId}
+                onChange={(id) => {
+                  if (id !== null) activate({ kind: `run`, id })
+                }}
+                renderOption={(option) => (
+                  <>
+                    <RunSessionDot
+                      live={isLiveRun(
+                        runRows.find((row) => row.session.id === option.value)!
+                          .session
+                      )}
+                    />
+                    <span className="min-w-0 truncate">{option.label}</span>
+                  </>
+                )}
+              />
             )
           }
           const key =

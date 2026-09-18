@@ -11,6 +11,7 @@ import {
   AttachmentThumb,
   conceptIcon,
   Button,
+  Combobox,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -27,7 +28,6 @@ import {
 } from "@/lib/agent-feed"
 import { PLAN_MODE_LABEL, STEER_COMPOSER_PLACEHOLDER } from "@/lib/work-faces"
 import { agentModelValues } from "@/lib/coding-launch-prefs"
-import { InlinePicker } from "@/components/launch-dialog/launch-options-line"
 import { modelLabel } from "@/components/launch-dialog/launch-options-pane"
 import {
   mergeAgentCommands,
@@ -471,15 +471,18 @@ export function SteerComposer({
                  ordinary message path — queued mid-turn like anything else,
                  and the republished `config_state` is the confirmation. No
                  optimistic write. */
-              <InlinePicker
-                label="Model"
+              <Combobox
+                triggerVariant="inline"
+                searchable={false}
+                mobileTitle="Model"
                 value={model}
                 options={modelOptions}
+                width="sm"
                 onChange={(value) => {
                   // The picker is CONTROLLED by the republished
                   // `config_state`, so a send that never left has to say so —
                   // otherwise the value silently snaps back.
-                  if (!live || value === model) return
+                  if (value === null || !live || value === model) return
                   if (!onSend(`/model ${value}`)) {
                     toast.error(`The session is no longer connected`)
                   }

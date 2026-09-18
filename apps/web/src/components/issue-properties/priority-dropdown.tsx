@@ -1,9 +1,8 @@
-import { Button, OptionDropdownMenu } from "@exp/ui"
+import { Button, Combobox } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssuePriorityConfig,
   issuePriorityOptions,
-  ISSUE_PRIORITY_FALLBACK,
   type IssuePriority,
 } from "@/lib/domain"
 
@@ -35,33 +34,38 @@ export function PriorityDropdown({
   priority: IssuePriority
   disabled?: boolean
 }) {
+  // EXP-958: the trigger draws the CONFIG row, not the picker's matched
+  // option — `getPriorityConfig` already falls back to the lifecycle start of
+  // the vocabulary for an unknown/forward-compat value (REV2-85), where a
+  // match against the display-ordered table would be empty.
+  const current = getPriorityConfig(priority)
+  const TriggerIcon = current.icon
+
   return (
-    <OptionDropdownMenu
+    <Combobox
+      searchable={false}
       value={priority}
-      fallbackValue={ISSUE_PRIORITY_FALLBACK}
       disabled={disabled}
       options={priorities}
       mobileTitle="Priority"
-      onSelect={async (nextPriority) => {
+      width="sm"
+      onChange={async (nextPriority) => {
+        if (!nextPriority) return
         await trpc.issues.update.mutate({
           id: issueId,
           priority: nextPriority,
         })
       }}
-      renderTrigger={(selected) => {
-        const Icon = selected.icon
-
-        return (
-          <Button
-            variant="ghost"
-            className="h-8 w-8 md:h-5 md:w-5 p-0"
-            disabled={disabled}
-            aria-label={`Change priority (current: ${selected.label})`}
-          >
-            <Icon className={`h-3.5 w-3.5 ${selected.color}`} />
-          </Button>
-        )
-      }}
+      renderTrigger={() => (
+        <Button
+          variant="ghost"
+          className="h-8 w-8 md:h-5 md:w-5 p-0"
+          disabled={disabled}
+          aria-label={`Change priority (current: ${current.label})`}
+        >
+          <TriggerIcon className={`h-3.5 w-3.5 ${current.color}`} />
+        </Button>
+      )}
     />
   )
 }

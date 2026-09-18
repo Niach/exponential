@@ -6,7 +6,6 @@ import {
   IconPicker,
   Label,
   GlassGroup,
-  GlassPickerRow,
   type PickerOption,
 } from "@exp/ui"
 import type { Board, Issue } from "@/db/schema"
@@ -17,8 +16,8 @@ import { BoardGlyph } from "@/components/board-glyph"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the
 // free-text kinds — the composer's own text is the run's instructions):
-// repo → compact Select over the team's connected repos, board → the shared
-// `Combobox` over the synced boards, pr (EXP-259) → the same picker over the
+// repo → a `Combobox` row over the team's connected repos, board → the same
+// picker over the synced boards, pr (EXP-259) → the same picker over the
 // team's OPEN issue-linked pull requests (deduped by prUrl — a batch PR shows
 // once, its value is the representative issue's id), icon (EXP-273) → the
 // curated swatch grid shared with the board form. Values live in the dialog
@@ -28,7 +27,7 @@ import { BoardGlyph } from "@/components/board-glyph"
 // used for "unset" — the `Combobox` reports `null` and the mapping happens
 // here.
 
-// Radix Select forbids an empty-string item value; the unset optional repo
+// An empty string is no usable option identity; the unset optional repo
 // rides this sentinel inside the dialog only.
 const NO_REPO = `none`
 
@@ -60,13 +59,17 @@ export function ActionInputFields({
           // their label above, where a long placeholder needs the width.
           return (
             <GlassGroup key={def.key}>
-              <GlassPickerRow
-                label={label}
-                value={values[def.key] || (def.required ? `` : NO_REPO)}
-                onValueChange={(value) =>
-                  onChange(def.key, value === NO_REPO ? `` : value)
-                }
-                placeholder="Select a repository"
+              <Combobox
+                triggerVariant="row"
+                searchable={false}
+                mobileTitle={label}
+                value={values[def.key] || (def.required ? null : NO_REPO)}
+                onChange={(value) => {
+                  if (value !== null) {
+                    onChange(def.key, value === NO_REPO ? `` : value)
+                  }
+                }}
+                triggerLabel="Select a repository"
                 options={[
                   ...(def.required ? [] : [{ value: NO_REPO, label: `None` }]),
                   ...repos.map((repo) => ({

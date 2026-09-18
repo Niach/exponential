@@ -1,13 +1,24 @@
+import type { LucideIcon } from "lucide-react"
 import type { IssuePriority, IssueStatus } from "@exp/db-schema/domain"
 import { BUILTIN_STATUS_COLOR_CLASS, conceptIcon } from "@exp/ui"
+import type { PickerOption } from "@exp/ui"
 
 export * from "@exp/db-schema/domain"
 
-// EXP-887: the interface itself lives in @exp/ui (the menu primitive that
-// consumes it does), re-exported here so the option tables below and their
-// ~30 call sites keep naming it from one place.
-import type { IssueOption } from "@exp/ui"
-export type { IssueOption }
+// EXP-958: `PickerOption` (@exp/ui) is the ONE option shape every web picker
+// speaks, and its presentational slots are all optional. The status/priority
+// tables below fill three of them on EVERY row — a glyph, a colour and a
+// plain-string label — and their ~30 call sites read those slots without a
+// guard, so the tables keep this required-slot view of it, here beside them.
+export interface IssueOption<TValue extends string = string>
+  extends PickerOption<TValue> {
+  label: string
+  icon: LucideIcon
+  color: string
+  /** A per-row hex that WINS over `color` — custom team statuses (EXP-314),
+   *  never a row of the tables below. */
+  colorHex?: string
+}
 
 // Option tables — the ONE picker vocabulary (REV2-85): every status/priority
 // menu on every client walks the contract `displayOrder`
@@ -112,7 +123,7 @@ function getOptionConfig<TValue extends string>(
 // vocabulary (backlog / no priority), NOT to the first row of the display
 // order — the tables are display-ordered, so the fallbacks are looked up by
 // value. Anything that resolves an option out of these tables (the config
-// helpers below, `OptionDropdownMenu`'s trigger) must use these constants.
+// helpers below, the status/priority triggers) must use these constants.
 export const ISSUE_STATUS_FALLBACK = `backlog` satisfies IssueStatus
 export const ISSUE_PRIORITY_FALLBACK = `none` satisfies IssuePriority
 

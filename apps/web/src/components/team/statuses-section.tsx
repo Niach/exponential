@@ -19,6 +19,7 @@ import type { Issue } from "@/db/schema"
 import {
   ISSUE_STATUS_STARTED_MAX,
   issueStatusCategoryDisplayOrder,
+  type IssueOption,
   type IssueStatusCategory,
 } from "@/lib/domain"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -29,7 +30,7 @@ import {
   toStatusMenuOptions,
 } from "@/components/issue-properties/status-dropdown"
 import {
-  OptionDropdownMenu,
+  Combobox,
   IconTooltip,
   hexWithAlpha,
   Pill,
@@ -599,7 +600,7 @@ function PrAutomationCard({
     () => options.filter((option) => option.category !== `duplicate`),
     [options]
   )
-  const menuOptions = useMemo(
+  const menuOptions = useMemo<IssueOption<string>[]>(
     () => [
       ...toStatusMenuOptions(pickable),
       {
@@ -680,44 +681,54 @@ function PrAutomationCard({
                   ? statusId
                   : defaultId
 
+            // EXP-958: the trigger draws the row `value` names, resolved here
+            // — a target the team no longer has falls back to the builtin
+            // default (`defaultId`, never the display-ordered first row,
+            // REV2-85), which the picker itself would render as nothing.
+            const current =
+              menuOptions.find((option) => option.value === value) ??
+              menuOptions.find((option) => option.value === defaultId) ??
+              menuOptions[0]
+            const CurrentIcon = current.icon
+
             return (
               <div
                 key={event}
                 className="flex items-center justify-between gap-3 px-4 py-3"
               >
                 <span className="min-w-0 text-sm">{label}, move issues to</span>
-                <OptionDropdownMenu
+                <Combobox
+                  searchable={false}
                   value={value}
-                  fallbackValue={defaultId}
                   options={menuOptions}
                   mobileTitle={label}
                   align="end"
-                  onSelect={(picked) => void persist(event, picked, value)}
-                  renderTrigger={(selected) => {
-                    const Icon = selected.icon
-                    return (
-                      // Fixed width so both rows' triggers line up (EXP-328) —
-                      // the label ellipsizes instead of stretching the button.
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-44 shrink-0 justify-start"
-                      >
-                        <Icon
-                          className={`h-4 w-4 ${selected.color}`}
-                          style={
-                            selected.colorHex
-                              ? { color: selected.colorHex }
-                              : undefined
-                          }
-                        />
-                        <span className="flex-1 truncate text-left">
-                          {selected.label}
-                        </span>
-                        <ChevronDown className="h-3 w-3 text-muted-foreground" />
-                      </Button>
-                    )
+                  width="sm"
+                  onChange={(picked) => {
+                    if (picked) void persist(event, picked, value)
                   }}
+                  renderTrigger={() => (
+                    // Fixed width so both rows' triggers line up (EXP-328) —
+                    // the label ellipsizes instead of stretching the button.
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-44 shrink-0 justify-start"
+                    >
+                      <CurrentIcon
+                        className={`h-4 w-4 ${current.color}`}
+                        style={
+                          current.colorHex
+                            ? { color: current.colorHex }
+                            : undefined
+                        }
+                      />
+                      <span className="flex-1 truncate text-left">
+                        {current.label}
+                      </span>
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  )}
                 />
               </div>
             )

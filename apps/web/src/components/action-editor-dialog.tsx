@@ -14,8 +14,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Combobox,
   GlassGroup,
-  GlassPickerRow,
   Input,
   Textarea,
 } from "@exp/ui"
@@ -41,7 +41,7 @@ export interface ActionRepoOption {
   fullName: string
 }
 
-// Radix Select forbids empty-string item values — sentinel for the
+// An empty string is no usable option identity — sentinel for the
 // "no repository" choice.
 const NO_REPO = `none`
 
@@ -52,7 +52,8 @@ const NO_REPO = `none`
 // the native Create/Edit action sheets. Exported because the New-action dialog
 // (`create-action-dialog.tsx`) is the same form and must not re-derive them.
 export const GROUPED_FIELD = `rounded-none border-0 bg-transparent text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
-// 16h/12v is the row padding of the whole ladder (GlassPickerRow/ToggleRow).
+// 16h/12v is the row padding of the whole ladder (the Combobox `row` trigger
+// and GlassToggleRow).
 export const GROUPED_FIELD_ROW = `${GROUPED_FIELD} px-4 py-3`
 
 export function ActionEditorDialog({
@@ -247,10 +248,14 @@ export function ActionEditorDialog({
               )}
 
               <GlassGroup>
-                <GlassPickerRow
-                  label="Repository"
+                <Combobox
+                  triggerVariant="row"
+                  searchable={false}
+                  mobileTitle="Repository"
                   value={repoValue}
-                  onValueChange={setRepoValue}
+                  onChange={(value) => {
+                    if (value !== null) setRepoValue(value)
+                  }}
                   disabled={readOnly}
                   options={[
                     { value: NO_REPO, label: `None` },

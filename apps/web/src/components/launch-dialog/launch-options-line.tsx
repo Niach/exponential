@@ -1,13 +1,9 @@
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Button,
+  Combobox,
   GlassGroup,
-  GlassPickerRow,
   GlassToggleRow,
-  type GlassPickerOption,
+  type PickerOption,
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
@@ -47,8 +43,14 @@ import { NO_REPO } from "@/lib/chat-repo"
 // icon-only), the Device menu rows carry the machine's kind glyph like its
 // trigger, and the Account left the overflow for the line itself as soon as
 // the machine reports two logins for the picked agent.
+//
+// EXP-958: every word of the line is a `Combobox` in its `inline` variant —
+// the primitive collapses a picker to plain text on its own once there is at
+// most one thing it could say, so the line has no picker component of its
+// own any more. None of these four ever reaches ZERO options: the whole line
+// returns early without a device, Repository and Account render behind a
+// count guard, and the model list is contract values plus the blank default.
 
-const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
 const MoreIcon = conceptIcon(`ui-more`)
 // EXP-862: a picker whose VALUE carries a glyph carries it on the menu rows
 // too — here the machine's kind, the same pair the Devices list draws.
@@ -67,7 +69,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
     )
   }
 
-  // Radix Select forbids an empty-string item value; the blank "CLI default"
+  // An empty string is no usable option identity; the blank "CLI default"
   // model/effort rides the pane's sentinels inside the pickers only.
   const modelOptions = [
     ...(agentAllowsBlankModel(agent)
@@ -78,7 +80,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
       label: modelLabel(value),
     })),
   ]
-  const effortOptions: GlassPickerOption[] = [
+  const effortOptions: PickerOption[] = [
     { value: CLI_DEFAULT_EFFORT, label: `CLI default` },
     ...agentEffortValues(agent).map((value) => ({
       value,
@@ -94,9 +96,11 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
         className="flex flex-wrap items-center gap-x-3 gap-y-1"
         data-testid="agent-options-row"
       >
-        <InlinePicker
-          label="Device"
-          value={device?.deviceId ?? ``}
+        <Combobox
+          triggerVariant="inline"
+          searchable={false}
+          mobileTitle="Device"
+          value={device?.deviceId ?? null}
           options={candidateDevices.map((candidate) => ({
             value: candidate.deviceId,
             // EXP-432: teammates' shared servers carry their owner.
@@ -105,7 +109,10 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             }`,
             icon: candidate.kind === `server` ? ServerIcon : DesktopIcon,
           }))}
-          onChange={launch.setDeviceId}
+          onChange={(value) => {
+            if (value !== null) launch.setDeviceId(value)
+          }}
+          width="sm"
         />
         {/* EXP-862: THE agent picker (`components/agent-picker`) — the brand
             mark and a chevron, the name only in the menu and the tooltip. */}
@@ -116,29 +123,43 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           onChange={launch.switchAgent}
           className="-my-0.5"
         />
-        <InlinePicker
-          label="Model"
+        <Combobox
+          triggerVariant="inline"
+          searchable={false}
+          mobileTitle="Model"
           value={launch.model === `` ? CLI_DEFAULT_MODEL : launch.model}
           options={modelOptions}
-          onChange={(value) =>
-            launch.setModel(value === CLI_DEFAULT_MODEL ? `` : value)
-          }
+          onChange={(value) => {
+            if (value !== null) {
+              launch.setModel(value === CLI_DEFAULT_MODEL ? `` : value)
+            }
+          }}
+          width="sm"
         />
         {subject === null && model.repoOptions.length > 0 && (
-          <InlinePicker
-            label="Repository"
+          <Combobox
+            triggerVariant="inline"
+            searchable={false}
+            mobileTitle="Repository"
             value={model.repoId || NO_REPO}
             options={model.repoOptions}
-            onChange={(value) => model.setRepoId(value === NO_REPO ? `` : value)}
+            onChange={(value) => {
+              if (value !== null) {
+                model.setRepoId(value === NO_REPO ? `` : value)
+              }
+            }}
+            width="sm"
           />
         )}
         {showAccount && (
           /* EXP-862: the account is a first-class pick, not an overflow row —
              a machine with two logins for this agent says which one the run
              lands on right here (EXP-849: a dead credential says so too). */
-          <InlinePicker
-            label="Account"
-            value={launch.account ?? ``}
+          <Combobox
+            triggerVariant="inline"
+            searchable={false}
+            mobileTitle="Account"
+            value={launch.account ?? null}
             options={launch.accountProfiles.map((profile) => ({
               value: profile.id,
               // EXP-849: health beats "active" in the label — an expired
@@ -148,7 +169,10 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                 ? `${profile.label} — ${healthBadgeLabel(profile.health)}`
                 : profile.label,
             }))}
-            onChange={launch.setAccount}
+            onChange={(value) => {
+              if (value !== null) launch.setAccount(value)
+            }}
+            width="sm"
           />
         )}
         {agentSupportsPlanMode(agent) && !model.resumeActive && (
@@ -200,12 +224,16 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           >
             <div data-testid="agent-options-sheet">
               <GlassGroup>
-                <GlassPickerRow
-                  label={agent === `codex` ? `Reasoning` : `Effort`}
+                <Combobox
+                  triggerVariant="row"
+                  searchable={false}
+                  mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
                   value={
                     launch.effortValue === `` ? CLI_DEFAULT_EFFORT : launch.effortValue
                   }
-                  onValueChange={launch.setEffortValue}
+                  onChange={(value) => {
+                    if (value !== null) launch.setEffortValue(value)
+                  }}
                   options={effortOptions}
                   disabled={launch.ultracode && agentSupportsUltracode(agent)}
                 />
@@ -270,66 +298,5 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
       )}
       {model.costHint && <p>Large batches are token-expensive.</p>}
     </div>
-  )
-}
-
-/** A picker as one word of the muted line under the composer: the current
- * value plus a chevron, no chrome. One option renders as plain text. */
-export function InlinePicker({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  /** EXP-862: `icon` rides BOTH the trigger and the menu rows — a picker
-   *  whose value shows a glyph shows it on the items too. */
-  options: {
-    value: string
-    label: string
-    icon?: React.ComponentType<{ className?: string }>
-  }[]
-  onChange: (value: string) => void
-}) {
-  if (options.length === 0) return null
-  const current = options.find((option) => option.value === value)
-  const only = options[0]!
-  if (options.length === 1) {
-    const OnlyIcon = (current ?? only).icon
-    return (
-      <span className="flex items-center gap-1" title={label}>
-        {OnlyIcon && <OnlyIcon className="size-3.5 shrink-0" />}
-        {current?.label ?? only.label}
-      </span>
-    )
-  }
-  const CurrentIcon = current?.icon
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        className="flex items-center gap-1 outline-none hover:text-foreground focus-visible:text-foreground"
-        title={label}
-        aria-label={label}
-      >
-        {CurrentIcon && <CurrentIcon className="size-3.5 shrink-0" />}
-        {current?.label ?? label}
-        <ChevronDownIcon className="size-3" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        {options.map((option) => {
-          const OptionIcon = option.icon
-          return (
-            <DropdownMenuItem
-              key={option.value}
-              onSelect={() => onChange(option.value)}
-            >
-              {OptionIcon && <OptionIcon className="size-4 shrink-0" />}
-              {option.label}
-            </DropdownMenuItem>
-          )
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }

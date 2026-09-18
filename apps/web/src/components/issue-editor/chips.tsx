@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { Ellipsis } from "lucide-react"
 import type { User } from "@/db/schema"
-import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
+import type { IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   creatableStatusOptions,
@@ -10,12 +10,16 @@ import {
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import {
+  getPriorityConfig,
   priorities,
   PriorityIcon,
 } from "@/components/issue-properties/priority-dropdown"
-import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
 import {
-  OptionDropdownMenu,
+  toStatusMenuOption,
+  toStatusMenuOptions,
+} from "@/components/issue-properties/status-dropdown"
+import {
+  Combobox,
   Button,
   conceptIcon,
   DatePicker,
@@ -73,56 +77,70 @@ export function IssueEditorChips({
 }: IssueEditorChipsProps) {
   const { options, byId } = useTeamStatusesContext()
   const statusOptions = creatableStatusOptions(options)
+  // EXP-958: both chips draw the RESOLVED property the editor holds, never
+  // the picker's matched option — a duplicate-status issue is not in
+  // `creatableStatusOptions` and an unknown priority is not in the table, so
+  // a match would be empty where the resolver already falls back (REV2-85).
+  const statusTrigger = toStatusMenuOption(status)
+  const StatusTriggerIcon = statusTrigger.icon
+  const priorityTrigger = getPriorityConfig(priority)
 
   return (
     <>
-      <OptionDropdownMenu
+      <Combobox
+        searchable={false}
         value={status.id}
-        fallbackValue={status.id}
         disabled={disabled || disableStatus}
         options={toStatusMenuOptions(statusOptions)}
-        onSelect={(id) => {
+        width="sm"
+        onChange={(id) => {
+          if (!id) return
           const picked = byId.get(id)
           if (picked) void onStatusChange(picked)
         }}
         mobileTitle="Status"
-        renderTrigger={(selected) => {
-          const Icon = selected.icon
-          return (
-            <Pill
-              mode="action"
-              disabled={disabled || disableStatus}
-              leading={
-                <Icon
-                  className={`!h-3 !w-3 ${selected.color}`}
-                  style={
-                    selected.colorHex ? { color: selected.colorHex } : undefined
-                  }
-                />
-              }
-            >
-              {selected.label}
-            </Pill>
-          )
-        }}
+        renderTrigger={() => (
+          <Pill
+            mode="action"
+            disabled={disabled || disableStatus}
+            leading={
+              <StatusTriggerIcon
+                className={`!h-3 !w-3 ${statusTrigger.color}`}
+                style={
+                  statusTrigger.colorHex
+                    ? { color: statusTrigger.colorHex }
+                    : undefined
+                }
+              />
+            }
+          >
+            {statusTrigger.label}
+          </Pill>
+        )}
       />
 
-      <OptionDropdownMenu
+      <Combobox
+        searchable={false}
         value={priority}
-        fallbackValue={ISSUE_PRIORITY_FALLBACK}
         disabled={disabled}
         options={priorities}
-        onSelect={onPriorityChange}
+        width="sm"
+        onChange={(next) => {
+          if (next) void onPriorityChange(next)
+        }}
         mobileTitle="Priority"
-        renderTrigger={(selected) => (
+        renderTrigger={() => (
           <Pill
             mode="action"
             disabled={disabled}
             leading={
-              <PriorityIcon priority={selected.value} className="!h-3 !w-3" />
+              <PriorityIcon
+                priority={priorityTrigger.value}
+                className="!h-3 !w-3"
+              />
             }
           >
-            {selected.label}
+            {priorityTrigger.label}
           </Pill>
         )}
       />

@@ -23,11 +23,12 @@ import {
   conceptIcon,
   Button,
   BARE_FIELD_CLASS,
+  Combobox,
   Input,
   Pill,
+  type PickerOption,
   GlassGroup,
   GlassInputRow,
-  GlassPickerRow,
   GlassRow,
   GlassSectionHeader,
   GlassToggleRow,
@@ -600,7 +601,7 @@ function ReadinessStrip({
 
 // ── Add / edit dialog ────────────────────────────────────────────────────────
 
-const TRANSPORT_OPTIONS = [
+const TRANSPORT_OPTIONS: PickerOption[] = [
   { value: `http`, label: MCP_TRANSPORT_LABELS.http },
   { value: `stdio`, label: MCP_TRANSPORT_LABELS.stdio },
 ]
@@ -627,7 +628,7 @@ function McpServerDialog({
     setDraft((current) => ({ ...current, ...fields }))
   const http = draft.transport === `http`
   const validation = validateMcpServerDraft(draft)
-  const authOptions = [
+  const authOptions: PickerOption[] = [
     { value: `none`, label: MCP_AUTH_LABELS.none },
     ...(http ? [{ value: `oauth`, label: MCP_AUTH_LABELS.oauth }] : []),
     { value: `secret`, label: MCP_AUTH_LABELS.secret },
@@ -657,11 +658,14 @@ function McpServerDialog({
               spellCheck={false}
               onChange={(event) => patch({ name: event.target.value })}
             />
-            <GlassPickerRow
-              label="Transport"
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Transport"
               value={draft.transport}
               options={TRANSPORT_OPTIONS}
-              onValueChange={(value) => {
+              onChange={(value) => {
+                if (value === null) return
                 const transport = value as McpTransport
                 patch({
                   transport,
@@ -716,11 +720,15 @@ function McpServerDialog({
                 patch(http ? { headerNames: names } : { envNames: names })
               }
             />
-            <GlassPickerRow
-              label="Auth"
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Auth"
               value={draft.auth}
               options={authOptions}
-              onValueChange={(value) => patch({ auth: value as McpAuth })}
+              onChange={(value) => {
+                if (value !== null) patch({ auth: value as McpAuth })
+              }}
             />
             {draft.auth === `oauth` && (
               <ChipsRow

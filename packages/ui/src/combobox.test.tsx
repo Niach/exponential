@@ -455,6 +455,91 @@ describe(`Combobox — shell`, () => {
   })
 })
 
+describe(`Combobox — row and inline triggers (EXP-958)`, () => {
+  it(`row: the label leads, the picked option's own label node trails`, () => {
+    render(
+      <Combobox
+        options={[
+          { value: `a`, label: <em>Alpha</em> },
+          { value: `b`, label: `Beta` },
+        ]}
+        value="a"
+        onChange={vi.fn()}
+        triggerVariant="row"
+        mobileTitle="Repository"
+      />
+    )
+    const trigger = document.querySelector(`[data-slot=glass-picker-row]`)!
+    expect(trigger.tagName).toBe(`BUTTON`)
+    expect(trigger.textContent).toBe(`RepositoryAlpha`)
+    // The NODE, not the string summary — an icon inside a label survives.
+    expect(trigger.querySelector(`em`)?.textContent).toBe(`Alpha`)
+    fireEvent.click(trigger)
+    expect(rows()).toHaveLength(2)
+    expect(glyphs(`check`)).toHaveLength(1)
+  })
+
+  it(`row: nothing picked shows the placeholder, and disabled stays a row`, () => {
+    render(
+      <Combobox
+        options={OPTIONS}
+        value={null}
+        onChange={vi.fn()}
+        triggerVariant="row"
+        triggerLabel="Select a device"
+        mobileTitle="Runs on"
+        disabled
+      />
+    )
+    const trigger = document.querySelector(
+      `[data-slot=glass-picker-row]`
+    ) as HTMLButtonElement
+    expect(trigger.textContent).toBe(`Runs onSelect a device`)
+    expect(trigger.disabled).toBe(true)
+  })
+
+  it(`inline: one word of the sentence, named for the assistive tree`, () => {
+    const Glyph = (props: { className?: string }) => (
+      <svg data-testid="word-glyph" {...props} />
+    )
+    render(
+      <Combobox
+        options={[
+          { value: `mac`, label: `MacBook`, icon: Glyph as never },
+          { value: `srv`, label: `Server` },
+        ]}
+        value="mac"
+        onChange={vi.fn()}
+        triggerVariant="inline"
+        mobileTitle="Device"
+      />
+    )
+    const trigger = screen.getByRole(`button`, { name: `Device` })
+    expect(trigger.textContent).toBe(`MacBook`)
+    // The value's glyph rides the word, like it rides the rows.
+    expect(trigger.querySelector(`[data-testid=word-glyph]`)).toBeTruthy()
+    fireEvent.click(trigger)
+    expect(rows()).toHaveLength(2)
+  })
+
+  it(`inline: one option is not a choice — plain text, no button`, () => {
+    render(
+      <Combobox
+        options={[{ value: `mac`, label: `MacBook` }]}
+        value={null}
+        onChange={vi.fn()}
+        triggerVariant="inline"
+        mobileTitle="Device"
+      />
+    )
+    expect(screen.queryAllByRole(`button`)).toHaveLength(0)
+    const word = document.querySelector(`[data-slot=combobox-inline-word]`)!
+    // Nothing picked still reads as the only thing it could be.
+    expect(word.textContent).toBe(`MacBook`)
+    expect(word.getAttribute(`title`)).toBe(`Device`)
+  })
+})
+
 describe(`ComboboxList`, () => {
   it(`renders standalone, with no popover around it`, () => {
     const onChange = vi.fn()
