@@ -433,6 +433,7 @@ impl ActionInputPicks {
                 let picked = self.icon.get(&input.key).cloned();
                 crate::board_form::icon_picker(
                     format!("{prefix}-icon-{ix}"),
+                    crate::icons::registry::PICKABLE_ICONS,
                     picked.as_deref(),
                     None,
                     optional,

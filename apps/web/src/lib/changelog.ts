@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-18-device-icons`,
+    date: `2026-09-18`,
+    title: `Device icons and 36 more board icons`,
+    summary: `Give each machine its own icon, from a desktop, server or laptop to the Apple, Windows and Linux marks, and pick from 96 icons for boards and actions.`,
+    body: `- **Device icons**: the device settings carry an icon picker next to the name, on web, desktop, iOS and Android. Choose a monitor, a server, a laptop or the Apple, Windows or Linux mark; the pick shows on the devices list and in every device picker, for you and for teammates who see a shared server.
+- **Defaults stay**: a machine you never touched keeps what it had, the monitor for a desktop app and the server for a CLI daemon.
+- **More icons**: the board and action icon picker grows from 60 to 96 icons, with music, camera, gift, store, truck, map, mountain, flame, crown, brain, fingerprint, wallet, smartphone and more.`,
+  },
+  {
     id: `2026-09-18-component-foundation`,
     date: `2026-09-18`,
     title: `One picker, one search field, one date picker`,

@@ -110,6 +110,9 @@ public extension SteerDevice {
             acpAgents: Self.decodeAgentArray(entity.acpAgents) ?? [],
             caps: Self.decodeStringArray(entity.caps) ?? [],
             kind: entity.kind,
+            // EXP-924: carried verbatim; the kind fallback lives in the ONE
+            // resolver (`DeviceIconDisplay`), not in the mapping.
+            icon: entity.icon,
             platform: entity.platform,
             online: DeviceLiveness.isOnline(lastSeenAt: entity.lastSeenAt, now: now),
             lastSeenAt: entity.lastSeenAt,

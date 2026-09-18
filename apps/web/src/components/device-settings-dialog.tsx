@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { contract } from "@exp/domain-contract"
+import type { DeviceIcon } from "@exp/db-schema/domain"
 import type { Device, SyncedDeviceWorktree } from "@/db/schema"
 import {
   conceptIcon,
@@ -34,8 +35,12 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  BARE_FIELD_CLASS,
+  DEVICE_ICON_OPTIONS,
+  getDeviceIconName,
   GlassGroup,
-  GlassInputRow,
+  IconPicker,
+  Input,
   GlassSectionHeader,
   GlassToggleRow,
   Pill,
@@ -284,6 +289,27 @@ export function DeviceSettingsDialog({
     setNameDraft(row.label)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.id, row?.label, namePending, savingName])
+
+  // ── Icon (EXP-924) ───────────────────────────────────────────────────────
+  // Mutates on pick. The pick shows at once and yields to the synced row as
+  // soon as it changes (our own write landing, or a pick made elsewhere).
+  const [iconPick, setIconPick] = useState<DeviceIcon | null>(null)
+  useEffect(() => setIconPick(null), [row?.id, row?.icon])
+  const iconName = iconPick ?? getDeviceIconName(row ?? {})
+  const pickIcon = (next: DeviceIcon) => {
+    if (!deviceId || next === iconName) return
+    setIconPick(next)
+    setSectionErrors((current) => ({ ...current, name: `` }))
+    void trpc.devices.setIcon
+      .mutate({ deviceId, icon: next })
+      .catch((error) => {
+        setIconPick(null)
+        setSectionErrors((current) => ({
+          ...current,
+          name: trpcErrorMessage(error, `That didn't go through. Try again.`),
+        }))
+      })
+  }
 
   const draft = drafts[agentTab] ?? agentSeed(agentTab, null)
 
@@ -675,36 +701,47 @@ export function DeviceSettingsDialog({
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto sm:grid sm:grid-cols-[minmax(0,1fr)_20rem] sm:grid-rows-[minmax(0,1fr)] sm:gap-5 sm:overflow-y-visible">
           <div className="flex shrink-0 flex-col gap-2 *:shrink-0 sm:min-h-0 sm:shrink sm:overflow-y-auto">
             {/* ── Name ─────────────────────────────────────────────────── */}
+            {/* EXP-924: the identity row every form shares (board, action):
+                the icon picker, then the bare name field. */}
             <GlassGroup>
-              <GlassInputRow
-                id="device-settings-name"
-                label="Name"
-                value={nameDraft}
-                maxLength={255}
-                trailing={
-                  savingName ? (
-                    <LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
-                  ) : null
-                }
-                onChange={(event) => {
-                  setNameDraft(event.target.value)
-                  scheduleName()
-                }}
-                onFocus={() => {
-                  nameFocusedRef.current = true
-                }}
-                onBlur={() => {
-                  nameFocusedRef.current = false
-                  // A rename that arrived while the field was focused was
-                  // deliberately skipped — catch up unless an edit is owed.
-                  const hadPending = latest.current.namePending
-                  flushName()
-                  if (!hadPending && row) setNameDraft(row.label)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === `Enter`) flushName()
-                }}
-              />
+              <div className="flex items-center gap-2 px-4 py-3">
+                <IconPicker
+                  id="device-settings-icon"
+                  value={iconName}
+                  options={DEVICE_ICON_OPTIONS}
+                  onChange={(next) => next && pickIcon(next)}
+                  disabled={!row}
+                />
+                <Input
+                  id="device-settings-name"
+                  aria-label="Name"
+                  placeholder="Name"
+                  className={BARE_FIELD_CLASS}
+                  value={nameDraft}
+                  maxLength={255}
+                  onChange={(event) => {
+                    setNameDraft(event.target.value)
+                    scheduleName()
+                  }}
+                  onFocus={() => {
+                    nameFocusedRef.current = true
+                  }}
+                  onBlur={() => {
+                    nameFocusedRef.current = false
+                    // A rename that arrived while the field was focused was
+                    // deliberately skipped — catch up unless an edit is owed.
+                    const hadPending = latest.current.namePending
+                    flushName()
+                    if (!hadPending && row) setNameDraft(row.label)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === `Enter`) flushName()
+                  }}
+                />
+                {savingName && (
+                  <LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
+                )}
+              </div>
             </GlassGroup>
             {sectionErrors.name && (
               <p className="px-1 text-xs text-destructive">

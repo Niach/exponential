@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +49,7 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
@@ -56,12 +58,14 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.defaultModelFor
+import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The device-settings sheet (EXP-481) — the mobile twin of the web dialog,
@@ -115,6 +119,7 @@ fun DeviceSettingsSheet(
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
     val latestVersions by agentsViewModel.latestVersions.collectAsStateWithLifecycle()
     val deviceBusy by agentsViewModel.deviceBusy.collectAsStateWithLifecycle()
+    val iconError by agentsViewModel.deviceIconError.collectAsStateWithLifecycle()
 
     // A rename/remove/update on THIS machine is in flight: its controls stay
     // put but disable until the change lands.
@@ -126,6 +131,10 @@ fun DeviceSettingsSheet(
 
     var label by remember { mutableStateOf(device.deviceLabel.ifBlank { device.deviceId }) }
     var nameFocused by remember { mutableStateOf(false) }
+    // EXP-924: the optimistic icon pick, drawn over the synced row until the
+    // write's own delta arrives (which clears it) — or until it fails, when the
+    // picker hands the previous value back.
+    var iconPick by remember(device.rowId) { mutableStateOf<String?>(null) }
     var editableAgents by remember { mutableStateOf(editableAgents(device)) }
     var defaultAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
     var agentTab by remember { mutableStateOf(defaultAgent) }
@@ -145,6 +154,9 @@ fun DeviceSettingsSheet(
             label = device.deviceLabel.ifBlank { device.deviceId }
         }
     }
+    // The synced icon moved (our own write landing, or another client's) — the
+    // row is the truth again, so the optimistic pick steps aside.
+    LaunchedEffect(device.icon) { iconPick = null }
     LaunchedEffect(device.launchDefaults, device.agents, device.unauthedAgents) {
         if (!viewModel.hasPendingDefaults()) {
             editableAgents = editableAgents(device)
@@ -185,53 +197,77 @@ fun DeviceSettingsSheet(
                 .verticalScroll(rememberScrollState()),
         ) {
             // ── Name ─────────────────────────────────────────────────────
+            // EXP-924: ONE identity row — the icon picker then the name, the
+            // board form's layout (a machine IS its glyph and its name). A
+            // pick writes straight through and is drawn optimistically until
+            // the devices shape echoes it back; a failure reverts and captions
+            // this row, exactly where a failed rename lands.
             SectionHeader("Name", modifier = Modifier.padding(horizontal = 16.dp))
-            OptionGroup {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    GlassTextField(
-                        value = label,
-                        onValueChange = { next ->
-                            label = next.take(MAX_DEVICE_LABEL)
-                            viewModel.queueRename(
-                                device.deviceId,
-                                label.trim()
-                                    .takeIf { it.isNotEmpty() && it != device.deviceLabel },
-                            )
-                        },
-                        singleLine = true,
-                        // Inside the group — the group owns the chrome.
-                        bordered = false,
-                        modifier = Modifier
-                            .weight(1f)
-                            .onFocusChanged {
-                                nameFocused = it.isFocused
-                                if (!it.isFocused) {
-                                    // A rename that arrived while focused
-                                    // was deliberately skipped — catch up
-                                    // unless an edit is owed.
-                                    val hadPending = viewModel.hasPendingRename()
-                                    viewModel.flushPending()
-                                    if (!hadPending) {
-                                        label = device.deviceLabel
-                                            .ifBlank { device.deviceId }
-                                    }
-                                }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            ) {
+                IconPicker(
+                    // The RESOLVED name, so a machine that never picked one
+                    // shows its kind default selected rather than nothing.
+                    selected = deviceIconName(iconPick ?: device.icon, device.isServer),
+                    onSelect = { picked ->
+                        val previous = iconPick
+                        iconPick = picked
+                        agentsViewModel.setDeviceIcon(device.deviceId, picked) {
+                            iconPick = previous
+                        }
+                    },
+                    pickable = ExpIcons.devicePickable,
+                )
+                Column(modifier = Modifier.weight(1f).glassGroup()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        GlassTextField(
+                            value = label,
+                            onValueChange = { next ->
+                                label = next.take(MAX_DEVICE_LABEL)
+                                viewModel.queueRename(
+                                    device.deviceId,
+                                    label.trim()
+                                        .takeIf { it.isNotEmpty() && it != device.deviceLabel },
+                                )
                             },
-                    )
-                    if (nameBusy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            singleLine = true,
+                            // Inside the group — the group owns the chrome.
+                            bordered = false,
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged {
+                                    nameFocused = it.isFocused
+                                    if (!it.isFocused) {
+                                        // A rename that arrived while focused
+                                        // was deliberately skipped — catch up
+                                        // unless an edit is owed.
+                                        val hadPending = viewModel.hasPendingRename()
+                                        viewModel.flushPending()
+                                        if (!hadPending) {
+                                            label = device.deviceLabel
+                                                .ifBlank { device.deviceId }
+                                        }
+                                    }
+                                },
                         )
-                        Spacer(Modifier.width(12.dp))
+                        if (nameBusy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
                     }
                 }
             }
-            ErrorCaption(nameError)
+            ErrorCaption(nameError ?: iconError)
             Spacer(Modifier.height(8.dp))
 
             // ── Default machine (EXP-622) ───────────────────────────────

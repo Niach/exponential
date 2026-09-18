@@ -12,12 +12,15 @@
 
 export {
   CUSTOM_ICONS,
+  DEVICE_ICONS,
   ICON_NAMES,
   PICKABLE_ICONS,
   SEMANTIC_ICONS,
+  isDeviceIcon,
   isIconName,
   isPickableIcon,
   type CustomIcon,
+  type DeviceIconName,
   type IconConcept,
   type IconName,
   type PickableIcon,

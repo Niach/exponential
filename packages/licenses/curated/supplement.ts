@@ -108,6 +108,17 @@ export const ICONS: CuratedEntry[] = [
       { label: `ISC License — Lucide`, path: `apps/desktop/assets/icons/LICENSE.txt` },
     ],
   },
+  {
+    title: `selfh.st/icons`,
+    clients: [`android`, `desktop`, `ios`, `web`],
+    body: [
+      `EXP-924: the device icon picker offers three operating-system marks Lucide does not ship (os-apple, os-windows, os-linux). Their outlines come from selfh.st/icons (https://github.com/selfhst/icons, the apple-light, microsoft-windows-light and linux-light SVGs, kept unmodified under packages/icons/svg/). packages/icons scales each single path from its 512-unit viewBox into an 18-unit live area centred in Lucide's 24-unit grid and emits it into all four clients; that scaling is the only change made.`,
+      `The collection is licensed CC-BY-4.0. The Apple logo, the Windows logo and Tux are trademarks of their respective owners, used nominatively to let a user label a machine by the operating system it runs; the licence below covers the icon files, not the marks.`,
+    ],
+    reproduce: [
+      { label: `CC-BY-4.0 — selfh.st/icons`, path: `packages/licenses/texts/spdx/CC-BY-4.0.txt` },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

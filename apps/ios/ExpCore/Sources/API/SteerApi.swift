@@ -350,6 +350,10 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     /// EXP-403 registry fields (registry rows only).
     /// `desktop` | `server`; absent on relay-only rows (always a desktop).
     public let kind: String?
+    /// EXP-924: the owner-picked display icon (contract `deviceIcon`); nil on
+    /// relay-only rows and until somebody picks one. Never drawn raw — the
+    /// glyph comes from `DeviceIconDisplay`, which falls back to the kind.
+    public let icon: String?
     public let platform: String?
     public let online: Bool?
     /// ISO timestamp of the last register/heartbeat; nil for relay-only rows.
@@ -407,6 +411,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         acpAgents: [String] = [],
         caps: [String]? = nil,
         kind: String? = nil,
+        icon: String? = nil,
         platform: String? = nil,
         online: Bool? = nil,
         lastSeenAt: String? = nil,
@@ -431,6 +436,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         self.acpAgents = acpAgents
         self.caps = caps
         self.kind = kind
+        self.icon = icon
         self.platform = platform
         self.online = online
         self.lastSeenAt = lastSeenAt
@@ -450,7 +456,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case deviceId, deviceLabel, connectedAt, agents, unauthedAgents, acpAgents, caps
-        case kind, platform, online, lastSeenAt, registered, version, updateRequested
+        case kind, icon, platform, online, lastSeenAt, registered, version, updateRequested
         case updateBlocked, sharedTeamIds, owner, isDefault, agentAccounts, agentUsage
         case agentUsageAt, launchDefaults, rowId
     }
@@ -470,6 +476,7 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
         acpAgents = try c.decodeIfPresent([String].self, forKey: .acpAgents) ?? []
         caps = try c.decodeIfPresent([String].self, forKey: .caps)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
         platform = try c.decodeIfPresent(String.self, forKey: .platform)
         online = try c.decodeIfPresent(Bool.self, forKey: .online)
         lastSeenAt = try c.decodeIfPresent(String.self, forKey: .lastSeenAt)

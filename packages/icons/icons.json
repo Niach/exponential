@@ -1,6 +1,6 @@
 {
   "$schema": "./icons.schema.json",
-  "description": "EXP-273 — the single icon registry for web, iOS, Android and desktop. Every value is a Lucide icon name as shipped by lucide-react (the version in apps/web/package.json); the generator reads that package's `__iconNode` geometry, so all four clients render byte-identical art. `pickable` is the user-facing icon set (board icon picker + action icon picker) and MUST stay byte-equal to contract.json's boardIcon.values — append only, never reorder or remove, or stored boards.icon values are orphaned. `semantic` maps a stable concept id to a Lucide name so re-pointing an icon is a one-line edit here. `custom` (EXP-314) holds hand-authored glyphs Lucide does not ship — same IconNode geometry format as lucide's `__iconNode`, flowing through the identical 4-platform emit; names must not collide with a Lucide icon or a hand-maintained desktop brand mark, and glyphs must stay single-color (desktop rasterizes SVGs to a one-tint alpha mask). EXP-317: a concept only unifies the clients that RESOLVE through it — every cross-client surface must name one (`conceptIcon()` on web, `registry::CONST` on desktop, `AppIcons.`/`ExpIcons.` on iOS/Android) instead of importing a glyph directly, and `apps/web/src/lib/icons.test.ts` gates the three ways that used to slip: settings-nav concept parity between web and desktop, gpui-component `IconName` on desktop, and deprecated lucide aliases on web.",
+  "description": "EXP-273 — the single icon registry for web, iOS, Android and desktop. Every value is a Lucide icon name as shipped by lucide-react (the version in apps/web/package.json); the generator reads that package's `__iconNode` geometry, so all four clients render byte-identical art. `pickable` is the user-facing icon set (board icon picker + action icon picker) and MUST stay byte-equal to contract.json's boardIcon.values — append only, never reorder or remove, or stored boards.icon values are orphaned. `devicePickable` (EXP-924) is the SECOND user-facing set, the device icon picker (device types + OS marks), byte-equal to contract.json's deviceIcon.values and append-only for the same reason; its first two entries are the desktop/server kind defaults a NULL devices.icon resolves to. `imported` (EXP-924) holds single-path FILLED marks Lucide does not ship (the OS logos, from selfh.st/icons, CC-BY-4.0): the generator reads each `file` under packages/icons/, scales its one path from the source viewBox into the 24-unit grid and emits it as a filled `custom`-style glyph on all four clients. `semantic` maps a stable concept id to a Lucide name so re-pointing an icon is a one-line edit here. `custom` (EXP-314) holds hand-authored glyphs Lucide does not ship — same IconNode geometry format as lucide's `__iconNode`, flowing through the identical 4-platform emit; names must not collide with a Lucide icon or a hand-maintained desktop brand mark, and glyphs must stay single-color (desktop rasterizes SVGs to a one-tint alpha mask). EXP-317: a concept only unifies the clients that RESOLVE through it — every cross-client surface must name one (`conceptIcon()` on web, `registry::CONST` on desktop, `AppIcons.`/`ExpIcons.` on iOS/Android) instead of importing a glyph directly, and `apps/web/src/lib/icons.test.ts` gates the three ways that used to slip: settings-nav concept parity between web and desktop, gpui-component `IconName` on desktop, and deprecated lucide aliases on web.",
   "pickable": [
     "code",
     "square-kanban",
@@ -61,7 +61,51 @@
     "activity",
     "chart-line",
     "scale",
-    "car"
+    "car",
+    "music",
+    "camera",
+    "video",
+    "image",
+    "headphones",
+    "mic",
+    "gift",
+    "shopping-bag",
+    "store",
+    "truck",
+    "map",
+    "mountain",
+    "tree-pine",
+    "flame",
+    "droplet",
+    "moon",
+    "anchor",
+    "crown",
+    "gem",
+    "award",
+    "dumbbell",
+    "stethoscope",
+    "microscope",
+    "atom",
+    "brain",
+    "eye",
+    "fingerprint",
+    "hammer",
+    "paintbrush",
+    "calculator",
+    "landmark",
+    "wallet",
+    "tag",
+    "bookmark",
+    "newspaper",
+    "smartphone"
+  ],
+  "devicePickable": [
+    "monitor",
+    "server",
+    "laptop",
+    "os-apple",
+    "os-windows",
+    "os-linux"
   ],
   "semantic": {
     "nav-search": "search",
@@ -308,6 +352,20 @@
     "run-resume": "rotate-ccw",
     "work-faces": "layers-2",
     "work-results": "images"
+  },
+  "imported": {
+    "os-apple": {
+      "file": "svg/os-apple.svg",
+      "source": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/svg/apple-light.svg"
+    },
+    "os-windows": {
+      "file": "svg/os-windows.svg",
+      "source": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/svg/microsoft-windows-light.svg"
+    },
+    "os-linux": {
+      "file": "svg/os-linux.svg",
+      "source": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/svg/linux-light.svg"
+    }
   },
   "custom": {
     "progress-1-4": [

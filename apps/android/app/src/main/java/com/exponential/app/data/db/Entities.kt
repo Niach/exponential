@@ -588,6 +588,11 @@ data class DeviceEntity(
     /** `desktop` (the IDE) or `server` (a headless `exponential` daemon). */
     val kind: String = "desktop",
     val platform: String? = null,
+    // EXP-924: the owner-picked display icon (contract `deviceIcon`, the
+    // registry's `devicePickable` set). NULL — which is what every machine
+    // registers with, and what a row synced from an older server carries — is
+    // the KIND default the clients derive (`deviceIconName`), never a hole.
+    val icon: String? = null,
     val version: String? = null,
     // jsonb string arrays, kept as raw JSON text and parsed at the consumer
     // (DeviceRows) — the ActionEntity.inputs idiom.

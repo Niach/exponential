@@ -616,6 +616,7 @@ impl Render for BoardDetailPane {
         let fallback_icon = if board.repository_id.is_some() { "code" } else { "square-kanban" };
         let icon_picker = crate::board_form::icon_picker(
             "board-detail",
+            crate::icons::registry::PICKABLE_ICONS,
             Some(board.icon.as_deref().unwrap_or(fallback_icon)),
             board.color.as_deref(),
             false,

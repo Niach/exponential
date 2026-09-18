@@ -160,8 +160,9 @@ struct OnboardingDevicesStep: View {
             settingsTarget = DeviceSettingsTarget(id: device.deviceId)
         } label: {
             HStack(spacing: 12) {
+                // EXP-924: the owner's pick, else the kind default.
                 AppIcon(
-                    device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                    DeviceIconDisplay.iconName(for: device),
                     size: AppIcon.Size.medium
                 )
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))

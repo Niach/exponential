@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -31,8 +33,12 @@ import com.exponential.app.ui.theme.TextEmphasis
 /**
  * EXP-575: THE icon picker — one slim 36dp swatch showing the current pick
  * that opens the curated grid ([IconSwatchGrid]) in a [GlassSheet], so the
- * 60-glyph grid never sits inline in a form. Every surface that picks an icon
- * (create-board form, Start-coding `icon` inputs) renders this.
+ * 96-glyph grid never sits inline in a form. Every surface that picks an icon
+ * (create-board form, Start-coding `icon` inputs, the device-settings sheet)
+ * renders this.
+ *
+ * [pickable] is WHICH curated set the sheet offers — the board/action one by
+ * default, `ExpIcons.devicePickable` for a device (EXP-924).
  *
  * EXP-771, the shape rule: a circle is an ACTION and a rounded square is a
  * PICKER, so this trigger and the grid's cells are rounded squares at the
@@ -52,9 +58,10 @@ fun IconPicker(
     allowsNone: Boolean = false,
     /** Tint of the picked glyph (the board form passes its color). */
     accentColor: Color = MaterialTheme.colorScheme.primary,
+    pickable: List<String> = ExpIcons.pickable,
 ) {
     var open by remember { mutableStateOf(false) }
-    val picked = pickableIconName(selected)
+    val picked = pickableIconName(selected, pickable)
     val glyph = picked?.let { ExpIcons.byName(it) }
     val borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary)
     val shape = RoundedCornerShape(GlassTokens.RowRadius)
@@ -101,7 +108,15 @@ fun IconPicker(
                 null
             },
         ) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+            // A GlassSheet never scrolls its own slot — the caller owns the
+            // scroller. The board set is 96 glyphs (EXP-924 grew it from 60),
+            // which is taller than the fitted sheet's 85 % cap on every phone,
+            // so without this the last rows are simply unreachable.
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+            ) {
                 IconSwatchGrid(
                     selected = picked,
                     onSelect = {
@@ -109,6 +124,7 @@ fun IconPicker(
                         open = false
                     },
                     accentColor = accentColor,
+                    pickable = pickable,
                     modifier = Modifier.padding(bottom = 12.dp),
                 )
             }

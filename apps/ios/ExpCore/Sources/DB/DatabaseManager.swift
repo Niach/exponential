@@ -1702,6 +1702,29 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v45 (EXP-924): `devices.icon` rides the devices shape — the
+        // owner-picked display glyph from the DEVICE icon set (contract
+        // `deviceIcon`), NULL meaning the kind default every client derives.
+        // Same guarded additive ALTER + offset reset as v21's `is_default`
+        // (shape key `devices`).
+        migrator.registerMigration("v45_device_icon") { db in
+            guard try db.tableExists("devices") else { return }
+            let existing = Set(try db.columns(in: "devices").map(\.name))
+            if !existing.contains("icon") {
+                try db.alter(table: "devices") { t in
+                    t.add(column: "icon", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'devices'
+                    """)
+            }
+        }
+
         return migrator
     }
 

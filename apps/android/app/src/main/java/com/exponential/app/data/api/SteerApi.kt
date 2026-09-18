@@ -203,6 +203,12 @@ data class SteerDevice(
     // ── devices.list registry fields (EXP-403) ───────────────────────────────
     /** `desktop` (the IDE) or `server` (a headless `exponential` daemon). */
     @SerialName("kind") val kind: String = KIND_DESKTOP,
+    /**
+     * EXP-924: the owner-picked display icon (contract `deviceIcon`). Null —
+     * the state every freshly registered machine is in — means the KIND
+     * default; resolve it through `deviceIconName`/`deviceIcon`, never here.
+     */
+    @SerialName("icon") val icon: String? = null,
     @SerialName("platform") val platform: String? = null,
     /** Connected to the relay right now. Relay-only rows omit it and ARE online. */
     @SerialName("online") val online: Boolean = true,

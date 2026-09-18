@@ -91,6 +91,19 @@ class DeviceRowsTest {
         assertTrue(device.isMine)
     }
 
+    // EXP-924: the pick rides through RAW — resolving it (and the kind
+    // default a NULL means) belongs to the ONE UI resolver, so the mapping
+    // must not invent a value here.
+    @Test
+    fun `the icon pick maps through, absent stays absent`() {
+        assertEquals(
+            "os-linux",
+            entity { copy(icon = "os-linux") }
+                .toSteerDevice(nowMs, currentUserId = "me").icon,
+        )
+        assertNull(entity().toSteerDevice(nowMs, currentUserId = "me").icon)
+    }
+
     @Test
     fun `a teammate's row carries its owner`(): Unit {
         val device = entity { copy(userId = "them") }

@@ -348,6 +348,7 @@ impl Render for ActionEditorDialogView {
         let icon_view = cx.entity().clone();
         let icon_picker = crate::board_form::icon_picker(
             "action-edit",
+            crate::icons::registry::PICKABLE_ICONS,
             Some(&self.icon),
             None,
             false,

@@ -1338,6 +1338,11 @@ export const devices = pgTable(
     label: varchar({ length: 255 }).notNull(),
     kind: varchar({ length: 32 }).notNull(),
     platform: varchar({ length: 64 }),
+    // EXP-924: the owner-picked display icon (deviceIconValues in domain.ts /
+    // the contract's deviceIcon). NULL = the kind default every client
+    // derives (`monitor` for a desktop, `server` for a daemon), so register
+    // never writes it and new machines keep those two glyphs.
+    icon: varchar({ length: 32 }),
     // The client's marketing version (`0.8.52`), refreshed on every register.
     version: varchar({ length: 32 }),
     // Web "Update" button (EXP-403): set by devices.requestUpdate, surfaced

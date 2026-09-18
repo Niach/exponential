@@ -546,6 +546,7 @@ impl CreateBoardDialogView {
         let view = cx.entity().clone();
         crate::board_form::icon_picker(
             "create-board",
+            crate::icons::registry::PICKABLE_ICONS,
             Some(self.icon),
             Some(&self.color),
             false,

@@ -3,6 +3,13 @@ copied so the desktop app's ExpIcon set is self-contained (masterplan-v3
 §4.7 — several glyphs the app needs are not in gpui-component's bundled
 icon set). File names match the Lucide glyph names one-to-one.
 
+Exceptions — three operating-system marks (EXP-924), not Lucide glyphs:
+- os-apple.svg, os-windows.svg, os-linux.svg — from selfh.st/icons
+  (https://github.com/selfhst/icons, CC-BY-4.0), scaled into Lucide's
+  24-unit grid by packages/icons/scripts/generate.ts (sources in
+  packages/icons/svg/). Offered in the device icon picker; the marks are
+  trademarks of their respective owners, used nominatively.
+
 Exceptions — two sign-in brand marks (EXP-9), not Lucide glyphs:
 - apple.svg  — Apple logo glyph (path from Simple Icons, CC0), rendered
   monochrome on the "Sign in with Apple" button.

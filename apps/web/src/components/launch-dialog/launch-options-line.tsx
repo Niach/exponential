@@ -11,6 +11,7 @@ import {
   Label,
   Switch,
   conceptIcon,
+  getDeviceIcon,
 } from "@exp/ui"
 import {
   CLI_DEFAULT_EFFORT,
@@ -54,8 +55,6 @@ import { NO_REPO } from "@/lib/chat-repo"
 const MoreIcon = conceptIcon(`ui-more`)
 // EXP-862: a picker whose VALUE carries a glyph carries it on the menu rows
 // too — here the machine's kind, the same pair the Devices list draws.
-const DesktopIcon = conceptIcon(`ui-device`)
-const ServerIcon = conceptIcon(`ui-server`)
 
 export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   const { launch, candidateDevices, subject } = model
@@ -107,7 +106,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             label: `${candidate.deviceLabel || candidate.deviceId}${
               candidate.owner ? ` — ${candidate.owner.name}` : ``
             }`,
-            icon: candidate.kind === `server` ? ServerIcon : DesktopIcon,
+            icon: getDeviceIcon(candidate),
           }))}
           onChange={(value) => {
             if (value !== null) launch.setDeviceId(value)

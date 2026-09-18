@@ -21,7 +21,7 @@ final class DeviceEntityDecodingTests: XCTestCase {
         // Postgres text.
         let device = try decodeDevice("""
         {"id":"row-1","user_id":"u1","device_id":"dev-1","label":"buildbox",
-        "kind":"server","platform":"linux","version":"0.9.0",
+        "kind":"server","icon":"os-linux","platform":"linux","version":"0.9.0",
         "agents":["claude","codex"],"caps":["actions","resume","worktrees"],
         "unauthed_agents":["codex"],
         "launch_defaults":{"defaultAgent":"codex","agents":{"claude":{"model":"fable","ultracode":true}}},
@@ -34,6 +34,8 @@ final class DeviceEntityDecodingTests: XCTestCase {
         XCTAssertEqual(device.deviceId, "dev-1")
         XCTAssertEqual(device.activeSessions, 2)
         XCTAssertEqual(device.sharedTeamIds, ["team-1", "team-2"])
+        // EXP-924: the owner's icon pick rides the row verbatim.
+        XCTAssertEqual(device.icon, "os-linux")
         XCTAssertNil(device.updateRequestedAt)
         // jsonb columns land as stored JSON text, type-faithfully — the
         // launchDefaults booleans must survive the round trip as real bools.
@@ -58,6 +60,9 @@ final class DeviceEntityDecodingTests: XCTestCase {
         """)
         XCTAssertEqual(device.label, "laptop")
         XCTAssertNil(device.kind)
+        // EXP-924: a pre-EXP-924 fixture carries no `icon` key at all, and an
+        // explicit null is the machine that never picked one — both decode.
+        XCTAssertNil(device.icon)
         XCTAssertNil(device.agents)
         XCTAssertEqual(device.activeSessions, 0)
         XCTAssertNil(device.lastSeenAt)
@@ -202,6 +207,22 @@ final class DeviceEntityDecodingTests: XCTestCase {
         // The mapping carries the set through unchanged.
         let wire = try decodeDevice(base + #","kind":"server","shared_team_ids":"{\#(a)}"}"#)
         XCTAssertEqual(SteerDevice(entity: wire, currentUserId: "u1").sharedTeamIds, [a])
+    }
+
+    // EXP-924: `icon` is a nullable varchar — present, explicitly null, and
+    // absent (a snapshot taken before the column existed) all decode, and the
+    // mapping carries the value through verbatim: the kind fallback belongs to
+    // the ONE resolver, not to the row.
+    func testDecodesIconFromValueNullAndAbsence() throws {
+        let base = #"{"id":"row-11","user_id":"u1","device_id":"dev-11","label":"box""#
+        XCTAssertEqual(try decodeDevice(base + #","icon":"laptop"}"#).icon, "laptop")
+        XCTAssertNil(try decodeDevice(base + #","icon":null}"#).icon)
+        XCTAssertNil(try decodeDevice(base + "}").icon)
+
+        let picked = try decodeDevice(base + #","kind":"server","icon":"os-apple"}"#)
+        XCTAssertEqual(SteerDevice(entity: picked, currentUserId: "u1").icon, "os-apple")
+        let unpicked = try decodeDevice(base + #","kind":"server"}"#)
+        XCTAssertNil(SteerDevice(entity: unpicked, currentUserId: "u1").icon)
     }
 
     func testDecodesWorktreeWithPostgresTextBool() throws {

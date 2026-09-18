@@ -48,17 +48,18 @@ struct AgentOptionsRow: View {
                     ForEach(model.candidateDevices) { candidate in
                         // EXP-862: every picker menu whose selected value shows
                         // an icon shows it on the items too — here the machine's
-                        // own kind glyph, exactly as the trigger draws it.
+                        // own glyph (EXP-924: its owner's pick, else the kind
+                        // default), exactly as the trigger draws it.
                         GlassMenuItem(
                             LaunchVocabulary.deviceCaption(candidate),
-                            icon: candidate.isServer ? AppIcons.uiServer : AppIcons.uiDevice
+                            icon: DeviceIconDisplay.iconName(for: candidate)
                         ) {
                             model.selectDevice(candidate.deviceId)
                         }
                     }
                 } label: {
                     OptionPillLabel(
-                        icon: device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                        icon: DeviceIconDisplay.iconName(for: device),
                         text: LaunchVocabulary.deviceName(device)
                     )
                 }
@@ -66,7 +67,7 @@ struct AgentOptionsRow: View {
                 .accessibilityIdentifier("agent-device-pill")
             } else {
                 OptionPillLabel(
-                    icon: device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                    icon: DeviceIconDisplay.iconName(for: device),
                     text: LaunchVocabulary.deviceName(device),
                     chevron: false
                 )

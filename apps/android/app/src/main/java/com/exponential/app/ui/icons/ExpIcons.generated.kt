@@ -4,7 +4,10 @@
 // The icon geometry reproduced in this file is from Lucide
 // (https://lucide.dev) and is licensed ISC. Glyphs listed under icons.json
 // `custom` are Exponential's own work, licensed Apache-2.0 with the rest of
-// this repository (see the top-level LICENSE).
+// this repository (see the top-level LICENSE). Marks listed under `imported`
+// (the OS logos) are from selfh.st/icons (https://github.com/selfhst/icons),
+// licensed CC-BY-4.0, scaled into Lucide's 24-unit grid; the logos themselves
+// are trademarks of their respective owners.
 //
 // ISC License
 //
@@ -89,6 +92,38 @@ public object ExpIcons {
         ).apply {
             addPath(
                 addPathNodes("M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `anchor`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "anchor",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 22V8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 12H2a10 10 0 0 0 20 0h-3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 5A3 3 0 1 0 15 5A3 3 0 1 0 9 5Z"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -293,6 +328,63 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `atom`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "atom",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M11 12A1 1 0 1 0 13 12A1 1 0 1 0 11 12Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M20.2 20.2c2.04-2.03.02-7.36-4.5-11.9-4.54-4.52-9.87-6.54-11.9-4.5-2.04 2.03-.02 7.36 4.5 11.9 4.54 4.52 9.87 6.54 11.9 4.5Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15.7 15.7c4.52-4.54 6.54-9.87 4.5-11.9-2.03-2.04-7.36-.02-11.9 4.5-4.52 4.54-6.54 9.87-4.5 11.9 2.03 2.04 7.36.02 11.9-4.5Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `award`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "award",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 8A6 6 0 1 0 18 8A6 6 0 1 0 6 8Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `ban`: ImageVector by lazy {
         ImageVector.Builder(
             name = "ban",
@@ -417,6 +509,24 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `bookmark`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "bookmark",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -565,6 +675,73 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M12 13.5V8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `brain`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "brain",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 18V5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17.997 5.125a4 4 0 0 1 2.526 5.77"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 18a4 4 0 0 0 2-7.464"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 18a4 4 0 0 1-2-7.464"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6.003 5.125a4 4 0 0 0-2.526 5.77"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -873,6 +1050,87 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `calculator`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "calculator",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M6 2H18A2 2 0 0 1 20 4V20A2 2 0 0 1 18 22H6A2 2 0 0 1 4 20V4A2 2 0 0 1 6 2Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 6L16 6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16 14L16 18"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16 10h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 10h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 10h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 14h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 14h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 18h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 18h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `calendar`: ImageVector by lazy {
         ImageVector.Builder(
             name = "calendar",
@@ -985,6 +1243,31 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M16 18h.01"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `camera`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "camera",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 13A3 3 0 1 0 15 13A3 3 0 1 0 9 13Z"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -1968,6 +2251,70 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `droplet`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "droplet",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `dumbbell`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "dumbbell",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M17.596 12.768a2 2 0 1 0 2.829-2.829l-1.768-1.767a2 2 0 0 0 2.828-2.829l-2.828-2.828a2 2 0 0 0-2.829 2.828l-1.767-1.768a2 2 0 1 0-2.829 2.829z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m2.5 21.5 1.4-1.4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m20.1 3.9 1.4-1.4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5.343 21.485a2 2 0 1 0 2.829-2.828l1.767 1.768a2 2 0 1 0 2.829-2.829l-6.364-6.364a2 2 0 1 0-2.829 2.829l1.768 1.767a2 2 0 0 0-2.828 2.829z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m9.6 14.4 4.8-4.8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `ellipsis`: ImageVector by lazy {
         ImageVector.Builder(
             name = "ellipsis",
@@ -2323,6 +2670,24 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `flame`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "flame",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `flask-conical`: ImageVector by lazy {
         ImageVector.Builder(
             name = "flask-conical",
@@ -2543,6 +2908,77 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `gem`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "gem",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M10.5 3 8 9l4 13 4-13-2.5-6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17 3a2 2 0 0 1 1.6.8l3 4a2 2 0 0 1 .013 2.382l-7.99 10.986a2 2 0 0 1-3.247 0l-7.99-10.986A2 2 0 0 1 2.4 7.8l2.998-3.997A2 2 0 0 1 7 3z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M2 9h20"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `gift`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "gift",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M4 8H20A1 1 0 0 1 21 9V11A1 1 0 0 1 20 12H4A1 1 0 0 1 3 11V9A1 1 0 0 1 4 8Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 8v13"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `git-branch`: ImageVector by lazy {
         ImageVector.Builder(
             name = "git-branch",
@@ -2734,6 +3170,38 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M6 12.5V16a6 3 0 0 0 12 0v-3.5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `hammer`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "hammer",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m15 12-9.373 9.373a1 1 0 0 1-3.001-3L12 9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m18 15 4-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172v-.344a2 2 0 0 0-.586-1.414l-1.657-1.657A6 6 0 0 0 12.516 3H9l1.243 1.243A6 6 0 0 1 12 8.485V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -2936,6 +3404,24 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M17 17.5c2 1.5 4 .3 4-1.5a2 2 0 0 0-2-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `headphones`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "headphones",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -3197,6 +3683,84 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M2 15.5A5.5 5.5 0 1 0 13 15.5A5.5 5.5 0 1 0 2 15.5Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `landmark`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "landmark",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M10 18v-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M11.12 2.198a2 2 0 0 1 1.76.006l7.866 3.847c.476.233.31.949-.22.949H3.474c-.53 0-.695-.716-.22-.949z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14 18v-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 18v-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3 22h18"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M6 18v-7"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `laptop`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "laptop",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M18 5a2 2 0 0 1 2 2v8.526a2 2 0 0 0 .212.897l1.068 2.127a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45l1.068-2.127A2 2 0 0 0 4 15.526V7a2 2 0 0 1 2-2z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M20.054 15.987H3.946"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -3851,6 +4415,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `map`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "map",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 5.764v15"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 3.236v15"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `map-pin`: ImageVector by lazy {
         ImageVector.Builder(
             name = "map-pin",
@@ -4015,6 +4611,91 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `mic`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "mic",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M12 19v3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M19 10v2a7 7 0 0 1-14 0v-2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 2H12A3 3 0 0 1 15 5V12A3 3 0 0 1 12 15H12A3 3 0 0 1 9 12V5A3 3 0 0 1 12 2Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `microscope`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "microscope",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M6 18h8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3 22h18"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M14 22a7 7 0 1 0 0-14h-1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 14h2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 12a2 2 0 0 1-2-2V6h6v4a2 2 0 0 1-2 2Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 6V3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `minimize-2`: ImageVector by lazy {
         ImageVector.Builder(
             name = "minimize-2",
@@ -4150,6 +4831,42 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `moon`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "moon",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `mountain`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "mountain",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m8 3 4 8 5-5 5 15H2L8 3z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `move`: ImageVector by lazy {
         ImageVector.Builder(
             name = "move",
@@ -4203,6 +4920,113 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `music`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "music",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M9 18V5l12-2v13"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3 18A3 3 0 1 0 9 18A3 3 0 1 0 3 18Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 16A3 3 0 1 0 21 16A3 3 0 1 0 15 16Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `newspaper`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "newspaper",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M15 18h-5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 14h-8"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M11 6H17A1 1 0 0 1 18 7V9A1 1 0 0 1 17 10H11A1 1 0 0 1 10 9V7A1 1 0 0 1 11 6Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `os-apple`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "os-apple",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(addPathNodes("M18.859 9.138c-0.105 0.081 -1.948 1.118 -1.948 3.428c0 2.672 2.345 3.618 2.415 3.639c-0.011 0.056 -0.373 1.294 -1.238 2.556c-0.77 1.107 -1.575 2.215 -2.798 2.215s-1.54 -0.71 -2.953 -0.71c-1.378 0 -1.867 0.735 -2.985 0.735s-1.902 -1.027 -2.798 -2.285c-1.041 -1.48 -1.881 -3.779 -1.881 -5.959c0 -3.498 2.275 -5.354 4.514 -5.354c1.188 0 2.183 0.78 2.929 0.78c0.71 0 1.821 -0.83 3.175 -0.83c0.513 0 2.355 0.046 3.568 1.786m-4.212 -3.27c0.559 -0.664 0.956 -1.586 0.956 -2.507c0 -0.127 -0.011 -0.257 -0.035 -0.362c-0.911 0.035 -1.993 0.608 -2.647 1.364c-0.513 0.584 -0.991 1.505 -0.991 2.44c0 0.141 0.025 0.281 0.035 0.327c0.056 0.011 0.151 0.025 0.246 0.025c0.816 -0.004 1.842 -0.548 2.436 -1.287"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `os-linux`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "os-linux",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(addPathNodes("M19.471 17.752c-0.12 -0.109 -0.299 -0.19 -0.418 -0.25c-0.179 -0.07 -0.299 -0.162 -0.418 -0.267c-0.179 -0.109 -0.239 -0.232 -0.299 -0.362l-0.06 -0.439c-0.06 -0.281 -0.12 -0.461 -0.179 -0.541s-0.12 -0.13 -0.239 -0.13c0.12 -0.387 0.179 -0.787 0.179 -1.199c0 -0.83 -0.179 -1.603 -0.478 -2.201c-0.239 -0.654 -0.654 -1.311 -1.192 -1.905c-0.239 -0.359 -0.478 -0.654 -0.654 -0.953c-0.179 -0.239 -0.299 -0.478 -0.418 -0.714c-0.12 -0.179 -0.179 -0.418 -0.239 -0.654c-0.06 -0.299 -0.06 -0.538 -0.12 -0.714c0 -0.179 -0.06 -0.418 -0.06 -0.773c-0.06 -0.418 -0.06 -0.714 -0.12 -1.012c-0.06 -0.478 -0.179 -0.833 -0.299 -1.192c-0.179 -0.299 -0.359 -0.598 -0.598 -0.773c-0.179 -0.179 -0.418 -0.299 -0.654 -0.418c-0.299 -0.12 -0.538 -0.179 -0.714 -0.179C12.316 3 12.137 3 11.961 3c-0.478 0 -0.893 0.06 -1.252 0.179s-0.598 0.359 -0.773 0.598c-0.204 0.239 -0.341 0.538 -0.418 0.833c-0.077 0.299 -0.113 0.598 -0.113 1.012c0 0.538 0.028 1.132 0.088 1.73c0.067 0.598 0.095 0.953 0.095 1.072c0 0.239 -0.06 0.538 -0.172 0.773s-0.316 0.538 -0.626 0.893L8.344 10.629c-0.359 0.418 -0.584 0.833 -0.679 1.252c-0.12 0.478 -0.225 0.833 -0.327 1.072c-0.095 0.239 -0.225 0.478 -0.401 0.798l-0.207 0.376c-0.214 0.401 -0.316 0.703 -0.316 0.918c-0.011 0.035 -0.011 0.095 -0.011 0.162c0 0.095 0.025 0.172 0.07 0.232c-0.042 0.049 -0.07 0.095 -0.095 0.137c-0.011 0.028 -0.025 0.067 -0.035 0.102c-0.011 0.025 -0.025 0.077 -0.053 0.148c-0.025 0.07 -0.06 0.148 -0.102 0.246c-0.127 0.07 -0.207 0.102 -0.264 0.102H5.236c-0.13 0 -0.257 0.077 -0.387 0.225s-0.19 0.359 -0.19 0.619c0 0.084 0.025 0.281 0.07 0.591c0.049 0.316 0.07 0.496 0.07 0.555s-0.011 0.12 -0.025 0.179c-0.011 0.067 -0.035 0.12 -0.06 0.172c-0.025 0.06 -0.049 0.113 -0.084 0.165c-0.025 0.06 -0.06 0.12 -0.102 0.186c-0.042 0.06 -0.084 0.127 -0.123 0.19c-0.042 0.109 -0.06 0.211 -0.06 0.306s0.042 0.179 0.123 0.253c0.088 0.074 0.207 0.137 0.359 0.183c0.155 0.056 0.299 0.095 0.422 0.123c0.137 0.028 0.292 0.056 0.461 0.081c0.172 0.028 0.281 0.049 0.327 0.06c0.482 0.109 1.037 0.274 1.663 0.489c0.619 0.225 1.079 0.341 1.371 0.341c0.464 0 0.798 -0.186 1.097 -0.541v0.018c0.418 -0.207 1.012 -0.313 1.789 -0.313c0.478 0 1.252 0.056 2.204 0.172c0.179 0.362 0.478 0.601 0.953 0.728l0.418 0.049c0.239 0 0.478 -0.053 0.654 -0.162c0.179 -0.102 0.418 -0.267 0.654 -0.499l0.598 -0.506c0.299 -0.253 0.598 -0.468 0.893 -0.643c0.359 -0.169 0.598 -0.288 0.714 -0.348c0.179 -0.053 0.299 -0.137 0.418 -0.257c0.12 -0.109 0.179 -0.257 0.179 -0.461c0.004 -0.134 -0.056 -0.257 -0.172 -0.376M15.364 11.438c0.299 0.06 0.538 0.239 0.773 0.598c0.239 0.359 0.359 0.773 0.359 1.371c0 0.429 -0.06 0.918 -0.239 1.473c0.06 0.011 0.179 0.025 0.239 0.028c0.06 0 0.06 0 0.12 0.011c0 0 0.06 0 0.12 0.007c0.359 0.049 0.654 0.162 0.833 0.341c0.179 0.172 0.239 0.327 0.239 0.461c0 0.053 0 0.077 -0.06 0.077c0 0 -0.06 -0.035 -0.06 -0.113c-0.06 -0.077 -0.12 -0.162 -0.179 -0.25c-0.06 -0.095 -0.179 -0.179 -0.418 -0.257c-0.179 -0.084 -0.478 -0.127 -0.773 -0.127c-0.179 0 -0.299 0.053 -0.478 0.155c-0.12 0.102 -0.179 0.204 -0.299 0.302c-0.06 0.102 -0.12 0.155 -0.12 0.155c-0.06 0 -0.06 -0.028 -0.06 -0.084c0.179 -0.345 0.418 -0.566 0.654 -0.661c0.239 -0.633 0.299 -1.125 0.299 -1.459c0 -0.418 -0.06 -0.773 -0.239 -1.192c-0.179 -0.359 -0.478 -0.598 -0.773 -0.714c0.004 -0.063 0.004 -0.063 0.063 -0.123M12.084 5.848q0.269 -0.179 0.538 -0.179c0.239 0 0.418 0.06 0.598 0.239c0.12 0.179 0.179 0.418 0.179 0.773c0 0.299 -0.06 0.538 -0.12 0.893c-0.12 -0.06 -0.179 -0.12 -0.299 -0.12c-0.06 0 -0.12 -0.06 -0.12 -0.06q0.359 -0.09 0.359 -0.538c0 -0.179 -0.06 -0.299 -0.12 -0.478c-0.12 -0.12 -0.239 -0.239 -0.418 -0.239q-0.179 0 -0.359 0.179c-0.12 0.179 -0.12 0.299 -0.12 0.538c0 0.12 0 0.239 0.06 0.299c-0.06 0 -0.12 -0.06 -0.179 -0.06c-0.12 -0.239 -0.179 -0.478 -0.179 -0.773c0 -0.176 0.06 -0.295 0.179 -0.475m0.657 0.657c0 -0.06 -0.06 -0.06 -0.06 -0.12c0.06 0 0.12 -0.06 0.12 -0.06c0.06 0 0.12 0.06 0.179 0.12s0.06 0.12 0.06 0.179s0 0.12 0.06 0.179h-0.12c-0.06 -0.179 -0.12 -0.299 -0.239 -0.299m-0.179 0.893c0.598 0.179 0.893 0.359 0.953 0.478c0.06 0 0.06 0.06 0.06 0.12c0 0.179 -0.12 0.299 -0.239 0.418l-0.538 0.359c-0.598 0.418 -1.072 0.654 -1.491 0.654c-0.299 0 -0.598 -0.12 -0.833 -0.359l-0.359 -0.359c-0.06 -0.06 -0.12 -0.179 -0.179 -0.299c0.359 0.299 0.773 0.478 1.192 0.478c0.478 0 1.072 -0.239 1.849 -0.773c0 0 0 -0.06 -0.06 -0.06v-0.12c-0.773 0.598 -1.371 0.833 -1.849 0.833c-0.359 0 -0.714 -0.179 -1.072 -0.478c-0.06 -0.12 -0.12 -0.179 -0.12 -0.179c0 -0.239 0.239 -0.478 0.598 -0.714c0.418 -0.239 0.714 -0.359 0.893 -0.359c0.243 0 0.657 0.12 1.195 0.359m-2.264 -0.893v-0.12c0.06 0 0.06 -0.06 0.06 -0.06c0.179 0 0.299 0.179 0.299 0.478h-0.12c0 -0.12 -0.06 -0.179 -0.06 -0.299Zm-0.359 -0.418c0.06 -0.179 0.239 -0.299 0.418 -0.299c0.239 0 0.359 0.12 0.478 0.299s0.12 0.359 0.12 0.538c0 0.239 0 0.359 -0.06 0.359v0.06h-0.06v-0.12c0 -0.179 -0.06 -0.359 -0.12 -0.538c-0.12 -0.12 -0.179 -0.179 -0.299 -0.179s-0.239 0.06 -0.299 0.179c-0.12 0.12 -0.12 0.239 -0.12 0.418c0 0.299 0.06 0.478 0.299 0.598c-0.06 0.06 -0.12 0.06 -0.179 0.12c-0.239 -0.239 -0.323 -0.478 -0.323 -0.714c0 -0.302 0.025 -0.482 0.144 -0.721m0.053 14.126c-0.285 0.359 -0.633 0.541 -1.048 0.541c-0.162 0 -0.601 -0.137 -1.322 -0.401s-1.361 -0.439 -1.912 -0.52v-0.004c-0.721 -0.095 -1.114 -0.257 -1.174 -0.489c0 -0.137 0.077 -0.327 0.225 -0.584c0.148 -0.246 0.221 -0.489 0.221 -0.735c0 -0.127 -0.025 -0.302 -0.07 -0.524c-0.049 -0.225 -0.07 -0.387 -0.07 -0.482c0 -0.207 0.077 -0.404 0.225 -0.577c0.113 -0.06 0.327 -0.095 0.643 -0.095h0.162c0.077 -0.007 0.13 -0.007 0.162 -0.007c0.137 -0.028 0.239 -0.06 0.299 -0.095c0.06 -0.042 0.095 -0.127 0.113 -0.25c0.011 -0.13 0.06 -0.257 0.144 -0.369s0.257 -0.197 0.506 -0.246c0.197 0.049 0.376 0.137 0.531 0.274c0.162 0.137 0.285 0.274 0.362 0.411c0.088 0.127 0.204 0.302 0.327 0.538c0.13 0.232 0.232 0.404 0.316 0.517l0.404 0.541c0.679 0.865 1.02 1.575 1.02 2.141c-0.004 0.158 -0.004 0.295 -0.063 0.411m1.311 -1.167c-0.714 0 -1.252 -0.165 -1.501 -0.506c-0.127 -0.232 -0.186 -0.352 -0.186 -0.359c0 -0.028 0.007 -0.042 0.018 -0.042c0.137 0 0.299 -0.07 0.418 -0.214c0.179 -0.137 0.239 -0.264 0.239 -0.387c0 -0.239 -0.359 -0.643 -1.03 -1.227l-0.633 -0.411c-0.499 -0.362 -0.816 -0.65 -0.949 -0.847c-0.12 -0.204 -0.186 -0.436 -0.186 -0.703c0 -0.362 0.13 -0.858 0.38 -1.396c0.25 -0.598 0.461 -1.012 0.633 -1.192l0.06 0.06c0.049 0 0.077 0 0.088 0.06c-0.207 0.239 -0.422 0.598 -0.636 1.132c-0.221 0.538 -0.327 0.988 -0.327 1.399c0 0.334 0.13 0.591 0.401 0.773c-0.025 -0.144 -0.035 -0.285 -0.035 -0.422c0 -0.686 0.246 -1.515 0.728 -2.408l0.446 -0.893c0.011 0 0.028 -0.12 0.053 -0.239c0.018 -0.179 0.109 -0.418 0.274 -0.833l0.376 -0.714c0.12 -0.239 0.179 -0.478 0.179 -0.654l0.359 0.299c0.179 0.239 0.478 0.299 0.833 0.299c0.418 0 0.893 -0.179 1.491 -0.598l0.538 -0.418c0.12 0.239 0.239 0.538 0.359 0.833c0.179 0.299 0.299 0.598 0.478 0.893c0 0.299 0.06 0.478 0.12 0.714c0.12 0.179 0.179 0.359 0.299 0.538l0.359 0.538c0.12 0.239 0.239 0.538 0.299 0.893c0.12 0.418 0.12 0.865 0.12 1.406c0 0.359 0 0.756 -0.06 1.216c-0.12 -0.088 -0.239 -0.13 -0.359 -0.13c-0.179 0 -0.299 0.088 -0.418 0.281c-0.12 0.19 -0.179 0.482 -0.179 0.868v0.221c0.06 0.077 0.06 0.264 0.06 0.559c-0.78 1.076 -1.793 1.61 -3.104 1.61m7.991 -0.503c-0.12 0.095 -0.239 0.165 -0.418 0.214c-0.12 0.053 -0.359 0.148 -0.598 0.292c-0.299 0.144 -0.538 0.309 -0.773 0.499l-1.012 0.875c-0.06 0.028 -0.06 0.06 -0.179 0.102c-0.06 0.049 -0.12 0.088 -0.179 0.13c-0.06 0.049 -0.179 0.088 -0.299 0.113q-0.179 0.053 -0.359 0.053c-0.478 0 -0.893 -0.225 -1.132 -0.675v-0.014l0.12 -0.661c0 -0.236 0 -0.446 0.06 -0.633c0 -0.186 0.06 -0.302 0.06 -0.359v-1.853c0 -0.626 0.12 -0.935 0.418 -0.935c0.12 0 0.179 0.053 0.299 0.155c0.06 0.25 0.12 0.471 0.239 0.661c0.179 0.257 0.418 0.387 0.893 0.387c0.12 0 0.299 -0.053 0.478 -0.155c0.12 -0.102 0.299 -0.207 0.359 -0.327c0.12 -0.12 0.239 -0.232 0.359 -0.334c0.06 -0.102 0.179 -0.155 0.239 -0.155s0.06 0.007 0.06 0.025c0.06 0.067 0.06 0.186 0.12 0.345l0.06 0.345c0.06 0.281 0.179 0.496 0.299 0.65c0.179 0.162 0.299 0.257 0.418 0.299s0.239 0.109 0.359 0.204s0.239 0.225 0.239 0.401c-0.007 0.148 -0.067 0.264 -0.127 0.352m-7.805 -11.204s-0.06 -0.06 -0.06 -0.12s0 -0.06 0.06 -0.06l0.12 0.06c0.06 0.06 0.12 0.12 0.12 0.179s-0.06 0.06 -0.06 0.06h-0.06c-0.06 0 -0.06 -0.06 -0.12 -0.12m-0.598 0.06c0 -0.06 0 -0.12 0.06 -0.179c0.12 0 0.179 -0.06 0.179 -0.06c0.06 0 0.06 0.06 0.06 0.06c0 0.06 -0.06 0.12 -0.179 0.239h-0.06c-0.06 0 -0.06 0 -0.06 -0.06"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
+    public val `os-windows`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "os-windows",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(addPathNodes("M3 3h8.532v8.529H3Zm9.468 0H21v8.529H12.468ZM3 12.468h8.532V21H3Zm9.468 0H21V21H12.468"), fill = SolidColor(Color.Black))
+        }.build()
+    }
+
     public val `package`: ImageVector by lazy {
         ImageVector.Builder(
             name = "package",
@@ -4234,6 +5058,38 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("m7.5 4.27 9 5.15"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `paintbrush`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "paintbrush",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m14.622 17.897-10.68-2.913"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -5276,6 +6132,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `shopping-bag`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "shopping-bag",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M16 10a4 4 0 0 1-8 0"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3.103 6.034h17.794"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3.4 5.467a2 2 0 0 0-.4 1.2V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.667a2 2 0 0 0-.4-1.2l-2-2.667A2 2 0 0 0 17 2H7a2 2 0 0 0-1.6.8z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `shopping-cart`: ImageVector by lazy {
         ImageVector.Builder(
             name = "shopping-cart",
@@ -5470,6 +6358,31 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M8 12H3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `smartphone`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "smartphone",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M7 2H17A2 2 0 0 1 19 4V20A2 2 0 0 1 17 22H7A2 2 0 0 1 5 20V4A2 2 0 0 1 7 2Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 18h.01"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -5687,6 +6600,84 @@ public object ExpIcons {
         ).apply {
             addPath(
                 addPathNodes("M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `stethoscope`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "stethoscope",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M11 2v2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 2v2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M8 15a6 6 0 0 0 12 0v-3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M18 10A2 2 0 1 0 22 10A2 2 0 1 0 18 10Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `store`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "store",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M15 21v-5a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17.774 10.31a1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.451 0 1.12 1.12 0 0 0-1.548 0 2.5 2.5 0 0 1-3.452 0 1.12 1.12 0 0 0-1.549 0 2.5 2.5 0 0 1-3.77-3.248l2.889-4.184A2 2 0 0 1 7 2h10a2 2 0 0 1 1.653.873l2.895 4.192a2.5 2.5 0 0 1-3.774 3.244"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 10.95V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8.05"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -5923,6 +6914,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `tree-pine`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "tree-pine",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m17 14 3 3.3a1 1 0 0 1-.7 1.7H4.7a1 1 0 0 1-.7-1.7L7 14h-.3a1 1 0 0 1-.7-1.7L9 9h-.2A1 1 0 0 1 8 7.3L12 3l4 4.3a1 1 0 0 1-.8 1.7H15l3 3.3a1 1 0 0 1-.7 1.7H17Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M12 22v-3"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `triangle-alert`: ImageVector by lazy {
         ImageVector.Builder(
             name = "triangle-alert",
@@ -6000,6 +7016,52 @@ public object ExpIcons {
             )
             addPath(
                 addPathNodes("M6 9H4.5a1 1 0 0 1 0-5H6"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `truck`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "truck",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 18H9"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 18A2 2 0 1 0 19 18A2 2 0 1 0 15 18Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 18A2 2 0 1 0 9 18A2 2 0 1 0 5 18Z"),
                 stroke = SolidColor(Color.Black),
                 strokeLineWidth = 2f,
                 strokeLineCap = StrokeCap.Round,
@@ -6324,6 +7386,56 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `video`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "video",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M4 6H14A2 2 0 0 1 16 8V16A2 2 0 0 1 14 18H4A2 2 0 0 1 2 16V8A2 2 0 0 1 4 6Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
+    public val `wallet`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "wallet",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `wifi-off`: ImageVector by lazy {
         ImageVector.Builder(
             name = "wifi-off",
@@ -6507,12 +7619,59 @@ public object ExpIcons {
         "chart-line",
         "scale",
         "car",
+        "music",
+        "camera",
+        "video",
+        "image",
+        "headphones",
+        "mic",
+        "gift",
+        "shopping-bag",
+        "store",
+        "truck",
+        "map",
+        "mountain",
+        "tree-pine",
+        "flame",
+        "droplet",
+        "moon",
+        "anchor",
+        "crown",
+        "gem",
+        "award",
+        "dumbbell",
+        "stethoscope",
+        "microscope",
+        "atom",
+        "brain",
+        "eye",
+        "fingerprint",
+        "hammer",
+        "paintbrush",
+        "calculator",
+        "landmark",
+        "wallet",
+        "tag",
+        "bookmark",
+        "newspaper",
+        "smartphone",
+    )
+
+    /** The device icon picker's set (EXP-924), display order. */
+    public val devicePickable: List<String> = listOf(
+        "monitor",
+        "server",
+        "laptop",
+        "os-apple",
+        "os-windows",
+        "os-linux",
     )
 
     /** Registry name -> glyph. Null for an unknown name (caller falls back). */
     public fun byName(name: String): ImageVector? = when (name) {
         "a-large-small" -> `a-large-small`
         "activity" -> `activity`
+        "anchor" -> `anchor`
         "archive" -> `archive`
         "arrow-down-left" -> `arrow-down-left`
         "arrow-left" -> `arrow-left`
@@ -6520,20 +7679,26 @@ public object ExpIcons {
         "arrow-right" -> `arrow-right`
         "arrow-up-right" -> `arrow-up-right`
         "at-sign" -> `at-sign`
+        "atom" -> `atom`
+        "award" -> `award`
         "ban" -> `ban`
         "bell" -> `bell`
         "bell-off" -> `bell-off`
         "bold" -> `bold`
         "book-open" -> `book-open`
+        "bookmark" -> `bookmark`
         "bot" -> `bot`
         "boxes" -> `boxes`
+        "brain" -> `brain`
         "briefcase" -> `briefcase`
         "brush-cleaning" -> `brush-cleaning`
         "bug" -> `bug`
         "building" -> `building`
         "building-2" -> `building-2`
+        "calculator" -> `calculator`
         "calendar" -> `calendar`
         "calendar-days" -> `calendar-days`
+        "camera" -> `camera`
         "car" -> `car`
         "chart-line" -> `chart-line`
         "check" -> `check`
@@ -6566,6 +7731,8 @@ public object ExpIcons {
         "crown" -> `crown`
         "database" -> `database`
         "download" -> `download`
+        "droplet" -> `droplet`
+        "dumbbell" -> `dumbbell`
         "ellipsis" -> `ellipsis`
         "ellipsis-vertical" -> `ellipsis-vertical`
         "external-link" -> `external-link`
@@ -6576,23 +7743,28 @@ public object ExpIcons {
         "file-text" -> `file-text`
         "fingerprint" -> `fingerprint`
         "flag" -> `flag`
+        "flame" -> `flame`
         "flask-conical" -> `flask-conical`
         "fold-vertical" -> `fold-vertical`
         "folder" -> `folder`
         "folder-kanban" -> `folder-kanban`
         "folder-open" -> `folder-open`
         "gamepad-2" -> `gamepad-2`
+        "gem" -> `gem`
+        "gift" -> `gift`
         "git-branch" -> `git-branch`
         "git-merge" -> `git-merge`
         "git-pull-request" -> `git-pull-request`
         "github" -> `github`
         "globe" -> `globe`
         "graduation-cap" -> `graduation-cap`
+        "hammer" -> `hammer`
         "hard-drive" -> `hard-drive`
         "hash" -> `hash`
         "heading-1" -> `heading-1`
         "heading-2" -> `heading-2`
         "heading-3" -> `heading-3`
+        "headphones" -> `headphones`
         "heart" -> `heart`
         "history" -> `history`
         "house" -> `house`
@@ -6602,6 +7774,8 @@ public object ExpIcons {
         "info" -> `info`
         "italic" -> `italic`
         "key" -> `key`
+        "landmark" -> `landmark`
+        "laptop" -> `laptop`
         "layers" -> `layers`
         "layers-2" -> `layers-2`
         "leaf" -> `leaf`
@@ -6620,18 +7794,29 @@ public object ExpIcons {
         "log-in" -> `log-in`
         "log-out" -> `log-out`
         "mail" -> `mail`
+        "map" -> `map`
         "map-pin" -> `map-pin`
         "maximize-2" -> `maximize-2`
         "megaphone" -> `megaphone`
         "message-circle" -> `message-circle`
         "message-square" -> `message-square`
         "message-square-plus" -> `message-square-plus`
+        "mic" -> `mic`
+        "microscope" -> `microscope`
         "minimize-2" -> `minimize-2`
         "minus" -> `minus`
         "monitor" -> `monitor`
         "monitor-off" -> `monitor-off`
+        "moon" -> `moon`
+        "mountain" -> `mountain`
         "move" -> `move`
+        "music" -> `music`
+        "newspaper" -> `newspaper`
+        "os-apple" -> `os-apple`
+        "os-linux" -> `os-linux`
+        "os-windows" -> `os-windows`
         "package" -> `package`
+        "paintbrush" -> `paintbrush`
         "palette" -> `palette`
         "panel-left-close" -> `panel-left-close`
         "panel-left-open" -> `panel-left-open`
@@ -6669,11 +7854,13 @@ public object ExpIcons {
         "shield" -> `shield`
         "shield-check" -> `shield-check`
         "shield-question-mark" -> `shield-question-mark`
+        "shopping-bag" -> `shopping-bag`
         "shopping-cart" -> `shopping-cart`
         "signal-high" -> `signal-high`
         "signal-low" -> `signal-low`
         "signal-medium" -> `signal-medium`
         "sliders-horizontal" -> `sliders-horizontal`
+        "smartphone" -> `smartphone`
         "smile" -> `smile`
         "sparkles" -> `sparkles`
         "square-kanban" -> `square-kanban`
@@ -6681,14 +7868,18 @@ public object ExpIcons {
         "square-slash" -> `square-slash`
         "square-terminal" -> `square-terminal`
         "star" -> `star`
+        "stethoscope" -> `stethoscope`
+        "store" -> `store`
         "strikethrough" -> `strikethrough`
         "sun" -> `sun`
         "tag" -> `tag`
         "target" -> `target`
         "terminal" -> `terminal`
         "trash-2" -> `trash-2`
+        "tree-pine" -> `tree-pine`
         "triangle-alert" -> `triangle-alert`
         "trophy" -> `trophy`
+        "truck" -> `truck`
         "type" -> `type`
         "undo-2" -> `undo-2`
         "unlink" -> `unlink`
@@ -6698,6 +7889,8 @@ public object ExpIcons {
         "user-plus" -> `user-plus`
         "user-x" -> `user-x`
         "users" -> `users`
+        "video" -> `video`
+        "wallet" -> `wallet`
         "wifi-off" -> `wifi-off`
         "wrench" -> `wrench`
         "x" -> `x`

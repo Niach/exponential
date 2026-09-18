@@ -90,6 +90,7 @@ import {
   EmptyState,
   ICON_DISC_TONES,
   IconDisc,
+  DEVICE_ICON_OPTIONS,
   IconPicker,
   IconSwatchGrid,
   Input,
@@ -1336,7 +1337,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `icon-picker`,
     title: `Icon picker`,
     kind: `Inputs & pickers`,
-    blurb: `The one surface that picks a glyph, and the one exception to the circle (EXP-771): a circle is the primary ACTION, ROUNDED SQUARE is a picker. The trigger is a square at the radius ladder's MD step over card fill, sized to the field it sits beside (web h-9, desktop and the natives the 32px control rung) — a card hairline once something is picked, a DASHED one under the placeholder glyph while it is empty — and the cells of the 60-glyph grid it opens wear that same corner, the picked one taking the active fill under the active stroke. EXP-862 gave the colour picker the SAME trigger, so the board form reads as one control repeated; the swatches inside it are the counter-example: a colour has no shape to read, so those stay circles.`,
+    blurb: `The one surface that picks a glyph, and the one exception to the circle (EXP-771): a circle is the primary ACTION, ROUNDED SQUARE is a picker. The trigger is a square at the radius ladder's MD step over card fill, sized to the field it sits beside (web h-9, desktop and the natives the 32px control rung) — a card hairline once something is picked, a DASHED one under the placeholder glyph while it is empty — and the cells of the grid it opens wear that same corner, the picked one taking the active fill under the active stroke. It offers one of TWO sets from the one registry (EXP-924): the 96 board and action glyphs, or the six device glyphs (monitor, server, laptop and the Apple, Windows and Linux marks) beside a device's name, where the short set hugs its cells. EXP-862 gave the colour picker the SAME trigger, so the board form reads as one control repeated; the swatches inside it are the counter-example: a colour has no shape to read, so those stay circles.`,
     status: {
       web: ok(
         `IconPicker`,
@@ -1364,6 +1365,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         <div className="flex items-center gap-2">
           <IconPicker value="" onChange={noop} allowsNone />
           <IconPicker value="flag" onChange={noop} />
+          <IconPicker
+            value="os-linux"
+            options={DEVICE_ICON_OPTIONS}
+            onChange={noop}
+          />
           <Button variant="glass" size="icon-sm" aria-label="New board">
             <PlusGlyph />
           </Button>
@@ -1371,6 +1377,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         {/* 8 × 28px cells + 7 × 6px gaps — the popover's own column count. */}
         <div className="w-[266px]">
           <IconSwatchGrid value="flag" onChange={noop} />
+        </div>
+        <div className="w-max">
+          <IconSwatchGrid
+            value="os-linux"
+            options={DEVICE_ICON_OPTIONS}
+            onChange={noop}
+          />
         </div>
       </div>
     ),

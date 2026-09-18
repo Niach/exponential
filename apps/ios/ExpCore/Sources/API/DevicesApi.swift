@@ -17,6 +17,29 @@ private struct RenameDeviceInput: Encodable {
     let label: String
 }
 
+/// EXP-924: `devices.setIcon` — the owner-picked display glyph. Hand-encoded
+/// because the server takes `deviceIcon | null` and NOT an absent key: a reset
+/// to the kind default must ride as an explicit JSON null, which the
+/// synthesized encoder would drop instead.
+private struct SetIconInput: Encodable {
+    let deviceId: String
+    let icon: String?
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId, icon
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(deviceId, forKey: .deviceId)
+        if let icon {
+            try c.encode(icon, forKey: .icon)
+        } else {
+            try c.encodeNil(forKey: .icon)
+        }
+    }
+}
+
 /// EXP-622: `devices.setDefault` — flag/unflag the caller's default machine.
 private struct SetDefaultInput: Encodable {
     let deviceId: String
@@ -173,6 +196,18 @@ public final class DevicesApi: Sendable {
             accountId: accountId,
             path: "devices.rename",
             input: RenameDeviceInput(deviceId: deviceId, label: label)
+        )
+    }
+
+    /// EXP-924: pick a machine's display glyph from the DEVICE icon set
+    /// (contract `deviceIcon`); nil resets it to the kind default. Like the
+    /// rename, the registry row is authoritative and the result arrives back
+    /// through the devices shape, so it works while the machine is offline.
+    public func setIcon(accountId: String, deviceId: String, icon: String?) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "devices.setIcon",
+            input: SetIconInput(deviceId: deviceId, icon: icon)
         )
     }
 

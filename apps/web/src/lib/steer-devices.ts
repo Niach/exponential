@@ -48,6 +48,8 @@ export interface SteerDevice {
   caps?: string[]
   /** EXP-403 registry fields. */
   kind?: `desktop` | `server`
+  /** EXP-924: the owner-picked icon; null = the kind default. */
+  icon?: string | null
   /** The machine's OS as of its last register; null for old builds. */
   platform?: string | null
   online?: boolean
@@ -443,6 +445,7 @@ export function steerDeviceFromRow(
     deviceId: row.deviceId,
     deviceLabel: row.label,
     kind: row.kind === `server` ? `server` : `desktop`,
+    icon: row.icon,
     platform: row.platform,
     // EXP-849: contract-filtered HERE, not just in the picker helpers — the
     // composed shape is also what `exponential_devices_list` serialises, so a
