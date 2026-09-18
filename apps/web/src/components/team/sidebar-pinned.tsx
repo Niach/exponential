@@ -35,11 +35,6 @@ import { trpc } from "@/lib/trpc-client"
 const UiUnpinIcon = conceptIcon(`ui-unpin`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
 
-// EXP-862: the sidebar's compact density — 28px rows (the twin of
-// `SIDEBAR_ROW_COMPACT` in `sidebar.tsx`; the two files cannot import from
-// each other without a cycle).
-const PINNED_ROW_COMPACT = `h-7 text-sm`
-
 export function SidebarPinned({
   teamId,
   teamSlug,
@@ -160,7 +155,7 @@ function PinnedRows({
         <SidebarMenuItem key={pin.id}>
           <SidebarMenuButton
             asChild
-            className={PINNED_ROW_COMPACT}
+            density="compact"
             isActive={entry.active}
           >
             {/* EXP-870: no `from` — a pinned issue opens full-width. */}
@@ -188,7 +183,7 @@ function PinnedRows({
     return (
       <SidebarMenuItem key={pin.id}>
         <SidebarMenuButton
-          className={PINNED_ROW_COMPACT}
+          density="compact"
           isActive={entry.active}
           // EXP-870: context-free like the pinned issue rows — the composer
           // opens full-width, no list nav.

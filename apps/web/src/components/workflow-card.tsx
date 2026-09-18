@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react"
-import { conceptIcon } from "@exp/ui"
+import { conceptIcon, DisclosureHeader } from "@exp/ui"
 import {
   workflowPhaseCounts,
   type WorkflowAgent,
@@ -26,8 +26,6 @@ const UiSuccessIcon = conceptIcon(`ui-success`)
 const UiErrorIcon = conceptIcon(`ui-error`)
 const UiClockIcon = conceptIcon(`ui-clock`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
-const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
-const UiChevronRightIcon = conceptIcon(`ui-chevron-right`)
 
 const STATE_TONE: Record<WorkflowAgentState, string> = {
   queued: `text-muted-foreground/60`,
@@ -116,19 +114,15 @@ function AgentRow({
   return (
     <div className="min-w-0">
       {renderEvents ? (
-        <button
-          type="button"
-          onClick={() => setExpanded((open) => !open)}
-          className="flex w-full min-w-0 items-center gap-1.5 text-left hover:text-foreground"
-          aria-expanded={expanded}
+        // The fold's 12px chevron plus the 1.5 gap is exactly the indent the
+        // non-foldable arm below pads itself by, so both rows line up.
+        <DisclosureHeader
+          open={expanded}
+          onToggle={() => setExpanded((open) => !open)}
+          className="gap-1.5"
         >
-          {expanded ? (
-            <UiChevronDownIcon className="size-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <UiChevronRightIcon className="size-3 shrink-0 text-muted-foreground" />
-          )}
           {head}
-        </button>
+        </DisclosureHeader>
       ) : (
         <div className="flex min-w-0 items-center gap-1.5 pl-[calc(0.75rem_+_0.375rem)]">
           {head}

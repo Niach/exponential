@@ -22,6 +22,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  EmptyCta,
   GlassSectionHeader,
   ListRow,
   Tabs,
@@ -210,22 +211,16 @@ function ActionRow({
 
 // Rendered after the builtin row(s) while the team has no custom actions yet
 // (EXP-431) — the create flow no longer poses as a list entry, so the empty-ish
-// list nudges toward the "New action" button's dialog instead.
+// list nudges toward the "New action" button's dialog instead. EXP-962: that
+// dashed nudge IS `EmptyCta`.
 function NoCustomActionsNudge({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      type="button"
+    <EmptyCta
+      icon={ActionCreateIcon}
+      title="No custom actions yet"
+      description="Describe one and your agent will build it."
       onClick={onClick}
-      className="flex w-full flex-col items-start gap-1 rounded-md border border-dashed border-glass-stroke-strong p-3 text-left text-sm text-muted-foreground hover:bg-muted/50"
-    >
-      <span className="flex items-center gap-2">
-        <ActionCreateIcon className="size-4 shrink-0" />
-        No custom actions yet
-      </span>
-      <span className="text-xs">
-        Describe one and your agent will build it.
-      </span>
-    </button>
+    />
   )
 }
 

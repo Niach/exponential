@@ -53,6 +53,7 @@ import {
   AlertTitle,
   AttachmentThumb,
   AuthFormShell,
+  Badge,
   BoardGlyph,
   Button,
   Calendar,
@@ -70,10 +71,13 @@ import {
   ContextRing,
   CursorIcon,
   DatePicker,
+  DisclosureHeader,
   EditedFilesCard,
   EmojiPicker,
+  EmptyCta,
   ExponentialLogo,
   FAB_CHROME_CLASS,
+  FabButton,
   FileDiffCard,
   FileDiffTree,
   GlassCard,
@@ -95,7 +99,6 @@ import {
   LiveDot,
   ListRow,
   ListEmpty,
-  MOBILE_WORK_CIRCLE_CLASS,
   Meter,
   MobileWorkCapsule,
   OpenAiIcon,
@@ -332,6 +335,10 @@ const EmojiGlyph = conceptIcon(`editor-emoji`)
 const PropertiesGlyph = conceptIcon(`ui-properties`)
 const CommentGlyph = conceptIcon(`notification-issue-comment`)
 const WorkFacesGlyph = conceptIcon(`work-faces`)
+const DraftsGlyph = conceptIcon(`nav-drafts`)
+const PinGlyph = conceptIcon(`ui-pin`)
+const ToolGlyph = conceptIcon(`coding-tool`)
+const ActionCreateGlyph = conceptIcon(`action-create`)
 
 /* A neutral stand-in for a picked screenshot: the island loads no network
    image, so the thumb's crop and hairline read against a flat data-URI tile. */
@@ -774,7 +781,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `section-header`,
     title: `Group band`,
     kind: `Lists & rows`,
-    blurb: `EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. No count. Never uppercase and never a divider.`,
+    blurb: `EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. No count. Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all.`,
     status: {
       web: ok(`GlassSectionHeader`, WEB_GLASS_ROWS, HEADER_EXCEPTION),
       desktop: ok(`surface::glass_section_header`, DESKTOP_SURFACE, HEADER_EXCEPTION),
@@ -785,10 +792,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `SectionHeader (Scaffolding.kt) wraps it. ${HEADER_EXCEPTION}`
       ),
     },
-    leftovers: [
-      { file: `apps/web/src/components/agent-session.tsx`, note: `six hand-written disclosure headers` },
-      { file: `apps/web/src/components/workflow-card.tsx`, note: `hand-written disclosure header` },
-    ],
     island: () => (
       <div className="grid gap-4">
         <div>
@@ -810,6 +813,49 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           </ListRow>
         </div>
         <GlassSectionHeader label="Danger zone" />
+      </div>
+    ),
+  },
+  {
+    id: `disclosure-header`,
+    title: `Disclosure header`,
+    kind: `Lists & rows`,
+    blurb: `EXP-962: the fold toggle INSIDE a row, and the whole of it is one line of bare text — a 12px chevron pointing right folded and down open, the label muted and brightening under the pointer, \`aria-expanded\` stating the fold, the entire line the target. The steer feed's tool groups, its Exponential calls, its subagent lanes and its long bodies, the workflow card's agents and the issue group's own header each drew this by hand before it was one component. \`chevron="trailing"\` parks the glyph at the far edge instead, for a row whose siblings carry none and must not indent out of line with them. It is NOT the group band above: that is a filled strip heading a LIST. And it may not contain another button — a fold's own action renders beside it, because a button inside a button is invalid markup.`,
+    status: {
+      web: ok(`DisclosureHeader`, `packages/ui/src/disclosure-header.tsx`),
+      desktop: leftover(
+        `SteerViewer::render_tool_run / render_exp_tool_run / render_subagent`,
+        `apps/desktop/crates/ui/src/steer_viewer.rs`,
+        `every fold builds its own chevron row inline; there is no shared header`
+      ),
+      ios: leftover(
+        `ToolGroupRow / ExpToolGroupRow / SubagentGroupRow`,
+        `apps/ios/Exponential/UI/Session/AgentSessionView.swift`,
+        `three private structs repeat the 11pt chevron row, each with its own @State expanded`
+      ),
+      android: leftover(
+        `ToolGroupRow / ExpToolGroupRow / SubagentGroupRow`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
+        `the same three private composables, each rebuilding the chevron row`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-4 text-xs">
+        <DisclosureHeader open={false} onToggle={noop}>
+          <ToolGlyph className="size-3 shrink-0" />
+          <span className="min-w-0 truncate">Ran 3 commands · edited 2 files</span>
+        </DisclosureHeader>
+        <div>
+          <DisclosureHeader open onToggle={noop}>
+            <ToolGlyph className="size-3 shrink-0" />
+            <span className="min-w-0 truncate">Ran 3 commands · edited 2 files</span>
+          </DisclosureHeader>
+          <div className="mt-1 pl-5 font-mono text-muted-foreground">bun run test:shots</div>
+        </div>
+        {/* The trailing arm: the label keeps the row's own left edge. */}
+        <DisclosureHeader open={false} onToggle={noop} chevron="trailing">
+          <span className="min-w-0 truncate">Output · 128 lines</span>
+        </DisclosureHeader>
       </div>
     ),
   },
@@ -872,7 +918,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `list-row`,
     title: `List row`,
     kind: `Lists & rows`,
-    blurb: `EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards.`,
+    blurb: `EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. EXP-962 gave it a second density: \`compact\` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and \`SidebarMenuButton density="compact"\` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.`,
     status: {
       web: ok(`ListRow`, WEB_GLASS_ROWS),
       desktop: ok(`surface::flat_row`, DESKTOP_SURFACE),
@@ -881,19 +927,32 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     leftovers: [
       { file: `apps/web/src/components/team/board-switcher-sheet.tsx`, note: `PLAIN_ROW re-derives the mobile picker row` },
-      { file: `apps/web/src/components/inbox/inbox-view.tsx`, note: `COMPACT_ROW/FULL_ROW density overrides: ListRow has no density prop` },
     ],
     island: () => (
-      <div>
-        <GlassSectionHeader label="Running" />
-        <ListRow interactive active>
-          <span className="min-w-0 flex-1 truncate">APP-14 · Fix the merge queue</span>
-          <span className="text-xs text-muted-foreground">macbook</span>
-        </ListRow>
-        <ListRow interactive>
-          <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
-          <span className="text-xs text-muted-foreground">server</span>
-        </ListRow>
+      <div className="grid gap-4">
+        <div>
+          <GlassSectionHeader label="Running" />
+          <ListRow interactive active>
+            <span className="min-w-0 flex-1 truncate">APP-14 · Fix the merge queue</span>
+            <span className="text-xs text-muted-foreground">macbook</span>
+          </ListRow>
+          <ListRow interactive>
+            <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
+            <span className="text-xs text-muted-foreground">server</span>
+          </ListRow>
+        </div>
+        {/* The sidebar's rung: 28px, one line, the same type. */}
+        <div>
+          <GlassSectionHeader label="Pinned" />
+          <ListRow density="compact" interactive>
+            <PinGlyph className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">APP-14 · Fix the merge queue</span>
+          </ListRow>
+          <ListRow density="compact" interactive>
+            <PinGlyph className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
+          </ListRow>
+        </div>
       </div>
     ),
   },
@@ -1233,6 +1292,43 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
+    id: `fab-button`,
+    title: `Floating circle`,
+    kind: `Buttons & chips`,
+    blurb: `The third circle, and the only one that FLOATS: 52px of the floating chrome around a 20px glyph, pressed down to the active wash. EXP-962 made it a component — three files had restated the circle, one of them spelling 52px as 3.25rem — so the tab bar's FAB, the issue bar's coding circle and every slot of the Work bar are now one button. Its glyph rides at the SECONDARY emphasis, 70% white, because a bar of equal circles has no hierarchy to spend; the one slot that IS the bar's call to action says \`emphasis="primary"\` and goes full white. The 32px icon button above lives in a row; this one hangs over the content, and only a phone has one. \`FAB_CIRCLE_CLASS\` is the same shape for the two slots that are not buttons (the usage ring, the capsule).`,
+    status: {
+      web: ok(
+        `FabButton / FAB_CIRCLE_CLASS`,
+        `packages/ui/src/fab-chrome.tsx`,
+        `MOBILE_WORK_CIRCLE_CLASS in mobile-work-bar.tsx is an alias of the class`
+      ),
+      desktop: na(`no floating phone bar: the IDE's bottom edge is the terminal session bar`),
+      ios: ok(
+        `FloatingBarCircle`,
+        `apps/ios/ExpUI/Sources/FloatingBottomBar.swift`,
+        `the glyph's emphasis rides the caller's tint rather than a parameter`
+      ),
+      android: leftover(
+        `Fab`,
+        `${ANDROID_COMPONENTS}/BottomNavBar.kt`,
+        `the tab bar's FAB paints its 52dp circle inline: opaque fill, strong hairline, a full-white glyph`
+      ),
+    },
+    island: () => (
+      <div className="flex items-center gap-3">
+        <FabButton aria-label="Properties">
+          <PropertiesGlyph className="size-5" />
+        </FabButton>
+        <FabButton emphasis="primary" aria-label="Start coding">
+          <PlayGlyph className="size-5" />
+        </FabButton>
+        <FabButton aria-label="Merge" disabled>
+          <MergeGlyph className="size-5" />
+        </FabButton>
+      </div>
+    ),
+  },
+  {
     id: `icon-picker`,
     title: `Icon picker`,
     kind: `Inputs & pickers`,
@@ -1300,19 +1396,57 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
+    id: `text-button`,
+    title: `Text button`,
+    kind: `Buttons & chips`,
+    blurb: `EXP-962: a control made of WORDS — \`size="inline"\`, 12px, no box, no height of its own, sitting in the run of muted text around it. Two variants, and the difference is what happens when it is pressed: \`text\` is muted, brightens under the pointer and never underlines, because it toggles something IN PLACE (a fold's Show more / Show less, "Back to the current step"); \`link\` takes the primary colour and underlines on hover, because it GOES somewhere (a session band's "Continues in a newer run", a stack band's \`↓ #APP-14\`). Anything that wants a box is the pill or the primary submit — four call sites hand-drew one of these two shapes before.`,
+    status: {
+      web: ok(
+        `Button variant="text" / variant="link", size="inline"`,
+        `packages/ui/src/button.tsx`
+      ),
+      desktop: leftover(
+        `session_extras::fold_toggle`,
+        DESKTOP_SESSION_EXTRAS,
+        `private to the output card, and steer_viewer writes the same muted line again for a body fold`
+      ),
+      ios: leftover(
+        `Button("Show more").buttonStyle(.plain)`,
+        `apps/ios/Exponential/UI/Session/AgentSessionView.swift`,
+        `inlined twice with its own caption2 font and tertiary opacity; no shared text button exists`
+      ),
+      android: leftover(
+        `ShowMoreToggle`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
+        `a private clickable Text on the session screen; nothing else may reach it`
+      ),
+    },
+    island: () => (
+      // The band they live in: a muted 11px caption line under a feed row.
+      <div className="flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
+        <Button variant="text" size="inline">
+          Show more
+        </Button>
+        <Button variant="link" size="inline">
+          Continues in a newer run · started 2h ago
+        </Button>
+        <Button variant="link" size="inline" className="font-mono">
+          ↓ #APP-14
+        </Button>
+      </div>
+    ),
+  },
+  {
     id: `pill`,
     title: `Pill`,
     kind: `Buttons & chips`,
-    blurb: `The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly, plus a primary PAINT flag that crosses all six. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row.`,
+    blurb: `The ONE capsule, a 2×3 matrix: size md 32 or sm 24, mode action / select / readonly, plus a primary PAINT flag that crosses all six. Card fill under a card stroke, label at 70% — action and select go active on hover, a selected one also takes the active stroke, readonly is metadata and never a target. There is no chip and no header button: those WERE this, under a second name. A conversation or subagent tab is sm select; a members-list role chip is sm readonly, 12px from its neighbours in a row. A bare COUNT is none of the six: a number with no word beside it is the 16px \`Badge\` below.`,
     status: {
       web: ok(`Pill`, `packages/ui/src/pill.tsx`),
       desktop: ok(`surface::glass_pill`, DESKTOP_SURFACE),
       ios: ok(`GlassPill`, `apps/ios/ExpUI/Sources/GlassPill.swift`),
       android: ok(`GlassPill`, `${ANDROID_COMPONENTS}/GlassPill.kt`),
     },
-    leftovers: [
-      { file: `apps/web/src/components/team/sidebar-rail.tsx`, note: `count badge: no badge primitive yet (Pill sm is 24 tall)` },
-    ],
     island: () => (
       <div className="grid gap-3">
         <div className="flex flex-wrap items-center gap-2.5">
@@ -1357,6 +1491,42 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             Watch
           </Pill>
         </div>
+      </div>
+    ),
+  },
+  {
+    id: `badge`,
+    title: `Count badge`,
+    kind: `Buttons & chips`,
+    blurb: `EXP-962: the smallest chip there is — a 16px capsule carrying a NUMBER and nothing else, 10px semibold and tabular so a count can climb without the box twitching. \`muted\` is a count you parked (the rail's drafts), \`primary\` one that wants you (unread). Zero renders NOTHING, because a badge is a signal and an empty signal is noise, and past \`max\` it reads \`99+\`. PLACEMENT stays at the call site — a row's trailing edge, a nav glyph's corner — so the badge owns only its shape. A \`Pill size="sm"\` is 24 tall and carries a word; this carries a quantity.`,
+    status: {
+      web: ok(`Badge`, `packages/ui/src/badge.tsx`),
+      desktop: leftover(
+        `sidebar::rail_badge_element`,
+        `apps/desktop/crates/ui/src/sidebar.rs`,
+        `the rail's badge is a 6px dot, a glyph or a sync spinner: the IDE has no numeric badge at all`
+      ),
+      ios: leftover(
+        `GlassSegmentedControl`,
+        IOS_SEGMENTED,
+        `the one count capsule is inlined in a segment; the tab bar's unread mark is a FloatingBarBadgeDot`
+      ),
+      android: leftover(
+        `GlassSegmentedControl`,
+        `${ANDROID_COMPONENTS}/GlassSegmentedControl.kt`,
+        `the same inline capsule (BadgeFill) inside a segment, reachable by nothing else`
+      ),
+    },
+    island: () => (
+      <div className="flex items-center gap-5">
+        <Badge count={3} />
+        <Badge count={12} tone="primary" />
+        <Badge count={412} />
+        {/* The corner arm: the badge keeps its shape, the call site the spot. */}
+        <span className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground">
+          <DraftsGlyph className="size-4" />
+          <Badge count={2} tone="primary" className="absolute -right-0.5 -top-0.5" />
+        </span>
       </div>
     ),
   },
@@ -1647,7 +1817,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `fab-chrome`,
     title: `Floating chrome`,
     kind: `Surfaces`,
-    blurb: `The ONE floating-glass recipe a phone's bottom bar is made of, and only its paint: the card hairline, the popover fill at 85%, a large black-40% drop shadow and a backdrop blur. Size, radius, text colour and layout stay at the call site, because they genuinely differ — the 52px circle (the tab bar FAB, the Work bar slots, the issue bar's coding circle), the capsule stretched between two circles, and the radius-16 tray the steer composer expands into. EXP-904: four files restated the string before it became one constant.`,
+    blurb: `The ONE floating-glass recipe a phone's bottom bar is made of, and only its PAINT: the card hairline, the popover fill at 85% and a backdrop blur. Radius, text colour and layout stay at the call site, because a capsule and a radius-16 tray genuinely differ from a circle. EXP-904: four files restated the string before it became one constant. EXP-962 took the 52px CIRCLE out of that list — it is \`FabButton\` now (its own entry) — so what still composes this by hand is the capsule stretched between two circles and the tray the steer composer expands into.`,
     status: {
       web: ok(`FAB_CHROME_CLASS`, `packages/ui/src/fab-chrome.tsx`),
       desktop: na(`no floating phone bar`),
@@ -1659,27 +1829,21 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         note: `the tab bar FAB paints the opaque fill + strong hairline inline; no shared modifier`,
       },
     },
-    leftovers: [
-      { file: `apps/web/src/components/issue-coding-rows.tsx`, note: `FAB_CIRCLE_CLASS repeats it minus one class` },
-      { file: `apps/web/src/components/team/mobile-tab-bar.tsx`, note: `FAB_CLASS spells 52px as 3.25rem` },
-    ],
     island: () => (
+      // The circles are `FabButton`s now; only the capsule still wears the
+      // chrome by hand, which is the point of keeping it a constant.
       <div className="flex items-end gap-3">
-        <div
-          className={`flex size-[52px] items-center justify-center rounded-full text-foreground ${FAB_CHROME_CLASS}`}
-        >
+        <FabButton emphasis="primary" aria-label="New issue">
           <PlusGlyph className="size-5" />
-        </div>
+        </FabButton>
         <div
           className={`flex h-[52px] flex-1 items-center rounded-full px-4 text-sm text-muted-foreground ${FAB_CHROME_CLASS}`}
         >
           Message the agent…
         </div>
-        <div
-          className={`flex size-[52px] items-center justify-center rounded-full text-muted-foreground ${FAB_CHROME_CLASS}`}
-        >
+        <FabButton aria-label="More">
           <MoreGlyph className="size-5" />
-        </div>
+        </FabButton>
       </div>
     ),
   },
@@ -1687,7 +1851,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `attachment-thumb`,
     title: `Attachment thumbnail`,
     kind: `Buttons & chips`,
-    blurb: `A picked attachment waiting in a composer: a 64px center-cropped tile at radius MD under the card hairline, with a small circular remove badge hung off its top-right corner. A video uses the same tile with a first-frame poster on black; any other file stays a chip that carries the same badge. EXP-904: the comment, launch and steer composers each drew it by copy-paste.`,
+    blurb: `A picked attachment waiting in a composer: a 64px center-cropped tile at radius MD under the card hairline, with a small circular remove badge hung off its top-right corner. A video uses the same tile with a first-frame poster on black; any other file stays a chip that carries the same badge. EXP-904: the comment, launch and steer composers each drew it by copy-paste. EXP-962 gave it two SIZES and two ARMS: \`inline\` is the image as POSTED — its own width, capped at 480 tall, contained on the section fill under the same hairline, reserving its probed aspect ratio — and the arms are \`onOpen\`, which makes the media a zoom button into the lightbox, and \`onRemove\`, the corner badge, which a posted image shows only on hover.`,
     status: {
       web: ok(
         `AttachmentThumb / AttachmentRemoveButton`,
@@ -1703,13 +1867,27 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ),
       android: ok(`PendingAttachmentStrip`, `${ANDROID_COMPONENTS}/AttachmentStrips.kt`),
     },
-    leftovers: [
-      { file: `apps/web/src/components/comment-rows/attachments.tsx`, note: `the comment image thumb bypasses AttachmentThumb` },
-    ],
     island: () => (
-      <div className="flex flex-wrap gap-2 p-2">
-        <AttachmentThumb src={THUMB_FIXTURE_SRC} removeLabel="Remove image" onRemove={noop} />
-        <AttachmentThumb src={THUMB_FIXTURE_SRC} removeLabel="Remove image" onRemove={noop} />
+      <div className="grid gap-4">
+        <div className="flex flex-wrap gap-2 p-2">
+          <AttachmentThumb src={THUMB_FIXTURE_SRC} removeLabel="Remove image" onRemove={noop} />
+          <AttachmentThumb src={THUMB_FIXTURE_SRC} removeLabel="Remove image" onRemove={noop} />
+        </div>
+        {/* The posted image: its own size, a zoom arm, and the delete badge
+            its owner gets on hover. */}
+        <div className="p-2">
+          <AttachmentThumb
+            size="inline"
+            src={THUMB_FIXTURE_SRC}
+            alt="A screenshot of the merge queue"
+            width={96}
+            height={96}
+            openLabel="Open image"
+            onOpen={noop}
+            removeLabel="Delete image"
+            onRemove={noop}
+          />
+        </div>
       </div>
     ),
   },
@@ -2519,7 +2697,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `empty-state`,
     title: `Empty state`,
     kind: `Feedback`,
-    blurb: `What a PAGE says when it has nothing: the 48px icon disc, one semibold title, one muted sentence that TEACHES the next step rather than restating the emptiness, and an optional actions slot under it — all on a centred column of at most 28rem. Never a bare "No results". Its in-list sibling is \`ListEmpty\` (same file, its own entry below): one muted line inside a list that filtered down to nothing, where a teaching block would be wrong.`,
+    blurb: `What a PAGE says when it has nothing: the 48px icon disc, one semibold title, one muted sentence that TEACHES the next step rather than restating the emptiness, and an optional actions slot under it — all on a centred column of at most 28rem. Never a bare "No results". Its in-list sibling is \`ListEmpty\` (same file, its own entry below): one muted line inside a list that filtered down to nothing, where a teaching block would be wrong. The third of them is \`EmptyCta\` (EXP-962, next entry): the dashed box that STARTS the list, where the empty state itself is the button.`,
     status: {
       web: ok(`EmptyState`, `packages/ui/src/empty-state.tsx`),
       desktop: ok(`controls::empty_state`, DESKTOP_CONTROLS),
@@ -2544,6 +2722,40 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           Notification settings
         </Pill>
       </EmptyState>
+    ),
+  },
+  {
+    id: `empty-cta`,
+    title: `Empty call to action`,
+    kind: `Feedback`,
+    blurb: `EXP-962: the third empty, and the only one that is a BUTTON. A dashed, full-width box standing exactly where the first row will go — a 16px glyph, one title line, one muted sentence under it, the row wash and full-strength text on hover. Dashed because it is a placeholder for the row it invites; clickable because the shortest path to that row is the box itself. \`EmptyState\` teaches a PAGE with nothing on it, \`ListEmpty\` reports a list that filtered down to nothing, and this one STARTS a list: the actions panel's "describe one" nudge is the call site it was cut from.`,
+    status: {
+      web: ok(
+        `EmptyCta`,
+        `packages/ui/src/empty-state.tsx`,
+        `EmptyState and ListEmpty are the other two, in the same file`
+      ),
+      desktop: ok(
+        `ActionsView::render_nudge`,
+        `apps/desktop/crates/ui/src/actions_view.rs`,
+        `the same dashed strip under the actions list, opening the creator run`
+      ),
+      ios: na(
+        `the creator run needs a device: ActionsListView.emptyState is a read-only page empty instead`
+      ),
+      android: na(
+        `same: ActionsScreen's ActionsEmptyState reads, it does not invite — creation lives on web or desktop`
+      ),
+    },
+    island: () => (
+      <div className="w-80">
+        <EmptyCta
+          icon={ActionCreateGlyph}
+          title="No custom actions yet"
+          description="Describe one and your agent will build it."
+          onClick={noop}
+        />
+      </div>
     ),
   },
   {
@@ -3257,7 +3469,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(
         `MobileWorkBar / MobileWorkCapsule`,
         `packages/ui/src/mobile-work-bar.tsx`,
-        `MOBILE_WORK_CIRCLE_CLASS composes FAB_CHROME_CLASS; the clearance constant is the faces' scroll padding`
+        `its circles are FabButtons now; the clearance constant is the faces' scroll padding`
       ),
       desktop: na(`no floating phone bar: the IDE's bottom edge is the terminal session bar`),
       ios: ok(
@@ -3273,26 +3485,22 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     island: () => (
       <div className="flex items-end gap-2.5">
-        <span className={MOBILE_WORK_CIRCLE_CLASS}>
+        <FabButton aria-label="Properties">
           <PropertiesGlyph className="size-5" />
-        </span>
+        </FabButton>
         <MobileWorkCapsule>
           <CommentGlyph className="size-5 shrink-0" />
           <span className="min-w-0 truncate">Comment</span>
         </MobileWorkCapsule>
-        <span className={MOBILE_WORK_CIRCLE_CLASS}>
+        <FabButton aria-label="Switch face">
           <WorkFacesGlyph className="size-5" />
-        </span>
+        </FabButton>
       </div>
     ),
     leftovers: [
       {
         file: `apps/web/src/components/issue-changes-face.tsx`,
         note: `the Merge capsule wears MOBILE_WORK_CAPSULE_CLASS on a SessionMergePill instead of MobileWorkCapsule`,
-      },
-      {
-        file: `apps/web/src/routes/t/$teamSlug/reviews/$issueIdentifier.tsx`,
-        note: `the Reviews bar builds its Close PR slot as a raw button on MOBILE_WORK_CIRCLE_CLASS`,
       },
     ],
   },

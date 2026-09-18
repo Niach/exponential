@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Download, ExternalLink, X } from "lucide-react"
+import { Download, ExternalLink } from "lucide-react"
 import type { Attachment } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { attachmentCollection } from "@/lib/collections"
@@ -16,6 +16,8 @@ import {
   isVideoContentType,
 } from "@/lib/storage/issue-attachments"
 import {
+  AttachmentRemoveButton,
+  AttachmentThumb,
   Button,
   IconTooltip,
   ImagePreviewDialog,
@@ -90,47 +92,33 @@ export function CommentAttachments({
     }
   }
 
+  // The same corner badge the thumbs hang, for the rows that are NOT an
+  // `AttachmentThumb` (the media players and the file chips).
   const removeButton = (row: Attachment) => (
-    <button
-      type="button"
-      aria-label={`Delete ${row.filename}`}
+    <AttachmentRemoveButton
+      label={`Delete ${row.filename}`}
       onClick={() => setPendingDelete(row)}
-      className="absolute -right-1.5 -top-1.5 hidden rounded-full border border-border bg-background p-0.5 text-muted-foreground hover:text-foreground group-hover/attachment:block"
-    >
-      <X className="size-3" />
-    </button>
+      className="hidden group-hover/attachment:block"
+    />
   )
 
   return (
     <div className="mt-2 flex flex-col items-start gap-2">
       {images.map((row) => (
-        <div key={row.id} className="group/attachment relative max-w-full">
-          <button
-            type="button"
-            aria-label={`View ${row.filename}`}
-            onClick={() => setPreview(row)}
-            className="block cursor-zoom-in"
-          >
-            <img
-              src={row.url}
-              alt={row.filename}
-              loading="lazy"
-              // The intrinsic size is what lets the browser reserve the box
-              // before the bytes land; `aspect-ratio` keeps that reservation
-              // correct once `max-h`/`max-w` clamp one side. Rows probed
-              // before EXP-580 carry neither and simply reflow on decode.
-              width={row.width ?? undefined}
-              height={row.height ?? undefined}
-              style={
-                row.width && row.height
-                  ? { aspectRatio: `${row.width} / ${row.height}` }
-                  : undefined
-              }
-              className="block h-auto max-h-[480px] w-auto max-w-full rounded-lg border border-glass-stroke-card bg-glass-section object-contain"
-            />
-          </button>
-          {canModify && removeButton(row)}
-        </div>
+        <AttachmentThumb
+          key={row.id}
+          size="inline"
+          src={row.url}
+          alt={row.filename}
+          width={row.width}
+          height={row.height}
+          openLabel={`View ${row.filename}`}
+          onOpen={() => setPreview(row)}
+          removeLabel={canModify ? `Delete ${row.filename}` : undefined}
+          onRemove={canModify ? () => setPendingDelete(row) : undefined}
+          removeClassName="hidden group-hover/attachment:block"
+          className="group/attachment"
+        />
       ))}
       {media.map((row) => (
         <div

@@ -1,5 +1,4 @@
 import { useState } from "react"
-import { Search } from "lucide-react"
 import {
   Command,
   CommandEmpty,
@@ -88,15 +87,13 @@ export function IssuePickerDialog({
             className="text-base md:text-sm"
           />
           <CommandList className="max-h-none flex-1 overflow-y-auto">
-            <CommandEmpty className="p-0">
-              <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-                <Search className="size-8 mb-3 opacity-50" />
-                <p className="text-sm">
-                  {query.trim()
-                    ? `No issues match "${query}"`
-                    : `No issues to pick from`}
-                </p>
-              </div>
+            {/* EXP-962: `CommandEmpty` IS the in-list empty line (the same one
+                `ListEmpty` draws elsewhere) — the icon column it used to wrap
+                made one list's empty louder than every other list's. */}
+            <CommandEmpty>
+              {query.trim()
+                ? `No issues match "${query}"`
+                : `No issues to pick from`}
             </CommandEmpty>
             {results.map((issue) => (
               <CommandItem

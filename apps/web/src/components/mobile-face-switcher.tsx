@@ -1,16 +1,16 @@
-import { useState } from "react"
+import { useState, type ComponentProps } from "react"
 import type { CodingSession } from "@/db/schema"
 import {
   conceptIcon,
   ComboboxMenuItems,
   DiffCounts,
+  FabButton,
   SESSION_DOT_CLASS,
   type SessionDotTone,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  MOBILE_WORK_CIRCLE_CLASS,
 } from "@exp/ui"
 import { isLiveRun } from "@/lib/past-runs"
 import { cn } from "@/lib/utils"
@@ -136,6 +136,23 @@ function BadgeDot({ tone }: { tone: SessionDotTone | `changes` }) {
   )
 }
 
+/** EXP-931: the composer's row is 16px controls (`ContextRing` is a ghost
+ *  `icon-xs` Button), the bar's is the 52px glass circle. EXP-962: that
+ *  circle IS `FabButton`, so only the inline arm still carries a class of its
+ *  own. Both arms are a plain `<button>` underneath, which is what the
+ *  menu's `DropdownMenuTrigger asChild` needs. */
+const INLINE_SWITCHER_CLASS = `inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast hover:bg-glass-active hover:text-foreground`
+
+function SwitcherButton({
+  inline,
+  ...props
+}: ComponentProps<`button`> & { inline: boolean }) {
+  if (inline) {
+    return <button type="button" className={INLINE_SWITCHER_CLASS} {...props} />
+  }
+  return <FabButton emphasis="primary" {...props} />
+}
+
 export function MobileFaceSwitcher({
   faces,
   variant = `circle`,
@@ -156,12 +173,7 @@ export function MobileFaceSwitcher({
   const mode = switcherMode(targets)
   const badge = switcherBadge(face, sessionTone, hasChanges)
   const multipleRuns = runIds.length > 1
-  // EXP-931: the composer's row is 16px controls (`ContextRing` is a ghost
-  // `icon-xs` Button), the bar's is the 52px glass circle.
   const inline = variant === `inline`
-  const buttonClass = inline
-    ? `inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-fast hover:bg-glass-active hover:text-foreground`
-    : cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)
   const glyphClass = inline ? `size-4` : `size-5`
 
   const activate = (target: SwitcherTarget) => {
@@ -182,8 +194,8 @@ export function MobileFaceSwitcher({
   if (mode.kind === `toggle`) {
     const label = targetLabel(mode.target, multipleRuns)
     return (
-      <button
-        type="button"
+      <SwitcherButton
+        inline={inline}
         aria-label={label}
         title={label}
         data-testid="mobile-face-switcher"
@@ -191,26 +203,24 @@ export function MobileFaceSwitcher({
           mode.target.kind === `face` ? mode.target.face : mode.target.kind
         }
         onClick={() => activate(mode.target)}
-        className={buttonClass}
       >
         <span className="relative flex">
           <TargetIcon target={mode.target} className={glyphClass} />
           {badge && <BadgeDot tone={badge} />}
         </span>
-      </button>
+      </SwitcherButton>
     )
   }
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button
-          type="button"
+        <SwitcherButton
+          inline={inline}
           aria-label="Switch view"
           title="Switch view"
           data-testid="mobile-face-switcher"
           data-face-target="menu"
-          className={buttonClass}
         >
           <span className="relative flex">
             {open ? (
@@ -220,7 +230,7 @@ export function MobileFaceSwitcher({
             )}
             {badge && !open && <BadgeDot tone={badge} />}
           </span>
-        </button>
+        </SwitcherButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"

@@ -2,16 +2,15 @@ import { useState, type ReactNode } from "react"
 import type { User } from "@/db/schema"
 import {
   conceptIcon,
+  FabButton,
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-  MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
   MobileWorkCapsule,
 } from "@exp/ui"
 import { CommentComposer } from "@/components/comment-composer"
-import { cn } from "@/lib/utils"
 import { issueMemoryOwner } from "@/lib/work-tab-memory"
 
 // EXP-568 — the phone issue-detail bottom bar: the three things a reader
@@ -59,14 +58,13 @@ export function IssueDetailMobileBar({
       <MobileWorkBar
         hidden={hidden}
         leading={
-          <button
-            type="button"
+          <FabButton
+            emphasis="primary"
             aria-label="Issue properties"
             onClick={() => setPropertiesOpen(true)}
-            className={cn(MOBILE_WORK_CIRCLE_CLASS, `text-foreground`)}
           >
             <PropertiesIcon className="size-5" />
-          </button>
+          </FabButton>
         }
         capsule={
           <MobileWorkCapsule onClick={() => setComposing(true)}>

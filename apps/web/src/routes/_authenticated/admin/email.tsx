@@ -15,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  ListEmpty,
   Select,
   SelectContent,
   SelectItem,
@@ -321,9 +322,9 @@ function AdminEmail() {
           </div>
 
           {allRows.length === 0 ? (
-            <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
+            <ListEmpty className="rounded-md border px-4 py-8">
               No emails match.
-            </div>
+            </ListEmpty>
           ) : (
             <>
               <EmailDeliveriesTable rows={allRows} showSubject />
@@ -357,11 +358,11 @@ function AdminEmail() {
           </p>
 
           {bounces.length === 0 ? (
-            <div className="rounded-md border px-4 py-8 text-center text-sm text-muted-foreground">
+            <ListEmpty className="rounded-md border px-4 py-8">
               No bounces or complaints reported. (Requires the SES feedback
               webhook: an SNS topic subscribed to{` `}
               <code className="text-xs">/api/webhooks/ses</code>.)
-            </div>
+            </ListEmpty>
           ) : (
             <div className="rounded-md border">
               <div className="hidden md:grid grid-cols-[1fr_110px_150px_60px_100px_150px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">

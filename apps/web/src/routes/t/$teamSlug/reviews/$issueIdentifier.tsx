@@ -28,8 +28,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  FabButton,
   MOBILE_WORK_BAR_CLEARANCE,
-  MOBILE_WORK_CIRCLE_CLASS,
   MobileWorkBar,
   ChangesFileSheet,
   PrGithubButton,
@@ -424,21 +424,19 @@ function ReviewDetailPage() {
                trailing circle, and only while there is an open PR to close.
                GitHub moved up into the header. */
             isOpen ? (
-              <button
-                type="button"
+              <FabButton
                 aria-label={contract.diffUi.closePr}
                 title={contract.diffUi.closePr}
                 data-testid="review-close-pr"
                 disabled={closing}
                 onClick={() => setConfirmCloseOpen(true)}
-                className={MOBILE_WORK_CIRCLE_CLASS}
               >
                 {closing ? (
                   <UiLoadingIcon className="size-5 animate-spin" />
                 ) : (
                   <PrClosedIcon className="size-5" />
                 )}
-              </button>
+              </FabButton>
             ) : undefined
           }
         />

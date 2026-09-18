@@ -107,11 +107,17 @@ function GlassSectionHeader({
 // stays for the few real cards). Desktop `surface::flat_row` twin.
 const LIST_ROW = `flex items-center gap-3 rounded-md p-3`
 const LIST_ROW_INTERACTIVE = `cursor-pointer transition-colors duration-fast outline-none hover:bg-glass-row focus-visible:ring-[3px] focus-visible:ring-ring/50`
+// EXP-962: the COMPACT density — the 28px one-line row the sidebar's arms
+// run at (the compact inbox, the pinned rows): the list's own 14px type, 8px
+// of side padding, 8px between the glyph and the text. The twin of
+// `SidebarMenuButton density="compact"`, which is exactly as tall.
+const LIST_ROW_COMPACT = `h-7 gap-2 px-2 py-0 text-sm`
 
 function ListRow({
   interactive = false,
   active = false,
   asChild = false,
+  density = `list`,
   className,
   onClick,
   onKeyDown,
@@ -122,9 +128,12 @@ function ListRow({
   active?: boolean
   /** Render the row as its single child (a `Link`/`<a>`), like `Button`. */
   asChild?: boolean
+  /** `compact` = the sidebar's 28px one-line row (EXP-962). */
+  density?: `list` | `compact`
 }) {
   const rowClassName = cn(
     LIST_ROW,
+    density === `compact` && LIST_ROW_COMPACT,
     interactive && LIST_ROW_INTERACTIVE,
     active && `bg-glass-active`,
     className
@@ -133,6 +142,7 @@ function ListRow({
     return (
       <Slot.Root
         data-slot="list-row"
+        data-density={density}
         onClick={onClick}
         onKeyDown={onKeyDown}
         className={rowClassName}
@@ -144,6 +154,7 @@ function ListRow({
   return (
     <div
       data-slot="list-row"
+      data-density={density}
       role={clickable ? `button` : undefined}
       tabIndex={clickable ? 0 : undefined}
       onClick={onClick}

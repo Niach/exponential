@@ -2,7 +2,7 @@ import { conceptIcon } from "./icons.generated"
 import { Button } from "./button"
 import { contract } from "@exp/domain-contract"
 import { cn } from "./cn"
-import { MOBILE_WORK_CIRCLE_CLASS } from "./mobile-work-bar"
+import { FabButton } from "./fab-chrome"
 
 // EXP-916: THE GitHub control of every diff surface — the PR page in a new
 // tab. One component, three shapes, so the words (the contract's) and the
@@ -42,20 +42,19 @@ export function PrGithubButton({
   const testid = testId ?? DEFAULT_TEST_ID[variant]
 
   // The bar circle is the 52px glass slot every other bar control is (the file
-  // sheet, the face switcher) — its chrome comes whole from
-  // `MOBILE_WORK_CIRCLE_CLASS`, so it stays a plain button like its siblings.
+  // sheet, the face switcher) — `FabButton` IS that slot (EXP-962), at the
+  // secondary emphasis its siblings wear.
   if (variant === `circle`) {
     return (
-      <button
-        type="button"
+      <FabButton
         aria-label={label}
         title={label}
         data-testid={testid}
         onClick={open}
-        className={cn(MOBILE_WORK_CIRCLE_CLASS, className)}
+        className={className}
       >
         <GithubIcon className="size-5" />
-      </button>
+      </FabButton>
     )
   }
 
