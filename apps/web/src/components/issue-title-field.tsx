@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import type { Issue } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
-import { Textarea } from "@exp/ui"
+import { BARE_FIELD_CLASS, Textarea, cn } from "@exp/ui"
 
 // EXP-877: the issue title, lifted out of the detail view so the unified work
 // header can carry it on BOTH the issue route and the session route (an
@@ -11,7 +11,10 @@ import { Textarea } from "@exp/ui"
 /** The Textarea's own classes — `RUN_TITLE_CLASS` in `work-header.tsx`
  * mirrors the size and padding so a run's static title sits on the same
  * baseline. */
-export const ISSUE_TITLE_FIELD_CLASS = `min-h-0 resize-none bg-transparent dark:bg-transparent border-none shadow-none !text-2xl font-semibold px-5 pt-4 pb-1 focus-visible:ring-0 placeholder:text-muted-foreground/50`
+export const ISSUE_TITLE_FIELD_CLASS = cn(
+  BARE_FIELD_CLASS,
+  `min-h-0 resize-none dark:bg-transparent !text-2xl font-semibold px-5 pt-4 pb-1 placeholder:text-muted-foreground/50`
+)
 
 export function IssueTitleField({
   issue,

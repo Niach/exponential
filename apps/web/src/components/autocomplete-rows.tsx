@@ -1,6 +1,6 @@
 import type { User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
-import { UserAvatar } from "@exp/ui"
+import { TypeaheadRow, UserAvatar } from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
 import type { EmojiRecord } from "@/lib/emoji"
@@ -9,13 +9,12 @@ import type { SteerCommand } from "@/lib/steer-commands"
 // The candidate rows of the @mention / #issue / :emoji autocomplete menus — shared
 // between the comment composer (mention-textarea.tsx) and the TipTap markdown
 // editor (issue-editor/markdown-editor.tsx) so both popups look identical.
-// Selection uses onMouseDown+preventDefault so the editor/textarea keeps
-// focus through the click.
-
-// EXP-903 — the ONE row shape every candidate below wears. The active row
-// takes `bg-glass-active`, the same highlight the package menus use, so a
-// floating autocomplete and a real menu light up identically.
-const AUTOCOMPLETE_ROW_CLASS = `flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm`
+//
+// EXP-941: the row CHROME is `TypeaheadRow` from @exp/ui — it owns the one row
+// recipe (`TYPEAHEAD_ROW_CLASS` + the `bg-glass-active` highlight the package
+// menus use), `role="option"`/`aria-selected`, and the mousedown
+// preventDefault that keeps the editor/textarea's caret through the click.
+// Everything below is just the CONTENT of a row.
 
 export function UserCandidateRow({
   user,
@@ -32,17 +31,7 @@ export function UserCandidateRow({
   // email — don't render it a second time on the trailing line.
   const name = displayUserName(user, user.id)
   return (
-    <button
-      type="button"
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onSelect()
-      }}
-      onMouseEnter={onHover}
-      className={`${AUTOCOMPLETE_ROW_CLASS} ${
-        active ? `bg-glass-active` : ``
-      }`}
-    >
+    <TypeaheadRow active={active} onSelect={onSelect} onMouseEnter={onHover}>
       <UserAvatar size={20} user={{ id: user.id, name, image: user.image }} />
       <span className="truncate">{name}</span>
       {user.email && user.email !== name && (
@@ -50,7 +39,7 @@ export function UserCandidateRow({
           {user.email}
         </span>
       )}
-    </button>
+    </TypeaheadRow>
   )
 }
 
@@ -66,23 +55,13 @@ export function IssueCandidateRow({
   onHover: () => void
 }) {
   return (
-    <button
-      type="button"
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onSelect()
-      }}
-      onMouseEnter={onHover}
-      className={`${AUTOCOMPLETE_ROW_CLASS} ${
-        active ? `bg-glass-active` : ``
-      }`}
-    >
+    <TypeaheadRow active={active} onSelect={onSelect} onMouseEnter={onHover}>
       <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
       <span className="shrink-0 font-mono text-xs text-muted-foreground">
         {issue.identifier}
       </span>
       <span className="truncate">{issue.title}</span>
-    </button>
+    </TypeaheadRow>
   )
 }
 
@@ -109,17 +88,7 @@ export function EmojiCandidateRow({
   const shortcode =
     emoji.s.find((code) => code.toLowerCase().startsWith(q)) ?? emoji.s[0]
   return (
-    <button
-      type="button"
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onSelect()
-      }}
-      onMouseEnter={onHover}
-      className={`${AUTOCOMPLETE_ROW_CLASS} ${
-        active ? `bg-glass-active` : ``
-      }`}
-    >
+    <TypeaheadRow active={active} onSelect={onSelect} onMouseEnter={onHover}>
       <span className="emoji-glyph w-6 shrink-0 text-center text-base leading-none">
         {unicode}
       </span>
@@ -129,7 +98,7 @@ export function EmojiCandidateRow({
         </span>
       )}
       <span className="truncate text-muted-foreground">{emoji.l}</span>
-    </button>
+    </TypeaheadRow>
   )
 }
 
@@ -147,17 +116,7 @@ export function CommandCandidateRow({
   onHover: () => void
 }) {
   return (
-    <button
-      type="button"
-      onMouseDown={(e) => {
-        e.preventDefault()
-        onSelect()
-      }}
-      onMouseEnter={onHover}
-      className={`${AUTOCOMPLETE_ROW_CLASS} ${
-        active ? `bg-glass-active` : ``
-      }`}
-    >
+    <TypeaheadRow active={active} onSelect={onSelect} onMouseEnter={onHover}>
       <span className="shrink-0 font-mono text-xs">/{command.name}</span>
       <span className="truncate text-muted-foreground">
         {command.description}
@@ -167,6 +126,6 @@ export function CommandCandidateRow({
           {`<${command.argHint}>`}
         </span>
       )}
-    </button>
+    </TypeaheadRow>
   )
 }

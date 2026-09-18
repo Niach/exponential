@@ -6,6 +6,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Meter,
 } from "@exp/ui"
 import {
   DayBars,
@@ -127,14 +128,10 @@ function AdminOverview() {
                     {step.users} ({pct(step.users, activation.users)})
                   </span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{
-                      width: `${(step.users / Math.max(1, activation.users)) * 100}%`,
-                    }}
-                  />
-                </div>
+                <Meter
+                  className="h-2"
+                  value={(step.users / Math.max(1, activation.users)) * 100}
+                />
               </div>
             ))}
           </div>
@@ -167,15 +164,11 @@ function AdminOverview() {
                         {row.users} · 30d {row.active30d} · 7d {row.active7d}
                       </span>
                     </div>
-                    <div
-                      className="h-2 overflow-hidden rounded-full bg-muted"
+                    <Meter
+                      className="h-2"
+                      value={(row.users / platformMax) * 100}
                       title={`${platformLabel(row.platform)}: ${row.users} users (${pct(row.users, platforms.usersTotal)} of all users)`}
-                    >
-                      <div
-                        className="h-full rounded-full bg-primary"
-                        style={{ width: `${(row.users / platformMax) * 100}%` }}
-                      />
-                    </div>
+                    />
                   </div>
                 ))}
               </div>

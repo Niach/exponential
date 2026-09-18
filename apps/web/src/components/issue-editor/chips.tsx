@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { CalendarDays, Ellipsis } from "lucide-react"
+import { Ellipsis } from "lucide-react"
 import type { User } from "@/db/schema"
 import { ISSUE_PRIORITY_FALLBACK, type IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -7,7 +7,6 @@ import {
   creatableStatusOptions,
   type StatusRowOption,
 } from "@/lib/team-statuses"
-import { formatDate } from "@/lib/utils"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
 import {
@@ -18,15 +17,15 @@ import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdo
 import {
   OptionDropdownMenu,
   Button,
-  Calendar,
+  conceptIcon,
+  DatePicker,
   Pill,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
 } from "@exp/ui"
+
+const DueDateGlyph = conceptIcon(`ui-due-date`)
 
 export interface IssueEditorChipsProps {
   // EXP-314: the RESOLVED team status row (never a bare enum) so a custom
@@ -37,7 +36,8 @@ export interface IssueEditorChipsProps {
   selectedLabelIds: string[]
   teamId: string
   users: User[]
-  dueDate: Date | undefined
+  /** `YYYY-MM-DD`, or null for "no due date" (REV2-49: no time of day). */
+  dueDate: string | null
   hideAssignee?: boolean
   hideDueDateChip?: boolean
   disableStatus?: boolean
@@ -48,7 +48,7 @@ export interface IssueEditorChipsProps {
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onToggleLabel: (labelId: string) => void | Promise<void>
-  onDueDateSelect: (date: Date | undefined) => void | Promise<void>
+  onDueDateSelect: (date: string | null) => void | Promise<void>
 }
 
 export function IssueEditorChips({
@@ -144,26 +144,23 @@ export function IssueEditorChips({
       />
 
       {!hideDueDateChip && (
-        <Popover>
-          <PopoverTrigger asChild>
+        <DatePicker
+          value={dueDate}
+          onChange={(date) => {
+            void onDueDateSelect(date)
+          }}
+          disabled={disabled}
+          align="start"
+          renderTrigger={({ label }) => (
             <Pill
               mode="action"
               disabled={disabled}
-              leading={<CalendarDays className="size-3" />}
+              leading={<DueDateGlyph className="size-3" />}
             >
-              {dueDate ? formatDate(dueDate) : `Due date`}
+              {label}
             </Pill>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={dueDate}
-              onSelect={(date) => {
-                void onDueDateSelect(date)
-              }}
-            />
-          </PopoverContent>
-        </Popover>
+          )}
+        />
       )}
 
       {chipRowExtras}

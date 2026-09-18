@@ -78,7 +78,7 @@ interface IssueEditorDialogShellProps {
   description: string
   disabled?: boolean
   dialogTestId?: string
-  dueDate: Date | undefined
+  dueDate: string | null
   editorRef?: Ref<MarkdownEditorRef>
   footer?: ReactNode
   formProps?: ComponentPropsWithoutRef<`form`>
@@ -95,7 +95,7 @@ interface IssueEditorDialogShellProps {
   onAssigneeChange: (userId: string | null) => void | Promise<void>
   onDescriptionBlur?: () => void
   onDescriptionChange: (markdown: string) => void
-  onDueDateSelect: (date: Date | undefined) => void | Promise<void>
+  onDueDateSelect: (date: string | null) => void | Promise<void>
   onOpenChange: (open: boolean) => void
   onPriorityChange: (priority: IssuePriority) => void | Promise<void>
   onStatusChange: (status: StatusRowOption) => void | Promise<void>

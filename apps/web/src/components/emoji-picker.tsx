@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react"
 import {
-  Input,
+  SearchField,
   Skeleton,
   MobilePopover,
   MobilePopoverContent,
@@ -79,10 +79,11 @@ export function EmojiPicker({ onPick, autoFocusSearch }: EmojiPickerProps) {
       aria-label="Emoji picker"
     >
       <div className="flex items-center gap-2 px-2 pt-2 pb-1">
-        <Input
+        <SearchField
+          size="md"
           ref={searchRef}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onValueChange={setQuery}
           onKeyDown={(event) => {
             if (event.key === `Enter`) {
               event.preventDefault()
@@ -91,7 +92,7 @@ export function EmojiPicker({ onPick, autoFocusSearch }: EmojiPickerProps) {
           }}
           placeholder="Search emoji…"
           aria-label="Search emoji"
-          className="h-8 text-sm"
+          clearLabel="Clear emoji search"
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}

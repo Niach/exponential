@@ -10,9 +10,7 @@ import {
   GlassRow,
   GlassSectionHeader,
   Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  ColorPicker,
   LABEL_COLORS,
   ColorSwatchGrid,
 } from "@exp/ui"
@@ -90,22 +88,23 @@ function LabelRow({
   return (
     <GlassRow className="flex-col items-stretch gap-0 px-3 py-2">
       <div className="flex items-center gap-3">
-        <Popover>
-          <PopoverTrigger asChild>
+        {/* EXP-941: the shared picker, wearing this row's 16px dot as its
+            trigger — the popover and the swatch grid inside it are the ONE
+            copy now. */}
+        <ColorPicker
+          value={label.color}
+          onChange={persistColor}
+          align="start"
+          renderTrigger={(color) => (
             <button
               type="button"
               aria-label="Change label color"
               className="h-4 w-4 rounded-full ring-1 ring-border shrink-0"
-              style={{ backgroundColor: label.color }}
+              style={{ backgroundColor: color }}
               disabled={busy}
             />
-          </PopoverTrigger>
-          {/* Bounded so the swatch grid WRAPS — `w-auto` let it stretch the
-              popover to one 20-swatch row wider than a phone screen. */}
-          <PopoverContent className="w-64 p-2" align="start">
-            <ColorSwatchGrid value={label.color} onChange={persistColor} />
-          </PopoverContent>
-        </Popover>
+          )}
+        />
         <Input
           value={name}
           onChange={(e) => {

@@ -11,6 +11,7 @@ import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
+  Label,
   Switch,
   conceptIcon,
 } from "@exp/ui"
@@ -151,7 +152,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           />
         )}
         {agentSupportsPlanMode(agent) && !model.resumeActive && (
-          <label className="flex cursor-pointer items-center gap-1.5">
+          <Label className="cursor-pointer gap-1.5 font-normal">
             <span>Plan</span>
             <Switch
               size="sm"
@@ -159,13 +160,13 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
               onCheckedChange={launch.setPlanMode}
               aria-label="Plan mode"
             />
-          </label>
+          </Label>
         )}
         {model.resumeCandidate && (
           /* EXP-481: a resumed session never re-enters plan mode, so the Plan
              switch hides behind an armed resume (the desktop's clamp). */
-          <label
-            className="flex items-center gap-1.5"
+          <Label
+            className="gap-1.5 font-normal"
             title={`A worktree for ${model.resumeCandidate.identifier} already exists (${model.resumeCandidate.branch}).`}
           >
             <span>Resume</span>
@@ -175,7 +176,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
               onCheckedChange={model.setResume}
               aria-label="Resume previous session"
             />
-          </label>
+          </Label>
         )}
         <MobilePopover>
           <MobilePopoverTrigger asChild>

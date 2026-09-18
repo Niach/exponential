@@ -8,11 +8,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Tabs,
-  TabsList,
-  TabsTrigger,
+  SegmentedControl,
   SEGMENTED_ROW,
-  SEGMENTED_TAB,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -189,22 +186,30 @@ export function AgentPickerTabs({
 }) {
   if (agents.length === 0) return null
   return (
-    <div className={cn(SEGMENTED_ROW, className)} data-slot="agent-picker-tabs">
-      <Tabs value={value} onValueChange={onChange} className="w-full">
-        <TabsList className="w-full">
-          {agents.map((agent) => (
-            <TabsTrigger
-              key={agent}
-              value={agent}
-              disabled={disabled}
-              className={SEGMENTED_TAB}
-            >
+    // `*:w-full` stretches the strip's root across the row, which is what the
+    // launch-options pane's first group row wants — the shared control sizes
+    // its LIST, and the list can only fill a root that already fills the row.
+    <div
+      className={cn(SEGMENTED_ROW, `*:w-full`, className)}
+      data-slot="agent-picker-tabs"
+    >
+      <SegmentedControl
+        value={value}
+        onValueChange={onChange}
+        disabled={disabled}
+        className="w-full"
+        options={agents.map((agent) => ({
+          value: agent,
+          // The brand mark is NOT a concept glyph (`icon` takes those), so it
+          // rides in the label — same mark, same 14px, same order as before.
+          label: (
+            <>
               <AgentMark agent={agent} className="size-3.5" />
               {agentLabel(agent)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+            </>
+          ),
+        }))}
+      />
     </div>
   )
 }

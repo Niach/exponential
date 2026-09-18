@@ -38,17 +38,25 @@ vi.mock(`@exp/ui`, async (importOriginal) => ({
     return <div>{children}</div>
   },
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-  Popover: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  PopoverContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  PopoverTrigger: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  Calendar: ({ onSelect }: { onSelect: (date: Date | undefined) => void }) => (
-    <button type="button" onClick={() => onSelect(new Date(`2026-03-06`))}>
-      Pick date
-    </button>
+  // EXP-941: the due-date control is the shared `DatePicker` now — one stub
+  // for the popover + calendar the chips used to wire themselves, reporting
+  // the WIRE value the picker reports.
+  DatePicker: ({
+    onChange,
+    renderTrigger,
+  }: {
+    onChange: (value: string | null) => void
+    renderTrigger?: (state: {
+      label: string
+      value: string | null
+    }) => ReactNode
+  }) => (
+    <div>
+      {renderTrigger?.({ label: `Due date`, value: null })}
+      <button type="button" onClick={() => onChange(`2026-03-06`)}>
+        Pick date
+      </button>
+    </div>
   ),
   OptionDropdownMenu: ({
     onSelect,
@@ -146,7 +154,7 @@ function baseShellProps() {
     users: [],
     assigneeId: null,
     onAssigneeChange: vi.fn(),
-    dueDate: undefined,
+    dueDate: null,
     onDueDateSelect: vi.fn(),
     footer: <div>Footer content</div>,
   }
@@ -183,7 +191,7 @@ describe(`IssueEditorDialogShell`, () => {
         users={[]}
         assigneeId={null}
         onAssigneeChange={onAssigneeChange}
-        dueDate={undefined}
+        dueDate={null}
         onDueDateSelect={onDueDateSelect}
         footer={<div>Footer content</div>}
       />
@@ -214,7 +222,7 @@ describe(`IssueEditorDialogShell`, () => {
     expect(onPriorityChange).toHaveBeenCalledWith(`high`)
     expect(onToggleLabel).toHaveBeenCalledWith(`label-1`)
     expect(onAssigneeChange).toHaveBeenCalledWith(`user-2`)
-    expect(onDueDateSelect).toHaveBeenCalled()
+    expect(onDueDateSelect).toHaveBeenCalledWith(`2026-03-06`)
   })
 
   // EXP-10: Tab in the title jumps focus into the description editor instead

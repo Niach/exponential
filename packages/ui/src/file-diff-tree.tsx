@@ -7,7 +7,7 @@ import { Button } from "./button"
 import { cn } from "./cn"
 import { DiffCounts, DiffStatusLetter } from "./diff-counts"
 import { conceptIcon } from "./icons.generated"
-import { Input } from "./input"
+import { SearchField } from "./search-field"
 
 // EXP-916 — the file column beside the diff: the review's summary over a
 // filterable TREE of the changed files, folders first, VS-Code compact chains
@@ -146,12 +146,12 @@ export function FileDiffTree({
         <span className="min-w-0 truncate font-medium">{summary}</span>
       </div>
       <div className="border-b border-glass-stroke p-1.5">
-        <Input
+        <SearchField
+          size="sm"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onValueChange={setFilter}
           placeholder={DIFF_FILTER_PLACEHOLDER}
           aria-label={DIFF_FILTER_PLACEHOLDER}
-          className="h-7 text-xs"
           data-testid="diff-nav-filter"
         />
       </div>

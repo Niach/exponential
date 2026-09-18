@@ -1,12 +1,9 @@
-import { CalendarDays, Megaphone } from "lucide-react"
+import { Megaphone } from "lucide-react"
 import {
   conceptIcon,
   Pill,
   OptionDropdownMenu,
-  Calendar,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  DatePicker,
 } from "@exp/ui"
 import type { User } from "@/db/schema"
 import {
@@ -16,7 +13,7 @@ import {
 } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
-import { cn, formatDate } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 import {
   priorities,
   PriorityIcon,
@@ -40,8 +37,10 @@ export interface IssuePropertiesPanelProps {
   teamId: string
   selectedLabelIds: string[]
   onToggleLabel: (labelId: string) => void | Promise<void>
-  dueDate: Date | undefined
-  onDueDateSelect: (date: Date | undefined) => void | Promise<void>
+  /** `YYYY-MM-DD`, or null for "no due date" — the wire format, never a
+   *  `Date` (REV2-49: a due date has no time of day). */
+  dueDate: string | null
+  onDueDateSelect: (date: string | null) => void | Promise<void>
   // Where the issue came from. Only `widget` renders anything (a muted
   // "Feedback widget" pill); `user` (the default) shows nothing.
   source?: IssueSource
@@ -64,6 +63,8 @@ export interface IssuePropertiesPanelProps {
   className?: string
 }
 
+const DueDateGlyph = conceptIcon(`ui-due-date`)
+
 function DueDateControl({
   disabled,
   dueDate,
@@ -72,23 +73,19 @@ function DueDateControl({
   IssuePropertiesPanelProps,
   `disabled` | `dueDate` | `onDueDateSelect`
 >) {
-  const triggerLabel = dueDate ? formatDate(dueDate) : `Due date`
   return (
-    <Popover>
-      <PopoverTrigger asChild>
+    <DatePicker
+      value={dueDate}
+      onChange={(date) => void onDueDateSelect(date)}
+      disabled={disabled}
+      align="start"
+      renderTrigger={({ label }) => (
         <Pill mode="action" disabled={disabled}>
-          <CalendarDays className="size-3" />
-          {triggerLabel}
+          <DueDateGlyph className="size-3" />
+          {label}
         </Pill>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          selected={dueDate}
-          onSelect={(date) => void onDueDateSelect(date)}
-        />
-      </PopoverContent>
-    </Popover>
+      )}
+    />
   )
 }
 

@@ -1,18 +1,7 @@
-import { useCallback, useState } from "react"
-import { Check, ChevronDown, LoaderCircle } from "lucide-react"
+import { useCallback, useMemo, useState } from "react"
+import { ChevronDown } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import {
-  Button,
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
-} from "@exp/ui"
+import { Button, Combobox, type PickerOption } from "@exp/ui"
 
 // A searchable branch picker for one connected repository (EXP-462/469,
 // generalized in EXP-712 so the repo settings' default-branch pin and the
@@ -22,6 +11,9 @@ import {
 // otherwise the menu couldn't show what the row is set to, let alone offer
 // the way back. `repoDefault` is the branch that means "follow the repo":
 // it carries the `default` tag and picking it reports `null`.
+//
+// EXP-941: the shared `Combobox` — the lazy GitHub load rides its `loading`
+// and `error` slots, the `default` tag is the option `hint`.
 export function BranchCombobox({
   repositoryId,
   value,
@@ -69,19 +61,70 @@ export function BranchCombobox({
     }
   }, [repositoryId])
 
-  const names =
-    branches && !branches.includes(value) ? [value, ...branches] : branches
+  const names = useMemo(
+    () =>
+      branches && !branches.includes(value) ? [value, ...branches] : branches,
+    [branches, value]
+  )
+  const options = useMemo<PickerOption[]>(
+    () =>
+      (names ?? []).map((name) => ({
+        value: name,
+        label: name,
+        hint: name === repoDefault ? `default` : undefined,
+      })),
+    [names, repoDefault]
+  )
 
   return (
-    <MobilePopover
+    <Combobox
+      options={options}
+      value={value}
+      onChange={(name) => {
+        if (!name || name === value) return
+        onPick(name === repoDefault ? null : name)
+      }}
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
         if (next && branches === null && !loading) void load()
       }}
-    >
-      <MobilePopoverTrigger asChild>
-        {rowLabel ? (
+      disabled={disabled}
+      // Nothing has loaded and nothing failed = the very first frame of the
+      // lazy fetch; showing the empty-list copy there would read as "this repo
+      // has no branches".
+      loading={loading || (names === null && loadError === null)}
+      error={
+        loadError ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start rounded-none text-destructive hover:text-destructive"
+            onClick={() => void load()}
+          >
+            Couldn&rsquo;t load branches — retry
+          </Button>
+        ) : undefined
+      }
+      width="md"
+      align={align}
+      mobileTitle="Branch"
+      placeholder="Search branches…"
+      emptyText="No branches found."
+      renderOption={(option) => (
+        <>
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">
+            {option.label}
+          </span>
+          {option.hint !== undefined && (
+            <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+              {option.hint}
+            </span>
+          )}
+        </>
+      )}
+      renderTrigger={() =>
+        rowLabel ? (
           <button
             type="button"
             disabled={disabled}
@@ -106,65 +149,8 @@ export function BranchCombobox({
             <span className="min-w-0 truncate">{value}</span>
             <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
           </Button>
-        )}
-      </MobilePopoverTrigger>
-      <MobilePopoverContent
-        className="w-[16rem] p-0"
-        align={align}
-        mobileTitle="Branch"
-      >
-        <Command>
-          <CommandInput placeholder="Search branches…" />
-          <CommandList>
-            {loading && (
-              <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                Loading branches…
-              </div>
-            )}
-            {loadError && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start rounded-none text-destructive hover:text-destructive"
-                onClick={() => void load()}
-              >
-                Couldn&rsquo;t load branches — retry
-              </Button>
-            )}
-            {names && (
-              <>
-                <CommandEmpty>No branches found.</CommandEmpty>
-                <CommandGroup>
-                  {names.map((name) => (
-                    <CommandItem
-                      key={name}
-                      value={name}
-                      onSelect={() => {
-                        setOpen(false)
-                        if (name === value) return
-                        onPick(name === repoDefault ? null : name)
-                      }}
-                    >
-                      <Check
-                        className={`h-3.5 w-3.5 shrink-0 ${name === value ? `` : `invisible`}`}
-                      />
-                      <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                        {name}
-                      </span>
-                      {name === repoDefault && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          default
-                        </span>
-                      )}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </>
-            )}
-          </CommandList>
-        </Command>
-      </MobilePopoverContent>
-    </MobilePopover>
+        )
+      }
+    />
   )
 }

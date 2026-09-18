@@ -28,6 +28,8 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
+import { contract } from "@exp/domain-contract"
+import { formatDateLabel } from "@exp/ui"
 import { GROUPS, VIEWS } from "@exp/view-catalog"
 import {
   ISLAND_CLIENT_SCRIPT,
@@ -41,10 +43,14 @@ import {
   COMPONENTS,
   COMPONENTS_GROUP,
   COMPONENT_PLATFORMS,
+  KIND_ORDER,
+  MODES,
   PORTAL_ONLY_IDS,
+  STYLE_KINDS,
   isIsland,
+  modeOf,
 } from "./components.tsx"
-import type { ComponentSpec } from "./components.tsx"
+import type { ComponentSpec, Mode } from "./components.tsx"
 import { renderHtml } from "./render.ts"
 import { styles } from "./styles.ts"
 import type { GalleryData } from "./store.ts"
@@ -141,17 +147,26 @@ describe(`ids`, () => {
 describe(`render`, () => {
   test(`one section and one nav link per component`, () => {
     for (const spec of COMPONENTS) {
-      expect(occurrences(html, `<section class="view component" data-view="${spec.id}"`)).toBe(1)
+      expect(
+        occurrences(
+          html,
+          `<section class="view component" data-mode="${modeOf(spec)}" data-view="${spec.id}"`
+        )
+      ).toBe(1)
       expect(
         occurrences(html, `<a class="nav-link" href="#${spec.id}" data-view="${spec.id}"`)
       ).toBe(1)
     }
   })
 
-  test(`the group only appears when components are rendered`, () => {
-    expect(html).toContain(`data-group="components"`)
-    expect(renderHtml(EMPTY, [])).not.toContain(`data-group="components"`)
-    expect(renderHtml(EMPTY, [])).not.toContain(`class="view component"`)
+  test(`the synthetic modes only appear when components are rendered`, () => {
+    // EXP-941 banded the two synthetic modes by `kind`, so the group id a
+    // reader can point at is the MODE, not one appended catalog group.
+    expect(html).toContain(`<div class="mode-section" data-mode="components">`)
+    expect(html).toContain(`<div class="mode-section" data-mode="style">`)
+    const bare = renderHtml(EMPTY, [])
+    expect(bare).toContain(`<div class="mode-section" data-mode="components"></div>`)
+    expect(bare).not.toContain(`class="view component"`)
   })
 
   test(`inline JSON carries the components in order, and leaves the counts alone`, () => {
@@ -168,8 +183,11 @@ describe(`render`, () => {
     expect(parsed.views).toEqual([])
   })
 
-  test(`the summary counts components as its own part`, () => {
-    expect(html).toContain(`${COMPONENTS.length} components`)
+  test(`the summary counts each synthetic mode as its own part`, () => {
+    const components = COMPONENTS.filter((spec) => modeOf(spec) === `components`)
+    const style = COMPONENTS.filter((spec) => modeOf(spec) === `style`)
+    expect(html).toContain(`${components.length} components · ${style.length} style`)
+    expect(components.length + style.length).toBe(COMPONENTS.length)
   })
 })
 
@@ -272,6 +290,7 @@ describe(`demo markup`, () => {
     `field`,
     `fill`,
     `fold`,
+    `footer`,
     `glyph`,
     `grabber`,
     `header`,
@@ -522,9 +541,16 @@ describe(`status table`, () => {
     for (const spec of COMPONENTS) {
       const file = spec.status.web.file
       const inPackage = file !== undefined && file.startsWith(`packages/ui/`) && file.endsWith(`.tsx`)
-      // A `Tokens` entry documents a VALUE, not a control — it names whichever
-      // file happens to spend the token and stays a swatch table.
-      const portalOnly = PORTAL_ONLY_IDS.includes(spec.id) || spec.kind === `Tokens`
+      // A STYLE entry documents a VALUE, not a control: it names whichever file
+      // happens to spend the token, so it is normally a hand-written swatch
+      // table. EXP-941 relaxed that ONE way — a Style entry whose web file
+      // lives under `packages/ui/` MAY be an island, because the registry
+      // (`tokens-icons`) is best documented by rendering its own glyphs, and
+      // its source is a `.ts`, not a component file.
+      const styleUnderPackage =
+        modeOf(spec) === `style` && file !== undefined && file.startsWith(`packages/ui/`)
+      if (styleUnderPackage) continue
+      const portalOnly = PORTAL_ONLY_IDS.includes(spec.id)
       const expected = inPackage && !portalOnly
       const verdict =
         isIsland(spec) === expected
@@ -605,5 +631,183 @@ describe(`the GitHub connect surfaces (FEED-42)`, () => {
     }
     expect(occurrences(markup, `class="cmp-repo-picker-row"`)).toBe(3)
     expect(ruleBody(`.cmp-repo-picker-footer`)).toContain(`dashed var(--stroke-strong)`)
+  })
+})
+
+describe(`modes (EXP-941)`, () => {
+  test(`every spec lands in exactly one mode, and Style holds only Style kinds`, () => {
+    const components = COMPONENTS.filter((spec) => modeOf(spec) === `components`)
+    const style = COMPONENTS.filter((spec) => modeOf(spec) === `style`)
+    expect(components.length + style.length).toBe(COMPONENTS.length)
+    expect(components.length).toBeGreaterThan(0)
+    expect(style.length).toBeGreaterThan(0)
+    for (const spec of style) {
+      expect(STYLE_KINDS.includes(spec.kind) ? spec.id : `${spec.id}: ${spec.kind} is not a Style kind`).toBe(spec.id)
+    }
+    for (const spec of components) {
+      expect(STYLE_KINDS.includes(spec.kind) ? `${spec.id}: ${spec.kind} belongs to Style` : spec.id).toBe(spec.id)
+    }
+    // Every kind a spec carries has a place in its mode's nav order, or the
+    // entry would render in no band at all.
+    for (const spec of COMPONENTS) {
+      const order = KIND_ORDER[modeOf(spec)]
+      expect(order.includes(spec.kind) ? spec.id : `${spec.id}: ${spec.kind} is not in KIND_ORDER`).toBe(spec.id)
+    }
+  })
+
+  test(`three mode sections, three segments, and the counts are the link counts`, () => {
+    const modes = Object.keys(MODES) as Mode[]
+    expect(modes).toEqual([`views`, `components`, `style`])
+    for (const mode of modes) {
+      expect(occurrences(html, `<div class="mode-section" data-mode="${mode}">`)).toBe(1)
+      const open = html.indexOf(`<div class="mode-section" data-mode="${mode}">`)
+      const section = html.slice(open, html.indexOf(`<div class="mode-section"`, open + 1) >= 0 ? html.indexOf(`<div class="mode-section"`, open + 1) : html.indexOf(`<div class="nav-empty`, open))
+      const links = occurrences(section, `<a class="nav-link" href="#`)
+      const button = html.slice(html.indexOf(`<button class="mode-btn" type="button" data-mode="${mode}"`))
+      const count = Number(button.slice(button.indexOf(`<span class="count">`) + 20, button.indexOf(`</span></button>`)))
+      expect(`${mode}:${count}`).toBe(`${mode}:${links}`)
+    }
+    // The empty gallery still renders all three: a mode bar that appears and
+    // disappears is a mode bar nobody learns.
+    expect(occurrences(html, `<button class="mode-btn"`)).toBe(3)
+  })
+
+  test(`every .view carries the data-mode of its nav link`, () => {
+    const linkMode = new Map<string, string>()
+    for (const match of html.matchAll(/<div class="mode-section" data-mode="([a-z]+)">([\s\S]*?)(?=<div class="mode-section"|<div class="nav-empty)/g)) {
+      for (const link of match[2]!.matchAll(/<a class="nav-link" href="#([a-z0-9-]+)"/g)) {
+        linkMode.set(link[1]!, match[1]!)
+      }
+    }
+    expect(linkMode.size).toBe(COMPONENTS.length)
+    for (const section of html.matchAll(/<section class="view[^"]*" data-mode="([a-z]+)" data-view="([a-z0-9-]+)"/g)) {
+      const mode = linkMode.get(section[2]!)
+      expect(mode === undefined ? `${section[2]}: no nav link` : `${section[2]}:${section[1]}`).toBe(
+        `${section[2]}:${mode}`
+      )
+    }
+  })
+
+  test(`the mode bar is painted from the tokens, like everything else`, () => {
+    const css = stripComments(styles)
+    const at = css.indexOf(`.mode-bar {`)
+    expect(at).toBeGreaterThan(0)
+    const rule = css.slice(at, css.indexOf(`}`, at))
+    expect(rule).not.toMatch(/oklch\(|rgba?\(|hsla?\(|#[0-9a-f]{3,8}\b/i)
+    // The segmented capsule from the tokens: section fill under section stroke.
+    expect(rule).toContain(`background: var(--section)`)
+    expect(rule).toContain(`border: 1px solid var(--stroke-section)`)
+    expect(rule).toContain(`height: 36px`)
+    expect(rule).toContain(`padding: 3px`)
+    expect(rule).toContain(`border-radius: 9999px`)
+    const active = css.slice(css.indexOf(`.mode-btn[aria-pressed="true"] {`))
+    expect(active.slice(0, active.indexOf(`}`))).toContain(`background: var(--active)`)
+  })
+
+  test(`the size toggle and the shot hint only exist in Views`, () => {
+    expect(html).toContain(`<button id="toggle-size" class="btn views-only"`)
+    expect(stripComments(styles)).toContain(`body:not([data-mode="views"]) .views-only { display: none; }`)
+  })
+})
+
+describe(`leftovers (EXP-941)`, () => {
+  const WITH_LEFTOVERS = COMPONENTS.filter((spec) => (spec.leftovers ?? []).length > 0)
+
+  test(`the page names call sites the product still draws by hand`, () => {
+    expect(WITH_LEFTOVERS.length).toBeGreaterThan(0)
+    for (const spec of WITH_LEFTOVERS) {
+      expect(html).toContain(`<div class="leftovers"><div class="leftovers-head">Still drawn by hand</div>`)
+      for (const row of spec.leftovers!) expect(html).toContain(row.file)
+    }
+    // An entry with none renders no block at all, so silence stays silence.
+    const clean = COMPONENTS.filter((spec) => (spec.leftovers ?? []).length === 0)
+    expect(clean.length).toBeGreaterThan(0)
+    expect(occurrences(html, `<div class="leftovers">`)).toBe(WITH_LEFTOVERS.length)
+  })
+
+  test(`every named file exists, and the notes stay one short line`, () => {
+    for (const spec of WITH_LEFTOVERS) {
+      for (const row of spec.leftovers!) {
+        const file = resolve(REPO_ROOT, row.file)
+        expect(existsSync(file) ? row.file : `${spec.id}: ${row.file} is gone`).toBe(row.file)
+        expect(row.note.length).toBeLessThanOrEqual(120)
+        expect(row.note).not.toContain(`\n`)
+        expect(row.note.length > 0 ? spec.id : `${spec.id}: an empty leftover note`).toBe(spec.id)
+      }
+    }
+  })
+
+  test(`a leftover adds ONE extra dot to the nav link, and nothing else does`, () => {
+    for (const spec of COMPONENTS) {
+      const at = html.indexOf(`<a class="nav-link" href="#${spec.id}" data-view="${spec.id}"`)
+      const link = html.slice(at, html.indexOf(`</a>`, at))
+      const expected = COMPONENT_PLATFORMS.length + ((spec.leftovers ?? []).length > 0 ? 1 : 0)
+      expect(`${spec.id}:${occurrences(link, `<span class="dot `)}`).toBe(`${spec.id}:${expected}`)
+    }
+  })
+})
+
+describe(`the Tier A pickers (EXP-941)`, () => {
+  test(`the combobox demo shows BOTH selection languages and the none row`, () => {
+    const markup = islandBody(`combobox`)
+    // Single select marks the picked row with a trailing check…
+    expect(occurrences(markup, `data-selected-glyph="check"`)).toBe(1)
+    // …multi marks EVERY row with the leading circle pair, never a checkbox.
+    expect(occurrences(markup, `data-selected-glyph="selected"`)).toBe(2)
+    expect(occurrences(markup, `data-selected-glyph="unselected"`)).toBe(2)
+    expect(markup).not.toContain(`data-slot="checkbox"`)
+    // And "nothing picked" is a ROW that reports null, not a sentinel string.
+    expect(occurrences(markup, `data-combobox-none="true"`)).toBe(1)
+    // A closed portal renders nothing, so the demo carries the trigger AND
+    // the bare list (the icon-picker pattern).
+    expect(occurrences(markup, `data-slot="combobox-list"`)).toBe(2)
+    expect(markup).toContain(`data-slot="popover-trigger"`)
+    expect(spec(`combobox`).blurb).toContain(`ui-selected`)
+  })
+
+  test(`the search field shows the glyph always and the clear only when filled`, () => {
+    const markup = islandBody(`search-field`)
+    expect(occurrences(markup, `data-slot="search-field"`)).toBe(3)
+    // Two of the three carry a value, and only those two draw a clear.
+    expect(occurrences(markup, `data-slot="search-field-clear"`)).toBe(2)
+    expect(markup).toContain(`lucide-search`)
+    // The dense rung is the Reviews file filter, named by the contract.
+    expect(markup).toContain(contract.diffUi.filterPlaceholder)
+  })
+
+  test(`the segmented control is the component now, in both its forms`, () => {
+    const markup = islandBody(`segmented`)
+    expect(markup).toContain(`data-slot="segmented-control"`)
+    // The embedded arm is a glass group's first row, not a second component.
+    expect(markup).toContain(`data-slot="glass-tabs-row"`)
+    expect(occurrences(markup, `data-slot="tabs-trigger"`)).toBe(5)
+    const web = COMPONENTS.find((entry) => entry.id === `segmented`)?.status.web
+    expect(web?.symbol).toBe(`SegmentedControl`)
+    expect(web?.file).toBe(`packages/ui/src/segmented-control.tsx`)
+  })
+
+  test(`the date picker shows both trigger states and the grid they open`, () => {
+    const markup = islandBody(`date-picker`)
+    // `Mar 8` is formatDateLabel's own output — a literal here would be the
+    // one place the page could disagree with the component.
+    expect(markup).toContain(formatDateLabel(new Date(`2026-03-08T00:00:00`)))
+    expect(markup).toContain(`Due date`)
+    expect(occurrences(markup, `data-slot="calendar"`)).toBe(1)
+  })
+
+  test(`the typeahead demo is a menu under a field, with one active row`, () => {
+    const markup = islandBody(`typeahead`)
+    expect(occurrences(markup, `data-slot="typeahead-menu"`)).toBe(1)
+    expect(markup).toContain(`data-placement="below"`)
+    expect(occurrences(markup, `data-slot="typeahead-row"`)).toBe(3)
+    expect(occurrences(markup, `aria-selected="true"`)).toBe(1)
+  })
+
+  test(`the alert demo shows both variants, and the glyph earns its column`, () => {
+    const markup = islandBody(`alert`)
+    expect(occurrences(markup, `data-slot="alert"`)).toBe(2)
+    expect(occurrences(markup, `data-slot="alert-title"`)).toBe(1)
+    expect(occurrences(markup, `data-slot="alert-description"`)).toBe(2)
+    expect(markup).toContain(`text-destructive`)
   })
 })

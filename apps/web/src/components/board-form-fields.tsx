@@ -1,6 +1,13 @@
 import { useId } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
-import { Input, Pill, ColorPicker, IconPicker, GlassInputRow } from "@exp/ui"
+import {
+  BARE_FIELD_CLASS,
+  Input,
+  Pill,
+  ColorPicker,
+  IconPicker,
+  GlassInputRow,
+} from "@exp/ui"
 
 // Shared, fully controlled field blocks for the create-board dialog, the
 // per-board settings page and the onboarding wizard (EXP-159/160).
@@ -12,11 +19,6 @@ import { Input, Pill, ColorPicker, IconPicker, GlassInputRow } from "@exp/ui"
 // inside the row, never as a caption above it — and identity is ONE row:
 // icon picker, colour picker, name, the two pickers being the same rounded
 // square at the name field's height (×4 with desktop/iOS/Android).
-
-// A field that draws no chrome of its own: the glass group around it IS the
-// field (`action-editor-dialog`'s GROUPED_FIELD, restated here so the board
-// form doesn't import a dialog for a class string).
-const ROW_FIELD = `h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
 
 export function BoardIdentityRow({
   name,
@@ -74,7 +76,7 @@ export function BoardIdentityRow({
           }
         }}
         placeholder="Name"
-        className={ROW_FIELD}
+        className={BARE_FIELD_CLASS}
         autoFocus={autoFocus}
         disabled={disabled}
       />

@@ -1,6 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from "react"
-import { MENU_SURFACE_CLASS } from "@exp/ui"
-import { cn } from "@/lib/utils"
+import { useCallback, useMemo, useState } from "react"
+import { TypeaheadMenu, useTypeahead } from "@exp/ui"
 import { CommandCandidateRow } from "@/components/autocomplete-rows"
 import {
   filterSteerCommands,
@@ -10,12 +9,19 @@ import {
 } from "@/lib/steer-commands"
 
 // EXP-724 — the steering composer's `/` menu. Deliberately NOT a
-// MentionTextarea feature: that popup completes a token at the CARET and lets
-// Enter fall through to its host, while this one owns the WHOLE draft (a
-// command is the entire message) and must swallow the Enter that would
-// otherwise send the half-typed command. The keyboard contract below mirrors
-// mention-textarea.tsx rule for rule so the two popups feel identical, and the
-// three native viewers mirror it again.
+// MentionTextarea feature: that popup completes a token at the CARET, while
+// this one owns the WHOLE draft (a command is the entire message), so what
+// lives here is the draft bookkeeping — which draft the menu was dismissed on,
+// and the draft an acceptance leaves behind.
+//
+// EXP-941: the keyboard contract is no longer mirrored from
+// mention-textarea.tsx — both popups now CALL the same `useTypeahead`
+// (@exp/ui), so arrows/wrap/Enter/Tab/Escape and the "a modified Enter is the
+// host's send" rule cannot drift apart. The three native viewers mirror it.
+
+/** A stable empty list for the closed menu (a fresh `[]` per render would be a
+ *  new `items` identity every time). */
+const NO_COMMANDS: SteerCommand[] = []
 
 export interface SlashCommandMenuState {
   /** Whether the popup should render (a matching draft, candidates, not
@@ -50,7 +56,6 @@ export function useSlashCommandMenu({
   // (a different draft) offers it again. Storing the TEXT rather than a bool
   // is what makes "until the draft changes" free of an effect.
   const [dismissed, setDismissed] = useState<string | null>(null)
-  const [active, setActive] = useState(0)
 
   const query = matchSlashDraft(text)
   const candidates = useMemo(
@@ -59,23 +64,14 @@ export function useSlashCommandMenu({
   )
   const open = candidates.length > 0 && dismissed !== text
 
-  // A changed query starts at the top again — kept in a ref so the reset costs
-  // no render pass of its own.
-  const lastQuery = useRef<string | null>(query)
-  if (lastQuery.current !== query) {
-    lastQuery.current = query
-    if (active !== 0) setActive(0)
-  }
-  const activeIndex = Math.min(active, Math.max(0, candidates.length - 1))
-
   const accept = useCallback(
     (command: SteerCommand) => {
       const next = steerCommandDraft(command)
       // A no-argument command leaves a draft that still matches the trigger
       // (`/clear`), so the acceptance itself closes the menu — otherwise the
-      // next Enter would re-accept instead of sending.
+      // next Enter would re-accept instead of sending. The active row goes
+      // back to the top on its own: the accepted draft is a new query.
       setDismissed(next)
-      setActive(0)
       onAccept(next)
       return next
     },
@@ -84,52 +80,29 @@ export function useSlashCommandMenu({
 
   const dismiss = useCallback(() => setDismissed(text), [text])
 
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLElement>): boolean => {
-      if (!open) return false
-      const count = candidates.length
-      if (event.key === `ArrowDown`) {
-        event.preventDefault()
-        setActive((a) => (a + 1) % count)
-        return true
-      }
-      if (event.key === `ArrowUp`) {
-        event.preventDefault()
-        setActive((a) => (a - 1 + count) % count)
-        return true
-      }
-      // Plain Enter/Tab accept; a MODIFIED Enter (Cmd/Ctrl+Enter) falls
-      // through to the host, exactly as in the comment composer.
-      if ((event.key === `Enter` || event.key === `Tab`) && !event.metaKey && !event.ctrlKey) {
-        event.preventDefault()
-        accept(candidates[activeIndex])
-        return true
-      }
-      if (event.key === `Escape`) {
-        event.preventDefault()
-        dismiss()
-        return true
-      }
-      return false
-    },
-    [open, candidates, activeIndex, accept, dismiss]
-  )
+  // A dismissed menu hands the hook NO rows, which is exactly how the shared
+  // typeahead says "handled nothing" — so a dismissed Enter sends, as before.
+  const typeahead = useTypeahead<SteerCommand>({
+    items: open ? candidates : NO_COMMANDS,
+    onAccept: accept,
+    onDismiss: dismiss,
+    resetKey: query,
+  })
 
   return {
     open,
     candidates,
-    active: activeIndex,
-    setActive,
-    handleKeyDown,
+    active: typeahead.active,
+    setActive: typeahead.setActive,
+    handleKeyDown: typeahead.handleKeyDown,
     accept,
     dismiss,
   }
 }
 
-/** The popup itself — it wears the package menu surface
- *  (`MENU_SURFACE_CLASS`) exactly like the mention / issue-ref / emoji
- *  autocomplete panels, anchored above the composer by a `relative` wrapper
- *  the host provides. */
+/** The popup itself — the shared `TypeaheadMenu`, exactly the surface the
+ *  mention / issue-ref / emoji panels wear, anchored above the composer by a
+ *  `relative` wrapper the host provides. */
 export function SlashCommandMenu({
   commands,
   active,
@@ -142,12 +115,7 @@ export function SlashCommandMenu({
   onHover: (index: number) => void
 }) {
   return (
-    <div
-      className={cn(
-        MENU_SURFACE_CLASS,
-        `absolute bottom-full left-0 mb-1 w-72 overflow-hidden`
-      )}
-    >
+    <TypeaheadMenu placement="above">
       {commands.map((command, index) => (
         <CommandCandidateRow
           key={command.name}
@@ -157,6 +125,6 @@ export function SlashCommandMenu({
           onHover={() => onHover(index)}
         />
       ))}
-    </div>
+    </TypeaheadMenu>
   )
 }

@@ -4,8 +4,9 @@ import { Slot } from "radix-ui"
 
 import { conceptIcon } from "./icons.generated"
 
-import { Input } from "./input"
+import { BARE_FIELD_CLASS, Input } from "./input"
 import { Label } from "./label"
+import type { PickerOption } from "./picker-option"
 import {
   Select,
   SelectContent,
@@ -326,7 +327,8 @@ function GlassInputRow({
       <Input
         id={id}
         className={cn(
-          `h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-right text-sm text-foreground/70 shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`,
+          BARE_FIELD_CLASS,
+          `text-right text-foreground/70`,
           // EXP-827: a native time/date widget paints its clock/calendar
           // glyph for the LIGHT scheme (black on the dark row) unless the
           // control itself says dark.
@@ -373,18 +375,17 @@ function GlassSearchRow({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-3 text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm"
+        className={cn(BARE_FIELD_CLASS, `px-0 py-3`)}
         {...inputProps}
       />
     </div>
   )
 }
 
-type GlassPickerOption = {
-  value: string
-  label: React.ReactNode
-  disabled?: boolean
-}
+// EXP-941: the row picker draws three of the shared option's slots, so it
+// takes that slice of `PickerOption` rather than a fourth look-alike type —
+// the same array can be handed to a `Combobox` without a remap.
+type GlassPickerOption = Pick<PickerOption, `value` | `label` | `disabled`>
 
 // The row shell shared by both arms. On the desktop arm these must BEAT the
 // stock SelectTrigger classes: `data-[size=default]:h-9` only loses to the

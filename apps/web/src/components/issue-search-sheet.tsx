@@ -9,7 +9,7 @@ import {
   DialogContent,
   DialogTitle,
   Button,
-  Input,
+  SearchField,
   Command,
   CommandEmpty,
   CommandInput,
@@ -186,13 +186,15 @@ export function IssueSearchSheet({
             >
               <UiBackIcon className="size-4" />
             </Button>
-            <Search className="size-4 shrink-0 text-muted-foreground" />
-            <Input
+            <SearchField
+              size="md"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onValueChange={setQuery}
               placeholder="Search issues..."
+              aria-label="Search issues"
+              clearLabel="Clear issue search"
               autoFocus
-              className="h-9 border-none text-base shadow-none focus-visible:ring-0 md:text-sm"
+              className="border-none text-base shadow-none focus-visible:ring-0 md:text-sm"
             />
           </div>
           <div className="flex-1 overflow-y-auto">

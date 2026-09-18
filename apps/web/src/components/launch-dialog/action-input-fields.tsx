@@ -1,42 +1,32 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Check } from "lucide-react"
 import { type ActionInputDef, type BoardIcon } from "@exp/db-schema/domain"
 import {
+  Combobox,
   IconPicker,
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  Button,
   Label,
-  GLASS_SELECT_TRIGGER,
   GlassGroup,
   GlassPickerRow,
+  type PickerOption,
 } from "@exp/ui"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
 import { buildPrOptions, findPrOptionForIssue } from "@/lib/pr-options"
 import type { ActionRepoOption } from "@/components/action-editor-dialog"
 import { BoardGlyph } from "@/components/board-glyph"
-import { cn } from "@/lib/utils"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the
 // free-text kinds — the composer's own text is the run's instructions):
-// repo → compact Select over the team's connected repos, board → a
-// MobilePopover + Command picker over the synced boards (the board-picker
-// pattern), pr (EXP-259) → the same picker over the team's OPEN issue-linked
-// pull requests (deduped by prUrl — a batch PR shows once, its value is the
-// representative issue's id), icon (EXP-273) → the curated swatch grid shared
-// with the board form. Values live in the dialog shell as a flat
-// Record<key, string> — repo/board/pr store the picked id and icon stores the
-// registry NAME, blank = unset (dropped from the payload by
-// buildInputsPayload).
+// repo → compact Select over the team's connected repos, board → the shared
+// `Combobox` over the synced boards, pr (EXP-259) → the same picker over the
+// team's OPEN issue-linked pull requests (deduped by prUrl — a batch PR shows
+// once, its value is the representative issue's id), icon (EXP-273) → the
+// curated swatch grid shared with the board form. Values live in the dialog
+// shell as a flat Record<key, string> — repo/board/pr store the picked id and
+// icon stores the registry NAME, blank = unset (dropped from the payload by
+// buildInputsPayload); EXP-941 retired the `none` sentinel these two pickers
+// used for "unset" — the `Combobox` reports `null` and the mapping happens
+// here.
 
 // Radix Select forbids an empty-string item value; the unset optional repo
 // rides this sentinel inside the dialog only.
@@ -157,8 +147,6 @@ function PrInputField({
   seedIssueId?: string
   onChange: (issueId: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-
   const { data: boardRows } = useLiveQuery(
     (q) =>
       q
@@ -179,7 +167,11 @@ function PrInputField({
     )
     return buildPrOptions((issueRows ?? []) as Issue[], teamBoards)
   }, [boardRows, issueRows])
-  const selected = pulls.find((pull) => pull.issueId === value) ?? null
+  const options = useMemo<PickerOption[]>(
+    () =>
+      pulls.map((pull) => ({ value: pull.issueId, label: pull.label })),
+    [pulls]
+  )
 
   // Seed the preselected PR once the options land (the dialog clears input
   // values on open, so the seed can't live there). The ref latch keeps a
@@ -193,73 +185,24 @@ function PrInputField({
     onChange(option.issueId)
   }, [seedIssueId, pulls, onChange])
 
-  const pick = (issueId: string) => {
-    setOpen(false)
-    onChange(issueId)
-  }
-
   return (
-    <MobilePopover open={open} onOpenChange={setOpen}>
-      <MobilePopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn(`w-full justify-start font-normal`, GLASS_SELECT_TRIGGER)}
-        >
-          {selected ? (
-            <span className="min-w-0 truncate">{selected.label}</span>
-          ) : (
-            <span className="text-muted-foreground">
-              Select a pull request…
-            </span>
-          )}
-        </Button>
-      </MobilePopoverTrigger>
-      <MobilePopoverContent
-        className="w-[18rem] p-0"
-        align="start"
-        mobileTitle="Select a pull request"
-      >
-        <Command>
-          <CommandInput placeholder="Select a pull request..." />
-          <CommandList>
-            <CommandEmpty>No open pull requests.</CommandEmpty>
-            <CommandGroup>
-              {!required && (
-                <CommandItem value="none" onSelect={() => pick(``)}>
-                  <span className="text-muted-foreground">None</span>
-                  {value === `` && (
-                    <Check className="ml-auto size-3.5 shrink-0" />
-                  )}
-                </CommandItem>
-              )}
-              {pulls.map((pull) => (
-                <CommandItem
-                  key={pull.issueId}
-                  // Label keeps cmdk text filtering working; the id suffix
-                  // keeps values unique.
-                  value={`${pull.label} ${pull.issueId}`}
-                  onSelect={() => pick(pull.issueId)}
-                  className="flex items-center gap-2"
-                >
-                  <span className="min-w-0 truncate text-sm">
-                    {pull.label}
-                  </span>
-                  {pull.issueId === value && (
-                    <Check className="ml-auto size-3.5 shrink-0" />
-                  )}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </MobilePopoverContent>
-    </MobilePopover>
+    <Combobox
+      options={options}
+      value={value === `` ? null : value}
+      onChange={(issueId) => onChange(issueId ?? ``)}
+      noneLabel={required ? undefined : `None`}
+      triggerVariant="field"
+      triggerLabel="Select a pull request…"
+      width="lg"
+      mobileTitle="Select a pull request"
+      placeholder="Select a pull request..."
+      emptyText="No open pull requests."
+    />
   )
 }
 
-// Board single-select over the synced boards (same MobilePopover + Command
-// structure as the issue detail's move-to-board picker), with a full-width
-// outline trigger to match the surrounding form fields.
+// Board single-select over the synced boards (the shared `Combobox`), with a
+// full-width field trigger to match the surrounding form fields.
 function BoardInputField({
   teamId,
   value,
@@ -272,8 +215,6 @@ function BoardInputField({
   required: boolean
   onChange: (boardId: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-
   const { data: boardRows } = useLiveQuery(
     (q) =>
       q
@@ -288,68 +229,38 @@ function BoardInputField({
       ),
     [boardRows]
   )
-  const selected = boards.find((board) => board.id === value) ?? null
-
-  const pick = (boardId: string) => {
-    setOpen(false)
-    onChange(boardId)
-  }
+  const boardsById = useMemo(
+    () => new Map(boards.map((board) => [board.id, board])),
+    [boards]
+  )
+  const options = useMemo<PickerOption[]>(
+    () => boards.map((board) => ({ value: board.id, label: board.name })),
+    [boards]
+  )
 
   return (
-    <MobilePopover open={open} onOpenChange={setOpen}>
-      <MobilePopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn(`w-full justify-start font-normal`, GLASS_SELECT_TRIGGER)}
-        >
-          {selected ? (
-            <>
-              <BoardGlyph board={selected} className="size-3.5" />
-              <span className="min-w-0 truncate">{selected.name}</span>
-            </>
-          ) : (
-            <span className="text-muted-foreground">Select a board…</span>
-          )}
-        </Button>
-      </MobilePopoverTrigger>
-      <MobilePopoverContent
-        className="w-[14rem] p-0"
-        align="start"
-        mobileTitle="Select a board"
-      >
-        <Command>
-          <CommandInput placeholder="Select a board..." />
-          <CommandList>
-            <CommandEmpty>No boards found.</CommandEmpty>
-            <CommandGroup>
-              {!required && (
-                <CommandItem value="none" onSelect={() => pick(``)}>
-                  <span className="text-muted-foreground">None</span>
-                  {value === `` && (
-                    <Check className="ml-auto size-3.5 shrink-0" />
-                  )}
-                </CommandItem>
-              )}
-              {boards.map((board) => (
-                <CommandItem
-                  key={board.id}
-                  // Name keeps cmdk text filtering working; the id suffix
-                  // keeps values unique when two boards share a name.
-                  value={`${board.name} ${board.id}`}
-                  onSelect={() => pick(board.id)}
-                  className="flex items-center gap-2"
-                >
-                  <BoardGlyph board={board} className="size-3.5" />
-                  <span className="min-w-0 truncate text-sm">{board.name}</span>
-                  {board.id === value && (
-                    <Check className="ml-auto size-3.5 shrink-0" />
-                  )}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </MobilePopoverContent>
-    </MobilePopover>
+    <Combobox
+      options={options}
+      value={value === `` ? null : value}
+      onChange={(boardId) => onChange(boardId ?? ``)}
+      noneLabel={required ? undefined : `None`}
+      triggerVariant="field"
+      triggerLabel="Select a board…"
+      width="sm"
+      mobileTitle="Select a board"
+      placeholder="Select a board..."
+      emptyText="No boards found."
+      renderOption={(option) => {
+        const board = boardsById.get(option.value)
+        return (
+          <>
+            {board && <BoardGlyph board={board} className="size-3.5" />}
+            <span className="min-w-0 flex-1 truncate text-sm">
+              {option.label}
+            </span>
+          </>
+        )
+      }}
+    />
   )
 }

@@ -3,6 +3,7 @@ import { TRPCClientError } from "@trpc/client"
 import { MAX_ACTION_PROMPT_PLACEHOLDER, type BoardIcon } from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
 import {
+  BARE_FIELD_CLASS,
   BOARD_ICON_OPTIONS,
   IconPicker,
   Button,
@@ -216,7 +217,7 @@ export function ActionEditorDialog({
                       setNameError(null)
                     }}
                     placeholder="Name"
-                    className={`${GROUPED_FIELD} h-auto min-w-0 flex-1 p-0`}
+                    className={BARE_FIELD_CLASS}
                     autoFocus={!readOnly}
                     readOnly={readOnly}
                   />

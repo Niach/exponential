@@ -22,6 +22,7 @@ import type { Device, User } from "@/db/schema"
 import {
   conceptIcon,
   Button,
+  BARE_FIELD_CLASS,
   Input,
   Pill,
   GlassGroup,
@@ -43,6 +44,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Label,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
@@ -800,9 +802,9 @@ function ChipsRow({
   }
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
-      <label htmlFor={id} className="text-sm text-foreground">
+      <Label htmlFor={id} className="font-normal">
         {label}
-      </label>
+      </Label>
       <div className="flex flex-wrap items-center gap-1.5">
         {values.map((value) => (
           <Pill key={value} size="sm">
@@ -825,7 +827,8 @@ function ChipsRow({
           autoCorrect="off"
           spellCheck={false}
           className={cn(
-            `h-6 min-w-[8rem] flex-1 rounded-none border-0 bg-transparent px-0 font-mono text-xs shadow-none focus-visible:ring-0`,
+            BARE_FIELD_CLASS,
+            `h-6 min-w-[8rem] font-mono text-xs md:text-xs`,
             invalid && `text-destructive`
           )}
           onChange={(event) => {

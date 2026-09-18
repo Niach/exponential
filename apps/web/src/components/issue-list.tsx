@@ -5,7 +5,7 @@ import { boardCollection } from "@/lib/collections"
 import { StatusDropdown } from "@/components/issue-properties/status-dropdown"
 import { IssueGroupHeader } from "@/components/issue-group-header"
 import { PriorityDropdown } from "@/components/issue-properties/priority-dropdown"
-import { AssigneeDropdown } from "@/components/issue-properties/assignee-dropdown"
+import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { IssueRowContextMenu } from "@/components/issue-row-menu/context-menu"
 import {
   EmptyState,
@@ -13,6 +13,7 @@ import {
   Pill,
   Checkbox,
   Skeleton,
+  UserAvatar,
   useIsMobile,
 } from "@exp/ui"
 import { Collapsible as CollapsiblePrimitive } from "radix-ui"
@@ -21,7 +22,9 @@ import {
   Plus,
   ChevronRight,
   ListTodo,
+  User as UserIcon,
 } from "lucide-react"
+import { trpc } from "@/lib/trpc-client"
 import { formatDate } from "@/lib/utils"
 import { useToday } from "@/hooks/use-now"
 import { dueDateToneClass } from "@/lib/issue-due-date"
@@ -104,6 +107,53 @@ function IssueListSkeleton() {
         </div>
       ))}
     </div>
+  )
+}
+
+// The row's 20px avatar cell (EXP-941 folded the old `AssigneeDropdown` into
+// the shared `AssigneePicker`): a team with no one else to assign to — or a
+// row the viewer may not mutate — gets the same avatar as a STATIC cell
+// rather than a pointless dropdown.
+function AssigneeCell({
+  issue,
+  users,
+  userMap,
+  canMutate,
+}: {
+  issue: Issue
+  users: User[]
+  userMap: Map<string, User>
+  canMutate: boolean
+}) {
+  const assignee = issue.assigneeId ? userMap.get(issue.assigneeId) : undefined
+  const avatar = assignee ? (
+    <UserAvatar size={20} user={assignee} />
+  ) : (
+    <div className="size-5 rounded-full border border-dashed border-border flex items-center justify-center">
+      <UserIcon className="size-2.5 text-muted-foreground/50" />
+    </div>
+  )
+
+  if (!canMutate) {
+    return (
+      <div className="flex h-5 w-5 items-center justify-center">{avatar}</div>
+    )
+  }
+
+  return (
+    <AssigneePicker
+      users={users}
+      selectedUserId={issue.assigneeId}
+      onSelect={(userId) => {
+        void trpc.issues.update.mutate({ id: issue.id, assigneeId: userId })
+      }}
+      align="end"
+      trigger={
+        <Button variant="ghost" className="h-5 w-5 p-0">
+          {avatar}
+        </Button>
+      }
+    />
   )
 }
 
@@ -271,12 +321,11 @@ const IssueRow = memo(function IssueRow({
             className="flex items-center justify-center max-md:order-1"
             onClick={(e) => e.stopPropagation()}
           >
-            <AssigneeDropdown
-              issueId={issue.id}
-              assigneeId={issue.assigneeId}
+            <AssigneeCell
+              issue={issue}
               users={users}
               userMap={userMap}
-              disabled={!canMutateRow}
+              canMutate={canMutateRow}
             />
           </div>
         )}

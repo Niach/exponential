@@ -3,6 +3,8 @@
 // meter and formatters. Deliberately no chart library (same stance as
 // DayBars).
 
+import { Meter as UiMeter } from "@exp/ui"
+
 import { BarStrip, type StripBar } from "./-shared"
 
 /** Bar strip over the trailing `minutes` minutes (BarStrip from -shared,
@@ -63,12 +65,7 @@ export function Meter({
           {display ?? `${formatCount(value)} / ${formatCount(max)}`}
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-muted">
-        <div
-          className={warn ? `h-full bg-destructive` : `h-full bg-primary`}
-          style={{ width: `${ratio * 100}%` }}
-        />
-      </div>
+      <UiMeter className="h-2" value={ratio * 100} tone={warn ? `danger` : `normal`} />
     </div>
   )
 }

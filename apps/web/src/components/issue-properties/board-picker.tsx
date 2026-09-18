@@ -1,19 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
-import { Check } from "lucide-react"
 import { boardCollection } from "@/lib/collections"
-import {
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  Pill,
-} from "@exp/ui"
+import { Combobox, Pill, type PickerOption } from "@exp/ui"
 import { MoveBoardConfirmDialog } from "@/components/issue-properties/move-board-confirm"
 import { BoardGlyph } from "@/components/board-glyph"
 import type { Board } from "@/db/schema"
@@ -36,12 +24,12 @@ interface BoardPickerProps {
   trigger?: ReactNode
 }
 
-// Move-to-board picker for the issue detail view (EXP-57): single-select
-// over the team's boards (same team only; trashed boards never
-// reach the client). MobilePopover + Command
-// structure; picking the current board is a no-op. The server renumbers the
-// issue in the target board (EXP-42 → ABC-17) — which is why the pick lands in
-// the shared MoveBoardConfirmDialog first (EXP-426).
+// Move-to-board picker for the issue detail view (EXP-57): single-select over
+// the team's boards (same team only; trashed boards never reach the client) on
+// the shared `Combobox` (EXP-941); picking the current board is a no-op. The
+// server renumbers the issue in the target board (EXP-42 → ABC-17) — which is
+// why the pick lands in the shared MoveBoardConfirmDialog first (EXP-426), so
+// the LIST never calls `onSelect`, it only stages a pending board.
 export function BoardPicker({
   disabled,
   teamId,
@@ -75,77 +63,66 @@ export function BoardPicker({
       ),
     [boardRows]
   )
-  const selectedBoard =
-    boards.find((board) => board.id === selectedBoardId) ?? null
+  const boardsById = useMemo(
+    () => new Map(boards.map((board) => [board.id, board])),
+    [boards]
+  )
+  const options = useMemo<PickerOption[]>(
+    () => boards.map((board) => ({ value: board.id, label: board.name })),
+    [boards]
+  )
+  const selectedBoard = boardsById.get(selectedBoardId) ?? null
 
-  const handlePick = (board: Board) => {
-    setOpen(false)
-    if (board.id !== selectedBoardId) {
+  const handlePick = (boardId: string | null) => {
+    const board = boardId ? boardsById.get(boardId) : undefined
+    if (board && board.id !== selectedBoardId) {
       setPendingBoard(board)
     }
   }
 
   return (
     <>
-      <MobilePopover
+      <Combobox
+        options={options}
+        value={selectedBoardId}
+        onChange={handlePick}
+        disabled={disabled}
         open={disabled ? false : open}
-        onOpenChange={(o) => {
-          if (disabled) return
-          setOpen(o)
+        onOpenChange={setOpen}
+        hideTrigger={hideTrigger}
+        width="sm"
+        mobileTitle="Move to board"
+        placeholder="Move to board..."
+        emptyText="No boards found."
+        renderOption={(option) => {
+          const board = boardsById.get(option.value)
+          return (
+            <>
+              {board && <BoardGlyph board={board} className="size-3.5" />}
+              <span className="min-w-0 flex-1 truncate text-sm">
+                {option.label}
+              </span>
+            </>
+          )
         }}
-      >
-        {!hideTrigger && (
-          <MobilePopoverTrigger asChild>
-            {trigger ?? (
-              <Pill mode="action" disabled={disabled}>
-                <BoardGlyph
-                  board={selectedBoard ?? { color: `#71717a` }}
-                  className="size-3.5"
-                />
-                {selectedBoard ? (
-                  <span className="max-w-[7.5rem] truncate">
-                    {selectedBoard.name}
-                  </span>
-                ) : (
-                  `Board`
-                )}
-              </Pill>
-            )}
-          </MobilePopoverTrigger>
-        )}
-        <MobilePopoverContent
-          className="w-[14rem] p-0"
-          align="start"
-          mobileTitle="Move to board"
-        >
-          <Command>
-            <CommandInput placeholder="Move to board..." />
-            <CommandList>
-              <CommandEmpty>No boards found.</CommandEmpty>
-              <CommandGroup>
-                {boards.map((board) => (
-                  <CommandItem
-                    key={board.id}
-                    // Name keeps cmdk text filtering working; the id suffix
-                    // keeps values unique when two boards share a name.
-                    value={`${board.name} ${board.id}`}
-                    onSelect={() => handlePick(board)}
-                    className="flex items-center gap-2"
-                  >
-                    <BoardGlyph board={board} className="size-3.5" />
-                    <span className="min-w-0 truncate text-sm">
-                      {board.name}
-                    </span>
-                    {board.id === selectedBoardId && (
-                      <Check className="ml-auto size-3.5 shrink-0" />
-                    )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </MobilePopoverContent>
-      </MobilePopover>
+        renderTrigger={() =>
+          trigger ?? (
+            <Pill mode="action" disabled={disabled}>
+              <BoardGlyph
+                board={selectedBoard ?? { color: `#71717a` }}
+                className="size-3.5"
+              />
+              {selectedBoard ? (
+                <span className="max-w-[7.5rem] truncate">
+                  {selectedBoard.name}
+                </span>
+              ) : (
+                `Board`
+              )}
+            </Pill>
+          )
+        }
+      />
 
       <MoveBoardConfirmDialog
         board={pendingBoard}

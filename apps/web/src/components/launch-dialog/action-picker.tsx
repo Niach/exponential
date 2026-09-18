@@ -1,19 +1,11 @@
-import { useState, type ReactNode } from "react"
+import { useMemo, type ReactNode } from "react"
 import type { TeamAction } from "@/components/action-editor-dialog"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
-  conceptIcon,
+  Combobox,
+  ComboboxList,
   getActionIcon,
+  type PickerOption,
 } from "@exp/ui"
-import { cn } from "@/lib/utils"
 
 // EXP-825: the composer's action picker — the launch dialog's Actions tab
 // (EXP-257/EXP-768) as a popover off the card's ▶ tool. Single-select: a row
@@ -21,11 +13,46 @@ import { cn } from "@/lib/utils"
 // the list now — "Fix merge conflicts" pinned first, then "Create action"
 // (its dedicated dialog is gone: the request is the composer text) — and the
 // hidden Chat builtin never does (no subject IS the chat).
+//
+// EXP-941: the shared `Combobox`. The row keeps its two-liner body (icon,
+// name over an optional one-line description) through `renderOption`; the
+// picked row wears the primitive's single-select trailing check.
 
-// EXP-721: the mobile row idiom — a LEADING selection glyph, then the
-// action's own icon, then name over an optional one-line description.
-const SelectedIcon = conceptIcon(`ui-selected`)
-const UnselectedIcon = conceptIcon(`ui-unselected`)
+function useActionRows(actions: TeamAction[] | null) {
+  const options = useMemo<PickerOption[]>(
+    () =>
+      (actions ?? []).map((action) => ({
+        value: action.id,
+        label: action.name,
+        keywords: [action.name, action.description ?? ``],
+      })),
+    [actions]
+  )
+  const byId = useMemo(
+    () => new Map((actions ?? []).map((action) => [action.id, action])),
+    [actions]
+  )
+  const renderOption = (option: PickerOption) => {
+    const action = byId.get(option.value)
+    const RowIcon = action ? getActionIcon(action) : null
+    return (
+      <>
+        {RowIcon && (
+          <RowIcon className="size-4 shrink-0 text-muted-foreground" />
+        )}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm">{option.label}</span>
+          {action?.description && (
+            <span className="truncate text-xs text-muted-foreground">
+              {action.description}
+            </span>
+          )}
+        </span>
+      </>
+    )
+  }
+  return { options, renderOption }
+}
 
 export function ActionPickerList({
   actions,
@@ -37,57 +64,20 @@ export function ActionPickerList({
   selectedActionId: string | null
   onSelect: (actionId: string) => void
 }) {
+  const { options, renderOption } = useActionRows(actions)
   return (
     // EXP-946: shrinks with its host, like the issue picker beside it.
-    <Command className="min-h-0 flex-1">
-      <CommandInput placeholder="Search actions" />
-      <CommandList
-        data-testid="agent-composer-actions-picker"
-        className="min-h-0 flex-1"
-      >
-        {actions === null ? (
-          <div className="px-3 py-3 text-sm text-foreground/70">Loading…</div>
-        ) : (
-          <>
-            <CommandEmpty>No actions match.</CommandEmpty>
-            <CommandGroup>
-              {actions.map((action) => {
-                const selected = action.id === selectedActionId
-                const RowIcon = getActionIcon(action)
-                return (
-                  <CommandItem
-                    key={action.id}
-                    value={action.id}
-                    keywords={[action.name, action.description ?? ``]}
-                    onSelect={() => onSelect(action.id)}
-                    aria-pressed={selected}
-                    className={cn(
-                      `flex items-center gap-2.5`,
-                      selected && `bg-glass-active`
-                    )}
-                  >
-                    {selected ? (
-                      <SelectedIcon className="size-4 shrink-0 text-foreground" />
-                    ) : (
-                      <UnselectedIcon className="size-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <RowIcon className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm">{action.name}</span>
-                      {action.description && (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {action.description}
-                        </span>
-                      )}
-                    </span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-          </>
-        )}
-      </CommandList>
-    </Command>
+    <ComboboxList
+      options={options}
+      value={selectedActionId}
+      onChange={(actionId) => {
+        if (actionId) onSelect(actionId)
+      }}
+      loading={actions === null}
+      placeholder="Search actions"
+      emptyText="No actions match."
+      renderOption={renderOption}
+    />
   )
 }
 
@@ -106,29 +96,25 @@ export function ActionPicker({
   /** The trigger (a `ComposerTool`). */
   children: ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  const { options, renderOption } = useActionRows(actions)
   return (
-    <MobilePopover open={open} onOpenChange={setOpen}>
-      <MobilePopoverTrigger asChild disabled={disabled}>
-        {children}
-      </MobilePopoverTrigger>
-      {/* EXP-946: capped to the space its side has, so it never runs off the
-          top of the window. */}
-      <MobilePopoverContent
-        className="flex max-h-(--radix-popover-content-available-height) w-[20rem] flex-col overflow-hidden p-0"
-        align="start"
-        collisionPadding={12}
-        mobileTitle="Actions"
-      >
-        <ActionPickerList
-          actions={actions}
-          selectedActionId={selectedActionId}
-          onSelect={(actionId) => {
-            setOpen(false)
-            onSelect(actionId)
-          }}
-        />
-      </MobilePopoverContent>
-    </MobilePopover>
+    // EXP-946: capped to the space its side has, so it never runs off the top
+    // of the window — the primitive caps every popover the same way.
+    <Combobox
+      options={options}
+      value={selectedActionId}
+      onChange={(actionId) => {
+        if (actionId) onSelect(actionId)
+      }}
+      loading={actions === null}
+      disabled={disabled}
+      width="xl"
+      mobileTitle="Actions"
+      placeholder="Search actions"
+      emptyText="No actions match."
+      data-testid="agent-composer-actions-picker"
+      renderOption={renderOption}
+      renderTrigger={() => children}
+    />
   )
 }

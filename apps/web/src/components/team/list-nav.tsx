@@ -22,10 +22,7 @@ import {
   GlassSectionHeader,
   ListRow,
   SEGMENTED_ROW_COMPACT,
-  SEGMENTED_TAB,
-  Tabs,
-  TabsList,
-  TabsTrigger,
+  SegmentedControl,
 } from "@exp/ui"
 import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { InboxView } from "@/components/inbox/inbox-view"
@@ -176,22 +173,14 @@ function InboxListNav({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className={SEGMENTED_ROW_COMPACT}>
-        <Tabs
+        <SegmentedControl
           value={active}
-          onValueChange={(next) => setActive(next as `inbox` | `my-issues`)}
-          className="w-fit shrink-0"
-        >
-          <TabsList>
-            <TabsTrigger value="inbox" className={SEGMENTED_TAB}>
-              <InboxTabIcon />
-              Inbox
-            </TabsTrigger>
-            <TabsTrigger value="my-issues" className={SEGMENTED_TAB}>
-              <MyIssuesTabIcon />
-              My Issues
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+          onValueChange={setActive}
+          options={[
+            { value: `inbox`, label: `Inbox`, icon: InboxTabIcon },
+            { value: `my-issues`, label: `My Issues`, icon: MyIssuesTabIcon },
+          ]}
+        />
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
         {active === `inbox` ? (
