@@ -19,7 +19,6 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -216,9 +215,9 @@ impl Render for DraftsView {
             v_flex()
                 .min_w_0()
                 .gap_2()
-                .child(Skeleton::new().h_3p5().w_40())
-                .child(Skeleton::new().h_3p5().w_48())
-                .child(Skeleton::new().h_3p5().w_32())
+                .child(crate::controls::skeleton().h_3p5().w_40())
+                .child(crate::controls::skeleton().h_3p5().w_48())
+                .child(crate::controls::skeleton().h_3p5().w_32())
         } else if drafts.is_empty() {
             v_flex().min_w_0().child(crate::controls::empty_state(
                 Icon::from(registry::NAV_DRAFTS),

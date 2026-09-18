@@ -14,13 +14,13 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    canvas, deferred, div, point, px, Bounds, Entity, InteractiveElement as _,
+    canvas, div, px, Bounds, Entity, InteractiveElement as _,
     IntoElement, ParentElement as _, Pixels, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Subscription, TextRun, Window,
 };
 use gpui_component::input::{self, InputEvent, Textarea, TextareaState};
-use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
+use crate::controls::{typeahead_menu, typeahead_row, TypeaheadArm};
 use crate::markdown::{
     byte_offset_to_position, detect_trigger, exact_emoji, CompletionItem, CompletionSource,
     CompletionTrigger, PendingToken,
@@ -321,85 +321,66 @@ impl MentionInput {
                 .width
         };
 
+        // The caret LINE's edges in window coordinates: the menu primitive
+        // measures the room on both sides itself.
         let origin = self.bounds.get().origin;
-        let anchor = point(
-            origin.x + caret_x + px(8.),
-            origin.y + scroll.y + line_height * (position.line as f32 + 1.) + px(8.),
-        );
+        let caret_left = origin.x + caret_x + px(8.);
+        let caret_bottom = origin.y + scroll.y + line_height * (position.line as f32 + 1.);
+        let caret_top = caret_bottom - line_height;
 
         let items = completion.items.clone();
         let selected = completion.selected;
-        let (popover, popover_foreground, border, radius, accent) = {
-            let theme = cx.theme();
-            (
-                theme.popover,
-                theme.popover_foreground,
-                theme.border,
-                theme.radius,
-                theme.accent,
-            )
-        };
         let rows: Vec<gpui::AnyElement> = items
             .into_iter()
             .enumerate()
             .map(|(index, item)| {
-                let is_selected = index == selected;
-                h_flex()
-                    .id(gpui::ElementId::from(("mention-completion-item", index)))
-                    .w_full()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(4.))
-                    .when(is_selected, |el| el.bg(accent))
-                    .hover(move |el| el.bg(accent))
-                    .cursor_pointer()
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(move |this, _, window, cx| {
-                            if let Some(completion) = this.completion.as_mut() {
-                                completion.selected = index;
-                            }
-                            this.accept_completion(window, cx);
-                        }),
-                    )
-                    // EXP-426: the shared decorated row — avatars for `@`
-                    // (this composer offers no `#`).
-                    .child(crate::markdown::completion_row_content(&item, cx))
-                    .into_any_element()
+                typeahead_row(
+                    gpui::ElementId::from(("mention-completion-item", index)),
+                    index == selected,
+                    cx,
+                )
+                // EXP-892: hovering MOVES the selection onto the row under
+                // the pointer instead of painting a second highlight.
+                .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+                    if !*hovered {
+                        return;
+                    }
+                    if let Some(completion) = this.completion.as_mut() {
+                        if completion.selected != index {
+                            completion.selected = index;
+                            cx.notify();
+                        }
+                    }
+                }))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(move |this, _, window, cx| {
+                        if let Some(completion) = this.completion.as_mut() {
+                            completion.selected = index;
+                        }
+                        this.accept_completion(window, cx);
+                    }),
+                )
+                // EXP-426: the shared decorated row — avatars for `@`
+                // (this composer offers no `#`).
+                .child(crate::markdown::completion_row_content(&item, cx))
+                .into_any_element()
             })
             .collect();
-        // EXP-946: the caret menu is CAPPED to the room under it and scrolls,
-        // so a long `#`/`@` list can never run off the window. `anchored`'s
-        // snap only slides a panel around; it cannot shrink one that is taller
-        // than the viewport.
-        let room_below = (window.viewport_size().height - anchor.y - px(12.)).max(px(0.));
-        let menu = v_flex()
-            .id("mention-completion")
-            .occlude()
-            .min_w(px(260.))
-            .max_w(px(380.))
-            .max_h(room_below.max(px(140.)).min(px(320.)))
-            .overflow_y_scroll()
-            .p_1()
-            .gap_0p5()
-            .bg(popover)
-            .text_color(popover_foreground)
-            .border_1()
-            .border_color(border)
-            .rounded(radius)
-            .shadow_md()
-            .children(rows);
 
-        Some(
-            deferred(
-                gpui::anchored()
-                    .position(anchor)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(menu),
-            )
-            .with_priority(200)
-            .into_any_element(),
-        )
+        // EXP-970: the ONE typeahead surface — capped, scrolling, and
+        // flipped above the caret when the room below runs out.
+        Some(typeahead_menu(
+            "mention-completion",
+            TypeaheadArm::Anchored {
+                caret_left,
+                caret_top,
+                caret_bottom,
+            },
+            rows,
+            window,
+            cx,
+        ))
     }
 }
 

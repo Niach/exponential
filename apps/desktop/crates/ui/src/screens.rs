@@ -30,7 +30,6 @@ use gpui_component::{
     dock::{Panel, PanelControl, PanelEvent},
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -3086,9 +3085,9 @@ impl ScreensPanel {
             .size_full()
             .p_4()
             .gap_2()
-            .child(Skeleton::new().h_4().w_48())
-            .child(Skeleton::new().h_4().w_64())
-            .child(Skeleton::new().h_4().w_56())
+            .child(crate::controls::skeleton().h_4().w_48())
+            .child(crate::controls::skeleton().h_4().w_64())
+            .child(crate::controls::skeleton().h_4().w_56())
             .into_any_element()
     }
 

@@ -12,7 +12,8 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     anchored, deferred, div, point, px, App, AppContext as _, ClipboardItem, Context, Entity,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, MouseButton, ParentElement as _,
-    Pixels, Point, Render, SharedString, Styled as _, Subscription, Window,
+    Pixels, Point, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, InputState};
@@ -28,6 +29,7 @@ use gpui_markdown_editor::{
 
 use super::images::{self, SharedImageState, WysiwygImageResolver, WysiwygPasteHandler};
 use super::toolbar::RailMode;
+use crate::controls::{typeahead_menu, typeahead_row, TypeaheadArm};
 use crate::icons::registry;
 use super::refs::{refresh_ref_state, SharedRefState, WysiwygReferenceDecorator};
 use crate::markdown::image_paste::{markdown_for_save, DRAFT_SCHEME};
@@ -1370,67 +1372,54 @@ impl WysiwygDescription {
         // Owned copies: the shared row body needs `&mut App` (avatar cache),
         // which cannot coexist with a live `self.completion`/theme borrow.
         let items: Vec<crate::markdown::CompletionItem> = completion.items.clone();
-        let (border, popover, popover_foreground, accent) = {
-            let theme = cx.theme();
-            (
-                theme.border,
-                theme.popover,
-                theme.popover_foreground,
-                theme.accent,
-            )
-        };
         let rows: Vec<gpui::AnyElement> = items
             .into_iter()
             .enumerate()
             .map(|(index, item)| {
-                let is_selected = index == selected;
-                div()
-                    .id(gpui::ElementId::from(("wysiwyg-completion-item", index)))
-                    .w_full()
-                    .flex()
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .when(is_selected, |el| el.bg(accent))
-                    .hover(move |el| el.bg(accent))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _event, window, cx| {
-                            this.accept_completion(index, window, cx);
-                        }),
-                    )
-                    // EXP-426: the shared decorated row — status glyph for
-                    // `#`, avatar for `@`.
-                    .child(crate::markdown::completion_row_content(&item, cx))
-                    .into_any_element()
+                typeahead_row(
+                    gpui::ElementId::from(("wysiwyg-completion-item", index)),
+                    index == selected,
+                    cx,
+                )
+                // EXP-892: the selected row is the ONLY tinted one, and
+                // hovering MOVES the selection onto the row under the
+                // pointer instead of painting a second highlight.
+                .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+                    if !*hovered {
+                        return;
+                    }
+                    if let Some(completion) = this.completion.as_mut() {
+                        if completion.selected != index {
+                            completion.selected = index;
+                            cx.notify();
+                        }
+                    }
+                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _event, window, cx| {
+                        this.accept_completion(index, window, cx);
+                    }),
+                )
+                // EXP-426: the shared decorated row — status glyph for
+                // `#`, avatar for `@`.
+                .child(crate::markdown::completion_row_content(&item, cx))
+                .into_any_element()
             })
             .collect();
-        let list = div()
-            .flex()
-            .flex_col()
-            .min_w(px(260.))
-            .max_w(px(380.))
-            .p_1()
-            .rounded_md()
-            .border_1()
-            .border_color(border)
-            .bg(popover)
-            .text_color(popover_foreground)
-            .shadow_md()
-            .children(rows);
-        Some(
-            deferred(
-                anchored()
-                    .position(point(
-                        caret.origin.x,
-                        caret.origin.y + caret.size.height + px(4.),
-                    ))
-                    .snap_to_window_with_margin(px(8.))
-                    .child(list),
-            )
-            .with_priority(1),
-        )
+        // EXP-970: the ONE typeahead surface — capped, scrolling, and
+        // flipped above the caret when the room below runs out.
+        Some(typeahead_menu(
+            "wysiwyg-completion",
+            TypeaheadArm::Anchored {
+                caret_left: caret.origin.x,
+                caret_top: caret.origin.y,
+                caret_bottom: caret.origin.y + caret.size.height,
+            },
+            rows,
+            window,
+            cx,
+        ))
     }
 
     // -- image context menu -------------------------------------------------

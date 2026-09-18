@@ -1603,7 +1603,6 @@ pub(crate) fn coding_session_display(
 /// liveness dot now, and a strip that re-rendered on every turn edge was
 /// motion without information. The rule stays because it IS the ×4 contract
 /// (web `agentBusy`, iOS, Android) and the session LIST is its home.
-#[allow(dead_code)]
 pub(crate) fn session_agent_busy(
     session: &domain::rows::CodingSession,
     local: Option<bool>,

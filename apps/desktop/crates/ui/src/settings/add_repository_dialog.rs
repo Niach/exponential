@@ -505,7 +505,7 @@ impl AddRepositoryDialogView {
         } else {
             copy::picker_reauth(&logins)
         };
-        banner(cx)
+        banner(crate::controls::AlertVariant::Default, cx)
             .text_color(cx.theme().muted_foreground)
             .child(
                 Icon::new(registry::UI_WARNING)
@@ -572,18 +572,14 @@ fn pill(id: impl Into<gpui::ElementId>, cx: &gpui::App) -> Button {
     crate::surface::glass_pill_button(id, crate::surface::PillSize::Sm, cx)
 }
 
-/// The bordered notice row both banners share.
-fn banner(cx: &gpui::App) -> gpui::Div {
-    h_flex()
-        .w_full()
+/// The bordered notice row both banners share — the shared inline alert
+/// (EXP-970) at the picker's density: its rows wrap their pills, sit on one
+/// line and speak in `text_xs`, and each passes its OWN leading glyph.
+fn banner(variant: crate::controls::AlertVariant, cx: &gpui::App) -> gpui::Div {
+    crate::controls::alert(variant, None, cx)
         .flex_wrap()
-        .gap_2()
         .items_center()
-        .px_3()
-        .py_2()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(row_stroke(cx))
+        .gap_2()
         .text_xs()
 }
 
@@ -625,10 +621,7 @@ fn suspended_notice(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    banner(cx)
-        .border_color(cx.theme().danger.opacity(0.5))
-        .bg(cx.theme().danger.opacity(0.1))
-        .text_color(cx.theme().danger)
+    banner(crate::controls::AlertVariant::Destructive, cx)
         .child(Icon::new(registry::UI_GITHUB).xsmall().flex_shrink_0())
         .child(
             div()

@@ -11,9 +11,13 @@
 //! refinement: gpui-component buttons default to `cursor_default`, the web
 //! (and every native toolkit convention we mirror) points on hover.
 
+use std::time::Duration;
+
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, Div, Entity, Focusable as _, FontWeight,
-    InteractiveElement as _, ParentElement as _, SharedString, Styled, Window,
+    anchored, bounce, deferred, div, point, prelude::FluentBuilder as _, px, Anchor, Animation,
+    AnimationExt as _, AnyElement, App, Div, ElementId, Entity, Focusable as _, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, SharedString, Stateful,
+    Styled, Window,
 };
 use gpui_component::{
     input::{Input, InputState, TextareaState},
@@ -559,6 +563,382 @@ pub(crate) fn web_textarea(
     TextareaState::new(window, cx).auto_grow(min_rows, max_rows)
 }
 
+// ---------------------------------------------------------------------------
+// The typeahead menu (EXP-970)
+// ---------------------------------------------------------------------------
+
+/// The menu's width band (web `TypeaheadMenu`: `w-72`, grown to the widest
+/// row the desktop lists).
+pub(crate) const TYPEAHEAD_MIN_W: f32 = 260.;
+pub(crate) const TYPEAHEAD_MAX_W: f32 = 380.;
+/// The tallest the menu gets on either side of the caret (web `MAX_HEIGHT`).
+pub(crate) const TYPEAHEAD_MAX_H: f32 = 320.;
+/// The shortest it is allowed to be capped to (web `MIN_HEIGHT`) — under
+/// this the menu keeps its floor and the window snap slides it instead.
+const TYPEAHEAD_MIN_H: f32 = 48.;
+/// Below this much room under the caret the menu flips above, when the room
+/// above is larger (web `FLIP_BELOW`).
+const TYPEAHEAD_FLIP_BELOW: f32 = 200.;
+/// The gap between the caret line and the menu edge (web `ANCHOR_GAP`).
+const TYPEAHEAD_GAP: f32 = 4.;
+/// The window margin the menu keeps clear (web `VIEWPORT_PAD`).
+const TYPEAHEAD_PAD: f32 = 8.;
+
+/// Which side of the caret a [`typeahead_menu`] opens on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TypeaheadPlacement {
+    Below,
+    Above,
+}
+
+/// The measured half of an anchored typeahead: the side and the height cap.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TypeaheadPlan {
+    pub(crate) placement: TypeaheadPlacement,
+    pub(crate) max_h: f32,
+}
+
+/// The pure placement rule, the web `placeTypeaheadMenu` twin: below the
+/// caret unless the room there is short AND the room above is larger, capped
+/// to the room on the chosen side (never taller than [`TYPEAHEAD_MAX_H`],
+/// never shorter than the floor). `caret_top`/`caret_bottom` are the caret
+/// LINE's edges in window coordinates.
+pub(crate) fn plan_typeahead(caret_top: f32, caret_bottom: f32, viewport_h: f32) -> TypeaheadPlan {
+    let space_below = viewport_h - caret_bottom - TYPEAHEAD_PAD;
+    let space_above = caret_top - TYPEAHEAD_PAD;
+    let cap = |space: f32| (space - TYPEAHEAD_GAP).min(TYPEAHEAD_MAX_H).max(TYPEAHEAD_MIN_H);
+    if space_below < TYPEAHEAD_FLIP_BELOW && space_above > space_below {
+        TypeaheadPlan {
+            placement: TypeaheadPlacement::Above,
+            max_h: cap(space_above),
+        }
+    } else {
+        TypeaheadPlan {
+            placement: TypeaheadPlacement::Below,
+            max_h: cap(space_below),
+        }
+    }
+}
+
+/// How a [`typeahead_menu`] sits in its host.
+pub(crate) enum TypeaheadArm {
+    /// Hangs off the caret: a deferred, window-anchored popup that flips
+    /// above the caret when the room below runs out (the `@`/`#`/`:` menus
+    /// of the editors and the mention composer).
+    Anchored {
+        /// The caret line's left edge, top and bottom, in window coordinates.
+        caret_left: Pixels,
+        caret_top: Pixels,
+        caret_bottom: Pixels,
+    },
+    /// Sits in the flow of its host, full width (the steer composer's `/`
+    /// menu, which lives inside the composer card above the textarea).
+    Inline,
+}
+
+/// EXP-970 — the ONE typeahead menu, the web `TypeaheadMenu` twin: the menu
+/// that follows what someone is TYPING (`@` mentions, `#` issue refs, `:`
+/// emoji, `/` commands), as opposed to the combobox, which owns its own
+/// field. The surface is the floating-menu recipe (`MENU_SURFACE_CLASS`):
+/// the opaque popover fill under the card hairline on the row rung
+/// (`radius::MD`), a 4px inset, rows 2px apart, capped and scrolling. The
+/// rows are [`typeahead_row`]s the host builds (it owns their content, the
+/// click that accepts and the hover that moves the selection).
+///
+/// Four hosts drew this box by hand before, each with its own width, radius,
+/// corner and cap; the slash menu was a bare column. Anchoring is the
+/// [`TypeaheadArm`]: the anchored arm measures the room itself
+/// ([`plan_typeahead`]) and hands gpui the corner to hang from, so a long
+/// list near the bottom of the window opens upward instead of being slid
+/// over the caret.
+pub(crate) fn typeahead_menu(
+    id: impl Into<ElementId>,
+    arm: TypeaheadArm,
+    rows: Vec<AnyElement>,
+    window: &Window,
+    cx: &App,
+) -> AnyElement {
+    use gpui::StatefulInteractiveElement as _;
+    let theme = cx.theme();
+    let surface = v_flex()
+        .id(id)
+        .occlude()
+        .p_1()
+        .gap_0p5()
+        .bg(theme.popover)
+        .text_color(theme.popover_foreground)
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+        .rounded(px(t::radius::MD))
+        .shadow_md()
+        .overflow_y_scroll();
+    match arm {
+        TypeaheadArm::Inline => surface
+            .w_full()
+            .min_w_0()
+            .max_h(px(TYPEAHEAD_MAX_H))
+            .children(rows)
+            .into_any_element(),
+        TypeaheadArm::Anchored {
+            caret_left,
+            caret_top,
+            caret_bottom,
+        } => {
+            let plan = plan_typeahead(
+                f32::from(caret_top),
+                f32::from(caret_bottom),
+                f32::from(window.viewport_size().height),
+            );
+            let menu = surface
+                .min_w(px(TYPEAHEAD_MIN_W))
+                .max_w(px(TYPEAHEAD_MAX_W))
+                .max_h(px(plan.max_h))
+                .children(rows);
+            let (corner, position) = match plan.placement {
+                TypeaheadPlacement::Below => (
+                    Anchor::TopLeft,
+                    point(caret_left, caret_bottom + px(TYPEAHEAD_GAP)),
+                ),
+                TypeaheadPlacement::Above => (
+                    Anchor::BottomLeft,
+                    point(caret_left, caret_top - px(TYPEAHEAD_GAP)),
+                ),
+            };
+            deferred(
+                anchored()
+                    .anchor(corner)
+                    .position(position)
+                    .snap_to_window_with_margin(px(TYPEAHEAD_PAD))
+                    .child(menu),
+            )
+            .with_priority(200)
+            .into_any_element()
+        }
+    }
+}
+
+/// One row of a [`typeahead_menu`] (web `TYPEAHEAD_ROW_CLASS`): full width,
+/// `px_2 py_1`, the small rung's corner, and the list's active fill on the
+/// SELECTED row only — hovering MOVES the selection (EXP-892) rather than
+/// painting a second highlight, so the host chains `.on_hover` for that and
+/// `.on_mouse_down` to accept; the content (`completion_row_content`, the
+/// slash row's name/hint/description) is the host's child.
+pub(crate) fn typeahead_row(id: impl Into<ElementId>, selected: bool, cx: &App) -> Stateful<Div> {
+    let theme = cx.theme();
+    div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_center()
+        .px_2()
+        .py_1()
+        .rounded(px(t::radius::SM))
+        .cursor_pointer()
+        .when(selected, |row| row.bg(theme.list_active))
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton, checkbox, alert (EXP-970)
+// ---------------------------------------------------------------------------
+
+/// The skeleton's pulse period — the web `animate-pulse` (2s). Not a motion
+/// duration token: those are the transition rungs (120/180/280), and a
+/// placeholder's breathing is a different kind of time; the CURVE is the
+/// ladder's standard one.
+pub(crate) const SKELETON_PULSE: Duration = Duration::from_secs(2);
+
+/// EXP-970 — the skeleton, the web `Skeleton` twin: a block standing in for
+/// text that is still loading, at the SHAPE of what will arrive. The row
+/// rung's corner (`radius::MD`, web `rounded-md`), the theme's skeleton fill
+/// (the opaque accent, `theme::exponential_dark`), breathing between full
+/// and half opacity on the standard curve over [`SKELETON_PULSE`]. A
+/// 16px-tall full-width bar by default; the caller sizes it like any
+/// element (`.h_3p5().w_40()`, `.size_4().rounded_full()` for an avatar
+/// stand-in, `.flex_1()` for a fill): a row's worth of bars, never a
+/// spinner in a list.
+///
+/// gpui-component's own `Skeleton` is not used: its radius is the crate's
+/// and its pulse is `bounce(ease_in_out)` over its own 2s, neither on the
+/// ladder (`only_controls_constructs_skeletons` keeps it out). Construct
+/// with [`skeleton`].
+#[derive(IntoElement)]
+pub(crate) struct Skeleton {
+    style: gpui::StyleRefinement,
+}
+
+/// A [`Skeleton`] block.
+pub(crate) fn skeleton() -> Skeleton {
+    Skeleton {
+        style: gpui::StyleRefinement::default(),
+    }
+}
+
+impl Styled for Skeleton {
+    fn style(&mut self) -> &mut gpui::StyleRefinement {
+        &mut self.style
+    }
+}
+
+impl gpui::RenderOnce for Skeleton {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        use gpui_component::StyledExt as _;
+        div()
+            .flex_shrink_0()
+            .w_full()
+            .h_4()
+            .rounded(px(t::radius::MD))
+            .bg(cx.theme().skeleton)
+            .refine_style(&self.style)
+            .with_animation(
+                "skeleton-pulse",
+                Animation::new(SKELETON_PULSE)
+                    .repeat()
+                    .with_easing(bounce(theme::motion::standard())),
+                |block, delta| block.opacity(1. - 0.5 * delta),
+            )
+    }
+}
+
+/// What a [`checkbox`] holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CheckState {
+    Unchecked,
+    Checked,
+    /// A bulk selection that disagrees: the same box with a minus.
+    Indeterminate,
+}
+
+impl From<bool> for CheckState {
+    fn from(checked: bool) -> Self {
+        if checked {
+            Self::Checked
+        } else {
+            Self::Unchecked
+        }
+    }
+}
+
+/// The checkbox's box (web `size-4`).
+pub(crate) const CHECKBOX_PX: f32 = 16.;
+
+/// EXP-970 — the checkbox, the web `Checkbox` twin: the 16px square that
+/// holds a TABLE's selection (the issue list's bulk-select column, the
+/// rail's issue rows, a checklist item in the description) and nothing else
+/// — a picker's multi-select rows draw the `ui-selected`/`ui-unselected`
+/// circle pair instead. Glass tokens throughout: the row fill under the
+/// STRONG stroke (a 16px unchecked square has to stay legible on the row it
+/// sits on), the small rung's corner (`radius::SM`, web `rounded-sm`), and
+/// checked = the primary fill under the primary foreground with the
+/// registry's `ui-check` glyph (`ui-minus` for indeterminate). Disabled
+/// halves the opacity and drops the pointer. The caller chains `.on_click`.
+///
+/// gpui-component's `Checkbox` is not used: its box is the theme's input
+/// stroke at the crate's radius and its tick is the crate's own icon, none
+/// of them the ladder's (`only_controls_constructs_checkboxes`).
+pub(crate) fn checkbox(
+    id: impl Into<ElementId>,
+    state: CheckState,
+    disabled: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    let theme = cx.theme();
+    let marked = state != CheckState::Unchecked;
+    let square = div()
+        .id(id)
+        .flex_shrink_0()
+        .size(px(CHECKBOX_PX))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(t::radius::SM))
+        .border_1()
+        .when(!disabled, |square| square.cursor_pointer())
+        .when(disabled, |square| square.opacity(0.5));
+    let square = if marked {
+        square.bg(theme.primary).border_color(theme.primary)
+    } else {
+        square
+            .bg(t::glass::FILL_ROW.to_hsla())
+            .border_color(t::glass::STROKE_STRONG.to_hsla())
+    };
+    let glyph = match state {
+        CheckState::Unchecked => return square,
+        CheckState::Checked => crate::icons::registry::UI_CHECK,
+        CheckState::Indeterminate => crate::icons::registry::UI_MINUS,
+    };
+    square.child(
+        Icon::new(glyph)
+            .size(px(14.))
+            .flex_shrink_0()
+            .text_color(theme.primary_foreground),
+    )
+}
+
+/// The two [`alert`] variants (web `Alert variant`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AlertVariant {
+    /// A notice: the card fill under the card hairline, foreground text.
+    Default,
+    /// A failure: the danger tint at a tenth under its stroke at half,
+    /// danger text.
+    Destructive,
+}
+
+/// EXP-970 — the inline alert, the web `Alert` twin: a message that belongs
+/// to the page it interrupts, not a toast and not a dialog. The row rung's
+/// corner, `px_3 py_2`, `text_sm`; the leading glyph (16px, nudged 2px down
+/// to sit on the first line) earns its column only when one is passed. The
+/// caller appends its content — [`alert_title`] and/or a description — as
+/// children; a banner that wants to wrap pills chains `.flex_wrap()`.
+pub(crate) fn alert(variant: AlertVariant, glyph: Option<Icon>, cx: &App) -> Div {
+    let theme = cx.theme();
+    let (fill, stroke, text) = match variant {
+        AlertVariant::Default => (
+            t::glass::FILL_CARD.to_hsla(),
+            t::glass::STROKE_CARD.to_hsla(),
+            theme.foreground,
+        ),
+        AlertVariant::Destructive => (
+            theme.danger.opacity(0.1),
+            theme.danger.opacity(0.5),
+            theme.danger,
+        ),
+    };
+    div()
+        .flex()
+        .flex_row()
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .rounded(px(t::radius::MD))
+        .border_1()
+        .border_color(stroke)
+        .bg(fill)
+        .text_sm()
+        .text_color(text)
+        .children(glyph.map(|glyph| {
+            div()
+                .flex_shrink_0()
+                .pt_0p5()
+                .child(glyph.size(px(16.)).flex_shrink_0())
+        }))
+}
+
+/// An [`alert`]'s one-line title (web `AlertTitle`): medium weight, tight.
+pub(crate) fn alert_title(title: impl Into<SharedString>) -> Div {
+    div()
+        .min_w_0()
+        .font_weight(FontWeight::MEDIUM)
+        .truncate()
+        .child(title.into())
+}
+
 #[cfg(test)]
 mod tests {
     /// EXP-862 — the structural half of [`super::web_switch`]: a `Switch`
@@ -571,6 +951,34 @@ mod tests {
     /// scan skips.
     #[test]
     fn only_controls_constructs_switches() {
+        assert_only_controls_constructs("Switch::new(", "EXP-862", "controls::web_switch(id)");
+    }
+
+    /// EXP-970: the same rule for gpui-component's `Checkbox` — its box, its
+    /// radius and its tick are the crate's, not the ladder's.
+    #[test]
+    fn only_controls_constructs_checkboxes() {
+        assert_only_controls_constructs(
+            "Checkbox::new(",
+            "EXP-970",
+            "controls::checkbox(id, state, disabled, cx)",
+        );
+    }
+
+    /// EXP-970: and for its `Skeleton` — the crate's pulse and radius.
+    #[test]
+    fn only_controls_constructs_skeletons() {
+        assert_only_controls_constructs(
+            "Skeleton::new(",
+            "EXP-970",
+            "controls::skeleton()",
+        );
+    }
+
+    /// The scan behind the three constructor rules: `needle` may appear in
+    /// no source file of this crate but this module (the one allowed
+    /// constructor, and the one file that spells the needle in its docs).
+    fn assert_only_controls_constructs(needle: &str, issue: &str, replacement: &str) {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut offenders: Vec<String> = Vec::new();
         let mut stack = vec![src.clone()];
@@ -588,7 +996,7 @@ mod tests {
                     continue;
                 }
                 let text = std::fs::read_to_string(&path).expect("a readable source file");
-                let hits = text.matches("Switch::new(").count();
+                let hits = text.matches(needle).count();
                 if hits > 0 {
                     let name = path
                         .strip_prefix(&src)
@@ -602,9 +1010,42 @@ mod tests {
         offenders.sort();
         assert!(
             offenders.is_empty(),
-            "EXP-862: build switches through `controls::web_switch(id)` — \
-             `Switch::new(` still appears in: {}",
+            "{issue}: construct through `{replacement}` — `{needle}` still appears in: {}",
             offenders.join(", ")
         );
+    }
+
+    /// EXP-970 — the placement rule is the web `placeTypeaheadMenu`, number
+    /// for number (`typeahead.test.tsx`).
+    #[test]
+    fn the_typeahead_opens_below_and_flips_above_only_when_below_is_short() {
+        use super::{plan_typeahead, TypeaheadPlacement, TYPEAHEAD_MAX_H};
+        // Plenty of room below: below, capped at the maximum.
+        let plan = plan_typeahead(100., 120., 800.);
+        assert_eq!(plan.placement, TypeaheadPlacement::Below);
+        assert_eq!(plan.max_h, TYPEAHEAD_MAX_H);
+        // Room below shrinks under the flip line while above is larger: above,
+        // capped to the room above minus the pad and the gap.
+        let plan = plan_typeahead(500., 520., 700.);
+        assert_eq!(plan.placement, TypeaheadPlacement::Above);
+        assert_eq!(plan.max_h, TYPEAHEAD_MAX_H);
+        let plan = plan_typeahead(300., 320., 400.);
+        assert_eq!(plan.placement, TypeaheadPlacement::Above);
+        assert_eq!(plan.max_h, 300. - 8. - 4.);
+        // Short below AND short above: stays below, capped to what is there.
+        let plan = plan_typeahead(60., 80., 200.);
+        assert_eq!(plan.placement, TypeaheadPlacement::Below);
+        assert_eq!(plan.max_h, 200. - 80. - 8. - 4.);
+        // The floor: a menu never plans shorter than its minimum height.
+        let plan = plan_typeahead(20., 40., 60.);
+        assert_eq!(plan.placement, TypeaheadPlacement::Below);
+        assert_eq!(plan.max_h, 48.);
+    }
+
+    #[test]
+    fn a_bool_is_a_two_state_check() {
+        use super::CheckState;
+        assert_eq!(CheckState::from(true), CheckState::Checked);
+        assert_eq!(CheckState::from(false), CheckState::Unchecked);
     }
 }

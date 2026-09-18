@@ -90,7 +90,8 @@ use steer::{
 use theme::tokens::transcript;
 
 use crate::controls::{
-    disclosure_header, text_button, ChevronSide, TextButtonVariant, WebText as _,
+    disclosure_header, text_button, typeahead_menu, typeahead_row, ChevronSide, TextButtonVariant,
+    TypeaheadArm, WebText as _,
 };
 use crate::icons::registry;
 use crate::screens::RunFace;
@@ -6530,7 +6531,7 @@ impl SteerSessionView {
         banners
     }
 
-    fn render_composer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_composer(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
         let stop = self.shows_stop(cx);
         let composer = crate::composer::GlassComposer::new(
@@ -6540,7 +6541,7 @@ impl SteerSessionView {
                 // EXP-724: the `/` menu sits INSIDE the composer card,
                 // above the textarea — no popover, no caret anchoring
                 // (the token is always the whole draft).
-                .when_some(self.render_slash_menu(cx), |this, menu| this.child(menu))
+                .when_some(self.render_slash_menu(window, cx), |this, menu| this.child(menu))
                 .child(
                     div()
                         // The captures run before the field's own handlers,
@@ -6798,26 +6799,31 @@ impl SteerSessionView {
 
     /// EXP-724: the `/` command rows — mono name, muted argument hint, muted
     /// description. `None` when no menu is open.
-    fn render_slash_menu(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+    fn render_slash_menu(
+        &self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
         let menu = self.slash.as_ref()?;
         let muted = cx.theme().muted_foreground;
-        let accent = cx.theme().accent;
-        let mut column = v_flex().w_full().min_w_0().gap_0p5();
+        let mut rows: Vec<AnyElement> = Vec::with_capacity(menu.items.len());
         for (index, command) in menu.items.iter().enumerate() {
             let selected = index == menu.selected;
-            column = column.child(
-                h_flex()
-                    .id(("steer-slash-row", index))
-                    .w_full()
-                    .min_w_0()
-                    .gap_2()
-                    .items_center()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(theme::tokens::radius::SM))
-                    .when(selected, |this| this.bg(accent))
-                    .hover(|this| this.bg(accent))
-                    .cursor_pointer()
+            rows.push(
+                typeahead_row(("steer-slash-row", index), selected, cx)
+                    // EXP-892: hovering MOVES the selection onto the row
+                    // under the pointer, it never paints a second highlight.
+                    .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
+                        if !*hovered {
+                            return;
+                        }
+                        if let Some(menu) = this.slash.as_mut() {
+                            if menu.selected != index {
+                                menu.selected = index;
+                                cx.notify();
+                            }
+                        }
+                    }))
                     .on_mouse_down(
                         gpui::MouseButton::Left,
                         cx.listener(move |this, _, window, cx| {
@@ -6851,10 +6857,18 @@ impl SteerSessionView {
                             .text_xs()
                             .text_color(muted)
                             .child(SharedString::from(command.description.to_string())),
-                    ),
+                    )
+                    .into_any_element(),
             );
         }
-        Some(column.into_any_element())
+        // EXP-970: the ONE typeahead surface, in the composer card's flow.
+        Some(typeahead_menu(
+            "steer-slash-menu",
+            TypeaheadArm::Inline,
+            rows,
+            window,
+            cx,
+        ))
     }
 
     /// EXP-724: the pinned strip while the agent folds its context. The bar
@@ -7465,7 +7479,7 @@ impl Render for SteerSessionView {
         let rate_limit = composer_visible
             .then(|| self.render_rate_limit_banner(cx))
             .flatten();
-        let composer = composer_visible.then(|| self.render_composer(cx));
+        let composer = composer_visible.then(|| self.render_composer(window, cx));
         // EXP-850 §1/§2: the background-task / waiting strip sits directly
         // above the composer, under everything else. EXP-861: the queue bar
         // goes between it and the composer — the last thing above the field.

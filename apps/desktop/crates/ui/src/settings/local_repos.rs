@@ -64,7 +64,6 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     menu::DropdownMenu as _,
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use std::collections::HashMap;
@@ -637,7 +636,7 @@ impl LocalReposPane {
                         Some(bytes) => div()
                             .child(SharedString::from(format_size(bytes)))
                             .into_any_element(),
-                        None => Skeleton::new().h_3().w_12().into_any_element(),
+                        None => crate::controls::skeleton().h_3().w_12().into_any_element(),
                     }),
             )
             .child(div().child("·"))
@@ -941,8 +940,8 @@ impl Render for LocalReposPane {
                 body = body.child(
                     v_flex()
                         .gap_2()
-                        .child(Skeleton::new().h_10().w_full())
-                        .child(Skeleton::new().h_10().w_full()),
+                        .child(crate::controls::skeleton().h_10().w_full())
+                        .child(crate::controls::skeleton().h_10().w_full()),
                 );
             }
             Scan::Ready(repos) if repos.is_empty() => {

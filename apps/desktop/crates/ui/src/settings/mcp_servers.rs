@@ -45,7 +45,6 @@ use gpui_component::{
     input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
     notification::Notification,
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 
@@ -1249,9 +1248,9 @@ impl Render for McpServersPane {
                 body = body.child(
                     v_flex()
                         .gap_2()
-                        .child(Skeleton::new().h_4().w_full())
-                        .child(Skeleton::new().h_4().w_full())
-                        .child(Skeleton::new().h_4().w_64()),
+                        .child(crate::controls::skeleton().h_4().w_full())
+                        .child(crate::controls::skeleton().h_4().w_full())
+                        .child(crate::controls::skeleton().h_4().w_64()),
                 );
             }
             Load::Ready(Err(message)) => {

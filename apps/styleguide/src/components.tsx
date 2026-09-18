@@ -2502,10 +2502,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `A 16px rounded square that holds a TABLE's selection — the bulk-select column of an issue list and nothing else. It is deliberately NOT the multi-select affordance in a picker: every option row on all four clients marks itself with the leading circle pair (ui-selected / ui-unselected), so a checkbox inside a picker would make web the only client drawing selection twice. Checked takes the primary fill under the primary foreground; indeterminate is the same box with a minus.`,
     status: {
       web: ok(`Checkbox`, `packages/ui/src/checkbox.tsx`),
-      desktop: leftover(
-        `gpui_component::checkbox::Checkbox`,
-        `apps/desktop/crates/ui/src/issue_list.rs`,
-        `the third-party checkbox used raw at the bulk-select row — no wrapper, so its box and tick are the crate's`
+      desktop: ok(
+        `controls::checkbox`,
+        DESKTOP_CONTROLS,
+        `glass box (row fill, strong stroke, radius SM), primary when checked, ui-check / ui-minus; bulk-select + checklist rows`
       ),
       ios: na(`no checkbox exists: a multi-select row draws the ui-selected / ui-unselected circle pair`),
       android: na(`same as iOS — the sheet's option rows carry the circle glyph pair, never a box`),
@@ -2661,10 +2661,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/live-dot.tsx`,
         `the glyph is status-glyph.tsx; LIVE_DOT_TONE is locked against the app's SESSION_DOT_CLASS`
       ),
-      desktop: leftover(
-        `surface::pill_dot`,
+      desktop: ok(
+        `surface::live_dot`,
         DESKTOP_SURFACE,
-        `a flat 6px disc tinted by queries::session_dot_tone — the IDE draws no halo, so ping has no desktop arm`
+        `ping = an animated halo, twice the disc, 60% to 0 over 1s on the decelerate curve; the run list pings on agent_busy only`
       ),
       ios: ok(
         `SessionStateDot`,
@@ -2768,10 +2768,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `A pulsing block standing in for text that is still loading, at the SHAPE of what will arrive — a row's worth of bars, never a spinner in a list. It is a web and desktop affordance only: both natives answer a pending screen with a centred spinner, because a phone list is short enough that a skeleton flashes before it reads.`,
     status: {
       web: ok(`Skeleton`, `packages/ui/src/skeleton.tsx`),
-      desktop: leftover(
-        `gpui_component::skeleton::Skeleton`,
-        `apps/desktop/crates/ui/src/drafts_view.rs`,
-        `the third-party skeleton used raw — no wrapper, so its pulse and radius are the crate's, not the ladder's`
+      desktop: ok(
+        `controls::skeleton`,
+        DESKTOP_CONTROLS,
+        `radius MD on the theme skeleton fill, breathing 100% to 50% over the web 2s pulse on the standard curve`
       ),
       ios: na(`no skeleton or shimmer anywhere: a loading screen is a centred spinner`),
       android: na(`same — LoadingState (Scaffolding.kt) centres a spinner instead`),
@@ -3146,10 +3146,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/typeahead.tsx`,
         `handleKeyDown returns true when the menu ate the key; the editor's caret menu is the anchored arm (EXP-959)`
       ),
-      desktop: leftover(
-        `markdown::autocomplete::completion_row_content`,
-        `apps/desktop/crates/ui/src/markdown/autocomplete.rs`,
-        `the ROW is shared; the menu chrome is a one-off in each of three hosts, and the slash menu is a fourth`
+      desktop: ok(
+        `controls::typeahead_menu / typeahead_row`,
+        DESKTOP_CONTROLS,
+        `the row stays completion_row_content; the anchored arm flips above the caret when room runs out, the slash menu inline`
       ),
       ios: ok(
         `EditorAutocompleteMenu`,
@@ -3195,8 +3195,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `The inline banner: a message that belongs to the page it interrupts, not a toast that flies past and not a dialog that blocks. Two variants only — the neutral card fill for a notice, and the destructive tint for a failure — and the leading glyph earns its own column only when one is passed. The admin console carried two byte-identical copies of the destructive recipe before this existed.`,
     status: {
       web: ok(`Alert / AlertTitle / AlertDescription`, `packages/ui/src/alert.tsx`),
-      desktop: na(
-        `no shared inline alert: the banners are private one-offs, e.g. fn banner in settings/add_repository_dialog.rs`
+      desktop: ok(
+        `controls::alert / alert_title`,
+        DESKTOP_CONTROLS,
+        `default and destructive on the glass tokens, a glyph column only when one is passed; the repository dialog banner is one`
       ),
       ios: na(`no boxed banner: an error renders as a red Text line on DesignTokens.Semantic.red`),
       android: leftover(

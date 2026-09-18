@@ -6,8 +6,9 @@
 //! hairlines vanish on 1x-scale displays.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, Div, ElementId, FontWeight, Hsla,
-    InteractiveElement as _, ParentElement as _, SharedString, Stateful, StyleRefinement, Styled,
+    div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, AnyElement, App, Div,
+    ElementId, FontWeight, Hsla, InteractiveElement as _, IntoElement as _, ParentElement as _,
+    SharedString, Stateful, StyleRefinement, Styled,
 };
 use gpui_component::input::Input;
 use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem};
@@ -791,6 +792,57 @@ pub(crate) fn pill_dot(color: Hsla) -> Div {
     div().flex_shrink_0().size(px(6.)).rounded_full().bg(color)
 }
 
+/// The live dot's disc (web `size-2`).
+pub(crate) const LIVE_DOT_PX: f32 = 8.;
+/// One ripple of the ping halo — the web `animate-ping` period (1s).
+const LIVE_DOT_PING: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// EXP-970 — the live dot, the web `LiveDot` twin (iOS `SessionStateDot`,
+/// Android `LiveDot`): a session's state in one 8px disc, tinted by the ONE
+/// tone table (`queries::session_dot_tone`), with the ATTENTION halo behind
+/// it when `ping` is set. The halo is a second disc of the same tone that
+/// grows from the dot to twice its size while fading from 60% to nothing,
+/// once a second on the decelerate curve — the CSS `animate-ping` recipe
+/// (`cubic-bezier(0, 0, 0.2, 1)` IS the ladder's `DECELERATE`), so the
+/// desktop ripples exactly as the web does. gpui animates by repainting, so
+/// a pinging dot is a live element: reserve it for something happening
+/// right now (the agent mid-turn, `queries::session_agent_busy`), never for
+/// `running` alone — a live-but-idle run draws the steady disc.
+///
+/// The container is exactly the disc's box; the halo is an absolute child,
+/// so the ripple paints OVER the neighbours without moving them.
+pub(crate) fn live_dot(tone: Hsla, ping: bool) -> AnyElement {
+    let disc = div().size(px(LIVE_DOT_PX)).rounded_full().bg(tone);
+    if !ping {
+        return disc.flex_shrink_0().into_any_element();
+    }
+    div()
+        .relative()
+        .flex_shrink_0()
+        .size(px(LIVE_DOT_PX))
+        .child(
+            div()
+                .absolute()
+                .rounded_full()
+                .bg(tone)
+                .with_animation(
+                    "live-dot-ping",
+                    Animation::new(LIVE_DOT_PING)
+                        .repeat()
+                        .with_easing(theme::motion::decelerate()),
+                    |halo, delta| {
+                        let grow = LIVE_DOT_PX * delta;
+                        halo.left(px(-grow / 2.))
+                            .top(px(-grow / 2.))
+                            .size(px(LIVE_DOT_PX + grow))
+                            .opacity(0.6 * (1. - delta))
+                    },
+                ),
+        )
+        .child(disc.absolute().left_0().top_0())
+        .into_any_element()
+}
+
 // ---------------------------------------------------------------------------
 // The ONE rich tab (EXP-698)
 // ---------------------------------------------------------------------------
@@ -916,9 +968,10 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
                     RichTabStatus::Glyph(icon) => {
                         slot.child(gpui_component::Sizable::with_size(icon, px(14.)))
                     }
-                    RichTabStatus::Dot(tone) => {
-                        slot.child(div().size(px(8.)).rounded_full().bg(tone))
-                    }
+                    // EXP-970: the shared disc; a chip never pings (EXP-877:
+                    // the strip re-rendering on every turn edge was motion
+                    // without information).
+                    RichTabStatus::Dot(tone) => slot.child(live_dot(tone, false)),
                     RichTabStatus::None => slot,
                 }),
         ),
