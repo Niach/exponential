@@ -106,6 +106,10 @@ export function DatePicker({
       >
         <Calendar
           mode="single"
+          // The sheet arm is full width; the grid centres in it instead of
+          // hugging the left edge (the desktop popover is `w-auto`, so this
+          // is a no-op there).
+          className="mx-auto"
           selected={date ?? undefined}
           defaultMonth={date ?? undefined}
           onSelect={(picked) => {
