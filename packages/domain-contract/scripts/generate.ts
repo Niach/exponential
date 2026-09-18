@@ -35,6 +35,7 @@ interface Contract {
   issueSource: Section
   teamRole: Section
   boardIcon: Section
+  deviceIcon: Section
   commentKind: Section
   commentSource: Section
   notificationType: Section
@@ -359,6 +360,7 @@ ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOr
 ${swiftStringArray("issueSourceValues", contract.issueSource.values)}
 ${swiftStringArray("teamRoleValues", contract.teamRole.values)}
 ${swiftStringArray("boardIconValues", contract.boardIcon.values)}
+${swiftStringArray("deviceIconValues", contract.deviceIcon.values)}
 ${swiftStringArray("commentKindValues", contract.commentKind.values)}
 ${swiftStringArray("commentSourceValues", contract.commentSource.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
@@ -473,6 +475,7 @@ ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayO
 ${kotlinStringArray("issueSourceValues", contract.issueSource.values)}
 ${kotlinStringArray("teamRoleValues", contract.teamRole.values)}
 ${kotlinStringArray("boardIconValues", contract.boardIcon.values)}
+${kotlinStringArray("deviceIconValues", contract.deviceIcon.values)}
 ${kotlinStringArray("commentKindValues", contract.commentKind.values)}
 ${kotlinStringArray("commentSourceValues", contract.commentSource.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
@@ -589,6 +592,7 @@ ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder 
 ${rustStrSlice("issueSourceValues", contract.issueSource.values)}
 ${rustStrSlice("teamRoleValues", contract.teamRole.values)}
 ${rustStrSlice("boardIconValues", contract.boardIcon.values)}
+${rustStrSlice("deviceIconValues", contract.deviceIcon.values)}
 ${rustStrSlice("commentKindValues", contract.commentKind.values)}
 ${rustStrSlice("commentSourceValues", contract.commentSource.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}

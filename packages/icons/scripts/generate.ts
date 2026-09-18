@@ -45,6 +45,18 @@ interface Registry {
    * lucide-react import.
    */
   custom?: Record<string, IconNode[]>
+  /**
+   * EXP-924 — the device icon picker's set (device types + OS marks), byte-
+   * equal to contract.json's deviceIcon.values. Append-only like `pickable`.
+   */
+  devicePickable: string[]
+  /**
+   * EXP-924 — single-path FILLED marks Lucide does not ship (the OS logos).
+   * `file` is an SVG under packages/icons/ holding exactly one `<path>`; it is
+   * scaled from its own viewBox into the 24-unit grid below and then flows
+   * through the same 4-platform emit as a `custom` glyph.
+   */
+  imported?: Record<string, { file: string; source: string }>
 }
 
 const registry: Registry = JSON.parse(
@@ -192,6 +204,115 @@ function toSvg(nodes: IconNode[], stroke: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Imported marks (EXP-924)
+// ---------------------------------------------------------------------------
+
+// A filled mark reads heavier than a 2px stroke, so it gets a smaller live
+// area than Lucide's 20 units: 18 units, centred in the 24-unit grid.
+const IMPORT_LIVE_AREA = 18
+
+/** How many numbers each SVG path command consumes per repetition. */
+const PATH_ARITY: Record<string, number> = {
+  m: 2, l: 2, h: 1, v: 1, c: 6, s: 4, q: 4, t: 2, a: 7, z: 0,
+}
+
+/**
+ * Scale path data by `scale` and move its origin to (`dx`, `dy`). Relative
+ * commands only scale; absolute ones scale and translate. Arc flags are read
+ * as single characters, because minified SVG packs them (`a1 1 0 011 2`).
+ */
+function transformPath(d: string, scale: number, dx: number, dy: number): string {
+  let i = 0
+  const out: string[] = []
+  const skip = (): void => {
+    while (i < d.length && /[\s,]/.test(d[i])) i++
+  }
+  const readNumber = (): number => {
+    skip()
+    const match = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(d.slice(i))
+    if (!match) throw new Error(`bad number in path data at ${i}`)
+    i += match[0].length
+    return Number.parseFloat(match[0])
+  }
+  const readFlag = (): number => {
+    skip()
+    const flag = d[i++]
+    if (flag !== `0` && flag !== `1`) throw new Error(`bad arc flag at ${i}`)
+    return Number(flag)
+  }
+  let first = true
+  while ((skip(), i < d.length)) {
+    const command = d[i++]
+    const arity = PATH_ARITY[command.toLowerCase()]
+    if (arity === undefined) throw new Error(`unhandled path command "${command}"`)
+    if (arity === 0) {
+      out.push(`Z`)
+      continue
+    }
+    const absolute = command === command.toUpperCase()
+    let letter = command
+    do {
+      // A leading relative moveto is absolute by definition.
+      const moves = absolute || (first && command === `m`)
+      const x = (v: number): number => v * scale + (moves ? dx : 0)
+      const y = (v: number): number => v * scale + (moves ? dy : 0)
+      let values: number[]
+      switch (command.toLowerCase()) {
+        case `h`:
+          values = [x(readNumber())]
+          break
+        case `v`:
+          values = [y(readNumber())]
+          break
+        case `a`:
+          values = [
+            readNumber() * scale,
+            readNumber() * scale,
+            readNumber(),
+            readFlag(),
+            readFlag(),
+            x(readNumber()),
+            y(readNumber()),
+          ]
+          break
+        default:
+          values = []
+          for (let n = 0; n < arity; n += 2) {
+            values.push(x(readNumber()), y(readNumber()))
+          }
+      }
+      out.push(`${first && command === `m` ? `M` : letter}${values.map(fmtImported).join(` `)}`)
+      first = false
+      // Coordinates repeating after a moveto are implicit linetos.
+      if (command.toLowerCase() === `m`) letter = absolute ? `L` : `l`
+      skip()
+    } while (i < d.length && /[\d.+-]/.test(d[i]))
+  }
+  return out.join(``)
+}
+
+/** Three decimals = 1/1000 of a 24-unit grid — below a pixel at any size we draw. */
+const fmtImported = (n: number): string => String(Number.parseFloat(n.toFixed(3)))
+
+function loadImported(name: string, file: string): IconNode[] {
+  const svg = readFileSync(join(pkgRoot, file), "utf8")
+  const viewBox = svg.match(/viewBox="([^"]+)"/)?.[1].trim().split(/[\s,]+/).map(Number)
+  const paths = [...svg.matchAll(/<path[^>]*\sd="([^"]+)"/g)]
+  if (!viewBox || viewBox.length !== 4 || paths.length !== 1) {
+    throw new Error(`imported icon "${name}" (${file}) must be one <path> in a viewBox`)
+  }
+  const [minX, minY, width, height] = viewBox
+  const scale = IMPORT_LIVE_AREA / Math.max(width, height)
+  const d = transformPath(
+    paths[0][1],
+    scale,
+    (24 - width * scale) / 2 - minX * scale,
+    (24 - height * scale) / 2 - minY * scale
+  )
+  return [["path", { d, fill: "currentColor", stroke: "none", key: "mark" }]]
+}
+
+// ---------------------------------------------------------------------------
 // Naming
 // ---------------------------------------------------------------------------
 
@@ -230,7 +351,13 @@ const screamingSnake = (name: string): string =>
 // ---------------------------------------------------------------------------
 
 const semanticKeys = Object.keys(registry.semantic).sort()
-const customIcons = registry.custom ?? {}
+const customIcons: Record<string, IconNode[]> = { ...(registry.custom ?? {}) }
+for (const [name, { file }] of Object.entries(registry.imported ?? {})) {
+  if (name in customIcons) {
+    throw new Error(`imported icon "${name}" collides with a custom icon.`)
+  }
+  customIcons[name] = loadImported(name, file)
+}
 const customNames = Object.keys(customIcons).sort()
 // A custom name shadowing a real Lucide icon (or a hand-maintained desktop
 // brand mark) would make the shipped art ambiguous — refuse loudly.
@@ -252,6 +379,7 @@ for (const name of customNames) {
 const allNames = [
   ...new Set([
     ...registry.pickable,
+    ...registry.devicePickable,
     ...Object.values(registry.semantic),
     ...customNames,
   ]),
@@ -273,7 +401,10 @@ Source of truth: packages/icons/icons.json + lucide-react's shipped geometry.
 The icon geometry reproduced in this file is from Lucide
 (https://lucide.dev) and is licensed ISC. Glyphs listed under icons.json
 \`custom\` are Exponential's own work, licensed Apache-2.0 with the rest of
-this repository (see the top-level LICENSE).
+this repository (see the top-level LICENSE). Marks listed under \`imported\`
+(the OS logos) are from selfh.st/icons (https://github.com/selfhst/icons),
+licensed CC-BY-4.0, scaled into Lucide's 24-unit grid; the logos themselves
+are trademarks of their respective owners.
 
 ISC License
 
@@ -329,6 +460,12 @@ ${registry.pickable.map((n) => `  \`${n}\`,`).join("\n")}
 ] as const
 export type PickableIcon = (typeof PICKABLE_ICONS)[number]
 
+/** The device icon picker's set (EXP-924), display order. */
+export const DEVICE_ICONS = [
+${registry.devicePickable.map((n) => `  \`${n}\`,`).join("\n")}
+] as const
+export type DeviceIconName = (typeof DEVICE_ICONS)[number]
+
 /** Hand-authored non-Lucide glyph names (icons.json \`custom\` — EXP-314). */
 export const CUSTOM_ICONS = [
 ${customNames.map((n) => `  \`${n}\`,`).join("\n")}
@@ -348,6 +485,10 @@ export function isIconName(value: string): value is IconName {
 
 export function isPickableIcon(value: string): value is PickableIcon {
   return (PICKABLE_ICONS as readonly string[]).includes(value)
+}
+
+export function isDeviceIcon(value: string): value is DeviceIconName {
+  return (DEVICE_ICONS as readonly string[]).includes(value)
 }
 `
 )
@@ -459,6 +600,11 @@ pub const PICKABLE_ICONS: &[&str] = &[
 ${registry.pickable.map((n) => `    "${n}",`).join("\n")}
 ];
 
+/// The device icon picker's set (EXP-924), in display order.
+pub const DEVICE_ICONS: &[&str] = &[
+${registry.devicePickable.map((n) => `    "${n}",`).join("\n")}
+];
+
 /// A pickable/stored icon name -> its glyph. \`None\` for an unknown name so
 /// callers can apply their own fallback.
 pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
@@ -521,6 +667,11 @@ public enum AppIcons {
     /// The user-facing pickable set (board icons + action icons), display order.
     public static let pickable: [String] = [
 ${registry.pickable.map((n) => `        "${n}"`).join(",\n")}
+    ]
+
+    /// The device icon picker's set (EXP-924), display order.
+    public static let devicePickable: [String] = [
+${registry.devicePickable.map((n) => `        "${n}"`).join(",\n")}
     ]
 
     /// Every registry name that ships as an imageset.
@@ -607,6 +758,11 @@ ${allNames.map(kotlinIcon).join("\n\n")}
 ${registry.pickable.map((n) => `        "${n}",`).join("\n")}
     )
 
+    /** The device icon picker's set (EXP-924), display order. */
+    public val devicePickable: List<String> = listOf(
+${registry.devicePickable.map((n) => `        "${n}",`).join("\n")}
+    )
+
     /** Registry name -> glyph. Null for an unknown name (caller falls back). */
     public fun byName(name: String): ImageVector? = when (name) {
 ${allNames.map((n) => `        "${n}" -> \`${n}\``).join("\n")}
@@ -628,5 +784,6 @@ ${semanticKeys
 
 console.log(
   `Wrote ${written.length} files for ${allNames.length} icons ` +
-    `(${registry.pickable.length} pickable, ${semanticKeys.length} concepts).`
+    `(${registry.pickable.length} pickable, ${registry.devicePickable.length} device, ` +
+    `${semanticKeys.length} concepts).`
 )

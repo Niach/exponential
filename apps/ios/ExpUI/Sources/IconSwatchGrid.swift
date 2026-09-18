@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// Tap-to-select grid over the shared registry's PICKABLE glyphs
-/// (`AppIcons.pickable` — byte-equal to `DomainContract.boardIconValues`, so
-/// every name it emits is a storable board icon / action-input value, EXP-273).
-/// Deliberately unfiltered: 60 glyphs scan faster than they search (EXP-390
+/// Tap-to-select grid over one of the registry's PICKABLE sets — by default
+/// the board set (`AppIcons.pickable`, byte-equal to
+/// `DomainContract.boardIconValues`, so every name it emits is a storable
+/// board icon / action-input value, EXP-273); EXP-924 added the short DEVICE
+/// set (`AppIcons.devicePickable`), which the device settings sheet passes.
+/// Deliberately unfiltered: the glyphs scan faster than they search (EXP-390
 /// dropped the query field on every platform).
 ///
 /// A cell is a rounded square at the radius ladder's MD step
@@ -33,12 +35,24 @@ public struct IconSwatchGrid: View {
         self.allowsNone = allowsNone
     }
 
+    /// A cell in a set SHORTER than one row, which hugs instead of stretching
+    /// (web's `w-max` twin): six device glyphs spread across eight flexible
+    /// columns would each be half the sheet wide.
+    private static let compactCellWidth: CGFloat = 40
+
+    private var gridColumns: [GridItem] {
+        guard icons.count >= columns else {
+            return Array(
+                repeating: GridItem(.fixed(Self.compactCellWidth), spacing: 8),
+                count: max(icons.count, 1)
+            )
+        }
+        return Array(repeating: GridItem(.flexible(), spacing: 8), count: columns)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
-                spacing: 8
-            ) {
+            LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 8) {
                 ForEach(icons, id: \.self) { name in
                     swatch(name)
                 }

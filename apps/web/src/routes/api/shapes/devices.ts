@@ -29,6 +29,8 @@ const DEVICE_COLUMNS = [
   `label`,
   `kind`,
   `platform`,
+  // EXP-924: the owner-picked display icon (NULL = the kind default).
+  `icon`,
   `version`,
   `agents`,
   `caps`,

@@ -258,7 +258,7 @@ struct AgentsView: View {
     /// nothing to rename, update or remove.
     private func deviceRow(_ vm: AgentsViewModel, _ device: SteerDevice) -> some View {
         let expanded = expandedDeviceIds.contains(device.deviceId)
-        // EXP-944: TOP-aligned — the kind glyph and the gear stay level with
+        // EXP-944: TOP-aligned — the device glyph and the gear stay level with
         // the device NAME instead of centring themselves against the block
         // under it.
         return VStack(alignment: .leading, spacing: 8) {
@@ -274,8 +274,9 @@ struct AgentsView: View {
                     )
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
 
+                    // EXP-924: the owner's pick, else the kind default.
                     AppIcon(
-                        device.isServer ? AppIcons.uiServer : AppIcons.uiDevice,
+                        DeviceIconDisplay.iconName(for: device),
                         size: AppIcon.Size.medium
                     )
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))

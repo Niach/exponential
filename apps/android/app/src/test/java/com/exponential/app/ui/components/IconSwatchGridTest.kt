@@ -54,6 +54,21 @@ class IconSwatchGridTest {
         assertEquals(emptyList<String>(), missing)
     }
 
+    // EXP-924: the grid takes WHICH curated set to offer. The device sheet
+    // passes the device one, and the two sets do not leak into each other — a
+    // board icon is not a device icon and vice versa.
+    @Test
+    fun `the offered set is a parameter, not the board set everywhere`() {
+        assertEquals(
+            "monitor",
+            pickableIconName("monitor", ExpIcons.devicePickable),
+        )
+        assertNull(pickableIconName("rocket", ExpIcons.devicePickable))
+        // `laptop`/`os-*` only exist for a device.
+        assertTrue("laptop" !in ExpIcons.pickable)
+        assertNull(pickableIconName("laptop"))
+    }
+
     @Test
     fun `the create-action builtin declares an optional icon input`() {
         val icon = builtinCreateAction("team-1").inputs.orEmpty()

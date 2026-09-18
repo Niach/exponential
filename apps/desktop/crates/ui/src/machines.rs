@@ -112,6 +112,9 @@ struct DeviceCard {
     label: SharedString,
     /// The headless daemon (the only kind that self-updates).
     server: bool,
+    /// EXP-924: the owner-picked glyph, verbatim — resolved at render time
+    /// through [`crate::icons::device_icon`] (NULL = the kind default).
+    icon: Option<String>,
     online: bool,
     /// This very install.
     own: bool,
@@ -450,6 +453,7 @@ impl MachinesSection {
                 mine: owned,
                 owner_tooltip,
                 server: row.is_server(),
+                icon: row.icon.clone(),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
                 last_seen_at: row.last_seen_at.clone(),
                 version: row.version.clone(),
@@ -520,11 +524,9 @@ impl MachinesSection {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let label = device.label.clone();
-        let kind_icon = if device.server {
-            registry::UI_SERVER
-        } else {
-            registry::UI_DEVICE
-        };
+        // EXP-924: the owner's pick when there is one, else the kind default
+        // — the ONE device resolver, shared with the composer's device pin.
+        let kind_icon = crate::icons::device_icon(device.icon.as_deref(), device.server);
         // Informational only: the row nudges, the device decides.
         let latest = if device.server {
             self.latest.cli.as_deref()
@@ -1181,6 +1183,7 @@ mod tests {
             device_id: "dev-1".to_string(),
             label: "Studio".into(),
             server: false,
+            icon: None,
             online,
             own: false,
             mine: true,

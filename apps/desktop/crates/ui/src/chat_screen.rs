@@ -168,24 +168,23 @@ fn device_agent_accounts(row_id: &str, cx: &App) -> coding::agent_accounts::Agen
     )
 }
 
-/// EXP-862 — a machine's KIND glyph for the device picker: the headless CLI
-/// daemon is a SERVER (`ui-server`), everything else a desktop (`ui-device`),
-/// the same pair the Devices list and Getting started wear. An unsynced row
-/// reads as a desktop, which is what this IDE is.
+/// EXP-862 — a machine's glyph for the device picker: EXP-924 made it the
+/// owner's PICK when the row carries one, and otherwise the kind default the
+/// Devices list and Getting started wear (the headless CLI daemon is a SERVER,
+/// everything else a desktop). An unsynced row reads as a plain desktop, which
+/// is what this IDE is.
 fn device_kind_icon(device_id: &str, cx: &App) -> crate::icons::ExpIcon {
-    let server = Store::try_global(cx).is_some_and(|store| {
+    let row = Store::try_global(cx).and_then(|store| {
         store
             .collections()
             .devices
             .read(cx)
             .iter()
-            .any(|row| row.device_id.as_deref() == Some(device_id) && row.is_server())
+            .find(|row| row.device_id.as_deref() == Some(device_id))
+            .map(|row| (row.icon.clone(), row.is_server()))
     });
-    if server {
-        registry::UI_SERVER
-    } else {
-        registry::UI_DEVICE
-    }
+    let (icon, server) = row.unwrap_or((None, false));
+    crate::icons::device_icon(icon.as_deref(), server)
 }
 
 /// The checked issues and everything their launch needs.

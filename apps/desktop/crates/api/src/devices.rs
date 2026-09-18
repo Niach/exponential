@@ -210,6 +210,25 @@ pub fn rename(trpc: &TrpcClient, device_id: &str, label: &str) -> Result<(), Api
     Ok(())
 }
 
+/// `devices.setIcon` (EXP-924) — the owner-picked glyph for one of the
+/// caller's OWN machines (a name from `contract::DEVICE_ICON_VALUES`; `None`
+/// clears it back to the kind default). Like [`rename`], the result lands
+/// through the `devices` shape rather than this response.
+pub fn set_icon(
+    trpc: &TrpcClient,
+    device_id: &str,
+    icon: Option<&str>,
+) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        icon: Option<&'a str>,
+    }
+    let _: OkResult = trpc.mutation("devices.setIcon", &Input { device_id, icon })?;
+    Ok(())
+}
+
 /// One rendered machine row. Since EXP-485 nothing decodes this off the
 /// wire — the UI maps SYNCED `devices` rows into it — but every field past
 /// `deviceId` stays defaulted so a narrower source reads as "unknown"

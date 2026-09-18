@@ -161,6 +161,37 @@ pub fn action_icon(icon: Option<&str>) -> Icon {
         .unwrap_or_else(|| Icon::from(registry::ACTION_DEFAULT))
 }
 
+/// EXP-924 — THE device glyph resolver (web `getDeviceIconName`'s twin, ×4):
+/// the row's stored `icon` when it names one of the six DEVICE icons, else the
+/// kind default (`ui-server` for the headless daemon, `ui-device` for
+/// everything else). A BOARD-set name (or one from a newer client) is not a
+/// device icon and falls back like NULL — the device picker is the only writer
+/// of this column, so anything else is noise, never a glyph to trust.
+///
+/// [`device_icon_name`] is the same answer as a NAME — what the device
+/// settings picker shows selected, so a machine that never picked still reads
+/// `monitor` (resolved), not "nothing picked".
+pub fn device_icon_name(icon: Option<&str>, is_server: bool) -> &'static str {
+    icon.and_then(|name| {
+        registry::DEVICE_ICONS
+            .iter()
+            .copied()
+            .find(|known| *known == name)
+    })
+    .unwrap_or(if is_server { "server" } else { "monitor" })
+}
+
+/// [`device_icon_name`]'s glyph — every site that draws a concrete device row
+/// (the Devices list, the composer's device pin and its menu) goes through
+/// here.
+pub fn device_icon(icon: Option<&str>, is_server: bool) -> ExpIcon {
+    registry::icon_by_name(device_icon_name(icon, is_server)).unwrap_or(if is_server {
+        registry::UI_SERVER
+    } else {
+        registry::UI_DEVICE
+    })
+}
+
 /// A board row's rendered glyph: the stored curated `icon` when present and
 /// known, otherwise the attribute-derived fallback (the repo column drives
 /// behavior; the glyph is cosmetic).
@@ -208,6 +239,45 @@ mod tests {
         for category in domain::statuses::IssueStatusCategory::DISPLAY_ORDER {
             let glyph = domain::statuses::category_glyph(category, 0, 2);
             assert_eq!(path_of(glyph), format!("icons/{}.svg", glyph.file_name()));
+        }
+    }
+
+    /// EXP-924: the ONE device resolver — a pick wins, NULL takes the kind
+    /// default, and a name outside the device set is not a device icon.
+    #[test]
+    fn device_icon_takes_the_pick_then_the_kind_default() {
+        // `ExpIcon` carries no `PartialEq` (the generated enum derives only
+        // `IntoElement + Clone`), so glyphs compare by their asset path.
+        let path = |icon: ExpIcon| icon.path().to_string();
+        // A picked device icon wins on either kind.
+        assert_eq!(device_icon_name(Some("os-apple"), false), "os-apple");
+        assert_eq!(
+            path(device_icon(Some("os-apple"), false)),
+            path(ExpIcon::OsApple)
+        );
+        assert_eq!(device_icon_name(Some("laptop"), true), "laptop");
+        // NULL = the kind default.
+        assert_eq!(device_icon_name(None, false), "monitor");
+        assert_eq!(path(device_icon(None, false)), path(registry::UI_DEVICE));
+        assert_eq!(device_icon_name(None, true), "server");
+        assert_eq!(path(device_icon(None, true)), path(registry::UI_SERVER));
+        // A BOARD-set name (or an unknown one) falls back like NULL.
+        assert_eq!(device_icon_name(Some("rocket"), true), "server");
+        assert_eq!(
+            path(device_icon(Some("rocket"), false)),
+            path(registry::UI_DEVICE)
+        );
+        assert_eq!(device_icon_name(Some(""), false), "monitor");
+        // The contract's device list IS this picker's set.
+        assert_eq!(
+            registry::DEVICE_ICONS,
+            domain::contract::DEVICE_ICON_VALUES,
+            "the registry's device set has to be the contract's"
+        );
+        // And every one of them resolves to a real glyph.
+        for name in registry::DEVICE_ICONS {
+            assert_eq!(device_icon_name(Some(name), false), *name);
+            assert!(registry::icon_by_name(name).is_some(), "{name} has no glyph");
         }
     }
 

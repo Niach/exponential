@@ -110,7 +110,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v41_coding_session_results",
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
-             "v44_coding_session_agent_title"]
+             "v44_coding_session_agent_title",
+             "v45_device_icon"]
         )
     }
 
@@ -147,7 +148,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v41_coding_session_results",
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
-             "v44_coding_session_agent_title"]
+             "v44_coding_session_agent_title",
+             "v45_device_icon"]
         )
     }
 
@@ -212,7 +214,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v41_coding_session_results",
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
-             "v44_coding_session_agent_title"]
+             "v44_coding_session_agent_title",
+             "v45_device_icon"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -297,7 +300,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v41_coding_session_results",
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
-             "v44_coding_session_agent_title"]
+             "v44_coding_session_agent_title",
+             "v45_device_icon"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1087,8 +1091,8 @@ final class DatabaseMigrationTests: XCTestCase {
             "version", "agents", "caps", "unauthed_agents", "launch_defaults",
             "launch_defaults_updated_at", "agent_accounts", "agent_usage",
             "agent_usage_at", "active_sessions", "last_seen_at",
-            "shared_team_ids", "is_default", "update_requested_at", "created_at",
-            "updated_at",
+            "shared_team_ids", "is_default", "icon", "update_requested_at",
+            "created_at", "updated_at",
         ]))
         let worktreeCols = try columnNames(pool, "device_worktrees")
         XCTAssertTrue(worktreeCols.isSuperset(of: [
@@ -1705,6 +1709,44 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
                     + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
                     + "WHERE \"shape\" = 'coding-sessions'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v45 (EXP-924): a store created before `devices.icon` existed must gain
+    // it (nullable text — NULL is the kind default) and get the devices offset
+    // reset, so already-synced rows re-arrive carrying their owner's pick.
+    func testDeviceIconColumnAddedToExistingStore() throws {
+        let pool = try makePool("device-icon")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v44_coding_session_agent_title")
+        try pool.write { db in
+            if try db.columns(in: "devices").contains(where: { $0.name == "icon" }) {
+                try db.alter(table: "devices") { t in t.drop(column: "icon") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('devices', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "devices").contains("icon"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let added = try pool.read { db in
+            try db.columns(in: "devices").first { $0.name == "icon" }
+        }
+        XCTAssertNotNil(added)
+        XCTAssertFalse(added?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'devices'"
             )
         }
         XCTAssertEqual(reset, true)

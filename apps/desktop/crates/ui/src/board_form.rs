@@ -17,18 +17,50 @@ use gpui_component::{
 
 use crate::icons::registry;
 
+/// One icon cell's side, and the gap between two of them (`gap_1p5`).
+const ICON_CELL: f32 = 28.;
+const ICON_CELL_GAP: f32 = 6.;
+/// How many cells a row of the grid holds before it wraps.
+const ICON_GRID_COLUMNS: usize = 8;
+/// EXP-924: how tall the grid may grow before it SCROLLS. The board set is 96
+/// glyphs now (12 rows), which is taller than a popover can hang below its
+/// trigger on a short screen — so the grid caps here and scrolls inside the
+/// popover instead of running off the bottom of the window.
+const ICON_GRID_MAX_H: f32 = 320.;
+
+/// The content box's own padding (`p_1`), on each side.
+const ICON_GRID_PAD: f32 = 4.;
+
+/// The popover content's width for `count` offerable icons: a full row of
+/// [`ICON_GRID_COLUMNS`] for the board set, and a SHORTER set hugs its own
+/// cells (EXP-924: the 6 device icons get one 198px row, not a box with a
+/// third of it empty). The box's own padding is INCLUDED — taffy sizes
+/// border-box, so the flat 266 this used to carry left room for seven cells
+/// per row, not the eight it was named for.
+fn icon_grid_width(count: usize) -> f32 {
+    let columns = count.clamp(1, ICON_GRID_COLUMNS);
+    columns as f32 * ICON_CELL
+        + (columns - 1) as f32 * ICON_CELL_GAP
+        + 2. * ICON_GRID_PAD
+}
+
 /// EXP-575: THE icon picker — one slim outline swatch showing the current
-/// pick that opens the curated grid in a popover, so the 60-glyph grid never
+/// pick that opens the curated grid in a popover, so the 96-glyph grid never
 /// sits inline in a form. `allows_none` adds a "No icon" reset (optional
 /// action inputs) and reports `None`; the swatch then shows a dashed
 /// placeholder. Byte-for-byte the same shape as web `IconPicker`, iOS
 /// `IconPicker` and Android `IconPicker`.
+///
+/// `options` (EXP-924) is the SET to offer: `registry::PICKABLE_ICONS` for
+/// boards and actions, `registry::DEVICE_ICONS` for the device dialog. One
+/// picker, two sets — never a fork.
 ///
 /// `color` (EXP-862) tints the picked glyph — the board form's live preview
 /// of "this glyph in this colour", web `IconPicker`'s `color` prop; `None`
 /// (the action forms) draws it in the foreground.
 pub(crate) fn icon_picker(
     id_prefix: impl Into<SharedString>,
+    options: &'static [&'static str],
     selected: Option<&str>,
     color: Option<&str>,
     allows_none: bool,
@@ -67,8 +99,8 @@ pub(crate) fn icon_picker(
             let selected = selected.clone();
             let on_pick = on_pick.clone();
             // The grid only wraps inside a DEFINITE width — a popover's
-            // content box is unconstrained. 8 × 28px cells + 7 gaps.
-            let mut content = v_flex().w(px(266.)).p_1().gap_1();
+            // content box is unconstrained. Up to 8 × 28px cells + gaps.
+            let mut content = v_flex().w(px(icon_grid_width(options.len()))).p_1().gap_1();
             if allows_none && has_pick {
                 let on_pick = on_pick.clone();
                 let popover = popover.clone();
@@ -85,15 +117,25 @@ pub(crate) fn icon_picker(
                 );
             }
             let grid_prefix = id_prefix.clone();
-            content.child(icon_swatch_grid(
-                grid_prefix,
-                &selected,
-                move |name, window, cx| {
-                    on_pick(Some(name), window, cx);
-                    popover.update(cx, |state, cx| state.dismiss(window, cx));
-                },
-                cx,
-            ))
+            // EXP-924: a tall set scrolls INSIDE the popover rather than
+            // hanging past the bottom of the window; a short one (the device
+            // set's single row) never reaches the cap and simply hugs.
+            content.child(
+                div()
+                    .id(SharedString::from(format!("{id_prefix}-icon-grid")))
+                    .max_h(px(ICON_GRID_MAX_H))
+                    .overflow_y_scroll()
+                    .child(icon_swatch_grid(
+                        grid_prefix,
+                        options,
+                        &selected,
+                        move |name, window, cx| {
+                            on_pick(Some(name), window, cx);
+                            popover.update(cx, |state, cx| state.dismiss(window, cx));
+                        },
+                        cx,
+                    )),
+            )
         })
 }
 
@@ -152,22 +194,24 @@ pub(crate) const SWATCH_COLORS: [&str; 20] = [
 ];
 
 /// The icon grid inside [`icon_picker`]'s popover: one clickable cell per
-/// curated contract glyph (`domain::contract::BOARD_ICON_VALUES`); the
-/// selected one carries the primary ring.
+/// glyph of the OFFERED set (`registry::PICKABLE_ICONS` for boards and
+/// actions, `registry::DEVICE_ICONS` for devices); the selected one carries
+/// the primary ring.
 fn icon_swatch_grid(
     id_prefix: SharedString,
+    options: &'static [&'static str],
     selected: &str,
     on_pick: impl Fn(&'static str, &mut Window, &mut App) + Clone + 'static,
     cx: &App,
 ) -> impl IntoElement {
     let mut grid = h_flex().flex_wrap().gap_1p5();
-    for &name in domain::contract::BOARD_ICON_VALUES {
+    for &name in options {
         let is_selected = name == selected;
         let on_pick = on_pick.clone();
         grid = grid.child(
             div()
                 .id(SharedString::from(format!("{id_prefix}-icon-{name}")))
-                .size(px(28.))
+                .size(px(ICON_CELL))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -391,4 +435,31 @@ fn branch_dropdown<V: gpui::Render>(
             menu
         })
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-924: ONE picker, two sets — a short set HUGS its cells and the
+    /// board set keeps a full row of eight, padding included (the popover
+    /// box sizes border-box).
+    #[test]
+    fn the_icon_grid_hugs_a_short_set_and_caps_at_eight_columns() {
+        let row = |columns: f32| {
+            columns * ICON_CELL + (columns - 1.) * ICON_CELL_GAP + 2. * ICON_GRID_PAD
+        };
+        // The device set: one row of six, nothing empty beside it.
+        assert_eq!(
+            icon_grid_width(crate::icons::registry::DEVICE_ICONS.len()),
+            row(6.)
+        );
+        // The board set wraps at eight per row, however long it grows.
+        assert_eq!(
+            icon_grid_width(crate::icons::registry::PICKABLE_ICONS.len()),
+            row(ICON_GRID_COLUMNS as f32)
+        );
+        assert_eq!(icon_grid_width(1), row(1.));
+        assert_eq!(icon_grid_width(0), row(1.));
+    }
 }

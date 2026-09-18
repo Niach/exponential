@@ -39,6 +39,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSubmitButton
+import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -236,7 +237,7 @@ private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
+            deviceIcon(device),
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurface.copy(

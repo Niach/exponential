@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// EXP-575: THE icon picker — one slim 36pt swatch showing the current pick
-/// that opens the curated grid (`IconSwatchGrid`) in a medium sheet, so the
-/// 60-glyph grid never sits inline in a form. Every surface that picks an icon
-/// (board form, Start-coding `icon` inputs) renders this.
+/// that opens the curated grid (`IconSwatchGrid`) in a sheet, so a 96-glyph
+/// grid never sits inline in a form. Every surface that picks an icon (board
+/// form, Start-coding `icon` inputs, EXP-924's device settings) renders this;
+/// `icons` names the SET to offer (the board one unless a surface says
+/// otherwise), never a fork of this view.
 ///
 /// EXP-771, the shape rule: a circle is an ACTION and a rounded square is a
 /// PICKER, so the trigger and the grid's cells are rounded squares at the
@@ -16,13 +18,22 @@ import SwiftUI
 /// and a dashed placeholder swatch.
 public struct IconPicker: View {
     @Binding var selection: String
+    /// The set the sheet offers. EXP-924: `AppIcons.devicePickable` for a
+    /// machine, the board set for everything else.
+    let icons: [String]
     let allowsNone: Bool
     /// Tints the picked glyph (the board color) for a live preview.
     let tint: Color?
     @State private var isPresented = false
 
-    public init(selection: Binding<String>, allowsNone: Bool = false, tint: Color? = nil) {
+    public init(
+        selection: Binding<String>,
+        icons: [String] = AppIcons.pickable,
+        allowsNone: Bool = false,
+        tint: Color? = nil
+    ) {
         self._selection = selection
+        self.icons = icons
         self.allowsNone = allowsNone
         self.tint = tint
     }
@@ -63,6 +74,7 @@ public struct IconPicker: View {
                             isPresented = false
                         }
                     ),
+                    icons: icons,
                     allowsNone: allowsNone
                 )
                 .padding(16)

@@ -7,6 +7,10 @@ import SwiftUI
 // no Save buttons above the last two (EXP-490):
 //   Name     — devices.rename (registry-authoritative, works offline),
 //              debounced while typing and flushed on blur/submit/close.
+//              EXP-924: the icon picker shares the row (the board form's
+//              identity layout ×4) — devices.setIcon over the DEVICE glyph
+//              set, written straight through on the pick and reverted onto
+//              this section's error line if the server refuses.
 //   Default  — devices.setDefault (EXP-622), the device every device picker
 //              prefills; a single toggle, written straight through.
 //   Sharing  — devices.setShared, SERVER devices only: one toggle per team
@@ -71,6 +75,9 @@ struct DeviceSettingsSheet: View {
     /// An edit the server has not accepted yet: blocks the live echo and keeps
     /// the flush-on-close honest.
     @State private var namePending = false
+    /// EXP-924: the optimistic icon pick, held only until the synced row
+    /// moves (nil = render the row's own glyph).
+    @State private var iconPick: String?
     @State private var savingShare = false
     @State private var savingDefaultDevice = false
     @State private var defaultAgent = "claude"
@@ -167,6 +174,11 @@ struct DeviceSettingsSheet: View {
         .onChange(of: device.deviceLabel) { _, newValue in
             guard !nameFocused, !namePending, !savingName else { return }
             name = newValue
+        }
+        // EXP-924: the icon's live echo — the synced row moving (our own write
+        // landing, or a pick made elsewhere) retires the optimistic value.
+        .onChange(of: device.icon) { _, _ in
+            iconPick = nil
         }
         .onChange(of: device.launchDefaults) { _, _ in
             guard seeded, !defaultsPending, !savingDefaults else { return }
@@ -267,35 +279,80 @@ struct DeviceSettingsSheet: View {
 
     private func nameSection(_ device: SteerDevice) -> some View {
         Section {
-            // EXP-862: the ONE glass input, borderless inside the already
-            // chromed form row — the stock `TextField` was the last system
-            // control among the glass rows.
-            GlassTextField("Name", text: $name, bordered: false) {
-                EmptyView()
-            } trailing: {
-                if savingName {
-                    ProgressView().controlSize(.small)
+            // EXP-924: the IDENTITY row every form shares (the board form's
+            // icon + name, ×4) — the 36pt picker swatch, then the name field.
+            HStack(spacing: 8) {
+                IconPicker(
+                    selection: iconBinding(device),
+                    icons: AppIcons.devicePickable
+                )
+                // EXP-862: the ONE glass input, borderless inside the already
+                // chromed form row — the stock `TextField` was the last system
+                // control among the glass rows.
+                GlassTextField("Name", text: $name, bordered: false) {
+                    EmptyView()
+                } trailing: {
+                    if savingName {
+                        ProgressView().controlSize(.small)
+                    }
                 }
-            }
-            .focused($nameFocused)
-            .onSubmit { flushName() }
-            .onChange(of: name) { _, _ in
-                scheduleNameAutosave(device)
-            }
-            .onChange(of: nameFocused) { _, focused in
-                guard !focused else { return }
-                let hadPending = namePending
-                flushName()
-                // A rename that arrived while the field was focused was
-                // deliberately skipped — catch up now that no edit is owed.
-                if !hadPending, !savingName {
-                    name = device.deviceLabel
+                .focused($nameFocused)
+                .onSubmit { flushName() }
+                .onChange(of: name) { _, _ in
+                    scheduleNameAutosave(device)
+                }
+                .onChange(of: nameFocused) { _, focused in
+                    guard !focused else { return }
+                    let hadPending = namePending
+                    flushName()
+                    // A rename that arrived while the field was focused was
+                    // deliberately skipped — catch up now that no edit is owed.
+                    if !hadPending, !savingName {
+                        name = device.deviceLabel
+                    }
                 }
             }
         } header: {
             GlassSectionHeader("Name")
         }
         .listRowBackground(glassFormRowFill)
+    }
+
+    // MARK: - Icon (EXP-924)
+
+    /// The picker's value is the RESOLVED glyph, so a machine that never
+    /// picked one still shows its kind default as selected. A pick writes
+    /// straight through (no debounce: it is one tap, not typing) and shows at
+    /// once; the optimistic value is dropped as soon as the synced row moves —
+    /// our own write landing, or a pick made on another client.
+    private func iconBinding(_ device: SteerDevice) -> Binding<String> {
+        Binding(
+            get: { iconPick ?? DeviceIconDisplay.iconName(for: device) },
+            set: { next in
+                guard next != (iconPick ?? DeviceIconDisplay.iconName(for: device)) else { return }
+                saveIcon(next)
+            }
+        )
+    }
+
+    private func saveIcon(_ icon: String) {
+        iconPick = icon
+        errorMessage = nil
+        let api = deps.devicesApi
+        let account = accountId
+        let id = deviceId
+        // INDEPENDENT of the sheet (see `saveNameNow`): closing it must not
+        // abort a pick already on the wire.
+        Task {
+            do {
+                try await api.setIcon(accountId: account, deviceId: id, icon: icon)
+            } catch {
+                // Revert to the row's own glyph and say so, on the sheet's ONE
+                // error line — the same surface a failed rename uses.
+                if iconPick == icon { iconPick = nil }
+                errorMessage = error.userFacingMessage
+            }
+        }
     }
 
     private var trimmedName: String {

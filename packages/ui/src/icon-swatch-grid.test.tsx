@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { PICKABLE_ICONS } from "@exp/icons"
+import { DEVICE_ICONS, PICKABLE_ICONS } from "@exp/icons"
 import { IconSwatchGrid } from "./icon-swatch-grid"
 import { BOARD_ICON_COMPONENTS, getBoardIcon } from "./board-icons"
+import { DEVICE_ICON_OPTIONS, getDeviceIconName } from "./device-icons"
 
-// EXP-273 grew the curated set from 16 to 60 and moved the glyph lookup into
+// EXP-273 grew the curated set from 16 to 60 (EXP-924: 96) and moved the glyph lookup into
 // the generated registry. These render for real (jsdom) rather than asserting
 // on the data, because the failure mode that matters is "the name resolved to
 // nothing and the swatch painted empty".
@@ -14,7 +15,7 @@ describe(`IconSwatchGrid`, () => {
     render(<IconSwatchGrid value="code" onChange={vi.fn()} />)
     const swatches = screen.getAllByRole(`button`)
     expect(swatches).toHaveLength(PICKABLE_ICONS.length)
-    expect(swatches).toHaveLength(60)
+    expect(swatches).toHaveLength(96)
     // Every swatch must actually paint an SVG — a missing component would
     // render an empty button and still pass a length check.
     for (const swatch of swatches) {
@@ -30,6 +31,21 @@ describe(`IconSwatchGrid`, () => {
     )
     fireEvent.click(screen.getByLabelText(`database`))
     expect(onChange).toHaveBeenCalledWith(`database`)
+  })
+
+  it(`renders another set when given one (EXP-924)`, () => {
+    const onChange = vi.fn()
+    render(
+      <IconSwatchGrid
+        value="monitor"
+        options={DEVICE_ICON_OPTIONS}
+        onChange={onChange}
+      />
+    )
+    expect(screen.getAllByRole(`button`)).toHaveLength(DEVICE_ICONS.length)
+    fireEvent.click(screen.getByLabelText(`os-linux`))
+    expect(onChange).toHaveBeenCalledWith(`os-linux`)
+    expect(screen.getByLabelText(`os-linux`).querySelector(`svg`)).not.toBeNull()
   })
 
   it(`has no search field — the full set always renders (EXP-390)`, () => {
@@ -57,5 +73,17 @@ describe(`board icon resolution`, () => {
     expect(getBoardIcon({ icon: `not-an-icon`, repositoryId: null })).toBe(
       BOARD_ICON_COMPONENTS[`square-kanban`]
     )
+  })
+})
+
+describe(`device icon resolution (EXP-924)`, () => {
+  it(`uses the owner's pick and falls back to the kind default`, () => {
+    expect(getDeviceIconName({ icon: `os-apple`, kind: `desktop` })).toBe(
+      `os-apple`
+    )
+    expect(getDeviceIconName({ icon: null, kind: `desktop` })).toBe(`monitor`)
+    expect(getDeviceIconName({ icon: null, kind: `server` })).toBe(`server`)
+    // A board icon (or a name from a newer client) is not a device icon.
+    expect(getDeviceIconName({ icon: `rocket`, kind: `server` })).toBe(`server`)
   })
 })

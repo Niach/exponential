@@ -13,6 +13,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentProfileRemoveCommand
 import com.exponential.app.data.api.agentProfileUseCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.CodingSessionEntity
@@ -163,6 +164,12 @@ class AgentsViewModel @Inject constructor(
     // menu stays put but its actions disable until the refetch lands.
     private val _deviceBusy = MutableStateFlow<Set<String>>(emptySet())
     val deviceBusy: StateFlow<Set<String>> = _deviceBusy
+
+    // EXP-924: the last icon write's failure, captioning the settings sheet's
+    // identity row (where the rename's own error lands); cleared by the next
+    // attempt.
+    private val _deviceIconError = MutableStateFlow<String?>(null)
+    val deviceIconError: StateFlow<String?> = _deviceIconError
 
     // ── EXP-829/EXP-909: the logins under each machine row ─────────────────
     // EXP-909 folded the cross-device "Accounts" section away: a login belongs
@@ -440,6 +447,29 @@ class AgentsViewModel @Inject constructor(
     /** Rename a machine (its registry label wins over the relay's). */
     fun renameDevice(deviceId: String, label: String) =
         mutateDevice(deviceId) { accountId -> devicesApi.rename(accountId, deviceId, label.trim()) }
+
+    /**
+     * EXP-924: the machine's display glyph, from the device icon set; null
+     * resets it to the kind default. The pick is drawn OPTIMISTICALLY by the
+     * caller (the write lands back through the devices shape), so a failure
+     * hands [onFailure] back the revert and captions the identity row with
+     * [deviceIconError] — the surface the rename's own failure uses.
+     */
+    fun setDeviceIcon(deviceId: String, icon: String?, onFailure: () -> Unit = {}) {
+        _deviceIconError.value = null
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _deviceBusy.value = _deviceBusy.value + deviceId
+            runCatching { devicesApi.setIcon(accountId, deviceId, icon) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    onFailure()
+                    _deviceIconError.value =
+                        trpcErrorMessage(t, "The device icon could not be changed")
+                }
+            _deviceBusy.value = _deviceBusy.value - deviceId
+        }
+    }
 
     /**
      * Drop the registry row. A machine whose daemon still runs re-registers

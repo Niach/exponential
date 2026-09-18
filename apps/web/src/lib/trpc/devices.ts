@@ -26,6 +26,7 @@ import {
   sql,
 } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
+import { deviceIconSchema } from "@exp/db-schema/domain"
 import {
   router,
   authedProcedure,
@@ -1431,6 +1432,29 @@ export const devicesRouter = router({
         await tx
           .update(devices)
           .set({ label: input.label, updatedAt: new Date() })
+          .where(
+            and(
+              eq(devices.userId, ctx.session.user.id),
+              eq(devices.deviceId, input.deviceId)
+            )
+          )
+        return id
+      })
+      return { ok: true, txid }
+    }),
+
+  // EXP-924: the owner-picked display icon, from the device set (contract
+  // `deviceIcon`). NULL resets to the kind default every client derives.
+  setIcon: authedProcedure
+    .input(
+      z.object({ deviceId: deviceIdInput, icon: deviceIconSchema.nullable() })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        await tx
+          .update(devices)
+          .set({ icon: input.icon, updatedAt: new Date() })
           .where(
             and(
               eq(devices.userId, ctx.session.user.id),

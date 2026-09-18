@@ -645,6 +645,26 @@ describe(`devices.setDefault`, () => {
   })
 })
 
+// EXP-924: the owner-picked display icon, from the device set only.
+describe(`devices.setIcon`, () => {
+  it(`stores a device-set icon and resets with null`, async () => {
+    await caller.setIcon({ deviceId: `dev-1`, icon: `os-linux` })
+    await caller.setIcon({ deviceId: `dev-1`, icon: null })
+    expect(h.state.updates.map((u) => u.set)).toMatchObject([
+      { icon: `os-linux` },
+      { icon: null },
+    ])
+  })
+
+  it(`rejects a board-set icon`, async () => {
+    await expect(
+      // @ts-expect-error — `rocket` is a board icon, not a device icon.
+      caller.setIcon({ deviceId: `dev-1`, icon: `rocket` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.updates).toHaveLength(0)
+  })
+})
+
 // EXP-445: withdrawing a share ends the teammate runs it was the consent for.
 describe(`devices.setShared — kill fan-out`, () => {
   const TEAM_A = `11111111-1111-4111-8111-111111111111`

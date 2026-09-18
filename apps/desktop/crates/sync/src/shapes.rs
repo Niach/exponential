@@ -521,6 +521,8 @@ pub const SHAPES: [ShapeSpec; 22] = [
             "device_id",
             "label",
             "kind",
+            // EXP-924: the owner-picked glyph (NULL = the kind default).
+            "icon",
             "platform",
             "version",
             "agents",
@@ -987,6 +989,9 @@ mod tests {
         // EXP-622's flag was never listed — a picker with no default is the
         // symptom.
         assert!(spec.columns.contains(&"is_default"));
+        // EXP-924: the owner-picked glyph. Dropping it silently sends every
+        // machine back to its kind default on this client alone.
+        assert!(spec.columns.contains(&"icon"));
         // And the session row names the agent whose windows those are.
         let sessions = shape_by_name("coding_sessions").unwrap();
         assert!(sessions.columns.contains(&"agent"));

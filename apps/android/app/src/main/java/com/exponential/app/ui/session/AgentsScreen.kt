@@ -63,6 +63,7 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.agentLabel
+import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
@@ -487,7 +488,7 @@ private fun MachineRow(
             )
             Spacer(Modifier.width(6.dp))
             Icon(
-                if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
+                deviceIcon(device),
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(

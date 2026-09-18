@@ -4,7 +4,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -37,6 +39,18 @@ private data class RenameDeviceInput(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("label") val label: String,
 )
+
+/**
+ * `devices.setIcon` (EXP-924) — the owner-picked device glyph, or a literal
+ * `null` to fall back to the kind default. A [JsonObject] rather than a
+ * `@Serializable` class on purpose: the shared Json omits nulls
+ * (`explicitNulls = false`), which would turn the reset into a no-op (the
+ * `boards.update` branch-clear story).
+ */
+internal fun setDeviceIconInput(deviceId: String, icon: String?): JsonObject = buildJsonObject {
+    put("deviceId", deviceId)
+    put("icon", icon?.let(::JsonPrimitive) ?: JsonNull)
+}
 
 /** `devices.setDefault` (EXP-622) — flag/unflag the caller's default machine. */
 @Serializable
@@ -113,6 +127,20 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "devices.rename",
             input = RenameDeviceInput(deviceId = deviceId, label = label),
             inputSerializer = RenameDeviceInput.serializer(),
+        )
+    }
+
+    /**
+     * `devices.setIcon` (EXP-924) — the machine's display glyph, from the
+     * device icon set (contract `deviceIcon`). [icon] = null RESETS it to the
+     * kind default; the pick lands back through the devices shape.
+     */
+    suspend fun setIcon(accountId: String, deviceId: String, icon: String?) {
+        trpc.mutationUnit(
+            accountId,
+            path = "devices.setIcon",
+            input = setDeviceIconInput(deviceId, icon),
+            inputSerializer = JsonObject.serializer(),
         )
     }
 

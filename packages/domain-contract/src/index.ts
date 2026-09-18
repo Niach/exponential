@@ -42,6 +42,7 @@ export interface DomainContract {
   issueSource: { values: readonly string[] }
   teamRole: { values: readonly string[] }
   boardIcon: { values: readonly string[] }
+  deviceIcon: { values: readonly string[] }
   commentKind: { values: readonly string[] }
   /** EXP-741: who posted a comment — a person, or an agent over MCP. */
   commentSource: { values: readonly string[] }

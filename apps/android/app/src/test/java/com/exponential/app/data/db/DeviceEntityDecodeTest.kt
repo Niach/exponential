@@ -33,6 +33,7 @@ class DeviceEntityDecodeTest {
               "device_id": "dev-1",
               "label": "buildbox",
               "kind": "server",
+              "icon": "os-linux",
               "platform": "linux",
               "version": "0.9.0",
               "agents": ["claude", "codex"],
@@ -51,6 +52,7 @@ class DeviceEntityDecodeTest {
         val entity = json.decodeFromString(DeviceEntity.serializer(), row)
         assertEquals("dev-1", entity.deviceId)
         assertEquals("server", entity.kind)
+        assertEquals("os-linux", entity.icon)
         assertEquals(2, entity.activeSessions)
         // jsonb lands as its raw JSON text, parsed later by DeviceRows.
         assertTrue(entity.agents!!.contains("claude"))
@@ -86,6 +88,9 @@ class DeviceEntityDecodeTest {
         )
         assertEquals("", entity.label)
         assertEquals("desktop", entity.kind)
+        // EXP-924: a row from a server without the column (or a machine that
+        // never picked one) must still decode — NULL is the kind default.
+        assertNull(entity.icon)
         assertNull(entity.agents)
         assertNull(entity.launchDefaults)
         assertEquals(0, entity.activeSessions)

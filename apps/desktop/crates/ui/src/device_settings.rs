@@ -12,6 +12,8 @@
 //! | Section        | Write path                                            |
 //! |----------------|-------------------------------------------------------|
 //! | Name           | `devices.rename` (registry row — works offline)       |
+//! | Icon           | `devices.setIcon` (EXP-924: the identity row's picker,|
+//! |                | shown optimistically until the shape echoes it)       |
 //! | Default        | `devices.setDefault` (EXP-622, own devices only)     |
 //! | Sharing        | `devices.setShared` (server-kind own devices only;    |
 //! |                | FEED-33: one toggle per team, straight through)       |
@@ -180,6 +182,9 @@ struct TrackedCommand {
 enum SectionRollback {
     Label(String),
     Defaults(Box<coding::Settings>),
+    /// EXP-924: the optimistic icon pick. There is nothing to put BACK — the
+    /// swatch simply falls off the pick and renders the synced row again.
+    Icon,
 }
 
 /// EXP-484/694: what THIS install's agent CLIs last reported — the hub's live
@@ -320,6 +325,10 @@ pub struct DeviceSettingsView {
     /// This install's own device row (defaults edit locally through the hub).
     own: bool,
     name_input: Entity<InputState>,
+    /// EXP-924: the glyph picked in this dialog but not yet echoed back by the
+    /// `devices` shape — the swatch's optimistic value. `None` = show the
+    /// row's (resolved) icon.
+    icon_pick: Option<&'static str>,
     // -- per-agent defaults drafts (the AgentsPane control set, minus paths) --
     agent_select: ChoiceSelect,
     model_select: ChoiceSelect,
@@ -399,6 +408,7 @@ impl DeviceSettingsView {
                 device_id: None,
                 label: None,
                 kind: None,
+                icon: None,
                 platform: None,
                 version: None,
                 agents: None,
@@ -516,6 +526,7 @@ impl DeviceSettingsView {
             device_id,
             own,
             name_input,
+            icon_pick: None,
             agent_select,
             model_select,
             effort_select,
@@ -640,6 +651,18 @@ impl DeviceSettingsView {
             return; // row deleted — nothing to mirror
         };
 
+        // EXP-924: the optimistic pick stands only until the row says the
+        // same thing — the write landed, so the swatch renders the SYNCED
+        // value from here on (a failed write drops the pick instead).
+        if self.icon_pick.is_some()
+            && self.icon_pick == Some(crate::icons::device_icon_name(
+                row.icon.as_deref(),
+                row.is_server(),
+            ))
+        {
+            self.icon_pick = None;
+        }
+
         let label = row.label.clone().unwrap_or_default();
         if label != self.seeded_label {
             if self.name_input.read(cx).value().trim() == self.seeded_label.trim() {
@@ -736,6 +759,7 @@ impl DeviceSettingsView {
         match self.rollback.take() {
             Some((_, SectionRollback::Label(label))) => self.last_saved_label = label,
             Some((_, SectionRollback::Defaults(seeded))) => self.seeded = *seeded,
+            Some((_, SectionRollback::Icon)) => self.icon_pick = None,
             None => {}
         }
     }
@@ -801,6 +825,7 @@ impl DeviceSettingsView {
         }
         match self.queued.remove(0) {
             "name" => self.save_name(cx),
+            "icon" => self.commit_icon(cx),
             "defaults" => self.save_defaults(cx),
             _ => {}
         }
@@ -860,6 +885,54 @@ impl DeviceSettingsView {
         self.run_section(
             "name",
             move |trpc| api::devices::rename(trpc, &device_id, &label),
+            cx,
+        );
+    }
+
+    /// EXP-924: the glyph the picker shows as SELECTED — the optimistic pick
+    /// while a write is in flight, otherwise the row's RESOLVED icon (the ONE
+    /// resolver: a machine that never picked shows its kind default, not an
+    /// empty swatch).
+    fn icon_name(&self, row: Option<&domain::rows::DeviceRow>) -> &'static str {
+        self.icon_pick.unwrap_or_else(|| {
+            crate::icons::device_icon_name(
+                row.and_then(|row| row.icon.as_deref()),
+                row.is_some_and(|row| row.is_server()),
+            )
+        })
+    }
+
+    /// EXP-924: pick this machine's glyph — a straight-through write like the
+    /// default toggle, shown OPTIMISTICALLY because the swatch has nothing
+    /// else to render until the Electric echo lands.
+    fn save_icon(&mut self, icon: &'static str, cx: &mut gpui::Context<Self>) {
+        let row = self.row(cx);
+        if icon == self.icon_name(row.as_ref()) {
+            return;
+        }
+        self.icon_pick = Some(icon);
+        self.commit_icon(cx);
+    }
+
+    /// Send the standing pick. Also the replay path ([`Self::drain_queued`]):
+    /// the pick lives in `icon_pick`, so a write parked behind another
+    /// section still sends the LATEST glyph when the executor frees up.
+    fn commit_icon(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(icon) = self.icon_pick else {
+            return;
+        };
+        if self.busy_section.is_some() {
+            self.queue_section("icon");
+            cx.notify();
+            return;
+        }
+        // A write that never goes out (or comes back failed) drops the pick
+        // and the swatch falls back to the synced row.
+        self.rollback = Some(("icon", SectionRollback::Icon));
+        let device_id = self.device_id.clone();
+        self.run_section(
+            "icon",
+            move |trpc| api::devices::set_icon(trpc, &device_id, Some(icon)),
             cx,
         );
     }
@@ -1858,15 +1931,61 @@ impl Render for DeviceSettingsView {
         // switches (FEED-33: one per team). One card per section, exactly as
         // the Android/iOS/web dialogs render them.
         let is_default = row.as_ref().and_then(|row| row.is_default).unwrap_or(false);
+        // EXP-924: the identity row every form on this client shares (board,
+        // action) — the icon picker, then the bare name field. Only the row's
+        // OWNER may write either, so a row that is not mine (or not synced at
+        // all) shows the glyph without a picker hung off it.
+        let icon_name = self.icon_name(row.as_ref());
+        let mine = row
+            .as_ref()
+            .and_then(|row| row.user_id.clone())
+            .is_some_and(|user_id| {
+                queries::active_account(cx).is_some_and(|me| me.user_id == user_id)
+            });
+        let icon_control = if mine {
+            let view = cx.entity().clone();
+            crate::board_form::icon_picker(
+                "device-settings",
+                registry::DEVICE_ICONS,
+                Some(icon_name),
+                None,
+                false,
+                move |name, _, cx| {
+                    let Some(name) = name else { return };
+                    view.update(cx, |this, cx| {
+                        this.save_icon(name, cx);
+                        cx.notify();
+                    });
+                },
+                cx,
+            )
+            .into_any_element()
+        } else {
+            // Not mine to change: the glyph alone, on the same 32px control
+            // rung the picker's trigger occupies, so the row keeps its rhythm.
+            h_flex()
+                .flex_shrink_0()
+                .size(px(crate::controls::CTL_MD_H))
+                .justify_center()
+                .child(
+                    Icon::new(crate::icons::device_icon(Some(icon_name), server))
+                        .text_color(muted),
+                )
+                .into_any_element()
+        };
+        let identity_row = surface::glass_row_shell()
+            .gap_2()
+            .child(icon_control)
+            .child(
+                div().flex_1().min_w_0().child(
+                    surface::glass_row_input(glass_input(&self.name_input, window, cx))
+                        .text_left(),
+                ),
+            );
         let mut body = v_flex()
             .w_full()
             .gap_2()
-            .child(surface::glass_group_rows(vec![surface::glass_input_row(
-                "Name",
-                surface::glass_row_input(glass_input(&self.name_input, window, cx))
-                    .into_any_element(),
-                cx,
-            )]))
+            .child(surface::glass_group_rows(vec![identity_row]))
             .child(surface::glass_group_rows(vec![Self::toggle_row(
                 "device-default",
                 "Default device",
@@ -1879,7 +1998,7 @@ impl Render for DeviceSettingsView {
         }
         // The autosave says nothing while it succeeds; a write in flight or a
         // failed one reports under the group it belongs to.
-        for section in ["name", "default", "sharing"] {
+        for section in ["name", "icon", "default", "sharing"] {
             if self.busy_section == Some(section) {
                 body = body.child(div().text_xs().text_color(muted).child("Saving…"));
             }

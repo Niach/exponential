@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-18-device-icons",
+    date: "2026-09-18",
+    title: "Device icons and 36 more board icons",
+    summary: "Give each machine its own icon, from a desktop, server or laptop to the Apple, Windows and Linux marks, and pick from 96 icons for boards and actions.",
+    body: r#"- **Device icons**: the device settings carry an icon picker next to the name, on web, desktop, iOS and Android. Choose a monitor, a server, a laptop or the Apple, Windows or Linux mark; the pick shows on the devices list and in every device picker, for you and for teammates who see a shared server.
+- **Defaults stay**: a machine you never touched keeps what it had, the monitor for a desktop app and the server for a CLI daemon.
+- **More icons**: the board and action icon picker grows from 60 to 96 icons, with music, camera, gift, store, truck, map, mountain, flame, crown, brain, fingerprint, wallet, smartphone and more."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-component-foundation",
     date: "2026-09-18",
     title: "One picker, one search field, one date picker",
@@ -60,7 +72,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-17-release-train",
     date: "2026-09-17",
     title: "Release train 2026-09-17",
@@ -77,7 +89,7 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
     id: "2026-09-tab-shell-polish",
     date: "2026-09-17",
     title: "Tabs keep their state, chats get their names",
@@ -89,7 +101,7 @@ const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
 
 /// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",

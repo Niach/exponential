@@ -1828,6 +1828,10 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     public let label: String
     /// `desktop` | `server` — documented varchar, no contract enum.
     public let kind: String?
+    /// EXP-924: the owner-picked display icon — a registry name from the
+    /// DEVICE set (contract `deviceIcon`). NULL = the kind default; resolve it
+    /// through `DeviceIconDisplay`, never raw.
+    public let icon: String?
     public let platform: String?
     public let version: String?
     /// jsonb string[] columns, stored as stringified JSON (decoded lazily by
@@ -1873,6 +1877,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         deviceId: String,
         label: String,
         kind: String? = nil,
+        icon: String? = nil,
         platform: String? = nil,
         version: String? = nil,
         agents: String? = nil,
@@ -1897,6 +1902,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
         self.deviceId = deviceId
         self.label = label
         self.kind = kind
+        self.icon = icon
         self.platform = platform
         self.version = version
         self.agents = agents
@@ -1918,7 +1924,7 @@ public struct DeviceEntity: FetchableRecord, PersistableRecord, Identifiable, Se
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, label, kind, platform, version, agents, caps
+        case id, label, kind, icon, platform, version, agents, caps
         case userId = "user_id"
         case deviceId = "device_id"
         case unauthedAgents = "unauthed_agents"
@@ -1952,6 +1958,9 @@ extension DeviceEntity: Codable {
         deviceId = try c.decode(String.self, forKey: .deviceId)
         label = (try? c.decode(String.self, forKey: .label)) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        // EXP-924: absent on a pre-EXP-924 snapshot and NULL until the owner
+        // picks one — both read as "the kind default" downstream.
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
         platform = try c.decodeIfPresent(String.self, forKey: .platform)
         version = try c.decodeIfPresent(String.self, forKey: .version)
         agents = c.decodeWireJsonString(forKey: .agents)

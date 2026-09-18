@@ -10,10 +10,11 @@ import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { contract } from "@exp/domain-contract"
-import { boardIconValues } from "@exp/db-schema/domain"
+import { boardIconValues, deviceIconValues } from "@exp/db-schema/domain"
 import registry from "@exp/icons/icons.json" with { type: "json" }
 import {
   CUSTOM_ICONS,
+  DEVICE_ICONS,
   ICON_NAMES,
   PICKABLE_ICONS,
   SEMANTIC_ICONS,
@@ -66,16 +67,59 @@ describe(`icon registry`, () => {
   it(`generated.ts mirrors icons.json`, () => {
     expect([...PICKABLE_ICONS]).toEqual(registry.pickable)
     expect(SEMANTIC_ICONS).toEqual(registry.semantic)
-    expect([...CUSTOM_ICONS]).toEqual(Object.keys(registry.custom).sort())
+    expect([...DEVICE_ICONS]).toEqual(registry.devicePickable)
+    // Imported marks (EXP-924) ship through the custom-glyph path.
+    const custom = [
+      ...Object.keys(registry.custom),
+      ...Object.keys(registry.imported),
+    ]
+    expect([...CUSTOM_ICONS]).toEqual([...custom].sort())
     expect([...ICON_NAMES]).toEqual(
       [
         ...new Set([
           ...registry.pickable,
+          ...registry.devicePickable,
           ...Object.values(registry.semantic),
-          ...Object.keys(registry.custom),
+          ...custom,
         ]),
       ].sort()
     )
+  })
+
+  it(`the device set matches the contract and leads with the kind defaults`, () => {
+    // EXP-924: devices.icon is validated against the contract enum while the
+    // picker renders from the registry, the boardIcon rule. NULL resolves to
+    // the `ui-device` / `ui-server` concepts, so both must be pickable or a
+    // fresh machine would show a glyph its own picker cannot select.
+    expect(registry.devicePickable).toEqual(contract.deviceIcon.values)
+    expect(registry.devicePickable).toEqual([...deviceIconValues])
+    expect(registry.devicePickable.slice(0, 2)).toEqual([
+      registry.semantic[`ui-device`],
+      registry.semantic[`ui-server`],
+    ])
+    expect(new Set(registry.devicePickable).size).toBe(
+      registry.devicePickable.length
+    )
+  })
+
+  it(`imported marks are one filled path inside the 24-unit grid`, () => {
+    for (const [name, { file }] of Object.entries(registry.imported)) {
+      expect(existsSync(join(iconsPkg, file)), `${name}: ${file}`).toBe(true)
+      const svg = readFileSync(
+        join(repoRoot, `apps/desktop/assets/icons/${name}.svg`),
+        `utf8`
+      )
+      expect(svg.match(/<path /g)).toHaveLength(1)
+      expect(svg).toContain(`fill="currentColor" stroke="none"`)
+      const d = svg.match(/ d="([^"]+)"/)![1]
+      // Absolute coordinates only appear after an uppercase command; the
+      // first moveto anchors the mark, and it must sit inside the grid.
+      const [x, y] = d.match(/^M(-?[\d.]+) (-?[\d.]+)/)!.slice(1).map(Number)
+      for (const v of [x, y]) {
+        expect(v).toBeGreaterThanOrEqual(0)
+        expect(v).toBeLessThanOrEqual(24)
+      }
+    }
   })
 
   it(`every lucide registry name has a real, non-deprecated lucide icon`, () => {

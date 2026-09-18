@@ -26,6 +26,7 @@ import { useCallback, useMemo, useState } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   conceptIcon,
+  getDeviceIcon,
   Button,
   Pill,
   GlassSectionHeader,
@@ -70,8 +71,6 @@ import {
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule).
-const DesktopIcon = conceptIcon(`ui-device`)
-const ServerIcon = conceptIcon(`ui-server`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
 const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
@@ -321,7 +320,7 @@ export function MyMachines({
             // EXP-409: a device with nothing runnable greys out — EXP-862
             // leaves the WHY to the account chips.
             const runnable = deviceHasRunnableAgent(device)
-            const KindIcon = device.kind === `server` ? ServerIcon : DesktopIcon
+            const KindIcon = getDeviceIcon(device)
             const latest =
               device.kind === `server`
                 ? latestVersions?.cli
@@ -480,13 +479,14 @@ export function MyMachines({
             {teamShared.map((device) => {
               const online = deviceIsOnline(device)
               const runnable = deviceHasRunnableAgent(device)
+              const KindIcon = getDeviceIcon(device)
               return (
                 <ListRow
                   key={device.deviceId}
                   interactive
                   className={online && !runnable ? `opacity-60` : undefined}
                 >
-                  <ServerIcon className="size-4 shrink-0 text-foreground/70" />
+                  <KindIcon className="size-4 shrink-0 text-foreground/70" />
                   <div className="min-w-0 flex-1">
                     {/* EXP-525: no people names inline — a teammate's shared
                         row keeps the attribution in its tooltip. */}

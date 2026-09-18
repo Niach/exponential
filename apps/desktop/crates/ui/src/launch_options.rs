@@ -448,7 +448,8 @@ pub(crate) fn inline_pin_trigger(id: SharedString, label: String, cx: &App) -> B
 
 /// EXP-862: the same pin with a LEADING GLYPH — the picker rule ×4 is that a
 /// value shown with an icon is picked with that icon, so the device pin leads
-/// with the machine's kind and the account pin with the account mark.
+/// with the machine's glyph (EXP-924: its owner's pick, else its kind) and the
+/// account pin with the account mark.
 pub(crate) fn inline_pin_trigger_with(
     id: SharedString,
     icon: Option<ExpIcon>,

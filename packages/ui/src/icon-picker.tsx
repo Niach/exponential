@@ -1,15 +1,18 @@
 import { useState } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { Button } from "./button"
-import { IconSwatchGrid } from "./icon-swatch-grid"
+import { type IconOptions, IconSwatchGrid } from "./icon-swatch-grid"
 import { Popover, PopoverContent, PopoverTrigger } from "./popover"
-import { BOARD_ICON_COMPONENTS } from "./board-icons"
+import { BOARD_ICON_OPTIONS } from "./board-icons"
 import { conceptIcon } from "./icons.generated"
 
-interface IconPickerProps {
+interface IconPickerProps<T extends string> {
   // Empty string = nothing picked (only reachable with `allowsNone`).
-  value: BoardIcon | ``
-  onChange: (icon: BoardIcon | ``) => void
+  value: T | ``
+  onChange: (icon: T | ``) => void
+  // The set to offer (EXP-924): the board set unless a surface names another
+  // (`DEVICE_ICON_OPTIONS`). The grid sizes itself to a short set.
+  options?: IconOptions<T>
   // Tints the selected glyph for a live preview (board color).
   color?: string
   // Offers a "No icon" reset and renders a placeholder when unset.
@@ -27,16 +30,17 @@ const PlaceholderIcon = conceptIcon(`ui-icon-placeholder`)
 // (board forms, action editor, action inputs, widget launcher) renders this,
 // so the 60-glyph grid never sits inline in a form again. Mirrored on
 // desktop (`ui::icon_picker`), iOS (`IconPicker`) and Android (`IconPicker`).
-export function IconPicker({
+export function IconPicker<T extends string = BoardIcon>({
   value,
   onChange,
+  options = BOARD_ICON_OPTIONS as unknown as IconOptions<T>,
   color,
   allowsNone = false,
   id,
   disabled = false,
-}: IconPickerProps) {
+}: IconPickerProps<T>) {
   const [open, setOpen] = useState(false)
-  const Icon = value ? BOARD_ICON_COMPONENTS[value] : undefined
+  const Icon = options.find((option) => option.name === value)?.icon
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -61,10 +65,22 @@ export function IconPicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-3">
-        {/* 8 × 28px cells + 7 × 6px gaps — same column count as the natives. */}
-        <div className="w-[266px]">
+        {/* 8 × 1.75rem cells + 7 × 0.375rem gaps — the natives' column count,
+            in rem because the cells are. 96 glyphs are 12 rows, so the grid
+            scrolls inside a short viewport instead of running off it: the
+            stable gutter keeps the scrollbar out of the eighth column and the
+            2px padding keeps the hover scale unclipped. A set shorter than
+            one row (the device icons) hugs its cells. */}
+        <div
+          className={
+            options.length < 8
+              ? `w-max`
+              : `-m-0.5 box-content max-h-[min(27rem,calc(var(--radix-popover-content-available-height)-4rem))] w-[16.625rem] overflow-y-auto p-0.5 [scrollbar-gutter:stable] [scrollbar-width:thin]`
+          }
+        >
           <IconSwatchGrid
             value={value}
+            options={options}
             color={color}
             onChange={(icon) => {
               onChange(icon)

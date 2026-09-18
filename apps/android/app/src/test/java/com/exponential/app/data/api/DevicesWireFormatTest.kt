@@ -38,6 +38,29 @@ class DevicesWireFormatTest {
         )
     }
 
+    // EXP-924: the reset has to travel as a LITERAL null — the shared Json
+    // drops null properties (explicitNulls = false), and a dropped `icon` key
+    // would leave the old pick in place (the boards.update branch-clear story).
+    @Test
+    fun `setIcon emits the pick, and a literal null for the reset`() {
+        assertEquals(
+            """{"deviceId":"dev-1","icon":"os-apple"}""",
+            setDeviceIconInput("dev-1", "os-apple").toString(),
+        )
+        assertEquals(
+            """{"deviceId":"dev-1","icon":null}""",
+            setDeviceIconInput("dev-1", null).toString(),
+        )
+        // …and it survives the shared encoder, not just toString().
+        assertEquals(
+            """{"deviceId":"dev-1","icon":null}""",
+            json.encodeToString(
+                kotlinx.serialization.json.JsonObject.serializer(),
+                setDeviceIconInput("dev-1", null),
+            ),
+        )
+    }
+
     @Test
     fun `command builders emit the flat server payloads`() {
         assertEquals(

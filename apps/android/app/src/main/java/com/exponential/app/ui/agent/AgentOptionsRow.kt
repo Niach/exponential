@@ -51,6 +51,7 @@ import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.agentIconPainter
 import com.exponential.app.ui.components.agentIconTint
 import com.exponential.app.ui.components.agentLabel
+import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
@@ -108,16 +109,17 @@ internal fun AgentOptionsRow(
         // a lone machine reads as a plain label like a lone agent does.
         if (device != null) {
             OptionMenuPill(
-                icon = if (device.isServer) ExpIcons.uiServer else ExpIcons.uiDevice,
+                icon = deviceIcon(device),
                 text = deviceOptionLabel(device),
                 contentDescription = "Device",
                 options = devices.map { it.deviceId },
                 optionLabel = { id -> devices.firstOrNull { it.deviceId == id }?.let(::deviceOptionLabel) ?: id },
                 // EXP-862: a picker whose VALUE carries a glyph carries it on
-                // the items too — the device kind, here.
+                // the items too — the machine's own icon, here (EXP-924: its
+                // owner's pick, else the kind default).
                 optionIcon = { id ->
                     val row = devices.firstOrNull { it.deviceId == id }
-                    if (row?.isServer == true) ExpIcons.uiServer else ExpIcons.uiDevice
+                    deviceIcon(row?.icon, row?.isServer == true)
                 },
                 selected = device.deviceId,
                 onSelect = onDeviceChange,

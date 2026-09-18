@@ -222,6 +222,55 @@ export const boardIconValues = [
   `chart-line`,
   `scale`,
   `car`,
+  `music`,
+  `camera`,
+  `video`,
+  `image`,
+  `headphones`,
+  `mic`,
+  `gift`,
+  `shopping-bag`,
+  `store`,
+  `truck`,
+  `map`,
+  `mountain`,
+  `tree-pine`,
+  `flame`,
+  `droplet`,
+  `moon`,
+  `anchor`,
+  `crown`,
+  `gem`,
+  `award`,
+  `dumbbell`,
+  `stethoscope`,
+  `microscope`,
+  `atom`,
+  `brain`,
+  `eye`,
+  `fingerprint`,
+  `hammer`,
+  `paintbrush`,
+  `calculator`,
+  `landmark`,
+  `wallet`,
+  `tag`,
+  `bookmark`,
+  `newspaper`,
+  `smartphone`,
+] as const
+
+// EXP-924: the device icon set (devices.icon), a SECOND curated set next to
+// the board one: device types plus OS marks. Byte-equal to icons.json
+// `devicePickable` and contract.json's deviceIcon.values, APPEND-ONLY. NULL
+// icon = the kind default (`monitor` for a desktop, `server` for a daemon).
+export const deviceIconValues = [
+  `monitor`,
+  `server`,
+  `laptop`,
+  `os-apple`,
+  `os-windows`,
+  `os-linux`,
 ] as const
 
 // How long a soft-deleted (trashed) board is retained before the purge sweep
@@ -507,6 +556,7 @@ export type IssuePriority = (typeof issuePriorityValues)[number]
 export type IssueSource = (typeof issueSourceValues)[number]
 export type TeamRole = (typeof teamRoleValues)[number]
 export type BoardIcon = (typeof boardIconValues)[number]
+export type DeviceIcon = (typeof deviceIconValues)[number]
 export type CommentKind = (typeof commentKindValues)[number]
 export type CommentSource = (typeof commentSourceValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
@@ -537,6 +587,7 @@ export const boardIconSchema = z.enum(boardIconValues)
 // boards.icon — one picker component, one contract enum, one generated art set
 // on every client. Aliased rather than duplicated so the two can never drift.
 export const actionIconSchema = boardIconSchema
+export const deviceIconSchema = z.enum(deviceIconValues)
 export const commentKindSchema = z.enum(commentKindValues)
 export const commentSourceSchema = z.enum(commentSourceValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)

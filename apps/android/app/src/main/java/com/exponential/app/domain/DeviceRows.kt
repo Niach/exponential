@@ -172,6 +172,10 @@ fun DeviceEntity.toSteerDevice(
     acpAgents = parseAgentList(acpAgents).orEmpty(),
     launchDefaults = parseLaunchDefaults(launchDefaults),
     kind = kind,
+    // EXP-924: passed through RAW — the pick and its absence are different
+    // states, and the kind default belongs to the one resolver every surface
+    // draws through (`deviceIconName`).
+    icon = icon,
     platform = platform,
     online = DeviceLiveness.isOnline(lastSeenAt, nowMs),
     lastSeenAt = lastSeenAt,

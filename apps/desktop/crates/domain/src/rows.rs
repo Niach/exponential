@@ -843,6 +843,11 @@ pub struct DeviceRow {
     /// `desktop` | `server` — unknown renders as desktop.
     #[serde(default)]
     pub kind: Option<String>,
+    /// EXP-924: the owner-picked device glyph (`contract::DEVICE_ICON_VALUES`).
+    /// NULL = the kind default, and so does a name outside the device set —
+    /// the resolver is `ui::icons::device_icon`, never a raw read of this.
+    #[serde(default)]
+    pub icon: Option<String>,
     #[serde(default)]
     pub platform: Option<String>,
     #[serde(default)]

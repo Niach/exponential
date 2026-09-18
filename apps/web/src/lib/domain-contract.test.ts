@@ -13,6 +13,7 @@ import {
   issueSourceValues,
   teamRoleValues,
   boardIconValues,
+  deviceIconValues,
   commentKindValues,
   commentSourceValues,
   notificationTypeValues,
@@ -149,8 +150,8 @@ describe(`domain-contract parity`, () => {
     expect([...boardIconValues]).toEqual([...contract.boardIcon.values])
   })
 
-  it(`board icon values match the contract`, () => {
-    expect([...boardIconValues]).toEqual([...contract.boardIcon.values])
+  it(`device icon values match the contract`, () => {
+    expect([...deviceIconValues]).toEqual([...contract.deviceIcon.values])
   })
 
   it(`comment kind values match the contract`, () => {

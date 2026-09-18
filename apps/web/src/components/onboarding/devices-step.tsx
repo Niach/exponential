@@ -3,6 +3,7 @@ import { useLiveQuery } from "@tanstack/react-db"
 import type { Device } from "@/db/schema"
 import {
   conceptIcon,
+  getDeviceIcon,
   Button,
   Pill,
   GlassRow,
@@ -150,8 +151,7 @@ export function DevicesStep({
                 // device with every agent signed in (or none installed)
                 // offers nothing here.
                 const signInAgent = deviceUnauthedAgentIds(device)[0]
-                const KindIcon =
-                  device.kind === `server` ? ServerIcon : DesktopIcon
+                const KindIcon = getDeviceIcon(device)
                 return (
                   <GlassRow key={device.deviceId}>
                     <KindIcon className="size-4 shrink-0 text-foreground/70" />

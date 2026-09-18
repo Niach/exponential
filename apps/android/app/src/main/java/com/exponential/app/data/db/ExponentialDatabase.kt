@@ -292,9 +292,13 @@ import androidx.room.TypeConverters
     //      subject. New column on the coding-sessions shape allowlist;
     //      destructive fallback wipes + resyncs so every row arrives carrying
     //      it.
+    // v64 (EXP-924): devices.icon — the owner-picked device glyph, nullable
+    //      (NULL = the kind default every client derives). New column on the
+    //      devices shape allowlist; destructive fallback wipes + resyncs so
+    //      every row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 63,
+    version = 64,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
