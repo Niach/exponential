@@ -83,6 +83,9 @@ pub(crate) struct RunningRunFacts {
     /// The machine's name (the kill confirm names it).
     pub(crate) device_label: Option<String>,
     pub(crate) paused: bool,
+    /// EXP-848: the agent is mid-turn RIGHT NOW — the dot's ping, and only
+    /// that (`queries::session_agent_busy`, never `running` alone).
+    pub(crate) working: bool,
 }
 
 /// Everything a past row draws.
@@ -94,11 +97,13 @@ pub(crate) struct PastRunFacts {
     pub(crate) byline: SharedString,
 }
 
-/// A LIVE run's row facts. `local_caption` is the engine's own caption for a
-/// run this process hosts (`session_agent_caption` precedence).
+/// A LIVE run's row facts. `local_caption` and `local_busy` are the engine's
+/// own caption and turn signal for a run this process hosts
+/// (`session_agent_caption` / `session_agent_busy` precedence).
 pub(crate) fn running_run_facts(
     session: &domain::rows::CodingSession,
     local_caption: Option<String>,
+    local_busy: Option<bool>,
     now_epoch: i64,
     cx: &App,
 ) -> RunningRunFacts {
@@ -156,6 +161,8 @@ pub(crate) fn running_run_facts(
             .map(SharedString::from),
         device_label: presentation.label,
         paused,
+        // EXP-848: the turn flag, the ONE input the dot's ping keys on.
+        working: queries::session_agent_busy(session, local_busy, now_epoch),
     }
 }
 
@@ -327,7 +334,7 @@ pub(crate) fn render_running_run_row(
         .items_center()
         .gap_2()
         .children(fold.map(|fold| fold_chevron(id_prefix, index, fold, muted)))
-        .child(div().flex_shrink_0().size_1p5().rounded_full().bg(facts.dot))
+        .child(crate::surface::live_dot(facts.dot, facts.working))
         .children(facts.identifier.clone().map(|identifier| {
             div()
                 .flex_shrink_0()
@@ -468,7 +475,7 @@ impl RunListFacts {
         if run_has_ended(session) {
             RunListFacts::Past(past_run_facts(session, now_epoch, cx))
         } else {
-            RunListFacts::Running(running_run_facts(session, None, now_epoch, cx))
+            RunListFacts::Running(running_run_facts(session, None, None, now_epoch, cx))
         }
     }
 

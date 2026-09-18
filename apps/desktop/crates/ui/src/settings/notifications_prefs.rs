@@ -31,7 +31,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     menu::{DropdownMenu as _, PopupMenuItem},
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -355,9 +354,9 @@ impl Render for NotificationsPrefsPane {
                 body = body.child(
                     v_flex()
                         .gap_2()
-                        .child(Skeleton::new().h_4().w_full())
-                        .child(Skeleton::new().h_4().w_full())
-                        .child(Skeleton::new().h_4().w_64()),
+                        .child(crate::controls::skeleton().h_4().w_full())
+                        .child(crate::controls::skeleton().h_4().w_full())
+                        .child(crate::controls::skeleton().h_4().w_64()),
                 );
             }
             Load::Error(message) => {

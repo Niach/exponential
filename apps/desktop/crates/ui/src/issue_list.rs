@@ -32,11 +32,9 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    checkbox::Checkbox,
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem},
     scroll::ScrollableElement as _,
-    skeleton::Skeleton,
     v_flex, v_virtual_list, ActiveTheme as _, Disableable as _, Icon, Side, Sizable as _,
     VirtualListScrollHandle,
 };
@@ -674,11 +672,15 @@ impl IssueListView {
                         cell.invisible().group_hover(ROW_GROUP, |style| style.visible())
                     })
                     .child(
-                        Checkbox::new(row_id("select", &issue.id))
-                            .checked(is_selected)
-                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                                this.toggle_selected(toggle_id.clone(), cx);
-                            })),
+                        crate::controls::checkbox(
+                            row_id("select", &issue.id),
+                            is_selected.into(),
+                            false,
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.toggle_selected(toggle_id.clone(), cx);
+                        })),
                     )
             })
             // 24px priority dropdown cell (stop_propagation wrapper, §4.6).
@@ -2514,8 +2516,8 @@ fn list_skeleton(cx: &App) -> impl IntoElement {
         .items_center()
         .border_b_1()
         .border_color(cx.theme().border.opacity(0.5))
-        .child(Skeleton::new().size_3p5().rounded_full())
-        .child(Skeleton::new().h_3p5().w_24());
+        .child(crate::controls::skeleton().size_3p5().rounded_full())
+        .child(crate::controls::skeleton().h_3p5().w_24());
 
     let mut body = v_flex().w_full();
     for _ in 0..5 {
@@ -2528,10 +2530,10 @@ fn list_skeleton(cx: &App) -> impl IntoElement {
                 .items_center()
                 .border_b_1()
                 .border_color(cx.theme().border.opacity(0.3))
-                .child(Skeleton::new().size_4().rounded_full())
-                .child(Skeleton::new().h_3().w(px(56.)))
-                .child(Skeleton::new().size_4().rounded_full())
-                .child(Skeleton::new().h_3p5().flex_1().max_w(px(288.))),
+                .child(crate::controls::skeleton().size_4().rounded_full())
+                .child(crate::controls::skeleton().h_3().w(px(56.)))
+                .child(crate::controls::skeleton().size_4().rounded_full())
+                .child(crate::controls::skeleton().h_3p5().flex_1().max_w(px(288.))),
         );
     }
 

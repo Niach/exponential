@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    canvas, deferred, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry,
+    canvas, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry,
     ClipboardItem, Context, ElementId, Entity, Focusable as _, FontStyle, FontWeight,
     HighlightStyle, InteractiveElement as _, InteractiveText, IntoElement, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, ScrollHandle,
@@ -40,11 +40,10 @@ use gpui_component::notification::Notification;
 use gpui_component::text::TextView;
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    checkbox::Checkbox,
     h_flex,
     menu::{ContextMenuExt as _, PopupMenuItem},
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+    v_flex, ActiveTheme as _, Icon, Sizable as _, WindowExt as _,
 };
 
 use super::image_url;
@@ -61,6 +60,7 @@ use super::image_paste::{
 use super::parse::{markdown_to_blocks_for, SoftBreakMode};
 use super::serialize::blocks_to_markdown;
 use super::toolbar::{self, LinePrefix};
+use crate::controls::{typeahead_menu, typeahead_row, TypeaheadArm};
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -1829,41 +1829,27 @@ impl MarkdownEditor {
                 .width
         };
 
+        // The caret LINE's edges in window coordinates: the menu primitive
+        // measures the room on both sides itself.
         let origin = bounds.get().origin;
-        let anchor = point(
-            origin.x + caret_x + px(8.),
-            origin.y + scroll.y + line_height * (position.line as f32 + 1.) + px(8.),
-        );
+        let caret_left = origin.x + caret_x + px(8.);
+        let caret_bottom = origin.y + scroll.y + line_height * (position.line as f32 + 1.);
+        let caret_top = caret_bottom - line_height;
 
         let items = completion.items.clone();
         let selected = completion.selected;
-        let (popover, popover_foreground, border, selected_bg) = {
-            let theme = cx.theme();
-            (
-                theme.popover,
-                theme.popover_foreground,
-                theme.border,
-                // EXP-892: ONE clearly visible highlight — the list's active
-                // fill, the same one every other issue list selects with.
-                theme.list_active,
-            )
-        };
         let rows: Vec<gpui::AnyElement> = items
             .into_iter()
             .enumerate()
             .map(|(index, item)| {
-                let is_selected = index == selected;
-                h_flex()
-                    .id(ElementId::from(("md-completion-item", index)))
-                    .w_full()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(4.))
-                    // EXP-892: the selected row is the ONLY tinted one, and
-                    // hovering MOVES the selection onto the row under the
-                    // pointer instead of painting a second highlight.
-                    .when(is_selected, |el| el.bg(selected_bg))
-                    .cursor_pointer()
+                // EXP-892: the selected row is the ONLY tinted one, and
+                // hovering MOVES the selection onto the row under the
+                // pointer instead of painting a second highlight.
+                typeahead_row(
+                    ElementId::from(("md-completion-item", index)),
+                    index == selected,
+                    cx,
+                )
                     .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
                         if !*hovered {
                             return;
@@ -1890,31 +1876,19 @@ impl MarkdownEditor {
                     .into_any_element()
             })
             .collect();
-        let menu = v_flex()
-            .id("md-completion")
-            .occlude()
-            .min_w(px(260.))
-            .max_w(px(380.))
-            .p_1()
-            .gap_0p5()
-            .bg(popover)
-            .text_color(popover_foreground)
-            .border_1()
-            .border_color(border)
-            .rounded(px(6.))
-            .shadow_md()
-            .children(rows);
-
-        Some(
-            deferred(
-                gpui::anchored()
-                    .position(anchor)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(menu),
-            )
-            .with_priority(200)
-            .into_any_element(),
-        )
+        // EXP-970: the ONE typeahead surface — capped, scrolling, and
+        // flipped above the caret when the room below runs out.
+        Some(typeahead_menu(
+            "md-completion",
+            TypeaheadArm::Anchored {
+                caret_left,
+                caret_top,
+                caret_bottom,
+            },
+            rows,
+            window,
+            cx,
+        ))
     }
 
     fn render_edit_blocks(&mut self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
@@ -2952,13 +2926,20 @@ fn render_view_line(
                     let editable = view.on_source_edit.is_some();
                     let on_source_edit = view.on_source_edit.clone();
                     let blocks = blocks.clone();
-                    Checkbox::new(ElementId::from(SharedString::from(format!(
-                        "{}-task-{block_index}-{line_index}",
-                        view.id
-                    ))))
-                    .checked(checked)
-                    .disabled(!editable)
+                    // EXP-970: the shared 16px box, not the crate's.
+                    crate::controls::checkbox(
+                        ElementId::from(SharedString::from(format!(
+                            "{}-task-{block_index}-{line_index}",
+                            view.id
+                        ))),
+                        checked.into(),
+                        !editable,
+                        cx,
+                    )
                     .on_click(move |_, window, cx| {
+                        if !editable {
+                            return;
+                        }
                         let Some(on_source_edit) = on_source_edit.clone() else {
                             return;
                         };

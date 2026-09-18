@@ -45,11 +45,9 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    checkbox::Checkbox,
     h_flex,
     menu::{ContextMenuExt as _, DropdownMenu as _},
     scroll::ScrollableElement as _,
-    skeleton::Skeleton,
     spinner::Spinner,
     v_flex, v_virtual_list, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
     VirtualListScrollHandle,
@@ -2428,9 +2426,9 @@ impl ListPanel {
         v_flex()
             .p_3()
             .gap_2()
-            .child(Skeleton::new().h_3p5().w_40())
-            .child(Skeleton::new().h_3p5().w_48())
-            .child(Skeleton::new().h_3p5().w_32())
+            .child(crate::controls::skeleton().h_3p5().w_40())
+            .child(crate::controls::skeleton().h_3p5().w_48())
+            .child(crate::controls::skeleton().h_3p5().w_32())
             .into_any_element()
     }
 
@@ -3831,11 +3829,15 @@ impl ListPanel {
                         cell.invisible().group_hover(NAV_ROW_GROUP, |style| style.visible())
                     })
                     .child(
-                        Checkbox::new(row_id("nav-select", &issue.id))
-                            .checked(selected)
-                            .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                                this.nav_toggle_selected(toggle_id.clone(), cx);
-                            })),
+                        crate::controls::checkbox(
+                            row_id("nav-select", &issue.id),
+                            selected.into(),
+                            false,
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.nav_toggle_selected(toggle_id.clone(), cx);
+                        })),
                     ),
             )
             .child(

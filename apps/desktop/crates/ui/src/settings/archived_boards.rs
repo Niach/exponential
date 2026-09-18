@@ -22,7 +22,6 @@ use gpui::{
 use gpui_component::{
     h_flex,
     notification::Notification,
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use sync::Store;
@@ -235,8 +234,8 @@ impl Render for ArchivedBoardsPane {
                 body = body.child(
                     v_flex()
                         .gap_2()
-                        .child(Skeleton::new().h_8().w_full())
-                        .child(Skeleton::new().h_8().w_full()),
+                        .child(crate::controls::skeleton().h_8().w_full())
+                        .child(crate::controls::skeleton().h_8().w_full()),
                 );
             }
             Load::Ready(Err(message)) => {

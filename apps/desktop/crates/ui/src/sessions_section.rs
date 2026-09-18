@@ -228,10 +228,13 @@ impl RunningSessionsSection {
                 // caption signal (it WROTE the column; waiting for the echo
                 // would only add latency), every other row the synced one.
                 let local_caption = host.and_then(|host| host.session.caption_signal().get());
+                // EXP-848: same precedence for the turn flag — the engine's
+                // own signal here, the synced `agent_busy` everywhere else.
+                let local_busy = host.map(|host| !host.session.turn_signal().is_idle());
                 RunningRow {
                     depth: tree_row.depth,
                     has_children: tree_row.has_children,
-                    facts: run_rows::running_run_facts(session, local_caption, now, cx),
+                    facts: run_rows::running_run_facts(session, local_caption, local_busy, now, cx),
                     local: host.cloned(),
                 }
             })

@@ -42,7 +42,6 @@ use gpui_component::{
     input::{InputState},
     notification::Notification,
     popover::Popover,
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
 };
 use serde::{Deserialize, Serialize};
@@ -659,8 +658,8 @@ impl Render for RepositoriesPane {
                 body = body.child(
                     v_flex()
                         .gap_2()
-                        .child(Skeleton::new().h_8().w_full())
-                        .child(Skeleton::new().h_8().w_full()),
+                        .child(crate::controls::skeleton().h_8().w_full())
+                        .child(crate::controls::skeleton().h_8().w_full()),
                 );
             }
             Load::Ready(loaded) => {

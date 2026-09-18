@@ -24,7 +24,6 @@ use gpui_component::{
     button::Button,
     h_flex,
     input::{InputEvent, InputState},
-    skeleton::Skeleton,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -347,8 +346,8 @@ impl Render for DoctorPanel {
                 body = body.child(
                     v_flex()
                         .gap_2()
-                        .child(Skeleton::new().h_4().w_64())
-                        .child(Skeleton::new().h_4().w_56()),
+                        .child(crate::controls::skeleton().h_4().w_64())
+                        .child(crate::controls::skeleton().h_4().w_56()),
                 );
             }
             Some(report) => {

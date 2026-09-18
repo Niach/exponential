@@ -54,7 +54,8 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Search fields**: the Reviews file filter, the emoji search and the issue search sheet are one field with the search glyph inside it and a clear button that appears once you type, the same field iOS and Android already had.
 - **Due dates**: the three date pickers on the issue page, the editor chips and the phone properties tray are one calendar popover, and a date never shifts by a day west of Greenwich anymore.
 - **Autocomplete**: the @, #, : and / menus under the composers share one keyboard model: arrows wrap, Enter or Tab picks, Cmd or Ctrl plus Enter still sends.
-- **Styleguide**: a top bar switches between Views (the screenshots), Components (the live controls, grouped by kind) and Style (colours, shape, type, motion and the icon registry). Each component names which app surfaces still draw it by hand."#,
+- **Styleguide**: a top bar switches between Views (the screenshots), Components (the live controls, grouped by kind) and Style (colours, shape, type, motion and the icon registry). Each component names which app surfaces still draw it by hand.
+- **Desktop**: the IDE draws the same set: one search field, one searchable picker, one fold header, one text button and one count capsule. The @, # and : menus in the editors and the composer, and the / menu over the run composer, are one menu now, and it opens above the caret when the window runs out of room below. A run that is working ripples its green dot like the web does; the loading bars, the bulk-select boxes and the checklist boxes are the same shapes as on the web."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.
