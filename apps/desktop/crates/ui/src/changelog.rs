@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-18-component-foundation",
+    date: "2026-09-18",
+    title: "One picker, one search field, one date picker",
+    summary: "Every picker on the web now looks and behaves the same, search fields carry a glyph and a clear button, and the styleguide sorts into Views, Components and Style.",
+    body: r#"- **One picker**: assignee, board, labels, actions, branches, MCP servers, automation filters and the batch issue picker share a single searchable picker. A picked row shows a trailing check; in a multi-select every row carries the same filled or empty circle the iOS and Android sheets draw, and "Unassign" or "None" is a real row instead of a hidden placeholder value.
+- **Search fields**: the Reviews file filter, the emoji search and the issue search sheet are one field with the search glyph inside it and a clear button that appears once you type, the same field iOS and Android already had.
+- **Due dates**: the three date pickers on the issue page, the editor chips and the phone properties tray are one calendar popover, and a date never shifts by a day west of Greenwich anymore.
+- **Autocomplete**: the @, #, : and / menus under the composers share one keyboard model: arrows wrap, Enter or Tab picks, Cmd or Ctrl plus Enter still sends.
+- **Styleguide**: a top bar switches between Views (the screenshots), Components (the live controls, grouped by kind) and Style (colours, shape, type, motion and the icon registry). Each component names which app surfaces still draw it by hand."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-17-release-train",
     date: "2026-09-17",
     title: "Release train 2026-09-17",
@@ -62,7 +76,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-tab-shell-polish",
     date: "2026-09-17",
     title: "Tabs keep their state, chats get their names",
@@ -74,7 +88,7 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 
 /// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",
