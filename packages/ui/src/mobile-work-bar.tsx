@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from "react"
-import { FAB_CHROME_CLASS } from "./fab-chrome"
+import { FAB_CIRCLE_CLASS } from "./fab-chrome"
 import { useKeyboardInset } from "./use-keyboard-inset"
 import { cn } from "./cn"
 
@@ -19,10 +19,13 @@ import { cn } from "./cn"
 // `ChangesBottomBar`): no capsule stretches there — the circles and the
 // white Merge pill hug their content, 12px apart, centred.
 
-/** The 52px glass circle every slot of the bar is made of. Its glyphs are
- *  white at the secondary emphasis (Android's `TextEmphasis.Secondary`);
- *  a slot that wants a full-white glyph says so. */
-export const MOBILE_WORK_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full ${FAB_CHROME_CLASS} text-foreground/70`
+/** The 52px glass circle every slot of the bar is made of — `FAB_CIRCLE_CLASS`
+ *  under the bar's own name, for the slots that are NOT buttons (the usage
+ *  ring, the capsule below). A slot that IS a button is a `FabButton`
+ *  (EXP-962); its glyph is white at the secondary emphasis (Android's
+ *  `TextEmphasis.Secondary`) and a slot that wants a full-white glyph says
+ *  `emphasis="primary"`. */
+export const MOBILE_WORK_CIRCLE_CLASS = FAB_CIRCLE_CLASS
 
 /** The capsule between the circles: the same chrome stretched. Its label is
  *  a PLACEHOLDER (tertiary white) — a verb in it says `text-foreground`. */

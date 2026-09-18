@@ -485,10 +485,20 @@ const sidebarMenuButtonVariants = cva(
         sm: `h-7 text-xs`,
         lg: `h-12 text-sm group-data-[collapsible=icon]:p-0!`,
       },
+      // EXP-862/EXP-962: the sidebar's COMPACT density — 28px rows at the
+      // list's own type size. Every arm of the 17rem slot runs at it (the
+      // list nav's rows and the compact inbox are exactly as tall);
+      // `size="sm"` alone would also drop the label to 12px, which is a
+      // different decision. `ListRow density="compact"` is its twin.
+      density: {
+        default: ``,
+        compact: `h-7 text-sm`,
+      },
     },
     defaultVariants: {
       variant: `default`,
       size: `default`,
+      density: `default`,
     },
   }
 )
@@ -498,6 +508,7 @@ function SidebarMenuButton({
   isActive = false,
   variant = `default`,
   size = `default`,
+  density = `default`,
   tooltip,
   className,
   ...props
@@ -514,8 +525,9 @@ function SidebarMenuButton({
       data-slot="sidebar-menu-button"
       data-sidebar="menu-button"
       data-size={size}
+      data-density={density}
       data-active={isActive}
-      className={cn(sidebarMenuButtonVariants({ variant, size }), className)}
+      className={cn(sidebarMenuButtonVariants({ variant, size, density }), className)}
       {...props}
     />
   )

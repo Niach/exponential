@@ -20,6 +20,11 @@ const buttonVariants = cva(
         // the pointer must not fade to it.
         ghost: `hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 aria-pressed:bg-accent aria-pressed:text-accent-foreground dark:aria-pressed:hover:bg-accent`,
         link: `text-primary underline-offset-4 hover:underline`,
+        // EXP-962: the TEXT button — muted words that brighten under the
+        // pointer and never underline: a fold's "Show more"/"Show less", a
+        // step's "Back to the current step". `link` goes SOMEWHERE (it
+        // underlines like a link); `text` toggles something in place.
+        text: `text-muted-foreground hover:text-foreground`,
       },
       // Glass capsules (EXP-616): EVERY size is fully rounded now — the base
       // `rounded-full` covers them all (mobile glassButton parity), including
@@ -35,6 +40,12 @@ const buttonVariants = cva(
         // glass circle.
         "icon-sm": `size-8 [&_svg:not([class*='size-'])]:size-4`,
         "icon-xs": `size-6 [&_svg:not([class*='size-'])]:size-3`,
+        // EXP-962: INLINE — no box at all: the words sit in the run of text
+        // around them at 12px, only the colour (and, for `link`, the
+        // underline) says they are a button. For `link` and `text`; the
+        // steer feed's "Show more", the session bands' "Continues in a
+        // newer run", the edited-files card's footer.
+        inline: `h-auto gap-1 rounded-sm p-0 text-xs has-[>svg]:px-0 [&_svg:not([class*='size-'])]:size-3`,
       },
     },
     // EXP-862: a GHOST icon button is the secondary control (no circle, no
