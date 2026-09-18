@@ -14,7 +14,11 @@ const buttonVariants = cva(
         outline: `border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50`,
         glass: `border border-glass-stroke-card bg-glass-card text-foreground/70 hover:bg-glass-active hover:text-foreground`,
         secondary: `bg-secondary text-secondary-foreground hover:bg-secondary/80`,
-        ghost: `hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50`,
+        // EXP-960: a ghost TOGGLE says so with `aria-pressed`, and the pressed
+        // state is the hover wash held down (the editor's formatting rail).
+        // The `hover` arm names dark's half wash too: a pressed button under
+        // the pointer must not fade to it.
+        ghost: `hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 aria-pressed:bg-accent aria-pressed:text-accent-foreground dark:aria-pressed:hover:bg-accent`,
         link: `text-primary underline-offset-4 hover:underline`,
       },
       // Glass capsules (EXP-616): EVERY size is fully rounded now — the base

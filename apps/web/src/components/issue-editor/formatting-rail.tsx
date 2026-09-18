@@ -2,11 +2,13 @@ import { useEffect, useReducer, useRef, useState } from "react"
 import type { Editor } from "@tiptap/react"
 import { NodeSelection } from "@tiptap/pm/state"
 import {
+  Button,
   conceptIcon,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Input,
 } from "@exp/ui"
 import { EmojiPickerPopover } from "@/components/emoji-picker"
 import {
@@ -93,7 +95,7 @@ export function issueRefInsertionText(charBefore: string | undefined) {
 }
 
 /**
- * Re-render on every editor transaction so the `is-active` states track the
+ * Re-render on every editor transaction so the `aria-pressed` states track the
  * caret. `useEditor` deliberately does NOT re-render its host on transactions
  * (tiptap v3's `shouldRerenderOnTransaction` defaults to false), and the rail
  * is the one surface that has to mirror editor state live. Guarded on `.on`
@@ -110,6 +112,14 @@ function useEditorTransactions(editor: Editor) {
   }, [editor])
 }
 
+// EXP-960: a rail button IS the ghost icon button (`Button variant="ghost"
+// size="icon-sm"`, the styleguide's ghost-icon-button entry): the 32px box,
+// the 16px glyph at 70% foreground, the row wash on hover. The toggled state
+// rides `aria-pressed`, which the ghost variant paints; the one destructive
+// glyph (Delete table, EXP-727) is a colour on top. The rail used to carry
+// its own 28px CSS button system in styles.css; this is what replaced it.
+const RAIL_BUTTON_CLASS = `text-foreground/70`
+
 /** A rail button. `tabIndex={-1}` + the mousedown preventDefault keep the tab
  *  order and the editor selection intact (EXP-10) — ported verbatim from the
  *  static toolbar it replaces. */
@@ -120,6 +130,8 @@ function RailButton({
   onClick,
   children,
 }: {
+  /** A toggle's state. Leave undefined on a plain action button — a button
+   *  with no `aria-pressed` is an action, not a toggle. */
   active?: boolean
   /** Red glyph — the rail's one destructive action (Delete table, EXP-727). */
   destructive?: boolean
@@ -128,52 +140,62 @@ function RailButton({
   children: React.ReactNode
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-sm"
       tabIndex={-1}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
-      className={cn(active && `is-active`, destructive && `is-destructive`)}
+      aria-pressed={active}
+      className={cn(
+        RAIL_BUTTON_CLASS,
+        destructive && `text-destructive hover:text-destructive`
+      )}
       title={label}
       aria-label={label}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
 /** The same shape as RailButton, for a Radix trigger that must receive the
- *  library's own props (`asChild`). */
+ *  library's own props (`asChild`), including its ref. */
 function RailTriggerButton({
   active,
   label,
   children,
+  className,
   ...rest
 }: {
   active?: boolean
   label: string
   children: React.ReactNode
-} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+} & React.ComponentProps<`button`>) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-sm"
       tabIndex={-1}
       {...rest}
       onMouseDown={(event) => {
         event.preventDefault()
         rest.onMouseDown?.(event)
       }}
-      className={active ? `is-active` : ``}
+      aria-pressed={active}
+      className={cn(RAIL_BUTTON_CLASS, className)}
       title={label}
       aria-label={label}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
 function RailSeparator() {
-  return <div className="rail-separator" aria-hidden />
+  return <div className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
 }
 
 interface FormattingRailProps {
@@ -240,7 +262,7 @@ export function FormattingRail({
           label="Lists"
           active={bulletActive || orderedActive || taskActive}
         >
-          <ActiveListIcon className="size-3.5" />
+          <ActiveListIcon />
         </RailTriggerButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side={platform === `mobile` ? `top` : `bottom`}>
@@ -280,18 +302,18 @@ export function FormattingRail({
         />
       )}
       <RailButton label="Insert issue reference" onClick={insertIssueRef}>
-        <IssueRefIcon className="size-3.5" />
+        <IssueRefIcon />
       </RailButton>
       <RailButton
         label="Link"
         active={isActive(`link`)}
         onClick={() => onModeChange(`link`)}
       >
-        <LinkIcon className="size-3.5" />
+        <LinkIcon />
       </RailButton>
       <RailSeparator />
       <RailButton label="Text formatting" onClick={() => onModeChange(`text`)}>
-        <TextFormatIcon className="size-3.5" />
+        <TextFormatIcon />
       </RailButton>
       {listControl}
       <RailButton
@@ -299,14 +321,14 @@ export function FormattingRail({
         active={isActive(`blockquote`)}
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
       >
-        <QuoteIcon className="size-3.5" />
+        <QuoteIcon />
       </RailButton>
       <RailButton
         label="Code"
         active={isActive(`code`)}
         onClick={() => editor.chain().focus().toggleCode().run()}
       >
-        <CodeIcon className="size-3.5" />
+        <CodeIcon />
       </RailButton>
       {/* EXP-727: a touch device has no hover chrome for tables
           (table-controls.tsx is pointer-only) and a long-press inside a cell
@@ -321,7 +343,7 @@ export function FormattingRail({
             destructive
             onClick={() => editor.chain().focus().deleteTable().run()}
           >
-            <DeleteIcon className="size-3.5" />
+            <DeleteIcon />
           </RailButton>
         </>
       )}
@@ -331,7 +353,7 @@ export function FormattingRail({
           label="Hide keyboard"
           onClick={() => onDismissKeyboard?.()}
         >
-          <KeyboardDownIcon className="size-3.5" />
+          <KeyboardDownIcon />
         </RailButton>
       )}
     </>
@@ -352,14 +374,14 @@ export function FormattingRail({
   const textContent = (
     <>
       <RailButton label="Back" onClick={() => onModeChange(`main`)}>
-        <BackIcon className="size-3.5" />
+        <BackIcon />
       </RailButton>
       <RailButton
         label="Text"
         active={paragraphActive}
         onClick={() => editor.chain().focus().setParagraph().run()}
       >
-        <TextIcon className="size-3.5" />
+        <TextIcon />
       </RailButton>
       <RailButton
         label="Heading 1"
@@ -368,7 +390,7 @@ export function FormattingRail({
           editor.chain().focus().toggleHeading({ level: 1 }).run()
         }
       >
-        <Heading1Icon className="size-3.5" />
+        <Heading1Icon />
       </RailButton>
       <RailButton
         label="Heading 2"
@@ -377,7 +399,7 @@ export function FormattingRail({
           editor.chain().focus().toggleHeading({ level: 2 }).run()
         }
       >
-        <Heading2Icon className="size-3.5" />
+        <Heading2Icon />
       </RailButton>
       <RailButton
         label="Heading 3"
@@ -386,7 +408,7 @@ export function FormattingRail({
           editor.chain().focus().toggleHeading({ level: 3 }).run()
         }
       >
-        <Heading3Icon className="size-3.5" />
+        <Heading3Icon />
       </RailButton>
       <RailSeparator />
       <RailButton
@@ -394,21 +416,21 @@ export function FormattingRail({
         active={isActive(`bold`)}
         onClick={() => editor.chain().focus().toggleBold().run()}
       >
-        <BoldIcon className="size-3.5" />
+        <BoldIcon />
       </RailButton>
       <RailButton
         label="Italic"
         active={isActive(`italic`)}
         onClick={() => editor.chain().focus().toggleItalic().run()}
       >
-        <ItalicIcon className="size-3.5" />
+        <ItalicIcon />
       </RailButton>
       <RailButton
         label="Strikethrough"
         active={isActive(`strike`)}
         onClick={() => editor.chain().focus().toggleStrike().run()}
       >
-        <StrikethroughIcon className="size-3.5" />
+        <StrikethroughIcon />
       </RailButton>
       <RailButton
         label="Clear formatting"
@@ -416,7 +438,7 @@ export function FormattingRail({
           editor.chain().focus().unsetAllMarks().clearNodes().run()
         }
       >
-        <ClearFormattingIcon className="size-3.5" />
+        <ClearFormattingIcon />
       </RailButton>
       <div className="flex-1" aria-hidden />
     </>
@@ -545,7 +567,7 @@ export function EditorInsertControls({
       onPick={(unicode) => insertPlainTextAt(editor, unicode)}
     >
       <RailTriggerButton label="Insert emoji">
-        <EmojiIcon className="size-3.5" />
+        <EmojiIcon />
       </RailTriggerButton>
     </EmojiPickerPopover>
   )
@@ -557,14 +579,14 @@ export function EditorInsertControls({
         label="Insert image"
         onClick={() => imageInputRef.current?.click()}
       >
-        <ImageIcon className="size-3.5" />
+        <ImageIcon />
       </RailButton>
       {imageUpload.onOtherFiles && (
         <RailButton
           label="Attach file"
           onClick={() => fileInputRef.current?.click()}
         >
-          <AttachIcon className="size-3.5" />
+          <AttachIcon />
         </RailButton>
       )}
     </>
@@ -573,7 +595,7 @@ export function EditorInsertControls({
     <DropdownMenu onOpenChange={onOverlayOpenChange}>
       <DropdownMenuTrigger asChild>
         <RailTriggerButton label="Insert image or file">
-          <ImageIcon className="size-3.5" />
+          <ImageIcon />
         </RailTriggerButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top">
@@ -592,7 +614,7 @@ export function EditorInsertControls({
       label="Insert image"
       onClick={() => imageInputRef.current?.click()}
     >
-      <ImageIcon className="size-3.5" />
+      <ImageIcon />
     </RailButton>
   )
 
@@ -606,10 +628,9 @@ export function EditorInsertControls({
 }
 
 /**
- * EXP-587: the static Linear-style strip under a desktop editor. Shares the
- * rail's button recipe (`.formatting-rail`) but is not a rail: it never
- * floats, never hides, and needs no mode — it is the one place the insert
- * controls live on desktop.
+ * EXP-587: the static Linear-style strip under a desktop editor. The same
+ * rail buttons, but not a rail: it never floats, never hides, and needs no
+ * mode — it is the one place the insert controls live on desktop.
  */
 export function EditorInsertBar({
   editor,
@@ -621,7 +642,7 @@ export function EditorInsertBar({
   return (
     <div
       data-editor-insert-bar=""
-      className="formatting-rail editor-insert-bar flex items-center gap-px"
+      className="editor-insert-bar flex items-center gap-px"
     >
       <EditorInsertControls
         editor={editor}
@@ -665,9 +686,11 @@ function LinkEditor({
     // The dialog shells whitelist Escape aimed at this layer so it closes the
     // link editor instead of the dialog (dialog-shell.tsx).
     <div className="flex w-full items-center gap-1" data-editor-link-edit="">
-      <input
+      <Input
         ref={inputRef}
-        className="rail-link-input"
+        // The SearchField's `sm` rung, shrunk to the width of a URL: the rail
+        // is a 32px strip, so the stock 36px field would not fit in it.
+        className="h-7 w-48 max-w-[60vw] px-2 text-xs md:text-xs"
         value={url}
         placeholder="https://…"
         aria-label="Link URL"
@@ -684,10 +707,10 @@ function LinkEditor({
         }}
       />
       <RailButton label="Apply link" onClick={apply}>
-        <CheckIcon className="size-3.5" />
+        <CheckIcon />
       </RailButton>
       <RailButton label="Cancel link" onClick={onDone}>
-        <CloseIcon className="size-3.5" />
+        <CloseIcon />
       </RailButton>
     </div>
   )

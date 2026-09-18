@@ -395,9 +395,13 @@ describe(`a circle is the primary action, a rounded square is a picker (EXP-771/
     expect(circle).not.toContain(`rounded-md`)
 
     const ghost = islandBody(`ghost-icon-button`)
-    expect(occurrences(ghost, `data-variant="ghost" data-size="icon-sm"`)).toBe(3)
+    expect(occurrences(ghost, `data-variant="ghost" data-size="icon-sm"`)).toBe(4)
     expect(ghost).not.toContain(`data-variant="glass"`)
     expect(ghost).toContain(`rounded-md`)
+    // EXP-960: the fourth is the toggle held down — `aria-pressed` is the
+    // pressed state, and the ghost variant paints it.
+    expect(occurrences(ghost, `aria-pressed="true"`)).toBe(1)
+    expect(ghost).toContain(`aria-pressed:bg-accent`)
 
     expect(spec(`ghost-icon-button`).blurb).toContain(`SECONDARY`)
     expect(spec(`icon-button`).blurb).toContain(`ghost icon button`)
