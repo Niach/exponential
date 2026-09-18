@@ -24,6 +24,12 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
+
+// EXP-971: the result rows are ONE flat list on both shells — full width,
+// a hairline between rows, no inset card — and the row under the keyboard
+// cursor or the pointer keeps the primitive's highlight, so the phone sheet
+// and the desktop dialog read as the same list.
+const FLAT_ROWS = `**:data-[slot=command-group]:p-0 **:data-[slot=command-item]:rounded-none **:data-[slot=command-item]:border-b **:data-[slot=command-item]:border-border/30 **:data-[slot=command-item]:px-4 **:data-[slot=command-item]:py-3`
 const SearchGlyph = conceptIcon(`nav-search`)
 
 interface IssueSearchSheetProps {
@@ -200,7 +206,7 @@ export function IssueSearchSheet({
   }
 
   // The list is the whole body; the shell caps its height, so the primitive's
-  // own 18.75rem cap comes off.
+  // own 18.75rem cap comes off. The rows wear FLAT_ROWS on both shells.
   const list = (className?: string, searchable = true) => (
     <ComboboxList
       options={options}
@@ -258,13 +264,7 @@ export function IssueSearchSheet({
               className="rounded-full text-base"
             />
           </div>
-          {/* The rows are the page's own flat list (the pre-EXP-958 form):
-              full width, a hairline between rows, no card and no highlight
-              box — a touch list has no keyboard cursor to show. */}
-          {list(
-            `**:data-[slot=command-group]:p-0 **:data-[slot=command-item]:rounded-none **:data-[slot=command-item]:border-b **:data-[slot=command-item]:border-border/30 **:data-[slot=command-item]:px-4 **:data-[slot=command-item]:py-3 **:data-[slot=command-item]:data-[selected=true]:bg-transparent **:data-[slot=command-item]:active:bg-accent/70`,
-            false
-          )}
+          {list(FLAT_ROWS, false)}
         </SheetContent>
       </Sheet>
     )
@@ -279,7 +279,7 @@ export function IssueSearchSheet({
       >
         <DialogTitle className="sr-only">Search issues</DialogTitle>
         {list(
-          `**:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50`
+          `${FLAT_ROWS} **:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50`
         )}
       </DialogContent>
     </Dialog>
