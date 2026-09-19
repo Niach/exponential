@@ -261,6 +261,11 @@ struct Pass {
     /// Session ids whose run this process does NOT host (another device, or
     /// a run this app did not launch) — they can only be reported on.
     session_is_local: HashSet<String>,
+    /// EXP-983: the node pairs worth a `git merge-tree` this beat.
+    candidates: Vec<(String, String)>,
+    /// EXP-983: `node id → its head branch`, for the collision test and for
+    /// naming a conflicting pair.
+    branch_of: HashMap<String, String>,
 }
 
 /// One node the pass decided to start — executed on the foreground, where
@@ -269,6 +274,12 @@ struct StartOrder {
     workflow_id: String,
     workflow_name: String,
     decisions: String,
+    /// EXP-983: the workflow's start mode and the issues this node builds
+    /// on — the two extra prompt lines.
+    start_on: String,
+    blockers: Vec<String>,
+    /// The branch this node is cut from: the integration branch, a blocker's
+    /// own branch, or a synthetic base of several (EXP-983).
     integration_branch: String,
     node_id: String,
     issue_id: String,
@@ -335,7 +346,15 @@ fn snapshot_for(
             continue; // a pre-EXP-981 row: nothing to base on
         };
         let launch = api::workflows::from_row(workflow).launch;
+        let engine_state = workflows::read_states(&settings_path, &device_id)
+            .get(&workflow.id)
+            .cloned()
+            .unwrap_or_default();
         let mut nodes = Vec::new();
+        // EXP-983: the identifier names a node's synthetic base, and the
+        // branches + globs feed the collision pre-filter.
+        let mut identifier: HashMap<String, String> = HashMap::new();
+        let mut git_nodes: Vec<workflows::NodeGit> = Vec::new();
         let mut issue_of_node = HashMap::new();
         let mut members_of_node = HashMap::new();
         let mut issues: HashMap<String, IssueFacts> = HashMap::new();
@@ -352,8 +371,20 @@ fn snapshot_for(
                 continue;
             };
             let members = node.member_ids();
+            // A plain node's head is its issue's branch; a COMPOUND one runs
+            // as a batch, whose branch only the session row knows.
+            let mut branch = None;
             if let Some(issue) = issue_rows.get(&issue_id) {
                 board_id.get_or_insert_with(|| issue.board_id.clone());
+                identifier.insert(node.id.clone(), issue.identifier.clone());
+                // The issue's branch is stamped when its PR opens; before
+                // that a started run is already pushing to the launcher's
+                // conventional name (which the tips then confirm).
+                branch = issue.branch.clone().or_else(|| {
+                    node.session_id
+                        .is_some()
+                        .then(|| workflows::conventional_branch(&issue.identifier))
+                });
                 issues.insert(
                     issue_id.clone(),
                     IssueFacts {
@@ -364,13 +395,27 @@ fn snapshot_for(
             if let Some(session_id) = node.session_id.as_deref() {
                 if let Some(row) = session_rows.get(session_id) {
                     sessions_facts.insert(session_id.to_string(), session_facts(row));
+                    if !members.is_empty() {
+                        branch = row.branch.clone().or(branch);
+                    }
                 }
                 if let Some(live) = local.session_for_id(session_id) {
                     engines.insert(session_id.to_string(), live.host.session.clone());
                     session_is_local.insert(session_id.to_string());
                 }
             }
-            edge_nodes.push((node.id.clone(), issue_id.clone(), members.clone()));
+            git_nodes.push(workflows::NodeGit {
+                id: node.id.clone(),
+                branch: branch.clone(),
+                touches: node.touches.clone(),
+                state: node.state_wire().to_string(),
+            });
+            edge_nodes.push((
+                node.id.clone(),
+                issue_id.clone(),
+                members.clone(),
+                node.after_ids(),
+            ));
             issue_of_node.insert(node.id.clone(), issue_id.clone());
             members_of_node.insert(node.id.clone(), members.clone());
             nodes.push(NodeFacts {
@@ -384,16 +429,21 @@ fn snapshot_for(
                 session_id: node.session_id.clone(),
                 attempt: node.attempt.unwrap_or(0),
                 approved_at: node.approved_at.clone(),
+                checkpoint_at: node.checkpoint_at.clone(),
+                base_branch: node.base_branch.clone(),
+                after_node_ids: node.after_ids(),
+                branch,
             });
         }
         if nodes.is_empty() {
             continue;
         }
         let edges = workflow_edges(&edge_nodes, relation_rows.iter());
-        let nudged = workflows::read_states(&settings_path, &device_id)
-            .get(&workflow.id)
-            .map(|state| state.nudged.clone())
-            .unwrap_or_default();
+        let candidates = workflows::conflict_candidates(&git_nodes, &edges);
+        let branch_of: HashMap<String, String> = git_nodes
+            .iter()
+            .filter_map(|node| Some((node.id.clone(), node.branch.clone()?)))
+            .collect();
         passes.push(Pass {
             trpc: Arc::clone(&trpc),
             settings_path: settings_path.clone(),
@@ -419,6 +469,10 @@ fn snapshot_for(
                     integration_branch,
                     final_pr_url: workflow.final_pr_url.clone(),
                     max_parallel: workflow.max_parallel(),
+                    start_on: workflow
+                        .start_on
+                        .clone()
+                        .unwrap_or_else(|| workflows::START_ON_LANDED.to_string()),
                 },
                 nodes,
                 edges,
@@ -429,13 +483,22 @@ fn snapshot_for(
                 integration_branch_exists: false,
                 in_flight: claimed.clone(),
                 final_pr_in_flight: final_claimed.contains(&workflow.id),
-                nudged,
+                nudged: engine_state.nudged.clone(),
+                // EXP-983: the git facts are filled on the background pass,
+                // where the clone and the token live.
+                tips: HashMap::new(),
+                propagated: engine_state.propagated.clone(),
+                synthetic: engine_state.synthetic.clone(),
+                conflicts: HashSet::new(),
+                identifier,
                 now_ms,
             },
             issue_of_node,
             members_of_node,
             engines,
             session_is_local,
+            candidates,
+            branch_of,
         });
     }
     Some(passes)
@@ -444,15 +507,18 @@ fn snapshot_for(
 /// The `blocks` edges between a workflow's nodes — the ONE rule, shared with
 /// every client's graph ([`domain::workflow_view::workflow_edges`]).
 fn workflow_edges<'a>(
-    nodes: &[(String, String, Vec<String>)],
+    nodes: &[(String, String, Vec<String>, Vec<String>)],
     relations: impl Iterator<Item = &'a domain::rows::IssueRelation>,
 ) -> Vec<(String, String)> {
     let edge_nodes: Vec<domain::workflow_view::EdgeNode<'_>> = nodes
         .iter()
-        .map(|(id, issue_id, members)| domain::workflow_view::EdgeNode {
+        .map(|(id, issue_id, members, after)| domain::workflow_view::EdgeNode {
             id,
             issue_id,
             member_issue_ids: members.iter().map(String::as_str).collect(),
+            // EXP-983: a serialization edge blocks the same way a `blocks`
+            // relation does — the engine's own ordering, honoured here.
+            after_node_ids: after.iter().map(String::as_str).collect(),
         })
         .collect();
     let edge_relations: Vec<domain::workflow_view::EdgeRelation<'_>> = relations
@@ -525,10 +591,38 @@ fn run_pass(
             }
         }
     }
+    // EXP-983: what moved and what collides — one ls-remote per repository
+    // per beat, plus the merge-tree tests a quiet beat does not need.
+    let repo = engine_repo(&pass);
+    if let Some(repo) = repo.as_ref() {
+        snapshot.tips = git_tips(repo);
+        let mut cache = read_state(&pass, &workflow_id).conflicts;
+        snapshot.conflicts = workflows::detect_conflicts(
+            &repo.clone_path,
+            &pass.candidates,
+            &pass.branch_of,
+            &snapshot.tips,
+            &mut cache,
+            Some(&repo.url),
+        );
+        workflows::prune_conflict_cache(
+            &mut cache,
+            &pass.candidates,
+            &pass.branch_of,
+            &snapshot.tips,
+        );
+        update_state(&pass, &workflow_id, |state| state.conflicts = cache.clone());
+    }
+    // Unconditional: a beat that could not read the remote has no branches
+    // to speculate on at all, which leaves those nodes blocked.
+    workflows::confine_branches_to_tips(&mut snapshot);
 
     let decisions = workflows::evaluate(&snapshot);
     let mut starts = Vec::new();
     let mut resumes: Vec<ResumeOrder> = Vec::new();
+    // A base this pass could NOT put up. Nothing may be cut from it: the
+    // node waits for the next beat rather than starting on a wrong base.
+    let mut unbuilt: HashSet<String> = HashSet::new();
     for decision in decisions {
         match decision {
             // Already done above — the engine still emits it when the host
@@ -546,7 +640,30 @@ fn run_pass(
                 };
                 report_node(&pass.trpc, &report);
             }
-            Decision::StartNode { node_id, attempt } => {
+            // EXP-983: the synthetic base a speculative start needs, built
+            // (or merged forward) in the engine's own scratch worktree.
+            Decision::BuildBase {
+                node_id,
+                base_branch,
+                sources,
+            } => {
+                let Some(repo) = repo.as_ref() else {
+                    unbuilt.insert(base_branch);
+                    continue;
+                };
+                if !build_base(&pass, repo, &workflow_id, &node_id, &base_branch, &sources) {
+                    unbuilt.insert(base_branch);
+                }
+            }
+            Decision::StartNode {
+                node_id,
+                attempt,
+                base_branch,
+            } => {
+                // The base did not go up this pass: never cut from it.
+                if unbuilt.contains(&base_branch) {
+                    continue;
+                }
                 let Some(issue_id) = pass.issue_of_node.get(&node_id).cloned() else {
                     continue;
                 };
@@ -578,16 +695,23 @@ fn run_pass(
                 // next pass re-decides, never a silent double start.
                 let mut report = api::workflows::NodeReport::new(&node_id, "running");
                 report.attempt = Some(attempt);
-                report.base_branch = api::patch::Patch::Set(branch.clone());
+                report.base_branch = api::patch::Patch::Set(base_branch.clone());
                 report.note = api::patch::Patch::Null;
                 if !report_node(&pass.trpc, &report) {
                     continue;
+                }
+                // EXP-983: the run is cut AT this tip, so it already has it —
+                // recording that is what keeps the first beat quiet.
+                if let Some(sha) = snapshot.tips.get(&base_branch).cloned() {
+                    remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
                 }
                 starts.push(StartOrder {
                     workflow_id: workflow_id.clone(),
                     workflow_name: pass.name.clone(),
                     decisions: pass.decisions.clone(),
-                    integration_branch: branch.clone(),
+                    start_on: snapshot.workflow.start_on.clone(),
+                    blockers: blocker_identifiers(&snapshot, &node_id),
+                    integration_branch: base_branch,
                     node_id,
                     issue_id,
                     member_issue_ids: members,
@@ -602,6 +726,46 @@ fn run_pass(
                     continue;
                 };
                 land(&pass, &node_id, &branch, claim, &mut resumes);
+            }
+            // EXP-983: the branch under a run moved. A live run takes the
+            // text where it stands; an ended one is resumed with it.
+            Decision::MergeUpstream {
+                node_id,
+                session_id,
+                base_branch,
+                sha,
+            } => {
+                let note = match repo.as_ref() {
+                    Some(repo) => movement_note(repo, &pass, &snapshot, &node_id, &base_branch, &sha),
+                    None => sha.clone(),
+                };
+                let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
+                remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
+                if let Some(engine) = pass.engines.get(&session_id) {
+                    engine.steer(text);
+                    continue;
+                }
+                if pass.session_is_local.contains(&session_id) {
+                    continue; // a live run this app hosts but cannot reach
+                }
+                resumes.push(ResumeOrder {
+                    session_id,
+                    prompt: text,
+                    in_flight: None,
+                });
+            }
+            // EXP-983: the collision the engine decided to serialize. The
+            // state rides along unchanged — `reportNode` always takes one.
+            Decision::SetSerialEdge { node_id, after } => {
+                let state = snapshot
+                    .nodes
+                    .iter()
+                    .find(|node| node.id == node_id)
+                    .map(|node| node.state.clone())
+                    .unwrap_or_else(|| "running".to_string());
+                let mut report = api::workflows::NodeReport::new(&node_id, state);
+                report.after_node_ids = Some(after);
+                report_node(&pass.trpc, &report);
             }
             Decision::Nudge {
                 session_id,
@@ -646,6 +810,34 @@ fn run_pass(
                     Err(err) => log::warn!("[workflows] {workflow_id}: delete {branch} — {err}"),
                 }
             }
+            // EXP-983: a synthetic base nothing builds on any more.
+            Decision::DeleteBase { base_branch } => {
+                let Some(repo) = repo.as_ref() else {
+                    continue;
+                };
+                if read_state(&pass, &workflow_id)
+                    .bases_deleted
+                    .contains(&base_branch)
+                {
+                    continue;
+                }
+                match workflows::delete_remote_branch(
+                    &repo.clone_path,
+                    &base_branch,
+                    Some(&repo.url),
+                ) {
+                    Ok(()) => {
+                        log::info!("[workflows] {workflow_id}: deleted {base_branch}");
+                        update_state(&pass, &workflow_id, |state| {
+                            state.bases_deleted.insert(base_branch.clone());
+                            state.synthetic.remove(&base_branch);
+                        });
+                    }
+                    Err(err) => {
+                        log::warn!("[workflows] {workflow_id}: delete {base_branch} — {err}")
+                    }
+                }
+            }
         }
     }
     // A conflicted node whose run ENDED needs the foreground to relaunch it.
@@ -666,6 +858,174 @@ fn ensure_branch(
         return Err("the workflow's repository is gone".to_string());
     };
     workflows::ensure_integration_branch(trpc, repos_root, repository_id, board_id, branch)
+}
+
+/// The engine's clone of the workflow's repository, with a JIT token on it —
+/// EXP-983's git half runs entirely inside it.
+struct EngineRepo {
+    clone_path: PathBuf,
+    url: coding::git_worktree::TokenUrl,
+}
+
+fn engine_repo(pass: &Pass) -> Option<EngineRepo> {
+    let repository_id = pass.repository_id.as_deref()?;
+    match workflows::engine_clone(
+        &pass.trpc,
+        &pass.repos_root,
+        repository_id,
+        pass.board_id.as_deref(),
+        &pass.snapshot.workflow.integration_branch,
+    ) {
+        Ok((clone_path, url, _)) => Some(EngineRepo { clone_path, url }),
+        Err(err) => {
+            log::warn!("[workflows] the engine clone is unavailable: {err}");
+            None
+        }
+    }
+}
+
+/// `git ls-remote` for every `exp/*` branch — the ONE view of what moved.
+fn git_tips(repo: &EngineRepo) -> HashMap<String, String> {
+    match workflows::remote_tips(&repo.clone_path, workflows::TIPS_PATTERN, Some(&repo.url)) {
+        Ok(tips) => tips,
+        Err(err) => {
+            log::warn!("[workflows] ls-remote failed: {err}");
+            HashMap::new()
+        }
+    }
+}
+
+/// Build (or refresh) one node's synthetic base, answering whether the base
+/// is now UP. A CONFLICT is not an error: nothing is pushed, the node waits,
+/// and the engine serializes the two blockers on the next pass.
+fn build_base(
+    pass: &Pass,
+    repo: &EngineRepo,
+    workflow_id: &str,
+    node_id: &str,
+    base_branch: &str,
+    sources: &[String],
+) -> bool {
+    let workspace = workflows::engine_worktree(&repo.clone_path, workflow_id);
+    match workflows::build_base(
+        &repo.clone_path,
+        &workspace,
+        base_branch,
+        &pass.snapshot.workflow.integration_branch,
+        sources,
+        Some(&repo.url),
+    ) {
+        Ok(workflows::BaseOutcome::Built(built)) => {
+            log::info!("[workflows] {workflow_id}: built {base_branch}");
+            update_state(pass, workflow_id, |state| {
+                state.synthetic.insert(base_branch.to_string(), built.clone());
+                state.bases_deleted.remove(base_branch);
+            });
+            true
+        }
+        Ok(workflows::BaseOutcome::Conflict { left, right }) => {
+            let mut report = api::workflows::NodeReport::new(node_id, "waiting");
+            report.note = api::patch::Patch::Set(one_line(&conflicting_blockers_note(
+                pass, &left, &right,
+            )));
+            report_node(&pass.trpc, &report);
+            false
+        }
+        Err(err) => {
+            log::warn!("[workflows] {workflow_id}: base {base_branch} — {err}");
+            false
+        }
+    }
+}
+
+/// Why a node is waiting when its blockers cannot both be merged in.
+fn conflicting_blockers_note(pass: &Pass, left: &str, right: &str) -> String {
+    let name = |branch: &str| {
+        pass.branch_of
+            .iter()
+            .find(|(_, candidate)| candidate.as_str() == branch)
+            .and_then(|(node_id, _)| pass.snapshot.identifier.get(node_id).cloned())
+            .unwrap_or_else(|| branch.to_string())
+    };
+    format!(
+        "Its blockers {} and {} conflict; one has to merge the other in",
+        name(left),
+        name(right)
+    )
+}
+
+/// The identifiers of the issues one node builds on — the prompt's
+/// "You build on the work of …" line.
+fn blocker_identifiers(snapshot: &Snapshot, node_id: &str) -> Vec<String> {
+    let mut names: Vec<String> = snapshot
+        .edges
+        .iter()
+        .filter(|(_, to)| to == node_id)
+        .filter_map(|(from, _)| snapshot.identifier.get(from).cloned())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The note a moved branch carries: the host's own summary of the range
+/// between what the node was last told and where the branch is now.
+fn movement_note(
+    repo: &EngineRepo,
+    pass: &Pass,
+    snapshot: &Snapshot,
+    node_id: &str,
+    base_branch: &str,
+    sha: &str,
+) -> String {
+    let from = snapshot
+        .propagated
+        .get(node_id)
+        .and_then(|branches| branches.get(base_branch).cloned())
+        .or_else(|| {
+            // Never told anything yet: what the node's OWN branch is missing.
+            pass.branch_of
+                .get(node_id)
+                .map(|branch| format!("refs/remotes/origin/{branch}"))
+        });
+    match from {
+        Some(from) => {
+            workflows::movement_note(&repo.clone_path, &from, sha, Some(&repo.url))
+        }
+        None => sha.to_string(),
+    }
+}
+
+fn read_state(pass: &Pass, workflow_id: &str) -> workflows::WorkflowState {
+    workflows::read_states(&pass.settings_path, &pass.device_id)
+        .get(workflow_id)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Read-modify-write one workflow's persisted engine state.
+fn update_state(pass: &Pass, workflow_id: &str, edit: impl FnOnce(&mut workflows::WorkflowState)) {
+    let mut states = workflows::read_states(&pass.settings_path, &pass.device_id);
+    edit(states.entry(workflow_id.to_string()).or_default());
+    if let Err(err) = workflows::write_states(&pass.settings_path, &pass.device_id, &states) {
+        log::warn!("[workflows] state write failed: {err}");
+    }
+}
+
+fn remember_propagated(
+    pass: &Pass,
+    workflow_id: &str,
+    node_id: &str,
+    branch: &str,
+    sha: &str,
+) {
+    update_state(pass, workflow_id, |state| {
+        state
+            .propagated
+            .entry(node_id.to_string())
+            .or_default()
+            .insert(branch.to_string(), sha.to_string());
+    });
 }
 
 fn report_node(trpc: &api::TrpcClient, report: &api::workflows::NodeReport) -> bool {
@@ -701,6 +1061,16 @@ fn land(
     };
     if outcome.merged {
         log::info!("[workflows] landed {node_id}");
+        // EXP-983: the dependents the server just retargeted onto the
+        // integration branch. Their `base_branch` moved with them, so the
+        // NEXT pass tells them to merge it in (rule 4, keyed by its tip) —
+        // the level-triggered path, and the only one that cannot double up.
+        if !outcome.retargeted.is_empty() {
+            log::info!(
+                "[workflows] retargeted onto {branch}: {}",
+                outcome.retargeted.join(", ")
+            );
+        }
         return;
     }
     if outcome.is_waiting() {
@@ -812,6 +1182,8 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         workflow_id,
         workflow_name,
         decisions,
+        start_on,
+        blockers,
         integration_branch,
         node_id,
         issue_id,
@@ -825,6 +1197,8 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         workflow_id: workflow_id.clone(),
         name: workflow_name,
         decisions,
+        start_on,
+        blockers,
     };
     // A compound node is ONE batch run over its parent plus its members;
     // a plain node is an ordinary issue run. Both cut from the integration

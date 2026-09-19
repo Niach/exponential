@@ -34,11 +34,12 @@ use gpui_component::{
 use sync::Store;
 
 use domain::workflow_view::{
-    workflow_cycle_note, workflow_final_pr_caption, workflow_merge_train, workflow_node_caption,
-    workflow_node_needs_approval, workflow_node_title, workflow_node_tone, workflow_shape_line,
-    workflow_start_blocker, workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation,
-    StartableWorkflow, TrainNode, WorkflowNodeTone, APPROVE_NODE_LABEL, CANCEL_WORKFLOW_CONFIRM,
-    CANCEL_WORKFLOW_LABEL, DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE, MERGE_TRAIN_EMPTY,
+    workflow_cycle_note, workflow_edge_style, workflow_final_pr_caption, workflow_merge_train,
+    workflow_node_caption, workflow_node_needs_approval, workflow_node_title, workflow_node_tone,
+    workflow_shape_line, workflow_start_blocker, workflow_train_step_label, CaptionNode, EdgeNode,
+    EdgeRelation, StartableWorkflow, TrainNode, WorkflowNodeTone, APPROVE_NODE_LABEL,
+    CANCEL_WORKFLOW_CONFIRM, CANCEL_WORKFLOW_LABEL, CONTRACT_PUBLISHED_LABEL,
+    DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE, MERGES_IN_FIRST_LABEL, MERGE_TRAIN_EMPTY,
     MERGE_TRAIN_TITLE, OPEN_RUN_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL,
     RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, SKIP_NODE_CONFIRM, SKIP_NODE_LABEL,
     START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
@@ -208,6 +209,7 @@ impl WorkflowView {
             return Vec::new();
         };
         let members: Vec<Vec<String>> = nodes.iter().map(|node| node.member_ids()).collect();
+        let after: Vec<Vec<String>> = nodes.iter().map(|node| node.after_ids()).collect();
         let edge_nodes: Vec<EdgeNode<'_>> = nodes
             .iter()
             .enumerate()
@@ -216,6 +218,9 @@ impl WorkflowView {
                     id: node.id.as_str(),
                     issue_id: node.issue_id.as_deref()?,
                     member_issue_ids: members[index].iter().map(String::as_str).collect(),
+                    // EXP-983: the engine's serialization edges join the
+                    // `blocks` ones, drawn dashed.
+                    after_node_ids: after[index].iter().map(String::as_str).collect(),
                 })
             })
             .collect();
@@ -228,20 +233,23 @@ impl WorkflowView {
                 related_issue_id: &relation.related_issue_id,
             })
             .collect();
-        // EXP-982: an edge out of a LANDED node is green — the graph then
-        // shows how far the merge train got, not just where the runs are.
-        let landed: std::collections::HashSet<&str> = nodes
+        // EXP-983: the line SAYS something — green once the blocker landed,
+        // red when upstream moved under a dependent, dashed while a
+        // dependent is running on work that has not landed.
+        let state_of: HashMap<&str, &str> = nodes
             .iter()
-            .filter(|node| node.state_wire() == "landed")
-            .map(|node| node.id.as_str())
+            .map(|node| (node.id.as_str(), node.state_wire()))
             .collect();
         domain::workflow_view::workflow_edges(&edge_nodes, &edge_relations, &row.cycle_edges())
             .into_iter()
             .map(|edge| GridEdge {
-                landed: landed.contains(edge.from.as_str()),
+                style: workflow_edge_style(
+                    &edge,
+                    state_of.get(edge.from.as_str()).copied().unwrap_or_default(),
+                    state_of.get(edge.to.as_str()).copied().unwrap_or_default(),
+                ),
                 from: edge.from,
                 to: edge.to,
-                cycle: edge.cycle,
             })
             .collect()
     }
@@ -369,6 +377,16 @@ impl WorkflowView {
             .iter()
             .map(|member| issue_chip_for(member, cx))
             .collect();
+        // EXP-983: the serialization edges, as the issue chips of the nodes
+        // this one merges in first.
+        let merges_first: Vec<gpui::AnyElement> = node
+            .after_ids()
+            .iter()
+            .filter_map(|after| {
+                let target = nodes.iter().find(|candidate| &candidate.id == after)?;
+                Some(issue_chip_for(target.issue_id.as_deref()?, cx))
+            })
+            .collect();
         let touches: Vec<gpui::AnyElement> = node
             .touches
             .iter()
@@ -398,6 +416,30 @@ impl WorkflowView {
                 )
                 .when(!members.is_empty(), |this| {
                     this.child(v_flex().min_w_0().gap_1().children(members))
+                })
+                // EXP-983: the contract this node announced, and the
+                // siblings it has to merge in before it can land.
+                .when_some(contract_published_line(node), |this, line| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(line)),
+                    )
+                })
+                .when(!merges_first.is_empty(), |this| {
+                    this.child(
+                        v_flex()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(SharedString::from(MERGES_IN_FIRST_LABEL)),
+                            )
+                            .children(merges_first),
+                    )
                 })
                 .child(crate::surface::glass_group_rows(vec![
                     pick_row(
@@ -948,6 +990,18 @@ fn node_gate_actions(
     actions
 }
 
+/// EXP-983 — `Contract published · 12m`, once the node's run announced one
+/// (`exponential_workflows_checkpoint`). `None` while it has not.
+fn contract_published_line(node: &domain::rows::WorkflowNodeRow) -> Option<String> {
+    let at = node.checkpoint_at.as_deref()?;
+    let relative = crate::inbox::relative_time(at);
+    Some(if relative.is_empty() {
+        CONTRACT_PUBLISHED_LABEL.to_string()
+    } else {
+        format!("{CONTRACT_PUBLISHED_LABEL} · {relative}")
+    })
+}
+
 /// Why Start is disabled, or `None` when the draft can go — the ONE rule
 /// ([`workflow_start_blocker`]), which the server refuses with verbatim.
 fn start_blocker(
@@ -959,10 +1013,12 @@ fn start_blocker(
             status: row.status_wire(),
             device_id: row.device_id.as_deref(),
             repository_id: row.repository_id.as_deref(),
+            // The column is NOT NULL DEFAULT `contract` server-side; every
+            // mode starts since EXP-983, so this never blocks either way.
             start_on: row
                 .start_on
                 .as_deref()
-                .unwrap_or(domain::contract::WF_START_ON_LANDED),
+                .unwrap_or(domain::contract::WF_START_ON_CONTRACT),
         },
         shape,
     )
@@ -1584,4 +1640,42 @@ fn spawn_delete(workflow_id: String, window: &mut Window, cx: &mut App) {
         });
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node_row(checkpoint_at: Option<&str>) -> domain::rows::WorkflowNodeRow {
+        serde_json::from_value(serde_json::json!({
+            "id": "n-1",
+            "workflow_id": "wf-1",
+            "issue_id": "i-1",
+            "checkpoint_at": checkpoint_at,
+            "after_node_ids": r#"["n-2","n-3"]"#,
+        }))
+        .expect("the row hydrates")
+    }
+
+    /// EXP-983 — the node panel's contract line: the shipped label with the
+    /// platform's relative time, and the bare label when the stamp cannot be
+    /// read. A node that never announced one has no line at all.
+    #[test]
+    fn the_contract_line_carries_the_label_and_a_relative_time() {
+        assert_eq!(contract_published_line(&node_row(None)), None);
+        assert_eq!(
+            contract_published_line(&node_row(Some("not a date"))).as_deref(),
+            Some(CONTRACT_PUBLISHED_LABEL)
+        );
+        let line = contract_published_line(&node_row(Some("2026-09-19T10:00:00.000Z")))
+            .expect("a stamp reads");
+        assert!(line.starts_with(&format!("{CONTRACT_PUBLISHED_LABEL} · ")), "{line}");
+    }
+
+    /// The serialization edges the panel lists as chips come off the row's
+    /// jsonb array, TEXT-stored and re-parsed.
+    #[test]
+    fn the_serialization_targets_come_off_the_row() {
+        assert_eq!(node_row(None).after_ids(), vec!["n-2", "n-3"]);
+    }
 }

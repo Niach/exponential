@@ -142,11 +142,19 @@ public enum WorkflowView {
         public let id: String
         public let issueId: String
         public let memberIssueIds: [String]
+        /// EXP-983: engine-written serialization edges (`after_node_ids`).
+        public let afterNodeIds: [String]
 
-        public init(id: String, issueId: String, memberIssueIds: [String]) {
+        public init(
+            id: String,
+            issueId: String,
+            memberIssueIds: [String],
+            afterNodeIds: [String] = []
+        ) {
             self.id = id
             self.issueId = issueId
             self.memberIssueIds = memberIssueIds
+            self.afterNodeIds = afterNodeIds
         }
     }
 
@@ -168,11 +176,15 @@ public enum WorkflowView {
         public let to: String
         /// Inside a blocking cycle (`metrics.cycleEdges`): drawn red.
         public let cycle: Bool
+        /// EXP-983: not a `blocks` relation but a SERIALIZATION edge the engine
+        /// added after two siblings' work collided: `to` merges `from` in first.
+        public let serial: Bool
 
-        public init(from: String, to: String, cycle: Bool) {
+        public init(from: String, to: String, cycle: Bool, serial: Bool = false) {
             self.from = from
             self.to = to
             self.cycle = cycle
+            self.serial = serial
         }
     }
 
@@ -205,6 +217,17 @@ public enum WorkflowView {
             seen.insert(key)
             edges.append(Edge(from: from, to: to, cycle: onCycle.contains(key)))
         }
+        // Serialization edges, unless a real edge already joins the pair.
+        let known = Set(nodes.map(\.id))
+        for node in nodes {
+            for from in node.afterNodeIds {
+                guard known.contains(from), from != node.id else { continue }
+                let key = "\(from)\n\(node.id)"
+                if seen.contains(key) { continue }
+                seen.insert(key)
+                edges.append(Edge(from: from, to: node.id, cycle: false, serial: true))
+            }
+        }
         return edges.sorted { ($0.from, $0.to) < ($1.from, $1.to) }
     }
 
@@ -217,7 +240,12 @@ public enum WorkflowView {
     ) -> [Edge] {
         edges(
             nodes: nodes.map {
-                EdgeNode(id: $0.id, issueId: $0.issueId, memberIssueIds: $0.memberIssueIds)
+                EdgeNode(
+                    id: $0.id,
+                    issueId: $0.issueId,
+                    memberIssueIds: $0.memberIssueIds,
+                    afterNodeIds: $0.afterNodeIds
+                )
             },
             relations: relations.map {
                 EdgeRelation(
@@ -269,9 +297,6 @@ public enum WorkflowView {
         if let cycle = cycleNote(metrics) { return cycle }
         if workflow.repositoryId == nil { return "The workflow's repository is gone." }
         if workflow.deviceId == nil { return "Pick the device that runs this workflow first." }
-        if workflow.startOn != DomainContract.wfStartOnLanded {
-            return "Only \"When landed\" starts are available yet."
-        }
         return nil
     }
 
@@ -413,4 +438,44 @@ public enum WorkflowView {
         if status == DomainContract.wfStatusCancelled { return "Cancelled · \(shape)" }
         return shape
     }
+
+    // MARK: - Speculative starts (EXP-983)
+
+    /// How an edge is drawn. Grey solid is the default; the others say
+    /// something.
+    public enum EdgeStyle: String, Sendable {
+        case plain
+        case cycle
+        case stale
+        case landed
+        case speculative
+    }
+
+    /// A dependent in one of these started before its blocker landed.
+    private static let startedStates: Set<String> = [
+        DomainContract.wfNodeStateRunning,
+        DomainContract.wfNodeStateWaiting,
+        DomainContract.wfNodeStateInReview,
+        DomainContract.wfNodeStateUpdating,
+    ]
+
+    /// - `cycle` (red): inside a blocking cycle.
+    /// - `stale` (red): upstream moved and the dependent is merging it in (`to`
+    ///   is `updating`).
+    /// - `landed` (green): the blocker landed.
+    /// - `speculative` (dashed): the dependent started before its blocker
+    ///   landed, or the edge is a serialization edge.
+    /// - `plain` (grey): nothing to say yet.
+    public static func edgeStyle(
+        _ edge: Edge, fromState: String, toState: String
+    ) -> EdgeStyle {
+        if edge.cycle { return .cycle }
+        if fromState == DomainContract.wfNodeStateLanded { return .landed }
+        if toState == DomainContract.wfNodeStateUpdating { return .stale }
+        if edge.serial || startedStates.contains(toState) { return .speculative }
+        return .plain
+    }
+
+    /// The node panel's line once a node announced its contract.
+    public static let contractPublishedLabel = "Contract published"
 }

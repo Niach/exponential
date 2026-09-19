@@ -75,6 +75,7 @@ import com.exponential.app.ui.components.subagentModelLabel
 import com.exponential.app.ui.components.subagentModelOptions
 import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
@@ -745,6 +746,52 @@ private fun WorkflowNodeSheet(
                         .padding(horizontal = 16.dp)
                         .testTag("workflow-node-sheet-note"),
                 )
+            }
+            // EXP-983: the stamp a dependent of this node starts on when the
+            // workflow starts `on contract` — the node has said what it will
+            // build, long before its PR is up.
+            node.checkpointAt?.takeIf { it.isNotBlank() }?.let { stamp ->
+                Text(
+                    "${WorkflowView.CONTRACT_PUBLISHED_LABEL} · ${relativeTime(stamp)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .testTag("workflow-node-checkpoint"),
+                )
+            }
+            // EXP-983: the engine's serialization edges — two siblings' work
+            // collided, so this node merges theirs in before it pushes.
+            if (node.afterNodeIds.isNotEmpty()) {
+                Text(
+                    "Merges in first",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier
+                        .padding(start = 16.dp, end = 16.dp, top = 6.dp)
+                        .testTag("workflow-node-serial"),
+                )
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    node.afterNodeIds.forEach { nodeId ->
+                        val from = graph.nodes.firstOrNull { it.id == nodeId } ?: return@forEach
+                        val issue = graph.issuesById[from.issueId] ?: return@forEach
+                        IssueChip(
+                            identifier = WorkflowView.nodeTitle(
+                                issue.identifier,
+                                from.memberIssueIds.size,
+                            ),
+                            title = issue.title,
+                            status = null,
+                            onClick = { onOpenIssue(issue.id) },
+                        )
+                    }
+                }
             }
             // A compound node names the sub-issues it runs as one batch.
             if (node.memberIssueIds.isNotEmpty()) {

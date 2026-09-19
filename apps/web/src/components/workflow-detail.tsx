@@ -45,6 +45,7 @@ import {
   effortLabel,
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
+import { relativeTime } from "@/components/comment-rows/format"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
@@ -75,6 +76,7 @@ import {
   APPROVE_NODE_LABEL,
   CANCEL_WORKFLOW_CONFIRM,
   CANCEL_WORKFLOW_LABEL,
+  CONTRACT_PUBLISHED_LABEL,
   DELETE_WORKFLOW_LABEL,
   MERGE_TRAIN_EMPTY,
   MERGE_TRAIN_TITLE,
@@ -98,6 +100,10 @@ import {
 // read-only the moment the workflow leaves draft, the merge train under the
 // graph says what lands next, and the node panel carries the two things only a
 // person can do: approve a PR for the train, and unstick a failed node.
+//
+// EXP-983: every start rule runs, so the Start picker no longer holds a draft
+// back, and the node panel says the two things a speculative start adds — the
+// contract this node published, and the sibling work it merges in first.
 
 const WorkflowIcon = conceptIcon(`nav-workflows`)
 const DeleteIcon = conceptIcon(`ui-delete`)
@@ -122,6 +128,8 @@ const RISK_LABELS: Record<string, string> = {
   medium: `Medium`,
   high: `High`,
 }
+/** EXP-983: the node panel's serialization line. Byte-identical ×4. */
+const MERGES_IN_FIRST_LABEL = `Merges in first`
 
 /** The four status-only mutations, and what to say when one is refused. */
 type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
@@ -227,6 +235,7 @@ export function WorkflowDetail({
     <WorkflowNodePanel
       workflowId={workflow.id}
       node={selectedNode}
+      nodes={nodes}
       issueById={issueById}
       teamSlug={teamSlug}
       gate={workflow.gate}
@@ -774,6 +783,7 @@ function HowItRunsSection({
 export function WorkflowNodePanel({
   workflowId,
   node,
+  nodes,
   issueById,
   teamSlug,
   gate,
@@ -783,6 +793,9 @@ export function WorkflowNodePanel({
 }: {
   workflowId: string
   node: WorkflowNode
+  /** Every node of the workflow: `afterNodeIds` names NODES, and the panel
+   *  shows the issues behind them. */
+  nodes: readonly WorkflowNode[]
   issueById: ReadonlyMap<string, Issue>
   teamSlug: string
   /** The workflow's `gate` — with the node's kind it decides whether landing
@@ -801,6 +814,24 @@ export function WorkflowNodePanel({
   const boardSlug = issue
     ? boards.find((board) => board.id === issue.boardId)?.slug
     : undefined
+  // EXP-983: the nodes this one merges in first — the engine wrote them after
+  // its work collided with theirs. A node whose issue has not synced is left
+  // out rather than drawn as a uuid.
+  const mergesFirst = node.afterNodeIds
+    .map((id) => nodes.find((candidate) => candidate.id === id))
+    .map((candidate) => {
+      const row = candidate ? issueById.get(candidate.issueId) : undefined
+      return row && candidate
+        ? {
+            ...row,
+            identifier: workflowNodeTitle(
+              row.identifier,
+              candidate.memberIssueIds.length
+            ),
+          }
+        : undefined
+    })
+    .filter((row): row is Issue => Boolean(row))
 
   const updateNode = async (patch: { kind?: WfNodeKind; risk?: WfRisk }) => {
     onError(null)
@@ -867,6 +898,28 @@ export function WorkflowNodePanel({
           {members.map((member) => (
             <IssueChip key={member.id} issue={member} preview={false} />
           ))}
+        </div>
+      )}
+      {/* EXP-983: the node announced its contract, so its dependents may
+          already be building on it. */}
+      {node.checkpointAt && (
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="workflow-node-checkpoint"
+        >
+          {`${CONTRACT_PUBLISHED_LABEL} ${relativeTime(node.checkpointAt)}`}
+        </p>
+      )}
+      {mergesFirst.length > 0 && (
+        <div className="flex flex-col gap-1.5" data-testid="workflow-node-merges-first">
+          <span className="text-xs text-muted-foreground">
+            {MERGES_IN_FIRST_LABEL}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {mergesFirst.map((row) => (
+              <IssueChip key={row.id} issue={row} preview={false} />
+            ))}
+          </div>
         </div>
       )}
       {/* Why the node is failed or waiting, in the engine's own words. */}

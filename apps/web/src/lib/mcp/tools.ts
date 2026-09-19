@@ -173,6 +173,7 @@ import {
   loadSessionDepths,
   loadSubtreeSessionIds,
   notifyParentOfChildEnd,
+  oneLine,
   PARENT_LIVE_STATUSES,
 } from "@/lib/steer-child-messages"
 import { err, ok } from "./helpers"
@@ -4653,6 +4654,91 @@ export function registerExponentialTools(
       }
     )
   }
+
+  // EXP-983: the two tools a workflow NODE's own run uses. Both resolve the
+  // node from the calling session (`X-Exp-Session-Id`), so they take no ids an
+  // agent could get wrong.
+  server.registerTool(
+    `exponential_workflows_checkpoint`,
+    {
+      description: `Workflow node runs only: announce that your CONTRACT is pushed (the types, interfaces, stubs and tests others build against). Push first, then call this once; runs that depend on you may start now, so do not break what you announced.`,
+      inputSchema: strictInput({ summary: z.string().max(2000).optional() }),
+    },
+    async ({ summary }) => {
+      try {
+        const node = sessionId ? await loadWorkflowNodeForSession(sessionId) : null
+        if (!node) return err(new Error(`This run is not a workflow node.`))
+        await db
+          .update(workflowNodes)
+          .set({ checkpointAt: new Date(), ...(summary ? { note: summary.slice(0, 500) } : {}) })
+          .where(and(eq(workflowNodes.id, node.nodeId), isNull(workflowNodes.checkpointAt)))
+        return ok({ ok: true })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_workflows_request_upstream`,
+    {
+      description: `Workflow node runs only: ask the run of an issue that BLOCKS yours to change what it gave you (a missing field, a wrong signature). It lands in that run's channel; go on with what you can. You may reject upstream work, but never settle an interface dispute between two runs: if it refuses or has ended, escalate with exponential_sessions_ask_parent.`,
+      inputSchema: strictInput({
+        issueId: z.string().min(1),
+        message: z.string().min(1).max(4_000),
+      }),
+    },
+    async ({ issueId: issueIdInput, message }) => {
+      try {
+        const node = sessionId ? await loadWorkflowNodeForSession(sessionId) : null
+        if (!node) return err(new Error(`This run is not a workflow node.`))
+        const upstreamIssueId = await resolveIssueId(issueIdInput, user.id, access)
+        const { loadWorkflowEdges } = await import(`@/lib/workflows`)
+        const graph = await loadWorkflowEdges(db, node.workflowId)
+        const upstream = graph.nodes.find(
+          (row) =>
+            row.issueId === upstreamIssueId ||
+            row.memberIssueIds.includes(upstreamIssueId)
+        )
+        const direct =
+          upstream &&
+          graph.edges.some(([from, to]) => from === upstream.id && to === node.nodeId)
+        if (!upstream || !direct) {
+          return err(new Error(`That issue does not directly block this node.`))
+        }
+        const escalate = `Its run is not live. Escalate with exponential_sessions_ask_parent (with a Proposal: line) or work around it and say so in your summary.`
+        const [target] = await db
+          .select({ sessionId: workflowNodes.sessionId, status: codingSessions.status })
+          .from(workflowNodes)
+          .leftJoin(codingSessions, eq(codingSessions.id, workflowNodes.sessionId))
+          .where(eq(workflowNodes.id, upstream.id))
+          .limit(1)
+        if (
+          !target?.sessionId ||
+          (target.status !== `running` && target.status !== `in_review`)
+        ) {
+          return ok({ delivered: false, note: escalate })
+        }
+        const config = getSteerRelayConfig()
+        if (!config) return ok({ delivered: false, note: escalate })
+        const from = (await loadChildParentContext(db, sessionId!))?.issueIdentifier
+        const result = await relayPostInput(
+          config,
+          target.sessionId,
+          oneLine(
+            `[Exponential workflow: request from the run of ${from ?? `a dependent node`}, which builds on your work] ${message}`
+          )
+        )
+        return ok(
+          result.delivered
+            ? { delivered: true, note: `Delivered. Go on with what you can; the change arrives as a new upstream push.` }
+            : { delivered: false, note: escalate }
+        )
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
 
   server.registerTool(
     `exponential_workflows_update`,

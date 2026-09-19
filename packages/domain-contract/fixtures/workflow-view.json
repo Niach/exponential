@@ -227,17 +227,70 @@
         {
           "from": "n1",
           "to": "n2",
-          "cycle": false
+          "cycle": false,
+          "serial": false
         },
         {
           "from": "n2",
           "to": "n3",
-          "cycle": true
+          "cycle": true,
+          "serial": false
         },
         {
           "from": "n3",
           "to": "n2",
-          "cycle": true
+          "cycle": true,
+          "serial": false
+        }
+      ]
+    },
+    {
+      "name": "serialization edges join the blocks edges unless the pair already has one",
+      "nodes": [
+        {
+          "id": "n1",
+          "issueId": "a",
+          "memberIssueIds": []
+        },
+        {
+          "id": "n2",
+          "issueId": "b",
+          "memberIssueIds": [],
+          "afterNodeIds": [
+            "n1",
+            "ghost",
+            "n2"
+          ]
+        },
+        {
+          "id": "n3",
+          "issueId": "c",
+          "memberIssueIds": [],
+          "afterNodeIds": [
+            "n1"
+          ]
+        }
+      ],
+      "relations": [
+        {
+          "type": "blocks",
+          "issueId": "a",
+          "relatedIssueId": "c"
+        }
+      ],
+      "cycleEdges": [],
+      "expected": [
+        {
+          "from": "n1",
+          "to": "n2",
+          "cycle": false,
+          "serial": true
+        },
+        {
+          "from": "n1",
+          "to": "n3",
+          "cycle": false,
+          "serial": false
         }
       ]
     }
@@ -351,7 +404,7 @@
         "width": 2,
         "cycles": []
       },
-      "blocker": "Only \"When landed\" starts are available yet."
+      "blocker": null
     }
   ],
   "trains": [
@@ -556,6 +609,71 @@
         "cycles": []
       },
       "subtitle": "3 nodes · depth 2 · width 2"
+    }
+  ],
+  "edgeStyles": [
+    {
+      "edge": {
+        "cycle": true,
+        "serial": false
+      },
+      "fromState": "landed",
+      "toState": "running",
+      "style": "cycle"
+    },
+    {
+      "edge": {
+        "cycle": false,
+        "serial": false
+      },
+      "fromState": "landed",
+      "toState": "updating",
+      "style": "landed"
+    },
+    {
+      "edge": {
+        "cycle": false,
+        "serial": false
+      },
+      "fromState": "in_review",
+      "toState": "updating",
+      "style": "stale"
+    },
+    {
+      "edge": {
+        "cycle": false,
+        "serial": false
+      },
+      "fromState": "running",
+      "toState": "running",
+      "style": "speculative"
+    },
+    {
+      "edge": {
+        "cycle": false,
+        "serial": true
+      },
+      "fromState": "blocked",
+      "toState": "blocked",
+      "style": "speculative"
+    },
+    {
+      "edge": {
+        "cycle": false,
+        "serial": false
+      },
+      "fromState": "running",
+      "toState": "blocked",
+      "style": "plain"
+    },
+    {
+      "edge": {
+        "cycle": false,
+        "serial": false
+      },
+      "fromState": "blocked",
+      "toState": "ready",
+      "style": "plain"
     }
   ]
 }

@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-19-workflows-speculative",
+    date: "2026-09-19",
+    title: "Workflows start dependents early and keep them in step",
+    summary: "Dependent runs start as soon as their blockers publish a contract, upstream changes are merged in automatically, and colliding siblings are put in order.",
+    body: r#"- **Start on contract**: with the default start mode a node pushes its contract first (types, stubs and tests) and announces it; everything that depends on it starts right away instead of waiting for the whole pull request. On PR open and When landed stay available as the careful settings.
+- **Branches shaped like the graph**: a node with one open blocker builds on that blocker's branch, a node with several builds on a merge of them that the engine prepares, so every pull request shows only its own work.
+- **Upstream moved**: when a blocker pushes again, its dependents are told between turns to merge the change in, with a short note of what changed. Nothing is ever rebased or force-pushed, and a real conflict has exactly one owner.
+- **Collisions become order**: when two parallel nodes touch the same code, the later one merges the other in first and the graph shows a dashed edge between them.
+- **Edges tell you more**: dashed means a dependent started early, red means upstream moved and the dependent is catching up, green means landed.
+- **Landing**: pull requests still land strictly in dependency order, and a dependent whose last blocker landed moves its pull request onto the workflow branch by itself.
+- **Asking upstream**: a run can ask the run it builds on to change what it handed over; a disagreement about an interface always comes to you."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-workflows-run",
     date: "2026-09-19",
     title: "Workflows run: parallel coding runs with a merge train",
@@ -55,20 +71,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Final pull request**: once everything landed, one pull request from the workflow's branch to your default branch carries the whole diff, lists every node and names a few at random to audit in full. Your issues move to done when that pull request merges, not before.
 - **When a run needs you**: a node that waits for an answer or hit a rate limit turns amber, the only amber state, and resumes on its own after a reset. A run's question must come with a proposal you can answer with yes or no, the same question is asked once per workflow, and every decision is kept and given to the runs that start later.
 - **Stuck nodes**: a node whose run ended without a pull request is retried once, then marked failed with Retry and Skip."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-19-workflows-drafts",
-    date: "2026-09-19",
-    title: "Workflows: plan a set of issues as one parallel run",
-    summary: "Select backlog issues, create a workflow, and see them as a dependency graph your agent can plan; plus a subagent model option for every Claude run.",
-    body: r#"- **Workflows**: a new Workflows entry (on phones: a button on the Agent page) lists your team's workflows in Running, Draft and Done. A workflow is a set of backlog issues of one repository drawn as a graph: what blocks what runs left to right in waves, a parent with its sub-issues is one stacked card, and a loop shows in red with the issues named.
-- **Create workflow**: the Start coding button of a selection is now a menu: Start as batch, Start as stack, or Create workflow.
-- **Plan**: the Plan button lets your agent shape a draft. It files one contract issue everything builds against, keeps your issues as parallel leaves, adds an integration issue at the end, and marks risk and the files each issue will touch.
-- **How it runs**: each draft keeps its runner device, agent, model, effort, account, how many runs may go at once, the review gate and when dependents start. Running a workflow arrives with the next update.
-- **Subagent model**: every Claude run can now pick the model its subagents use, next to Model and Effort, and the choice is remembered per device."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

@@ -554,6 +554,19 @@ data class WorkflowNodeEntity(
     // EXP-982: the human (or agent) gate's stamp — a node with an open PR only
     // joins the merge train once this is set. NULL = still waiting on a person.
     @ColumnInfo(name = "approved_at") @SerialName("approved_at") @JsonNames("approvedAt") val approvedAt: String? = null,
+    // EXP-983: when the node announced its contract. A dependent whose
+    // workflow starts `on contract` waits for exactly this stamp; NULL = the
+    // node has published nothing yet.
+    @ColumnInfo(name = "checkpoint_at") @SerialName("checkpoint_at") @JsonNames("checkpointAt") val checkpointAt: String? = null,
+    // EXP-983: the engine's SERIALIZATION edges — the nodes whose work this one
+    // merges in first after two siblings collided. A jsonb string[] read as
+    // tolerantly as every other id list (a native array, the Postgres literal
+    // or the JSON text); anything else is EMPTY rather than a dropped row.
+    @ColumnInfo(name = "after_node_ids")
+    @SerialName("after_node_ids")
+    @JsonNames("afterNodeIds")
+    @Serializable(with = PgUuidArraySerializer::class)
+    val afterNodeIds: List<String> = emptyList(),
     // EXP-982: why the node is `failed` / `waiting`, in the engine's own words.
     val note: String? = null,
     @Serializable(with = JsonAsStringSerializer::class) val budget: String? = null,

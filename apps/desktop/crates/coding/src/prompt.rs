@@ -236,10 +236,16 @@ pub struct WorkflowPromptArgs<'a> {
     /// `workflows.id` — the id the agent records its decisions against.
     pub workflow_id: &'a str,
     pub name: &'a str,
-    /// The integration branch this node's branch was cut from.
+    /// The branch this node's branch was cut from: the integration branch,
+    /// or (EXP-983) a blocker's branch / a synthetic base of several.
     pub base_branch: &'a str,
     /// `workflows.decisions` as synced; blank renders "None yet.".
     pub decisions: &'a str,
+    /// contract `wfStartOn` — only `contract` asks the run to announce one.
+    pub start_on: &'a str,
+    /// EXP-983: the identifiers of the issues this node builds on, in the
+    /// order the engine lists them. Empty for a root node.
+    pub blockers: &'a [String],
 }
 
 /// EXP-982 — the `## Workflow` section every node run of a workflow carries,
@@ -253,10 +259,33 @@ pub fn workflow_section(args: &WorkflowPromptArgs<'_>) -> String {
         name,
         base_branch,
         decisions,
+        start_on,
+        blockers,
     } = *args;
     let decisions = match decisions.trim() {
         "" => "None yet.",
         text => text,
+    };
+    // EXP-983 — the two speculative bullets: only a `contract` workflow asks
+    // for an announcement, and only a node with blockers builds on anyone.
+    let contract = if start_on == "contract" {
+        "\n- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and push \
+the types, interfaces, stubs, contract tests and acceptance tests others build against, then call \
+exponential_workflows_checkpoint. After that, do not break what you announced; if you must, say so \
+in your summary."
+    } else {
+        ""
+    };
+    let upstream = if blockers.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n- You build on the work of {}. If what they gave you is wrong or missing something, \
+ask with exponential_workflows_request_upstream (their issue, your message). You may reject their \
+output, but an interface dispute is never settled between two runs: escalate it with \
+exponential_sessions_ask_parent.",
+            blockers.join(", ")
+        )
     };
     format!(
         "## Workflow node
@@ -275,11 +304,21 @@ exponential_issues_create and mention it in your summary.
 who started the workflow and MUST contain a line starting with `Proposal:` that they can answer \
 with yes or no. After the answer arrives, record what was decided with exponential_workflows_update \
 (id `{workflow_id}`, decision) so no sibling asks again.
-- Finish with exponential_sessions_end once your pull request is open.
+- Finish with exponential_sessions_end once your pull request is open.{contract}{upstream}
 
 Decisions so far:
 {decisions}
 "
+    )
+}
+
+/// EXP-983 — what a run is told when the branch under it moved. The NOTE is
+/// the host's own `git log`/`git diff --stat` summary of the range: the
+/// agent never spends a token working out what changed.
+pub fn upstream_moved_prompt(base_branch: &str, note: &str) -> String {
+    format!(
+        "Upstream moved: {note}. Run git fetch origin and git merge origin/{base_branch}, resolve \
+any conflict, run the tests you touched, and push."
     )
 }
 
@@ -432,6 +471,8 @@ mod tests {
             name: "Login rework",
             base_branch: "exp/wf-abcdef12",
             decisions,
+            start_on: "landed",
+            blockers: &[],
         }
     }
 
@@ -468,6 +509,52 @@ Decisions so far:
         // A fresh workflow says so rather than trailing an empty heading.
         assert!(workflow_section(&workflow_args("   "))
             .ends_with("Decisions so far:\nNone yet.\n"));
+    }
+
+    /// EXP-983 — the two speculative bullets, byte for byte: the contract
+    /// announcement (only under `start_on: contract`) and who this node
+    /// builds on. A root node of a `landed` workflow gets neither.
+    #[test]
+    fn the_speculative_bullets_read_exactly() {
+        let blockers = ["EXP-1".to_string(), "EXP-2".to_string()];
+        let rendered = workflow_section(&WorkflowPromptArgs {
+            workflow_id: "wf-1",
+            name: "Login rework",
+            base_branch: "exp/wf-abcdef12-base-EXP-3",
+            decisions: "",
+            start_on: "contract",
+            blockers: &blockers,
+        });
+        assert!(rendered.contains(
+            "- Dependents start as soon as your CONTRACT is pushed. Do this FIRST: commit and \
+push the types, interfaces, stubs, contract tests and acceptance tests others build against, \
+then call exponential_workflows_checkpoint. After that, do not break what you announced; if you \
+must, say so in your summary.\n"
+        ));
+        assert!(rendered.contains(
+            "- You build on the work of EXP-1, EXP-2. If what they gave you is wrong or missing \
+something, ask with exponential_workflows_request_upstream (their issue, your message). You may \
+reject their output, but an interface dispute is never settled between two runs: escalate it with \
+exponential_sessions_ask_parent.\n"
+        ));
+        // The bullets stay bullets: the decisions log still ends the section.
+        assert!(rendered.ends_with("Decisions so far:\nNone yet.\n"));
+
+        // Neither line exists without a reason for it.
+        let plain = workflow_section(&workflow_args(""));
+        assert!(!plain.contains("exponential_workflows_checkpoint"));
+        assert!(!plain.contains("exponential_workflows_request_upstream"));
+    }
+
+    /// EXP-983 — what a run is told when its base moved: the host's own
+    /// summary of the range, then the exact git it should run.
+    #[test]
+    fn the_upstream_prompt_names_the_branch_and_the_change() {
+        assert_eq!(
+            upstream_moved_prompt("exp/EXP-1", "a1b2c3 add the token parser"),
+            "Upstream moved: a1b2c3 add the token parser. Run git fetch origin and git merge \
+origin/exp/EXP-1, resolve any conflict, run the tests you touched, and push."
+        );
     }
 
     /// The section is appended, never woven in: without a workflow every

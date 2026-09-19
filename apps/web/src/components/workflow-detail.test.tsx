@@ -5,6 +5,7 @@ import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import {
   APPROVE_NODE_LABEL,
   CANCEL_WORKFLOW_LABEL,
+  CONTRACT_PUBLISHED_LABEL,
   DELETE_WORKFLOW_LABEL,
   MERGE_TRAIN_EMPTY,
   PAUSE_WORKFLOW_LABEL,
@@ -25,6 +26,10 @@ import {
 // EXP-982: the same page once the workflow RUNS — the header's actions follow
 // the status, the merge train says what lands next, the final-PR node closes
 // the graph, and the node panel carries approve/withdraw and retry/skip.
+//
+// EXP-983: an edge is drawn by its STYLE (`workflowEdgeStyle`), a serialization
+// edge dashed on top of it, and the panel says what a speculative start added:
+// the published contract, and the nodes this one merges in first.
 
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
 const graphState = vi.hoisted(() => ({
@@ -132,6 +137,8 @@ const node = (
     touches: [],
     sessionId: null,
     approvedAt: null,
+    checkpointAt: null,
+    afterNodeIds: [],
     note: null,
     ...over,
   }) as unknown as WorkflowNode
@@ -154,12 +161,13 @@ const workflow = (over: Partial<SyncedWorkflow> = {}): SyncedWorkflow =>
     ...over,
   }) as unknown as SyncedWorkflow
 
-/** A draft with nothing left in the way of Start (`workflowStartBlocker`). */
+/** A draft with nothing left in the way of Start (`workflowStartBlocker`).
+ *  EXP-983: the start rule is NOT one of those things any more — the default
+ *  `contract` starts exactly like `landed` does. */
 const startable = (over: Partial<SyncedWorkflow> = {}): Partial<SyncedWorkflow> =>
   ({
     repositoryId: `r1`,
     deviceId: `dev-1`,
-    startOn: `landed`,
     ...over,
   }) as Partial<SyncedWorkflow>
 
@@ -326,12 +334,19 @@ describe(`WorkflowDetail run actions`, () => {
     )
   })
 
-  it(`starts a ready draft`, async () => {
+  // EXP-983: all three start rules run, so none of them holds Start back.
+  it(`starts a ready draft on every start rule`, async () => {
     reset()
+    for (const startOn of [`contract`, `pr_open`, `landed`] as const) {
+      const view = mount(startable({ startOn }))
+      const button = screen.getByTestId(`workflow-start`) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+      expect(screen.queryByTestId(`workflow-start-blocker`)).toBeNull()
+      view.unmount()
+    }
     mount(startable())
     const start = screen.getByTestId(`workflow-start`) as HTMLButtonElement
     expect(start.disabled).toBe(false)
-    expect(screen.queryByTestId(`workflow-start-blocker`)).toBeNull()
     fireEvent.click(start)
     await vi.waitFor(() =>
       expect(runMutates.start).toHaveBeenCalledWith(
@@ -446,11 +461,89 @@ describe(`WorkflowDetail running graph`, () => {
       { type: `blocks`, issueId: `i-n1`, relatedIssueId: `i-n2` },
     ]
     mount({ ...startable(), status: `running` })
-    expect(screen.getAllByTestId(`workflow-graph-done-edge`)).toHaveLength(1)
+    expect(screen.getAllByTestId(`workflow-graph-landed-edge`)).toHaveLength(1)
     expect(screen.queryByTestId(`workflow-graph-edge`)).toBeNull()
     expect(screen.getByTestId(`workflow-node-n2-caption`).textContent).toBe(
       `Running`
     )
+  })
+
+  // EXP-983: one edge per style, each of them its own test id and
+  // `data-style`; only the speculative one is dashed.
+  it(`draws every edge style, the speculative one dashed`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `landed` }),
+      node(`n2`, { wave: 1, lane: 0, state: `running` }),
+      node(`n3`, { wave: 1, lane: 1, state: `blocked` }),
+      node(`n4`, { wave: 2, lane: 0, state: `updating` }),
+      node(`n5`, { wave: 2, lane: 1, state: `blocked` }),
+    ]
+    graphState.issues = [
+      issue(`i-n1`, `APP-1`),
+      issue(`i-n2`, `APP-2`),
+      issue(`i-n3`, `APP-3`),
+      issue(`i-n4`, `APP-4`),
+      issue(`i-n5`, `APP-5`),
+    ]
+    graphState.relations = [
+      // landed → running: the blocker is in.
+      { type: `blocks`, issueId: `i-n1`, relatedIssueId: `i-n2` },
+      // blocked → running: the dependent started before its blocker landed.
+      { type: `blocks`, issueId: `i-n3`, relatedIssueId: `i-n2` },
+      // running → updating: the upstream moved, the dependent merges it in.
+      { type: `blocks`, issueId: `i-n2`, relatedIssueId: `i-n4` },
+      // blocked → blocked: nothing to say yet.
+      { type: `blocks`, issueId: `i-n3`, relatedIssueId: `i-n5` },
+    ]
+    mount({ ...startable(), status: `running` })
+    const edge = (name: string) => screen.getByTestId(name)
+    expect(edge(`workflow-graph-landed-edge`).getAttribute(`data-style`)).toBe(
+      `landed`
+    )
+    expect(edge(`workflow-graph-stale-edge`).getAttribute(`data-style`)).toBe(
+      `stale`
+    )
+    expect(edge(`workflow-graph-edge`).getAttribute(`data-style`)).toBe(`plain`)
+    // Only the speculative edge is dashed.
+    expect(
+      edge(`workflow-graph-speculative-edge`).getAttribute(`stroke-dasharray`)
+    ).toBeTruthy()
+    for (const name of [
+      `workflow-graph-edge`,
+      `workflow-graph-landed-edge`,
+      `workflow-graph-stale-edge`,
+    ]) {
+      expect(edge(name).getAttribute(`stroke-dasharray`)).toBeNull()
+    }
+  })
+
+  it(`draws a serialization edge dashed beside the blocks edges`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `in_review` }),
+      node(`n2`, { wave: 0, lane: 1, state: `running`, afterNodeIds: [`n1`] }),
+    ]
+    graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
+    // No `blocks` relation at all: the engine serialized two SIBLINGS.
+    graphState.relations = []
+    mount({ ...startable(), status: `running` })
+    const edge = screen.getByTestId(`workflow-graph-speculative-edge`)
+    expect(edge.getAttribute(`stroke-dasharray`)).toBeTruthy()
+    expect(screen.queryByTestId(`workflow-graph-edge`)).toBeNull()
+  })
+
+  it(`keeps a plain edge plain on a draft`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0 }),
+      node(`n2`, { wave: 1, lane: 0 }),
+    ]
+    graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
+    graphState.relations = [
+      { type: `blocks`, issueId: `i-n1`, relatedIssueId: `i-n2` },
+    ]
+    mount(startable())
+    const edge = screen.getByTestId(`workflow-graph-edge`)
+    expect(edge.getAttribute(`data-style`)).toBe(`plain`)
+    expect(edge.getAttribute(`stroke-dasharray`)).toBeNull()
   })
 
   it(`lists the merge train in landing order`, () => {
@@ -626,6 +719,54 @@ describe(`WorkflowDetail node panel actions`, () => {
     open({ state: `in_review`, sessionId: `s-1` })
     expect(screen.getByTestId(`workflow-node-run`).textContent).toBe(`Open run`)
     expect(screen.getByTestId(`workflow-node-pr`).textContent).toBe(`PR #7`)
+  })
+
+  // EXP-983: what a speculative start adds to the panel.
+  it(`says when the node published its contract`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    const published = open({
+      state: `running`,
+      checkpointAt: new Date(Date.now() - 5 * 60_000),
+    })
+    const line = screen.getByTestId(`workflow-node-checkpoint`).textContent
+    expect(line).toContain(CONTRACT_PUBLISHED_LABEL)
+    expect(line).toContain(`5 minutes ago`)
+    published.unmount()
+
+    open({ state: `running` })
+    expect(screen.queryByTestId(`workflow-node-checkpoint`)).toBeNull()
+  })
+
+  it(`lists the nodes a serialized node merges in first`, () => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `running`, afterNodeIds: [`n2`] }),
+      node(`n2`, {
+        wave: 0,
+        lane: 1,
+        state: `in_review`,
+        memberIssueIds: [`i-m`],
+      }),
+    ]
+    graphState.issues = [
+      issue(`i-n1`, `APP-1`),
+      issue(`i-n2`, `APP-2`),
+      issue(`i-m`, `APP-9`),
+    ]
+    graphState.relations = []
+    const serialized = mount({ ...startable(), status: `running` })
+    fireEvent.click(screen.getByTestId(`workflow-node-n1-card`))
+    const line = screen.getByTestId(`workflow-node-merges-first`)
+    expect(line.textContent).toContain(`Merges in first`)
+    // A compound node is named the way it is everywhere else.
+    expect(line.textContent).toContain(`APP-2 +1`)
+    serialized.unmount()
+
+    // The other node merges nothing in, so it has no line at all.
+    nodeRows.rows = [node(`n1`, { state: `running` })]
+    mount({ ...startable(), status: `running` })
+    fireEvent.click(screen.getByTestId(`workflow-node-n1-card`))
+    expect(screen.queryByTestId(`workflow-node-merges-first`)).toBeNull()
   })
 
   it(`offers no run or PR link on a node that has neither`, () => {

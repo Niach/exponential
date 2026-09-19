@@ -110,9 +110,17 @@ val WorkflowNodeEntity.trainNode: WorkflowView.TrainNode
         approvedAt = approvedAt,
     )
 
-/** A node as the edge rule sees it (its issue plus a compound's members). */
+/**
+ * A node as the edge rule sees it (its issue plus a compound's members, and
+ * the serialization edges the engine wrote onto it, EXP-983).
+ */
 val WorkflowNodeEntity.edgeNode: WorkflowView.EdgeNode
-    get() = WorkflowView.EdgeNode(id = id, issueId = issueId, memberIssueIds = memberIssueIds)
+    get() = WorkflowView.EdgeNode(
+        id = id,
+        issueId = issueId,
+        memberIssueIds = memberIssueIds,
+        afterNodeIds = afterNodeIds,
+    )
 
 /** Every issue this node covers — its representative first. */
 val WorkflowNodeEntity.coveredIssueIds: List<String> get() = listOf(issueId) + memberIssueIds

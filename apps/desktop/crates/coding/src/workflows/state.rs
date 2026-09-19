@@ -7,7 +7,11 @@
 //!   "<deviceId>": {
 //!     "<workflowId>": {
 //!       "nudged": ["<sessionId><resetsAtMs>"],
-//!       "branchDeleted": true
+//!       "branchDeleted": true,
+//!       "propagated": { "<nodeId>": { "<branch>": "<sha>" } },
+//!       "synthetic": { "<baseBranch>": [["<branch>", "<sha>"]] },
+//!       "conflicts": { "<nodeA>|<nodeB>|<shaA>|<shaB>": true },
+//!       "basesDeleted": ["<baseBranch>"]
 //!     }
 //!   }
 //! }
@@ -17,7 +21,10 @@
 //! not survive a crash (a restart re-evaluates and re-decides from the
 //! synced rows, which is the whole point of a level-triggered engine). What
 //! persists is only what must happen AT MOST ONCE across restarts: a nudge
-//! already sent, and a branch already deleted.
+//! already sent, a branch already deleted, a movement already announced
+//! (EXP-983 `propagated`) and what a synthetic base was last built from
+//! (`synthetic`). `conflicts` is a pure CACHE of merge-tree verdicts per tip
+//! pair — losing it only costs one git call.
 //!
 //! `Settings::save`'s merge-preserve keeps the key; it must never enter
 //! `DEAD_KEYS`. [`write_states`] replaces the device's WHOLE map, so deleted
@@ -42,6 +49,28 @@ pub struct WorkflowState {
     pub nudged: HashSet<(String, i64)>,
     /// The cancel sweep already dropped the integration branch.
     pub branch_deleted: bool,
+    /// EXP-983: `node id → branch → the tip that node was last TOLD to
+    /// merge`, so one movement is announced exactly once.
+    pub propagated: HashMap<String, HashMap<String, String>>,
+    /// EXP-983: `synthetic base → the (branch, sha) pairs it was built
+    /// from`. A difference is what makes the next pass refresh it.
+    pub synthetic: HashMap<String, Vec<(String, String)>>,
+    /// EXP-983: cached `git merge-tree` verdicts, keyed by the two nodes and
+    /// the two tips they were tested at.
+    pub conflicts: HashMap<String, bool>,
+    /// EXP-983: synthetic bases this device already dropped.
+    pub bases_deleted: HashSet<String>,
+}
+
+/// The conflict cache's key: the pair and the tips it was decided at, both
+/// orders folded into one so `(a, b)` and `(b, a)` share a verdict.
+pub fn conflict_key(left: (&str, &str), right: (&str, &str)) -> String {
+    let (first, second) = if left.0 <= right.0 {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    format!("{}|{}|{}|{}", first.0, second.0, first.1, second.1)
 }
 
 /// Read `device_id`'s whole state map. Missing/corrupt file or key → empty,
@@ -74,10 +103,86 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                         .get("branchDeleted")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
+                    propagated: read_propagated(entry.get("propagated")),
+                    synthetic: read_synthetic(entry.get("synthetic")),
+                    conflicts: entry
+                        .get("conflicts")
+                        .and_then(Value::as_object)
+                        .map(|rows| {
+                            rows.iter()
+                                .filter_map(|(key, value)| {
+                                    Some((key.clone(), value.as_bool()?))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    bases_deleted: entry
+                        .get("basesDeleted")
+                        .and_then(Value::as_array)
+                        .map(|keys| {
+                            keys.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 },
             )
         })
         .collect()
+}
+
+/// `node id → branch → sha`; anything malformed is dropped rather than
+/// poisoning the map (the worst case is one repeated instruction).
+fn read_propagated(value: Option<&Value>) -> HashMap<String, HashMap<String, String>> {
+    value
+        .and_then(Value::as_object)
+        .map(|nodes| {
+            nodes
+                .iter()
+                .filter_map(|(node_id, branches)| {
+                    let branches = branches.as_object()?;
+                    Some((
+                        node_id.clone(),
+                        branches
+                            .iter()
+                            .filter_map(|(branch, sha)| {
+                                Some((branch.clone(), sha.as_str()?.to_string()))
+                            })
+                            .collect(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `synthetic base → [[branch, sha]]`.
+fn read_synthetic(value: Option<&Value>) -> HashMap<String, Vec<(String, String)>> {
+    value
+        .and_then(Value::as_object)
+        .map(|bases| {
+            bases
+                .iter()
+                .filter_map(|(base, sources)| {
+                    let sources = sources.as_array()?;
+                    Some((
+                        base.clone(),
+                        sources
+                            .iter()
+                            .filter_map(|pair| {
+                                let pair = pair.as_array()?;
+                                Some((
+                                    pair.first()?.as_str()?.to_string(),
+                                    pair.get(1)?.as_str()?.to_string(),
+                                ))
+                            })
+                            .collect(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Write `device_id`'s state map, read-modify-write on the raw JSON so every
@@ -101,11 +206,17 @@ pub fn write_states(
             .map(|(session_id, resets_at)| format!("{session_id}{NUDGE_SEP}{resets_at}"))
             .collect();
         nudged.sort();
+        let mut bases_deleted: Vec<String> = state.bases_deleted.iter().cloned().collect();
+        bases_deleted.sort();
         entries.insert(
             workflow_id.clone(),
             serde_json::json!({
                 "nudged": nudged,
                 "branchDeleted": state.branch_deleted,
+                "propagated": state.propagated,
+                "synthetic": state.synthetic,
+                "conflicts": state.conflicts,
+                "basesDeleted": bases_deleted,
             }),
         );
     }
@@ -166,6 +277,7 @@ mod tests {
         WorkflowState {
             nudged: [(session_id.to_string(), resets_at)].into_iter().collect(),
             branch_deleted: deleted,
+            ..WorkflowState::default()
         }
     }
 
@@ -213,6 +325,56 @@ mod tests {
             [("wf-1".to_string(), state("s-1", 1, false))].into();
         write_states(&path, "d", &states).unwrap();
         assert_eq!(read_states(&path, "d"), states);
+    }
+
+    /// EXP-983 — the speculative bookkeeping round-trips whole, and a
+    /// malformed half is dropped rather than losing the rest.
+    #[test]
+    fn the_speculative_state_round_trips() {
+        let dir = temp_dir("speculative");
+        let path = dir.0.join("settings.json");
+        let mut mine = WorkflowState::default();
+        mine.propagated.insert(
+            "node-1".to_string(),
+            [("exp/EXP-1".to_string(), "sha-a2".to_string())].into(),
+        );
+        mine.synthetic.insert(
+            "exp/wf-abcdef12-base-EXP-3".to_string(),
+            vec![
+                ("exp/EXP-1".to_string(), "sha-a2".to_string()),
+                ("exp/wf-abcdef12".to_string(), "sha-i1".to_string()),
+            ],
+        );
+        mine.conflicts.insert(
+            conflict_key(("node-1", "sha-a2"), ("node-2", "sha-b1")),
+            true,
+        );
+        mine.bases_deleted
+            .insert("exp/wf-abcdef12-base-EXP-9".to_string());
+        let states: HashMap<String, WorkflowState> = [("wf-1".to_string(), mine.clone())].into();
+        write_states(&path, "d", &states).unwrap();
+        assert_eq!(read_states(&path, "d")["wf-1"], mine);
+
+        // The pair's key folds both orders into one verdict.
+        assert_eq!(
+            conflict_key(("node-1", "sha-a2"), ("node-2", "sha-b1")),
+            conflict_key(("node-2", "sha-b1"), ("node-1", "sha-a2"))
+        );
+
+        // A half that is not shaped the way it was written simply reads
+        // empty: the engine then re-announces or re-tests, never crashes.
+        let raw = serde_json::json!({
+            "workflowEngine": { "d": { "wf-1": {
+                "propagated": { "node-1": "not-a-map" },
+                "synthetic": { "base": [["only-one"]] },
+                "conflicts": { "k": "not-a-bool" },
+            } } }
+        });
+        std::fs::write(&path, raw.to_string()).unwrap();
+        let read = read_states(&path, "d");
+        assert!(read["wf-1"].propagated.is_empty());
+        assert_eq!(read["wf-1"].synthetic["base"], Vec::new());
+        assert!(read["wf-1"].conflicts.is_empty());
     }
 
     /// A malformed nudge key is dropped rather than poisoning the set: the

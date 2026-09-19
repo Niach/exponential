@@ -5,6 +5,7 @@ import { IssueChip } from "@/components/issue-chip"
 import { WaveGraph } from "@/components/issue-graph"
 import {
   workflowEdges,
+  workflowEdgeStyle,
   workflowNodeCaption,
   workflowNodeTitle,
   workflowNodeTone,
@@ -26,9 +27,14 @@ import { cn } from "@/lib/utils"
 // the wave-grouped list is the natives' phone form (`IssueGraphList`).
 //
 // EXP-982: a started workflow's states are real, so a node also wears a state
-// GLYPH (the state reads by shape as well as by colour), an edge out of a
-// LANDED node turns green, and once everything is in, one extra node after the
-// last wave stands for the workflow's single final pull request.
+// GLYPH (the state reads by shape as well as by colour), and once everything
+// is in, one extra node after the last wave stands for the workflow's single
+// final pull request.
+//
+// EXP-983: what an edge says is `workflowEdgeStyle`'s call — green out of a
+// landed node, red while the dependent merges a moved upstream in, and DASHED
+// while it builds on work that has not landed (a speculative start, or a
+// serialization edge two colliding siblings were given).
 
 const NODE_W = 208
 const NODE_H = 66
@@ -96,11 +102,19 @@ export function WorkflowGraph({
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes]
   )
+  // EXP-983: the nodes carry their engine-written serialization edges
+  // (`afterNodeIds`), so `workflowEdges` returns those beside the `blocks`
+  // ones, and each edge's style is read off the two states it runs between.
   const edges = useMemo(
     () =>
       workflowEdges(nodes, relations, cycleEdges).map((edge) => ({
-        ...edge,
-        done: nodeById.get(edge.from)?.state === `landed`,
+        from: edge.from,
+        to: edge.to,
+        style: workflowEdgeStyle(
+          edge,
+          nodeById.get(edge.from)?.state ?? ``,
+          nodeById.get(edge.to)?.state ?? ``
+        ),
       })),
     [nodes, relations, cycleEdges, nodeById]
   )

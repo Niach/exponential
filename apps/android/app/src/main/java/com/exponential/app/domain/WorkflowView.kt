@@ -170,6 +170,8 @@ object WorkflowView {
         val id: String,
         val issueId: String,
         val memberIssueIds: List<String>,
+        /** EXP-983: engine-written serialization edges (`after_node_ids`). */
+        val afterNodeIds: List<String> = emptyList(),
     )
 
     data class EdgeRelation(
@@ -183,6 +185,11 @@ object WorkflowView {
         val to: String,
         /** Inside a blocking cycle (`metrics.cycleEdges`): drawn red. */
         val cycle: Boolean,
+        /**
+         * EXP-983: not a `blocks` relation but a SERIALIZATION edge the engine
+         * added after two siblings' work collided: `to` merges `from` in first.
+         */
+        val serial: Boolean = false,
     )
 
     /**
@@ -190,6 +197,8 @@ object WorkflowView {
      * a relation between ANY two covered issues of two different nodes (the
      * server's `nodeEdges`). One edge per node pair, ordered by (from, to) node
      * id. [cycleEdges] = the workflow's `metrics.cycleEdges` (`<from>\n<to>`).
+     * The engine's serialization edges (EXP-983) join them unless the pair
+     * already has one.
      */
     fun edges(
         nodes: List<EdgeNode>,
@@ -212,6 +221,15 @@ object WorkflowView {
             val key = "$from\n$to"
             if (!seen.add(key)) continue
             edges.add(Edge(from = from, to = to, cycle = key in onCycle))
+        }
+        // Serialization edges, unless a real edge already joins the pair.
+        val known = nodes.mapTo(HashSet()) { it.id }
+        for (node in nodes) {
+            for (from in node.afterNodeIds) {
+                if (from !in known || from == node.id) continue
+                if (!seen.add("$from\n${node.id}")) continue
+                edges.add(Edge(from = from, to = node.id, cycle = false, serial = true))
+            }
         }
         return edges.sortedWith(compareBy({ it.from }, { it.to }))
     }
@@ -248,9 +266,7 @@ object WorkflowView {
         cycleNote(metrics)?.let { return it }
         if (workflow.repositoryId.isNullOrEmpty()) return "The workflow's repository is gone."
         if (workflow.deviceId.isNullOrEmpty()) return "Pick the device that runs this workflow first."
-        if (workflow.startOn != DomainContract.wfStartOnLanded) {
-            return "Only \"When landed\" starts are available yet."
-        }
+        // EXP-983: every `start_on` runs now — speculative starts included.
         return null
     }
 
@@ -356,4 +372,42 @@ object WorkflowView {
             else -> shape
         }
     }
+
+    // ── Speculative starts (EXP-983) ────────────────────────────────────────
+
+    /** How an edge is drawn. Grey solid is the default; the others say something. */
+    enum class EdgeStyle(val key: String) {
+        Plain("plain"),
+        Cycle("cycle"),
+        Stale("stale"),
+        Landed("landed"),
+        Speculative("speculative"),
+    }
+
+    private val STARTED_STATES = setOf(
+        DomainContract.wfNodeStateRunning,
+        DomainContract.wfNodeStateWaiting,
+        DomainContract.wfNodeStateInReview,
+        DomainContract.wfNodeStateUpdating,
+    )
+
+    /**
+     * - [EdgeStyle.Cycle] (red): inside a blocking cycle.
+     * - [EdgeStyle.Stale] (red): upstream moved and the dependent is merging it
+     *   in (`to` is `updating`).
+     * - [EdgeStyle.Landed] (green): the blocker landed.
+     * - [EdgeStyle.Speculative] (dashed): the dependent started before its
+     *   blocker landed, or the edge is a serialization edge.
+     * - [EdgeStyle.Plain] (grey): nothing to say yet.
+     */
+    fun edgeStyle(edge: Edge, fromState: String, toState: String): EdgeStyle = when {
+        edge.cycle -> EdgeStyle.Cycle
+        fromState == DomainContract.wfNodeStateLanded -> EdgeStyle.Landed
+        toState == DomainContract.wfNodeStateUpdating -> EdgeStyle.Stale
+        edge.serial || toState in STARTED_STATES -> EdgeStyle.Speculative
+        else -> EdgeStyle.Plain
+    }
+
+    /** The node panel's line once a node announced its contract. */
+    const val CONTRACT_PUBLISHED_LABEL = "Contract published"
 }

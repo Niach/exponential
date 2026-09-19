@@ -125,6 +125,8 @@ export interface EdgeNode {
   id: string
   issueId: string
   memberIssueIds: readonly string[]
+  /** EXP-983: engine-written serialization edges (`after_node_ids`). */
+  afterNodeIds?: readonly string[]
 }
 
 export interface EdgeRelation {
@@ -138,6 +140,9 @@ export interface WorkflowEdge {
   to: string
   /** Inside a blocking cycle (`metrics.cycleEdges`): drawn red. */
   cycle: boolean
+  /** EXP-983: not a `blocks` relation but a SERIALIZATION edge the engine
+   *  added after two siblings' work collided: `to` merges `from` in first. */
+  serial: boolean
 }
 
 /**
@@ -167,7 +172,18 @@ export function workflowEdges(
     const key = `${from}\n${to}`
     if (seen.has(key)) continue
     seen.add(key)
-    edges.push({ from, to, cycle: onCycle.has(key) })
+    edges.push({ from, to, cycle: onCycle.has(key), serial: false })
+  }
+  // Serialization edges, unless a real edge already joins the pair.
+  const known = new Set(nodes.map((node) => node.id))
+  for (const node of nodes) {
+    for (const from of node.afterNodeIds ?? []) {
+      if (!known.has(from) || from === node.id) continue
+      const key = `${from}\n${node.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      edges.push({ from, to: node.id, cycle: false, serial: true })
+    }
   }
   return edges.sort((a, b) =>
     a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0
@@ -208,9 +224,6 @@ export function workflowStartBlocker(
   if (cycle) return cycle
   if (!workflow.repositoryId) return `The workflow's repository is gone.`
   if (!workflow.deviceId) return `Pick the device that runs this workflow first.`
-  if (workflow.startOn !== `landed`) {
-    return `Only "When landed" starts are available yet.`
-  }
   return null
 }
 
@@ -302,3 +315,38 @@ export function workflowRowSubtitle(status: string, metrics: WorkflowShape): str
   if (status === `cancelled`) return `Cancelled · ${shape}`
   return shape
 }
+
+
+// ── Speculative starts (EXP-983) ────────────────────────────────────────────
+
+/** How an edge is drawn. Grey solid is the default; the others say something. */
+export type WorkflowEdgeStyle = `plain` | `cycle` | `stale` | `landed` | `speculative`
+
+const STARTED_STATES = new Set([`running`, `waiting`, `in_review`, `updating`])
+
+/**
+ * - `cycle` (red): inside a blocking cycle.
+ * - `stale` (red): upstream moved and the dependent is merging it in (`to` is
+ *   `updating`).
+ * - `landed` (green): the blocker landed.
+ * - `speculative` (dashed): the dependent started before its blocker landed,
+ *   or the edge is a serialization edge.
+ * - `plain` (grey): nothing to say yet.
+ */
+export function workflowEdgeStyle(
+  edge: { cycle: boolean; serial: boolean },
+  fromState: string,
+  toState: string
+): WorkflowEdgeStyle {
+  if (edge.cycle) return `cycle`
+  if (fromState === `landed`) return `landed`
+  if (toState === `updating`) return `stale`
+  if (edge.serial || STARTED_STATES.has(toState)) return `speculative`
+  return `plain`
+}
+
+/** The node panel's line once a node announced its contract. */
+export const CONTRACT_PUBLISHED_LABEL = `Contract published`
+
+/** The node panel's chip line over `after_node_ids`. Byte-identical ×4. */
+export const MERGES_IN_FIRST_LABEL = `Merges in first`

@@ -11,25 +11,46 @@
 //! distinct ids), which is the double-run defence, exactly as for
 //! automations.
 //!
-//! P3 supports `start_on: landed` only: a node starts when ALL its blockers
-//! landed, so EVERY node bases on the integration branch. The engine runs
-//! each node exactly once (Kahn from the roots), lands reviewed PRs into the
-//! integration branch in order (the merge train), then opens ONE final PR
-//! integration → default.
+//! The engine runs each node exactly once (Kahn from the roots), lands
+//! reviewed PRs into the integration branch in order (the merge train), then
+//! opens ONE final PR integration → default.
+//!
+//! EXP-983 makes the starts SPECULATIVE: all three `start_on` modes are live,
+//! so a dependent may start before its blockers landed. It then bases on
+//! THEIR work — one unlanded blocker means that blocker's branch, several
+//! mean a synthetic base the host merges them into — upstream movement
+//! propagates by MERGE (never a rebase, never a force-push), two siblings
+//! whose work collides get a SERIALIZATION edge, and the train still lands in
+//! topological order.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
 //! `{name, snapshot, expected}`, replayed by `tests/workflow_engine.rs`.
 
+pub mod base;
 pub mod branch;
+pub mod facts;
 pub mod state;
 
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-pub use branch::{delete_integration_branch, ensure_integration_branch};
+pub use base::{
+    build_base, delete_remote_branch, engine_worktree, merge_conflicts, movement_note,
+    remote_tips, BaseOutcome,
+};
+pub use branch::{delete_integration_branch, engine_clone, ensure_integration_branch};
+pub use facts::{
+    confine_branches_to_tips, conflict_candidates, conventional_branch, detect_conflicts,
+    prune_conflict_cache, NodeGit,
+};
 pub use state::{read_states, write_states, WorkflowState, WORKFLOW_ENGINE_KEY};
+
+/// The `exp/*` branches one workflow's tips call covers — every branch the
+/// engine can name lives under it (issue branches, batch branches, the
+/// integration branch and the synthetic bases).
+pub const TIPS_PATTERN: &str = "exp/*";
 
 /// The evaluation cadence both hosts beat at (the automations host's).
 pub const BEAT_SECONDS: u64 = 30;
@@ -68,7 +89,7 @@ pub const NUDGE_RATE_LIMIT_RESET: &str =
     "The rate limit has reset. Continue where you left off.";
 
 /// The workflow row, as plain data.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowFacts {
     pub id: String,
@@ -81,7 +102,37 @@ pub struct WorkflowFacts {
     pub final_pr_url: Option<String>,
     /// `launch.maxParallel`, or the contract default.
     pub max_parallel: usize,
+    /// contract `wfStartOn` (`contract|pr_open|landed`). An absent or unknown
+    /// word reads as `landed`: the conservative mode, which never starts a
+    /// node on work that is not in yet.
+    #[serde(default = "start_on_landed")]
+    pub start_on: String,
 }
+
+fn start_on_landed() -> String {
+    START_ON_LANDED.to_string()
+}
+
+impl Default for WorkflowFacts {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            status: String::new(),
+            gate: String::new(),
+            integration_branch: String::new(),
+            final_pr_url: None,
+            max_parallel: 0,
+            start_on: start_on_landed(),
+        }
+    }
+}
+
+/// contract `wfStartOn` — a dependent starts once its blockers LANDED.
+pub const START_ON_LANDED: &str = "landed";
+/// A dependent starts once its blockers' pull requests are OPEN.
+pub const START_ON_PR_OPEN: &str = "pr_open";
+/// A dependent starts once its blockers announced their CONTRACT.
+pub const START_ON_CONTRACT: &str = "contract";
 
 /// One `workflow_nodes` row, as plain data.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -107,6 +158,25 @@ pub struct NodeFacts {
     /// Only its PRESENCE matters — the human gate's stamp.
     #[serde(default)]
     pub approved_at: Option<String>,
+    /// EXP-983: only its PRESENCE matters — the run announced its contract
+    /// (`exponential_workflows_checkpoint`), which releases its dependents
+    /// under `start_on: contract`.
+    #[serde(default)]
+    pub checkpoint_at: Option<String>,
+    /// The branch this node's run was cut from, as reported at its start.
+    #[serde(default)]
+    pub base_branch: Option<String>,
+    /// EXP-983: the engine's own serialization edges — nodes this one merges
+    /// in first, because their work collided.
+    #[serde(default)]
+    pub after_node_ids: Vec<String>,
+    /// The node's OWN head branch: its representative issue's synced
+    /// `branch`, the launcher's conventional `exp/<IDENTIFIER>`, or a
+    /// compound node's batch branch. The hosts only fill it once origin
+    /// really HAS that branch ([`facts::confine_branches_to_tips`]), so
+    /// `None` means nothing may base on this node yet.
+    #[serde(default)]
+    pub branch: Option<String>,
 }
 
 /// What the engine reads off a node's representative issue.
@@ -166,6 +236,29 @@ pub struct Snapshot {
     /// Host fact: `(session id, resets_at_ms)` pairs already nudged.
     #[serde(default)]
     pub nudged: HashSet<(String, i64)>,
+    /// Host fact (EXP-983): `git ls-remote` for every branch this snapshot
+    /// names, refreshed each beat. A branch that is absent does not exist on
+    /// origin yet.
+    #[serde(default)]
+    pub tips: HashMap<String, String>,
+    /// Host fact (EXP-983, persisted): `node id → upstream branch → the tip
+    /// that node was last TOLD to merge` — what keeps one movement from
+    /// being announced twice.
+    #[serde(default)]
+    pub propagated: HashMap<String, HashMap<String, String>>,
+    /// Host fact (EXP-983, persisted): `synthetic base branch → the
+    /// (branch, sha) pairs it was last built from`. A difference is a
+    /// refresh.
+    #[serde(default)]
+    pub synthetic: HashMap<String, Vec<(String, String)>>,
+    /// Host fact (EXP-983): unordered node-id pairs whose branches conflict
+    /// at the CURRENT tips (`git merge-tree --write-tree`).
+    #[serde(default)]
+    pub conflicts: HashSet<(String, String)>,
+    /// Host fact: `node id → its representative issue's identifier`, which
+    /// names the node's synthetic base branch.
+    #[serde(default)]
+    pub identifier: HashMap<String, String>,
     pub now_ms: i64,
 }
 
@@ -184,9 +277,38 @@ pub enum Decision {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         note: Option<String>,
     },
-    /// Report `running` FIRST, then launch the node's run locally.
+    /// EXP-983: build (or refresh) a node's SYNTHETIC base — the branch its
+    /// two-or-more unlanded blockers are merged into, in the engine's own
+    /// scratch worktree. `sources` are branch names, sorted.
     #[serde(rename_all = "camelCase")]
-    StartNode { node_id: String, attempt: i64 },
+    BuildBase {
+        node_id: String,
+        base_branch: String,
+        sources: Vec<String>,
+    },
+    /// Report `running` FIRST, then launch the node's run locally, cut from
+    /// `base_branch` (EXP-983: the integration branch only when no blocker
+    /// is still unlanded).
+    #[serde(rename_all = "camelCase")]
+    StartNode {
+        node_id: String,
+        attempt: i64,
+        base_branch: String,
+    },
+    /// EXP-983: tell a live (or resume an ended) run that the branch it
+    /// builds on moved to `sha`, so it merges it in. The host writes the
+    /// note from the git range itself — zero agent tokens.
+    #[serde(rename_all = "camelCase")]
+    MergeUpstream {
+        node_id: String,
+        session_id: String,
+        base_branch: String,
+        sha: String,
+    },
+    /// EXP-983: two siblings' work collided — `node_id` merges `after` in
+    /// first. `workflows.reportNode({afterNodeIds})`, a whole-array replace.
+    #[serde(rename_all = "camelCase")]
+    SetSerialEdge { node_id: String, after: Vec<String> },
     /// The merge train's one step: `workflows.landNode`.
     #[serde(rename_all = "camelCase")]
     LandNode { node_id: String },
@@ -204,6 +326,9 @@ pub enum Decision {
     KillSession { session_id: String },
     /// Cancelled and quiet: `git push origin --delete <integration_branch>`.
     DeleteIntegrationBranch,
+    /// EXP-983: a synthetic base nothing is building on any more.
+    #[serde(rename_all = "camelCase")]
+    DeleteBase { base_branch: String },
 }
 
 /// The live states a node occupies while it holds a parallelism slot.
@@ -216,19 +341,69 @@ fn is_final(state: &str) -> bool {
     matches!(state, "landed" | "skipped")
 }
 
-/// One node's state AFTER this pass's mirror — what rules 2-5 read.
+/// One node's state AFTER this pass's mirror — what the later rules read.
 struct Mirrored<'a> {
     node: &'a NodeFacts,
     state: String,
+    /// EXP-983: the branch this node would start on, resolved while it was
+    /// mirrored `ready`. `None` for every node that is not about to start.
+    base: Option<String>,
+}
+
+/// EXP-983 — the prefix every synthetic base of one workflow shares. The
+/// dash matters: `exp/wf-<id8>/base-…` could not exist beside the branch
+/// `exp/wf-<id8>` (a git ref is a file, so it cannot also be a directory).
+fn synthetic_prefix(workflow_id: &str) -> String {
+    let id8: String = workflow_id.chars().take(8).collect();
+    format!("exp/wf-{id8}-base-")
+}
+
+/// The synthetic base of ONE node: `exp/wf-<id8>-base-<IDENT>`.
+fn synthetic_base(workflow_id: &str, identifier: &str) -> String {
+    format!("{}{identifier}", synthetic_prefix(workflow_id))
+}
+
+/// Whether a branch is one of this workflow's synthetic bases.
+fn is_synthetic(workflow_id: &str, branch: &str) -> bool {
+    branch.starts_with(&synthetic_prefix(workflow_id))
+}
+
+/// A blocker satisfies the workflow's start mode (EXP-983 rule 1). `skipped`
+/// releases under every mode: there is nothing left to wait for.
+fn blocker_releases(start_on: &str, blocker: &NodeFacts) -> bool {
+    if blocker.state == "skipped" || blocker.state == "landed" {
+        return true;
+    }
+    match start_on {
+        START_ON_PR_OPEN => matches!(blocker.state.as_str(), "in_review" | "updating"),
+        START_ON_CONTRACT => {
+            blocker.checkpoint_at.is_some()
+                || matches!(blocker.state.as_str(), "in_review" | "updating")
+        }
+        // `landed` and anything a newer server invents: landed only.
+        _ => false,
+    }
+}
+
+/// A blocker whose work is not in the integration branch yet — what a
+/// speculative start has to base on.
+fn is_unlanded(state: &str) -> bool {
+    !is_final(state)
 }
 
 /// The rule cascade, in order (the module doc names the hosts that run it):
 /// 0. no integration branch → create it, and NOTHING else this pass;
-/// 1. mirror every node's state off its session, PR and blockers (also while
-///    `paused`); 2. start `ready` nodes up to `max_parallel`; 3. nudge a run
-///    whose rate limit reset; 4. land ONE cleared node (the merge train);
-/// 5. open the final PR once everything is in; 6. a `cancelled` workflow
-///    ends its runs and drops its branch. `draft`/`done` decide nothing.
+/// 1. mirror every node's state off its session, PR and blockers, the
+///    blockers read through the workflow's START MODE (also while `paused`);
+/// 2. start `ready` nodes up to `max_parallel`, each on the base its
+///    unlanded blockers dictate (building a synthetic one first);
+/// 3. refresh a synthetic base whose sources moved; 4. tell a run that the
+///    branch under it moved; 5. serialize two siblings whose work collided;
+/// 6. nudge a run whose rate limit reset; 7. land ONE cleared node in
+///    TOPOLOGICAL order (the merge train); 8. open the final PR once
+///    everything is in; 9. drop a synthetic base nothing builds on any more.
+/// A `cancelled` workflow ends its runs and drops its branches;
+/// `draft`/`done` decide nothing.
 pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
     let status = snapshot.workflow.status.as_str();
     if status == "cancelled" {
@@ -255,6 +430,7 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
             mirrored.push(Mirrored {
                 node,
                 state: node.state.clone(),
+                base: None,
             });
             continue;
         }
@@ -264,6 +440,7 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
             mirrored.push(Mirrored {
                 node,
                 state: node.state.clone(),
+                base: None,
             });
             continue;
         };
@@ -275,9 +452,21 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
                 mirrored.push(Mirrored {
                     node,
                     state: node.state.clone(),
+                    base: None,
                 });
             }
             Desired::State { state, note } => {
+                // EXP-983: a node is only really `ready` when the branch it
+                // would be cut from exists — a blocker without a branch yet
+                // leaves it `blocked` for another beat.
+                let base = (state == "ready")
+                    .then(|| start_base(snapshot, node, &blockers))
+                    .flatten();
+                let state = if state == "ready" && base.is_none() {
+                    "blocked".to_string()
+                } else {
+                    state
+                };
                 if state != node.state {
                     decisions.push(Decision::SetNodeState {
                         node_id: node.id.clone(),
@@ -285,7 +474,7 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
                         note,
                     });
                 }
-                mirrored.push(Mirrored { node, state });
+                mirrored.push(Mirrored { node, state, base });
             }
         }
     }
@@ -309,14 +498,96 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
         if entry.state != "ready" || snapshot.in_flight.contains(&entry.node.id) {
             continue;
         }
+        let Some(base) = entry.base.clone() else {
+            continue;
+        };
+        // A synthetic base has to exist before anything can be cut from it.
+        if is_synthetic(&snapshot.workflow.id, &base) && !snapshot.tips.contains_key(&base) {
+            decisions.push(Decision::BuildBase {
+                node_id: entry.node.id.clone(),
+                sources: synthetic_sources(snapshot, entry.node, &blockers),
+                base_branch: base.clone(),
+            });
+        }
         decisions.push(Decision::StartNode {
             node_id: entry.node.id.clone(),
             attempt: entry.node.attempt + 1,
+            base_branch: base,
         });
         active += 1;
     }
 
-    // (3) A wall that lifted: tell the run to carry on, exactly once.
+    // (3) A synthetic base whose sources moved is MERGED forward, never
+    // recreated: a started node's history has to stay an ancestor of it.
+    for entry in &mirrored {
+        if is_final(&entry.state) || snapshot.in_flight.contains(&entry.node.id) {
+            continue;
+        }
+        let Some(base) = entry.node.base_branch.as_deref() else {
+            continue;
+        };
+        if !is_synthetic(&snapshot.workflow.id, base) {
+            continue;
+        }
+        let sources = synthetic_sources(snapshot, entry.node, &blockers);
+        let built: Vec<(String, String)> = sources
+            .iter()
+            .filter_map(|branch| {
+                snapshot
+                    .tips
+                    .get(branch)
+                    .map(|sha| (branch.clone(), sha.clone()))
+            })
+            .collect();
+        if built.is_empty() || snapshot.synthetic.get(base) == Some(&built) {
+            continue;
+        }
+        decisions.push(Decision::BuildBase {
+            node_id: entry.node.id.clone(),
+            base_branch: base.to_string(),
+            sources,
+        });
+    }
+
+    // (4) The branch a run builds on moved: it merges the movement in. ONE
+    // decision per dependent per pass, and only at a turn boundary.
+    for entry in &mirrored {
+        if snapshot.in_flight.contains(&entry.node.id) {
+            continue;
+        }
+        let Some(base) = entry.node.base_branch.clone() else {
+            continue;
+        };
+        let Some(session_id) = steerable_session(snapshot, entry) else {
+            continue;
+        };
+        let Some(sha) = snapshot.tips.get(&base) else {
+            continue;
+        };
+        if told(snapshot, &entry.node.id, &base) == Some(sha.as_str()) {
+            continue;
+        }
+        decisions.push(Decision::MergeUpstream {
+            node_id: entry.node.id.clone(),
+            session_id,
+            base_branch: base,
+            sha: sha.clone(),
+        });
+        if entry.state != "updating" {
+            decisions.push(Decision::SetNodeState {
+                node_id: entry.node.id.clone(),
+                state: "updating".to_string(),
+                note: None,
+            });
+        }
+    }
+
+    // (5) Two siblings whose work collides are SERIALIZED: the later one
+    // merges the earlier one in and records the edge, so the train and the
+    // graph both know about it.
+    decisions.extend(serialization_decisions(snapshot, &mirrored));
+
+    // (6) A wall that lifted: tell the run to carry on, exactly once.
     for entry in &mirrored {
         if entry.state != "waiting" {
             continue;
@@ -349,16 +620,23 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
         });
     }
 
-    // (4) The merge train: ONE land per pass, and only while the host is not
-    // already landing one. The train is strict order among CLEARED nodes —
-    // a node still waiting for a person never blocks a cleared one behind it.
+    // (7) The merge train: ONE land per pass, and only while the host is not
+    // already landing one. The train is strict order among LANDABLE nodes —
+    // a node still waiting for a person, for a blocker or for the sibling it
+    // has to merge in never blocks a landable one behind it.
     let landing = mirrored.iter().any(|entry| {
         snapshot.in_flight.contains(&entry.node.id)
             && (entry.state == "in_review" || entry.state == "updating")
     });
     if !landing {
+        let state_of: HashMap<&str, &str> = mirrored
+            .iter()
+            .map(|entry| (entry.node.id.as_str(), entry.state.as_str()))
+            .collect();
         if let Some(entry) = mirrored.iter().find(|entry| {
-            entry.state == "in_review" && is_cleared(&snapshot.workflow.gate, entry.node)
+            entry.state == "in_review"
+                && is_cleared(&snapshot.workflow.gate, entry.node)
+                && is_landable(entry.node, &blockers, &state_of)
         }) {
             decisions.push(Decision::LandNode {
                 node_id: entry.node.id.clone(),
@@ -366,7 +644,7 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
         }
     }
 
-    // (5) Everything is in: the ONE final pull request.
+    // (8) Everything is in: the ONE final pull request.
     let all_in = !mirrored.is_empty()
         && mirrored.iter().all(|entry| is_final(&entry.state));
     let any_landed = mirrored.iter().any(|entry| entry.state == "landed");
@@ -378,7 +656,271 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
         decisions.push(Decision::OpenFinalPr);
     }
 
+    // (9) A synthetic base nothing is building on any more: the branch goes,
+    // so a repository's list stays the issues' branches plus the one
+    // integration branch.
+    let mut live_bases: HashSet<&str> = HashSet::new();
+    for entry in &mirrored {
+        if is_final(&entry.state) {
+            continue;
+        }
+        if let Some(base) = entry.node.base_branch.as_deref() {
+            live_bases.insert(base);
+        }
+        if let Some(base) = entry.base.as_deref() {
+            live_bases.insert(base);
+        }
+    }
+    for base in known_bases(snapshot) {
+        if !live_bases.contains(base.as_str()) {
+            decisions.push(Decision::DeleteBase { base_branch: base });
+        }
+    }
+
     decisions
+}
+
+/// The synthetic bases this workflow is known to have pushed: what the host
+/// built, plus anything matching the prefix it can still see on origin.
+fn known_bases(snapshot: &Snapshot) -> Vec<String> {
+    let mut bases: Vec<String> = snapshot
+        .synthetic
+        .keys()
+        .chain(snapshot.tips.keys())
+        .filter(|branch| is_synthetic(&snapshot.workflow.id, branch))
+        .cloned()
+        .collect();
+    bases.sort();
+    bases.dedup();
+    bases
+}
+
+/// The branches a node's synthetic base is built from: its still-unlanded
+/// blockers' branches AND the integration branch, sorted — the same list the
+/// refresh compares against what the host last built.
+fn synthetic_sources(
+    snapshot: &Snapshot,
+    node: &NodeFacts,
+    blockers: &HashMap<&str, Vec<&str>>,
+) -> Vec<String> {
+    let mut sources: Vec<String> = unlanded_blockers(snapshot, node, blockers)
+        .into_iter()
+        .filter_map(|blocker| blocker.branch.clone())
+        .collect();
+    sources.push(snapshot.workflow.integration_branch.clone());
+    sources.sort();
+    sources.dedup();
+    sources
+}
+
+/// The blockers whose work is not in the integration branch yet.
+fn unlanded_blockers<'a>(
+    snapshot: &'a Snapshot,
+    node: &NodeFacts,
+    blockers: &HashMap<&str, Vec<&str>>,
+) -> Vec<&'a NodeFacts> {
+    blockers
+        .get(node.id.as_str())
+        .map(|ids| {
+            let mut found: Vec<&NodeFacts> = ids
+                .iter()
+                .filter_map(|id| snapshot.nodes.iter().find(|node| node.id == *id))
+                .filter(|blocker| is_unlanded(&blocker.state))
+                .collect();
+            found.sort_by(|a, b| a.id.cmp(&b.id));
+            found
+        })
+        .unwrap_or_default()
+}
+
+/// EXP-983 rule 2 — the branch a node about to start is cut from: the
+/// integration branch when every blocker is in, the ONE unlanded blocker's
+/// branch, or a synthetic merge of several. `None` = it cannot start yet
+/// (a blocker has no branch, or this node's identifier has not synced).
+fn start_base(
+    snapshot: &Snapshot,
+    node: &NodeFacts,
+    blockers: &HashMap<&str, Vec<&str>>,
+) -> Option<String> {
+    let unlanded = unlanded_blockers(snapshot, node, blockers);
+    match unlanded.len() {
+        0 => Some(snapshot.workflow.integration_branch.clone()),
+        1 => unlanded[0].branch.clone(),
+        _ => {
+            // Every source has to be namable before the base can be built.
+            if unlanded.iter().any(|blocker| blocker.branch.is_none()) {
+                return None;
+            }
+            let identifier = snapshot.identifier.get(node.id.as_str())?;
+            Some(synthetic_base(&snapshot.workflow.id, identifier))
+        }
+    }
+}
+
+/// The session a movement can be announced to: a LIVE run between turns, or
+/// an ended one whose pull request is up (the host resumes that one). `None`
+/// = say nothing this pass.
+fn steerable_session(snapshot: &Snapshot, entry: &Mirrored<'_>) -> Option<String> {
+    if !matches!(
+        entry.state.as_str(),
+        "running" | "waiting" | "in_review" | "updating"
+    ) {
+        return None;
+    }
+    let session_id = entry.node.session_id.as_deref()?;
+    let session = snapshot.sessions.get(session_id)?;
+    if session.live {
+        // Mid-turn: the message would land inside the agent's own work.
+        if session.agent_busy {
+            return None;
+        }
+        return Some(session_id.to_string());
+    }
+    let pr_open = snapshot
+        .issues
+        .get(entry.node.issue_id.as_str())
+        .and_then(|issue| issue.pr_state.as_deref())
+        == Some("open");
+    pr_open.then(|| session_id.to_string())
+}
+
+/// The tip a node was last TOLD to merge from one branch.
+fn told<'a>(snapshot: &'a Snapshot, node_id: &str, branch: &str) -> Option<&'a str> {
+    snapshot
+        .propagated
+        .get(node_id)?
+        .get(branch)
+        .map(String::as_str)
+}
+
+/// EXP-983 rule 5 — the serialization pass. A conflicting pair only counts
+/// when the two share a dependent: work that never meets can differ forever.
+fn serialization_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decision> {
+    if snapshot.conflicts.is_empty() {
+        return Vec::new();
+    }
+    let by_id: HashMap<&str, &Mirrored<'_>> = mirrored
+        .iter()
+        .map(|entry| (entry.node.id.as_str(), entry))
+        .collect();
+    // `node → its dependents`, to find the pairs whose work has to meet.
+    let mut dependents: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for (from, to) in &snapshot.edges {
+        dependents
+            .entry(from.as_str())
+            .or_default()
+            .insert(to.as_str());
+    }
+    // The pairs in a stable order, so one pass decides the same thing twice.
+    let mut pairs: Vec<(&str, &str)> = snapshot
+        .conflicts
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    pairs.sort();
+    let mut decisions = Vec::new();
+    let mut added: HashMap<&str, Vec<String>> = HashMap::new();
+    for (left, right) in pairs {
+        let (Some(left), Some(right)) = (by_id.get(left), by_id.get(right)) else {
+            continue;
+        };
+        if is_final(&left.state) || is_final(&right.state) {
+            continue;
+        }
+        let shared = dependents
+            .get(left.node.id.as_str())
+            .zip(dependents.get(right.node.id.as_str()))
+            .is_some_and(|(a, b)| a.intersection(b).next().is_some());
+        if !shared {
+            continue;
+        }
+        // The LATER node merges the earlier one in: by lane, then identifier,
+        // then id — the same tie-break the rest of the engine walks.
+        let (earlier, later) = if order_key(snapshot, left.node) <= order_key(snapshot, right.node) {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        let Some(branch) = earlier.node.branch.clone() else {
+            continue;
+        };
+        let already: HashSet<&str> = later
+            .node
+            .after_node_ids
+            .iter()
+            .map(String::as_str)
+            .chain(
+                added
+                    .get(later.node.id.as_str())
+                    .into_iter()
+                    .flatten()
+                    .map(String::as_str),
+            )
+            .collect();
+        if !already.contains(earlier.node.id.as_str()) {
+            let mut after: Vec<String> = already.iter().map(|id| (*id).to_string()).collect();
+            after.push(earlier.node.id.clone());
+            after.sort();
+            added
+                .entry(later.node.id.as_str())
+                .or_default()
+                .push(earlier.node.id.clone());
+            decisions.push(Decision::SetSerialEdge {
+                node_id: later.node.id.clone(),
+                after,
+            });
+        }
+        // The merge itself rides the propagation rule: once per tip, never
+        // mid-turn, and the host resumes an ended run rather than steering.
+        let Some(sha) = snapshot.tips.get(&branch) else {
+            continue;
+        };
+        if told(snapshot, &later.node.id, &branch) == Some(sha.as_str()) {
+            continue;
+        }
+        let Some(session_id) = steerable_session(snapshot, later) else {
+            continue;
+        };
+        decisions.push(Decision::MergeUpstream {
+            node_id: later.node.id.clone(),
+            session_id,
+            base_branch: branch,
+            sha: sha.clone(),
+        });
+    }
+    decisions
+}
+
+/// The (lane, identifier, id) tie-break rule 5 orders a colliding pair by.
+fn order_key<'a>(snapshot: &'a Snapshot, node: &'a NodeFacts) -> (i64, &'a str, &'a str) {
+    (
+        node.lane,
+        snapshot
+            .identifier
+            .get(node.id.as_str())
+            .map(String::as_str)
+            .unwrap_or(""),
+        node.id.as_str(),
+    )
+}
+
+/// EXP-983 rule 6 — the train's topological gate: a node lands only once
+/// every blocker AND every node it has to merge in first is in.
+fn is_landable(
+    node: &NodeFacts,
+    blockers: &HashMap<&str, Vec<&str>>,
+    state_of: &HashMap<&str, &str>,
+) -> bool {
+    let settled = |id: &str| {
+        state_of
+            .get(id)
+            // A node outside the workflow cannot be waited on.
+            .map_or(true, |state| is_final(state))
+    };
+    blockers
+        .get(node.id.as_str())
+        .map_or(true, |ids| ids.iter().all(|id| settled(id)))
+        && node.after_node_ids.iter().all(|id| settled(id))
 }
 
 /// (6) A cancelled workflow: end every live run, then drop the branch it
@@ -403,8 +945,15 @@ fn cancel_decisions(snapshot: &Snapshot) -> Vec<Decision> {
             });
         }
     }
-    if decisions.is_empty() && snapshot.integration_branch_exists {
-        decisions.push(Decision::DeleteIntegrationBranch);
+    if decisions.is_empty() {
+        // EXP-983: the synthetic bases go with it — a cancelled workflow
+        // leaves no branch of its own behind.
+        for base in known_bases(snapshot) {
+            decisions.push(Decision::DeleteBase { base_branch: base });
+        }
+        if snapshot.integration_branch_exists {
+            decisions.push(Decision::DeleteIntegrationBranch);
+        }
     }
     decisions
 }
@@ -438,7 +987,9 @@ fn desired_state(
     blockers: &HashMap<&str, Vec<&str>>,
 ) -> Option<Desired> {
     let Some(session_id) = node.session_id.as_deref() else {
-        // Not started yet: the blockers decide.
+        // Not started yet: the blockers decide, read through the workflow's
+        // START MODE (EXP-983 — `landed` waits for the merge, `pr_open` for
+        // the pull request, `contract` for the announcement).
         let ready = blockers
             .get(node.id.as_str())
             .map(|ids| {
@@ -447,7 +998,9 @@ fn desired_state(
                         .nodes
                         .iter()
                         .find(|candidate| candidate.id == *id)
-                        .is_some_and(|candidate| is_final(&candidate.state))
+                        .is_some_and(|candidate| {
+                            blocker_releases(&snapshot.workflow.start_on, candidate)
+                        })
                 })
             })
             .unwrap_or(true);
@@ -545,6 +1098,7 @@ mod tests {
                 integration_branch: "exp/wf-abcdef12".to_string(),
                 final_pr_url: None,
                 max_parallel: 3,
+                start_on: START_ON_LANDED.to_string(),
             },
             nodes,
             integration_branch_exists: true,

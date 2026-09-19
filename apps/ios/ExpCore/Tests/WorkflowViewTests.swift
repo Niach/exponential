@@ -19,6 +19,8 @@ final class WorkflowViewTests: XCTestCase {
         let trainStepLabels: [String: String]
         let finalPr: [FinalPrCase]
         let rowSubtitles: [RowSubtitleCase]
+        // EXP-983 — speculative starts.
+        let edgeStyles: [EdgeStyleCase]
     }
 
     private struct BandCase: Decodable {
@@ -63,6 +65,8 @@ final class WorkflowViewTests: XCTestCase {
         let id: String
         let issueId: String
         let memberIssueIds: [String]
+        /// EXP-983 — absent on a node the engine never serialized.
+        let afterNodeIds: [String]?
     }
 
     private struct FixtureRelation: Decodable {
@@ -75,6 +79,19 @@ final class WorkflowViewTests: XCTestCase {
         let from: String
         let to: String
         let cycle: Bool
+        let serial: Bool
+    }
+
+    private struct EdgeStyleCase: Decodable {
+        let edge: FixtureStyledEdge
+        let fromState: String
+        let toState: String
+        let style: String
+    }
+
+    private struct FixtureStyledEdge: Decodable {
+        let cycle: Bool
+        let serial: Bool
     }
 
     private struct StartBlockerCase: Decodable {
@@ -178,7 +195,8 @@ final class WorkflowViewTests: XCTestCase {
             let actual = WorkflowView.edges(
                 nodes: testCase.nodes.map {
                     WorkflowView.EdgeNode(
-                        id: $0.id, issueId: $0.issueId, memberIssueIds: $0.memberIssueIds
+                        id: $0.id, issueId: $0.issueId, memberIssueIds: $0.memberIssueIds,
+                        afterNodeIds: $0.afterNodeIds ?? []
                     )
                 },
                 relations: testCase.relations.map {
@@ -189,11 +207,40 @@ final class WorkflowViewTests: XCTestCase {
                 cycleEdges: testCase.cycleEdges
             )
             XCTAssertEqual(
-                actual.map { FixtureEdge(from: $0.from, to: $0.to, cycle: $0.cycle) },
+                actual.map {
+                    FixtureEdge(from: $0.from, to: $0.to, cycle: $0.cycle, serial: $0.serial)
+                },
                 testCase.expected,
                 testCase.name
             )
         }
+    }
+
+    // MARK: - Speculative starts (EXP-983)
+
+    // How an edge is drawn, over the same fixture the other three read: a
+    // cycle beats everything, a landed blocker beats a stale dependent, and a
+    // serialization edge is always speculative.
+    func testEdgeStyleFixtureCases() throws {
+        let fixture = try fixture()
+
+        XCTAssertFalse(fixture.edgeStyles.isEmpty)
+        for testCase in fixture.edgeStyles {
+            let edge = WorkflowView.Edge(
+                from: "a", to: "b", cycle: testCase.edge.cycle, serial: testCase.edge.serial
+            )
+            XCTAssertEqual(
+                WorkflowView.edgeStyle(
+                    edge, fromState: testCase.fromState, toState: testCase.toState
+                ).rawValue,
+                testCase.style,
+                "\(testCase.fromState) → \(testCase.toState)"
+            )
+        }
+    }
+
+    func testTheSpeculativeCopyIsByteLocked() {
+        XCTAssertEqual(WorkflowView.contractPublishedLabel, "Contract published")
     }
 
     // MARK: - Running a workflow (EXP-982)
@@ -320,10 +367,12 @@ final class WorkflowViewTests: XCTestCase {
             train.map(\.step), [WorkflowView.TrainStep.next, .needsApproval]
         )
 
+        // EXP-983: every `start_on` starts, so a bound draft has no blocker.
         let workflow = makeWorkflow(status: DomainContract.wfStatusDraft)
+        XCTAssertNil(WorkflowView.startBlocker(workflow))
         XCTAssertEqual(
-            WorkflowView.startBlocker(workflow),
-            "Only \"When landed\" starts are available yet."
+            WorkflowView.startBlocker(makeWorkflow(status: DomainContract.wfStatusRunning)),
+            "The workflow has already started."
         )
     }
 
@@ -383,6 +432,23 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(edges.first, WorkflowView.Edge(from: "n1", to: "n2", cycle: false))
     }
 
+    // EXP-983: the row's `after_node_ids` join the blocks edges as
+    // serialization edges — the pair here has no relation, so it is one.
+    func testTheEntityOverloadCarriesSerializationEdges() {
+        let nodes = [
+            makeWorkflowNode(id: "n1", issueId: "a"),
+            makeWorkflowNode(id: "n2", issueId: "b", afterNodeIds: ["n1"]),
+        ]
+        let edges = WorkflowView.edges(nodes: nodes, relations: [])
+        XCTAssertEqual(
+            edges, [WorkflowView.Edge(from: "n1", to: "n2", cycle: false, serial: true)]
+        )
+        XCTAssertEqual(
+            WorkflowView.edgeStyle(edges[0], fromState: "blocked", toState: "blocked"),
+            .speculative
+        )
+    }
+
     // MARK: - Tolerant jsonb
 
     // Unknown keys are ignored and missing ones default: a `launch` or
@@ -420,12 +486,13 @@ private func makeWorkflowNode(
     memberIssueIds: [String] = [],
     state: String = "in_review",
     lane: Int = 0,
-    approvedAt: String? = nil
+    approvedAt: String? = nil,
+    afterNodeIds: [String] = []
 ) -> WorkflowNodeEntity {
     WorkflowNodeEntity(
         id: id, workflowId: "wf-1", teamId: "t1", issueId: issueId,
         memberIssueIds: memberIssueIds, state: state, lane: lane,
-        approvedAt: approvedAt,
+        approvedAt: approvedAt, afterNodeIds: afterNodeIds,
         createdAt: "2026-09-19T09:00:00Z", updatedAt: "2026-09-19T09:00:00Z"
     )
 }

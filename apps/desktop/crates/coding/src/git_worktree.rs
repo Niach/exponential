@@ -733,7 +733,7 @@ pub(crate) fn run_git(
 /// back, for callers that must classify exit codes themselves (`git
 /// check-ignore`, where exit 1 is a meaningful verdict, not a failure). `url`
 /// scrubs only the spawn error here; the caller owns output scrubbing.
-fn git_output(
+pub(crate) fn git_output(
     cwd: Option<&Path>,
     args: &[&str],
     url: Option<&TokenUrl>,

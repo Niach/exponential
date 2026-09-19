@@ -2258,6 +2258,13 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
     /// EXP-982: when a member cleared the node's PR for the merge train; nil
     /// while it still waits (and on a node no gate asks about).
     public let approvedAt: String?
+    /// EXP-983: when the node announced its contract
+    /// (`exponential_workflows_checkpoint`) — what a `contract` start waits
+    /// for; nil until it did.
+    public let checkpointAt: String?
+    /// EXP-983: the NODES this one merges in first — serialization edges the
+    /// engine wrote after two siblings' work collided.
+    public let afterNodeIds: [String]
     /// EXP-982: why the node is `failed` / `waiting`, in the engine's words.
     public let note: String?
     public let createdAt: String
@@ -2281,6 +2288,8 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         budget: String? = nil,
         touches: [String] = [],
         approvedAt: String? = nil,
+        checkpointAt: String? = nil,
+        afterNodeIds: [String] = [],
         note: String? = nil,
         createdAt: String,
         updatedAt: String
@@ -2302,6 +2311,8 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         self.budget = budget
         self.touches = touches
         self.approvedAt = approvedAt
+        self.checkpointAt = checkpointAt
+        self.afterNodeIds = afterNodeIds
         self.note = note
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -2317,6 +2328,8 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         case sessionId = "session_id"
         case baseBranch = "base_branch"
         case approvedAt = "approved_at"
+        case checkpointAt = "checkpoint_at"
+        case afterNodeIds = "after_node_ids"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -2328,8 +2341,8 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
     public var coveredIssueIds: [String] { [issueId] + memberIssueIds }
 }
 
-// Custom decode: `member_issue_ids` (jsonb string[]) and `touches` (text[])
-// both read through the list helper — a JSON array off the wire, the `{a,b}`
+// Custom decode: `member_issue_ids` / `after_node_ids` (jsonb string[]) and
+// `touches` (text[]) all read through the list helper — a JSON array off the wire, the `{a,b}`
 // literal or the stored JSON text back out of GRDB — the layout integers
 // through the type-aware wire helper, and `on_cycle` as Postgres "t"/"f".
 extension WorkflowNodeEntity: Codable {
@@ -2352,6 +2365,8 @@ extension WorkflowNodeEntity: Codable {
         budget = c.decodeWireJsonString(forKey: .budget)
         touches = c.decodeWireStringList(forKey: .touches)
         approvedAt = try c.decodeIfPresent(String.self, forKey: .approvedAt)
+        checkpointAt = try c.decodeIfPresent(String.self, forKey: .checkpointAt)
+        afterNodeIds = c.decodeWireStringList(forKey: .afterNodeIds)
         note = try c.decodeIfPresent(String.self, forKey: .note)
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""

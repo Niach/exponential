@@ -19,8 +19,10 @@ use crate::git_worktree::{
     clone_path, ensure_clone, fetch_base, run_git, validate_branch_arg, TokenUrl,
 };
 
-/// The clone + ambient auth the two operations below share.
-fn engine_clone(
+/// The clone + ambient auth every engine git operation shares: the launcher's
+/// trunk clone with a JIT installation token on it, plus the repository's
+/// resolved default branch. EXP-983's base builder takes the same handle.
+pub fn engine_clone(
     trpc: &TrpcClient,
     repos_root: &Path,
     repository_id: &str,

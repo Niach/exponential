@@ -1319,6 +1319,17 @@
         "result": "none"
       },
       {
+        "name": "workflows_checkpoint",
+        "title": "Announce contract",
+        "blurb": "Tells the workflow that this node's contract is pushed, so dependents may start.",
+        "progressive": "Announcing contract",
+        "done": "Announced contract",
+        "progressiveMany": "Announcing {n} contracts",
+        "doneMany": "Announced {n} contracts",
+        "subjectKey": "",
+        "result": "none"
+      },
+      {
         "name": "workflows_create",
         "title": "Create workflow",
         "blurb": "Creates a draft workflow from backlog issues of one repository.",
@@ -1360,6 +1371,17 @@
         "progressiveMany": "Pausing {n} workflows",
         "doneMany": "Paused {n} workflows",
         "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "workflows_request_upstream",
+        "title": "Ask upstream run",
+        "blurb": "Asks the run of a blocking issue to change what it handed over.",
+        "progressive": "Asking upstream run",
+        "done": "Asked upstream run",
+        "progressiveMany": "Asking upstream runs {n} times",
+        "doneMany": "Asked upstream runs {n} times",
+        "subjectKey": "issueId",
         "result": "none"
       },
       {

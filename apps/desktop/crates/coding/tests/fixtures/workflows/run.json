@@ -45,8 +45,8 @@
     "expected": [
       { "kind": "setNodeState", "nodeId": "left", "state": "ready" },
       { "kind": "setNodeState", "nodeId": "right", "state": "ready" },
-      { "kind": "startNode", "nodeId": "left", "attempt": 1 },
-      { "kind": "startNode", "nodeId": "right", "attempt": 1 }
+      { "kind": "startNode", "nodeId": "left", "attempt": 1, "baseBranch": "exp/wf-abcdef12" },
+      { "kind": "startNode", "nodeId": "right", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }
     ]
   },
   {
@@ -77,7 +77,7 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startNode", "nodeId": "b", "attempt": 1 }]
+    "expected": [{ "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }]
   },
   {
     "name": "rule 2: a retried node starts at its next attempt",
@@ -95,7 +95,7 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startNode", "nodeId": "a", "attempt": 3 }]
+    "expected": [{ "kind": "startNode", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12" }]
   },
   {
     "name": "rule 3: a reset rate limit nudges the run once",

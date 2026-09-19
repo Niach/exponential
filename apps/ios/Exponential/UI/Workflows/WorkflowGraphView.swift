@@ -6,8 +6,10 @@ import SwiftUI
 /// its edges; a phone has no room for one, so it renders the SAME nodes as the
 /// wave-grouped LIST the blocks graph uses (`IssueGraphView`, EXP-980): a
 /// `Wave 1` / `Wave 2` … band per column, one row per node, and under each row
-/// the chips of the nodes that block it — red where the edge is part of a
-/// cycle.
+/// the chips of the nodes that block it. Those chips ARE the edges the grid
+/// clients draw, so they take the edge's own style (EXP-983
+/// `WorkflowView.edgeStyle`): landed green, stale or cyclic red, speculative a
+/// dashed border, plain the chip's default.
 ///
 /// Nothing is laid out here: `wave` and `lane` come off the synced rows (the
 /// server computes them), and the edges come from `WorkflowView.edges` over the
@@ -139,7 +141,15 @@ struct WorkflowGraphView: View {
                             HStack(spacing: 4) {
                                 ForEach(incoming, id: \.from) { edge in
                                     if let blocker = nodesById[edge.from] {
-                                        chip(for: blocker, cycle: edge.cycle, edge: true)
+                                        chip(
+                                            for: blocker,
+                                            cycle: edge.cycle,
+                                            style: WorkflowView.edgeStyle(
+                                                edge,
+                                                fromState: blocker.state,
+                                                toState: node.state
+                                            )
+                                        )
                                     }
                                 }
                             }
@@ -173,16 +183,14 @@ struct WorkflowGraphView: View {
     }
 
     /// One node, as the shared issue badge: `EXP-14 +3` for a compound node,
-    /// the bare identifier otherwise. A blocker chip (`edge`) stands in for the
-    /// EDGE the grid clients draw, so it takes the edge's own paint: red on a
-    /// cycle, green once the node it comes FROM has landed.
+    /// the bare identifier otherwise. A blocker chip stands in for the EDGE the
+    /// grid clients draw, so it is handed that edge's `style` and wears it.
     @ViewBuilder
     private func chip(
-        for node: WorkflowNodeEntity, cycle: Bool, edge: Bool = false
+        for node: WorkflowNodeEntity, cycle: Bool, style: WorkflowView.EdgeStyle? = nil
     ) -> some View {
         let issue = issues[node.issueId]
         let status = IssueStatus.from(issue?.status)
-        let landed = node.state == DomainContract.wfNodeStateLanded
         IssueChip(
             identifier: WorkflowView.nodeTitle(
                 // A node whose issue has not synced still names itself.
@@ -193,8 +201,23 @@ struct WorkflowGraphView: View {
             iconName: status.iconName,
             statusColor: cycle
                 ? DesignTokens.Semantic.red
-                : (edge && landed ? DesignTokens.Semantic.green : status.color)
+                : (Self.edgeColor(style) ?? status.color)
         )
+        // The dashed hairline says "speculative" the way a dashed edge does.
+        .overlay {
+            if style == .speculative { SpeculativeChipBorder() }
+        }
+    }
+
+    /// What an edge's style paints its chip in, or nil where the chip keeps the
+    /// issue's own status colour (`plain` and `speculative` — the latter says
+    /// what it is with the dash instead).
+    static func edgeColor(_ style: WorkflowView.EdgeStyle?) -> Color? {
+        switch style {
+        case .cycle, .stale: DesignTokens.Semantic.red
+        case .landed: DesignTokens.Semantic.green
+        default: nil
+        }
     }
 
     /// The glyph a state wears beside its caption — existing icon CONCEPTS
@@ -223,5 +246,18 @@ struct WorkflowGraphView: View {
         case .success: DesignTokens.Semantic.blue
         case .danger: DesignTokens.Semantic.red
         }
+    }
+}
+
+/// EXP-983 — the hairline a speculative edge's chip wears: the chip's own
+/// border, redrawn as a dash. A phone draws no edges, so the chip standing in
+/// for one has to carry the dash itself.
+struct SpeculativeChipBorder: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: MarkdownStyle.chipCornerRadius, style: .continuous)
+            .strokeBorder(
+                Color.white.opacity(TextOpacity.secondary),
+                style: StrokeStyle(lineWidth: IssueChipTokens.borderWidth, dash: [3, 2])
+            )
     }
 }

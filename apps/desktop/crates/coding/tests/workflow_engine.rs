@@ -16,9 +16,15 @@ struct Case {
 
 /// The fixture files, by name — listed rather than globbed so a file added
 /// without a `mod`-level thought does not silently go unread.
-const FIXTURES: [(&str, &str); 2] = [
+const FIXTURES: [(&str, &str); 3] = [
     ("mirror.json", include_str!("fixtures/workflows/mirror.json")),
     ("run.json", include_str!("fixtures/workflows/run.json")),
+    // EXP-983 — the speculative half: start modes, bases, propagation,
+    // serialization, the topological train and the base cleanup.
+    (
+        "speculative.json",
+        include_str!("fixtures/workflows/speculative.json"),
+    ),
 ];
 
 #[test]
@@ -35,7 +41,7 @@ fn the_rule_cascade_matches_every_fixture_case() {
         }
     }
     // A guard against an empty replay silently passing.
-    assert!(cases >= 25, "expected the whole rule cascade, replayed {cases}");
+    assert!(cases >= 40, "expected the whole rule cascade, replayed {cases}");
 }
 
 /// Evaluation is LEVEL-TRIGGERED: the same snapshot decides the same thing

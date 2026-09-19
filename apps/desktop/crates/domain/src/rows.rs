@@ -1240,6 +1240,16 @@ pub struct WorkflowNodeRow {
     /// Only its PRESENCE matters (the gate rule); never set by the engine.
     #[serde(default)]
     pub approved_at: Option<String>,
+    /// EXP-983: when the node's run announced its CONTRACT
+    /// (`exponential_workflows_checkpoint`). Under `start_on: contract` its
+    /// dependents may start from that moment.
+    #[serde(default)]
+    pub checkpoint_at: Option<String>,
+    /// EXP-983: the engine-written SERIALIZATION edges — node ids this node
+    /// has to merge in first, after their work collided. jsonb string[],
+    /// TEXT-stored, re-parsed tolerantly.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub after_node_ids: Option<serde_json::Value>,
     /// EXP-982: why the node is `failed` / `waiting`, in one sentence.
     #[serde(default)]
     pub note: Option<String>,
@@ -1259,16 +1269,13 @@ pub struct WorkflowNodeRow {
 impl WorkflowNodeRow {
     /// The compound node's sub-issue ids; empty for a plain node.
     pub fn member_ids(&self) -> Vec<String> {
-        self.member_issue_ids
-            .as_ref()
-            .and_then(serde_json::Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|item| item.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
+        json_ids(self.member_issue_ids.as_ref())
+    }
+
+    /// EXP-983: the node ids this node merges in first (the engine's
+    /// serialization edges); empty for a node that never collided.
+    pub fn after_ids(&self) -> Vec<String> {
+        json_ids(self.after_node_ids.as_ref())
     }
 
     /// The node's kind; the server column is NOT NULL DEFAULT `leaf`.
@@ -1297,6 +1304,19 @@ impl WorkflowNodeRow {
     pub fn is_on_cycle(&self) -> bool {
         self.on_cycle.unwrap_or(false)
     }
+}
+
+/// A jsonb `string[]` cell as a plain id list; anything else reads empty.
+fn json_ids(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

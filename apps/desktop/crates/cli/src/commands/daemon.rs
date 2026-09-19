@@ -2947,6 +2947,46 @@ impl AutomationHost {
             }
             plan.snapshot.integration_branch_exists = true;
         }
+        // EXP-983: what moved and what collides — one ls-remote per
+        // repository per beat, plus the merge-tree tests a quiet beat skips.
+        let repo = self.workflow_repo(&plan, settings);
+        if let Some((clone, url)) = repo.as_ref() {
+            plan.snapshot.tips = match coding::workflows::remote_tips(
+                clone,
+                coding::workflows::TIPS_PATTERN,
+                Some(url),
+            ) {
+                Ok(tips) => tips,
+                Err(err) => {
+                    log::warn!("workflow {workflow_id}: ls-remote — {err}");
+                    HashMap::new()
+                }
+            };
+            let mut cache = workflow_state(settings_path, &self.device_id, &workflow_id).conflicts;
+            plan.snapshot.conflicts = coding::workflows::detect_conflicts(
+                clone,
+                &plan.candidates,
+                &plan.branch_of,
+                &plan.snapshot.tips,
+                &mut cache,
+                Some(url),
+            );
+            coding::workflows::prune_conflict_cache(
+                &mut cache,
+                &plan.candidates,
+                &plan.branch_of,
+                &plan.snapshot.tips,
+            );
+            update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
+                state.conflicts = cache.clone()
+            });
+        }
+        // Unconditional: a beat that could not read the remote has no
+        // branches to speculate on at all, which leaves those nodes blocked.
+        coding::workflows::confine_branches_to_tips(&mut plan.snapshot);
+        // A base this pass could NOT put up. Nothing may be cut from it: the
+        // node waits for the next beat rather than starting on a wrong base.
+        let mut unbuilt: HashSet<String> = HashSet::new();
         for decision in coding::workflows::evaluate(&plan.snapshot) {
             match decision {
                 // Handled above; the engine still emits it when the host
@@ -2960,11 +3000,93 @@ impl AutomationHost {
                     };
                     self.report_node(&report);
                 }
-                coding::workflows::Decision::StartNode { node_id, attempt } => {
-                    self.start_workflow_node(&plan, &node_id, attempt, &branch, settings);
+                // EXP-983: the synthetic base a speculative start needs.
+                coding::workflows::Decision::BuildBase {
+                    node_id,
+                    base_branch,
+                    sources,
+                } => {
+                    let Some((clone, url)) = repo.as_ref() else {
+                        unbuilt.insert(base_branch);
+                        continue;
+                    };
+                    if !self.build_workflow_base(
+                        &plan,
+                        clone,
+                        url,
+                        &node_id,
+                        &base_branch,
+                        &sources,
+                        settings_path,
+                    ) {
+                        unbuilt.insert(base_branch);
+                    }
+                }
+                coding::workflows::Decision::StartNode {
+                    node_id,
+                    attempt,
+                    base_branch,
+                } => {
+                    // The base did not go up this pass: never cut from it.
+                    if unbuilt.contains(&base_branch) {
+                        continue;
+                    }
+                    self.start_workflow_node(
+                        &plan,
+                        &node_id,
+                        attempt,
+                        &base_branch,
+                        settings,
+                        settings_path,
+                    );
                 }
                 coding::workflows::Decision::LandNode { node_id } => {
                     self.land_workflow_node(&plan, &node_id, &branch);
+                }
+                // EXP-983: the branch under a run moved — a live run takes
+                // the text where it stands, an ended one is resumed with it.
+                coding::workflows::Decision::MergeUpstream {
+                    node_id,
+                    session_id,
+                    base_branch,
+                    sha,
+                } => {
+                    let note = match repo.as_ref() {
+                        Some((clone, url)) => workflow_movement_note(
+                            clone,
+                            &plan,
+                            &node_id,
+                            &base_branch,
+                            &sha,
+                            Some(url),
+                        ),
+                        None => sha.clone(),
+                    };
+                    let text = coding::prompt::upstream_moved_prompt(&base_branch, &note);
+                    remember_propagated(
+                        settings_path,
+                        &self.device_id,
+                        &workflow_id,
+                        &node_id,
+                        &base_branch,
+                        &sha,
+                    );
+                    if let Some(live) = workflow_session(&self.sessions, &session_id) {
+                        live.send_prompt(text);
+                    } else if let Err(err) = self.resume_workflow_node(&session_id, text) {
+                        log::warn!("workflow resume of {session_id} failed: {err}");
+                    }
+                }
+                // EXP-983: the collision the engine decided to serialize.
+                coding::workflows::Decision::SetSerialEdge { node_id, after } => {
+                    let state = plan
+                        .nodes
+                        .get(&node_id)
+                        .map(|node| node.state.clone())
+                        .unwrap_or_else(|| "running".to_string());
+                    let mut report = api::workflows::NodeReport::new(&node_id, state);
+                    report.after_node_ids = Some(after);
+                    self.report_node(&report);
                 }
                 coding::workflows::Decision::Nudge { session_id, key, text } => {
                     if let Some(live) = workflow_session(&self.sessions, &session_id) {
@@ -3006,6 +3128,105 @@ impl AutomationHost {
                         }
                     }
                 }
+                // EXP-983: a synthetic base nothing builds on any more.
+                coding::workflows::Decision::DeleteBase { base_branch } => {
+                    let Some((clone, url)) = repo.as_ref() else {
+                        continue;
+                    };
+                    if workflow_state(settings_path, &self.device_id, &workflow_id)
+                        .bases_deleted
+                        .contains(&base_branch)
+                    {
+                        continue;
+                    }
+                    match coding::workflows::delete_remote_branch(clone, &base_branch, Some(url)) {
+                        Ok(()) => {
+                            log::info!("workflow {workflow_id}: deleted {base_branch}");
+                            update_workflow_state(
+                                settings_path,
+                                &self.device_id,
+                                &workflow_id,
+                                |state| {
+                                    state.bases_deleted.insert(base_branch.clone());
+                                    state.synthetic.remove(&base_branch);
+                                },
+                            );
+                        }
+                        Err(err) => {
+                            log::warn!("workflow {workflow_id}: delete {base_branch} — {err}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The engine's clone of the workflow's repository, with a JIT token on
+    /// it — EXP-983's git half runs entirely inside it.
+    fn workflow_repo(
+        &self,
+        plan: &WorkflowPlan,
+        settings: &coding::Settings,
+    ) -> Option<(PathBuf, coding::git_worktree::TokenUrl)> {
+        let repository_id = plan.repository_id.as_deref()?;
+        match coding::workflows::engine_clone(
+            &self.ctx.trpc,
+            &settings.repos_root_path(),
+            repository_id,
+            plan.board_id.as_deref(),
+            &plan.snapshot.workflow.integration_branch,
+        ) {
+            Ok((clone, url, _)) => Some((clone, url)),
+            Err(err) => {
+                log::warn!("workflow: the engine clone is unavailable: {err}");
+                None
+            }
+        }
+    }
+
+    /// Build (or refresh) one node's synthetic base, answering whether the
+    /// base is now UP. A CONFLICT is not an error: nothing is pushed, the
+    /// node waits, and the engine serializes the two blockers next pass.
+    #[allow(clippy::too_many_arguments)]
+    fn build_workflow_base(
+        &self,
+        plan: &WorkflowPlan,
+        clone: &Path,
+        url: &coding::git_worktree::TokenUrl,
+        node_id: &str,
+        base_branch: &str,
+        sources: &[String],
+        settings_path: &Path,
+    ) -> bool {
+        let workflow_id = plan.snapshot.workflow.id.clone();
+        let workspace = coding::workflows::engine_worktree(clone, &workflow_id);
+        match coding::workflows::build_base(
+            clone,
+            &workspace,
+            base_branch,
+            &plan.snapshot.workflow.integration_branch,
+            sources,
+            Some(url),
+        ) {
+            Ok(coding::workflows::BaseOutcome::Built(built)) => {
+                log::info!("workflow {workflow_id}: built {base_branch}");
+                update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
+                    state.synthetic.insert(base_branch.to_string(), built.clone());
+                    state.bases_deleted.remove(base_branch);
+                });
+                true
+            }
+            Ok(coding::workflows::BaseOutcome::Conflict { left, right }) => {
+                let mut report = api::workflows::NodeReport::new(node_id, "waiting");
+                report.note = api::patch::Patch::Set(one_line_note(
+                    &workflow_conflict_note(plan, &left, &right),
+                ));
+                self.report_node(&report);
+                false
+            }
+            Err(err) => {
+                log::warn!("workflow {workflow_id}: base {base_branch} — {err}");
+                false
             }
         }
     }
@@ -3028,6 +3249,7 @@ impl AutomationHost {
     /// then launch the node locally: a plain node is an ISSUE run, a
     /// compound one a BATCH over its parent plus its members. Both cut from
     /// the integration branch and carry the `## Workflow` prompt section.
+    #[allow(clippy::too_many_arguments)]
     fn start_workflow_node(
         &self,
         plan: &WorkflowPlan,
@@ -3035,6 +3257,7 @@ impl AutomationHost {
         attempt: i64,
         branch: &str,
         settings: &coding::Settings,
+        settings_path: &Path,
     ) {
         let Some(node) = plan.nodes.get(node_id) else {
             return;
@@ -3046,10 +3269,24 @@ impl AutomationHost {
         if !self.report_node(&report) {
             return;
         }
+        // EXP-983: the run is cut AT this tip, so it already has it —
+        // recording that is what keeps the first beat quiet.
+        if let Some(sha) = plan.snapshot.tips.get(branch) {
+            remember_propagated(
+                settings_path,
+                &self.device_id,
+                &plan.snapshot.workflow.id,
+                node_id,
+                branch,
+                sha,
+            );
+        }
         let run = coding::WorkflowRun {
             workflow_id: plan.snapshot.workflow.id.clone(),
             name: plan.name.clone(),
             decisions: plan.decisions.clone(),
+            start_on: plan.snapshot.workflow.start_on.clone(),
+            blockers: workflow_blocker_identifiers(&plan.snapshot, node_id),
         };
         let options = coding::workflows::launch_options(
             settings,
@@ -3180,6 +3417,16 @@ impl AutomationHost {
         };
         if outcome.merged {
             log::info!("workflow landed {node_id}");
+            // EXP-983: the server retargeted these dependents onto the
+            // integration branch and moved their `base_branch` with them, so
+            // the NEXT pass tells them to merge it in (rule 4, keyed by its
+            // tip) — the level-triggered path, which cannot double up.
+            if !outcome.retargeted.is_empty() {
+                log::info!(
+                    "workflow retargeted onto {branch}: {}",
+                    outcome.retargeted.join(", ")
+                );
+            }
             return;
         }
         if outcome.is_waiting() {
@@ -3255,6 +3502,10 @@ struct WorkflowPlan {
     snapshot: coding::workflows::Snapshot,
     /// By node id — the start needs the issue and the members.
     nodes: HashMap<String, coding::workflows::NodeFacts>,
+    /// EXP-983: the node pairs worth a `git merge-tree` this beat, and every
+    /// node's head branch.
+    candidates: Vec<(String, String)>,
+    branch_of: HashMap<String, String>,
     name: String,
     team_id: String,
     decisions: String,
@@ -3285,6 +3536,10 @@ fn workflow_plan(
     let mut sessions = HashMap::new();
     let mut edge_nodes = Vec::new();
     let mut board_id = None;
+    // EXP-983: the identifier names a node's synthetic base, and the
+    // branches + globs feed the collision pre-filter.
+    let mut identifier: HashMap<String, String> = HashMap::new();
+    let mut git_nodes: Vec<coding::workflows::NodeGit> = Vec::new();
     // The workflow's team — a batch launch's subject.
     let team_id = workflow.team_id.clone().unwrap_or_default();
     for row in node_rows {
@@ -3293,8 +3548,20 @@ fn workflow_plan(
         }
         let issue_id = row.issue_id.clone()?;
         let members = row.member_ids();
+        // A plain node's head is its issue's branch; a COMPOUND one runs as
+        // a batch, whose branch only the session row knows.
+        let mut branch = None;
         if let Some(issue) = issue_rows.iter().find(|issue| issue.id == issue_id) {
             board_id.get_or_insert_with(|| issue.board_id.clone());
+            identifier.insert(row.id.clone(), issue.identifier.clone());
+            // The issue's branch is stamped when its PR opens; before that a
+            // started run is already pushing to the launcher's conventional
+            // name (which the tips then confirm).
+            branch = issue.branch.clone().or_else(|| {
+                row.session_id
+                    .is_some()
+                    .then(|| coding::workflows::conventional_branch(&issue.identifier))
+            });
             issues.insert(
                 issue_id.clone(),
                 coding::workflows::IssueFacts {
@@ -3305,9 +3572,23 @@ fn workflow_plan(
         if let Some(session_id) = row.session_id.as_deref() {
             if let Some(session) = session_rows.iter().find(|row| row.id == session_id) {
                 sessions.insert(session_id.to_string(), workflow_session_facts(session));
+                if !members.is_empty() {
+                    branch = session.branch.clone().or(branch);
+                }
             }
         }
-        edge_nodes.push((row.id.clone(), issue_id.clone(), members.clone()));
+        git_nodes.push(coding::workflows::NodeGit {
+            id: row.id.clone(),
+            branch: branch.clone(),
+            touches: row.touches.clone(),
+            state: row.state_wire().to_string(),
+        });
+        edge_nodes.push((
+            row.id.clone(),
+            issue_id.clone(),
+            members.clone(),
+            row.after_ids(),
+        ));
         let facts = coding::workflows::NodeFacts {
             id: row.id.clone(),
             issue_id,
@@ -3319,6 +3600,10 @@ fn workflow_plan(
             session_id: row.session_id.clone(),
             attempt: row.attempt.unwrap_or(0),
             approved_at: row.approved_at.clone(),
+            checkpoint_at: row.checkpoint_at.clone(),
+            base_branch: row.base_branch.clone(),
+            after_node_ids: row.after_ids(),
+            branch,
         };
         by_id.insert(facts.id.clone(), facts.clone());
         nodes.push(facts);
@@ -3327,10 +3612,15 @@ fn workflow_plan(
         return None;
     }
     let edges = workflow_edges(&edge_nodes, relation_rows);
-    let nudged = coding::workflows::read_states(settings_path, device_id)
+    let engine_state = coding::workflows::read_states(settings_path, device_id)
         .get(&workflow.id)
-        .map(|state| state.nudged.clone())
+        .cloned()
         .unwrap_or_default();
+    let candidates = coding::workflows::conflict_candidates(&git_nodes, &edges);
+    let branch_of: HashMap<String, String> = git_nodes
+        .iter()
+        .filter_map(|node| Some((node.id.clone(), node.branch.clone()?)))
+        .collect();
     let launch = api::workflows::from_row(workflow).launch;
     Some(WorkflowPlan {
         snapshot: coding::workflows::Snapshot {
@@ -3341,6 +3631,10 @@ fn workflow_plan(
                 integration_branch,
                 final_pr_url: workflow.final_pr_url.clone(),
                 max_parallel: workflow.max_parallel(),
+                start_on: workflow
+                    .start_on
+                    .clone()
+                    .unwrap_or_else(|| coding::workflows::START_ON_LANDED.to_string()),
             },
             nodes,
             edges,
@@ -3349,10 +3643,19 @@ fn workflow_plan(
             integration_branch_exists: false,
             in_flight: Default::default(),
             final_pr_in_flight: false,
-            nudged,
+            nudged: engine_state.nudged.clone(),
+            // EXP-983: the git facts are filled by the pass itself, where
+            // the clone and the token are.
+            tips: HashMap::new(),
+            propagated: engine_state.propagated.clone(),
+            synthetic: engine_state.synthetic.clone(),
+            conflicts: Default::default(),
+            identifier,
             now_ms,
         },
         nodes: by_id,
+        candidates,
+        branch_of,
         name: workflow.name.clone().unwrap_or_default(),
         team_id,
         decisions: workflow.decisions.clone().unwrap_or_default(),
@@ -3365,15 +3668,18 @@ fn workflow_plan(
 /// The `blocks` edges between a workflow's nodes — the ONE rule every client
 /// draws its graph with ([`domain::workflow_view::workflow_edges`]).
 fn workflow_edges(
-    nodes: &[(String, String, Vec<String>)],
+    nodes: &[(String, String, Vec<String>, Vec<String>)],
     relations: &[domain::rows::IssueRelation],
 ) -> Vec<(String, String)> {
     let edge_nodes: Vec<domain::workflow_view::EdgeNode<'_>> = nodes
         .iter()
-        .map(|(id, issue_id, members)| domain::workflow_view::EdgeNode {
+        .map(|(id, issue_id, members, after)| domain::workflow_view::EdgeNode {
             id,
             issue_id,
             member_issue_ids: members.iter().map(String::as_str).collect(),
+            // EXP-983: a serialization edge orders the pair exactly the way
+            // a `blocks` relation does.
+            after_node_ids: after.iter().map(String::as_str).collect(),
         })
         .collect();
     let edge_relations: Vec<domain::workflow_view::EdgeRelation<'_>> = relations
@@ -3459,6 +3765,108 @@ fn remember_nudge(
     if let Err(err) = coding::workflows::write_states(settings_path, device_id, &states) {
         log::warn!("workflow state write failed: {err}");
     }
+}
+
+/// EXP-983 — why a node is waiting when its blockers cannot both be merged
+/// in. Byte-identical to the desktop host's.
+fn workflow_conflict_note(plan: &WorkflowPlan, left: &str, right: &str) -> String {
+    let name = |branch: &str| {
+        plan.branch_of
+            .iter()
+            .find(|(_, candidate)| candidate.as_str() == branch)
+            .and_then(|(node_id, _)| plan.snapshot.identifier.get(node_id).cloned())
+            .unwrap_or_else(|| branch.to_string())
+    };
+    format!(
+        "Its blockers {} and {} conflict; one has to merge the other in",
+        name(left),
+        name(right)
+    )
+}
+
+/// The identifiers of the issues one node builds on — the prompt's "You
+/// build on the work of …" line.
+fn workflow_blocker_identifiers(
+    snapshot: &coding::workflows::Snapshot,
+    node_id: &str,
+) -> Vec<String> {
+    let mut names: Vec<String> = snapshot
+        .edges
+        .iter()
+        .filter(|(_, to)| to == node_id)
+        .filter_map(|(from, _)| snapshot.identifier.get(from).cloned())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The note a moved branch carries: the engine's own summary of the range
+/// between what the node was last told and where the branch is now.
+fn workflow_movement_note(
+    clone: &Path,
+    plan: &WorkflowPlan,
+    node_id: &str,
+    base_branch: &str,
+    sha: &str,
+    url: Option<&coding::git_worktree::TokenUrl>,
+) -> String {
+    let from = plan
+        .snapshot
+        .propagated
+        .get(node_id)
+        .and_then(|branches| branches.get(base_branch).cloned())
+        .or_else(|| {
+            plan.branch_of
+                .get(node_id)
+                .map(|branch| format!("refs/remotes/origin/{branch}"))
+        });
+    match from {
+        Some(from) => coding::workflows::movement_note(clone, &from, sha, url),
+        None => sha.to_string(),
+    }
+}
+
+fn workflow_state(
+    settings_path: &Path,
+    device_id: &str,
+    workflow_id: &str,
+) -> coding::workflows::WorkflowState {
+    coding::workflows::read_states(settings_path, device_id)
+        .get(workflow_id)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Read-modify-write one workflow's persisted engine state.
+fn update_workflow_state(
+    settings_path: &Path,
+    device_id: &str,
+    workflow_id: &str,
+    edit: impl FnOnce(&mut coding::workflows::WorkflowState),
+) {
+    let mut states = coding::workflows::read_states(settings_path, device_id);
+    edit(states.entry(workflow_id.to_string()).or_default());
+    if let Err(err) = coding::workflows::write_states(settings_path, device_id, &states) {
+        log::warn!("workflow state write failed: {err}");
+    }
+}
+
+fn remember_propagated(
+    settings_path: &Path,
+    device_id: &str,
+    workflow_id: &str,
+    node_id: &str,
+    branch: &str,
+    sha: &str,
+) {
+    update_workflow_state(settings_path, device_id, workflow_id, |state| {
+        state
+            .propagated
+            .entry(node_id.to_string())
+            .or_default()
+            .insert(branch.to_string(), sha.to_string());
+    });
 }
 
 fn branch_already_deleted(settings_path: &Path, device_id: &str, workflow_id: &str) -> bool {

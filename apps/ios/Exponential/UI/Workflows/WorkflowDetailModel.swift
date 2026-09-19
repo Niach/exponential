@@ -108,6 +108,12 @@ final class WorkflowDetailModel {
         launch.maxParallel ?? DomainContract.workflowMaxParallelDefault
     }
 
+    /// The nodes by id — the serialization edges (`after_node_ids`, EXP-983)
+    /// name NODES, so the panel resolves them through this.
+    var nodesById: [String: WorkflowNodeEntity] {
+        Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
     /// The node covering [issueId] — a member's id resolves to its compound
     /// node, exactly as the router addresses one.
     func node(coveringIssue issueId: String) -> WorkflowNodeEntity? {

@@ -210,11 +210,13 @@ pub fn workflow_node_title(identifier: &str, member_count: usize) -> String {
 }
 
 /// What an edge needs off a node row.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EdgeNode<'a> {
     pub id: &'a str,
     pub issue_id: &'a str,
     pub member_issue_ids: Vec<&'a str>,
+    /// EXP-983: engine-written serialization edges (`after_node_ids`).
+    pub after_node_ids: Vec<&'a str>,
 }
 
 /// What an edge needs off an `issue_relations` row.
@@ -231,6 +233,9 @@ pub struct WorkflowEdge {
     pub to: String,
     /// Inside a blocking cycle (`metrics.cycleEdges`): drawn red.
     pub cycle: bool,
+    /// EXP-983: not a `blocks` relation but a SERIALIZATION edge the engine
+    /// added after two siblings' work collided: `to` merges `from` in first.
+    pub serial: bool,
 }
 
 /// The edges between a workflow's nodes, from the synced `blocks` relations: a
@@ -273,7 +278,27 @@ pub fn workflow_edges(
             from: (*from).to_string(),
             to: (*to).to_string(),
             cycle: on_cycle.contains(key.as_str()),
+            serial: false,
         });
+    }
+    // Serialization edges, unless a real edge already joins the pair.
+    let known: HashSet<&str> = nodes.iter().map(|node| node.id).collect();
+    for node in nodes {
+        for from in &node.after_node_ids {
+            if !known.contains(from) || *from == node.id {
+                continue;
+            }
+            let key = format!("{from}\n{}", node.id);
+            if !seen.insert(key) {
+                continue;
+            }
+            edges.push(WorkflowEdge {
+                from: (*from).to_string(),
+                to: node.id.to_string(),
+                cycle: false,
+                serial: true,
+            });
+        }
     }
     edges.sort_by(|a, b| a.from.cmp(&b.from).then_with(|| a.to.cmp(&b.to)));
     edges
@@ -329,9 +354,8 @@ pub fn workflow_start_blocker(
     if workflow.device_id.is_none() {
         return Some("Pick the device that runs this workflow first.".to_string());
     }
-    if workflow.start_on != "landed" {
-        return Some("Only \"When landed\" starts are available yet.".to_string());
-    }
+    // EXP-983: every `start_on` runs now — the mode never blocks a start.
+    let _ = workflow.start_on;
     None
 }
 
@@ -453,6 +477,67 @@ pub fn workflow_final_pr_caption(
     Some(format!("#{number} · {label}"))
 }
 
+// ── Speculative starts (EXP-983) ────────────────────────────────────────────
+
+/// How an edge is drawn. Grey solid is the default; the others say something.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowEdgeStyle {
+    Plain,
+    Cycle,
+    Stale,
+    Landed,
+    Speculative,
+}
+
+impl WorkflowEdgeStyle {
+    /// The fixture's wire word for this style.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            WorkflowEdgeStyle::Plain => "plain",
+            WorkflowEdgeStyle::Cycle => "cycle",
+            WorkflowEdgeStyle::Stale => "stale",
+            WorkflowEdgeStyle::Landed => "landed",
+            WorkflowEdgeStyle::Speculative => "speculative",
+        }
+    }
+}
+
+/// The states a node occupies once its run exists — a dependent in one of
+/// them started BEFORE its blocker landed, which is what dashes an edge.
+const STARTED_STATES: [&str; 4] = ["running", "waiting", "in_review", "updating"];
+
+/// - `Cycle` (red): inside a blocking cycle.
+/// - `Stale` (red): upstream moved and the dependent is merging it in (`to`
+///   is `updating`).
+/// - `Landed` (green): the blocker landed.
+/// - `Speculative` (dashed): the dependent started before its blocker landed,
+///   or the edge is a serialization edge.
+/// - `Plain` (grey): nothing to say yet.
+pub fn workflow_edge_style(
+    edge: &WorkflowEdge,
+    from_state: &str,
+    to_state: &str,
+) -> WorkflowEdgeStyle {
+    if edge.cycle {
+        return WorkflowEdgeStyle::Cycle;
+    }
+    if from_state == "landed" {
+        return WorkflowEdgeStyle::Landed;
+    }
+    if to_state == "updating" {
+        return WorkflowEdgeStyle::Stale;
+    }
+    if edge.serial || STARTED_STATES.contains(&to_state) {
+        return WorkflowEdgeStyle::Speculative;
+    }
+    WorkflowEdgeStyle::Plain
+}
+
+/// The node panel's line once a node announced its contract.
+pub const CONTRACT_PUBLISHED_LABEL: &str = "Contract published";
+/// The node panel's line over the `after_node_ids` chips.
+pub const MERGES_IN_FIRST_LABEL: &str = "Merges in first";
+
 /// A list row's secondary text: the shape line, led by the status word for
 /// the two statuses a band alone does not tell apart.
 pub fn workflow_row_subtitle(status: &str, metrics: &WorkflowShape) -> String {
@@ -530,6 +615,8 @@ mod tests {
         id: String,
         issue_id: String,
         member_issue_ids: Vec<String>,
+        #[serde(default)]
+        after_node_ids: Vec<String>,
     }
 
     #[derive(Deserialize)]
@@ -547,6 +634,8 @@ mod tests {
         from: String,
         to: String,
         cycle: bool,
+        #[serde(default)]
+        serial: bool,
     }
 
     #[derive(Deserialize)]
@@ -623,6 +712,22 @@ mod tests {
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
+    struct FixtureStyledEdge {
+        cycle: bool,
+        serial: bool,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureEdgeStyle {
+        edge: FixtureStyledEdge,
+        from_state: String,
+        to_state: String,
+        style: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Fixture {
         bands: Vec<FixtureBand>,
         shape_lines: Vec<FixtureShapeLine>,
@@ -634,6 +739,8 @@ mod tests {
         train_step_labels: HashMap<String, String>,
         final_pr: Vec<FixtureFinalPr>,
         row_subtitles: Vec<FixtureRowSubtitle>,
+        /// EXP-983.
+        edge_styles: Vec<FixtureEdgeStyle>,
     }
 
     impl FixtureMetrics {
@@ -698,6 +805,7 @@ mod tests {
                     id: &node.id,
                     issue_id: &node.issue_id,
                     member_issue_ids: node.member_issue_ids.iter().map(String::as_str).collect(),
+                    after_node_ids: node.after_node_ids.iter().map(String::as_str).collect(),
                 })
                 .collect();
             let relations: Vec<EdgeRelation<'_>> = case
@@ -717,6 +825,7 @@ mod tests {
                     from: edge.from.clone(),
                     to: edge.to.clone(),
                     cycle: edge.cycle,
+                    serial: edge.serial,
                 })
                 .collect();
             assert_eq!(got, want, "case: {}", case.name);
@@ -795,6 +904,21 @@ mod tests {
                 case.subtitle,
                 "status: {}",
                 case.status
+            );
+        }
+
+        // ── EXP-983 ──────────────────────────────────────────────────────
+        for (index, case) in fixture.edge_styles.iter().enumerate() {
+            let edge = WorkflowEdge {
+                from: "a".to_string(),
+                to: "b".to_string(),
+                cycle: case.edge.cycle,
+                serial: case.edge.serial,
+            };
+            assert_eq!(
+                workflow_edge_style(&edge, &case.from_state, &case.to_state).as_wire(),
+                case.style,
+                "edgeStyles[{index}]"
             );
         }
     }

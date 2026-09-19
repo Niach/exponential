@@ -25,6 +25,8 @@ export const WORKFLOW_NODE_COLUMNS = [
   `attempt`,
   `base_branch`,
   `approved_at`,
+  `checkpoint_at`,
+  `after_node_ids`,
   `note`,
   `budget`,
   `touches`,

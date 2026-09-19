@@ -7,7 +7,12 @@ import {
   workflowNodes,
   workflows,
 } from "@/db/schema"
-import { createPullRequest, resolveRepoToken } from "@/lib/integrations/github-pr"
+import {
+  createPullRequest,
+  resolveRepoToken,
+  retargetPullRequest,
+} from "@/lib/integrations/github-pr"
+import { loadWorkflowEdges } from "@/lib/workflows"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import {
   effectiveDefaultBranch,
@@ -227,5 +232,100 @@ export async function applyWorkflowFinalPrState(
   } catch (err) {
     console.error(`[workflows] final PR state failed:`, err)
     return false
+  }
+}
+
+
+/**
+ * EXP-983: a node just landed. A dependent that based its pull request on
+ * the landed node's branch (or on a synthetic merge of several blockers) and
+ * now has NO unlanded blocker left is retargeted to the integration branch,
+ * so its diff keeps showing only its own work; the engine then has it merge
+ * the trunk in. Dependents that still wait on another blocker keep their
+ * base. Best-effort: a refusal is logged, the engine's next land attempt
+ * surfaces it. Returns the retargeted node ids.
+ */
+export async function retargetReleasedDependents(
+  db: Db,
+  workflowId: string,
+  landedNodeId: string,
+  actorUserId: string
+): Promise<string[]> {
+  try {
+    const [workflow] = await db
+      .select({
+        teamId: workflows.teamId,
+        repositoryId: workflows.repositoryId,
+        integrationBranch: workflows.integrationBranch,
+      })
+      .from(workflows)
+      .where(eq(workflows.id, workflowId))
+      .limit(1)
+    if (!workflow?.repositoryId) return []
+    const { nodes, edges } = await loadWorkflowEdges(db, workflowId)
+    const stateOf = new Map(nodes.map((node) => [node.id, node.state]))
+    const released = nodes.filter((node) => {
+      if (node.state === `landed` || node.state === `skipped`) return false
+      if (!node.baseBranch || node.baseBranch === workflow.integrationBranch) return false
+      const blockers = edges.filter(([, to]) => to === node.id).map(([from]) => from)
+      if (!blockers.includes(landedNodeId)) return false
+      return blockers.every((id) => {
+        const state = stateOf.get(id)
+        return id === landedNodeId || state === `landed` || state === `skipped`
+      })
+    })
+    if (released.length === 0) return []
+
+    const [repo] = await db
+      .select({ fullName: repositories.fullName })
+      .from(repositories)
+      .where(eq(repositories.id, workflow.repositoryId))
+      .limit(1)
+    if (!repo) return []
+    const token = await resolveRepoToken({
+      actorUserId,
+      teamId: workflow.teamId,
+      repo: repo.fullName,
+    })
+    const prs = await db
+      .select({ id: issues.id, prNumber: issues.prNumber, prState: issues.prState })
+      .from(issues)
+      .where(
+        inArray(
+          issues.id,
+          released.map((node) => node.issueId)
+        )
+      )
+    const prOf = new Map(prs.map((row) => [row.id, row]))
+    const done: string[] = []
+    for (const node of released) {
+      const pr = prOf.get(node.issueId)
+      if (token && pr?.prNumber != null && pr.prState === `open`) {
+        try {
+          await retargetPullRequest({
+            repo: repo.fullName,
+            prNumber: pr.prNumber,
+            base: workflow.integrationBranch,
+            token,
+          })
+          await db
+            .update(issues)
+            .set({ prBaseBranch: workflow.integrationBranch })
+            .where(eq(issues.id, node.issueId))
+        } catch (err) {
+          console.error(`[workflows] retarget of node ${node.id} failed:`, err)
+          continue
+        }
+      }
+      await db
+        .update(workflowNodes)
+        .set({ baseBranch: workflow.integrationBranch })
+        .where(eq(workflowNodes.id, node.id))
+      done.push(node.id)
+    }
+    return done
+  } catch (err) {
+    console.error(`[workflows] retarget after landing failed:`, err)
+    return []
   }
 }

@@ -1834,6 +1834,35 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v49 (EXP-983 speculative starts): `workflow_nodes.checkpoint_at` +
+        // `.after_node_ids` ride the same shape — when the node announced its
+        // contract (what a `contract` start waits for) and the serialization
+        // edges the engine wrote after two siblings' work collided. Same
+        // guarded additive ALTERs + offset reset as v48.
+        migrator.registerMigration("v49_workflow_node_checkpoint") { db in
+            guard try db.tableExists("workflow_nodes") else { return }
+            let existing = Set(try db.columns(in: "workflow_nodes").map(\.name))
+            if !existing.contains("checkpoint_at") {
+                try db.alter(table: "workflow_nodes") { t in
+                    t.add(column: "checkpoint_at", .text)
+                }
+            }
+            // jsonb string[] of NODE ids, stored as text like member_issue_ids.
+            if !existing.contains("after_node_ids") {
+                try db.alter(table: "workflow_nodes") { t in
+                    t.add(column: "after_node_ids", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the columns.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'workflow-nodes'
+                    """)
+            }
+        }
+
         return migrator
     }
 

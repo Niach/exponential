@@ -11,6 +11,7 @@ import {
   type IssueGraph,
 } from "@/lib/issue-graph"
 import { IssueChip } from "@/components/issue-chip"
+import type { WorkflowEdgeStyle } from "@/lib/workflow-view"
 import { cn } from "@/lib/utils"
 
 // EXP-980: THE blocks mini-graph. One component behind the list's blocks
@@ -28,6 +29,11 @@ import { cn } from "@/lib/utils"
 // keyed by NODE id with a card renderer of its own
 // (`components/workflow-graph.tsx`), the issue flavour below keeps feeding it
 // issues.
+//
+// EXP-983: every edge arrives with its STYLE (`lib/workflow-view.ts`
+// `workflowEdgeStyle`) rather than a flag per meaning — grey solid, red on a
+// cycle or a stale upstream, green out of a landed node, grey DASHED while the
+// dependent builds on work nobody landed yet.
 
 const NODE_W = 172
 const NODE_H = 28
@@ -45,11 +51,20 @@ export interface WaveGraphEdge {
   /** The blocker. */
   from: string
   to: string
-  /** Part of a blocking cycle: drawn red. */
-  cycle: boolean
-  /** EXP-982: the blocker is done (a landed workflow node): drawn green. A
-   *  cycle wins — a red edge is the one thing to fix. */
-  done?: boolean
+  /** EXP-983: how the edge is drawn, decided by the caller — the workflow
+   *  graph through `workflowEdgeStyle`, the issue flavour below with nothing
+   *  but `plain` and `cycle` (a blocking cycle) to say. */
+  style: WorkflowEdgeStyle
+}
+
+/** The paint per style. `speculative` is the only dashed one: the dependent
+ *  started on work its blocker has not landed yet. */
+const EDGE_STROKE: Record<WorkflowEdgeStyle, string> = {
+  plain: `var(--glass-stroke-strong)`,
+  cycle: `var(--destructive)`,
+  stale: `var(--destructive)`,
+  landed: `var(--color-emerald-500)`,
+  speculative: `var(--glass-stroke-strong)`,
 }
 
 /** Per-node chrome the caller owns: the positioned box's classes and its
@@ -98,7 +113,7 @@ export function WaveGraph({
     }
     const onCycle = new Set<string>()
     for (const edge of edges) {
-      if (!edge.cycle) continue
+      if (edge.style !== `cycle`) continue
       onCycle.add(edge.from)
       onCycle.add(edge.to)
     }
@@ -139,19 +154,15 @@ export function WaveGraph({
               d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`}
               fill="none"
               strokeWidth={1.25}
-              stroke={
-                edge.cycle
-                  ? `var(--destructive)`
-                  : edge.done
-                    ? `var(--color-emerald-500)`
-                    : `var(--glass-stroke-strong)`
+              stroke={EDGE_STROKE[edge.style]}
+              strokeDasharray={
+                edge.style === `speculative` ? `4 3` : undefined
               }
+              data-style={edge.style}
               data-testid={
-                edge.cycle
-                  ? `${idPrefix}-cycle-edge`
-                  : edge.done
-                    ? `${idPrefix}-done-edge`
-                    : `${idPrefix}-edge`
+                edge.style === `plain`
+                  ? `${idPrefix}-edge`
+                  : `${idPrefix}-${edge.style}-edge`
               }
             />
           )
@@ -204,13 +215,20 @@ export function IssueGraphView({
   const subjects = new Set(
     graph.nodes.filter((node) => node.subject).map((node) => node.id)
   )
+  // The issue flavour has no run behind it: an edge is either inside a cycle
+  // or it has nothing to say (EXP-983).
+  const edges = graph.edges.map((edge) => ({
+    from: edge.from,
+    to: edge.to,
+    style: (edge.cycle ? `cycle` : `plain`) as WorkflowEdgeStyle,
+  }))
 
   return (
     <div className={cn(`flex flex-col gap-2`, className)} data-testid="issue-graph">
       <div className="max-h-72 overflow-auto">
         <WaveGraph
           nodes={graph.nodes}
-          edges={graph.edges}
+          edges={edges}
           renderNode={(id) => {
             const issue = issueById.get(id)
             return issue ? renderNode(issue) : null
