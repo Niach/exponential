@@ -485,6 +485,8 @@ pub struct McpReadinessState {
     configs: Vec<McpServerConfig>,
     fetched_at: Option<Instant>,
     force: bool,
+    /// EXP-891: the device-set push riding the same sweep.
+    device_set: crate::device_mcp_servers::SyncState,
 }
 
 impl McpReadinessState {
@@ -501,6 +503,7 @@ impl McpReadinessState {
     /// server lists): re-read on the next sweep.
     pub fn invalidate(&mut self) {
         self.force = true;
+        self.device_set.invalidate();
     }
 
     fn fetch_due(&self) -> bool {
@@ -513,12 +516,18 @@ impl McpReadinessState {
     /// Refresh the config copy when due, run the token refresh sweep, and
     /// answer this machine's readiness. `None` when no config was ever
     /// fetched (offline at boot) — nothing to report yet.
+    ///
+    /// EXP-891: the same pass pushes this machine's own MCP server set
+    /// (`deviceMcpServers.sync`) under `device_id` whenever it moved since
+    /// the last push — one file read per beat, a request only on change.
     pub fn sweep(
         &mut self,
         data_dir: &Path,
         account_id: &str,
         trpc: &TrpcClient,
+        device_id: &str,
     ) -> Option<ReadinessSnapshot> {
+        self.device_set.sweep(data_dir, trpc, device_id);
         if self.fetch_due() {
             match list_for_device(trpc) {
                 Ok(configs) => {
@@ -1286,16 +1295,16 @@ mod tests {
         let base = canned_server(vec![(200, body)]);
         let trpc = TrpcClient::new(&base, Arc::new(StaticToken("t".into())));
         let mut state = McpReadinessState::new();
-        let first = state.sweep(&dir.0, "acct", &trpc).expect("snapshot");
+        let first = state.sweep(&dir.0, "acct", &trpc, "dev-1").expect("snapshot");
         assert_eq!(first.entries.len(), 1);
         assert!(first.entries[0].ready);
         // The canned server answered once; a second sweep must NOT need it.
-        let second = state.sweep(&dir.0, "acct", &trpc).expect("snapshot");
+        let second = state.sweep(&dir.0, "acct", &trpc, "dev-1").expect("snapshot");
         assert_eq!(second, first);
         assert_eq!(state.configs().len(), 1);
         // Offline at boot: nothing to report.
         let dead = TrpcClient::new("http://127.0.0.1:1", Arc::new(StaticToken("t".into())));
-        assert!(McpReadinessState::new().sweep(&dir.0, "acct", &dead).is_none());
+        assert!(McpReadinessState::new().sweep(&dir.0, "acct", &dead, "dev-1").is_none());
     }
 
     /// Compared as parsed values: `serde_json`'s `preserve_order` feature
