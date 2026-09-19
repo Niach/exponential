@@ -4,8 +4,7 @@ import GRDB
 /// EXP-878: one draft, RESOLVED against the local store. The `issue_drafts`
 /// shape is per-user and never team/trash-scoped, so a row may name a board on
 /// a trashed team or one the user has since left — `IssueDraftQueries.resolved`
-/// drops those, exactly like `PinQueries.resolved` drops an unresolvable pin,
-/// and a draft renders ONLY when its board is here.
+/// drops those, and a draft renders ONLY when its board is here.
 public struct IssueDraftRow: Identifiable, Sendable {
     public let draft: IssueDraftEntity
     public let board: BoardEntity

@@ -859,11 +859,11 @@ extension AutomationEntity: Codable {
 // EXP-778: personal pins — the 21st Electric shape. ONE row per (user,
 // target): an issue, a coding session or an action the user pinned into the
 // sidebar. The shape is static per user (`user_id = me`), NOT team/trash
-// scoped, so the local table holds every team's pins and the CLIENT renders
-// only the rows whose `team_id` is the active team AND whose target resolves
-// locally (`PinQueries`) — an unresolvable target is hidden, never shown as
-// a dead row. `kind` ∈ contract `pinKind`; exactly one of issue_id /
-// session_id / action_id is set. Mirrors packages/db-schema pins.
+// scoped, so the local table holds every team's pins. Synced for client
+// parity only: the phone has no sidebar, so nothing here renders a pin
+// (EXP-858 dropped the controls, EXP-976 the switcher's read-only list).
+// `kind` ∈ contract `pinKind`; exactly one of issue_id / session_id /
+// action_id is set. Mirrors packages/db-schema pins.
 public struct PinEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
     public static let databaseTableName = "pins"
 
