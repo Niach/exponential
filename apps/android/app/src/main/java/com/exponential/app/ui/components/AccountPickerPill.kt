@@ -112,7 +112,9 @@ internal fun AccountLimitBars(
 /**
  * The picker itself: the brand mark, the login's email, its health badge when
  * the credential is dead, and a chevron — a single login is a statement, not a
- * choice, so it renders as a plain capsule that opens nothing.
+ * choice, so it renders as a plain capsule that opens nothing. [enabled] false
+ * is the same statement for a LOCKED surface (a workflow past draft, whose
+ * server refuses the write anyway): dimmed, chevron-less, still readable.
  *
  * Renders NOTHING when [options] is empty: a machine with no login to pick has
  * no decision to offer, and the surface's own caption says what cannot start.
@@ -123,16 +125,18 @@ internal fun AccountPickerPill(
     selectedKey: String?,
     onSelect: (AccountOption) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     contentDescription: String = "Account",
 ) {
     val current = options.firstOrNull { it.key == selectedKey } ?: options.firstOrNull() ?: return
     var open by remember { mutableStateOf(false) }
-    val enabled = options.size > 1
+    val pickable = enabled && options.size > 1
     val badge = AgentHealthRules.badgeLabel(current.health)
     Box(modifier = modifier) {
         GlassPill(
             current.email,
-            onClick = if (enabled) ({ open = true }) else null,
+            onClick = if (pickable) ({ open = true }) else null,
+            enabled = enabled,
             leading = {
                 Icon(
                     agentIconPainter(current.agent),
@@ -141,7 +145,7 @@ internal fun AccountPickerPill(
                     tint = agentIconTint(current.agent),
                 )
             },
-            trailing = if (badge != null || enabled) {
+            trailing = if (badge != null || pickable) {
                 {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -156,7 +160,7 @@ internal fun AccountPickerPill(
                                 maxLines = 1,
                             )
                         }
-                        if (enabled) {
+                        if (pickable) {
                             Icon(
                                 ExpIcons.uiChevronDown,
                                 contentDescription = null,
@@ -253,15 +257,30 @@ internal fun accountOptionsFor(
     if (device == null) return emptyList()
     val flat = AccountOptions.flatten(device)
     if (flat.isNotEmpty()) return flat
-    val preferred = device.launchDefaults?.defaultAgent?.takeIf { it in fallbackAgents }
-        ?: fallbackAgents.firstOrNull()
-    return fallbackAgents
+    return ambientAccountOptions(
+        fallbackAgents,
+        device.launchDefaults?.defaultAgent?.takeIf { it in fallbackAgents },
+    )
+}
+
+/**
+ * The ambient fallback on its own — one `system` option per agent, the
+ * [preferred] one first. Split out for the surface that must stay editable
+ * with NO machine bound at all (a workflow's runner block, where the agent is
+ * configured before a runner is picked).
+ */
+internal fun ambientAccountOptions(
+    agents: List<String>,
+    preferred: String?,
+): List<AccountOption> {
+    val first = preferred?.takeIf { it in agents } ?: agents.firstOrNull()
+    return agents
         .map { agent ->
             AccountOption(
                 id = SYSTEM_PROFILE_ID,
                 agent = agent,
                 email = agentLabel(agent),
-                isDeviceDefault = agent == preferred,
+                isDeviceDefault = agent == first,
                 health = AgentHealth.Unknown,
             )
         }
