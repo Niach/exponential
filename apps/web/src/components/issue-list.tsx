@@ -24,6 +24,15 @@ import { useToday } from "@/hooks/use-now"
 import { dueDateToneClass } from "@/lib/issue-due-date"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import type { IssueGroup } from "@/lib/board-view"
+import type { BlockCounts } from "@/lib/issue-graph"
+import { IssueBlocksBadge } from "@/components/issue-blocks-badge"
+import {
+  TREE_INDENT,
+  TreeGuides,
+  treeGuideIsEmpty,
+  treeGuides,
+  type TreeGuide,
+} from "@exp/ui"
 
 // ×4 concepts, never raw glyphs (CLAUDE.md §Icons): the iOS list names the
 // same ones (`IssueListView.swift`).
@@ -39,6 +48,13 @@ const AvatarPlaceholderIcon = conceptIcon(`ui-avatar-placeholder`)
 // thousands of issues never mounts thousands of interactive rows (each row is
 // a Radix context menu around three dropdown components) in one commit.
 // Each group renders this many rows before a "Show more" button takes over.
+/** EXP-980: nudges the first gutter's centre under the parent's priority glyph
+ *  (a 24px column, glyph centred at 12; a gutter centre sits at 7). */
+const GUIDE_INSET = 5
+const NO_COUNTS: ReadonlyMap<string, BlockCounts> = new Map()
+const NO_DEPTHS: readonly number[] = []
+const NO_GUIDE_KEYS: readonly string[] = []
+
 const GROUP_ROW_CAP = 100
 // Every "Show more" click reveals this many additional rows.
 const GROUP_ROW_CHUNK = 400
@@ -68,6 +84,9 @@ interface IssueListProps {
   // must be a function of the issue row alone — external state it closes
   // over won't re-render untouched rows.
   renderRowAction?: (issue: Issue) => React.ReactNode
+  // EXP-980: per-issue blocks badge counts (`useTeamIssueGraph`), computed
+  // once per list.
+  blockCounts?: ReadonlyMap<string, BlockCounts>
   // Enables bulk selection (hover checkboxes on md+, shift-click ranges,
   // Cmd/Ctrl+A, Esc). Undefined = bulk select off. Selection also requires
   // canModerate.
@@ -180,6 +199,14 @@ interface IssueRowProps {
   onOpen: (issue: Issue) => void
   onToggleSelect: (issueId: string, shiftKey: boolean) => void
   renderRowAction?: (issue: Issue) => React.ReactNode
+  /** EXP-980: 0 = a root row; a sub-issue sits one level per ancestor in. */
+  depth: number
+  /** The row's `TreeGuide` as JSON, `` for none: a STRING so the memo still
+   *  compares primitives. */
+  guideKey: string
+  /** EXP-980: open blockers / open blocked issues; both 0 = no badge. */
+  blockedBy: number
+  blocking: number
 }
 
 // REV-46: memoized so a selection toggle reconciles only the toggled row —
@@ -205,7 +232,16 @@ const IssueRow = memo(function IssueRow({
   onOpen,
   onToggleSelect,
   renderRowAction,
+  depth,
+  guideKey,
+  blockedBy,
+  blocking,
 }: IssueRowProps) {
+  const guide = useMemo(
+    () => (guideKey ? (JSON.parse(guideKey) as TreeGuide) : null),
+    [guideKey]
+  )
+  const indent = depth * TREE_INDENT
   return (
     <IssueRowContextMenu
       issue={issue}
@@ -228,7 +264,7 @@ const IssueRow = memo(function IssueRow({
         // templates. The mobile fill is chosen here rather than by class
         // order: `bg-glass-active` and `bg-glass-row` are both `bg-*`
         // utilities, so which one won would come down to stylesheet order.
-        className={`max-md:flex max-md:items-center max-md:gap-2.5 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row md:border-b md:border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : `max-md:bg-glass-row`}`}
+        className={`relative max-md:flex max-md:items-center max-md:gap-2.5 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row md:border-b md:border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : `max-md:bg-glass-row`}`}
         onClick={() => {
           if (mobileSelectionActive) {
             onToggleSelect(issue.id, false)
@@ -237,7 +273,32 @@ const IssueRow = memo(function IssueRow({
           onOpen(issue)
         }}
         data-testid={`issue-row-${issue.identifier}`}
+        data-depth={depth}
+        style={
+          indent > 0
+            ? ({ "--issue-indent": `${indent}px` } as React.CSSProperties)
+            : undefined
+        }
       >
+        {/* EXP-980: the elbow from the parent's priority glyph. The gutters
+            start at the PRIORITY column (past the md+ checkbox column), its
+            first centre under the parent's glyph; the indent itself is the
+            priority cell's padding, so the checkbox never moves. */}
+        {guide && (
+          <>
+            <TreeGuides
+              guide={guide}
+              base={(bulkEnabled ? 44 : 24) + GUIDE_INSET}
+              className="max-md:hidden"
+            />
+            <TreeGuides
+              guide={guide}
+              base={12 + GUIDE_INSET}
+              gap={3}
+              className="md:hidden"
+            />
+          </>
+        )}
         {bulkEnabled && (
           <div
             // self-stretch + the padding bleed grow the toggle
@@ -263,7 +324,8 @@ const IssueRow = memo(function IssueRow({
           </div>
         )}
         <div
-          className="flex items-center justify-center"
+          className="flex items-center justify-center max-md:shrink-0"
+          style={indent > 0 ? { paddingLeft: indent } : undefined}
           onClick={(e) => e.stopPropagation()}
         >
           <PriorityDropdown
@@ -291,6 +353,14 @@ const IssueRow = memo(function IssueRow({
         </div>
         <span className="flex items-center gap-1.5 text-sm truncate md:ml-2 min-w-0 max-md:flex-1">
           <span className="truncate">{issue.title}</span>
+          {(blockedBy > 0 || blocking > 0) && (
+            <IssueBlocksBadge
+              issueId={issue.id}
+              teamId={issue.teamId}
+              blockedBy={blockedBy}
+              blocking={blocking}
+            />
+          )}
         </span>
         {/* Full pills at md+; below md the natives draw up to three bare
             colour dots instead, which is all a phone-width row can hold. */}
@@ -378,6 +448,7 @@ export function IssueList({
   isLoading = false,
   emptyStateExtra,
   renderRowAction,
+  blockCounts: counts = NO_COUNTS,
   bulkTeamId,
   selectedIds = EMPTY_SELECTION,
   onSelectedIdsChange: setSelectedIds = noopSetSelectedIds,
@@ -586,18 +657,18 @@ export function IssueList({
   const rowGridClass = bulkEnabled
     ? renderRowAction
       ? isSolo
-        ? `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
-        : `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
+        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
       : isSolo
-        ? `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
-        : `md:grid-cols-[1.25rem_1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem]`
+        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
     : renderRowAction
       ? isSolo
-        ? `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
-        : `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
+        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
       : isSolo
-        ? `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_4.5rem]`
-        : `md:grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem]`
+        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
 
   const toggleGroup = (groupKey: string) => {
     setCollapsedGroups((prev) => {
@@ -650,6 +721,15 @@ export function IssueList({
         const renderedIssues =
           group.issues.length > limit ? group.issues.slice(0, limit) : group.issues
         const hiddenCount = group.issues.length - renderedIssues.length
+        // EXP-980: the guides of the rows actually RENDERED, so a capped
+        // group never draws a tee towards a row behind "Show more".
+        const depths = group.depths?.slice(0, renderedIssues.length) ?? NO_DEPTHS
+        const guideKeys =
+          depths.length > 0
+            ? treeGuides(depths).map((guide) =>
+                treeGuideIsEmpty(guide) ? `` : JSON.stringify(guide)
+              )
+            : NO_GUIDE_KEYS
         return (
           <CollapsiblePrimitive.Root
             key={option.id}
@@ -704,7 +784,7 @@ export function IssueList({
                 utility would out-specify the preflight `[hidden]` rule and
                 leave collapsed groups showing their rows. */}
             <CollapsiblePrimitive.Content className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down max-md:space-y-[3px]">
-              {renderedIssues.map((issue) => {
+              {renderedIssues.map((issue, index) => {
                 const rowCanMutate = canMutateIssue
                   ? canMutateIssue(issue)
                   : true
@@ -728,6 +808,10 @@ export function IssueList({
                     onOpen={openIssue}
                     onToggleSelect={toggleSelect}
                     renderRowAction={stableRenderRowAction}
+                    depth={depths[index] ?? 0}
+                    guideKey={guideKeys[index] ?? ``}
+                    blockedBy={counts.get(issue.id)?.blockedBy ?? 0}
+                    blocking={counts.get(issue.id)?.blocking ?? 0}
                   />
                 )
               })}

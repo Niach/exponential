@@ -63,6 +63,12 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
       label: `Support tickets`,
       hint: `New helpdesk tickets and reporter replies in your teams.`,
     },
+    // EXP-980: a walled run reads `running`; this is how its owner hears.
+    {
+      type: `session_blocked`,
+      label: `Blocked runs`,
+      hint: `One of your coding runs hits a rate limit.`,
+    },
   ]
 
 // The whole email-digest preferences card, split out of the old

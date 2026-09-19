@@ -15,7 +15,7 @@ import {
   issueCollection,
   issueRelationCollection,
 } from "@/lib/collections"
-import { openBlockers } from "@/lib/stack-start"
+import { openBlockersOfSet } from "@/lib/issue-graph"
 import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
@@ -162,8 +162,9 @@ export interface LaunchComposerModel {
   /** True when the run will resume — plan mode hides behind it. */
   resumeActive: boolean
 
-  /** EXP-897: the SOLE checked issue's still-open blockers (`openBlockers`).
-   * Empty for a chat, an action, a batch, or an unblocked issue. */
+  /** EXP-897/980: the open blockers of the checked issues from OUTSIDE the
+   * picked set (`openBlockersOfSet`). Empty for a chat, an action, or
+   * unblocked issues. */
   blockedStart: Issue[]
   /** The blocked-start dialog is up — the submit asked, nothing started. */
   blockedOpen: boolean
@@ -171,11 +172,12 @@ export interface LaunchComposerModel {
   /** Start a PLAIN run, blockers and all. */
   startAnyway: () => Promise<void>
   /** Start ON TOP of the lowest blocker's pull request (`stack: true`). A
-   * no-op while `canStack` is false: the choice is hidden, never downgraded
-   * to a plain start. */
+   * no-op while `canStack` is false or a batch is picked: the choice is
+   * disabled with a reason, never downgraded to a plain start. */
   startStacked: () => Promise<void>
   /** The picked machine advertises `stacked-start`; an older build would
-   * run the issue UNSTACKED, so the dialog hides "Stacked PR" for it. A
+   * run the issue UNSTACKED, so the dialog disables "Stacked PR" for it and
+   * says why (EXP-980). A
    * local desktop start never reads this (its own launcher resolves the
    * chain via `codingSessions.stackPlan`). */
   canStack: boolean
@@ -574,18 +576,19 @@ export function useLaunchComposer({
   // ── Blocked start (EXP-897) ───────────────────────────────────────────────
 
   // Only the BLOCKED side is queried: a canonical `blocks` row is
-  // `issue_id` blocks `related_issue_id` (EXP-736), so this issue's blockers
-  // are exactly the rows naming it as the related one. One `eq` — no `or()`
-  // needed, and never `&&`/`||` (the collections' filter builder).
+  // `issue_id` blocks `related_issue_id` (EXP-736), so the picked issues'
+  // blockers are exactly the rows naming one of them as the related one.
+  // EXP-980: for a BATCH too — what blocks it from OUTSIDE the picked set.
   const [blockedOpen, setBlockedOpen] = useState(false)
+  const checkedKey = checkedIds.join(`,`)
   const { data: relationRows } = useLiveQuery(
     (query) =>
-      soleIssueId
+      checkedIds.length > 0
         ? query
             .from({ r: issueRelationCollection })
-            .where(({ r }) => eq(r.relatedIssueId, soleIssueId))
+            .where(({ r }) => inArray(r.relatedIssueId, checkedIds))
         : undefined,
-    [soleIssueId]
+    [checkedKey]
   )
   const blockerIds = useMemo(() => {
     const ids = [
@@ -609,25 +612,25 @@ export function useLaunchComposer({
         : undefined,
     [blockerIds.join(`,`)]
   )
-  const blockedStart = useMemo(
-    () =>
-      soleIssueId
-        ? openBlockers(
-            soleIssueId,
-            (relationRows ?? []) as {
-              type: string
-              issueId: string
-              relatedIssueId: string
-            }[],
-            (blockerRows ?? []) as Issue[]
-          )
-        : [],
-    [soleIssueId, relationRows, blockerRows]
-  )
+  const blockedStart = useMemo(() => {
+    if (checkedIssues.length === 0) return []
+    const known = new Map<string, Issue>()
+    for (const row of (blockerRows ?? []) as Issue[]) known.set(row.id, row)
+    for (const row of checkedIssues) known.set(row.id, row)
+    return openBlockersOfSet(
+      checkedIssues.map((row) => row.id),
+      (relationRows ?? []) as {
+        type: string
+        issueId: string
+        relatedIssueId: string
+      }[],
+      [...known.values()]
+    )
+  }, [checkedIssues, relationRows, blockerRows])
   // A fresh subject asks again.
   useEffect(() => {
     setBlockedOpen(false)
-  }, [soleIssueId])
+  }, [checkedKey])
   // The remote machine must READ the `stack` payload: a build below the
   // `stacked-start` cap would run unstacked while the server had already
   // written the `blocks` relation. The server refuses it too; the dialog
@@ -670,7 +673,7 @@ export function useLaunchComposer({
    * a machine that reads it (`canStack`). */
   const start = async (opts: { stack?: boolean } = {}) => {
     if (blocked || !device) return
-    if (opts.stack && !canStack) return
+    if (opts.stack && (!canStack || checkedIds.length !== 1)) return
     setBlockedOpen(false)
     setSending(true)
     try {
@@ -742,12 +745,14 @@ export function useLaunchComposer({
     }
   }
 
-  // EXP-897: a single BLOCKED issue asks first — plain run, or a stacked PR
-  // cut from the blocker's branch. A batch never asks (it has no one
-  // foundation to build on), nor does an action or a chat.
+  // EXP-897: a BLOCKED start asks first — plain run, or a stacked PR cut from
+  // the blocker's branch. EXP-980: a batch asks too (about blockers outside
+  // it; stacking stays a single-issue mode, the dialog says so). An action or
+  // a chat never asks, and neither does a RESUME: it re-enters a worktree
+  // whose base was decided when the run first started.
   const submit = async () => {
     if (blocked || !device) return
-    if (blockedStart.length > 0 && subject?.kind === `issues` && subject.ids.length === 1) {
+    if (blockedStart.length > 0 && subject?.kind === `issues` && !resumeActive) {
       setBlockedOpen(true)
       return
     }

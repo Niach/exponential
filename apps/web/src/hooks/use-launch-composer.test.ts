@@ -672,9 +672,9 @@ describe(`useLaunchComposer blocked start`, () => {
   })
 
   // A machine below the `stacked-start` build has no `stack` field in its
-  // decoder: the dialog still asks (Cancel / Start anyway) but never offers
-  // the stack, and the model refuses to send one rather than downgrade it.
-  it(`hides the stack for a device without the stacked-start cap`, async () => {
+  // decoder: the dialog still asks, shows the stack DISABLED with the reason
+  // (EXP-980), and the model refuses to send one rather than downgrade it.
+  it(`refuses the stack for a device without the stacked-start cap`, async () => {
     const oldDevice: SteerDevice = { ...device, caps: [`resume-run`] }
     const { result, remote } = mount(null, makeRemote({ devices: [oldDevice] }))
     act(() => result.current.toggleIssue(`i1`))
@@ -699,22 +699,60 @@ describe(`useLaunchComposer blocked start`, () => {
     expect(result.current.canStack).toBe(true)
   })
 
-  it(`never asks for a batch, a done blocker or another subject`, async () => {
-    // Two issues: a batch has no single foundation to build on.
+  // EXP-980: a batch asks too — about what blocks it from OUTSIDE.
+  it(`asks for a batch that an outside issue blocks, and never stacks it`, async () => {
     const { result, remote } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.toggleIssue(`i3`))
+    expect(result.current.blockedStart.map((row) => row.id)).toEqual([`i2`])
+    await act(() => result.current.submit())
+    expect(result.current.blockedOpen).toBe(true)
+    // Stacking is a single-issue mode: refused, never downgraded.
+    await act(() => result.current.startStacked())
+    expect(remote.startIssues).not.toHaveBeenCalled()
+    await act(() => result.current.startAnyway())
+    expect(remote.startIssues).toHaveBeenCalledWith(
+      device,
+      expect.anything(),
+      [`i1`, `i3`],
+      undefined,
+      undefined
+    )
+  })
+
+  it(`never asks about a blocker picked into the same batch`, async () => {
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    act(() => result.current.toggleIssue(`i2`))
+    expect(result.current.blockedStart).toEqual([])
     await act(() => result.current.submit())
     expect(result.current.blockedOpen).toBe(false)
     expect(remote.startIssues).toHaveBeenCalledTimes(1)
+  })
 
-    // A blocker that is done is no blocker.
+  it(`never asks on a resume`, async () => {
+    mockState.rows.w = [
+      {
+        deviceRowId: device.rowId,
+        issueIdentifier: `I1`,
+        agents: null,
+      },
+    ]
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.resumeActive).toBe(true)
+    await act(() => result.current.submit())
+    expect(result.current.blockedOpen).toBe(false)
+    expect(remote.startIssues).toHaveBeenCalledTimes(1)
+  })
+
+  it(`never asks for a done blocker`, async () => {
     mockState.rows.bl = [issue(`i2`, `b1`, `done`)]
-    const second = mount()
-    act(() => second.result.current.toggleIssue(`i1`))
-    expect(second.result.current.blockedStart).toEqual([])
-    await act(() => second.result.current.submit())
-    expect(second.result.current.blockedOpen).toBe(false)
-    expect(second.remote.startIssues).toHaveBeenCalledTimes(1)
+    const { result, remote } = mount()
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.blockedStart).toEqual([])
+    await act(() => result.current.submit())
+    expect(result.current.blockedOpen).toBe(false)
+    expect(remote.startIssues).toHaveBeenCalledTimes(1)
   })
 })

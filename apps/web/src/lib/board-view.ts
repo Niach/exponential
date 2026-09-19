@@ -4,6 +4,7 @@ import {
   type IssuePriority,
   type IssueStatusCategory,
 } from "@/lib/domain"
+import { nestIssueRows, type NestingRelation } from "@/lib/issue-nesting"
 import type { StatusResolvable, StatusRowOption } from "@/lib/team-statuses"
 
 const priorityRank: Record<IssuePriority, number> = {
@@ -86,7 +87,12 @@ export function compareIssuesForGroup(
 }
 
 export interface IssueGroup {
+  /** In DISPLAY order: once nested (EXP-980), a sub-issue follows its parent,
+   *  so everything that walks the list (range select, prev/next) follows the
+   *  rows the user sees. */
   issues: Issue[]
+  /** EXP-980: `depths[i]` = the nesting depth of `issues[i]`; absent = flat. */
+  depths?: number[]
   // EXP-314: one group per TEAM STATUS ROW (the resolved option, whose `id` is
   // the group key — a row uuid, or `builtin:<key>` for a constructed fallback
   // while the issue_statuses shape is still syncing).
@@ -155,4 +161,34 @@ export function buildVisibleIssueGroups(
   }
 
   return groups.filter((group) => group.issues.length > 0)
+}
+
+/**
+ * EXP-980: nest sub-issues under their parent across ALL groups (the root
+ * decides the group), per `lib/issue-nesting.ts`. Groups a nesting emptied are
+ * dropped. Returns `groups` itself when nothing nests, so memoized consumers
+ * see a stable value on the common flat board.
+ */
+export function nestIssueGroups(
+  groups: IssueGroup[],
+  relations: readonly NestingRelation[]
+): IssueGroup[] {
+  if (!relations.some((relation) => relation.type === `parent`)) return groups
+  const byId = new Map<string, Issue>()
+  for (const group of groups) {
+    for (const issue of group.issues) byId.set(issue.id, issue)
+  }
+  const nested = nestIssueRows(
+    groups.map((group) => group.issues.map((issue) => issue.id)),
+    relations,
+    (id) => byId.get(id)?.identifier ?? id
+  )
+  if (nested.every((rows) => rows.every((row) => row.depth === 0))) return groups
+  return groups
+    .map((group, index) => ({
+      status: group.status,
+      issues: nested[index].map((row) => byId.get(row.id) as Issue),
+      depths: nested[index].map((row) => row.depth),
+    }))
+    .filter((group) => group.issues.length > 0)
 }

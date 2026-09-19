@@ -103,6 +103,7 @@ function BoardPage() {
     users,
     userMap,
     visibleGroups,
+    blockCounts,
     team,
   } = useBoardViewData({
     boardSlug,
@@ -196,6 +197,7 @@ function BoardPage() {
       >
         <IssueList
           groups={visibleGroups}
+          blockCounts={blockCounts}
           issueLabelMap={issueLabelMap}
           labels={labelList}
           users={users}

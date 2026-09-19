@@ -13,7 +13,9 @@ import {
 import {
   buildIssueLabelMap,
   buildVisibleIssueGroups,
+  nestIssueGroups,
 } from "@/lib/board-view"
+import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { Issue, IssueLabel, Board } from "@/db/schema"
 
@@ -83,6 +85,8 @@ export function useMyIssuesData({
   const issueList = (issues ?? []) as Issue[]
   const issueLabelList = (issueLabels ?? []) as IssueLabel[]
 
+  const issueGraph = useTeamIssueGraph(team?.id)
+
   return useMemo(() => {
     const issueLabelMap = buildIssueLabelMap(issueLabelList, labelList)
 
@@ -99,11 +103,13 @@ export function useMyIssuesData({
       totalIssueCount: issueList.length,
       users,
       userMap,
-      visibleGroups: buildVisibleIssueGroups(
-        issueList,
-        statusOptions,
-        resolveStatus
+      // EXP-980: sub-issues nest under their parent; the root decides the
+      // group and the position.
+      visibleGroups: nestIssueGroups(
+        buildVisibleIssueGroups(issueList, statusOptions, resolveStatus),
+        issueGraph.relations
       ),
+      blockCounts: issueGraph.counts,
       statusOptions,
       team,
     }
@@ -116,6 +122,7 @@ export function useMyIssuesData({
     boardsReady,
     statusOptions,
     resolveStatus,
+    issueGraph,
     userMap,
     users,
     team,

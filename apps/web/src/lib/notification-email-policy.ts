@@ -568,3 +568,12 @@ export function buildSupportDeepLinkPath(teamSlug: string): string {
 export function buildInboxDeepLinkPath(teamSlug: string): string {
   return `/t/${encodeURIComponent(teamSlug)}/inbox`
 }
+
+// The run — the link target for `session_blocked` digest items (EXP-980):
+// the ONE run URL (EXP-870), whatever the run is about.
+export function buildSessionDeepLinkPath(
+  teamSlug: string,
+  sessionId: string
+): string {
+  return `/t/${encodeURIComponent(teamSlug)}/sessions/${encodeURIComponent(sessionId)}`
+}

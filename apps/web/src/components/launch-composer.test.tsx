@@ -7,7 +7,11 @@ import type { SteerDevice } from "@/lib/steer-devices"
 import { builtinCreateAction, builtinFixConflictsAction } from "@/lib/builtin-actions"
 import { CHAT_SUGGESTION_COUNT, CHAT_SUGGESTION_POOL } from "@/lib/chat-suggestions"
 import {
+  BLOCKED_BATCH_BODY,
+  BLOCKED_BATCH_TITLE,
   BLOCKED_START_TITLE,
+  STACK_NEEDS_UPDATE_NOTE,
+  STACK_SINGLE_ISSUE_NOTE,
   START_ANYWAY_LABEL,
   STACKED_PR_LABEL,
 } from "@/lib/stack-start"
@@ -26,6 +30,15 @@ vi.mock(`@/lib/collections`, () => ({
   codingSessionCollection: {},
   deviceWorktreeCollection: {},
   issueCollection: {},
+}))
+// EXP-980: the dialog's mini-graph reads the team graph; the hook has its own
+// consumers' tests, here it only has to feed one blocks edge (or a cycle).
+const graphState = vi.hoisted(() => ({
+  relations: [] as { type: string; issueId: string; relatedIssueId: string }[],
+  issues: [] as unknown[],
+}))
+vi.mock(`@/hooks/use-team-issue-graph`, () => ({
+  useTeamIssueGraph: () => ({ ...graphState, counts: new Map() }),
 }))
 vi.mock(`@exp/ui`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -323,10 +336,11 @@ describe(`LaunchComposer blocked start`, () => {
     expect(startStacked).toHaveBeenCalledTimes(1)
   })
 
-  // The picked machine is below the `stacked-start` build: Cancel and Start
-  // anyway stay, the stack is not on offer.
-  it(`hides Stacked PR when the device lacks the stacked-start cap`, () => {
+  // The picked machine is below the `stacked-start` build: the stack stays
+  // VISIBLE but disabled, with the reason (EXP-980: it used to vanish).
+  it(`disables Stacked PR with a reason when the device lacks the stacked-start cap`, () => {
     const startAnyway = vi.fn().mockResolvedValue(undefined)
+    const startStacked = vi.fn().mockResolvedValue(undefined)
     render(
       <LaunchComposer
         model={fakeModel({
@@ -336,16 +350,71 @@ describe(`LaunchComposer blocked start`, () => {
           blockedOpen: true,
           canStack: false,
           startAnyway,
+          startStacked,
           blocked: false,
         })}
         users={[]}
       />
     )
     expect(screen.getByText(BLOCKED_START_TITLE)).toBeTruthy()
-    expect(screen.queryByText(STACKED_PR_LABEL)).toBeNull()
-    expect(screen.getByText(`Cancel`)).toBeTruthy()
+    expect(screen.getByTestId(`blocked-start-stack-note`).textContent).toBe(
+      STACK_NEEDS_UPDATE_NOTE
+    )
+    fireEvent.click(screen.getByText(STACKED_PR_LABEL))
+    expect(startStacked).not.toHaveBeenCalled()
     fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
     expect(startAnyway).toHaveBeenCalledTimes(1)
+  })
+
+  it(`asks about a batch with the batch copy and no stack`, () => {
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          subject: { kind: `issues`, ids: [`i1`, `i3`] },
+          checkedIssues: [issue(`i1`, `APP-1`), issue(`i3`, `APP-3`)],
+          blockedStart: [issue(`i2`, `APP-2`)],
+          blockedOpen: true,
+          blocked: false,
+        })}
+        users={[]}
+      />
+    )
+    expect(screen.getByText(BLOCKED_BATCH_TITLE)).toBeTruthy()
+    expect(screen.getByText(BLOCKED_BATCH_BODY)).toBeTruthy()
+    expect(screen.getByTestId(`blocked-start-stack-note`).textContent).toBe(
+      STACK_SINGLE_ISSUE_NOTE
+    )
+  })
+
+  it(`draws the transitive chain as the mini-graph`, () => {
+    graphState.issues = [
+      issue(`i1`, `APP-1`),
+      issue(`i2`, `APP-2`),
+      issue(`i4`, `APP-4`),
+    ]
+    graphState.relations = [
+      { type: `blocks`, issueId: `i2`, relatedIssueId: `i1` },
+      { type: `blocks`, issueId: `i4`, relatedIssueId: `i2` },
+    ]
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          subject: { kind: `issues`, ids: [`i1`] },
+          checkedIssues: [issue(`i1`, `APP-1`)],
+          blockedStart: [issue(`i2`, `APP-2`)],
+          blockedOpen: true,
+          blocked: false,
+        })}
+        users={[]}
+      />
+    )
+    const wave = (identifier: string) =>
+      screen
+        .getByTestId(`issue-graph-node-${identifier}`)
+        .getAttribute(`data-wave`)
+    expect([wave(`APP-4`), wave(`APP-2`), wave(`APP-1`)]).toEqual([`0`, `1`, `2`])
+    graphState.issues = []
+    graphState.relations = []
   })
 
   it(`stays shut while nothing blocks the subject`, () => {

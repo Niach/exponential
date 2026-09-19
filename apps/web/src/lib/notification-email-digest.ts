@@ -34,6 +34,7 @@ import {
   DIGEST_SCAN_MAX_AGE_MS,
   appBaseUrl,
   buildInboxDeepLinkPath,
+  buildSessionDeepLinkPath,
   buildIssueDeepLinkPath,
   buildSupportDeepLinkPath,
   buildUnsubscribeUrl,
@@ -102,6 +103,8 @@ export async function runEmailDigestSweep(
       // column that exists so they can be routed to the team's Support
       // surface. Without it they rendered as unlinked text.
       notificationTeamSlug: notificationTeams.slug,
+      // EXP-980: the run a `session_blocked` row links to.
+      sessionId: notifications.sessionId,
       // REV2-14: mirror of the notifications shape's membership scoping —
       // the recipient must still be a member of the row's team (boards.team_id
       // for issue-anchored rows, the app-written notifications.team_id for
@@ -271,7 +274,12 @@ export async function runEmailDigestSweep(
                 : // EXP-801: an agent's message lives in the team's Inbox.
                   item.type === `agent_message` && item.notificationTeamSlug
                   ? `${base}${buildInboxDeepLinkPath(item.notificationTeamSlug)}`
-                  : null,
+                  : // EXP-980: a blocked run links to the run itself.
+                    item.type === `session_blocked` &&
+                      item.notificationTeamSlug &&
+                      item.sessionId
+                    ? `${base}${buildSessionDeepLinkPath(item.notificationTeamSlug, item.sessionId)}`
+                    : null,
         }))
         const result = await sendNotificationDigestEmail({
           to,
