@@ -150,8 +150,11 @@ struct ReviewsListContent: View {
         List {
             ForEach(groups) { group in
                 Section {
-                    ForEach(group.rows) { row in
-                        entryRow(row)
+                    // EXP-965: the stack's connector — one guide per row, off
+                    // the group's depths (`TreeGuides`, the ×4 rule).
+                    let guides = TreeGuides.compute(depths: group.rows.map(\.depth))
+                    ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, row in
+                        entryRow(row, guide: guides[index])
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
@@ -353,11 +356,8 @@ struct ReviewsListContent: View {
         }
     }
 
-    /// EXP-897: 14 pt per stack level, the ×4 measure.
-    private static let stackIndent: CGFloat = 14
-
     @ViewBuilder
-    private func entryRow(_ row: ReviewRow) -> some View {
+    private func entryRow(_ row: ReviewRow, guide: TreeGuide) -> some View {
         let entry = row.entry
         // The caption + recovery button live OUTSIDE the NavigationLink: a
         // control inside the link's label has its tap swallowed by the link.
@@ -368,7 +368,9 @@ struct ReviewsListContent: View {
                 mergeErrorCaption(entry, failure: failure)
             }
         }
-        .padding(.leading, CGFloat(row.depth) * Self.stackIndent)
+        // EXP-897: 14 pt per stack level (`TreeGuides.indentPerLevel`, the ×4
+        // measure); EXP-965 draws the connector in the gutter it opens.
+        .treeGuides(guide)
     }
 
     /// EXP-897: the row's stack line — what it is built ON, the "Merge stack"

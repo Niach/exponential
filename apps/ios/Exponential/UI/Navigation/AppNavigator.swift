@@ -449,10 +449,10 @@ struct MainNavigator: View {
                     reviewsOpen: reviewsOpen,
                     showsSupport: helpdeskEnabled,
                     supportUnread: supportUnread,
-                    // The Chat launcher (the Agent page, with its sessions
-                    // list and live dot) rides every top-level surface; a
-                    // board adds New issue beside it in one capsule (EXP-827).
-                    showsCompose: composeRoute != nil,
+                    // The launcher capsule (chat | new issue) rides every
+                    // bar-visible surface (EXP-827/EXP-973); only a team with
+                    // no board leaves the New-issue arm inert.
+                    composeEnabled: composeRoute != nil,
                     onIssues: { path = [] },
                     onDevices: { if !isOnAgents { path = [.agents] } },
                     onActions: { if !isOnActions { path = [.actions] } },
@@ -557,15 +557,17 @@ struct MainNavigator: View {
         return false
     }
 
-    /// Compose targets the board in view: a pushed board list wins,
-    /// otherwise the Issues tab root composes into its current board. The
-    /// other surfaces (Devices, Actions, My Work, Reviews) hide the button —
-    /// creating an issue without a board context is ambiguous.
+    /// Compose targets the board in view: a pushed board list wins, and every
+    /// other bar-visible surface (Issues root, Devices, Actions, My Work,
+    /// Reviews, Support) falls back to the CURRENT board — the one the Issues
+    /// tab is pointed at, resolved from the last-used board, else the first of
+    /// the active team (EXP-973). Filing an issue is never route-dependent;
+    /// only a team with no board at all leaves the arm with nowhere to go.
     private var composeRoute: AppRoute? {
         if case let .board(accountId, id)? = path.last {
             return .createIssue(accountId: accountId, boardId: id, draftId: nil)
         }
-        if path.isEmpty, let current = currentBoard {
+        if let current = currentBoard {
             return .createIssue(accountId: current.accountId, boardId: current.boardId, draftId: nil)
         }
         return nil

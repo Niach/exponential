@@ -7,10 +7,11 @@ import SwiftUI
 /// (EXP-180) — Devices — the machines surface — Actions — the team's
 /// actions/automations surface, its own entry per EXP-686 — and Reviews — its
 /// own entry per EXP-147; base order per EXP-81) plus a detached launcher on
-/// the right: the Chat circle opens the Agent page from EVERY top-level
-/// surface (the sessions list lives there since EXP-825, so it wears the
-/// running-session dot the Devices tab used to carry); a board adds New
-/// issue beside it in one capsule (EXP-827). Search is no longer a tab
+/// the right: the SPLIT capsule (chat | new issue), on every bar-visible
+/// route since EXP-973 — the chat arm opens the Agent page (the sessions list
+/// lives there since EXP-825, so it wears the running-session dot the Devices
+/// tab used to carry) and the New-issue arm files into the board in view,
+/// dimmed only while the team has no board at all. Search is no longer a tab
 /// (EXP-686): it is a pushed detail reached from the board header. Attached via
 /// `.overlay(alignment: .bottom)` so content
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
@@ -28,7 +29,10 @@ struct MobileTabBar: View {
     let reviewsOpen: Bool
     let showsSupport: Bool
     let supportUnread: Bool
-    let showsCompose: Bool
+    /// EXP-973: whether the New-issue arm can go anywhere. The split capsule
+    /// itself rides EVERY bar-visible route now; only a team with no board at
+    /// all leaves the arm dimmed and inert.
+    let composeEnabled: Bool
     let onIssues: () -> Void
     let onDevices: () -> Void
     let onActions: () -> Void
@@ -59,12 +63,18 @@ struct MobileTabBar: View {
         return "none"
     }
 
+    /// Issues · My Work · (Support) · Devices · Actions · Reviews.
+    private var tabCount: Int { showsSupport ? 6 : 5 }
+
     var body: some View {
-        HStack(spacing: 12) {
-            // Six tabs (helpdesk on) must still fit a 375pt screen (SE/mini)
-            // beside the compose circle: drop the inter-tab spacing and pull
-            // the outer padding in — the 44pt touch targets stay intact.
-            HStack(spacing: showsSupport ? 0 : 4) {
+        HStack(spacing: MobileTabBarMetrics.launcherGap) {
+            // EXP-973: six tabs (helpdesk on) must still fit a 375pt screen
+            // (SE/mini) beside the 104pt SPLIT launcher, which now rides every
+            // route — so the crowded bar drops the inter-tab spacing, trims
+            // the tab slots to 40 wide (their 44pt height is untouched) and
+            // pulls the screen inset in. `MobileTabBarMetrics` holds the
+            // budget and its test does the arithmetic.
+            HStack(spacing: MobileTabBarMetrics.tabSpacing(tabs: tabCount)) {
                 tab(glyph: AppIcons.navIssues, label: "Issues", active: issuesActive, action: onIssues)
                     .accessibilityIdentifier("tab-issues")
                 // EXP-58: the Inbox tab became My Work (Inbox + My Issues
@@ -125,7 +135,7 @@ struct MobileTabBar: View {
                 .accessibilityIdentifier("tab-reviews")
             }
             .animation(motion.standard, value: activeKey)
-            .padding(4)
+            .padding(MobileTabBarMetrics.pillPadding)
             // EXP-698: flat, not blurred — the pill floats over scrolling
             // content, so its fill is the OPAQUE composite (`fillCard` over
             // the card surface), never a low-alpha tint the feed shows through.
@@ -140,17 +150,11 @@ struct MobileTabBar: View {
             // surface (EXP-631/694/827, and the rest since the sessions list
             // moved there): it wears the live dot — amber while any of my
             // sessions waits on a plan approval / question (EXP-214), green
-            // while one runs. EXP-827: a board offers New issue too, so the
-            // slot becomes one capsule with two arms (chat | new issue).
-            if showsCompose {
-                launcherCapsule
-            } else {
-                fab(glyph: AppIcons.actionChat, badge: agentBadge, action: onChat)
-                    .accessibilityLabel("Start chat")
-                    .accessibilityIdentifier("chat-button")
-            }
+            // while one runs. EXP-973: New issue sits beside it on EVERY
+            // route, not only a board — the capsule is the bar's ONE launcher.
+            launcherCapsule
         }
-        .padding(.horizontal, showsSupport ? 12 : 20)
+        .padding(.horizontal, MobileTabBarMetrics.inset(tabs: tabCount))
         .padding(.top, 8)
         .padding(.bottom, 4)
     }
@@ -172,9 +176,16 @@ struct MobileTabBar: View {
             Rectangle()
                 .fill(GlassTokens.strokeStrong)
                 .frame(width: GlassTokens.hairline, height: 28)
-            arm(glyph: AppIcons.navCreateIssue, action: onCompose)
-                .accessibilityLabel("New issue")
-                .accessibilityIdentifier("compose-button")
+            // EXP-973: with no board in the team there is nowhere to file an
+            // issue — the arm stays in place, dimmed and inert, rather than
+            // the capsule changing shape from route to route.
+            arm(
+                glyph: AppIcons.navCreateIssue,
+                enabled: composeEnabled,
+                action: onCompose
+            )
+            .accessibilityLabel("New issue")
+            .accessibilityIdentifier("compose-button")
         }
         .background(GlassTokens.opaqueCardFill, in: Capsule())
         .overlay(
@@ -187,16 +198,21 @@ struct MobileTabBar: View {
     private func arm(
         glyph: String,
         badge: Color? = nil,
+        enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
-                .foregroundStyle(.white)
-                .frame(width: 52, height: 52)
+                .foregroundStyle(.white.opacity(enabled ? 1 : TextOpacity.tertiary))
+                .frame(
+                    width: MobileTabBarMetrics.launcherArm,
+                    height: MobileTabBarMetrics.launcherArm
+                )
                 .overlay(alignment: .topTrailing) { launcherDot(badge) }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     /// The launcher's status dot — the tab's 8pt disc at the same spot
@@ -212,24 +228,6 @@ struct MobileTabBar: View {
         }
     }
 
-    /// The detached circular button beside the pill — one slot, whatever the
-    /// active surface puts in it (compose an issue, start a chat). EXP-893:
-    /// the shared `FloatingBarCircle` chrome, badge slot included.
-    private func fab(
-        glyph: String,
-        badge: Color? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        FloatingBarCircle(accessibilityLabel: "Start chat", action: action) {
-            AppIcon(glyph, size: AppIcon.Size.large, weight: .semibold)
-                .foregroundStyle(.white)
-        } badge: {
-            if let badge {
-                FloatingBarBadgeDot(color: badge)
-            }
-        }
-    }
-
     private func tab(
         glyph: String,
         label: String,
@@ -241,11 +239,14 @@ struct MobileTabBar: View {
         Button(action: action) {
             AppIcon(glyph, size: AppIcon.Size.large)
                 .foregroundStyle(.white.opacity(active ? 1 : TextOpacity.secondary))
-                // 44pt (HIG minimum) instead of the old 56pt: up to six tabs
-                // (Support present) + the compose circle must fit a 375pt
-                // screen (SE/mini) — see the spacing/padding trims in `body`.
-                // Square, so the active shape is a true circle (EXP-698).
-                .frame(width: 44, height: 44)
+                // 44pt tall (the HIG minimum) instead of the old 56pt; the
+                // crowded bar narrows the slot to 40 so six tabs and the
+                // split launcher fit a 375pt screen (SE/mini) —
+                // `MobileTabBarMetrics` owns the budget.
+                .frame(
+                    width: MobileTabBarMetrics.tabWidth(tabs: tabCount),
+                    height: MobileTabBarMetrics.tabHeight
+                )
                 .overlay(alignment: .topTrailing) {
                     if badge {
                         Circle()
