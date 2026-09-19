@@ -40,6 +40,7 @@ import {
 import { contract } from "@exp/domain-contract"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
 import { IssueChip } from "@/components/issue-chip"
+import { RunningIndicator } from "@/components/agent-session-row"
 import { WorkflowGraph } from "@/components/workflow-graph"
 import {
   CLI_DEFAULT_EFFORT,
@@ -53,7 +54,7 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
-import { useWorkflowNodes } from "@/hooks/use-workflows"
+import { useWorkflowNodeRuns, useWorkflowNodes } from "@/hooks/use-workflows"
 import { agentHealth, healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import {
@@ -75,6 +76,7 @@ import {
   workflowReviewLine,
   workflowShapeLine,
   workflowNodeTitle,
+  RUNNING_NOW_LABEL,
   workflowStartBlocker,
   workflowTrainStepLabel,
   ADMIT_NODE_LABEL,
@@ -183,6 +185,13 @@ export function WorkflowDetail({
     () => new Map(issues.map((issue) => [issue.id, issue])),
     [issues]
   )
+  const runByNodeId = useWorkflowNodeRuns(workflow.teamId, nodes, issueById)
+  // The runs that are up right now, one tap away: a node's circle says THAT
+  // it runs, this strip is the way in. `nodes` is already in (wave, lane).
+  const liveRuns = nodes.flatMap((node) => {
+    const run = runByNodeId.get(node.id)
+    return run?.live ? [{ node, run }] : []
+  })
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -366,6 +375,32 @@ export function WorkflowDetail({
         </p>
       )}
 
+      {liveRuns.length > 0 && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-1.5"
+          data-testid="workflow-running-strip"
+        >
+          <span className="text-xs text-muted-foreground">{RUNNING_NOW_LABEL}</span>
+          {liveRuns.map(({ node, run }) => {
+            const issue = issueById.get(node.issueId)
+            return (
+              <Button key={node.id} variant="outline" size="xs" asChild>
+                <Link
+                  to="/t/$teamSlug/sessions/$sessionId"
+                  params={{ teamSlug, sessionId: run.sessionId }}
+                  data-testid={`workflow-running-${node.id}`}
+                >
+                  <RunningIndicator state={run.state} working={run.working} />
+                  {issue
+                    ? workflowNodeTitle(issue.identifier, node.memberIssueIds.length)
+                    : node.issueId.slice(0, 8)}
+                </Link>
+              </Button>
+            )
+          })}
+        </div>
+      )}
+
       {/* md+: the graph with the node panel beside it; phones get the panel as
           a sheet so the grid keeps the full width. */}
       <div className="flex min-w-0 gap-4">
@@ -385,6 +420,7 @@ export function WorkflowDetail({
             ),
             url: workflow.finalPrUrl,
           }}
+          runByNodeId={runByNodeId}
           selectedNodeId={selectedNodeId}
           onSelect={setSelectedNodeId}
           className="min-w-0 flex-1"
@@ -989,6 +1025,24 @@ export function WorkflowNodePanel({
             identifier: workflowNodeTitle(issue.identifier, members.length),
           }}
           preview={false}
+          // The badge IS the way into the issue.
+          link={
+            boardSlug
+              ? (props) => (
+                  <Link
+                    to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                    params={{
+                      teamSlug,
+                      boardSlug,
+                      issueIdentifier: issue.identifier,
+                    }}
+                    onClick={onClose}
+                    {...props}
+                  />
+                )
+              : undefined
+          }
+          testId="workflow-node-issue"
         />
       ) : (
         <p className="text-xs text-muted-foreground">
@@ -1089,20 +1143,6 @@ export function WorkflowNodePanel({
             </span>
           ))}
         </div>
-      )}
-      {issue && boardSlug && (
-        <Button variant="outline" size="sm" asChild onClick={onClose}>
-          <Link
-            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-            params={{
-              teamSlug,
-              boardSlug,
-              issueIdentifier: issue.identifier,
-            }}
-          >
-            Open issue
-          </Link>
-        </Button>
       )}
       {/* The node's own run, steered on the ONE run URL (EXP-870). */}
       {node.sessionId && (

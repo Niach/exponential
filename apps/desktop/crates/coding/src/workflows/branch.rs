@@ -47,19 +47,13 @@ pub fn engine_clone(
     Ok((clone, url, minted.default_branch))
 }
 
-/// Whether `origin/<branch>` resolves in this clone right now. A fetch that
-/// fails (the branch does not exist yet) is the ANSWER, not an error.
+/// Whether `<branch>` is up on origin right now: `ls-remote`, never a fetch —
+/// fetching a ref that is not there makes git DIE, and a git that died can
+/// hang in its exit handler on the transport helper, which froze the whole
+/// engine on a workflow's first beat. A failed listing reads "not there";
+/// the push that follows is what reports a remote that is really down.
 fn origin_has(clone: &Path, branch: &str, url: &TokenUrl) -> bool {
-    if fetch_base(clone, branch, url).is_err() {
-        return false;
-    }
-    run_git(
-        Some(clone),
-        &["rev-parse", "--verify", &format!("refs/remotes/origin/{branch}")],
-        Some(url),
-        &format!("git rev-parse origin/{branch}"),
-    )
-    .is_ok()
+    super::remote_tips(clone, branch, Some(url)).is_ok_and(|tips| tips.contains_key(branch))
 }
 
 /// Create `<branch>` from the repository's default branch and push it, or do

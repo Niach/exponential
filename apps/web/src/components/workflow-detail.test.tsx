@@ -20,6 +20,7 @@ import {
   REVIEW_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
+  RUNNING_NOW_LABEL,
   START_WORKFLOW_LABEL,
   WITHDRAW_APPROVAL_LABEL,
 } from "@/lib/workflow-view"
@@ -42,6 +43,7 @@ import {
 // carries its counters.
 
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
+const nodeRuns = vi.hoisted(() => ({ byNodeId: new Map<string, unknown>() }))
 const graphState = vi.hoisted(() => ({
   relations: [] as { type: string; issueId: string; relatedIssueId: string }[],
   issues: [] as unknown[],
@@ -75,6 +77,7 @@ vi.mock(`@exp/ui`, async (importOriginal) => ({
 }))
 vi.mock(`@/hooks/use-workflows`, () => ({
   useWorkflowNodes: () => nodeRows.rows,
+  useWorkflowNodeRuns: () => nodeRuns.byNodeId,
 }))
 vi.mock(`@/hooks/use-team-issue-graph`, () => ({
   useTeamIssueGraph: () => ({ ...graphState, counts: new Map() }),
@@ -86,10 +89,25 @@ vi.mock(`@/hooks/use-remote-start`, () => ({
   useRemoteStart: () => ({ devices: [], starting: false, sentTo: null }),
 }))
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: null }) }))
-vi.mock(`@/hooks/use-team-data`, () => ({ useTeamBoards: () => [] }))
+vi.mock(`@/hooks/use-team-data`, () => ({
+  useTeamBoards: () => [{ id: `b1`, slug: `app` }],
+}))
 vi.mock(`@/components/issue-chip`, () => ({
-  IssueChip: ({ issue }: { issue: { identifier: string } }) => (
-    <span data-testid={`chip-${issue.identifier}`}>{issue.identifier}</span>
+  IssueChip: ({
+    issue,
+    testId,
+    link,
+  }: {
+    issue: { identifier: string }
+    testId?: string
+    link?: unknown
+  }) => (
+    <span
+      data-testid={testId ?? `chip-${issue.identifier}`}
+      data-linked={link ? `true` : undefined}
+    >
+      {issue.identifier}
+    </span>
   ),
 }))
 vi.mock(`@/lib/collections`, () => ({
@@ -226,13 +244,15 @@ describe(`WorkflowDetail graph`, () => {
     ).toBe(`Leaf · high risk`)
   })
 
-  it(`draws a compound node as a stacked card titled with its members`, () => {
+  it(`draws a compound node as a stacked circle titled with its members`, () => {
     nodeRows.rows = [node(`n1`, { memberIssueIds: [`i-a`, `i-b`, `i-c`] })]
     graphState.issues = [issue(`i-n1`, `APP-14`)]
     graphState.relations = []
     mount()
     expect(screen.getByTestId(`workflow-node-n1-stack`)).toBeTruthy()
-    expect(screen.getByTestId(`chip-APP-14 +3`)).toBeTruthy()
+    expect(screen.getByTestId(`workflow-node-n1-title`).textContent).toBe(
+      `APP-14 +3`
+    )
   })
 
   it(`keeps a node whose issue has not synced, caption and all`, () => {
@@ -737,6 +757,38 @@ describe(`WorkflowDetail node panel actions`, () => {
     expect(screen.getByTestId(`workflow-node-pr`).textContent).toBe(`PR #7`)
   })
 
+  it(`marks a node whose run is up and lists it one tap from its session`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    nodeRuns.byNodeId = new Map([
+      [`n1`, { sessionId: `s-1`, live: true, state: `running`, working: true }],
+    ])
+    try {
+      open({ state: `running`, sessionId: `s-1` })
+      expect(
+        screen.getByTestId(`workflow-node-n1-card`).getAttribute(`data-running`)
+      ).toBe(`true`)
+      const strip = screen.getByTestId(`workflow-running-strip`)
+      expect(strip.textContent).toContain(RUNNING_NOW_LABEL)
+      expect(screen.getByTestId(`workflow-running-n1`).textContent).toBe(`APP-1`)
+      // The panel's badge is the way into the issue; no separate button.
+      expect(
+        screen.getByTestId(`workflow-node-issue`).getAttribute(`data-linked`)
+      ).toBe(`true`)
+      expect(screen.queryByText(`Open issue`)).toBeNull()
+    } finally {
+      nodeRuns.byNodeId = new Map()
+    }
+  })
+
+  it(`draws no running strip while nothing runs`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    open({ state: `blocked` })
+    expect(screen.queryByTestId(`workflow-running-strip`)).toBeNull()
+    expect(
+      screen.getByTestId(`workflow-node-n1-card`).getAttribute(`data-running`)
+    ).toBeNull()
+  })
+
   // EXP-983: what a speculative start adds to the panel.
   it(`says when the node published its contract`, () => {
     graphState.issues = [issue(`i-n1`, `APP-1`)]
@@ -869,7 +921,7 @@ describe(`WorkflowDetail node panel actions`, () => {
     })
     // Dashed while it is only a proposal.
     expect(
-      screen.getByTestId(`workflow-node-n1-card`).className
+      screen.getByTestId(`workflow-node-n1-circle`).className
     ).toContain(`border-dashed`)
     expect(
       screen.getByTestId(`workflow-node-proposed-note`).textContent
