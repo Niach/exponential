@@ -54,6 +54,10 @@
 //! * [`edit_card`] — EXP-916's edited-files card and the ONE rule that decides
 //!   which tool calls form it, byte-locked ×4 by
 //!   `fixtures/feed/edit-cards.json`;
+//! * [`activity_fold`] — EXP-900's READ-TIME activity fold (a run of same
+//!   actor/field/issue changes collapses to its net effect; "Show all" on the
+//!   timeline header returns the raw rows, EXP-468), byte-locked ×4 by
+//!   `fixtures/activity-fold.json`;
 //! * [`workflow_view`] — EXP-981's workflow bands, shape line, node captions
 //!   and node edges (the server owns the `wave`/`lane` geometry), byte-locked
 //!   ×4 by `fixtures/workflow-view.json`.
@@ -64,6 +68,7 @@ pub mod contract {
     include!("contract.generated.rs");
 }
 
+pub mod activity_fold;
 pub mod batch_run;
 pub mod board;
 pub mod client_version;
