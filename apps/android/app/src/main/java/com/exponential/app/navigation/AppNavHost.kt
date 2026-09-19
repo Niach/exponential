@@ -391,13 +391,12 @@ private fun AuthenticatedNav(
             navController.navigateDeepLink(route)
         }
     }
-    // The single add-issue affordance: the FAB shows while a board is in
-    // view — the Issues tab root (its resolved current board) or a pushed
-    // board route — so it always targets the board on screen.
+    // The single add-issue affordance. EXP-973: it rides EVERY tab, not just
+    // the board ones — a pushed board route still wins (the reader is looking
+    // at that board), anything else files onto the team's current board.
     val composeBoardId = when (currentRoute) {
         "board/{boardId}" -> backStackEntry?.arguments?.getString("boardId")
-        "home" -> currentBoardId
-        else -> null
+        else -> currentBoardId
     }
 
     // EXP-523: the four transitions below are plain lambdas, not composable
@@ -773,9 +772,10 @@ private fun AuthenticatedNav(
             showsSupport = helpdeskEnabled,
             supportUnread = supportUnread,
             // The Chat launcher (the Agent page, with its sessions list and
-            // live dot) rides every top-level surface; a board adds New issue
-            // beside it in one capsule (EXP-827).
-            showsCompose = composeBoardId != null,
+            // live dot) rides every top-level surface, with New issue beside
+            // it in one capsule (EXP-827/EXP-973) — dimmed while the team has
+            // no board to file onto.
+            composeEnabled = composeBoardId != null,
             onIssues = { navController.popBackStack("home", inclusive = false) },
             onDevices = {
                 if (currentRoute != "agents") {

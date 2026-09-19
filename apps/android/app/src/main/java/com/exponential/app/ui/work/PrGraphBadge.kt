@@ -30,21 +30,23 @@ import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.SessionDotTone
+import com.exponential.app.domain.TreeGuide
+import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.WorkFaceKind
-import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.TreeGuidesRow
+import com.exponential.app.ui.components.treeGuides
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.session.sessionDotTone
-import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassRow
+import com.exponential.app.ui.theme.flatRow
 
 // EXP-897 part 4: ONE badge in the Work screen's top bar for everything this
 // pull request is entangled with — the stack it sits in, the batch it spans —
@@ -52,9 +54,6 @@ import com.exponential.app.ui.theme.glassRow
 // the Issue face lists relations, the Run face the run tree, the Changes face
 // the pull requests. Same rows and the same words on all four clients
 // (`components/pr-graph-badge.tsx`, `PrGraphBadge.swift`, `pr_graph.rs`).
-
-/** EXP-897: one nesting level of indent inside the overlay, the ×4 number. */
-private const val GRAPH_INDENT_DP = 14
 
 /** The pill's own words — `2 of 3`, `3 issues`, or both. */
 internal fun badgeLabel(graph: PrGraph.Graph): String? {
@@ -111,13 +110,6 @@ fun PrGraphBadge(graph: PrGraph.Graph, onOpen: () -> Unit) {
 fun PrGraphSheet(
     graph: PrGraph.Graph,
     face: WorkFaceKind,
-    /**
-     * EXP-930: the team's synced issues — what a run row in the tree is NAMED
-     * after. The overlay used to title every row with no issue at all, so a
-     * batch's own sheet read `Issue not synced yet` for a run whose issue was
-     * sitting right there in the store.
-     */
-    issues: List<IssueEntity>,
     nowMs: Long,
     merging: Boolean,
     mergeError: MergeFailure?,
@@ -167,56 +159,55 @@ fun PrGraphSheet(
                 if (graph.tree.isEmpty()) {
                     EmptyNote("No runs on this work yet.")
                 }
-                // EXP-930: named off the SYNCED rows — its own issue, or (on
-                // a batch) the issues it covers. Derived ONCE per tree and
-                // issue pool, not per row per recomposition: a batch title
-                // indexes the whole pool.
-                val runTitles = remember(graph.tree, issues) {
-                    val byId = issues.associateBy { it.id }
-                    graph.tree.associate { row ->
-                        val session = row.session
-                        session.id to sessionRowTitle(
-                            session,
-                            session.issueId?.let(byId::get),
-                            batchRunIssues(session, issues),
-                        )
-                    }
+                // EXP-968: the row's NAME rides the graph — one snapshot for
+                // the tree and the issues it was joined against, so a label
+                // can never disagree with the row it sits on.
+                val runGuides = remember(graph.tree) {
+                    TreeGuides.compute(graph.tree.map { it.depth })
                 }
-                graph.tree.forEach { row ->
+                graph.tree.forEachIndexed { index, row ->
                     val session = row.session
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = (GRAPH_INDENT_DP * row.depth).dp)
-                            .glassRow()
-                            .clickable {
-                                onDismiss()
-                                onOpenRun(session.id)
-                            }
-                            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val tone = sessionDotTone(session, null, nowMs, awaitingInput = false)
-                            ?: SessionDotTone.Muted
-                        SessionToneDot(tone, busy = session.agentBusy)
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            runTitles.getValue(session.id),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    TreeGuidesRow(depth = row.depth, guide = runGuides.getOrNull(index)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                // EXP-818: an overlay row is a LIST row.
+                                .flatRow()
+                                .clickable {
+                                    onDismiss()
+                                    onOpenRun(session.id)
+                                }
+                                .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val tone = sessionDotTone(session, null, nowMs, awaitingInput = false)
+                                ?: SessionDotTone.Muted
+                            SessionToneDot(tone, busy = session.agentBusy)
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                row.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
 
             WorkFaceKind.Changes -> {
                 SectionHeader("Pull requests")
+                // EXP-965: the chain's own connector, the same one the run
+                // tree above draws.
+                val stackGuides = remember(graph.stack) {
+                    TreeGuides.compute(graph.stack.map { it.depth })
+                }
                 // BOTTOM-UP: the foundation first, the way it merges.
-                graph.stack.forEach { member ->
+                graph.stack.forEachIndexed { index, member ->
                     StackMemberRow(
                         member = member,
+                        guide = stackGuides.getOrNull(index),
                         isSubject = member.entry.issues.any { it.id == graph.subjectIssueId },
                         // Only the BOTTOM of a real stack takes the whole chain.
                         mergeStackIssueId = member.entry.representative.id
@@ -262,6 +253,7 @@ private fun IssueChipRow(issues: List<IssueEntity>, onOpen: (String) -> Unit) {
 @Composable
 private fun StackMemberRow(
     member: PrGraph.StackEntry,
+    guide: TreeGuide?,
     isSubject: Boolean,
     mergeStackIssueId: String?,
     merging: Boolean,
@@ -271,8 +263,11 @@ private fun StackMemberRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (GRAPH_INDENT_DP * member.depth).dp)
-            .glassRow()
+            // EXP-965: the connector draws in the gutter the indent leaves.
+            .treeGuides(guide)
+            .padding(start = (TreeGuides.INDENT_DP * member.depth).dp)
+            // EXP-818: an overlay row is a LIST row.
+            .flatRow()
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

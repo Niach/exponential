@@ -23,6 +23,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -378,18 +379,16 @@ fun AgentScreen(
     var issuePickerOpen by remember { mutableStateOf(false) }
     var actionPickerOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
-    // EXP-862: the Recent band is FOLDED until asked for — a finished run is
-    // history, and the composer is what the page is for. Hoisted here because
-    // the list itself is a LazyListScope extension, not a composable.
-    var pastExpanded by remember { mutableStateOf(false) }
-    // EXP-897: which parents have their CHILD runs folded away, per band —
-    // hoisted because the list is a LazyListScope extension, not a composable.
+    // EXP-923: the finished runs live behind the top bar's history button,
+    // with no folded state anywhere — a plain list in a sheet.
+    var recentOpen by remember { mutableStateOf(false) }
+    // EXP-897: which parents have their CHILD runs folded away — hoisted
+    // because the list is a LazyListScope extension, not a composable.
     var collapsedRunning by remember { mutableStateOf(emptySet<String>()) }
-    var collapsedPast by remember { mutableStateOf(emptySet<String>()) }
-    // …and with nothing running and nothing past, the composer column sits in
-    // the MIDDLE of the page instead of hugging the top bar (web `justify-center`,
-    // desktop `min_h_full`, iOS the same rule).
-    val emptyRuns = sessionsState.rows.isEmpty() && pastRuns.isEmpty()
+    // …and with nothing running, the composer column sits in the MIDDLE of the
+    // page instead of hugging the top bar (web `justify-center`, desktop
+    // `min_h_full`, iOS the same rule).
+    val emptyRuns = sessionsState.rows.isEmpty()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -397,6 +396,20 @@ fun AgentScreen(
             CenterAlignedTopAppBar(
                 title = { Text("Agent") },
                 navigationIcon = { TopBarBackButton(onClick = onBack) },
+                // EXP-923: history, where history belongs — the finished runs
+                // are one tap away instead of a band under the composer.
+                actions = {
+                    IconButton(
+                        onClick = { recentOpen = true },
+                        modifier = Modifier.testTag("agent-history-button"),
+                    ) {
+                        Icon(
+                            ExpIcons.settingsSessions,
+                            contentDescription = "Recent runs",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
         },
@@ -618,17 +631,10 @@ fun AgentScreen(
             item(key = "__sessions_gap__") { Spacer(Modifier.height(4.dp)) }
             agentSessionsList(
                 rows = sessionsState.rows,
-                pastRuns = pastRuns,
-                pastExpanded = pastExpanded,
-                onTogglePast = { pastExpanded = !pastExpanded },
                 collapsedRunning = collapsedRunning,
                 onToggleRunning = { id ->
                     collapsedRunning =
                         if (id in collapsedRunning) collapsedRunning - id else collapsedRunning + id
-                },
-                collapsedPast = collapsedPast,
-                onTogglePastRun = { id ->
-                    collapsedPast = if (id in collapsedPast) collapsedPast - id else collapsedPast + id
                 },
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
@@ -637,6 +643,13 @@ fun AgentScreen(
         }
     }
 
+    if (recentOpen) {
+        RecentRunsSheet(
+            pastRuns = pastRuns,
+            onOpenRun = onOpenSteer,
+            onDismiss = { recentOpen = false },
+        )
+    }
     if (issuePickerOpen) {
         AgentIssuePickerSheet(
             issues = pool,

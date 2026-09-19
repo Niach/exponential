@@ -43,6 +43,7 @@ import com.exponential.app.domain.groupSessionResults
 import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.parseSessionResults
 import com.exponential.app.domain.runHasEnded
+import com.exponential.app.domain.shouldAutoBack
 import com.exponential.app.domain.switcherBadge
 import com.exponential.app.domain.switcherMode
 import com.exponential.app.domain.switcherTargets
@@ -347,15 +348,29 @@ fun WorkScreen(
     // an issue-less run keeps the auto-back. Edge-triggered on a REAL live
     // row, so a screen opened onto an already-ended run stays put.
     var wasLive by remember(shownSessionId) { mutableStateOf(false) }
+    // EXP-935: a Resume / account switch is IN FLIGHT — the machine ends the
+    // live run before its continuation row syncs, and the successor lands in
+    // `startedSessionId` a moment later to swap into this very screen. Popping
+    // in that gap is what sent an account switch on a chat run back to the
+    // list. A send that never lands goes Failed, which clears this and lets
+    // the auto-back happen then.
+    val continuationPending = runState is ActionRunState.Sending || runState is ActionRunState.Sent
     // EXP-888: `runHasEnded`, never the raw status — a swept row reads `ended`
     // while its agent is still running, and backing out of it would strand the
     // run the next heartbeat revives. `endedBy` is a key too: the sweep's
     // `stale` turning into a real end never moves `status`.
-    LaunchedEffect(shownSession?.status, shownSession?.endedBy, issueId) {
+    LaunchedEffect(shownSession?.status, shownSession?.endedBy, issueId, continuationPending) {
         val row = shownSession ?: return@LaunchedEffect
         if (!runHasEnded(row)) {
             wasLive = true
-        } else if (wasLive && issueId == null) {
+        } else if (
+            shouldAutoBack(
+                ended = true,
+                wasLive = wasLive,
+                issueId = issueId,
+                continuationPending = continuationPending,
+            )
+        ) {
             onBack()
         }
     }
@@ -371,14 +386,14 @@ fun WorkScreen(
     val graphMergeError by graphVm.mergeError.collectAsStateWithLifecycle()
     // EXP-876: what names an issue-less BATCH run in the bar below.
     val batchIssues by graphVm.batchIssues.collectAsStateWithLifecycle()
-    // EXP-930: the pool the overlay names its run rows from.
-    val graphIssues by graphVm.issues.collectAsStateWithLifecycle()
 
     // ── Top bar inputs ──────────────────────────────────────────────────────
     val title = when {
         issue != null -> issue.identifier
         issueId != null -> ""
-        shownSession != null -> sessionRowTitle(shownSession!!, null, batchIssues)
+        // EXP-968: the joined issue when there is one — never a hard null
+        // that would make the bar say "Issue syncing…" about a synced row.
+        shownSession != null -> sessionRowTitle(shownSession!!, issue, batchIssues)
         else -> "Coding session"
     }
     val canKill = ownShown && !sessionEnded && shownLive
@@ -544,7 +559,6 @@ fun WorkScreen(
         PrGraphSheet(
             graph = graph,
             face = face,
-            issues = graphIssues,
             nowMs = liveClock,
             merging = graphMerging,
             mergeError = graphMergeError,

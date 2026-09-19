@@ -64,8 +64,15 @@ fun issueRunWhen(session: CodingSessionEntity, endedRelative: String): String =
     if (isLiveRun(session)) LIVE_RUN_LABEL else endedRelative
 
 /**
- * What a Past row is called: the issue's title, else — while that issue row
- * has not synced yet — "Issue syncing…", else the run's `action_name`
+ * EXP-968: the ONE thing a run row says while its issue has not landed yet.
+ * The Agent page said "Issue syncing…" and the stack overlay "Issue not synced
+ * yet" about the very same row; both read this now. Byte-identical ×4.
+ */
+const val ISSUE_SYNCING_TITLE = "Issue syncing…"
+
+/**
+ * What a run row is called: the issue's title, else — while that issue row
+ * has not synced yet — [ISSUE_SYNCING_TITLE], else the run's `action_name`
  * snapshot (which outlives the action, and is how a chat run reads "Chat",
  * EXP-615), else the batch's own name (EXP-876: its first covered issue's
  * title, else "Batch run").
@@ -80,7 +87,7 @@ fun pastRunTitle(
     batchIssues: List<IssueEntity> = emptyList(),
 ): String = when {
     issue != null -> issue.title.trim().ifBlank { "Untitled issue" }
-    session.issueId != null -> "Issue syncing…"
+    session.issueId != null -> ISSUE_SYNCING_TITLE
     else ->
         chatRunSubject(session)
             ?: session.actionName?.trim()?.ifBlank { null }

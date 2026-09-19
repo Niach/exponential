@@ -169,7 +169,7 @@ class PrGraphTest {
     // EXP-930: what the OVERLAY draws on a batch's Run face — the covered
     // issues above the run tree, and every tree row named off the synced
     // rows. The sheet used to join no issue at all, so a batch whose issues
-    // were already in the store still read `Issue not synced yet`.
+    // were already in the store still read `Issue syncing…`.
     @Test
     fun namesABatchRunsIssuesAndItsRunRows() {
         val one = issue("one")
@@ -182,16 +182,38 @@ class PrGraphTest {
         // The `Issues` section the sheet now draws above `Runs`.
         assertEquals(listOf("ONE", "TWO"), built.batch?.issues?.map { it.identifier })
 
-        val titles = built.tree.map { row ->
-            sessionRowTitle(
-                row.session,
-                row.session.issueId?.let { id -> pool.firstOrNull { it.id == id } },
-                batchRunIssues(row.session, pool),
-            )
-        }
-        assertEquals(listOf("Issue ONE", "Issue TWO"), titles)
-        // The bug itself: no joined issue, no name.
-        assertEquals("Issue not synced yet", sessionRowTitle(child, null))
+        // EXP-968: the graph NAMES its own rows — the sheet renders these.
+        assertEquals(listOf("Issue ONE", "Issue TWO"), built.tree.map { it.title })
+        assertEquals(listOf(null, "two"), built.tree.map { it.issue?.id })
+        // The bug itself: no joined issue, no name. ONE string ×4.
+        assertEquals(ISSUE_SYNCING_TITLE, sessionRowTitle(child, null))
+        assertEquals("Issue syncing…", ISSUE_SYNCING_TITLE)
+    }
+
+    // EXP-968: the Runs list of the stack overlay said "Issue not synced yet"
+    // about every row, because the labels were joined against a SECOND issue
+    // snapshot. A run tree whose issues are all synced names every row.
+    @Test
+    fun namesEveryRunRowFromTheGraphsOwnIssues() {
+        val one = issue("one")
+        val two = issue("two")
+        val root = session("root", issueId = "one")
+        val child = session("child", parent = "root", issueId = "two")
+        val orphan = session("orphan", parent = "root", issueId = "missing")
+        val built = graph(
+            one,
+            listOf(one, two),
+            session = root,
+            sessions = listOf(root, child, orphan),
+        )
+
+        assertEquals(listOf("root", "child", "orphan"), built.tree.map { it.session.id })
+        assertEquals(
+            listOf("Issue ONE", "Issue TWO", ISSUE_SYNCING_TITLE),
+            built.tree.map { it.title },
+        )
+        // Only the row whose issue is genuinely missing waits on the sync.
+        assertEquals(listOf("one", "two", null), built.tree.map { it.issue?.id })
     }
 
     @Test
