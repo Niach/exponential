@@ -845,4 +845,60 @@ class ShapeClientTest {
         // of stale content on app open (EXP-264).
         assertEquals(5_000L, connectTimeout)
     }
+
+    /**
+     * EXP-985: a row type whose every non-id column has a default — the shape
+     * of IssueDraftEntity. A changed-columns-only `update` DECODES into it
+     * (kotlinx fills the absent columns with the defaults), which is exactly
+     * how a timestamp-only update wiped a draft's board_id and hid the Drafts
+     * tab. Every update must reach the apply side as a PartialUpdate carrying
+     * the wire columns, never as a "full" entity.
+     */
+    @Serializable
+    private data class DefaultedRow(
+        val id: String,
+        val name: String = "",
+        val boardId: String = "",
+    )
+
+    @Test
+    fun anUpdateIsAlwaysAPartialEvenWhenItDecodesIntoADefaultedEntity() = runBlocking {
+        val dao = FakeOffsetDao()
+        val applied = CopyOnWriteArrayList<ShapeMessage<DefaultedRow>>()
+        val body = """
+            [
+              {"headers":{"operation":"insert"},"key":"\"public\".\"rows\"/\"r1\"","value":{"id":"r1","name":"one","boardId":"b1"}},
+              {"headers":{"operation":"update"},"key":"\"public\".\"rows\"/\"r1\"","value":{"id":"r1","name":"two"}},
+              {"headers":{"control":"up-to-date"}}
+            ]
+        """.trimIndent()
+        val engine = MockEngine { respond(body, HttpStatusCode.OK, shapeHeaders()) }
+        val http = HttpClient(engine) { install(HttpTimeout) }
+        val shapeClient = ShapeClient(
+            client = http,
+            baseUrlProvider = { "http://test" },
+            tokenProvider = { "token" },
+            shapeName = "rows",
+            urlPath = "/api/shapes/rows",
+            valueSerializer = DefaultedRow.serializer(),
+            offsetDao = dao,
+            json = json,
+            onMessages = { applied.addAll(it) },
+        )
+
+        val job = launch { shapeClient.run() }
+        withTimeout(10_000) {
+            while (applied.none { it is ShapeMessage.UpToDate }) {
+                kotlinx.coroutines.delay(20)
+            }
+        }
+        job.cancel()
+        job.join()
+
+        val insert = applied.filterIsInstance<ShapeMessage.Insert<DefaultedRow>>().single()
+        assertEquals(DefaultedRow(id = "r1", name = "one", boardId = "b1"), insert.value)
+        val partial = applied.filterIsInstance<ShapeMessage.PartialUpdate>().single()
+        assertEquals("\"public\".\"rows\"/\"r1\"", partial.key)
+        assertEquals("""{"id":"r1","name":"two"}""", partial.columns)
+    }
 }
