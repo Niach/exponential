@@ -426,6 +426,11 @@ pub struct LaunchOptions {
     /// Launch-into-plan mode: claude natively (`--permission-mode plan`).
     /// Never codex.
     pub plan_mode: bool,
+    /// EXP-981: the model claude's SUBAGENTS run on
+    /// (`CLAUDE_CODE_SUBAGENT_MODEL`, exported at every spawn when non-blank
+    /// — [`crate::launcher::apply_subagent_model_env`]). One of the claude
+    /// model aliases; blank = the CLI's own default. Claude-only.
+    pub subagent_model: String,
     /// EXP-792: the team MCP servers (`mcp_servers` row ids) this run
     /// connects to beside `exponential`. Empty = none. The launcher resolves
     /// them against the device's secret store and REFUSES the launch with a
@@ -457,6 +462,7 @@ impl LaunchOptions {
             effort: settings.effort_for(agent).to_string(),
             ultracode: settings.claude_ultracode && agent.supports_ultracode(),
             plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
+            subagent_model: settings.subagent_model_for(agent).to_string(),
             mcp_server_ids: Vec::new(),
             account: None,
         }
@@ -525,6 +531,15 @@ impl LaunchOptions {
             ultracode: ultracode.unwrap_or(settings.claude_ultracode)
                 && agent.supports_ultracode(),
             plan_mode: plan_mode.unwrap_or(false) && agent.supports_plan_mode(),
+            // EXP-981: ABSENT on the frame = this machine's own default; the
+            // caller layers an explicit pick on with
+            // [`Self::with_subagent_model`], where BLANK means "the CLI's
+            // default" and must not fall back to the settings value.
+            subagent_model: if agent == settings.default_agent {
+                settings.subagent_model_for(agent).to_string()
+            } else {
+                String::new()
+            },
             mcp_server_ids: Vec::new(),
             account: None,
         }
@@ -547,6 +562,22 @@ impl LaunchOptions {
 
     /// EXP-792 (EXP-747 B7): the remote frame's account profile pick. Blank
     /// and `system` both mean the ambient login (`None`).
+    /// EXP-981: layer a remote start's explicit `subagentModel` on.
+    /// `None` = the frame carried none (keep the machine's default);
+    /// `Some("")` = the CLI's own default, deliberately; anything outside
+    /// the agent's model set (or any agent but claude) normalizes to blank.
+    pub fn with_subagent_model(mut self, subagent_model: Option<&str>) -> Self {
+        let Some(value) = subagent_model else {
+            return self;
+        };
+        self.subagent_model = if self.agent.supports_subagent_model() {
+            crate::settings::normalize_choice(value, self.agent.model_values(), "")
+        } else {
+            String::new()
+        };
+        self
+    }
+
     pub fn with_account(mut self, account: Option<&str>) -> Self {
         self.account = account
             .map(str::trim)
@@ -568,6 +599,17 @@ impl LaunchOptions {
 ///
 /// No prompt, no session pin, no resume: a shell spawns fresh and waits for
 /// the user to type.
+/// The value claude's `--model` takes for a picked alias: claude passes its
+/// model ALIASES through verbatim, so this is only the blank check.
+/// `None` = nothing picked (the caller omits the flag, or — for claude's
+/// explicit-always `--model` — falls back to
+/// [`crate::settings::DEFAULT_CLAUDE_MODEL`]). EXP-981: the subagent-model
+/// env goes through the SAME mapping, so the two can never drift.
+pub fn claude_model_arg(model: &str) -> Option<String> {
+    let trimmed = model.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
     let trimmed_model = opts.model.trim();
     let trimmed_effort = opts.effort.trim();
@@ -575,13 +617,12 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
     match opts.agent {
         CodingAgent::Claude => {
             args.push("--model".into());
-            args.push(if trimmed_model.is_empty() {
-                // Claude is explicit-always; a blank here is a caller bug —
-                // degrade to the spec default rather than the user's CLI one.
-                crate::settings::DEFAULT_CLAUDE_MODEL.to_string()
-            } else {
-                trimmed_model.to_string()
-            });
+            // Claude is explicit-always; a blank here is a caller bug —
+            // degrade to the spec default rather than the user's CLI one.
+            args.push(
+                claude_model_arg(trimmed_model)
+                    .unwrap_or_else(|| crate::settings::DEFAULT_CLAUDE_MODEL.to_string()),
+            );
             let effort = if opts.ultracode {
                 Some("ultracode".to_string())
             } else {
@@ -678,6 +719,7 @@ mod tests {
             effort: "".to_string(),
             ultracode: false,
             plan_mode: false,
+            subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
         }

@@ -47,6 +47,7 @@ const str = (value: unknown): string | undefined =>
 //   action  an action id (`builtin:fix-conflicts`, `builtin:create-action`,
 //           or a row id) — wins over `issues` when both arrive
 //   pr      an issue id linked to the open PR a `pr` input opens on
+//   workflow  the draft workflow a `builtin:plan-workflow` run plans (EXP-981)
 //   device  the machine to pre-pick
 //   text    inserted into the empty draft (a suggestion's description)
 //   icon    a curated icon name seeding Create action's `icon` input
@@ -68,6 +69,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     issues: str(search.issues),
     action: str(search.action),
     pr: str(search.pr),
+    workflow: str(search.workflow),
     device: str(search.device),
     text: str(search.text),
     icon: str(search.icon),
@@ -111,7 +113,15 @@ function AgentPage() {
   const urlSeed = useMemo(
     () => seedFromSearch(search),
     // Field-wise: the search object's identity is the router's business.
-    [search.issues, search.action, search.pr, search.device, search.text, search.icon]
+    [
+      search.issues,
+      search.action,
+      search.pr,
+      search.workflow,
+      search.device,
+      search.text,
+      search.icon,
+    ]
   )
   const [seed, setSeed] = useState<LaunchSeed | null>(null)
   // EXP-862: `?action=` MIRRORS the composer's picked action while it holds
@@ -177,6 +187,7 @@ function AgentPage() {
       urlSeed.issueIds.length === 0 &&
       !urlSeed.deviceId &&
       !urlSeed.prIssueId &&
+      !urlSeed.workflowId &&
       !urlSeed.text &&
       !urlSeed.icon
     if (mirrorOnly) return

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react"
+import { useNavigate, useParams } from "@tanstack/react-router"
+import { toast } from "sonner"
 import { Flag, Trash2, X } from "lucide-react"
 import type { Issue, Label, User } from "@/db/schema"
-import { issueCollection, issueLabelCollection } from "@/lib/collections"
+import {
+  issueCollection,
+  issueLabelCollection,
+  workflowCollection,
+} from "@/lib/collections"
 import {
   conceptIcon,
   Button,
@@ -23,7 +29,14 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSteerConfig } from "@/components/agent-session"
 import { useIsTeamMember } from "@/components/issue-coding-rows"
 import { useOpenComposer } from "@/hooks/use-open-composer"
+import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import { trpc } from "@/lib/trpc-client"
+import { trpcErrorMessage } from "@/lib/trpc-error"
+import {
+  CREATE_WORKFLOW_LABEL,
+  START_AS_BATCH_LABEL,
+  START_AS_STACK_LABEL,
+} from "@/lib/workflow-view"
 import { issuePriorityOptions } from "@/lib/domain"
 import type { IssuePriority } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -594,7 +607,12 @@ function BulkStartCodingButton({
 // Split out so the device wiring (`useRemoteStart` over the synced devices
 // shape) mounts only once the gates above passed — same posture as
 // RemoteStartRow in issue-coding-rows.tsx.
-function BulkStartCodingControl({
+//
+// EXP-981: the pill became a MENU — batch (today's behaviour), stack (one
+// blocked issue; the composer's blocked-start dialog then offers the stacked
+// PR) and "Create workflow…", which files the selection as one DAG and opens
+// it. Exported for its test.
+export function BulkStartCodingControl({
   teamId,
   currentUserId,
   issueIds,
@@ -607,30 +625,94 @@ function BulkStartCodingControl({
 }) {
   const remote = useRemoteStart({ currentUserId, teamId })
   const openComposer = useOpenComposer()
+  const navigate = useNavigate()
+  const { teamSlug } = useParams({ strict: false })
+  // The badge counts the list already queries (EXP-980) — a stack needs the
+  // one picked issue to have an open blocker to build on.
+  const { counts } = useTeamIssueGraph(teamId)
+  const [creating, setCreating] = useState(false)
 
   // Devices still resolving, or nothing to start on: stay quiet rather than
   // spend a slot in an already-crowded bar on an explanation (the issue view
   // carries that copy).
   if (remote.devices === null || remote.devices.length === 0) return null
 
+  const soleIssueId = issueIds.length === 1 ? issueIds[0]! : null
+  const canStack =
+    soleIssueId !== null && (counts.get(soleIssueId)?.blockedBy ?? 0) > 0
+
+  const startOnComposer = () => {
+    openComposer({ issueIds })
+    // Desktop parity (EXP-439): a launched selection is done with.
+    onClear()
+  }
+
+  const createWorkflow = async () => {
+    if (creating) return
+    setCreating(true)
+    try {
+      const { txId, workflow } = await trpc.workflows.create.mutate(
+        { teamId, issueIds },
+        { context: { skipErrorToast: true } }
+      )
+      await workflowCollection.utils.awaitTxId(txId)
+      onClear()
+      if (teamSlug) {
+        void navigate({
+          to: `/t/$teamSlug/workflows/$workflowId`,
+          params: { teamSlug, workflowId: workflow.id },
+        })
+      }
+    } catch (error) {
+      // The router refuses in sentences (a started issue, two repositories) —
+      // show its words, never a generic failure.
+      toast.error(
+        trpcErrorMessage(error, `The workflow could not be created`)
+      )
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
-    /* EXP-698 r5: the row's ONE call to action — the accent pill every
-       client paints here, text and all, on phones too. EXP-825: it lands
-       the selection on the Agent page composer as chips (2+ = a batch). */
-    <Pill
-      size="md"
-      mode="action"
-      primary
-      className="mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs"
-      aria-label="Start coding"
-      onClick={() => {
-        openComposer({ issueIds })
-        // Desktop parity (EXP-439): a launched selection is done with.
-        onClear()
-      }}
-    >
-      <StartCodingIcon className="size-4" />
-      Start coding
-    </Pill>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        {/* EXP-698 r5: the row's ONE call to action — the accent pill every
+            client paints here, text and all, on phones too. */}
+        <Pill
+          size="md"
+          mode="action"
+          primary
+          className="mx-1 max-md:mx-0 max-md:gap-1 max-md:px-2.5 max-md:text-xs"
+          aria-label="Start coding"
+          data-testid="bulk-start-coding"
+        >
+          <StartCodingIcon className="size-4" />
+          Start coding
+        </Pill>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" collisionPadding={12} className="w-[14rem]">
+        <DropdownMenuItem
+          data-testid="bulk-start-batch"
+          onSelect={startOnComposer}
+        >
+          {START_AS_BATCH_LABEL}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-testid="bulk-start-stack"
+          disabled={!canStack}
+          onSelect={startOnComposer}
+        >
+          {START_AS_STACK_LABEL}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-testid="bulk-create-workflow"
+          disabled={creating}
+          onSelect={() => void createWorkflow()}
+        >
+          {CREATE_WORKFLOW_LABEL}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

@@ -7535,6 +7535,38 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `workflow`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "workflow",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M5 3H9A2 2 0 0 1 11 5V9A2 2 0 0 1 9 11H5A2 2 0 0 1 3 9V5A2 2 0 0 1 5 3Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M7 11v4a2 2 0 0 0 2 2h4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M15 13H19A2 2 0 0 1 21 15V19A2 2 0 0 1 19 21H15A2 2 0 0 1 13 19V15A2 2 0 0 1 15 13Z"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `wrench`: ImageVector by lazy {
         ImageVector.Builder(
             name = "wrench",
@@ -7932,6 +7964,7 @@ public object ExpIcons {
         "video" -> `video`
         "wallet" -> `wallet`
         "wifi-off" -> `wifi-off`
+        "workflow" -> `workflow`
         "wrench" -> `wrench`
         "x" -> `x`
         "zap" -> `zap`
@@ -8086,6 +8119,8 @@ public object ExpIcons {
     public val navTeamSwitcher: ImageVector get() = `chevrons-up-down`
     /** Concept `nav-terminal`. */
     public val navTerminal: ImageVector get() = `square-terminal`
+    /** Concept `nav-workflows`. */
+    public val navWorkflows: ImageVector get() = `workflow`
     /** Concept `notification-agent-message`. */
     public val notificationAgentMessage: ImageVector get() = `bot`
     /** Concept `notification-issue-assigned`. */

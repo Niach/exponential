@@ -304,6 +304,16 @@ pub(crate) struct ChatScreenView {
     pending_action: Option<String>,
     pending_pr: Option<String>,
     pending_icon: Option<String>,
+    /// EXP-981: the DRAFT workflow a planner start plans. Set by a
+    /// [`ChatSeed::plan_workflow`] and cleared with the subject — the hidden
+    /// planner builtin is meaningless without it, and no other subject may
+    /// carry one.
+    workflow_id: Option<String>,
+    /// EXP-981: a builtin that is appended to NO list and NO picker, held so
+    /// the composer can still resolve it as its SUBJECT (the chip, the
+    /// placeholder, the start). Only the planner ever lands here; the
+    /// pickable builtins ride [`Self::actions`] like the rows.
+    hidden_action: Option<api::actions::Action>,
     issue_search: Entity<InputState>,
     /// EXP-892: the `#` picker's keyboard selection — a POSITION in the rows
     /// the popover currently lists (↑/↓ move it, hover moves it, Enter
@@ -455,6 +465,8 @@ impl ChatScreenView {
             pending_action: None,
             pending_pr: None,
             pending_icon: None,
+            workflow_id: None,
+            hidden_action: None,
             issue_search,
             issue_pick_selected: 0,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
@@ -500,6 +512,8 @@ impl ChatScreenView {
         self.pending_action = None;
         self.pending_pr = None;
         self.pending_icon = None;
+        self.workflow_id = None;
+        self.hidden_action = None;
         self.error = None;
         self.mention_team = team_id.clone();
         self.mention.update(cx, |mention, _| {
@@ -552,11 +566,22 @@ impl ChatScreenView {
     /// a device seed is a sticky explicit pick, text lands on an EMPTY draft.
     fn apply_seed(&mut self, seed: ChatSeed, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if let Some(action_id) = seed.action_id {
+            // EXP-981: the workflow rides ONLY with the planner builtin, and
+            // so does the locally-constructed row that resolves it (it is in
+            // no list for `refresh_actions` to find).
+            let planning = action_id == api::actions::BUILTIN_PLAN_WORKFLOW_ID;
+            self.workflow_id = planning.then(|| seed.workflow_id.clone()).flatten();
+            self.hidden_action = planning
+                .then(|| self.team_id.as_deref())
+                .flatten()
+                .map(api::actions::builtin_plan_workflow_action);
             self.pending_action = Some(action_id);
             self.pending_pr = seed.pr_issue_id;
             self.pending_icon = seed.icon;
             self.refresh_actions(window, cx);
         } else if !seed.issue_ids.is_empty() {
+            self.workflow_id = None;
+            self.hidden_action = None;
             self.set_issue_subject(seed.issue_ids.into_iter().collect(), cx);
         }
         if let Some(device_id) = seed.device_id {
@@ -583,6 +608,10 @@ impl ChatScreenView {
         let Some(team_id) = self.team_id.clone() else {
             return;
         };
+        // EXP-981: the planner's workflow (and its hidden row) belong to the
+        // planner subject alone — swapping to issues drops both.
+        self.workflow_id = None;
+        self.hidden_action = None;
         let rows = issue_picker::snapshot_rows(cx, &team_id, &checked);
         let checked: HashSet<String> = rows
             .iter()
@@ -807,6 +836,13 @@ impl ChatScreenView {
     /// are dropped — the swap rule), its picks reset, the seed's PR and
     /// icon applied.
     fn select_action(&mut self, action_id: String, cx: &mut gpui::Context<Self>) {
+        // EXP-981: picking ANY other action drops the planner's workflow and
+        // its hidden row — a `Workflow:` prompt on a team action would be
+        // words the user never wrote.
+        if action_id != api::actions::BUILTIN_PLAN_WORKFLOW_ID {
+            self.workflow_id = None;
+            self.hidden_action = None;
+        }
         let had_subject = !matches!(self.subject, Subject::None);
         self.probe_generation += 1;
         self.subject = Subject::Action(ActionSubject {
@@ -845,6 +881,13 @@ impl ChatScreenView {
         self.actions
             .iter()
             .find(|action| action.id == subject.action_id)
+            // EXP-981: the planner is in no list — its locally-constructed
+            // row is the only thing that resolves it.
+            .or_else(|| {
+                self.hidden_action
+                    .as_ref()
+                    .filter(|action| action.id == subject.action_id)
+            })
     }
 
     /// EXP-349: seed the picked action's `repo` inputs from its binding.
@@ -1406,6 +1449,9 @@ impl ChatScreenView {
                             action_id: &subject.action_id,
                             team_id: &team_id,
                             inputs: &inputs,
+                            // EXP-981: the server writes the prompt's
+                            // `Workflow: <uuid>` first line itself.
+                            workflow_id: self.workflow_id.as_deref(),
                         },
                         prompt,
                     )
@@ -1469,8 +1515,16 @@ impl ChatScreenView {
                         // A person pressed Run — never an automation firing.
                         trigger: None,
                         automation_id: None,
+                        // EXP-981: a LOCAL planner start writes the first
+                        // line itself — byte-identical to what the server
+                        // writes for a remote one (web `planWorkflowPrompt`).
+                        prompt: match &self.workflow_id {
+                            Some(workflow_id) => {
+                                Some(chat_launch::plan_workflow_prompt(workflow_id, prompt))
+                            }
+                            None => prompt,
+                        },
                         on_settled: None,
-                        prompt,
                     },
                     cx,
                 );
@@ -2397,6 +2451,10 @@ impl ChatScreenView {
                     .child(div().px_1().child("Effort"))
                     .child(launch.effort_pin("chat", Self::launch_access, cx))
                     .children(launch.ultracode_toggle("chat", Self::launch_access, cx))
+                    // EXP-981: the claude-only subagent pin sits beside the
+                    // options the same agent gates.
+                    .child(div().px_1().child("Subagents"))
+                    .children(launch.subagent_model_pin("chat", Self::launch_access, cx))
                     .children(launch.mcp_pin("chat", Self::launch_access, cx)),
             );
         }

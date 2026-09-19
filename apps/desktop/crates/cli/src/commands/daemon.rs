@@ -1283,7 +1283,10 @@ fn handle_remote_start(
         // frame unread until now.
         start.account.as_deref(),
     )
-    .with_mcp_servers(start.mcp_server_ids.clone());
+    .with_mcp_servers(start.mcp_server_ids.clone())
+    // EXP-981: the composer's claude-only subagent pick; absent leaves this
+    // machine's own launch default in place.
+    .with_subagent_model(start.subagent_model.as_deref());
     let origin = coding::LaunchOrigin::Relay {
         device_id: device_id.to_string(),
         claimant: ctx.account.id.clone(),
@@ -2429,7 +2432,7 @@ fn report_worktrees(
 /// actions they fire (`actions` — the name snapshot the log prints), the
 /// event feed (`issue_events`), and the rows the prompt lines and board
 /// filters read (`issues`, `boards`, `labels`, `issue_statuses`).
-/// Deliberately NOT the desktop's 22 — a headless daemon has no views to
+/// Deliberately NOT the desktop's 24 — a headless daemon has no views to
 /// hydrate.
 const AUTOMATION_SHAPES: &[&str] = &[
     "automations",

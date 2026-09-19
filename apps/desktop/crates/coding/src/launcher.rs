@@ -45,7 +45,10 @@ use crate::action_prompt::{
     chat_prompt, render_action_prompt_full, render_run_resume_prompt, ActionInputValue,
     TriggerNote, WorkspaceNote,
 };
-use crate::action_prompt::{create_action_prompt, fix_pr_conflicts_prompt};
+use crate::action_prompt::{
+    create_action_prompt, fix_pr_conflicts_prompt, plan_workflow_prompt,
+    PLAN_WORKFLOW_PROMPT_PREFIX,
+};
 use crate::batch_launcher::{
     action_run_branch, batch_branch_name, chat_run_branch, BatchLaunchRequest, RepoGroup,
 };
@@ -320,9 +323,9 @@ pub struct LaunchRequest {
 
 /// Which program an action run executes (EXP-257/EXP-259). `Team` is a
 /// user-authored action (fresh body fetched via `actions.get` right before
-/// the run — EXP-268 removed the per-device trust gate); the other two are
-/// the server-defined virtual BUILTINS whose prompts are composed from
-/// shipped constants (`body` stays empty).
+/// the run — EXP-268 removed the per-device trust gate); the rest are the
+/// server-defined virtual BUILTINS whose prompts are composed from shipped
+/// constants (`body` stays empty).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActionRunKind {
     /// A team action row: preamble [+ inputs] + the fresh body.
@@ -356,6 +359,13 @@ pub enum ActionRunKind {
         /// argument (EXP-324).
         issue_id: String,
     },
+    /// The hidden "Plan workflow" builtin (EXP-981): the planner run of ONE
+    /// draft workflow. Like [`Self::CreateAction`] it is REPO-LESS by
+    /// construction — it shapes the plan through the Exponential MCP tools
+    /// and writes no code — so it runs in the same scratch dir, with no git,
+    /// no token and no worktree. Its prompt is the shipped program plus the
+    /// start's request, whose first line names the workflow.
+    PlanWorkflow,
     /// The hidden "Chat" builtin (EXP-615): a conversation with the agent over
     /// the tracker's MCP tools, no PR contract. The repository is an OPTIONAL
     /// ANCHOR (EXP-739): given one, the run gets its own `exp/chat-<id8>`
@@ -1238,6 +1248,33 @@ pub fn apply_account_env(
     }
 }
 
+/// EXP-981: the env var that pins the model claude's SUBAGENTS run on. Claude
+/// reads it at spawn; there is no flag for it.
+pub const CLAUDE_SUBAGENT_MODEL_ENV: &str = "CLAUDE_CODE_SUBAGENT_MODEL";
+
+/// The subagent-model half of the spawn env, applied at every site
+/// [`apply_account_env`] is (coding sessions, action/chat runs, resumes and
+/// agent shells alike). Nothing at all for a blank pick (the CLI's own
+/// default) or for any agent but claude.
+///
+/// The value is the same one the `--model` flag gets: claude takes its model
+/// ALIASES verbatim, so [`crate::argv::claude_model_arg`] is the one
+/// normalization both go through and the subagent can never end up on a
+/// spelling the main agent would reject.
+pub fn apply_subagent_model_env(
+    spawn: SpawnSpec,
+    agent: CodingAgent,
+    subagent_model: &str,
+) -> SpawnSpec {
+    if !agent.supports_subagent_model() {
+        return spawn;
+    }
+    match crate::argv::claude_model_arg(subagent_model) {
+        Some(model) => spawn.env(CLAUDE_SUBAGENT_MODEL_ENV, model),
+        None => spawn,
+    }
+}
+
 /// FEED-25: bound every claude MCP call (both arms — the agent shell and the
 /// ACP child run with the same [`SpawnSpec`] env). `inherited` is the
 /// host's own `MCP_TOOL_TIMEOUT`: a user who tuned it keeps their value, the
@@ -1847,6 +1884,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
     spawn = apply_mcp_server_env(spawn, &team_mcp);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
+    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -1993,7 +2031,13 @@ fn prepare_action(
     // The creator builtin always runs in its scratch dir — a repo INPUT only
     // pins the authored action's repositoryId, never this run's cwd. The
     // fix-conflicts builtin REQUIRES its repo (checked below).
-    let repo = if matches!(req.kind, ActionRunKind::CreateAction) {
+    // EXP-981: the planner is repo-less for the same reason — it plans over
+    // MCP and writes no code, so a repo would only give it a checkout to
+    // wander into.
+    let repo = if matches!(
+        req.kind,
+        ActionRunKind::CreateAction | ActionRunKind::PlanWorkflow
+    ) {
         &None
     } else {
         &req.repo
@@ -2207,8 +2251,8 @@ fn prepare_action(
                     base_branch = Some(minted.default_branch.clone());
                     worktree
                 }
-                // The creator builtin never reaches this arm (its repo input
-                // only pins the authored action's repositoryId).
+                // The creator and planner builtins never reach this arm
+                // (both are forced repo-less above).
                 _ => clone.clone(),
             };
             trunk_clone = Some(clone);
@@ -2305,6 +2349,24 @@ fn prepare_action(
                 icon_input,
                 unattended,
             ))
+        }
+        // EXP-981: the planner's request IS the start's prompt, and its
+        // first line names the workflow (`Workflow: <uuid>` — the server
+        // writes it). Without that line the run has nothing to plan, so it
+        // is refused here rather than spawned against a blank program.
+        ActionRunKind::PlanWorkflow => {
+            let request = req
+                .prompt
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .filter(|value| value.starts_with(PLAN_WORKFLOW_PROMPT_PREFIX));
+            let Some(request) = request else {
+                return Err(CodingError::Io(
+                    "the builtin Plan-workflow run is missing its workflow".to_string(),
+                ));
+            };
+            Some(plan_workflow_prompt(request))
         }
         // EXP-615: the user's own words, verbatim — no preamble, no inputs
         // section. Everything else (worktree cwd, MCP wiring, session row,
@@ -2428,6 +2490,7 @@ fn prepare_action(
     spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
     spawn = apply_mcp_server_env(spawn, &team_mcp);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
+    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -2478,6 +2541,7 @@ fn prepare_action(
                 ActionRunKind::Team => RunKind::Team,
                 ActionRunKind::Chat => RunKind::Chat,
                 ActionRunKind::CreateAction => RunKind::CreateAction,
+                ActionRunKind::PlanWorkflow => RunKind::PlanWorkflow,
                 ActionRunKind::FixConflicts { .. } => RunKind::FixConflicts,
             },
             action_id: req.action_id.clone(),
@@ -2759,6 +2823,10 @@ fn prepare_resume_run(
         ultracode: record.ultracode,
         // The plan already happened in the run being continued.
         plan_mode: false,
+        // EXP-981: the run registry predates the subagent pin, so a resume
+        // leaves claude's subagents on the CLI's own default rather than
+        // inventing a model the original run may never have used.
+        subagent_model: String::new(),
         // EXP-792: the recorded server pick, re-resolved below against the
         // CURRENT secret store (a rotated token is picked up; a server that
         // lost its credential refuses the resume by name).
@@ -3221,6 +3289,7 @@ fn prepare_resume_run(
     spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
     spawn = apply_mcp_server_env(spawn, &team_mcp);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
+    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
     if let Some(originator) = &codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
@@ -3531,6 +3600,7 @@ pub fn prepare_agent_shell(
     // Agent shells are always interactive TUIs (never the ACP engine).
     spawn = apply_mcp_env(spawn, agent, &personal_key, None, true);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
+    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
     if agent == CodingAgent::Codex {
         // EXP-443: shells share the trunk cwd with action runs — a distinct
         // originator keeps their rollouts out of every session's strict pass.
@@ -3718,6 +3788,7 @@ mod tests {
                 effort: "".to_string(),
                 ultracode: false,
                 plan_mode: true,
+                subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
             },
@@ -4187,6 +4258,39 @@ mod tests {
         assert!(acp.env.iter().any(|(k, v)| k == MCP_SESSION_ID_ENV && v == "s"));
     }
 
+    /// EXP-981: a claude subagent pick exports `CLAUDE_CODE_SUBAGENT_MODEL`
+    /// with the SAME value `--model` would take; a blank pick (the CLI's own
+    /// default) and every non-claude agent export nothing at all.
+    #[test]
+    fn apply_subagent_model_env_sets_the_claude_var_only_when_picked() {
+        let base = SpawnSpec::new("agent").env("KEEP", "1");
+        let picked = apply_subagent_model_env(base.clone(), CodingAgent::Claude, "sonnet");
+        assert_eq!(picked.env.len(), 2, "{:?}", picked.env);
+        assert_eq!(
+            picked.env[1],
+            ("CLAUDE_CODE_SUBAGENT_MODEL".to_string(), "sonnet".to_string())
+        );
+        // The value is the `--model` flag's, so the two can never drift.
+        let flag = crate::argv::shell_args(
+            &LaunchOptions {
+                model: "sonnet".to_string(),
+                ..LaunchOptions::defaults_for(&Settings::default(), CodingAgent::Claude)
+            },
+            &crate::argv::AgentMcp::ClaudeFile,
+        );
+        let model_at = flag.iter().position(|arg| arg == "--model").expect("--model");
+        assert_eq!(flag[model_at + 1], picked.env[1].1);
+
+        // Blank = the CLI's own default: nothing exported.
+        for blank in ["", "   "] {
+            let spawn = apply_subagent_model_env(base.clone(), CodingAgent::Claude, blank);
+            assert_eq!(spawn.env, base.env, "{blank:?}");
+        }
+        // Codex has no subagent model to pin.
+        let codex = apply_subagent_model_env(base.clone(), CodingAgent::Codex, "sonnet");
+        assert_eq!(codex.env, base.env);
+    }
+
     /// EXP-792 (EXP-747 B2): a profile pick sets the agent's config-dir
     /// variable and NOTHING else; `None`/`system` and an unknown id set
     /// nothing.
@@ -4285,6 +4389,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: true,
             plan_mode: false,
+            subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
         }
@@ -4457,6 +4562,7 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
             },
@@ -4672,6 +4778,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
         };
@@ -7045,6 +7152,7 @@ mod tests {
             effort: "high".to_string(),
             ultracode: false,
             plan_mode: false,
+            subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
         };
@@ -7369,6 +7477,7 @@ mod tests {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
             },

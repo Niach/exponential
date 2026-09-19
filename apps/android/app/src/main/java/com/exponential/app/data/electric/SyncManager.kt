@@ -34,6 +34,8 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.TeamInviteEntity
 import com.exponential.app.data.db.TeamMemberEntity
+import com.exponential.app.data.db.WorkflowEntity
+import com.exponential.app.data.db.WorkflowNodeEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import java.util.concurrent.atomic.AtomicBoolean
@@ -110,7 +112,7 @@ class SyncManager @Inject constructor(
     @Volatile private var backgroundedAtMs: Long? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 22 shapes each
+    // several pushes can land within the same second, and 24 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -363,7 +365,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (22 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (24 shapes) for $accountId")
             }
         }
     }
@@ -439,6 +441,8 @@ class SyncManager @Inject constructor(
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
         val issueDraftDao = db.issueDraftDao()
+        val workflowDao = db.workflowDao()
+        val workflowNodeDao = db.workflowNodeDao()
 
         val shapes = listOf(
             launchShape(
@@ -664,6 +668,29 @@ class SyncManager @Inject constructor(
                 onUpdate = { issueDraftDao.upsert(it) },
                 onDelete = { issueDraftDao.deleteById(it.id) },
                 onRefetch = { issueDraftDao.clear() },
+            ),
+            // EXP-981: workflows + their nodes — team-scoped like `actions`
+            // and `automations` (a workflow spans boards, so the board trash
+            // rules do not apply). The nodes carry the server-computed layout.
+            launchShape(
+                shape = "workflows", path = "/api/shapes/workflows", tableName = "workflows",
+                serializer = WorkflowEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("workflows"),
+                onInsert = { workflowDao.upsert(it) },
+                onUpdate = { workflowDao.upsert(it) },
+                onDelete = { workflowDao.deleteById(it.id) },
+                onRefetch = { workflowDao.clear() },
+            ),
+            launchShape(
+                shape = "workflow_nodes", path = "/api/shapes/workflow-nodes", tableName = "workflow_nodes",
+                serializer = WorkflowNodeEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("workflow_nodes"),
+                onInsert = { workflowNodeDao.upsert(it) },
+                onUpdate = { workflowNodeDao.upsert(it) },
+                onDelete = { workflowNodeDao.deleteById(it.id) },
+                onRefetch = { workflowNodeDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

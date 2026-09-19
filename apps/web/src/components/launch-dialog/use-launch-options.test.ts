@@ -125,3 +125,64 @@ describe(`useLaunchOptions account`, () => {
     expect(result.current.buildOptions().account).toBeUndefined()
   })
 })
+
+// EXP-981: the subagent model — claude's CLI env var, so it is offered for
+// claude alone, seeded from the device's advertised defaults like every other
+// launch option, and OMITTED from the payload while it is the CLI default.
+describe(`useLaunchOptions subagent model`, () => {
+  it(`omits the CLI default from the payload`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [device] })
+    )
+    expect(result.current.subagentModel).toBe(``)
+    expect(result.current.buildOptions().subagentModel).toBeUndefined()
+
+    act(() => result.current.setSubagentModel(`sonnet`))
+    expect(result.current.buildOptions().subagentModel).toBe(`sonnet`)
+  })
+
+  it(`seeds the device's advertised value`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        devices: [
+          {
+            ...device,
+            launchDefaults: {
+              defaultAgent: `claude`,
+              agents: { claude: { subagentModel: `sonnet` } },
+            },
+          },
+        ],
+      })
+    )
+    expect(result.current.subagentModel).toBe(`sonnet`)
+    expect(result.current.buildOptions().subagentModel).toBe(`sonnet`)
+  })
+
+  it(`never rides a non-claude agent`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({
+        open: true,
+        devices: [
+          {
+            ...device,
+            agents: [`claude`, `codex`],
+            launchDefaults: {
+              defaultAgent: `claude`,
+              agents: {
+                claude: { subagentModel: `sonnet` },
+                codex: { subagentModel: `sonnet` },
+              },
+            },
+          },
+        ],
+      })
+    )
+    expect(result.current.buildOptions().subagentModel).toBe(`sonnet`)
+    act(() => result.current.switchAgent(`codex`))
+    // Reseeded from codex's defaults, where the field is meaningless.
+    expect(result.current.subagentModel).toBe(``)
+    expect(result.current.buildOptions().subagentModel).toBeUndefined()
+  })
+})

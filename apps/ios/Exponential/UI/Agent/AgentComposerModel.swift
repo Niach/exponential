@@ -46,6 +46,10 @@ final class AgentComposerModel {
     private(set) var checked: [String] = []
     /// The picked action (a team row or a builtin id); nil = issues or chat.
     private(set) var actionId: String?
+    /// EXP-981: the DRAFT workflow a `builtin:plan-workflow` subject plans —
+    /// seeded by that workflow's Plan button and sent as `workflowId`. Cleared
+    /// with the action, because the builtin is meaningless without it.
+    private(set) var workflowId: String?
     /// Typed input values keyed by the def's `key`; `""` = cleared. A key
     /// that was never touched resolves to its default (`value(for:)`).
     var inputValues: [String: String] = [:]
@@ -116,6 +120,11 @@ final class AgentComposerModel {
     func apply(_ seed: AgentComposerSeed) {
         if let actionId = seed.actionId {
             self.actionId = actionId
+            // EXP-981: rides ONLY with the Plan workflow builtin — the server
+            // refuses it beside any other subject.
+            workflowId = actionId == DomainContract.builtinPlanWorkflowId
+                ? seed.workflowId
+                : nil
             checked = []
             inputValues = [:]
         } else if !seed.effectiveIssueIds.isEmpty {
@@ -330,7 +339,11 @@ final class AgentComposerModel {
 
     var selectedAction: ActionDto? {
         guard let actionId else { return nil }
-        return actions.first { $0.id == actionId }
+        if let picked = actions.first(where: { $0.id == actionId }) { return picked }
+        // EXP-981: the Plan workflow builtin is in NO pool — a workflow's Plan
+        // button seeds it directly, so it resolves here and nowhere else.
+        guard actionId == DomainContract.builtinPlanWorkflowId, let teamId else { return nil }
+        return ActionDto.builtinPlanWorkflowAction(teamId: teamId)
     }
 
     var subject: AgentComposerPrompt.Subject {
@@ -363,6 +376,7 @@ final class AgentComposerModel {
         touched = true
         if actionId != nil {
             actionId = nil
+            workflowId = nil
             inputValues = [:]
         }
         if let index = checked.firstIndex(of: id) {
@@ -379,6 +393,8 @@ final class AgentComposerModel {
         guard action.id != actionId else { return }
         touched = true
         actionId = action.id
+        // Only a seed can name a workflow; picking another action drops it.
+        workflowId = nil
         checked = []
         inputValues = [:]
         refreshBlockers()
@@ -387,6 +403,7 @@ final class AgentComposerModel {
     func clearAction() {
         touched = true
         actionId = nil
+        workflowId = nil
         inputValues = [:]
         refreshBlockers()
     }
@@ -749,6 +766,7 @@ final class AgentComposerModel {
                 pendingImages = []
                 checked = []
                 actionId = nil
+                workflowId = nil
                 inputValues = [:]
                 pendingPrIssueId = nil
                 seededDraft = ""
@@ -798,6 +816,12 @@ final class AgentComposerModel {
                 actionId: action.id,
                 deviceId: device.deviceId,
                 teamId: action.isBuiltin ? action.teamId : nil,
+                // EXP-981: the Plan workflow builtin names its DRAFT; the
+                // server writes the prompt's `Workflow: <uuid>` head itself
+                // and refuses the field beside any other action.
+                workflowId: action.id == DomainContract.builtinPlanWorkflowId
+                    ? workflowId
+                    : nil,
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
                 prompt: prompt

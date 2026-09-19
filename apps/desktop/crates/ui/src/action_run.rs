@@ -23,7 +23,10 @@ use sync::Store;
 
 use crate::coding_flow::{self, SessionSubject};
 use crate::queries;
-use api::actions::{is_builtin_action_id, BUILTIN_CHAT_ID, BUILTIN_FIX_CONFLICTS_ID};
+use api::actions::{
+    is_builtin_action_id, BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID,
+    BUILTIN_PLAN_WORKFLOW_ID,
+};
 use coding::{
     ActionInputValue, ActionLaunchRequest, ActionRunKind, LaunchOptions, LaunchOrigin, Prepared,
     PrepareRequest, ResumeRunRequest,
@@ -273,12 +276,26 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
                 if builtin {
                     let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
                     let chatting = action_id == BUILTIN_CHAT_ID;
-                    let mut action = if fixing {
-                        api::actions::builtin_fix_conflicts_action(&team_id)
-                    } else if chatting {
-                        api::actions::builtin_chat_action(&team_id)
-                    } else {
-                        api::actions::builtin_create_action(&team_id)
+                    // EXP-981: named explicitly, never an `else` — an id this
+                    // build does not know must REFUSE, not fall through to
+                    // the creator and author an action nobody asked for.
+                    let mut action = match action_id.as_str() {
+                        BUILTIN_FIX_CONFLICTS_ID => {
+                            api::actions::builtin_fix_conflicts_action(&team_id)
+                        }
+                        BUILTIN_CHAT_ID => api::actions::builtin_chat_action(&team_id),
+                        BUILTIN_PLAN_WORKFLOW_ID => {
+                            api::actions::builtin_plan_workflow_action(&team_id)
+                        }
+                        BUILTIN_CREATE_ACTION_ID => {
+                            api::actions::builtin_create_action(&team_id)
+                        }
+                        other => {
+                            return Err(format!(
+                                "This app version does not know the builtin action `{other}`. \
+Update Exponential on this machine."
+                            ))
+                        }
                     };
                     // The runner composes the builtin prompts itself — the
                     // input schema is a dialog-side concern only.
@@ -439,9 +456,13 @@ team settings → Repositories.";
                         issue_id,
                     }
                 }
-                // EXP-615: the builtin kinds are id-dispatched — chat and the
-                // creator share nothing but the "not a DB row" shape.
+                // EXP-615: the builtin kinds are id-dispatched — chat, the
+                // planner and the creator share nothing but the "not a DB
+                // row" shape. EXP-981: every id is named (the factory above
+                // already refused an unknown one), so `builtin` can never
+                // silently mean "creator" again.
                 None if action.id == BUILTIN_CHAT_ID => ActionRunKind::Chat,
+                None if action.id == BUILTIN_PLAN_WORKFLOW_ID => ActionRunKind::PlanWorkflow,
                 None if builtin => ActionRunKind::CreateAction,
                 None => ActionRunKind::Team,
             };

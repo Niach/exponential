@@ -364,6 +364,7 @@ app.post(`/start`, async (c) => {
     agent: asString(body?.agent),
     model: asString(body?.model),
     effort: asString(body?.effort),
+    subagentModel: asString(body?.subagentModel),
     ultracode: asBoolean(body?.ultracode),
     planMode: asBoolean(body?.planMode),
     resume: asBoolean(body?.resume),

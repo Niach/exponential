@@ -44,6 +44,27 @@ enum LaunchVocabulary {
         agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
     }
 
+    /// EXP-981: the SUBAGENT model list — claude's own models plus a blank
+    /// "Default" row (the CLI's own choice), which is what an unset option
+    /// means. The blank is a real choice in a machine's launch defaults; on a
+    /// start it means the field is omitted (the server takes contract values
+    /// only).
+    static func subagentModelValues() -> [String] {
+        [cliDefault] + DomainContract.codingModelValues
+    }
+
+    /// The subagent model's blank row reads "Default", not "CLI default": it
+    /// is the agent's own subagent choice, not a flag we omit.
+    static func subagentModelLabel(_ value: String) -> String {
+        value == cliDefault ? "Default" : modelLabel(value)
+    }
+
+    /// Subagents are claude's (EXP-981) — codex has no such option, so the
+    /// picker hides exactly like Ultracode does.
+    static func supportsSubagentModel(_ agent: String) -> Bool {
+        agent == "claude"
+    }
+
     /// Plan mode is claude's own (EXP-441); codex has no launch-into-plan
     /// mode. EXP-849 dropped the second agent that had one.
     static func supportsPlanMode(_ agent: String) -> Bool {

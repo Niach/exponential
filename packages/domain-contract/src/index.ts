@@ -48,6 +48,18 @@ export interface DomainContract {
   commentSource: { values: readonly string[] }
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
+  /**
+   * EXP-978: Workflows (DAG-orchestrated coding runs). The `wf` prefix keeps
+   * them apart from `workflowStatus` below, the agent feed's word for a
+   * Claude Code workflow TOOL run. Documented varchars on the rows.
+   */
+  wfStatus: { values: readonly string[] }
+  wfNodeState: { values: readonly string[] }
+  wfNodeKind: { values: readonly string[] }
+  wfGate: { values: readonly string[] }
+  wfStartOn: { values: readonly string[] }
+  wfRisk: { values: readonly string[] }
+  workflow: { maxParallelDefault: number; maxIssues: number }
   codingSessionStatus: { values: readonly string[] }
   /**
    * EXP-637: how a run finished in the agent's own words
@@ -198,6 +210,8 @@ export interface DomainContract {
     createActionId: string
     fixConflictsId: string
     chatId: string
+    /** EXP-981: the planner run of a draft workflow. */
+    planWorkflowId: string
   }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }

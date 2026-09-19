@@ -1,0 +1,260 @@
+package com.exponential.app.ui.workflows
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.WorkflowsApi
+import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueRelationEntity
+import com.exponential.app.data.db.WorkflowEntity
+import com.exponential.app.data.db.WorkflowNodeEntity
+import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.DeviceLiveness
+import com.exponential.app.domain.WorkflowLaunch
+import com.exponential.app.domain.WorkflowView
+import com.exponential.app.domain.edgeNode
+import com.exponential.app.domain.launchOptions
+import com.exponential.app.domain.shape
+import com.exponential.app.domain.stableDeviceOrder
+import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.supportsSubagentModel
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+// EXP-981: ONE draft workflow — its graph, the node plan and the start
+// configuration. Reads are the two synced shapes (`workflows`,
+// `workflow_nodes`) joined against the issues and `blocks` relations the
+// client already holds; writes are the member-gated `workflows` router, whose
+// refusals are human sentences shown verbatim ([error]).
+//
+// No client lays the graph out: `wave`/`lane`/`on_cycle` on the nodes ARE the
+// server's layout, and the edges come from the shared rule
+// ([WorkflowView.edges]) over the synced relations.
+
+/** The graph as the screen draws it: nodes in layout order plus their edges. */
+data class WorkflowGraph(
+    val nodes: List<WorkflowNodeEntity> = emptyList(),
+    val edges: List<WorkflowView.Edge> = emptyList(),
+    val issuesById: Map<String, IssueEntity> = emptyMap(),
+)
+
+@OptIn(ExperimentalCoroutinesApi::class)
+@HiltViewModel
+class WorkflowDetailViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
+    private val auth: AuthRepository,
+    holder: DatabaseHolder,
+    private val workflowsApi: WorkflowsApi,
+) : ViewModel() {
+
+    val workflowId: String = savedStateHandle["workflowId"] ?: ""
+
+    private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    val workflow: StateFlow<WorkflowEntity?> = dbFlow
+        .flatMapLatest { db ->
+            if (db == null || workflowId.isEmpty()) {
+                flowOf(null)
+            } else {
+                db.workflowDao().observeById(workflowId)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private val nodes: StateFlow<List<WorkflowNodeEntity>> = dbFlow
+        .flatMapLatest { db ->
+            if (db == null || workflowId.isEmpty()) {
+                flowOf(emptyList())
+            } else {
+                db.workflowNodeDao().observeByWorkflow(workflowId)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Every synced issue and relation: a node's issue can live on any board of
+    // the team, so neither pool may be scoped to one.
+    private val allIssues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val relations: StateFlow<List<IssueRelationEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val graph: StateFlow<WorkflowGraph> = combine(
+        nodes,
+        relations,
+        allIssues,
+        workflow,
+    ) { nodeRows, relationRows, issues, row ->
+        // The covered issues of THIS workflow; a relation with an end outside
+        // them is somebody else's edge.
+        val covered = HashSet<String>()
+        nodeRows.forEach { node ->
+            covered.add(node.issueId)
+            covered.addAll(node.memberIssueIds)
+        }
+        WorkflowGraph(
+            nodes = nodeRows,
+            edges = WorkflowView.edges(
+                nodes = nodeRows.map { it.edgeNode },
+                relations = relationRows
+                    .filter { it.issueId in covered && it.relatedIssueId in covered }
+                    .map {
+                        WorkflowView.EdgeRelation(
+                            type = it.type,
+                            issueId = it.issueId,
+                            relatedIssueId = it.relatedIssueId,
+                        )
+                    },
+                cycleEdges = row?.shape?.cycleEdges.orEmpty(),
+            ),
+            issuesById = issues.filter { it.id in covered }.associateBy { it.id },
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowGraph())
+
+    /**
+     * The machines the workflow can be bound to: every synced device — the
+     * caller's own plus the team's shared servers — ONLINE OR NOT, because a
+     * workflow outlives a machine's uptime. The server refuses a device that
+     * cannot run workflows with its own sentence.
+     */
+    val devices: StateFlow<List<SteerDevice>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+        DeviceLiveness.ticker(),
+        auth.userId,
+    ) { rows, nowMs, userId ->
+        rows.sortedWith(stableDeviceOrder(nowMs)).map { it.toSteerDevice(nowMs, userId) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The bound machine's row, when it is still in the registry. */
+    val device: StateFlow<SteerDevice?> = combine(devices, workflow) { rows, row ->
+        row?.deviceId?.let { id -> rows.firstOrNull { it.deviceId == id } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The stored launch options, defaulted — what the pickers render. */
+    val launch: StateFlow<WorkflowLaunch> = workflow
+        .map { it?.launchOptions ?: WorkflowLaunch() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowLaunch())
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error
+
+    /** Set once the delete landed — the screen pops back to the list. */
+    private val _deleted = MutableStateFlow(false)
+    val deleted: StateFlow<Boolean> = _deleted
+
+    fun clearError() {
+        _error.value = null
+    }
+
+    /** The name is a label: editable at any status, saved on blur. */
+    fun rename(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || trimmed == workflow.value?.name) return
+        mutate("The workflow could not be renamed") { accountId ->
+            workflowsApi.update(accountId, workflowId, name = trimmed)
+        }
+    }
+
+    /** Bind (or, with a blank id, unbind) the runner machine. */
+    fun setDevice(deviceId: String) {
+        mutate("The runner could not be set") { accountId ->
+            workflowsApi.update(
+                accountId,
+                workflowId,
+                deviceId = deviceId.takeIf { it.isNotEmpty() },
+                clearDevice = deviceId.isEmpty(),
+            )
+        }
+    }
+
+    /**
+     * Any one launch option, written as the WHOLE `launch` object (the router
+     * replaces it, so a patch of one field has to carry the rest). Switching
+     * the agent clears the options that do not belong to it — the server
+     * validates model/effort per agent and refuses a subagent model on
+     * anything but claude.
+     */
+    fun setLaunch(update: (WorkflowLaunch) -> WorkflowLaunch) {
+        val next = update(launch.value).let { options ->
+            // A stored agent of "" means "the runner's own default", which is
+            // claude on the server's side of the validation.
+            val agent = options.agent.ifEmpty { DEFAULT_AGENT }
+            if (supportsSubagentModel(agent)) options else options.copy(subagentModel = "")
+        }
+        mutate("How the workflow runs could not be saved") { accountId ->
+            workflowsApi.update(accountId, workflowId, launch = next)
+        }
+    }
+
+    fun setGate(gate: String) {
+        mutate("The review gate could not be saved") { accountId ->
+            workflowsApi.update(accountId, workflowId, gate = gate)
+        }
+    }
+
+    fun setStartOn(startOn: String) {
+        mutate("The start rule could not be saved") { accountId ->
+            workflowsApi.update(accountId, workflowId, startOn = startOn)
+        }
+    }
+
+    /** What the plan declares for ONE node — addressed by its issue. */
+    fun updateNode(issueId: String, kind: String? = null, risk: String? = null) {
+        mutate("The node could not be updated") { accountId ->
+            workflowsApi.updateNode(accountId, workflowId, issueId, kind = kind, risk = risk)
+        }
+    }
+
+    /** Permanent, and refused by the server while the workflow is live. */
+    fun delete() {
+        mutate("The workflow could not be deleted") { accountId ->
+            workflowsApi.delete(accountId, workflowId)
+            _deleted.value = true
+        }
+    }
+
+    // One mutation at a time, with the server's own refusal surfaced: its copy
+    // names the actual reason (a started issue, two repositories, a device
+    // that cannot run workflows).
+    private fun mutate(fallback: String, block: suspend (String) -> Unit) {
+        if (_busy.value) return
+        _busy.value = true
+        _error.value = null
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value
+            if (accountId == null) {
+                _busy.value = false
+                return@launch
+            }
+            try {
+                block(accountId)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _error.value = trpcErrorMessage(t, fallback)
+            }
+            _busy.value = false
+        }
+    }
+}

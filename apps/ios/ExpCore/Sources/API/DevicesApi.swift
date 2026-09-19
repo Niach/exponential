@@ -60,17 +60,23 @@ private struct SetSharedInput: Encodable {
 /// clamps vocabulary field-wise either way.
 public struct AgentLaunchDefaultsInput: Encodable, Sendable {
     public let model: String?
+    /// EXP-981: claude only — the model its subagents run on. `""` is a real
+    /// choice here (the CLI's own default), unlike on a start, where the
+    /// server takes contract values only and "default" means OMITTED.
+    public let subagentModel: String?
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
 
     public init(
         model: String? = nil,
+        subagentModel: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil
     ) {
         self.model = model
+        self.subagentModel = subagentModel
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode

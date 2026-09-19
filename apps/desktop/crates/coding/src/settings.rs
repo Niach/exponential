@@ -122,6 +122,12 @@ pub struct Settings {
     /// [`EFFORT_LEVELS`] or blank (= omit the flag); `load` normalizes
     /// anything else to blank.
     pub claude_effort: String,
+    /// EXP-981: the model claude's SUBAGENTS run on, exported as
+    /// `CLAUDE_CODE_SUBAGENT_MODEL` on every claude spawn when non-blank.
+    /// One of [`MODEL_ALIASES`] or blank (= the CLI's own default, which is
+    /// what a fresh install has); `load` normalizes anything else to blank.
+    /// Claude-only: codex has no subagent model to pin.
+    pub claude_subagent_model: String,
     /// Codex model slug (`-m`); one of [`CODEX_MODELS`] or blank (= omit the
     /// flag — Codex's own default model applies).
     pub codex_model: String,
@@ -193,6 +199,7 @@ impl Default for Settings {
             branch_prefix: DEFAULT_BRANCH_PREFIX.to_string(),
             claude_model: DEFAULT_CLAUDE_MODEL.to_string(),
             claude_effort: DEFAULT_CLAUDE_EFFORT.to_string(),
+            claude_subagent_model: String::new(),
             codex_model: String::new(),
             codex_effort: String::new(),
             claude_ultracode: false,
@@ -239,6 +246,9 @@ impl Settings {
         settings.claude_model =
             normalize_choice(&settings.claude_model, &MODEL_ALIASES, DEFAULT_CLAUDE_MODEL);
         settings.claude_effort = normalize_choice(&settings.claude_effort, &EFFORT_LEVELS, "");
+        // EXP-981: blank is the VALID "let the CLI decide" value here.
+        settings.claude_subagent_model =
+            normalize_choice(&settings.claude_subagent_model, &MODEL_ALIASES, "");
         // Codex allows BLANK ("CLI default") — unknown values degrade to it.
         settings.codex_model = normalize_choice(&settings.codex_model, &CODEX_MODELS, "");
         settings.codex_effort = normalize_choice(&settings.codex_effort, &CODEX_EFFORTS, "");
@@ -330,6 +340,15 @@ impl Settings {
         match agent {
             CodingAgent::Claude => &self.claude_effort,
             CodingAgent::Codex => &self.codex_effort,
+        }
+    }
+
+    /// EXP-981: the subagent-model default for `agent` (dialog seed). Always
+    /// blank for codex: only claude spawns subagents on a pinned model.
+    pub fn subagent_model_for(&self, agent: CodingAgent) -> &str {
+        match agent {
+            CodingAgent::Claude => &self.claude_subagent_model,
+            CodingAgent::Codex => "",
         }
     }
 
@@ -759,6 +778,7 @@ mod tests {
             branch_prefix: "feat/".to_string(),
             claude_model: "sonnet".to_string(),
             claude_effort: "xhigh".to_string(),
+            claude_subagent_model: "sonnet".to_string(),
             codex_model: "gpt-5.6-terra".to_string(),
             codex_effort: "high".to_string(),
             claude_ultracode: true,

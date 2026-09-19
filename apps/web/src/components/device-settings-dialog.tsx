@@ -52,6 +52,7 @@ import { deviceCollection, deviceWorktreeCollection, teamCollection } from "@/li
 import {
   agentSeed,
   agentSupportsPlanMode,
+  agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import {
@@ -85,6 +86,8 @@ const DEFAULTS_DEBOUNCE_MS = 1_000
 
 interface AgentDraft {
   model: string
+  /** EXP-981: claude only; `""` = the CLI's own default. */
+  subagentModel?: string
   effort: string
   ultracode: boolean
   planMode: boolean
@@ -432,6 +435,10 @@ export function DeviceSettingsDialog({
     for (const [agent, value] of Object.entries(snapshot.drafts)) {
       agents[agent] = {
         model: value.model,
+        // EXP-981: claude only, and only when it is not the CLI default.
+        ...(agentSupportsSubagentModel(agent) && value.subagentModel
+          ? { subagentModel: value.subagentModel }
+          : {}),
         effort: value.effort,
         ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
         ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
@@ -843,6 +850,10 @@ export function DeviceSettingsDialog({
               onAgentChange={setAgentTab}
               model={draft.model}
               onModelChange={(value) => patchDraft({ model: value })}
+              subagentModel={draft.subagentModel ?? ``}
+              onSubagentModelChange={(value) =>
+                patchDraft({ subagentModel: value })
+              }
               effortValue={
                 draft.effort === `` ? CLI_DEFAULT_EFFORT : draft.effort
               }

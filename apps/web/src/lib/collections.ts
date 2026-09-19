@@ -8,6 +8,8 @@ import {
 import {
   selectSyncedActionSchema,
   selectAutomationSchema,
+  selectSyncedWorkflowSchema,
+  selectWorkflowNodeSchema,
   selectAttachmentSchema,
   selectCodingSessionSchema,
   selectCommentSchema,
@@ -161,6 +163,26 @@ export const automationCollection = createCollection(
     id: `automations`,
     shapeOptions: shapeOptions(`/api/shapes/automations`),
     schema: selectAutomationSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-981: workflows + their nodes, team-scoped like actions. `wave`/`lane` on
+// a node are the SERVER's layout; no client lays a graph out.
+export const workflowCollection = createCollection(
+  electricCollectionOptions({
+    id: `workflows`,
+    shapeOptions: shapeOptions(`/api/shapes/workflows`),
+    schema: selectSyncedWorkflowSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const workflowNodeCollection = createCollection(
+  electricCollectionOptions({
+    id: `workflow_nodes`,
+    shapeOptions: shapeOptions(`/api/shapes/workflow-nodes`),
+    schema: selectWorkflowNodeSchema,
     getKey: (item) => item.id,
   })
 )

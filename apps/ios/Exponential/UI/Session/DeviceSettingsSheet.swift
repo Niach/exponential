@@ -61,6 +61,9 @@ struct DeviceSettingsSheet: View {
     /// picker sentinels resolved).
     private struct AgentDraft: Equatable {
         var model: String
+        /// EXP-981: claude's subagent model; "" (the "Default" row) is a real
+        /// stored choice — the CLI picks its own.
+        var subagentModel: String
         var effort: String
         var ultracode: Bool
         var planMode: Bool
@@ -269,6 +272,9 @@ struct DeviceSettingsSheet: View {
         }
         return AgentDraft(
             model: model,
+            subagentModel: LaunchOptionsState.seedSubagentModel(
+                advertised?.subagentModel, for: agent
+            ),
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
             planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false)
@@ -540,6 +546,7 @@ struct DeviceSettingsSheet: View {
             agent: selectedAgent,
             onAgentChange: { selectedAgent = $0 },
             model: draftBinding(\.model),
+            subagentModel: draftBinding(\.subagentModel),
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             planMode: draftBinding(\.planMode),
@@ -600,6 +607,12 @@ struct DeviceSettingsSheet: View {
         for (agent, draft) in drafts {
             agents[agent] = AgentLaunchDefaultsInput(
                 model: draft.model == LaunchVocabulary.cliDefault ? "" : draft.model,
+                // EXP-981: claude-only, and the blank IS the stored "the CLI
+                // decides" value (unlike a start, which omits the field).
+                subagentModel: LaunchVocabulary.supportsSubagentModel(agent)
+                    ? (draft.subagentModel == LaunchVocabulary.cliDefault
+                        ? "" : draft.subagentModel)
+                    : nil,
                 effort: draft.effort == LaunchVocabulary.cliDefault ? "" : draft.effort,
                 ultracode: agent == "claude" ? draft.ultracode : nil,
                 planMode: LaunchVocabulary.supportsPlanMode(agent) ? draft.planMode : nil

@@ -350,6 +350,43 @@ interface AutomationDao {
     suspend fun clear()
 }
 
+// EXP-981: the team's workflows, newest first inside their band (the list
+// groups by `WorkflowView.band`, which the DAO knows nothing about).
+@Dao
+interface WorkflowDao {
+    @Query("SELECT * FROM workflows WHERE team_id = :teamId ORDER BY created_at DESC")
+    fun observeByTeam(teamId: String): Flow<List<WorkflowEntity>>
+
+    @Query("SELECT * FROM workflows WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<WorkflowEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: WorkflowEntity)
+
+    @Query("DELETE FROM workflows WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM workflows")
+    suspend fun clear()
+}
+
+// EXP-981: one workflow's nodes in LAYOUT order — the server's `wave`/`lane`,
+// which is the graph's geometry; no client sorts them any other way.
+@Dao
+interface WorkflowNodeDao {
+    @Query("SELECT * FROM workflow_nodes WHERE workflow_id = :workflowId ORDER BY wave, lane")
+    fun observeByWorkflow(workflowId: String): Flow<List<WorkflowNodeEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: WorkflowNodeEntity)
+
+    @Query("DELETE FROM workflow_nodes WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM workflow_nodes")
+    suspend fun clear()
+}
+
 // EXP-778: the caller's personal pins. The per-account DB only ever holds
 // the signed-in user's rows (the shape is `user_id = me`), so no user filter.
 // Sync-only since EXP-976: the phone has no sidebar, so nothing reads pins

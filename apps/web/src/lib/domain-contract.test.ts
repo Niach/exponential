@@ -18,6 +18,14 @@ import {
   commentSourceValues,
   notificationTypeValues,
   prStateValues,
+  wfGateValues,
+  wfNodeKindValues,
+  wfNodeStateValues,
+  wfRiskValues,
+  wfStartOnValues,
+  wfStatusValues,
+  WORKFLOW_MAX_ISSUES,
+  WORKFLOW_MAX_PARALLEL_DEFAULT,
   codingSessionStatusValues,
   codingSessionEndedByValues,
   codingSessionBlockedKindValues,
@@ -172,6 +180,15 @@ describe(`domain-contract parity`, () => {
 
   it(`pr state values match the contract`, () => {
     expect([...prStateValues]).toEqual([...contract.prState.values])
+    // EXP-981: the workflow vocabulary.
+    expect([...wfStatusValues]).toEqual([...contract.wfStatus.values])
+    expect([...wfNodeStateValues]).toEqual([...contract.wfNodeState.values])
+    expect([...wfNodeKindValues]).toEqual([...contract.wfNodeKind.values])
+    expect([...wfGateValues]).toEqual([...contract.wfGate.values])
+    expect([...wfStartOnValues]).toEqual([...contract.wfStartOn.values])
+    expect([...wfRiskValues]).toEqual([...contract.wfRisk.values])
+    expect(WORKFLOW_MAX_ISSUES).toBe(contract.workflow.maxIssues)
+    expect(WORKFLOW_MAX_PARALLEL_DEFAULT).toBe(contract.workflow.maxParallelDefault)
   })
 
   it(`coding session status values match the contract`, () => {

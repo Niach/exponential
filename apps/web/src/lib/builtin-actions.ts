@@ -32,11 +32,37 @@ export const BUILTIN_CHAT_ID = contract.builtinAction.chatId
 
 export const BUILTIN_CHAT_NAME = `Chat`
 
+/** Reserved non-UUID id of the hidden "Plan workflow" builtin (EXP-981): the
+ * planner run of ONE draft workflow. Like Chat it is appended to NO list —
+ * a workflow's own Plan button constructs it, because it is meaningless
+ * without that workflow's id. */
+export const BUILTIN_PLAN_WORKFLOW_ID = contract.builtinAction.planWorkflowId
+
+export const BUILTIN_PLAN_WORKFLOW_NAME = `Plan workflow`
+
+/** The device capability a planner start needs: an older build would fall
+ * through to the Create-action prompt and author an action instead. */
+export const PLAN_WORKFLOW_CAP = `plan-workflow`
+
+/** The first line of a planner run's prompt; the shipped prompt tells the
+ * agent to read the workflow it names. Byte-identical ×4. */
+export const PLAN_WORKFLOW_PROMPT_PREFIX = `Workflow: `
+
+export function planWorkflowPrompt(
+  workflowId: string,
+  instructions: string | undefined
+): string {
+  const extra = (instructions ?? ``).trim()
+  const head = `${PLAN_WORKFLOW_PROMPT_PREFIX}${workflowId}`
+  return extra ? `${head}\n\n${extra}` : head
+}
+
 export function isBuiltinActionId(id: string): boolean {
   return (
     id === BUILTIN_CREATE_ACTION_ID ||
     id === BUILTIN_FIX_CONFLICTS_ID ||
-    id === BUILTIN_CHAT_ID
+    id === BUILTIN_CHAT_ID ||
+    id === BUILTIN_PLAN_WORKFLOW_ID
   )
 }
 
@@ -47,7 +73,9 @@ export function builtinActionName(id: string): string {
     ? BUILTIN_FIX_CONFLICTS_NAME
     : id === BUILTIN_CHAT_ID
       ? BUILTIN_CHAT_NAME
-      : BUILTIN_CREATE_ACTION_NAME
+      : id === BUILTIN_PLAN_WORKFLOW_ID
+        ? BUILTIN_PLAN_WORKFLOW_NAME
+        : BUILTIN_CREATE_ACTION_NAME
 }
 
 // EXP-825: the request itself (what the action should do, and its name if
@@ -154,6 +182,28 @@ export function builtinChatAction(teamId: string): BuiltinAction {
     inputs: CHAT_INPUTS,
     promptPlaceholder: null,
     sortOrder: 1e9 + 2,
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    builtin: true,
+  }
+}
+
+/** The hidden "Plan workflow" builtin (EXP-981): reads one draft workflow's
+ * issues, sets the relations (contracts-first fan-out by default), splits big
+ * issues, declares `touches` and `risk`, keeps the graph shallow. Runs in the
+ * agent's scratch dir: it plans over MCP and writes no code. */
+export function builtinPlanWorkflowAction(teamId: string): BuiltinAction {
+  return {
+    id: BUILTIN_PLAN_WORKFLOW_ID,
+    teamId,
+    repositoryId: null,
+    name: BUILTIN_PLAN_WORKFLOW_NAME,
+    description: `Let your agent turn a workflow's issues into a shallow, parallel plan`,
+    icon: `layers`,
+    body: ``,
+    inputs: [],
+    promptPlaceholder: `Anything the plan should respect (optional)…`,
+    sortOrder: 1e9 + 3,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     builtin: true,

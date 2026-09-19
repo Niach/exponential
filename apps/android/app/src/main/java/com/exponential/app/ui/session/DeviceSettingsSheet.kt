@@ -62,6 +62,7 @@ import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.modelValuesFor
 import com.exponential.app.ui.components.supportsPlanMode
+import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.theme.DesignTokens
@@ -370,6 +371,10 @@ fun DeviceSettingsSheet(
                 onModelChange = { next -> editDraft(agentTab) { it.copy(model = next) } },
                 effort = draft.effort,
                 onEffortChange = { next -> editDraft(agentTab) { it.copy(effort = next) } },
+                subagentModel = draft.subagentModel,
+                onSubagentModelChange = { next ->
+                    editDraft(agentTab) { it.copy(subagentModel = next) }
+                },
                 ultracode = draft.ultracode,
                 onUltracodeChange = { next ->
                     editDraft(agentTab) { it.copy(ultracode = next) }
@@ -709,6 +714,8 @@ private fun ErrorCaption(message: String?) {
 data class AgentDraft(
     val model: String,
     val effort: String,
+    /** EXP-981: claude only — "" is the CLI's own default for subagents. */
+    val subagentModel: String = CLI_DEFAULT_MODEL,
     val ultracode: Boolean,
     val planMode: Boolean,
 )
@@ -748,7 +755,12 @@ internal fun seededDefaultAgent(device: SteerDevice, editable: List<String>): St
  */
 internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
     val defaults = device.launchDefaults?.agents?.get(agent)
-        ?: return AgentDraft(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false)
+        ?: return AgentDraft(
+            model = defaultModelFor(agent),
+            effort = CLI_DEFAULT_EFFORT,
+            ultracode = false,
+            planMode = false,
+        )
     val models = modelValuesFor(agent)
     return AgentDraft(
         model = defaults.model
@@ -759,6 +771,10 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
         effort = defaults.effort
             ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
             ?: CLI_DEFAULT_EFFORT,
+        // EXP-981: claude only; a stored value on any other agent is dropped.
+        subagentModel = defaults.subagentModel
+            ?.takeIf { supportsSubagentModel(agent) && (it == CLI_DEFAULT_MODEL || it in models) }
+            ?: CLI_DEFAULT_MODEL,
         ultracode = defaults.ultracode && agent == DEFAULT_AGENT,
         planMode = defaults.planMode && supportsPlanMode(agent),
     )
@@ -777,10 +793,16 @@ internal fun buildDefaults(
     defaultAgent = defaultAgent,
     agents = agents.associateWith { agent ->
         val draft = drafts[agent]
-            ?: AgentDraft(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false)
+            ?: AgentDraft(
+                model = defaultModelFor(agent),
+                effort = CLI_DEFAULT_EFFORT,
+                ultracode = false,
+                planMode = false,
+            )
         AgentLaunchDefaults(
             model = draft.model,
             effort = draft.effort,
+            subagentModel = draft.subagentModel.takeIf { supportsSubagentModel(agent) },
             ultracode = draft.ultracode && agent == DEFAULT_AGENT,
             planMode = draft.planMode && supportsPlanMode(agent),
         )

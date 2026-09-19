@@ -181,6 +181,20 @@ pub struct StartSessionInput {
     /// unstacked start keeps the byte-identical shape the fixtures lock.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stack: Option<bool>,
+    /// EXP-981: the model claude's SUBAGENTS run on for this start. Claude
+    /// only; blank = the CLI's own default, absent = the target machine's
+    /// own launch default. No capability gate — an older device simply
+    /// ignores the field. LAST on the wire, like every option before it, so
+    /// a start without it keeps the byte-identical shape the fixtures lock.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_model: Option<String>,
+    /// EXP-981: the DRAFT workflow a planner start plans. Only the hidden
+    /// `builtin:plan-workflow` action ever carries one; the server validates
+    /// the workflow, writes the prompt's `Workflow: <uuid>` first line, and
+    /// refuses a device without the `plan-workflow` cap with a sentence.
+    /// LAST on the wire, like every option before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_id: Option<String>,
 }
 
 #[derive(Deserialize)]

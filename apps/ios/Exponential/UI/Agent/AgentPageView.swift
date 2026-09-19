@@ -22,6 +22,7 @@ struct AgentPageView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
+    @Environment(\.pushRoute) private var pushRoute
     @State private var sessions: AgentsViewModel?
     @State private var composer: AgentComposerModel?
     /// nil until the relay config resolves — the composer waits for it
@@ -102,6 +103,21 @@ struct AgentPageView: View {
         // EXP-923: history is a TOOLBAR glyph, not a fold under the composer
         // (the ×4 rule) — the page lists what runs, the sheet what is over.
         .toolbar {
+            // EXP-981: a phone gets no Workflows tab (web and the IDE put the
+            // entry in their sidebars) — it sits beside the history glyph, on
+            // the page every run starts from.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    pushRoute(.workflows(accountId: accountId))
+                } label: {
+                    AppIcon(AppIcons.navWorkflows, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .accessibilityLabel(WorkflowView.title)
+                .accessibilityIdentifier("agent-workflows-button")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showRecent = true } label: {
                     AppIcon(AppIcons.settingsSessions, size: AppIcon.Size.medium)

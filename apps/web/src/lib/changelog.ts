@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-19-workflows-drafts`,
+    date: `2026-09-19`,
+    title: `Workflows: plan a set of issues as one parallel run`,
+    summary: `Select backlog issues, create a workflow, and see them as a dependency graph your agent can plan; plus a subagent model option for every Claude run.`,
+    body: `- **Workflows**: a new Workflows entry (on phones: a button on the Agent page) lists your team's workflows in Running, Draft and Done. A workflow is a set of backlog issues of one repository drawn as a graph: what blocks what runs left to right in waves, a parent with its sub-issues is one stacked card, and a loop shows in red with the issues named.
+- **Create workflow**: the Start coding button of a selection is now a menu: Start as batch, Start as stack, or Create workflow.
+- **Plan**: the Plan button lets your agent shape a draft. It files one contract issue everything builds against, keeps your issues as parallel leaves, adds an integration issue at the end, and marks risk and the files each issue will touch.
+- **How it runs**: each draft keeps its runner device, agent, model, effort, account, how many runs may go at once, the review gate and when dependents start. Running a workflow arrives with the next update.
+- **Subagent model**: every Claude run can now pick the model its subagents use, next to Model and Effort, and the choice is remembered per device.`,
+  },
+  {
     id: `2026-09-19-relations-in-lists`,
     date: `2026-09-19`,
     title: `Sub-issues and blockers show in every issue list`,

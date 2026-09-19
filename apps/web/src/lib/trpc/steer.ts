@@ -22,6 +22,7 @@ import {
   teamMembers,
   type Device,
   sessionAttachments,
+  workflows,
 } from "@/db/schema"
 import {
   assertTeamMember,
@@ -51,6 +52,10 @@ import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import {
   BUILTIN_CHAT_ID,
+  BUILTIN_PLAN_WORKFLOW_ID,
+  PLAN_WORKFLOW_CAP,
+  builtinPlanWorkflowAction,
+  planWorkflowPrompt,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
   builtinActionName,
@@ -288,7 +293,11 @@ export const steerRouter = router({
             .or(z.literal(BUILTIN_CREATE_ACTION_ID))
             .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
             .or(z.literal(BUILTIN_CHAT_ID))
+            .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
             .optional(),
+          // EXP-981: the draft workflow a Plan-workflow start is about.
+          // Required iff actionId is that builtin.
+          workflowId: z.string().uuid().optional(),
           // Required iff actionId is the builtin (there is no DB row to
           // derive the team from); forbidden otherwise.
           teamId: z.string().uuid().optional(),
@@ -313,6 +322,10 @@ export const steerRouter = router({
           agent: z.enum(codingAgentValues).optional(),
           model: z.string().max(64).optional(),
           effort: z.string().max(32).optional(),
+          // EXP-981: claude only — the model its subagents run on (the
+          // device sets it as the CLI's env at launch). A device that
+          // predates it runs the CLI default: a degradation, so no cap.
+          subagentModel: z.string().max(64).optional(),
           ultracode: z.boolean().optional(),
           planMode: z.boolean().optional(),
           // EXP-804: start even though the device's fresh usage report says
@@ -383,6 +396,7 @@ export const steerRouter = router({
                 `agent`,
                 `model`,
                 `effort`,
+                `subagentModel`,
                 `ultracode`,
                 `planMode`,
                 `mcpServerIds`,
@@ -429,6 +443,16 @@ export const steerRouter = router({
               code: z.ZodIssueCode.custom,
               path: [`prompt`],
               message: `prompt is required for the Chat and Create action builtins`,
+            })
+          }
+          if (
+            (value.actionId === BUILTIN_PLAN_WORKFLOW_ID) !==
+            (value.workflowId !== undefined)
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`workflowId`],
+              message: `workflowId goes with the Plan workflow builtin, and only with it`,
             })
           }
           if (value.inputs && !value.actionId) {
@@ -481,6 +505,20 @@ export const steerRouter = router({
               code: z.ZodIssueCode.custom,
               path: [`effort`],
               message: `Unknown ${agent} effort`,
+            })
+          }
+          if (
+            value.subagentModel !== undefined &&
+            (agent !== `claude` ||
+              !agentModelValues.claude!.includes(value.subagentModel))
+          ) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [`subagentModel`],
+              message:
+                agent === `claude`
+                  ? `Unknown subagent model`
+                  : `Only claude takes a subagent model`,
             })
           }
           if (agent !== `claude` && value.ultracode) {
@@ -956,7 +994,9 @@ export const steerRouter = router({
               ? builtinFixConflictsAction(input.teamId!)
               : input.actionId === BUILTIN_CHAT_ID
                 ? builtinChatAction(input.teamId!)
-                : builtinCreateAction(input.teamId!)
+                : input.actionId === BUILTIN_PLAN_WORKFLOW_ID
+                  ? builtinPlanWorkflowAction(input.teamId!)
+                  : builtinCreateAction(input.teamId!)
           action = {
             id: virtual.id,
             teamId: virtual.teamId,
@@ -1038,8 +1078,28 @@ export const steerRouter = router({
             message: resolved.message,
           })
         }
+        // EXP-981: the planner's prompt NAMES its workflow on the first line;
+        // the server writes that line, so the id is one it has just checked.
+        let promptText = input.prompt
+        if (input.workflowId) {
+          const [workflow] = await db
+            .select({ teamId: workflows.teamId, status: workflows.status })
+            .from(workflows)
+            .where(eq(workflows.id, input.workflowId))
+            .limit(1)
+          if (!workflow || workflow.teamId !== action.teamId) {
+            throw new TRPCError({ code: `NOT_FOUND`, message: `Workflow not found` })
+          }
+          if (workflow.status !== `draft`) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `Only a draft workflow can be planned`,
+            })
+          }
+          promptText = planWorkflowPrompt(input.workflowId, input.prompt)
+        }
         const prompt = await resolveStartPromptOrThrow(
-          input.prompt,
+          promptText,
           action.teamId,
           userId,
           startPromptLookups(db)
@@ -1172,6 +1232,14 @@ export const steerRouter = router({
         }
         requireUsageHeadroom(device, actionAgent, input.account, input.model)
         requireStartPromptCap(device, prompt)
+        // An older build has no Plan-workflow kind: it would fall through to
+        // the Create-action prompt and author an ACTION instead.
+        if (input.workflowId && !device.caps.includes(PLAN_WORKFLOW_CAP)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine runs an older Exponential app that cannot plan workflows. Update it first.`,
+          })
+        }
 
         const result = await relayPostStart(config, {
           userId: ownerId,
@@ -1187,6 +1255,7 @@ export const steerRouter = router({
           agent: input.agent,
           model: input.model,
           effort: input.effort,
+          subagentModel: input.subagentModel,
           ultracode: input.ultracode,
           planMode: input.planMode,
           mcpServerIds,
@@ -1295,6 +1364,7 @@ export const steerRouter = router({
         agent: input.agent,
         model: input.model,
         effort: input.effort,
+        subagentModel: input.subagentModel,
         ultracode: input.ultracode,
         planMode: input.planMode,
         resume: input.resume,

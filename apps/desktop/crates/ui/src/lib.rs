@@ -138,6 +138,8 @@ mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
 mod workflow_card;
+mod workflow_view;
+mod workflows_view;
 pub mod steer_wiring;
 mod support_thread;
 // EXP-837: the window-level disarm for a stuck text-selection drag.

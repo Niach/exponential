@@ -30,6 +30,7 @@ import {
   useReviewsOpenPrCount,
 } from "@/hooks/use-nav-counts"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
+import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
 import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 
@@ -48,6 +49,7 @@ const NavAdminIcon = conceptIcon(`nav-admin`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavAutomationsIcon = conceptIcon(`nav-automations`)
+const NavWorkflowsIcon = conceptIcon(`nav-workflows`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavDraftsIcon = conceptIcon(`nav-drafts`)
@@ -332,6 +334,13 @@ export function TeamSidebarRail({
           link={{ to: `/t/$teamSlug/automations`, params }}
         >
           <NavAutomationsIcon className="size-4" />
+        </RailItem>
+        {/* EXP-981: directly after Automations, like the expanded sidebar. */}
+        <RailItem
+          label={WORKFLOWS_TITLE}
+          link={{ to: `/t/$teamSlug/workflows`, params }}
+        >
+          <NavWorkflowsIcon className="size-4" />
         </RailItem>
         <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
           <NavReviewsIcon className="size-4" />

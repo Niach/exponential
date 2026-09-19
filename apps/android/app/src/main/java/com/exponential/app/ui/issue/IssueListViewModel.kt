@@ -13,6 +13,7 @@ import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.UpsertIssueDraftInput
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.SteerApi
+import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.api.trpcErrorMessage
@@ -136,6 +137,7 @@ class IssueListViewModel @Inject constructor(
     private val issueDraftsApi: IssueDraftsApi,
     private val attachmentsApi: AttachmentsApi,
     private val steerApi: SteerApi,
+    private val workflowsApi: WorkflowsApi,
     private val stats: SyncStats,
     private val syncManager: SyncManager,
     @dagger.hilt.android.qualifiers.ApplicationContext
@@ -156,6 +158,14 @@ class IssueListViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     private val _refreshing = MutableStateFlow(false)
     private val _board = MutableStateFlow<BoardEntity?>(null)
+
+    // EXP-981: the bulk bar's Create workflow — in flight, then the new
+    // workflow's id for exactly one navigation.
+    private val _creatingWorkflow = MutableStateFlow(false)
+    val creatingWorkflow: StateFlow<Boolean> = _creatingWorkflow
+
+    private val _createdWorkflowId = MutableStateFlow<String?>(null)
+    val createdWorkflowId: StateFlow<String?> = _createdWorkflowId
 
     /** Swap the list to another board in place (Issues tab root). */
     fun setBoard(boardId: String) {
@@ -566,6 +576,36 @@ class IssueListViewModel @Inject constructor(
      * first — the server has no undo and the rows vanish from every client at
      * once.
      */
+    /**
+     * EXP-981: the bulk bar's "Create workflow…" — one DRAFT workflow over the
+     * checked issues, in DISPLAY order. The server does the validating (one
+     * repository, backlog issues only) and answers refusals as human
+     * sentences, which land in [error] like every other bulk failure; on
+     * success the new workflow's id lands in [createdWorkflowId] for the
+     * screen's navigation, consumed exactly once.
+     */
+    fun createWorkflow(issueIds: List<String>) {
+        if (issueIds.isEmpty() || _creatingWorkflow.value) return
+        val teamId = _board.value?.teamId ?: return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _creatingWorkflow.value = true
+            try {
+                val workflow = workflowsApi.create(accountId, teamId, issueIds)
+                _createdWorkflowId.value = workflow.id
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _error.value = trpcErrorMessage(t, "The workflow could not be created")
+            } finally {
+                _creatingWorkflow.value = false
+            }
+        }
+    }
+
+    fun consumeCreatedWorkflow() {
+        _createdWorkflowId.value = null
+    }
+
     fun bulkDelete(issueIds: Collection<String>) {
         runBulk(issueIds, "Failed to delete issues") { accountId, ids ->
             issuesApi.bulkDelete(accountId, ids)

@@ -16,6 +16,10 @@ public struct AgentComposerSeed: Hashable, Sendable {
     /// (`builtin:create-action`, `builtin:fix-conflicts`). Wins over
     /// `issueIds` when both arrive (the web rule).
     public var actionId: String?
+    /// EXP-981: the DRAFT workflow a `builtin:plan-workflow` seed plans — a
+    /// workflow's Plan button hands the composer both, and the start carries
+    /// it as `workflowId` (web's `?action=…&workflow=<id>`).
+    public var workflowId: String?
     /// The machine to preselect (the Devices tab's play glyph).
     public var deviceId: String?
     /// An issue linked to the open PR a `pr` input should pre-pick (ANY
@@ -36,6 +40,7 @@ public struct AgentComposerSeed: Hashable, Sendable {
     public init(
         issueIds: [String] = [],
         actionId: String? = nil,
+        workflowId: String? = nil,
         deviceId: String? = nil,
         prIssueId: String? = nil,
         text: String? = nil,
@@ -44,6 +49,7 @@ public struct AgentComposerSeed: Hashable, Sendable {
     ) {
         self.issueIds = issueIds
         self.actionId = actionId
+        self.workflowId = workflowId
         self.deviceId = deviceId
         self.prIssueId = prIssueId
         self.text = text

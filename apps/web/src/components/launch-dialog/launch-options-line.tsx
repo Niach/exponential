@@ -27,8 +27,10 @@ import {
   agentEffortValues,
   agentModelValues,
   agentSupportsPlanMode,
+  agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
+import { contract } from "@exp/domain-contract"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { NO_REPO } from "@/lib/chat-repo"
 
@@ -236,6 +238,35 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
                   options={effortOptions}
                   disabled={launch.ultracode && agentSupportsUltracode(agent)}
                 />
+                {agentSupportsSubagentModel(agent) && (
+                  /* EXP-981: the model the run's SUBAGENTS get — claude only
+                     (it is that CLI's env var), blank = the CLI's own
+                     default, and then it never reaches the start payload. */
+                  <Combobox
+                    triggerVariant="row"
+                    searchable={false}
+                    mobileTitle="Subagent model"
+                    value={
+                      launch.subagentModel === ``
+                        ? CLI_DEFAULT_MODEL
+                        : launch.subagentModel
+                    }
+                    onChange={(value) => {
+                      if (value !== null) {
+                        launch.setSubagentModel(
+                          value === CLI_DEFAULT_MODEL ? `` : value
+                        )
+                      }
+                    }}
+                    options={[
+                      { value: CLI_DEFAULT_MODEL, label: `Default` },
+                      ...contract.codingModel.values.map((value) => ({
+                        value,
+                        label: modelLabel(value),
+                      })),
+                    ]}
+                  />
+                )}
                 {agentSupportsUltracode(agent) && (
                   <GlassToggleRow
                     id="agent-composer-ultracode"

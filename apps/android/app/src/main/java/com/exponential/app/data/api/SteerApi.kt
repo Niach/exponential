@@ -46,6 +46,12 @@ data class DeviceOwner(
 data class AgentLaunchDefaults(
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
+    /**
+     * EXP-981: claude only — the model its subagents run on, from the same
+     * closed `codingModel` vocabulary ("" = the CLI's own default). Absent on
+     * a machine that predates it, which simply runs the CLI default.
+     */
+    @SerialName("subagentModel") val subagentModel: String? = null,
     @SerialName("ultracode") val ultracode: Boolean = false,
     @SerialName("planMode") val planMode: Boolean = false,
 )
@@ -422,6 +428,13 @@ private data class KillSessionInput(
 data class SteerStartOptions(
     val model: String? = null,
     val effort: String? = null,
+    /**
+     * EXP-981: claude only — the model its subagents run on (the device sets
+     * it as the CLI's env at launch). Null/omitted = the CLI default; the
+     * server refuses an empty string against the closed model vocabulary, so
+     * the composer sends null for "Default".
+     */
+    val subagentModel: String? = null,
     val ultracode: Boolean? = null,
     val planMode: Boolean? = null,
     val agent: String? = null,
@@ -450,6 +463,8 @@ internal data class StartSessionInput(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
+    // EXP-981: claude only; omitted unless the composer picked one.
+    @SerialName("subagentModel") val subagentModel: String? = null,
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
@@ -473,6 +488,8 @@ internal data class StartBatchSessionInput(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
+    // EXP-981: claude only; omitted unless the composer picked one.
+    @SerialName("subagentModel") val subagentModel: String? = null,
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
@@ -494,8 +511,15 @@ internal data class StartActionSessionInput(
     @SerialName("actionId") val actionId: String,
     @SerialName("deviceId") val deviceId: String,
     @SerialName("teamId") val teamId: String? = null,
+    // EXP-981: the DRAFT workflow a Plan-workflow start is about. The server
+    // refuses it beside any other action id — and refuses that builtin
+    // without it — and writes the prompt's `Workflow: <uuid>` first line
+    // itself, so nothing about the workflow rides in [prompt].
+    @SerialName("workflowId") val workflowId: String? = null,
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
+    // EXP-981: claude only; omitted unless the composer picked one.
+    @SerialName("subagentModel") val subagentModel: String? = null,
     @SerialName("ultracode") val ultracode: Boolean? = null,
     @SerialName("planMode") val planMode: Boolean? = null,
     @SerialName("agent") val agent: String? = null,
@@ -583,6 +607,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 deviceId = deviceId,
                 model = options.model,
                 effort = options.effort,
+                subagentModel = options.subagentModel,
                 ultracode = options.ultracode,
                 planMode = options.planMode,
                 agent = options.agent,
@@ -615,6 +640,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 deviceId = deviceId,
                 model = options.model,
                 effort = options.effort,
+                subagentModel = options.subagentModel,
                 ultracode = options.ultracode,
                 planMode = options.planMode,
                 agent = options.agent,
@@ -667,6 +693,9 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
      * (EXP-825) is the composer's text — REQUIRED by the server for the Chat
      * and Create action builtins, additional instructions otherwise. Same
      * endpoint + error mapping as the issue forms.
+     *
+     * EXP-981: [workflowId] names the DRAFT workflow a Plan-workflow start
+     * plans — required for that builtin and refused on every other action id.
      */
     suspend fun startActionSession(
         accountId: String,
@@ -676,6 +705,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         teamId: String? = null,
         inputs: Map<String, String>? = null,
         prompt: String? = null,
+        workflowId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -684,8 +714,10 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 actionId = actionId,
                 deviceId = deviceId,
                 teamId = teamId,
+                workflowId = workflowId,
                 model = options.model,
                 effort = options.effort,
+                subagentModel = options.subagentModel,
                 ultracode = options.ultracode,
                 planMode = options.planMode,
                 agent = options.agent,

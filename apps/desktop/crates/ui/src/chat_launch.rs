@@ -262,6 +262,11 @@ pub(crate) enum RemoteSubject<'a> {
         action_id: &'a str,
         team_id: &'a str,
         inputs: &'a [ActionInputValue],
+        /// EXP-981: the DRAFT workflow a planner start plans. Only the
+        /// hidden `builtin:plan-workflow` ever carries one; the server
+        /// validates it and writes the prompt's `Workflow: <uuid>` first
+        /// line itself.
+        workflow_id: Option<&'a str>,
     },
 }
 
@@ -287,6 +292,11 @@ pub(crate) fn remote_start_input(
         effort: Some(options.effort.clone()).filter(|effort| !effort.is_empty()),
         ultracode: Some(options.ultracode),
         plan_mode: Some(options.plan_mode),
+        // EXP-981: claude-only; blank = the CLI's own default, which is what
+        // an omitted field would leave the target machine's default at, so
+        // it rides only when picked.
+        subagent_model: Some(options.subagent_model.clone())
+            .filter(|model| !model.is_empty()),
         prompt,
         account: options.account.clone(),
         ..Default::default()
@@ -327,6 +337,7 @@ pub(crate) fn remote_start_input(
             action_id,
             team_id,
             inputs,
+            workflow_id,
         } => {
             let inputs: BTreeMap<String, String> = inputs
                 .iter()
@@ -336,9 +347,26 @@ pub(crate) fn remote_start_input(
                 api::actions::is_builtin_action_id(action_id).then(|| team_id.to_string());
             input.inputs = (!inputs.is_empty()).then_some(inputs);
             input.action_id = Some(action_id.to_string());
+            // EXP-981: the planner's subject. The server validates it and
+            // writes the prompt's `Workflow: <uuid>` first line itself.
+            input.workflow_id = workflow_id.map(str::to_string);
         }
     }
     input
+}
+
+/// EXP-981 — a LOCAL planner start's prompt: the `Workflow: <uuid>` line the
+/// server writes for a remote one, plus whatever the person typed. Byte-
+/// identical ×4 (web `planWorkflowPrompt`).
+pub(crate) fn plan_workflow_prompt(workflow_id: &str, instructions: Option<String>) -> String {
+    let extra = instructions.unwrap_or_default();
+    let extra = extra.trim();
+    let head = format!("{}{workflow_id}", coding::PLAN_WORKFLOW_PROMPT_PREFIX);
+    if extra.is_empty() {
+        head
+    } else {
+        format!("{head}\n\n{extra}")
+    }
 }
 
 /// One issue's `repositories.forIssue` probe state.
@@ -454,6 +482,7 @@ mod tests {
             effort: String::new(),
             ultracode: false,
             plan_mode: true,
+            subagent_model: String::new(),
             mcp_server_ids: Vec::new(),
             account: None,
         }
@@ -806,6 +835,7 @@ mod tests {
                 action_id: api::actions::BUILTIN_FIX_CONFLICTS_ID,
                 team_id: "team-1",
                 inputs: &filled,
+                workflow_id: None,
             },
             None,
         );
@@ -818,10 +848,48 @@ mod tests {
                 action_id: "act-1",
                 team_id: "team-1",
                 inputs: &[],
+                workflow_id: None,
             },
             None,
         );
         assert_eq!(team_action.team_id, None, "a row action never sends teamId");
         assert_eq!(team_action.inputs, None);
+        assert_eq!(team_action.workflow_id, None);
+    }
+
+    /// EXP-981: a planner start names its workflow (the server writes the
+    /// prompt's first line), and the first line a LOCAL start writes is
+    /// byte-identical to it.
+    #[test]
+    fn the_planner_start_carries_its_workflow_and_prefix() {
+        let planner = remote_start_input(
+            "dev-1",
+            &options(),
+            RemoteSubject::Action {
+                action_id: api::actions::BUILTIN_PLAN_WORKFLOW_ID,
+                team_id: "team-1",
+                inputs: &[],
+                workflow_id: Some("wf-1"),
+            },
+            Some("Keep iOS out of scope.".to_string()),
+        );
+        assert_eq!(planner.workflow_id.as_deref(), Some("wf-1"));
+        assert_eq!(
+            planner.action_id.as_deref(),
+            Some(api::actions::BUILTIN_PLAN_WORKFLOW_ID)
+        );
+        // A builtin has no DB row to derive the team from.
+        assert_eq!(planner.team_id.as_deref(), Some("team-1"));
+
+        assert_eq!(plan_workflow_prompt("wf-1", None), "Workflow: wf-1");
+        assert_eq!(
+            plan_workflow_prompt("wf-1", Some("Keep iOS out of scope.".to_string())),
+            "Workflow: wf-1\n\nKeep iOS out of scope."
+        );
+        // Whitespace-only instructions are no instructions.
+        assert_eq!(
+            plan_workflow_prompt("wf-1", Some("   ".to_string())),
+            "Workflow: wf-1"
+        );
     }
 }

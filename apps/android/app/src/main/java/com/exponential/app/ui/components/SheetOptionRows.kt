@@ -435,6 +435,27 @@ internal fun defaultModelFor(agent: String): String =
  */
 internal fun supportsPlanMode(agent: String): Boolean = agent == DEFAULT_AGENT
 
+/**
+ * EXP-981: only claude spawns subagents, so only claude takes a subagent
+ * model. Hidden for every other agent exactly like Ultracode is.
+ */
+internal fun supportsSubagentModel(agent: String): Boolean = agent == DEFAULT_AGENT
+
+/**
+ * The Subagent-model vocabulary (EXP-981): claude's own models, plus the
+ * blank "Default" entry that means "let the CLI decide" — the one place
+ * claude DOES offer a CLI-default entry, because the flag is optional.
+ */
+internal fun subagentModelOptions(): List<String> =
+    listOf(CLI_DEFAULT_MODEL) + DomainContract.codingModelValues
+
+/** "" reads as Default here, not as "CLI default": it IS claude's own. */
+internal fun subagentModelLabel(value: String): String =
+    if (value == CLI_DEFAULT_MODEL) SUBAGENT_MODEL_DEFAULT_LABEL else modelLabel(value)
+
+internal const val SUBAGENT_MODEL_LABEL = "Subagent model"
+private const val SUBAGENT_MODEL_DEFAULT_LABEL = "Default"
+
 internal fun agentLabel(value: String): String = when (value) {
     "claude" -> "Claude Code"
     "codex" -> "Codex"

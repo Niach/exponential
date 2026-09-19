@@ -58,6 +58,9 @@ struct LaunchOptionsSection: View {
     let agent: String
     let onAgentChange: (String) -> Void
     @Binding var model: String
+    /// EXP-981: claude's SUBAGENT model, bound only where it is editable (a
+    /// machine's launch defaults); an automation row has no such field.
+    var subagentModel: Binding<String>? = nil
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
     var planMode: Binding<Bool>? = nil
@@ -182,6 +185,16 @@ struct LaunchOptionsSection: View {
                 options: modelOptions,
                 label: { LaunchVocabulary.modelLabel($0) }
             )
+            // EXP-981: claude-only, like Ultracode below — `""` (the "Default"
+            // row) is a real stored choice here: the CLI picks its own.
+            if let subagentModel, LaunchVocabulary.supportsSubagentModel(agent) {
+                GlassPickerRow(
+                    "Subagent model",
+                    selection: subagentModel,
+                    options: LaunchVocabulary.subagentModelValues(),
+                    label: { LaunchVocabulary.subagentModelLabel($0) }
+                )
+            }
             GlassPickerRow(
                 effortTitle,
                 selection: $effort,

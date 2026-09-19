@@ -100,6 +100,39 @@ class BuiltinActionTeamIdTest {
         assertNull(builtinChatAction(teamId).promptPlaceholder)
     }
 
+    /**
+     * EXP-981: the plan-workflow builtin is HIDDEN like Chat — it keys a
+     * teamId (the server has no row to derive the team from) but is appended
+     * to NO list and NO picker: it is meaningless without the workflow id the
+     * start carries beside it.
+     */
+    @Test
+    fun `plan workflow is a builtin that never appears in a list`() {
+        val plan = builtinPlanWorkflowAction(teamId)
+        assertTrue(plan.isBuiltin)
+        assertEquals(DomainContract.builtinPlanWorkflowId, plan.id)
+        assertEquals(teamId, plan.teamId.takeIf { plan.isBuiltin })
+        assertTrue(builtinActions(teamId).none { it.id == plan.id })
+    }
+
+    /** Byte-identical ×4 with apps/web/src/lib/builtin-actions.ts. */
+    @Test
+    fun `plan workflow is byte identical to the server row`() {
+        val plan = builtinPlanWorkflowAction(teamId)
+        assertEquals("builtin:plan-workflow", plan.id)
+        assertEquals("Plan workflow", plan.name)
+        assertEquals(
+            "Let your agent turn a workflow's issues into a shallow, parallel plan",
+            plan.description,
+        )
+        assertEquals("layers", plan.icon)
+        assertEquals("Anything the plan should respect (optional)…", plan.promptPlaceholder)
+        assertEquals(1e9 + 3, plan.sortOrder, 0.0)
+        // No inputs at all: the workflow IS the subject, and the free text is
+        // the start's optional `prompt`.
+        assertEquals(emptyList<ActionInputDto>(), plan.inputs)
+    }
+
     @Test
     fun `synced rows never key a teamId`() {
         val synced = ActionDto(id = "a3f0c9d2-0000-0000-0000-000000000000", teamId = teamId, name = "Deploy")

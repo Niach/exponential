@@ -43,6 +43,17 @@ pub type ChoiceSelect = Entity<SelectState<Vec<ChoiceItem>>>;
 pub const MODEL_CHOICES: [(&str, &str); 3] =
     [("Fable", "fable"), ("Opus", "opus"), ("Sonnet", "sonnet")];
 
+/// EXP-981: the claude SUBAGENT model picks — the same aliases as
+/// [`MODEL_CHOICES`], with the blank "CLI default" in front (a subagent pin
+/// is optional, unlike claude's explicit-always `--model`). The labels are
+/// the Model picker's own, so the two rows read alike.
+pub const SUBAGENT_MODEL_CHOICES: [(&str, &str); 4] = [
+    (crate::launch_options::CLI_DEFAULT_LABEL, ""),
+    ("Fable", "fable"),
+    ("Opus", "opus"),
+    ("Sonnet", "sonnet"),
+];
+
 /// Claude `--effort` levels; blank = leave the flag off (the CLI's own
 /// default).
 pub const EFFORT_CHOICES: [(&str, &str); 6] = [
@@ -224,6 +235,20 @@ pub fn selected(state: &ChoiceSelect, cx: &App) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// EXP-981: the subagent picks are the MODEL picks with the blank
+    /// "CLI default" in front — same aliases, same labels, so the two rows
+    /// can never name the same model differently.
+    #[test]
+    fn subagent_model_choices_mirror_the_model_choices() {
+        use super::{MODEL_CHOICES, SUBAGENT_MODEL_CHOICES};
+        assert_eq!(SUBAGENT_MODEL_CHOICES[0].1, "");
+        assert_eq!(
+            SUBAGENT_MODEL_CHOICES[0].0,
+            crate::launch_options::CLI_DEFAULT_LABEL
+        );
+        assert_eq!(&SUBAGENT_MODEL_CHOICES[1..], &MODEL_CHOICES[..]);
+    }
+
     use super::*;
 
     // The `coding` crate deliberately does not depend on `domain` — this

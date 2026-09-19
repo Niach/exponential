@@ -179,8 +179,30 @@ fun builtinChatAction(teamId: String): ActionDto = ActionDto(
 )
 
 /**
+ * The HIDDEN "Plan workflow" builtin (EXP-981): reads ONE draft workflow's
+ * issues, sets the `blocks` relations (contracts-first fan-out by default),
+ * splits big issues, declares `touches` and `risk`, and keeps the graph
+ * shallow. Runs in the agent's scratch dir — it plans over MCP and writes no
+ * code. Like Chat it is appended to NO list and NO picker: a workflow's own
+ * Plan button constructs it, because it is meaningless without that
+ * workflow's id (which rides the start as `workflowId`). Mirrors
+ * apps/web/src/lib/builtin-actions.ts field-for-field.
+ */
+fun builtinPlanWorkflowAction(teamId: String): ActionDto = ActionDto(
+    id = DomainContract.builtinPlanWorkflowId,
+    teamId = teamId,
+    name = "Plan workflow",
+    description = "Let your agent turn a workflow's issues into a shallow, parallel plan",
+    icon = "layers",
+    inputs = emptyList(),
+    sortOrder = 1e9 + 3,
+    builtin = true,
+    promptPlaceholder = "Anything the plan should respect (optional)…",
+)
+
+/**
  * Both LISTED builtins in the order every client pins them (the hidden chat
- * row is deliberately absent). EXP-270: mobile used to
+ * and plan-workflow rows are deliberately absent). EXP-270: mobile used to
  * construct only "Create action", so "Fix merge conflicts" silently vanished
  * from Android when EXP-268 moved the list onto the synced shape.
  */

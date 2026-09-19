@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   agentSeed,
   agentSupportsPlanMode,
+  agentSupportsSubagentModel,
   agentSupportsUltracode,
   DEFAULT_LAUNCH_AGENT,
   loadMcpServerPick,
@@ -60,6 +61,10 @@ export interface LaunchOptions {
   switchAgent: (next: string) => void
   model: string
   setModel: (model: string) => void
+  /** EXP-981: claude only — the model the run's subagents get. `""` = the
+   * CLI's own default, and then it never reaches the start payload. */
+  subagentModel: string
+  setSubagentModel: (model: string) => void
   effortValue: string
   setEffortValue: (effort: string) => void
   ultracode: boolean
@@ -118,6 +123,7 @@ export function useLaunchOptions({
 }): LaunchOptions {
   const [agent, setAgent] = useState<string>(DEFAULT_LAUNCH_AGENT)
   const [model, setModel] = useState(``)
+  const [subagentModel, setSubagentModel] = useState(``)
   const [effortValue, setEffortValue] = useState(CLI_DEFAULT_EFFORT)
   const [ultracode, setUltracode] = useState(false)
   const [planMode, setPlanMode] = useState(false)
@@ -156,6 +162,7 @@ export function useLaunchOptions({
     const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
     setAgent(DEFAULT_LAUNCH_AGENT)
     setModel(seed.model)
+    setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(CLI_DEFAULT_EFFORT)
     setUltracode(seed.ultracode)
     setPlanMode(planModeOff ? false : seed.planMode)
@@ -188,6 +195,7 @@ export function useLaunchOptions({
     setAgent(next)
     const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
     setModel(seed.model)
+    setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
     setPlanMode(planModeOff ? false : seed.planMode)
@@ -209,6 +217,7 @@ export function useLaunchOptions({
     const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
     setAgent(next)
     setModel(seed.model)
+    setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
     setUltracode(seed.ultracode)
     setPlanMode(planModeOff ? false : seed.planMode)
@@ -296,6 +305,11 @@ export function useLaunchOptions({
     agent,
     model,
     effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
+    // EXP-981: claude only, and omitted for the CLI's own default — an
+    // absent key keeps the start frame byte-identical for older devices.
+    ...(subagentModel && agentSupportsSubagentModel(agent)
+      ? { subagentModel }
+      : {}),
     ultracode: ultracode && agentSupportsUltracode(agent),
     // A resumed session never re-enters plan mode (EXP-481, mirrors the
     // desktop launcher's clamp).
@@ -325,6 +339,8 @@ export function useLaunchOptions({
     switchAgent,
     model,
     setModel,
+    subagentModel,
+    setSubagentModel,
     effortValue,
     setEffortValue,
     ultracode,

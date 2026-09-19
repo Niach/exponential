@@ -35,6 +35,13 @@ data class AgentComposerSeed(
     val text: String? = null,
     /** A curated icon name seeding the Create action builtin's `icon` input. */
     val icon: String? = null,
+    /**
+     * EXP-981: the DRAFT workflow a Plan-workflow start is about — the
+     * workflow detail's Plan button seeds it beside
+     * [DomainContract.builtinPlanWorkflowId], and the submit sends it as the
+     * start's `workflowId` (web `?action=builtin:plan-workflow&workflow=<id>`).
+     */
+    val workflowId: String? = null,
 ) {
     /** Whether the seed names a subject at all. */
     val hasSubject: Boolean get() = actionId != null || issueIds.isNotEmpty()
@@ -65,6 +72,7 @@ data class AgentComposerSeed(
             prIssueId = get(ARG_PR)?.takeIf { UUID_RE.matches(it) },
             text = get(ARG_TEXT)?.takeIf { it.isNotEmpty() },
             icon = get(ARG_ICON)?.takeIf { it.isNotEmpty() },
+            workflowId = get(ARG_WORKFLOW)?.takeIf { UUID_RE.matches(it) },
         )
 
         /** The seed the `agent?…` route entry carries. */
@@ -79,7 +87,7 @@ data class AgentComposerSeed(
 /** The Agent page's route root — [agentRoute] appends the seed's query. */
 const val AGENT_ROUTE = "agent"
 
-// The route's six optional query args, all nullable strings on the NavHost
+// The route's seven optional query args, all nullable strings on the NavHost
 // side (`AGENT_ROUTE_ARGS`). Named like the web search params so a link and a
 // push read the same.
 const val ARG_ISSUES = "issues"
@@ -88,9 +96,11 @@ const val ARG_DEVICE = "device"
 const val ARG_PR = "pr"
 const val ARG_TEXT = "text"
 const val ARG_ICON = "icon"
+const val ARG_WORKFLOW = "workflow"
 
 /** Every query arg the `agent` destination declares, in pattern order. */
-val AGENT_ROUTE_ARGS: List<String> = listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON)
+val AGENT_ROUTE_ARGS: List<String> =
+    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_WORKFLOW)
 
 /**
  * The NavHost pattern: every arg is a `{placeholder}` query value so an absent
@@ -101,7 +111,7 @@ val AGENT_ROUTE_PATTERN: String =
 
 /**
  * The concrete route a play button navigates with: `agent` alone for an empty
- * seed, else `agent?issues=a,b&action=…&device=…&pr=…&text=…&icon=…` with
+ * seed, else `agent?issues=a,b&action=…&device=…&pr=…&text=…&icon=…&workflow=…` with
  * EMPTY params omitted, so the route carries only what was picked. Values are
  * percent-encoded ([encodeRouteValue]) — the suggestion text carries newlines,
  * backticks and JSON — and Navigation decodes them back on the way in.
@@ -114,6 +124,7 @@ fun agentRoute(seed: AgentComposerSeed): String {
         seed.prIssueId?.takeIf { it.isNotEmpty() }?.let { add(ARG_PR to it) }
         seed.text?.takeIf { it.isNotEmpty() }?.let { add(ARG_TEXT to it) }
         seed.icon?.takeIf { it.isNotEmpty() }?.let { add(ARG_ICON to it) }
+        seed.workflowId?.takeIf { it.isNotEmpty() }?.let { add(ARG_WORKFLOW to it) }
     }
     if (params.isEmpty()) return AGENT_ROUTE
     return AGENT_ROUTE + "?" + params.joinToString("&") { (key, value) -> "$key=${encodeRouteValue(value)}" }

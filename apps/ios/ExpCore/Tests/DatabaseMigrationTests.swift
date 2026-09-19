@@ -112,7 +112,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
              "v45_device_icon",
-             "v46_notification_session_id"]
+             "v46_notification_session_id",
+             "v47_workflows"]
         )
     }
 
@@ -151,7 +152,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
              "v45_device_icon",
-             "v46_notification_session_id"]
+             "v46_notification_session_id",
+             "v47_workflows"]
         )
     }
 
@@ -218,7 +220,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
              "v45_device_icon",
-             "v46_notification_session_id"]
+             "v46_notification_session_id",
+             "v47_workflows"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -305,7 +308,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
              "v45_device_icon",
-             "v46_notification_session_id"]
+             "v46_notification_session_id",
+             "v47_workflows"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -904,6 +908,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
                       "automations", "issue_statuses", "pins", "issue_drafts",
+                      "workflows", "workflow_nodes",
                       "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
@@ -1007,6 +1012,26 @@ final class DatabaseMigrationTests: XCTestCase {
             ["id", "user_id", "team_id", "board_id", "title", "description",
              "status_id", "priority", "assignee_id", "label_ids", "due_date",
              "created_at", "updated_at"]
+        )
+
+        // EXP-981: workflows + their nodes are team-scoped (shapes 23/24) —
+        // the column lists byte-match the two shape proxies' allowlists, minus
+        // the server-only `creator_id`.
+        XCTAssertEqual(
+            try columnNames(pool, "workflows"),
+            ["id", "team_id", "repository_id", "name", "status", "device_id",
+             "launch", "gate", "start_on", "integration_branch", "final_pr_url",
+             "final_pr_number", "final_pr_state", "decisions", "metrics",
+             "started_at", "ended_at", "created_at", "updated_at"]
+        )
+        // `wave` / `lane` / `on_cycle` ARE the server-computed layout: no
+        // client lays a graph out.
+        XCTAssertEqual(
+            try columnNames(pool, "workflow_nodes"),
+            ["id", "workflow_id", "team_id", "issue_id", "member_issue_ids",
+             "kind", "state", "risk", "wave", "lane", "on_cycle", "session_id",
+             "attempt", "base_branch", "budget", "touches", "created_at",
+             "updated_at"]
         )
         // status_id is NULLABLE: NULL means the team's Backlog builtin.
         let draftStatusId = try pool.read { db in
@@ -1794,6 +1819,44 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v47 (EXP-981 workflows): a store created before the `workflows` and
+    // `workflow_nodes` tables existed must gain both. Brand-new shapes have no
+    // offset row, so — unlike an added column — NOTHING resets here (the v20
+    // `automations` precedent).
+    func testWorkflowTablesAddedToExistingStore() throws {
+        let pool = try makePool("workflows")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v46_notification_session_id")
+        try pool.write { db in
+            // Hand-build the pre-v47 state: neither table exists (the guarded
+            // creates have to tolerate both forms).
+            if try db.tableExists("workflow_nodes") { try db.drop(table: "workflow_nodes") }
+            if try db.tableExists("workflows") { try db.drop(table: "workflows") }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('issues', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try pool.read { db in try db.tableExists("workflows") })
+        XCTAssertTrue(try pool.read { db in try db.tableExists("workflow_nodes") })
+        XCTAssertTrue(try columnNames(pool, "workflows").contains("metrics"))
+        XCTAssertTrue(try columnNames(pool, "workflow_nodes").contains("wave"))
+        // No shape gets re-snapshotted for a brand-new table.
+        let untouched = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = 'h' AND \"needs_refetch\" = 0 "
+                    + "FROM \"electric_offsets\" WHERE \"shape\" = 'issues'"
+            )
+        }
+        XCTAssertEqual(untouched, true)
+        // Re-running converges without a duplicate-table throw.
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

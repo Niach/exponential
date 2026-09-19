@@ -117,7 +117,7 @@ fn open_lock_file(data_dir: &Path) -> Option<std::fs::File> {
 }
 
 /// Which program the recorded run executed — the resume path re-enters the
-/// same one. The first four mirror `launcher::ActionRunKind` without its
+/// same one. The first five mirror `launcher::ActionRunKind` without its
 /// payloads (a fix-conflicts resume keeps its PR context in [`RunFix`]);
 /// `Issue`/`Batch` (EXP-662) are the two SESSION shapes, whose subject rides
 /// in [`RunRecord::issue_id`] / [`RunRecord::issues`] instead of an action.
@@ -127,6 +127,9 @@ pub enum RunKind {
     Team,
     Chat,
     CreateAction,
+    /// EXP-981: the hidden "Plan workflow" builtin — a scratch run like
+    /// [`Self::CreateAction`], so it owns no worktree either.
+    PlanWorkflow,
     FixConflicts,
     Issue,
     Batch,

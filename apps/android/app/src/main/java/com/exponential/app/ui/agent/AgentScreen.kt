@@ -61,11 +61,13 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.StackStart
+import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.data.api.builtinPlanWorkflowAction
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
@@ -116,6 +118,10 @@ fun AgentScreen(
     onBack: () -> Unit,
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
+    // EXP-981: the phone has no sidebar, so the team's workflows hang off this
+    // page's top bar beside its history button (web/desktop put them in the
+    // sidebar after Automations).
+    onOpenWorkflows: () -> Unit = {},
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // The sessions under the composer: the Devices tab's own model, reused
@@ -173,7 +179,14 @@ fun AgentScreen(
     val actionSubject = subject as? ComposerSubject.Action
     val issueSubject = subject as? ComposerSubject.Issues
     val selectedAction = actionSubject?.let { picked ->
-        actionsState.actions?.firstOrNull { it.id == picked.id }
+        // EXP-981: the Plan workflow builtin is in NO list and NO picker — it
+        // is constructed here, the way the composer constructs Chat, because
+        // it is meaningless without the workflow the seed named.
+        if (picked.id == DomainContract.builtinPlanWorkflowId) {
+            teamId?.let(::builtinPlanWorkflowAction)
+        } else {
+            actionsState.actions?.firstOrNull { it.id == picked.id }
+        }
     }
     val selectedActionInputs = selectedAction?.inputs.orEmpty()
     // The checked issues' rows. A seeded id outside the codeable pool (a done
@@ -402,6 +415,19 @@ fun AgentScreen(
                 // EXP-923: history, where history belongs — the finished runs
                 // are one tap away instead of a band under the composer.
                 actions = {
+                    // EXP-981: the team's workflows, one tap away — the
+                    // phone's stand-in for web's and the desktop's sidebar
+                    // entry after Automations.
+                    IconButton(
+                        onClick = onOpenWorkflows,
+                        modifier = Modifier.testTag("agent-workflows-button"),
+                    ) {
+                        Icon(
+                            ExpIcons.navWorkflows,
+                            contentDescription = WorkflowView.WORKFLOWS_TITLE,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                     IconButton(
                         onClick = { recentOpen = true },
                         modifier = Modifier.testTag("agent-history-button"),
@@ -674,6 +700,7 @@ fun AgentScreen(
         AgentOptionsSheet(
             launch = launch,
             onEffortChange = viewModel::setEffort,
+            onSubagentModelChange = viewModel::setSubagentModel,
             onUltracodeChange = viewModel::setUltracode,
             onDismiss = { optionsOpen = false },
         )

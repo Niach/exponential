@@ -71,17 +71,22 @@ public struct DeviceOwner: Decodable, Sendable {
 /// (EXP-490: the iOS device-settings sheet re-seeds off `onChange`).
 public struct AgentLaunchDefaults: Decodable, Equatable, Sendable {
     public let model: String?
+    /// EXP-981: claude only — the model its subagents run on. `""` = the CLI's
+    /// own default, absent on a machine that predates the option.
+    public let subagentModel: String?
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
 
     public init(
         model: String? = nil,
+        subagentModel: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil
     ) {
         self.model = model
+        self.subagentModel = subagentModel
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
@@ -670,6 +675,11 @@ private struct ViewerTicketInput: Encodable {
 public struct SteerStartOptions: Sendable {
     public let agent: String?
     public let model: String?
+    /// EXP-981: claude only — the model its subagents run on (the device sets
+    /// it as the CLI's env at launch). Nil = the CLI's own default; the server
+    /// takes contract `codingModel` values only, never a blank, so "default"
+    /// is the ABSENT field.
+    public let subagentModel: String?
     public let effort: String?
     public let ultracode: Bool?
     public let planMode: Bool?
@@ -685,6 +695,7 @@ public struct SteerStartOptions: Sendable {
     public init(
         agent: String? = nil,
         model: String? = nil,
+        subagentModel: String? = nil,
         effort: String? = nil,
         ultracode: Bool? = nil,
         planMode: Bool? = nil,
@@ -693,6 +704,7 @@ public struct SteerStartOptions: Sendable {
     ) {
         self.agent = agent
         self.model = model
+        self.subagentModel = subagentModel
         self.effort = effort
         self.ultracode = ultracode
         self.planMode = planMode
@@ -707,6 +719,8 @@ struct StartSessionInput: Encodable {
     let deviceId: String
     let agent: String?
     let model: String?
+    // EXP-981: claude only, omitted when the run takes the CLI's own default.
+    let subagentModel: String?
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
@@ -737,6 +751,7 @@ struct StartBatchSessionInput: Encodable {
     let deviceId: String
     let agent: String?
     let model: String?
+    let subagentModel: String?
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
@@ -758,9 +773,14 @@ struct StartBatchSessionInput: Encodable {
 struct StartActionSessionInput: Encodable {
     let actionId: String
     let teamId: String?
+    /// EXP-981: the DRAFT workflow a Plan-workflow start is about. Required
+    /// with that builtin and forbidden with every other subject — the server
+    /// writes the prompt's `Workflow: <uuid>` first line itself.
+    let workflowId: String?
     let deviceId: String
     let agent: String?
     let model: String?
+    let subagentModel: String?
     let effort: String?
     let ultracode: Bool?
     let planMode: Bool?
@@ -837,6 +857,7 @@ public final class SteerApi: Sendable {
                     deviceId: deviceId,
                     agent: options.agent,
                     model: options.model,
+                    subagentModel: options.subagentModel,
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,
@@ -875,6 +896,7 @@ public final class SteerApi: Sendable {
                     deviceId: deviceId,
                     agent: options.agent,
                     model: options.model,
+                    subagentModel: options.subagentModel,
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,
@@ -901,11 +923,15 @@ public final class SteerApi: Sendable {
     /// text / creation request for the two hidden builtins, additional
     /// instructions otherwise). Same endpoint and PRECONDITION_FAILED →
     /// `SteerStartError.rejected` mapping as the issue forms.
+    /// - Parameter workflowId: EXP-981 — the DRAFT workflow a
+    ///   `builtin:plan-workflow` start plans. Required with that builtin and
+    ///   refused with every other subject.
     public func startSession(
         accountId: String,
         actionId: String,
         deviceId: String,
         teamId: String? = nil,
+        workflowId: String? = nil,
         options: SteerStartOptions = SteerStartOptions(),
         inputs: [String: String]? = nil,
         prompt: String? = nil
@@ -917,9 +943,11 @@ public final class SteerApi: Sendable {
                 input: StartActionSessionInput(
                     actionId: actionId,
                     teamId: teamId,
+                    workflowId: workflowId,
                     deviceId: deviceId,
                     agent: options.agent,
                     model: options.model,
+                    subagentModel: options.subagentModel,
                     effort: options.effort,
                     ultracode: options.ultracode,
                     planMode: options.planMode,

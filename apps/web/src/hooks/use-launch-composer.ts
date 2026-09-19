@@ -20,8 +20,10 @@ import {
   BUILTIN_CHAT_ID,
   BUILTIN_CHAT_NAME,
   BUILTIN_CREATE_ACTION_ID,
+  BUILTIN_PLAN_WORKFLOW_ID,
   builtinCreateAction,
   builtinFixConflictsAction,
+  builtinPlanWorkflowAction,
 } from "@/lib/builtin-actions"
 import { buildInputsPayload, missingRequiredInputs } from "@/lib/action-inputs"
 import {
@@ -137,6 +139,9 @@ export interface LaunchComposerModel {
   setInput: (key: string, value: string) => void
   /** Any issue linked to the PR the `pr` input opens pre-picked on. */
   seedPrIssueId: string | undefined
+  /** EXP-981: the draft workflow the picked plan-workflow builtin plans —
+   * seeded by a workflow's Plan button, sent with the start. */
+  workflowId: string | undefined
 
   text: string
   setText: (text: string) => void
@@ -226,6 +231,9 @@ export function useLaunchComposer({
   // eligible (reset when the sole issue changes); a manual toggle sticks.
   const [resume, setResume] = useState(true)
   const [seedPrIssueId, setSeedPrIssueId] = useState<string | undefined>()
+  // EXP-981: the plan-workflow builtin is meaningless without its workflow,
+  // so the id is held beside the subject and cleared with it.
+  const [workflowId, setWorkflowId] = useState<string | undefined>()
   const [sending, setSending] = useState(false)
   // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
   // a manual re-pick (including clearing to "None") from being re-seeded when
@@ -265,10 +273,14 @@ export function useLaunchComposer({
       ...rows,
     ]
   }, [teamId, actionRows])
+  // EXP-981: the plan-workflow builtin is HIDDEN like Chat — appended to no
+  // list and no picker — so it is constructed here rather than looked up.
   const selectedAction =
-    subject?.kind === `action`
-      ? ((actions ?? []).find((action) => action.id === subject.id) ?? null)
-      : null
+    subject?.kind !== `action`
+      ? null
+      : subject.id === BUILTIN_PLAN_WORKFLOW_ID
+        ? builtinPlanWorkflowAction(teamId)
+        : ((actions ?? []).find((action) => action.id === subject.id) ?? null)
 
   // Codeable issues live in boards that HAVE a repo — coding gates on repo
   // presence. Sorted ids keep the dep string stable.
@@ -430,9 +442,11 @@ export function useLaunchComposer({
         inputs: seed.icon ? { icon: seed.icon } : {},
       })
       setSeedPrIssueId(seed.prIssueId)
+      setWorkflowId(seed.workflowId)
     } else if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
       setSeedPrIssueId(undefined)
+      setWorkflowId(undefined)
     }
     // EXP-836: an explicit machine is a REQUEST — it outranks the default
     // machine whether or not the devices shape has hydrated yet, and it is
@@ -481,6 +495,7 @@ export function useLaunchComposer({
       return ids.length === 0 ? null : { kind: `issues`, ids }
     })
     setSeedPrIssueId(undefined)
+    setWorkflowId(undefined)
   }, [])
 
   const pickAction = useCallback((actionId: string) => {
@@ -496,11 +511,13 @@ export function useLaunchComposer({
           { kind: `action`, id: actionId, inputs: {} }
     )
     setSeedPrIssueId(undefined)
+    setWorkflowId(undefined)
   }, [])
 
   const clearAction = useCallback(() => {
     setSubject((current) => (current?.kind === `action` ? null : current))
     setSeedPrIssueId(undefined)
+    setWorkflowId(undefined)
   }, [])
 
   const setInput = useCallback((key: string, value: string) => {
@@ -727,6 +744,7 @@ export function useLaunchComposer({
             id: selectedAction.id,
             name: selectedAction.name,
             teamId: selectedAction.teamId,
+            ...(workflowId ? { workflowId } : {}),
           },
           options,
           buildInputsPayload(inputDefs, subject.inputs),
@@ -738,6 +756,7 @@ export function useLaunchComposer({
       setText(``)
       setSubject(null)
       setSeedPrIssueId(undefined)
+      setWorkflowId(undefined)
     } catch {
       // Already toasted by the remote hook.
     } finally {
@@ -771,6 +790,7 @@ export function useLaunchComposer({
     clearAction,
     setInput,
     seedPrIssueId,
+    workflowId,
     text,
     setText,
     images,

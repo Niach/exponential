@@ -61,6 +61,7 @@ import {
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { panelOffset } from "@/lib/detail-origin"
+import { WORKFLOWS_TITLE } from "@/lib/workflow-view"
 import { FeedbackButton } from "@/components/feedback-button"
 import { GettingStartedButton } from "@/components/getting-started/getting-started-button"
 import { ChangelogSheet, WhatsNewCard } from "@/components/whats-new"
@@ -71,6 +72,7 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 const NavActionsIcon = conceptIcon(`nav-actions`)
 const NavAgentIcon = conceptIcon(`action-chat`)
 const NavAutomationsIcon = conceptIcon(`nav-automations`)
+const NavWorkflowsIcon = conceptIcon(`nav-workflows`)
 const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
@@ -382,6 +384,20 @@ export function TeamSidebar({
                             >
                               <NavAutomationsIcon className="h-4 w-4" />
                               <span>Automations</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        {/* EXP-981: Workflows sits directly after Automations
+                            — a picked set of issues planned as one parallel
+                            run. */}
+                        <SidebarMenuItem>
+                          <SidebarMenuButton asChild density="compact">
+                            <Link
+                              to="/t/$teamSlug/workflows"
+                              params={{ teamSlug }}
+                            >
+                              <NavWorkflowsIcon className="h-4 w-4" />
+                              <span>{WORKFLOWS_TITLE}</span>
                             </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>

@@ -79,6 +79,12 @@ impl CodingAgent {
         matches!(self, CodingAgent::Claude)
     }
 
+    /// EXP-981: a pinnable model for the agent's SUBAGENTS — Claude Code
+    /// only (`CLAUDE_CODE_SUBAGENT_MODEL`).
+    pub fn supports_subagent_model(self) -> bool {
+        matches!(self, CodingAgent::Claude)
+    }
+
     /// A launch-into-plan mode. Claude Code natively (`--permission-mode
     /// plan`). Codex HAS an interactive plan mode (`/plan`) but no flag to
     /// start in it.
@@ -186,6 +192,9 @@ mod tests {
         // run bypasses.
         assert!(CodingAgent::Claude.supports_ultracode());
         assert!(CodingAgent::Claude.supports_plan_mode());
+        // EXP-981: only claude pins a subagent model.
+        assert!(CodingAgent::Claude.supports_subagent_model());
+        assert!(!CodingAgent::Codex.supports_subagent_model());
         assert!(!CodingAgent::Claude.allows_blank_model());
         for agent in [CodingAgent::Codex] {
             assert!(!agent.supports_ultracode(), "{agent}");

@@ -128,7 +128,7 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 7 = 20.
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 8 = 21.
 pub const DEVICE_CAPS: [&str; 13] = [
     "resume",
     "worktrees",
@@ -173,8 +173,12 @@ pub const ACCOUNT_REMOVE_CAP: &str = "account-remove";
 /// reads the `prompt` field of a `start_session` frame (the composer's free
 /// text): the server REFUSES a Chat or Create-action start to a device
 /// without it, since those two builtins carry their whole program there
-/// and an older build would spawn a promptless run.
-pub const ACTION_CAPS: [&str; 7] = [
+/// and an older build would spawn a promptless run. EXP-981's
+/// `plan-workflow` says the same about the workflow PLANNER builtin: an
+/// older build has no planner kind and would fall through to the
+/// Create-action prompt and author an action instead, so the server refuses
+/// a planner start to a device without it.
+pub const ACTION_CAPS: [&str; 8] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
@@ -182,7 +186,11 @@ pub const ACTION_CAPS: [&str; 7] = [
     "chat",
     RESUME_RUN_CAP,
     START_PROMPT_CAP,
+    PLAN_WORKFLOW_CAP,
 ];
+
+/// EXP-981's planner cap, by name (see [`ACTION_CAPS`]).
+pub const PLAN_WORKFLOW_CAP: &str = api::actions::PLAN_WORKFLOW_CAP;
 
 /// EXP-825's start-prompt cap, by name (see [`ACTION_CAPS`]).
 pub const START_PROMPT_CAP: &str = "start-prompt";
@@ -1576,6 +1584,19 @@ mod tests {
             assert!(!message.contains('`'), "{message}");
             assert!(!message.contains("terminal"), "{message}");
         }
+    }
+
+    /// EXP-981: the server gates a planner start on `plan-workflow` — an
+    /// ACTION cap (an agent-less machine could not plan anyway), and the
+    /// whole list stays inside `devices.register`'s 24-cap ceiling.
+    #[test]
+    fn action_caps_advertise_plan_workflow() {
+        assert_eq!(PLAN_WORKFLOW_CAP, "plan-workflow");
+        assert!(ACTION_CAPS.contains(&PLAN_WORKFLOW_CAP));
+        assert!(!DEVICE_CAPS.contains(&PLAN_WORKFLOW_CAP));
+        assert!(device_caps(&advert(&["claude"])).contains(&"plan-workflow".to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&"plan-workflow".to_string()));
+        assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }
 
     /// EXP-679: `agent-start` asserts this build understands a start frame's

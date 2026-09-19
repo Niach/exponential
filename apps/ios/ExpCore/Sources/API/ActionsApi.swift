@@ -214,6 +214,34 @@ public extension ActionDto {
         )
     }
 
+    /// The HIDDEN "Plan workflow" builtin (EXP-981): the planner run of ONE
+    /// draft workflow — it reads that workflow's issues, sets the relations,
+    /// splits what is too big, declares `touches` and `risk`, and keeps the
+    /// graph shallow. Like Chat it is appended to NO list and belongs in NO
+    /// picker: a workflow's own Plan button constructs it, because it is
+    /// meaningless without that workflow's id (which rides the start as
+    /// `workflowId`). It takes NO inputs — it plans over MCP and writes no
+    /// code, so it runs in the agent's scratch dir. Mirrors
+    /// apps/web/src/lib/builtin-actions.ts field-for-field.
+    static func builtinPlanWorkflowAction(teamId: String) -> ActionDto {
+        ActionDto(
+            id: DomainContract.builtinPlanWorkflowId,
+            teamId: teamId,
+            repositoryId: nil,
+            name: "Plan workflow",
+            description: "Let your agent turn a workflow's issues into a shallow, parallel plan",
+            icon: "layers",
+            body: "",
+            sortOrder: 1e9 + 3,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            updatedAt: "1970-01-01T00:00:00.000Z",
+            inputs: [],
+            builtin: true,
+            // The composer's hint: extra instructions the plan should respect.
+            promptPlaceholder: "Anything the plan should respect (optional)…"
+        )
+    }
+
     /// Both LISTED builtins, in the order every client pins them (EXP-270 — mobile
     /// used to construct only "Create action", so "Fix merge conflicts"
     /// silently disappeared from iOS when EXP-268 moved the list onto the

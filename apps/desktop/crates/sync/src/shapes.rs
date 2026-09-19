@@ -1,4 +1,4 @@
-//! The 22 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 24 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 22 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 24 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
-/// billing fields dropped from `users`, no `body` on `actions`, and no
-/// scoping mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 22] = [
+/// billing fields dropped from `users`, no `body` on `actions`, no scoping
+/// mirrors on `device_worktrees`, and no `creator_id` on `workflows`).
+pub const SHAPES: [ShapeSpec; 24] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -675,6 +675,68 @@ pub const SHAPES: [ShapeSpec; 22] = [
         ],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "workflows",
+        path: "/api/shapes/workflows",
+        // EXP-981: team-scoped like `actions` — a workflow spans boards, so
+        // the board trash rules do NOT apply. Byte-matches the proxy's
+        // allowlist (apps/web routes/api/shapes/workflows.ts); the
+        // server-only `creator_id` stays BEHIND it.
+        columns: &[
+            "id",
+            "team_id",
+            "repository_id",
+            "name",
+            "status",
+            // The runner device's steer id — the engine's SINGLE writer.
+            "device_id",
+            "launch",
+            "gate",
+            "start_on",
+            "integration_branch",
+            "final_pr_url",
+            "final_pr_number",
+            "final_pr_state",
+            "decisions",
+            // The server-computed plan shape: the list's second line and the
+            // header's cycle note read nothing else.
+            "metrics",
+            "started_at",
+            "ended_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "workflow_nodes",
+        path: "/api/shapes/workflow-nodes",
+        // EXP-981: the nodes of every workflow of the member's teams.
+        // `team_id` is denormalized onto the row for exactly that clause.
+        // The full row is client-relevant: `wave`/`lane`/`on_cycle` ARE the
+        // server-computed layout — no client lays a graph out.
+        columns: &[
+            "id",
+            "workflow_id",
+            "team_id",
+            "issue_id",
+            "member_issue_ids",
+            "kind",
+            "state",
+            "risk",
+            "wave",
+            "lane",
+            "on_cycle",
+            "session_id",
+            "attempt",
+            "base_branch",
+            "budget",
+            "touches",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -687,8 +749,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_22_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 22);
+    fn registry_has_24_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 24);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1052,6 +1114,45 @@ mod tests {
         }
         // A static per-user shape like `pins`: no board-trash mirror to
         // filter on (the board join does that job client-side).
+        assert!(!spec.columns.contains(&"board_deleted_at"));
+    }
+
+    /// EXP-981: the plan's shape and its runner binding. `metrics` is the
+    /// ONLY input to the list's second line and the header's cycle note;
+    /// `creator_id` is server-only and must never be requested.
+    #[test]
+    fn workflows_sync_the_plan_shape_and_its_binding() {
+        let spec = shape_by_name("workflows").unwrap();
+        for column in ["team_id", "repository_id", "status", "device_id", "launch", "metrics"] {
+            assert!(spec.columns.contains(&column), "workflows needs {column}");
+        }
+        assert!(spec.columns.contains(&"gate"));
+        assert!(spec.columns.contains(&"start_on"));
+        assert!(!spec.columns.contains(&"creator_id"), "server-only");
+    }
+
+    /// EXP-981: `wave`/`lane`/`on_cycle` ARE the server-computed layout —
+    /// dropping any of them leaves this client unable to draw the graph at
+    /// all (no client lays one out).
+    #[test]
+    fn workflow_nodes_sync_the_server_layout() {
+        let spec = shape_by_name("workflow_nodes").unwrap();
+        for column in [
+            "workflow_id",
+            "team_id",
+            "issue_id",
+            "member_issue_ids",
+            "kind",
+            "state",
+            "risk",
+            "wave",
+            "lane",
+            "on_cycle",
+            "touches",
+        ] {
+            assert!(spec.columns.contains(&column), "workflow_nodes needs {column}");
+        }
+        // Team-scoped like `actions`: no board-trash mirror to filter on.
         assert!(!spec.columns.contains(&"board_deleted_at"));
     }
 
