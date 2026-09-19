@@ -1349,9 +1349,14 @@ fn usage_targets(
     forced: Option<(CodingAgent, &str)>,
 ) -> Vec<UsageTarget> {
     let mut targets: Vec<UsageTarget> = Vec::new();
-    // (index into `targets`, its numbers' age) for every non-active login a
-    // probe could go to right now — the oldest wins the pass's one slot.
-    let mut secondary: Vec<(usize, u64)> = Vec::new();
+    // (index into `targets`, whether a window of its RESET since the numbers
+    // were read, its numbers' age) for every non-active login a probe could
+    // go to right now. EXP-964: a reset-due login wins the pass's one slot
+    // ahead of a merely old one — its 100 % is a number the person is
+    // watching for, and a login's own reset can sit behind several staler
+    // siblings in the rotation for hours. Each pass takes one, so a machine
+    // with several reset-due logins clears them one beat apart.
+    let mut secondary: Vec<(usize, bool, u64)> = Vec::new();
     // When this machine last spent a probe on a non-active login, as the
     // cache records it: the spacing the rotation keys on.
     let mut last_secondary_probe_secs: u64 = 0;
@@ -1394,15 +1399,22 @@ fn usage_targets(
                 let clock = endpoint_clock(entry);
                 last_secondary_probe_secs = last_secondary_probe_secs.max(clock);
                 if usage_cache::poll_due(entry, now) {
-                    secondary.push((targets.len() - 1, clock));
+                    secondary.push((
+                        targets.len() - 1,
+                        usage_cache::reset_due(entry, now),
+                        clock,
+                    ));
                 }
             }
         }
     }
     if now.saturating_sub(last_secondary_probe_secs) >= PROFILE_STAGGER_SECS {
-        // Oldest numbers first; ties keep the listing order, so the choice is
-        // deterministic for one machine's state.
-        if let Some((index, _)) = secondary.iter().min_by_key(|(_, fetched)| *fetched) {
+        // EXP-964: a login whose window has reset first, then oldest numbers;
+        // ties keep the listing order, so the choice is deterministic for one
+        // machine's state.
+        if let Some((index, _, _)) =
+            secondary.iter().min_by_key(|(_, reset, fetched)| (!*reset, *fetched))
+        {
             targets[*index].may_poll = true;
         }
     }
@@ -3535,6 +3547,111 @@ mod tests {
             "{unmonitored:?}"
         );
         assert!(!unmonitored.contains(&crate::agent_profiles::SYSTEM_PROFILE.to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-964 — the rotation prefers a login whose WINDOW reset over one
+    /// whose numbers are merely older. A third login sitting at "100 %, as of
+    /// 10h ago" is exactly the row a person is watching, and the
+    /// oldest-numbers rule alone could leave it behind staler siblings for
+    /// hours. One per pass still: the stagger between passes is untouched.
+    #[test]
+    fn a_reset_due_secondary_wins_the_rotation_slot() {
+        let dir = usage_dir("targets-reset");
+        let report = codex_named_report();
+        let mut eligible = BTreeMap::new();
+        eligible.insert(
+            usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE),
+            true,
+        );
+        let mut ids = Vec::new();
+        for n in 0..2 {
+            let profile =
+                crate::agent_profiles::create(&dir, CodingAgent::Codex, &format!("acct {n}"))
+                    .unwrap();
+            eligible.insert(usage_cache::entry_key("codex", &profile.id), true);
+            ids.push(profile.id);
+        }
+        // The ambient login is the active one; both named logins are
+        // secondaries competing for the pass's single slot.
+        let now = 1_800_000_000;
+        let read_at = now - 36_000;
+        // The STALEST login: older numbers, but its window is still open.
+        let stale = AgentCacheEntry {
+            usage: Some(AgentUsage {
+                fetched_at: crate::agent_accounts::iso_from_unix_secs(read_at as i64 - 3_600)
+                    .expect("a stamp"),
+                stale: false,
+                windows: vec![UsageWindow {
+                    key: "session".into(),
+                    percent: 40,
+                    resets_at: crate::agent_accounts::iso_from_unix_secs(now as i64 + 3_600),
+                    ..Default::default()
+                }],
+            }),
+            fetched_at_secs: read_at - 3_600,
+            endpoint_fetched_at_secs: Some(read_at - 3_600),
+            ..AgentCacheEntry::default()
+        };
+        // The NEWER login, pinned at 100 % — and its reset came and went.
+        let reset = AgentCacheEntry {
+            usage: Some(AgentUsage {
+                fetched_at: crate::agent_accounts::iso_from_unix_secs(read_at as i64)
+                    .expect("a stamp"),
+                stale: false,
+                windows: vec![UsageWindow {
+                    key: "session".into(),
+                    percent: 100,
+                    resets_at: crate::agent_accounts::iso_from_unix_secs(now as i64 - 600),
+                    ..Default::default()
+                }],
+            }),
+            fetched_at_secs: read_at,
+            endpoint_fetched_at_secs: Some(read_at),
+            earliest_reset_secs: Some(now - 600),
+            // The pin an earlier all-maxed report installed, still holding
+            // this login's schedule well past the reset it outlived — the
+            // whole EXP-964 shape.
+            next_poll_at_secs: now + 10_000,
+            ..AgentCacheEntry::default()
+        };
+        let mut cache = usage_cache::UsageCache::default();
+        cache.insert(usage_cache::entry_key("codex", &ids[0]), stale);
+        cache.insert(usage_cache::entry_key("codex", &ids[1]), reset.clone());
+
+        let polled: Vec<String> = usage_targets(&dir, &report, &eligible, &cache, now, None)
+            .into_iter()
+            .filter(|target| target.may_poll && !target.active)
+            .map(|target| target.profile)
+            .collect();
+        assert_eq!(
+            polled,
+            vec![ids[1].clone()],
+            "the login whose window reset goes first, older numbers or not"
+        );
+
+        // With nothing reset-due the old rule stands: the stalest wins.
+        let mut open = usage_cache::UsageCache::default();
+        open.insert(
+            usage_cache::entry_key("codex", &ids[0]),
+            cache
+                .get(&usage_cache::entry_key("codex", &ids[0]))
+                .expect("the stale entry")
+                .clone(),
+        );
+        let mut not_due = reset;
+        not_due.usage.as_mut().expect("windows").windows[0].resets_at =
+            crate::agent_accounts::iso_from_unix_secs(now as i64 + 600);
+        not_due.earliest_reset_secs = Some(now + 600);
+        not_due.next_poll_at_secs = 0;
+        open.insert(usage_cache::entry_key("codex", &ids[1]), not_due);
+        let polled: Vec<String> = usage_targets(&dir, &report, &eligible, &open, now, None)
+            .into_iter()
+            .filter(|target| target.may_poll && !target.active)
+            .map(|target| target.profile)
+            .collect();
+        assert_eq!(polled, vec![ids[0].clone()], "back to the stalest-first rule");
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 
