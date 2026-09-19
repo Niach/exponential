@@ -60,7 +60,7 @@ export function limitTone(used: number): MeterTone {
 export function accountLimitBars(
   limits: AccountLimits
 ): { key: string; label: string; used: number }[] {
-  const bars = [
+  const bars: { key: string; label: string; used: number }[] = [
     { key: `fiveHour`, label: ACCOUNT_LIMIT_LABELS.fiveHour, used: limits.fiveHour },
     { key: `week`, label: ACCOUNT_LIMIT_LABELS.week, used: limits.week },
   ]

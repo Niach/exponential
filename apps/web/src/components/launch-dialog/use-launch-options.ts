@@ -22,8 +22,14 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pane"
-import { agentHealth, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
-import type { DeviceAgentHealth } from "@/db/schema"
+import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import {
+  accountOptionKey,
+  defaultAccountOption,
+  flattenAccounts,
+  type AccountOption,
+} from "@/lib/accounts/account-option"
+import { agentLabel } from "@exp/ui"
 
 // EXP-615: the launch-options cluster every start-coding surface shares —
 // device settle, the EXP-437 device-seeded agent/model/effort/toggle state,
@@ -77,21 +83,19 @@ export interface LaunchOptions {
   mcpServerIds: string[]
   setMcpServerIds: (ids: string[]) => void
   toggleMcpServer: (id: string) => void
-  /** EXP-825: the agent account profiles the settled device reports for the
-   * picked agent (id + label), the machine's ACTIVE one first. Empty on a
-   * pre-profile build. A picker renders only with two or more. */
-  accountProfiles: {
-    id: string
-    label: string
-    active: boolean
-    /** EXP-849: the device's verdict on that login — a run started on a dead
-     *  credential dies on its first call, so the picker says so. */
-    health: DeviceAgentHealth
-  }[]
-  /** The picked profile id — the active one by default, re-seeded on every
-   * device or agent change; `undefined` while the device reports none. */
-  account: string | undefined
-  setAccount: (account: string | undefined) => void
+  /** EXP-872: the ONE list the composer's account picker offers — every
+   * signed-in login the settled device reports, across both agents, the
+   * device default first (`flattenAccounts`). A machine that reports no login
+   * at all falls back to one ambient option per runnable agent, labelled by
+   * the agent's name, so the picker never goes empty while a run could
+   * still start. Picking an option IMPLIES its agent. */
+  accountOptions: AccountOption[]
+  /** The picked option's key (`accountOptionKey`), re-seeded to the device
+   * default on every device change; `undefined` while there is no option. */
+  accountKey: string | undefined
+  /** A pick: sets the agent (re-seeding model/effort/toggles like an agent
+   * switch) and the account in one go. */
+  setAccountKey: (key: string) => void
   /** The capability-clamped payload for `steer.startSession`. */
   buildOptions: (args?: { resume?: boolean }) => CodingLaunchPrefs
 }
@@ -137,9 +141,11 @@ export function useLaunchOptions({
   )
   const [pickedDeviceId, setPickedDeviceId] = useState<string | null>(null)
   const [mcpServerIds, setMcpServerIdsState] = useState<string[]>([])
-  // EXP-825: the profile pick is keyed to (device, agent) — a switch of
-  // either re-seeds it to that pair's active profile (below).
-  const [account, setAccount] = useState<string | undefined>(undefined)
+  // EXP-872: the account pick — one key over the flattened login list; a
+  // device change re-seeds it to that machine's default option (below).
+  const [accountKey, setAccountKeyState] = useState<string | undefined>(
+    undefined
+  )
   // EXP-792: the pick seeds once per open, the moment the list is there — a
   // reopen reseeds (a teammate may have flipped a default meanwhile).
   const mcpSeededRef = useRef(false)
@@ -209,13 +215,18 @@ export function useLaunchOptions({
     if (seededDeviceRef.current === device.deviceId) return
     seededDeviceRef.current = device.deviceId
     const available = deviceAgentIds(device)
+    // EXP-872: the machine's default ACCOUNT names the agent — the stored
+    // default agent's login, or the first login it reports.
+    const defaultOption = defaultAccountOption(accountOptionsOf(device))
     const next =
+      defaultOption?.agent ??
       deviceDefaultAgent(device) ??
       (available.includes(agent)
         ? agent
         : (available[0] ?? DEFAULT_LAUNCH_AGENT))
     const seed = agentSeed(next, deviceAgentLaunchDefaults(device, next))
     setAgent(next)
+    setAccountKeyState(defaultOption ? accountOptionKey(defaultOption) : undefined)
     setModel(seed.model)
     setSubagentModel(seed.subagentModel ?? ``)
     setEffortValue(seed.effort === `` ? CLI_DEFAULT_EFFORT : seed.effort)
@@ -261,37 +272,34 @@ export function useLaunchOptions({
   const availableAgents = deviceAgentIds(device)
   const availableAgentsKey = availableAgents.join(`,`)
 
-  // EXP-825: the profiles the settled device reports for the picked agent.
-  // The active one leads (it is what the machine runs by default); the pick
-  // re-seeds to it whenever the (device, agent) pair changes, and clears when
-  // the pair reports no profiles at all (nothing to send).
-  const accountProfiles = useMemo(() => {
-    const profiles = device?.agentAccounts?.[agent]?.profiles ?? []
-    return profiles
-      .filter((profile): profile is NonNullable<typeof profile> =>
-        Boolean(profile?.id)
-      )
-      .map((profile) => ({
-        id: profile.id,
-        label:
-          profile.label ||
-          (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
-        active: profile.active === true,
-        health: agentHealth(profile),
-      }))
-      .sort((left, right) => Number(right.active) - Number(left.active))
-  }, [device, agent])
-  const activeProfileId =
-    accountProfiles.find((profile) => profile.active)?.id ??
-    accountProfiles[0]?.id
-  // `activeProfileId` is in the deps too: the profiles ride the device's
-  // heartbeat, so they can land AFTER the device settled (and a machine that
-  // switches its active login re-seeds the pick to it).
+  // EXP-872: the flattened login list of the settled device. The heartbeat
+  // can land AFTER the device settled, so the list is derived on every
+  // render and the pick re-seeds below whenever it stops matching a row.
+  const accountOptions = useMemo(() => accountOptionsOf(device), [device])
+  const pickedOption = accountOptions.find(
+    (option) => accountOptionKey(option) === accountKey
+  )
+  const defaultKey = (() => {
+    const option = defaultAccountOption(accountOptions)
+    return option ? accountOptionKey(option) : undefined
+  })()
   useEffect(() => {
     if (!open) return
-    setAccount(activeProfileId)
+    if (pickedOption) return
+    setAccountKeyState(defaultKey)
+    const option = defaultAccountOption(accountOptions)
+    if (option && option.agent !== agent) switchAgent(option.agent)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId, agent, activeProfileId])
+  }, [open, device?.deviceId, defaultKey, pickedOption === undefined])
+
+  const setAccountKey = (key: string) => {
+    const option = accountOptions.find(
+      (candidate) => accountOptionKey(candidate) === key
+    )
+    if (!option) return
+    setAccountKeyState(key)
+    switchAgent(option.agent)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -320,10 +328,10 @@ export function useLaunchOptions({
     ...(mcpServerIds.length > 0 ? { mcpServerIds: [...mcpServerIds] } : {}),
     // EXP-825: the ambient login is the server's default — only a NAMED
     // profile rides out, and only one the device actually reported.
-    ...(account &&
-    account !== SYSTEM_PROFILE_ID &&
-    accountProfiles.some((profile) => profile.id === account)
-      ? { account }
+    ...(pickedOption &&
+    pickedOption.id !== SYSTEM_PROFILE_ID &&
+    pickedOption.agent === agent
+      ? { account: pickedOption.id }
       : {}),
   })
 
@@ -350,9 +358,32 @@ export function useLaunchOptions({
     mcpServerIds,
     setMcpServerIds,
     toggleMcpServer,
-    accountProfiles,
-    account,
-    setAccount,
+    accountOptions,
+    accountKey,
+    setAccountKey,
     buildOptions,
   }
+}
+
+/** EXP-872: the device's flattened logins, or — for a machine that reports
+ * none at all (a build before profiles, a heartbeat not landed yet) — one
+ * ambient option per runnable agent, labelled by the agent's name, the
+ * device's default agent first. */
+export function accountOptionsOf(
+  device: SteerDevice | undefined
+): AccountOption[] {
+  if (!device) return []
+  const flat = flattenAccounts(device)
+  if (flat.length > 0) return flat
+  const agents = deviceAgentIds(device)
+  const preferred = deviceDefaultAgent(device) ?? agents[0]
+  return agents
+    .map((agent) => ({
+      id: SYSTEM_PROFILE_ID,
+      agent: agent as AccountOption[`agent`],
+      email: agentLabel(agent),
+      isDeviceDefault: agent === preferred,
+      health: `unknown` as const,
+    }))
+    .sort((a, b) => Number(b.isDeviceDefault) - Number(a.isDeviceDefault))
 }

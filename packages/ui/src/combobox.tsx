@@ -446,13 +446,16 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
       size="sm"
       disabled={disabled}
       className={cn(
-        `h-8 w-full justify-between font-normal`,
+        // EXP-993: `overflow-hidden` + a growing, shrinkable summary — a long
+        // pull-request title used to spill out of the composer's PR field on
+        // both sides instead of truncating inside it.
+        `h-8 w-full justify-between overflow-hidden font-normal`,
         GLASS_SELECT_TRIGGER,
         nothingPicked && `text-muted-foreground`,
         className
       )}
     >
-      <span className="min-w-0 truncate">{summary}</span>
+      <span className="min-w-0 flex-1 truncate text-left">{summary}</span>
       <ChevronGlyph aria-hidden className="size-3.5 shrink-0 opacity-50" />
     </Button>
   ) : (
