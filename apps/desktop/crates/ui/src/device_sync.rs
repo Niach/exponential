@@ -492,13 +492,19 @@ fn beat(
     // which is why this only ever runs here, on the background executor) and
     // attach the result only when it CHANGED. `agent_usage_at` is stamped on
     // every accepted write, and that column is synced to every client.
-    let mut agent_status = snapshot.doctor.as_ref().map(|report| {
-        coding::agent_usage::collect_if_due(
-            &snapshot.data_dir,
-            &snapshot.settings,
-            report,
-            now_unix_secs(),
-        )
+    //
+    // EXP-951: a shots capture (`EXP_DEV_AGENT_ACCOUNT`) never probes at all
+    // and reports the demo accounts + usage instead — the capture host's row
+    // is photographed on the Agents screen.
+    let mut agent_status = crate::device_settings::dev_agent_status().or_else(|| {
+        snapshot.doctor.as_ref().map(|report| {
+            coding::agent_usage::collect_if_due(
+                &snapshot.data_dir,
+                &snapshot.settings,
+                report,
+                now_unix_secs(),
+            )
+        })
     });
     let mut writes = pending_status_writes(agent_status.as_ref(), sent_status);
     // EXP-792: the MCP readiness sweep (a `listForDevice` copy every 5 min,
