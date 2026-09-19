@@ -205,11 +205,14 @@ impl Screen {
     }
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
-    /// detail opened from it inherits. The five list screens are the Agent
-    /// page (its Running/Past rows), a board, the Inbox, Support and Reviews;
-    /// everything else — Settings, Devices, Actions, Automations, Getting
-    /// started, Files, Source Control, a terminal, any detail — is
-    /// CONTEXT-FREE and leaves the rail up.
+    /// detail opened from it inherits. The list screens are a board, the
+    /// Inbox, Support, Reviews and the Automations log; everything else —
+    /// Settings, Devices, Actions, Getting started, Files, Source Control, a
+    /// terminal, any detail — is CONTEXT-FREE and leaves the rail up.
+    ///
+    /// EXP-923: the Agent page is NOT one any more. Its Running rows moved to
+    /// the rail and its Recent ones behind the history button, so the page is
+    /// a composer — it carries the list it was reached from and lends none.
     pub(crate) fn list_origin(&self) -> Option<TabOrigin> {
         use crate::sidebar::ToolWindow;
         let tool = match self {
@@ -228,7 +231,6 @@ impl Screen {
                 })
             }
             Screen::Support => ToolWindow::Support,
-            Screen::Chat => ToolWindow::Sessions,
             Screen::Reviews => ToolWindow::Reviews,
             // EXP-862: the Automations page's run log is a list like any
             // other — a run opened from it keeps it in the left column.
@@ -281,6 +283,11 @@ pub(crate) enum PendingOrigin {
     /// is not a list, so the detail gets none — whatever screen happened to be
     /// up before must not lend it one.
     Rail,
+    /// EXP-923: opened from the rail's RUNNING section. Like [`Self::Rail`]
+    /// (no list), and additionally NO TAB: a live run is reachable from the
+    /// sidebar for as long as it runs, so a chip for it would be a second
+    /// copy of the same row that the run's end then leaves behind.
+    LiveRail,
 }
 
 /// EXP-851: the ONE rule for which LIST the left column shows beside a
@@ -526,6 +533,11 @@ pub struct Navigation {
     /// (and the dev `chat?…` route); cleared wherever `pending_origin` is,
     /// so a tab click or go-back never replays a stale seed.
     pending_chat_seed: Option<ChatSeed>,
+    /// EXP-923: the Agent page's history panel is showing
+    /// (`shell::LeftOccupant::RecentRuns`). Per window, never persisted, and
+    /// cleared by every screen change — the panel opens on the Chat screen,
+    /// by its own button, and nowhere else.
+    recent_runs: bool,
 }
 
 impl Navigation {
@@ -556,6 +568,7 @@ impl Navigation {
                 .map(|id| id.trim().to_string())
                 .filter(|id| !id.is_empty()),
             pending_origin,
+            recent_runs: false,
             // DEV-ONLY (EXP-825): `EXP_DEV_SCREEN='chat?issues=a,b&action=…'`
             // seeds the composer the way a play button would, so a capture
             // run photographs the chips without synthetic input.
@@ -612,6 +625,8 @@ impl Navigation {
         self.screen = Some(previous.clone());
         self.pending_origin = None;
         self.pending_chat_seed = None;
+        // EXP-923: the history panel closes with the screen it was opened on.
+        self.recent_runs = false;
         Some(previous)
     }
 
@@ -636,6 +651,8 @@ impl Navigation {
         // A real navigation forks history: the forward stack is gone.
         self.forward_stack.clear();
         self.pending_origin = Some(origin);
+        // EXP-923: the history panel closes with the screen it was opened on.
+        self.recent_runs = false;
     }
 
     /// The pure rule behind [`go_forward`]: pop the forward stack, park the
@@ -648,6 +665,8 @@ impl Navigation {
         self.screen = Some(next.clone());
         self.pending_origin = None;
         self.pending_chat_seed = None;
+        // EXP-923: the history panel closes with the screen it was opened on.
+        self.recent_runs = false;
         Some(next)
     }
 }
@@ -991,6 +1010,13 @@ pub(crate) fn navigate_from_rail(window: &Window, cx: &mut App, screen: Screen) 
     navigate_inner(window, cx, screen, PendingOrigin::Rail);
 }
 
+/// EXP-923: [`navigate_from_rail`] for the rail's RUNNING rows — no list AND
+/// no tab. The screens panel honours the marker by reusing an existing tab if
+/// the work already has one and opening none if it does not.
+pub(crate) fn navigate_from_live_rail(window: &Window, cx: &mut App, screen: Screen) {
+    navigate_inner(window, cx, screen, PendingOrigin::LiveRail);
+}
+
 /// Open an issue's detail LANDING FULLY SCOPED on its board (EXP-510): the
 /// board becomes the window's active one and the detail's left column is its
 /// board list, EXPLICITLY — for the paths where nothing on screen names the
@@ -1204,8 +1230,31 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
             nav.screen = screen;
             nav.pending_origin = None;
             nav.pending_chat_seed = None;
+            // EXP-923: the history panel belongs to the Chat screen you
+            // opened it on — leaving closes it.
+            nav.recent_runs = false;
             cx.notify();
         }
+    });
+}
+
+/// EXP-923 — whether this window's Agent page is showing its Recent-runs
+/// panel ([`crate::shell::LeftOccupant::RecentRuns`]).
+pub(crate) fn recent_runs_open(window: &Window, cx: &App) -> bool {
+    nav_for_window_id(window.window_handle().window_id(), cx)
+        .is_some_and(|nav| nav.read(cx).recent_runs)
+}
+
+/// EXP-923 — the Agent page's history button: show the Recent-runs panel, or
+/// put it away. Not a navigation (the screen never changes), so it flips the
+/// flag the occupant rule reads and nothing else.
+pub(crate) fn toggle_recent_runs(window: &Window, cx: &mut App) {
+    let Some(nav) = nav_for_window_readonly(window, cx) else {
+        return;
+    };
+    nav.update(cx, |nav, cx| {
+        nav.recent_runs = !nav.recent_runs;
+        cx.notify();
     });
 }
 
@@ -1863,7 +1912,6 @@ mod tests {
         );
         for (screen, tool) in [
             (Screen::Support, ToolWindow::Support),
-            (Screen::Chat, ToolWindow::Sessions),
             (Screen::Reviews, ToolWindow::Reviews),
             (Screen::Automations, ToolWindow::Automations),
         ] {
@@ -1874,6 +1922,8 @@ mod tests {
             Screen::Devices,
             Screen::Drafts,
             Screen::Actions,
+            // EXP-923: the Agent page is a composer, not a list.
+            Screen::Chat,
             Screen::Files,
             Screen::SourceControl,
             Screen::GettingStarted {
@@ -1939,12 +1989,10 @@ mod tests {
                 .map(|origin| origin.tool),
             Some(ToolWindow::Support)
         );
-        // The Agent page reached from the RAIL (carrying nothing) → a session:
-        // its own sessions list comes along.
-        assert_eq!(
-            derive_origin(Some(&Screen::Chat), None, &session).map(|origin| origin.tool),
-            Some(ToolWindow::Sessions)
-        );
+        // EXP-923: the Agent page reached from the RAIL (carrying nothing) →
+        // a session: NO list. Its sessions rows moved to the rail and behind
+        // the history button, so the page is a composer and lends nothing.
+        assert_eq!(derive_origin(Some(&Screen::Chat), None, &session), None);
         // … but reached from an issue that sits beside its board, the Agent
         // page CARRIES that board, and so does the run it starts (EXP-851's
         // start-coding chain: board → issue → Chat → session).
@@ -1971,11 +2019,11 @@ mod tests {
         );
         // … and a detail with no list of its own hands on nothing.
         assert_eq!(derive_origin(Some(&issue), None, &session), None);
-        // EXP-890: a run opened from the Agent page, going back to it, never
-        // hands the page its OWN sessions list (the doubled list whose back
-        // row went nowhere); a board the run carried still comes along.
-        let sessions = Screen::Chat.list_origin().unwrap();
-        assert_eq!(derive_origin(Some(&session), Some(sessions), &Screen::Chat), None);
+        // EXP-923: the Agent page has no list of its own to hand back (its
+        // rows moved to the rail and the history panel), so a run going back
+        // to it lands on the rail — while a board the run carried still
+        // comes along.
+        assert_eq!(derive_origin(Some(&session), None, &Screen::Chat), None);
         assert_eq!(
             derive_origin(Some(&session), Some(board.clone()), &Screen::Chat),
             Some(board.clone())

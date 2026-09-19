@@ -262,6 +262,23 @@ class WorkFacesTest {
         )
     }
 
+    // EXP-935 — an account switch (or a Resume) ends the live run a moment
+    // before its successor syncs; the screen must WAIT for it instead of
+    // popping to the list.
+    @Test
+    fun `an issueless run pops back only once nothing is landing in its place`() {
+        // The plain end of a chat / batch run: back to the list.
+        assertTrue(shouldAutoBack(ended = true, wasLive = true, issueId = null, continuationPending = false))
+        // A switch / resume in flight holds the screen on the run.
+        assertFalse(shouldAutoBack(ended = true, wasLive = true, issueId = null, continuationPending = true))
+        // An issue-bound subject never pops — the pill flips to Resume.
+        assertFalse(shouldAutoBack(ended = true, wasLive = true, issueId = "i", continuationPending = false))
+        // Opened straight onto an ended run: no live edge, no pop.
+        assertFalse(shouldAutoBack(ended = true, wasLive = false, issueId = null, continuationPending = false))
+        // Still running.
+        assertFalse(shouldAutoBack(ended = false, wasLive = true, issueId = null, continuationPending = false))
+    }
+
     // EXP-934 — mirrored by web `work-faces.test.ts` and iOS `WorkFacesTests`.
     @Test
     fun `shows the context menu on the issue face alone`() {

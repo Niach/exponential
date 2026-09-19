@@ -200,6 +200,7 @@ impl ReviewsView {
         &self,
         entry: &queries::ReviewEntry,
         has_children: bool,
+        guides: &domain::tree_guides::Guides,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let issue = entry.representative();
@@ -404,11 +405,16 @@ impl ReviewsView {
             .items_center()
             .w_full()
             .min_w_0()
+            .relative()
             .px_3()
             .py_2p5()
             // EXP-897: 14px per stack level — the sessions lists' indent.
-            .pl(gpui::px(12. + 14. * entry.depth as f32))
+            // EXP-965: and the connector that indent's gutter carries.
+            .pl(gpui::px(12. + crate::tree_guides::LEVEL_PITCH * entry.depth as f32))
             .gap_2()
+            // EXP-965: the stack's rows stack FLUSH inside their board block
+            // (the `v_flex` carries no gap), so there is nothing to bridge.
+            .children(crate::tree_guides::guide_layer(guides, 12., 0.))
             .when(selected, |this| this.bg(row_active))
             .hover(move |this| this.bg(row_hover))
             .cursor_pointer()
@@ -962,7 +968,11 @@ impl Render for ReviewsView {
                     |entry| entry.representative().id.as_str(),
                     |entry| entry.depth,
                 );
-                for entry in visible.iter() {
+                // EXP-965: the connector, off the VISIBLE depth sequence.
+                let guides = domain::tree_guides::guides_for(
+                    &visible.iter().map(|entry| entry.depth).collect::<Vec<_>>(),
+                );
+                for (index, entry) in visible.iter().enumerate() {
                     // A parent is a row the NEXT one in tree order nests under
                     // (the fold hides the subtree, so read it off the group).
                     let has_children = group
@@ -971,7 +981,12 @@ impl Render for ReviewsView {
                         .skip_while(|row| row.representative().id != entry.representative().id)
                         .nth(1)
                         .is_some_and(|next| next.depth > entry.depth);
-                    block = block.child(self.review_row(entry, has_children, cx));
+                    block = block.child(self.review_row(
+                        entry,
+                        has_children,
+                        &guides.get(index).cloned().unwrap_or_default(),
+                        cx,
+                    ));
                 }
                 children.push(block.into_any_element());
             }

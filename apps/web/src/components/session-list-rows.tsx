@@ -1,4 +1,11 @@
-import { conceptIcon, ListRow } from "@exp/ui"
+import {
+  conceptIcon,
+  ListRow,
+  TREE_BASE,
+  TREE_INDENT,
+  TreeGuides,
+  type TreeGuide,
+} from "@exp/ui"
 import {
   sessionAgentCaption,
   sessionDisplayState,
@@ -38,6 +45,7 @@ const TONE_CLASS: Record<SessionStatusTone, string> = {
 export function RunningSessionRow({
   row,
   depth = 0,
+  guide = null,
   active = false,
   expandable = false,
   expanded = true,
@@ -47,6 +55,8 @@ export function RunningSessionRow({
   row: SessionListRow
   /** Nesting depth under a parent run — 14px of indent per level. */
   depth?: number
+  /** EXP-965: this row's connector geometry (`treeGuides(depths)[index]`). */
+  guide?: TreeGuide | null
   active?: boolean
   /** EXP-849: this run started others — the row carries a fold chevron. */
   expandable?: boolean
@@ -78,11 +88,12 @@ export function RunningSessionRow({
       interactive
       active={active}
       onClick={onOpen}
-      className={cn(`gap-2 px-3 py-2.5`, paused && `opacity-60`)}
-      style={depth > 0 ? { paddingLeft: `${12 + depth * 14}px` } : undefined}
+      className={cn(`relative gap-2 px-3 py-2.5`, paused && `opacity-60`)}
+      style={{ paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
       title={paused ? `${device.label ?? `The device`} is offline` : undefined}
       data-testid={`session-row-${issue?.identifier ?? session.id}`}
     >
+      <TreeGuides guide={guide} />
       {expandable && (
         <span
           role="button"
@@ -143,6 +154,7 @@ export function PastSessionRow({
   identifier,
   byline,
   depth = 0,
+  guide = null,
   active = false,
   expandable = false,
   expanded = true,
@@ -158,6 +170,8 @@ export function PastSessionRow({
   byline: string
   /** Nesting depth under a parent run — 14px of indent per level. */
   depth?: number
+  /** EXP-965: this row's connector geometry (`treeGuides(depths)[index]`). */
+  guide?: TreeGuide | null
   active?: boolean
   /** EXP-849: this run started others — the row carries a fold chevron. */
   expandable?: boolean
@@ -170,10 +184,11 @@ export function PastSessionRow({
       interactive
       active={active}
       onClick={onOpen}
-      className="gap-2 px-3 py-2.5"
-      style={depth > 0 ? { paddingLeft: `${12 + depth * 14}px` } : undefined}
+      className="relative gap-2 px-3 py-2.5"
+      style={{ paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
       data-testid={`session-row-${sessionId}`}
     >
+      <TreeGuides guide={guide} />
       {expandable && (
         <span
           role="button"

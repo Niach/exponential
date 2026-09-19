@@ -23,6 +23,10 @@ import {
   normalizeIssueDescriptionText,
 } from "@/lib/domain"
 import {
+  descriptionSaves,
+  resolveIncomingDescription,
+} from "@/lib/unechoed-saves"
+import {
   uploadIssueFile,
   uploadIssueImageFile,
 } from "@/lib/storage/issue-image-upload"
@@ -154,7 +158,24 @@ export function IssueDetailView({
   const editorRef = useRef<MarkdownEditorRef>(null)
   // EXP-894: the body comes back where it was left after a work-tab switch.
   const bodyScrollRef = useRememberedScroll(issueMemoryOwner(issue.id), `scroll`)
-  const descriptionRef = useRef(getIssueDescriptionText(issue.description))
+
+  // EXP-928: the synced row lags its own save by a round trip, and this view
+  // is REUSED across issue switches (only the `[issue.id]` effect reseeds it)
+  // — leaving an issue right after a blur save and coming straight back read
+  // the pre-save row and reverted the save on screen, and typing on top of
+  // that made the next blur write the old text plus the new typing over it.
+  // `descriptionSaves` answers what the issue really holds until the echo (or
+  // a newer remote write) lands, so EVERY reader below — the issue-switch
+  // reset, the sync effect, the blur handler — sees the saved text instead of
+  // the stale row.
+  const incomingDescription = resolveIncomingDescription(
+    descriptionSaves,
+    issue.id,
+    getIssueDescriptionText(issue.description)
+  )
+  const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
+
+  const descriptionRef = useRef(incomingDescription)
   // Two baselines in two coordinate systems, both always normalized. The
   // editor re-serializes whatever it parses, and markdown authored on other
   // clients (native apps, MCP, the widget) need not round-trip
@@ -167,18 +188,12 @@ export function IssueDetailView({
   //   unsaved edits.
   // - syncedDescriptionRef: RAW synced text this view has accounted for —
   //   compared against the incoming value to detect new remote content.
-  const lastSavedDescriptionRef = useRef(
-    normalizeIssueDescriptionText(getIssueDescriptionText(issue.description))
-  )
-  const syncedDescriptionRef = useRef(
-    normalizeIssueDescriptionText(getIssueDescriptionText(issue.description))
-  )
+  const lastSavedDescriptionRef = useRef(normalizedIncoming)
+  const syncedDescriptionRef = useRef(normalizedIncoming)
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
 
-  const [description, setDescription] = useState(
-    getIssueDescriptionText(issue.description)
-  )
+  const [description, setDescription] = useState(incomingDescription)
   const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
   // EXP-824: the narrated progress of a media upload ("Uploading clip.mp4… 42%").
@@ -194,9 +209,6 @@ export function IssueDetailView({
   // the issue's label ids and the duplicate-status picker.
   const handlers = useIssuePropertyHandlers({ issue, teamSlug, readOnly })
   const { issueLabelIds, duplicatePicker } = handlers
-
-  const incomingDescription = getIssueDescriptionText(issue.description)
-  const normalizedIncoming = normalizeIssueDescriptionText(incomingDescription)
 
   // Destructive replace of the local editor content with a synced value —
   // setMarkdown resets the caret, so callers must ensure there are no unsaved
@@ -267,10 +279,25 @@ export function IssueDetailView({
     }
     const saveTask = async () => {
       const baselineAtSaveStart = lastSavedDescriptionRef.current
-      await trpc.issues.update.mutate({
-        id: issue.id,
-        description: normalizedDescription ? normalizedDescription : null,
-      })
+      // EXP-928: the row keeps reading what this save REPLACED until the echo
+      // lands — record both texts it may still show (the synced value and the
+      // baseline this editor was sitting on) so every read of the issue in
+      // between resolves to the saved text instead.
+      descriptionSaves.record(issue.id, normalizedDescription, [
+        syncedDescriptionRef.current,
+        baselineAtSaveStart,
+      ])
+      try {
+        await trpc.issues.update.mutate({
+          id: issue.id,
+          description: normalizedDescription ? normalizedDescription : null,
+        })
+      } catch (error) {
+        // A failed write has no echo to retire its entry, and leaving it
+        // would keep showing text the server never took.
+        descriptionSaves.retire(issue.id, normalizedDescription)
+        throw error
+      }
       // A remote apply, an echo settle, or an issue switch may have moved the
       // baselines while the mutate was in flight — rewinding them to this
       // save would mark the newer editor content as unsaved local edits.

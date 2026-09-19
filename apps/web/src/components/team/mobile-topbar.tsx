@@ -10,6 +10,10 @@ import {
   DropdownMenuTrigger,
   UserAvatar,
   BoardGlyph,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
 } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
@@ -19,6 +23,7 @@ import { openFeedbackWidget } from "@/components/feedback-widget-provider"
 import { useFeedbackWidgetAvailable } from "@/components/feedback-button"
 import { ChangelogSheet } from "@/components/whats-new"
 import { BoardSwitcherSheet } from "@/components/team/board-switcher-sheet"
+import { RecentRunsList } from "@/components/team/recent-runs-nav"
 import {
   resolveBoardTarget,
   useMobileChromeVisible,
@@ -33,6 +38,8 @@ const NavReportBugIcon = conceptIcon(`nav-report-bug`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
+// EXP-923: the run-history glyph, the same concept the IDE's toggle wears.
+const RecentRunsIcon = conceptIcon(`settings-sessions`)
 
 interface TeamMobileTopbarProps {
   teamSlug: string
@@ -60,11 +67,16 @@ export function TeamMobileTopbar({
   const { boardSlug } = useParams({ strict: false })
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
+  // EXP-923: the Agent page's Recent runs, in a bottom sheet — the phone's
+  // twin of the md+ page's history panel. The page itself is the composer
+  // over what is RUNNING; the history is one tap away, never in the way.
+  const [recentOpen, setRecentOpen] = useState(false)
   const feedbackAvailable = useFeedbackWidgetAvailable()
 
   // EXP-851: the Agent page joined the titled surfaces — it is a LIST screen
   // (composer over Running/Recent), not a detail, so it wears this bar like the
   // others instead of a header of its own.
+  const onAgent = Boolean(matchRoute({ to: `/t/$teamSlug/agent`, fuzzy: true }))
   const sectionTitle = matchRoute({
     to: `/t/$teamSlug/inbox`,
     fuzzy: true,
@@ -111,6 +123,18 @@ export function TeamMobileTopbar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {onAgent && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 text-muted-foreground"
+            aria-label="Recent runs"
+            data-testid="recent-runs-sheet-button"
+            onClick={() => setRecentOpen(true)}
+          >
+            <RecentRunsIcon className="size-4" />
+          </Button>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -176,6 +200,25 @@ export function TeamMobileTopbar({
         activeBoardSlug={boardSlug}
       />
       <ChangelogSheet open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
+      <Sheet open={recentOpen} onOpenChange={setRecentOpen}>
+        <SheetContent
+          side="bottom"
+          className="gap-0 pb-[max(1rem,env(safe-area-inset-bottom))]"
+        >
+          <SheetHeader className="pb-2">
+            <SheetTitle>Recent</SheetTitle>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+            {team && (
+              <RecentRunsList
+                teamId={team.id}
+                currentUserId={session?.user?.id}
+                onOpened={() => setRecentOpen(false)}
+              />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </header>
   )
 }

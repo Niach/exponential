@@ -597,6 +597,9 @@ struct State {
     local_only_command: bool,
     /// The plan a "clear context" approval is waiting to re-prompt with.
     pending_plan_restart: Option<PlanRestart>,
+    /// EXP-954: the newest `plans/*.md` the agent wrote — the plan an
+    /// `ExitPlanMode` with no `plan` input is approving.
+    plan_file: Option<PlanFile>,
     /// Set while the `/clear` the restart injects has not reported its own
     /// `result` yet. Discriminated by output tokens rather than by counting
     /// results: a local command does no model work, so a result with tokens is
@@ -869,6 +872,18 @@ struct PlanTask {
 struct PlanRestart {
     plan: String,
     mode: String,
+}
+
+/// EXP-954: the plan file the CLI wrote last. The current claude writes its
+/// plan to `{CLAUDE_CONFIG_DIR}/plans/<slug>.md` with an ordinary `Write` and
+/// then raises `ExitPlanMode` with an EMPTY input, so the plan markdown the
+/// approval card shows has to come from here.
+struct PlanFile {
+    path: PathBuf,
+    /// The `content` the `Write` call carried, when the stream held it (a
+    /// resumed conversation replays no tool input, so the file is read from
+    /// disk instead).
+    text: Option<String>,
 }
 
 impl ClaudeSession {
@@ -2168,6 +2183,28 @@ impl ClaudeSession {
                             )),
                         );
                     }
+                } else {
+                    // EXP-969: a manual `/compact` does not always land a
+                    // `compact_boundary` — the status frame simply stops
+                    // saying "compacting". Without this edge the host's queue
+                    // gate stays shut for the rest of the run and every
+                    // message typed behind the fold is held forever.
+                    let closed = self.lock().compaction.take();
+                    if let Some(id) = closed {
+                        let mut meta = Map::new();
+                        meta.insert(
+                            crate::local::COMPACTION_TRIGGER_META_KEY.to_string(),
+                            json!("manual"),
+                        );
+                        self.notify_meta(
+                            cx,
+                            SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                                CompactionId::new(id),
+                                CompactionStatus::Completed,
+                            )),
+                            meta,
+                        );
+                    }
                 }
             }
             SystemSubtype::CompactBoundary => {
@@ -2845,6 +2882,7 @@ impl ClaudeSession {
         let Some(id) = block.get("id").and_then(Value::as_str) else { return };
         let name = block.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
         let input = block.get("input").cloned().unwrap_or(Value::Null);
+        self.remember_plan_file(&name, &input);
 
         // TodoWrite IS the plan lane, and the Task* tools render as plan
         // entries when their results arrive — neither surfaces a tool call.
@@ -3394,6 +3432,52 @@ impl ClaudeSession {
         }
     }
 
+    /// EXP-954: remember a `Write` into a `plans/*.md` file — the plan the
+    /// `ExitPlanMode` that follows it is asking about. The newest one wins;
+    /// nothing else about the call is touched (it still surfaces as an
+    /// ordinary tool card).
+    fn remember_plan_file(&self, name: &str, input: &Value) {
+        if name != "Write" {
+            return;
+        }
+        let Some(path) = input.get("file_path").and_then(Value::as_str) else { return };
+        let path = PathBuf::from(path);
+        if !is_plan_file(&path) {
+            return;
+        }
+        let text = input
+            .get("content")
+            .and_then(Value::as_str)
+            .filter(|content| !content.trim().is_empty())
+            .map(str::to_string);
+        self.lock().plan_file = Some(PlanFile { path, text });
+    }
+
+    /// EXP-954: the plan markdown for an `ExitPlanMode` whose input carries
+    /// none — the content of the plan file the agent just wrote, read off
+    /// disk when the stream never held it (a resumed conversation). `None`
+    /// when this session has seen no plan file at all: the card then reads
+    /// as it did before, title only.
+    fn recovered_plan(&self, input: &Value) -> Option<String> {
+        let has_plan = input
+            .get("plan")
+            .and_then(Value::as_str)
+            .is_some_and(|plan| !plan.trim().is_empty());
+        if has_plan {
+            return None;
+        }
+        let (path, text) = {
+            let state = self.lock();
+            let file = state.plan_file.as_ref()?;
+            (file.path.clone(), file.text.clone())
+        };
+        let plan = match text {
+            Some(text) => text,
+            None => std::fs::read_to_string(&path).ok()?,
+        };
+        (!plan.trim().is_empty()).then_some(plan)
+    }
+
     async fn request_permission(
         self: &Arc<Self>,
         cx: &ConnectionTo<Client>,
@@ -3401,6 +3485,20 @@ impl ClaudeSession {
         tool_use_id: &str,
     ) -> PermissionAnswer {
         let exit_plan = request.is_exit_plan_mode();
+        // EXP-954: an ExitPlanMode with an EMPTY input is the current CLI
+        // approving the plan FILE it wrote a moment ago. Patch the recovered
+        // markdown into the request once, here: the card body, the
+        // fresh-context option and the re-prompt a clear-context approval
+        // sends all read the plan from this one place.
+        let patched = exit_plan
+            .then(|| self.recovered_plan(&request.input))
+            .flatten()
+            .map(|plan| {
+                let mut patched = request.clone();
+                patched.input = with_plan(&request.input, plan);
+                patched
+            });
+        let request = patched.as_ref().unwrap_or(request);
         let info = tool_info(&request.tool_name, &request.input, self.cwd());
         let options = if exit_plan {
             exit_plan_options(&request.input)
@@ -4598,6 +4696,31 @@ fn permission_answer(
         }
     };
     PermissionAnswer::plain(response)
+}
+
+/// EXP-954: does this path name a plan the CLI wrote for itself — any
+/// `**/plans/<name>.md` (the current claude puts them under
+/// `{CLAUDE_CONFIG_DIR}/plans/`, which a per-account profile moves)?
+fn is_plan_file(path: &Path) -> bool {
+    let md = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
+    let in_plans = path
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|dir| dir == "plans");
+    md && in_plans
+}
+
+/// EXP-954: the ExitPlanMode input with the recovered plan written into it,
+/// so everything downstream sees the request the CLI used to send.
+fn with_plan(input: &Value, plan: String) -> Value {
+    let mut object = match input {
+        Value::Object(object) => object.clone(),
+        _ => Map::new(),
+    };
+    object.insert("plan".to_string(), Value::String(plan));
+    Value::Object(object)
 }
 
 /// The plan-approval menu. EXP-772: permissions are bypassed in every mode,

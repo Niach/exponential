@@ -887,12 +887,12 @@
       "id": "chat",
       "group": "coding",
       "title": "Agent",
-      "blurb": "The Agent page: the sessions list (running, then past) beside the composer — the ONE launcher since EXP-825 — here empty: a free prompt bound to no issue that needs no repository.",
+      "blurb": "The Agent page: the composer — the ONE launcher since EXP-825 — here empty: a free prompt bound to no issue that needs no repository. EXP-923 moved the runs off the page: what is RUNNING is a section of the sidebar, and the history sits behind the page's own toggle.",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug/agent",
         "anchor": {
-          "text": "Running",
+          "testId": "agent-page",
           "timeoutMs": 30000
         },
         "settleMs": 800
@@ -907,7 +907,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "desktop": "The IDE's Agent rail entry is the same master-detail: the Sessions tool window beside the Chat screen. `EXP_DEV_SCREEN=chat` opens it, and the desktop lane pairs every chat drive with `EXP_DEV_TOOL=agent` the way the rail does."
+        "web": "EXP-923: the page is the COMPOSER alone. My live runs are the sidebar's Running section, and Recent is a panel behind the ghost history button at the page's top-left — so the shot shows a full-width composer, not a list.",
+        "web-mobile": "EXP-923: the phone keeps the Running list under the composer; Recent left the page for the header's history button, which opens it as a bottom sheet.",
+        "desktop": "EXP-923: the IDE's Agent rail entry opens the COMPOSER alone \u2014 the Sessions tool window beside it is gone. My live runs are the rail's own Running section (between the boards and This device), and Recent slides into the left column behind the ghost history button at the page's top-left. `EXP_DEV_SCREEN=chat` opens it."
       },
       "desktop": {
         "drive": {

@@ -7,6 +7,10 @@ import {
   MobilePopoverContent,
   MobilePopoverTrigger,
   Pill,
+  TREE_BASE,
+  TREE_INDENT,
+  TreeGuides,
+  treeGuides,
   useIsMobile,
 } from "@exp/ui"
 import type { Board, CodingSession, Issue } from "@/db/schema"
@@ -26,6 +30,12 @@ import { IssueChip } from "@/components/issue-chip"
 import { PrStateBadge } from "@/components/issue-coding-rows"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { cn } from "@/lib/utils"
+
+// EXP-965: the PR stack's rows sit in a `gap-1.5` column — 0.375rem, which is
+// ~7px at the app's md+ root. The connector bridges that space upwards, and
+// rounding UP simply overdraws a hairline into the row above, which is
+// invisible; rounding down would leave a visible break.
+const STACK_ROW_GAP = 7
 
 // EXP-897 Part 4: the ONE stack/batch badge. A piece of work can be related to
 // other work three ways — a PR STACK (`pr_base_branch`), a BATCH (issues
@@ -326,7 +336,10 @@ export function PrGraphOverlay({
         )}
         <Section label="Runs">
         <div className="flex flex-col">
-          {graph.tree.map(({ session, depth }) => {
+          {(() => {
+            // EXP-965: the connector, off the visible depths.
+            const guides = treeGuides(graph.tree.map((row) => row.depth))
+            return graph.tree.map(({ session, depth }, index) => {
             const issue = session.issueId
               ? issues.find((row) => row.id === session.issueId)
               : undefined
@@ -337,13 +350,14 @@ export function PrGraphOverlay({
               <button
                 key={session.id}
                 type="button"
-                className="flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-glass-active"
-                style={{ paddingLeft: `${12 + depth * 14}px` }}
+                className="relative flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-glass-active"
+                style={{ paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
                 onClick={() => {
                   onClose()
                   openSession(session)
                 }}
               >
+                <TreeGuides guide={guides[index]} />
                 <RunningIndicator
                   state={sessionDisplayState(
                     session,
@@ -358,7 +372,8 @@ export function PrGraphOverlay({
                 <span className="min-w-0 truncate">{identity.subject}</span>
               </button>
             )
-          })}
+            })
+          })()}
         </div>
         </Section>
       </div>
@@ -373,17 +388,29 @@ export function PrGraphOverlay({
     <div className="flex flex-col gap-3">
       <Section label="Pull requests">
         <div className="flex flex-col gap-1.5">
-          {(graph.stack.length > 0
-            ? graph.stack
-            : graph.entry
-              ? [{ entry: graph.entry, depth: 0 }]
-              : []
-          ).map(({ entry, depth }) => (
+          {(() => {
+            const rows =
+              graph.stack.length > 0
+                ? graph.stack
+                : graph.entry
+                  ? [{ entry: graph.entry, depth: 0 }]
+                  : []
+            // EXP-965: the stack nests from the container's own edge, so the
+            // gutters start at 0 rather than at a list row's 12px padding —
+            // and it is the ONE guide site whose rows are SPACED (`gap-1.5`),
+            // so every line bridges that gap upwards (`STACK_ROW_GAP`).
+            const guides = treeGuides(rows.map((row) => row.depth))
+            return rows.map(({ entry, depth }, index) => (
             <div
               key={entry.key}
-              className="flex flex-col gap-1"
-              style={{ paddingLeft: `${depth * 14}px` }}
+              className="relative flex flex-col gap-1"
+              style={{ paddingLeft: `${depth * TREE_INDENT}px` }}
             >
+              <TreeGuides
+                guide={guides[index]}
+                base={0}
+                gap={STACK_ROW_GAP}
+              />
               <Link
                 to="/t/$teamSlug/reviews/$issueIdentifier"
                 params={{
@@ -409,7 +436,8 @@ export function PrGraphOverlay({
                 </div>
               )}
             </div>
-          ))}
+            ))
+          })()}
         </div>
       </Section>
       {onMergeStack && bottom && top && graph.stack.length > 1 && (

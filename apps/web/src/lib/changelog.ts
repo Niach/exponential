@@ -25,6 +25,21 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-19-running-in-the-sidebar`,
+    date: `2026-09-19`,
+    title: `Running runs live in the sidebar again`,
+    summary: `Live runs sit in a Running section of the sidebar with their agent's mark, the Agent page is a clean composer with Recent behind a history button, nested lists draw a connector, and a compacting run no longer swallows a queued message.`,
+    body: `- **Running in the sidebar**: on the web and the desktop app your live runs list under the boards in a Running section, each with the Claude or Codex mark, a yellow badge when the agent needs input, the issue number and title, and the host device's icon on the right (hover it for the name); the compact rail shows only the marks. A live run no longer opens a top tab: it highlights in the sidebar, an issue tab you already had stays and highlights with it, and a run that ends by merging its PR closes its tab.
+- **A clean Agent page**: the composer stands alone; the history button in the top left slides in the Recent runs as a plain list. On phones the same button sits top right in the header and opens a Recent sheet; Recent is never folded anywhere anymore.
+- **Nested lists**: child runs and stacked pull requests hang off their parent on a connector line on every client, in the sidebar, the Agent page, Reviews and the run's stack overlay.
+- **Plan cards**: a plan the agent wrote to a file shows in full on every client again instead of just "Ready to code?".
+- **Account switch**: after switching a run's account the agent picks its work back up on its own, and iOS and Android stay on the run instead of dropping to the list.
+- **Compaction**: a message sent while the agent compacts its context is delivered once the compaction ends, even when the end never announces itself.
+- **Usage**: a login's usage refreshes once a window has reset, at least every six hours, and a refresh after a reset fetches fresh numbers instead of the pinned reading.
+- **Edits stick**: leaving an issue right after typing its title (desktop) or description (web) and coming straight back shows what you typed, never the old text.
+- **Phones**: the chat and New issue split button shows on every tab, and Android names a stacked run's issues from the same data the stack is built from.`,
+  },
+  {
     id: `2026-09-19-phone-switcher-no-pins`,
     date: `2026-09-19`,
     title: `No Pinned group in the phone board switcher`,

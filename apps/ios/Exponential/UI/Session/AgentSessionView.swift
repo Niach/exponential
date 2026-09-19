@@ -62,9 +62,10 @@ struct AgentSessionView<Switcher: View>: View {
     let face: WorkFaceKind
     /// The screen's Stop pill asks; the kill confirm and the model are here.
     @Binding var request: RunRequest?
-    /// A resumed / switched run's continuation row landed — the screen swaps
-    /// it in place (EXP-773/849 pushed a second screen).
-    let onContinuation: (StartedRunWatcher.StartedSession) -> Void
+    /// EXP-935: the SCREEN's continuation hold — a Resume or an account
+    /// switch sends through it, and the screen (which outlives every face)
+    /// owns the watch and swaps the successor in.
+    let continuation: RunContinuation
     @ViewBuilder let switcher: () -> Switcher
 
     @Environment(AppDependencies.self) private var deps
@@ -87,10 +88,8 @@ struct AgentSessionView<Switcher: View>: View {
     /// recovery run can. A conflict swaps the Merge pill for "Fix conflicts".
     @State private var mergeFailure: MergeFailure?
     // "Fix conflicts" (EXP-323 rails, EXP-706 on this screen): the builtin
-    // recovery run — EXP-825: NAVIGATION into the Agent page composer. The
-    // watcher serves the account switch (EXP-849).
+    // recovery run — EXP-825: NAVIGATION into the Agent page composer.
     @State private var steerEnabled = false
-    @State private var startWatcher = StartedRunWatcher()
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
@@ -101,10 +100,6 @@ struct AgentSessionView<Switcher: View>: View {
     @State private var agentTab: String?
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotoPicker = false
-    /// EXP-849: a "switch account" is on the wire. It IS a resume naming
-    /// another login, so it rides the same watcher and hands the run it
-    /// produces — the continuation of this one — to the screen.
-    @State private var switchingAccount = false
     /// EXP-724: the draft the `/` menu was dismissed at (Escape / an accepted
     /// row). Keyed on the DRAFT, not a bool, so the menu comes back on its own
     /// the moment the text changes and no `onChange` has to race the accept.
@@ -357,7 +352,6 @@ struct AgentSessionView<Switcher: View>: View {
                 // NOT a teardown: the store keeps the socket up while the session
                 // runs and retires it once it is over (or falls off the cap).
                 deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
-                startWatcher.stop()
                 // EXP-802: the DRAFT outlives this screen, its focus must not —
                 // the editor model would otherwise hand first responder straight
                 // back on return and pop the keyboard over a screen nobody typed
@@ -371,17 +365,10 @@ struct AgentSessionView<Switcher: View>: View {
             }
     }
 
-    /// Sheets, and the continuation hand-off (EXP-849).
+    /// The sheets. EXP-935: the continuation hand-off is the SCREEN's — it
+    /// watches `RunContinuation` itself, so a face switch cannot drop it.
     private func withSheets(_ content: some View) -> some View {
         content
-            // The desktop picked the switch up — hand the new run to the
-            // screen ONCE, which swaps it in place of this one.
-            .onChange(of: startWatcher.startedSession) { _, started in
-                if let started {
-                    startWatcher.startedSession = nil
-                    onContinuation(started)
-                }
-            }
             // EXP-688: usage lives in its own sheet now — every window the machine
             // reported, grouped, instead of one pinned hairline.
             .sheet(isPresented: $showUsageSheet) {
@@ -401,7 +388,7 @@ struct AgentSessionView<Switcher: View>: View {
                         accounts: model.accountOptions,
                         supportsSwitch: model.supportsAccountSwitch,
                         switchRefusal: { model.accountSwitchRefusal($0) },
-                        switching: switchingAccount,
+                        switching: continuation.isSwitching,
                         onSwitch: { option in
                             showUsageSheet = false
                             switchAccount(model, option)
@@ -491,7 +478,6 @@ struct AgentSessionView<Switcher: View>: View {
         chrome.hasDiff = model.latestDiff != nil
         chrome.canMerge = model.canMerge
         chrome.canKill = model.canKill
-        chrome.continuationPending = startWatcher.sentCaption != nil || switchingAccount
         return chrome
     }
 
@@ -575,12 +561,12 @@ struct AgentSessionView<Switcher: View>: View {
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if let failure = startWatcher.failure {
+                if let failure = continuation.watcher.failure {
                     Text(failure)
                         .font(.caption2)
                         .foregroundStyle(DesignTokens.Semantic.red)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } else if let caption = startWatcher.sentCaption {
+                } else if let caption = continuation.watcher.sentCaption {
                     Text(caption)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -614,12 +600,14 @@ struct AgentSessionView<Switcher: View>: View {
     /// the screen, which swaps it in as this run's continuation. The wall
     /// notice that prompted the switch goes with it.
     private func switchAccount(_ model: AgentSessionModel, _ option: SessionAccountOption) {
-        guard model.accountSwitchRefusal(option) == nil, !switchingAccount else {
+        guard model.accountSwitchRefusal(option) == nil, !continuation.isPending else {
             return
         }
         guard let device = model.switchDevice else { return }
-        switchingAccount = true
-        startWatcher.sending()
+        // EXP-935: the hold is the screen's and stays up until the successor
+        // lands (or the watch's deadline passes) — not until this call
+        // returns, which is what let the ended edge pop the screen.
+        continuation.sending(.accountSwitch)
         model.clearRateLimit()
         Task {
             do {
@@ -633,7 +621,7 @@ struct AgentSessionView<Switcher: View>: View {
                     // a LIVE run — the ×4 `wireAccount` rule.
                     account: SessionAccountSwitch.wireAccount(option)
                 )
-                startWatcher.begin(
+                continuation.sent(
                     key: .resumed(fromId: session.id),
                     userId: deps.auth.userId,
                     device: device,
@@ -641,9 +629,8 @@ struct AgentSessionView<Switcher: View>: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.userFacingMessage)
+                continuation.failed(error.userFacingMessage)
             }
-            switchingAccount = false
         }
     }
 
@@ -1390,14 +1377,14 @@ struct AgentSessionView<Switcher: View>: View {
         }
         // The switch's own progress (EXP-536): "sent to <machine>", then the
         // continuation swaps in once the desktop picks it up.
-        if let runCaption = startWatcher.sentCaption {
+        if let runCaption = continuation.watcher.sentCaption {
             bannerRow {
                 Text(runCaption)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }
         }
-        if let runError = startWatcher.failure {
+        if let runError = continuation.watcher.failure {
             bannerRow {
                 Text(runError)
                     .font(.caption)

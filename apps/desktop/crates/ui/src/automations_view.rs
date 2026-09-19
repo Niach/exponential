@@ -500,6 +500,11 @@ impl AutomationsView {
             |row| row.facts.session_id(),
             |row| row.depth,
         );
+        // EXP-965: the connector every nested row draws, off the VISIBLE
+        // depth sequence (a folded subtree is not part of the tree on screen).
+        let guides = domain::tree_guides::guides_for(
+            &visible.iter().map(|row| row.depth).collect::<Vec<_>>(),
+        );
         for (index, row) in visible.into_iter().enumerate() {
             let facts = &row.facts;
             let open_id = facts.session_id().to_string();
@@ -515,7 +520,7 @@ impl AutomationsView {
             let element = run_rows::render_run_list_row(
                 "run",
                 index,
-                row.depth,
+                guides.get(index).cloned().unwrap_or_default(),
                 fold,
                 facts.clone(),
                 false,

@@ -47,7 +47,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 // — and Reviews) plus a detached launcher on the right: the Chat circle that
 // opens the Agent page on EVERY top-level surface (the sessions list lives
 // there since EXP-825, so it carries the green live dot the Devices tab used
-// to wear), joined by New issue in one capsule on a board. Search left the
+// to wear), joined by New issue in one capsule — on every tab since EXP-973. Search left the
 // bar in EXP-686: it is a button in the board header now.
 // Overlaid above the NavHost; AppNavHost shows it only on the top-level routes.
 // (Compose has no cheap backdrop blur, so the bar takes the shared OPAQUE glass
@@ -99,7 +99,8 @@ fun BottomNavBar(
     reviewsOpen: Boolean,
     showsSupport: Boolean,
     supportUnread: Boolean,
-    showsCompose: Boolean,
+    /** EXP-973: whether New issue has a board to file onto (it always shows). */
+    composeEnabled: Boolean,
     onIssues: () -> Unit,
     onDevices: () -> Unit,
     onActions: () -> Unit,
@@ -207,17 +208,16 @@ fun BottomNavBar(
         } else {
             AgentsLiveGreen
         }
-        if (showsCompose) {
-            LauncherCapsule(onChat = onChat, onCompose = onCompose, chatDot = agentDot)
-        } else {
-            Fab(
-                icon = ExpIcons.actionChat,
-                contentDescription = "Start chat",
-                testTag = "chat-button",
-                onClick = onChat,
-                dotColor = agentDot,
-            )
-        }
+        // EXP-973: the capsule rides EVERY tab now — New issue was a thing
+        // the reader had to walk back to the board for. With no board in the
+        // team at all its arm dims rather than vanishing, so the launcher
+        // never changes shape under the thumb.
+        LauncherCapsule(
+            onChat = onChat,
+            onCompose = onCompose,
+            chatDot = agentDot,
+            composeEnabled = composeEnabled,
+        )
     }
 }
 
@@ -231,6 +231,8 @@ private fun LauncherCapsule(
     onChat: () -> Unit,
     onCompose: () -> Unit,
     chatDot: Color?,
+    /** EXP-973: false with no board to file onto — the arm dims and no-ops. */
+    composeEnabled: Boolean,
 ) {
     Row(
         modifier = Modifier
@@ -255,9 +257,10 @@ private fun LauncherCapsule(
         )
         LauncherArm(
             icon = ExpIcons.navCreateIssue,
-            contentDescription = "New issue",
+            contentDescription = if (composeEnabled) "New issue" else "New issue (no board)",
             testTag = "compose-button",
             onClick = onCompose,
+            enabled = composeEnabled,
         )
     }
 }
@@ -273,47 +276,20 @@ private fun LauncherArm(
     testTag: String,
     onClick: () -> Unit,
     dotColor: Color? = null,
+    enabled: Boolean = true,
 ) {
     Box(
         modifier = Modifier
             .size(52.dp)
             .testTag(testTag)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon,
             contentDescription = contentDescription,
             modifier = Modifier.size(20.dp),
-            tint = Color.White,
-        )
-        LauncherDot(dotColor)
-    }
-}
-
-@Composable
-private fun Fab(
-    icon: ImageVector,
-    contentDescription: String,
-    testTag: String,
-    onClick: () -> Unit,
-    dotColor: Color? = null,
-) {
-    Box(
-        modifier = Modifier
-            .size(52.dp)
-            .testTag(testTag)
-            .clip(CircleShape)
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
-            tint = Color.White,
+            tint = if (enabled) Color.White else Color.White.copy(alpha = TextEmphasis.Quaternary),
         )
         LauncherDot(dotColor)
     }

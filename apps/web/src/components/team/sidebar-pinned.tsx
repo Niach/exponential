@@ -27,10 +27,10 @@ import { trpc } from "@/lib/trpc-client"
 // entries and Boards, hidden when empty; hovering a row offers Unpin.
 //
 // EXP-877: a pinned SESSION draws nothing any more. A live run of mine is
-// already a top tab (`work-tabs-strip.tsx`) and an ended one belongs to the
-// Agent page's Recent list, so a second copy in the sidebar said the same thing
-// twice. `pinKind.session` stays in the contract and old rows stay in the
-// database — they simply resolve to no row.
+// already listed (EXP-923: the Running section right below this one) and an
+// ended one belongs to the Agent page's Recent list, so a second copy in the
+// sidebar said the same thing twice. `pinKind.session` stays in the contract
+// and old rows stay in the database — they simply resolve to no row.
 
 const UiUnpinIcon = conceptIcon(`ui-unpin`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)

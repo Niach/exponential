@@ -6,6 +6,7 @@ import {
   isContextFree,
   originBoardSlug,
   originLabel,
+  originHasListNav,
   originListNavigation,
   panelOffset,
   parseOrigin,
@@ -291,19 +292,47 @@ describe(`sidebarOccupant`, () => {
     expect(sidebarOccupant(`/t/acme/sessions/s1`, null, `diff`)).toEqual({
       kind: `review`,
     })
+    // EXP-923: the AGENT origin has no list panel any more (the Agent page
+    // is the composer alone), so its other faces keep the main menu.
     expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, `results`)).toEqual({
-      kind: `list`,
-      origin: { kind: `agent` },
+      kind: `main`,
     })
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent`, null)).toEqual({
+    expect(sidebarOccupant(`/t/acme/sessions/s1`, `automations`, `results`)).toEqual({
       kind: `list`,
-      origin: { kind: `agent` },
+      origin: { kind: `automations` },
     })
     // An ISSUE's `?view=diff` is the phone's own face — there is no sidebar
     // beside it, and the panel stays the list.
     expect(
       sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `inbox`, `diff`)
     ).toEqual({ kind: `list`, origin: { kind: `inbox` } })
+  })
+
+  // EXP-923: two origins name where Back goes but bring NO panel — `agent`
+  // (its list is the page's own toggled Recent panel) and `running` (the
+  // sidebar's own section, which lives in the main menu).
+  it(`keeps the main menu for the panel-less origins`, () => {
+    for (const from of [`agent`, `sessions`, `running`]) {
+      expect(sidebarOccupant(`/t/acme/sessions/s1`, from), from).toEqual({
+        kind: `main`,
+      })
+      expect(
+        sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, from),
+        from
+      ).toEqual({ kind: `main` })
+    }
+    // They still parse, so Back and the tabless rule can read them.
+    expect(parseOrigin(`running`)).toEqual({ kind: `running` })
+    expect(formatOrigin({ kind: `running` })).toBe(`running`)
+    expect(originHasListNav({ kind: `running` })).toBe(false)
+    expect(originHasListNav({ kind: `agent` })).toBe(false)
+    expect(originHasListNav({ kind: `inbox` })).toBe(true)
+    // The Running section is not a page: no Back destination of its own.
+    expect(originListNavigation(`acme`, { kind: `running` })).toBeNull()
+    // EXP-923: `running` never travels on to the next detail.
+    expect(
+      capturedOrigin({ kind: `session` }, { kind: `running` })
+    ).toBeNull()
   })
 
   it(`keeps the main menu everywhere else`, () => {

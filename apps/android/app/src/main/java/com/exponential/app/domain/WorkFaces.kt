@@ -238,6 +238,26 @@ fun phaseDotTone(
 }
 
 /**
+ * EXP-935: whether the Work screen pops back to the list now that the run it
+ * shows has ended. An ISSUE-bound subject never does (the screen stays, the
+ * pill flips Stop → Resume); an issue-less run — a chat, a batch — does, but
+ * ONLY once nothing is still landing in its place: a Resume and an account
+ * switch both END the live run before the continuation row syncs, and a screen
+ * that popped in that gap took the reader off the very run they just moved
+ * (the successor then opened behind them, or not at all).
+ *
+ * [wasLive] keeps it edge-triggered — a screen opened straight onto an already
+ * ended run stays put — and a continuation that never lands clears the flag,
+ * so the pop falls back to happening then.
+ */
+fun shouldAutoBack(
+    ended: Boolean,
+    wasLive: Boolean,
+    issueId: String?,
+    continuationPending: Boolean,
+): Boolean = ended && wasLive && issueId == null && !continuationPending
+
+/**
  * Desktop `coding_action` (EXP-877): the verb an issue subject's coding
  * control wears, off the synced target row — the phone's top bar reads the
  * same rule so Stop / Resume / Start never disagree with the IDE.

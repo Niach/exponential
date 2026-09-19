@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    ContentBlock, CreateElicitationRequest, CreateElicitationResponse, ElicitationAcceptAction,
+    CompactionStatus, ContentBlock, CreateElicitationRequest, CreateElicitationResponse,
+    ElicitationAcceptAction,
     ElicitationAction, ElicitationContentValue, ElicitationMode, InitializeRequest,
     CancelNotification, ListSessionsRequest, LoadSessionRequest, NewSessionRequest,
     NewSessionResponse, PromptRequest, RequestPermissionOutcome,
@@ -1007,6 +1008,182 @@ async fn a_plan_launch_still_bypasses_permissions() {
 
     assert_eq!(run.argv_value("--permission-mode"), Some("plan"));
     assert!(run.argv.iter().any(|arg| arg == "--allow-dangerously-skip-permissions"));
+}
+
+/// EXP-954: the current CLI writes its plan to
+/// `{CLAUDE_CONFIG_DIR}/plans/<slug>.md` and then raises `ExitPlanMode` with
+/// an EMPTY input — the card used to read "Ready to code?" and nothing else
+/// on all four clients. The adapter recovers the plan from that `Write` (and
+/// offers the fresh-context option again, which only exists when there IS a
+/// plan to carry).
+#[tokio::test]
+async fn a_plan_written_to_a_file_still_fills_the_approval_card() {
+    let _session = one_session_at_a_time();
+    let work = workdir("plan-file");
+    let plan = "# Plan\\n\\n1. Read the issue\\n2. Fix the gate\\n";
+    let write = format!(
+        r#"{{"type":"assistant","message":{{"model":"claude-opus-5","id":"msg_planfile","type":"message","role":"assistant","content":[{{"type":"tool_use","id":"toolu_planwrite","name":"Write","input":{{"file_path":"/tmp/exp954/plans/steady-pelican.md","content":"{plan}"}},"caller":{{"type":"direct"}}}}]}},"parent_tool_use_id":null,"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000002"}}"#
+    );
+    let scenario = synthetic(
+        &work.0,
+        &[
+            r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Write","ExitPlanMode"],"model":"claude-opus-5[1m]","permissionMode":"plan","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
+            &write,
+            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000954","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","display_name":"ExitPlanMode","input":{},"tool_use_id":"toolu_planexit","requires_user_interaction":true}}"#,
+        ],
+        &[
+            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Done.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000009","queued_turn_count":0}"#,
+        ],
+    );
+    let run = drive_at(
+        &scenario,
+        &work.0,
+        "Plan the fix.",
+        true,
+        pick("exit-plan-bypass"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    let request = run.permissions.first().expect("the plan approval");
+    assert_eq!(request.tool_call.fields.kind, Some(ToolKind::SwitchMode));
+    let carried = request
+        .tool_call
+        .fields
+        .content
+        .as_ref()
+        .and_then(|content| content.first())
+        .expect("the recovered plan rides as content");
+    match carried {
+        ToolCallContent::Content(content) => match &content.content {
+            ContentBlock::Text(text) => {
+                assert!(text.text.starts_with("# Plan"), "{}", text.text);
+                assert!(text.text.contains("Fix the gate"), "{}", text.text);
+            }
+            other => panic!("expected the plan text, got {other:?}"),
+        },
+        other => panic!("expected content, got {other:?}"),
+    }
+    let options: Vec<String> =
+        request.options.iter().map(|option| option.option_id.0.to_string()).collect();
+    assert_eq!(
+        options,
+        vec![
+            "exit-plan-bypass".to_string(),
+            "exit-plan-clear-bypass".to_string(),
+            "reject".to_string(),
+        ],
+        "a recovered plan is a plan to carry into a fresh context"
+    );
+    // The card every client renders: the plan body, not the bare title.
+    let mut mapper = engine::Mapper::new(engine::MapperConfig {
+        redactor: Arc::new(steer::Redactor::new(Vec::new())),
+        cwd: PathBuf::from("/tmp/worktree"),
+        agent: steer::SessionAgent::Claude,
+        session_seed: "sess-1".to_string(),
+    });
+    let mut out = engine::MapOut::default();
+    mapper.on_permission(request, &mut out);
+    let card = out
+        .wire
+        .iter()
+        .map(|event| serde_json::to_value(event).expect("an activity event serializes"))
+        .find(|event| event["kind"] == "question")
+        .expect("the plan card");
+    assert_eq!(card["planMode"], serde_json::json!(true));
+    assert!(
+        card["text"].as_str().is_some_and(|text| text.contains("Fix the gate")),
+        "{card}"
+    );
+}
+
+/// EXP-954: the same recovery when the stream never held the plan text (a
+/// resumed conversation replays no tool input) — the file the `Write` named
+/// is read off disk.
+#[tokio::test]
+async fn a_plan_file_without_captured_content_is_read_from_disk() {
+    let _session = one_session_at_a_time();
+    let work = workdir("plan-file-disk");
+    let plans = work.0.join("claude-config").join("plans");
+    std::fs::create_dir_all(&plans).expect("a plans directory");
+    let path = plans.join("steady-pelican.md");
+    std::fs::write(&path, "# Plan\n\nRebuild the index.\n").expect("the plan on disk");
+    let write = format!(
+        r#"{{"type":"assistant","message":{{"model":"claude-opus-5","id":"msg_planfile","type":"message","role":"assistant","content":[{{"type":"tool_use","id":"toolu_planwrite","name":"Write","input":{{"file_path":"{}"}},"caller":{{"type":"direct"}}}}]}},"parent_tool_use_id":null,"session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000002"}}"#,
+        path.display()
+    );
+    let scenario = synthetic(
+        &work.0,
+        &[
+            r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Write","ExitPlanMode"],"model":"claude-opus-5[1m]","permissionMode":"plan","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
+            &write,
+            r#"{"type":"control_request","request_id":"0f1c2d3e-4a5b-6c7d-8e9f-000000000955","request":{"subtype":"can_use_tool","tool_name":"ExitPlanMode","display_name":"ExitPlanMode","input":{},"tool_use_id":"toolu_planexit","requires_user_interaction":true}}"#,
+        ],
+        &[
+            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Done.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000009","queued_turn_count":0}"#,
+        ],
+    );
+    let run = drive_at(
+        &scenario,
+        &work.0,
+        "Plan the fix.",
+        true,
+        pick("exit-plan-bypass"),
+        cancel_elicitations(),
+    )
+    .await;
+
+    let request = run.permissions.first().expect("the plan approval");
+    let carried = request
+        .tool_call
+        .fields
+        .content
+        .as_ref()
+        .and_then(|content| content.first())
+        .expect("the plan read off disk rides as content");
+    match carried {
+        ToolCallContent::Content(content) => match &content.content {
+            ContentBlock::Text(text) => assert!(text.text.contains("Rebuild the index."), "{}", text.text),
+            other => panic!("expected the plan text, got {other:?}"),
+        },
+        other => panic!("expected content, got {other:?}"),
+    }
+}
+
+/// EXP-969: a manual `/compact` does not always land a `compact_boundary` —
+/// the status frame simply stops saying "compacting". That edge CLOSES the
+/// fold, or the host's queue gate stays shut and every message typed behind
+/// it is held for the rest of the run.
+#[tokio::test]
+async fn a_status_frame_that_stops_compacting_closes_the_fold() {
+    let _session = one_session_at_a_time();
+    let work = workdir("compact-status");
+    let scenario = synthetic(
+        &work.0,
+        &[
+            r#"{"type":"system","subtype":"init","cwd":"/work/tree","session_id":"11111111-2222-3333-4444-555555555555","tools":["Bash"],"model":"claude-opus-5[1m]","permissionMode":"bypassPermissions","slash_commands":["compact"],"agents":[],"uuid":"00000000-0000-4000-8000-000000000001"}"#,
+            r#"{"type":"system","subtype":"status","status":"compacting","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000002"}"#,
+            r#"{"type":"system","subtype":"status","status":"requesting","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000003"}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"stop_reason":"end_turn","result":"Compacted.","session_id":"11111111-2222-3333-4444-555555555555","uuid":"00000000-0000-4000-8000-000000000004","queued_turn_count":0}"#,
+        ],
+        &[],
+    );
+    let run =
+        drive_at(&scenario, &work.0, "/compact", false, reject_all(), cancel_elicitations()).await;
+
+    let edges: Vec<CompactionStatus> = run
+        .updates
+        .iter()
+        .filter_map(|notification| match &notification.update {
+            SessionUpdate::CompactionUpdate(update) => Some(update.status.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        edges,
+        vec![CompactionStatus::InProgress, CompactionStatus::Completed],
+        "the adapter itself closed the fold, no boundary frame needed"
+    );
 }
 
 #[tokio::test]

@@ -1,29 +1,26 @@
 // EXP-870: the web's WORK TABS — browser-like tabs above the content card on
 // md+, the twin of the desktop title-band strip (apps/desktop/crates/ui/src/
-// screens.rs `TabKey`/`live_tab_plan`/`partition_tabs`). Same model, same
-// rules:
+// screens.rs `TabKey`/`partition_tabs`). Same model, same rules:
 //
 //   * A tab is a WORK ITEM, not a URL. An issue and its run are ONE tab with
 //     two faces (`issue` | `run`, the header's `Issue | Run` toggle); a run
 //     that links no issue (chat, action, batch) is a run-only tab; a support
 //     conversation is its own tab.
-//   * EVERY live run of mine in the team (running | in_review, not stale —
-//     automations and remote devices included) gets a tab automatically,
-//     grouped FIRST by agent (`groupedTabs`, contract order) in stable order.
-//     Adding one never navigates.
-//   * EXP-877: a live tab cannot be closed at all — no ×, no Close, and
-//     `closeTabs` skips it. The dismissal memory that used to let one be
-//     hidden until its state changed is gone with it: a run of mine is on the
-//     strip for as long as it is alive.
-//   * Ended runs are never auto-added; a tab whose run ends stays until it is
-//     closed (`live: false`).
+//   * EXP-923: a LIVE run is NOT a tab. Every running run of mine lives in the
+//     sidebar's "Running" section instead (`components/team/sidebar-running`),
+//     and opening one from there navigates with the `running` origin, which
+//     creates NO tab (`upsertFromRoute`) — it only reuses an issue tab that is
+//     already open. The agent groups the strip used to draw went with it.
+//   * A tab is bound to a run all the same (`reconcileLive`), so its chip can
+//     draw the live dot and its Run face knows which run to steer; `live` is a
+//     RENDERING fact now, never a permanence one: EVERY tab closes.
+//   * A run that ends because its PR MERGED takes its tab with it
+//     (`closeMergedRunTabs`); every other ending leaves the tab standing.
 //   * The ACTIVE tab is derived from the URL, never stored.
 //
 // Pure: no React, no storage, no router — every rule is a test
 // (`work-tabs.test.ts`). The store is `hooks/use-work-tabs.ts`, the URL→tab
 // wiring `components/team/work-tabs-sync.tsx`.
-
-import { contract } from "@exp/domain-contract"
 
 export type WorkTabFace = `issue` | `run`
 
@@ -148,25 +145,44 @@ export function routeTabFace(route: RouteTab): WorkTabFace | null {
   return route.kind === `issue` ? `issue` : `run`
 }
 
+/** EXP-923: the `?from=` token the sidebar's Running rows navigate with. A
+ * navigation carrying it creates NO tab — the sidebar row IS the affordance,
+ * and a live run must not pile a chip onto the strip behind your back. It
+ * still FOCUSES a tab that is already open (you started the run from its
+ * issue tab), which is why it is an origin rather than a separate route. */
+export const TABLESS_ORIGIN = `running`
+
+/** Whether a navigation's origin may create a tab. */
+export function originCreatesTab(from: string | null | undefined): boolean {
+  return from !== TABLESS_ORIGIN
+}
+
 /**
  * The URL opened a work item: focus its tab, creating it at the end when
  * absent. An EXPLICIT `from` on the route overwrites the stored one (a tab
  * reopened from another list follows that list); a route without one keeps
  * what the tab had. A run that syncs its `issueId` after its run tab was made
  * MERGES into the issue's tab, which takes the run tab's place.
+ *
+ * EXP-923: a `running`-origin route creates nothing and never restamps a
+ * tab's stored origin — it only binds the run under a tab that already
+ * exists.
  */
 export function upsertFromRoute(
   state: WorkTabsState,
   route: RouteTab
 ): WorkTabsState {
   const tabs = [...state.tabs]
-  const nextFrom = (stored: string | null) => route.from ?? stored
+  const creates = originCreatesTab(route.from)
+  const nextFrom = (stored: string | null) =>
+    creates ? (route.from ?? stored) : stored
 
   if (route.kind === `support`) {
     const at = tabs.findIndex(
       (tab) => tab.kind === `support` && tab.threadId === route.threadId
     )
     if (at < 0) {
+      if (!creates) return state
       tabs.push({ kind: `support`, threadId: route.threadId, from: route.from })
     } else {
       const tab = tabs[at] as Extract<WorkTab, { kind: `support` }>
@@ -181,6 +197,7 @@ export function upsertFromRoute(
       (tab) => tab.kind === `run` && tab.runId === route.runId
     )
     if (at < 0) {
+      if (!creates) return state
       tabs.push({ kind: `run`, runId: route.runId, from: route.from, live: false })
       return { ...state, tabs }
     }
@@ -219,6 +236,7 @@ export function upsertFromRoute(
     if (orphan < at) at -= 1
   }
   if (at < 0) {
+    if (!creates) return state
     tabs.push({
       kind: `issue`,
       issueId,
@@ -259,19 +277,14 @@ export function upsertFromRoute(
 export interface LiveRun {
   runId: string
   issueId: string | null
-  /** The run's `coding_sessions.agent` — which group its chip sits in
-   *  (`groupedTabs`); null/unknown reads as claude. */
-  agent: string | null
 }
 
 /**
- * Bind, mark and auto-add live runs — the desktop's `live_tab_plan`:
+ * Bind and MARK live runs — EXP-923 took the auto-add away (a live run is a
+ * sidebar row now, never a chip), so this only keeps the open tabs honest:
  *
  *   * a tab bound to a live run is `live`; an issue tab with no live binding
  *     binds to its issue's live run (a resume swaps the run under the tab);
- *   * a live run with no tab gets one (face `run`, appended — `orderedTabs`
- *     groups it first). EXP-877: unconditionally — a live tab cannot be
- *     closed, so a closed one that is live again simply comes back;
  *   * a tab whose run is no longer live keeps its place with `live: false`.
  */
 export function reconcileLive(
@@ -313,45 +326,53 @@ export function reconcileLive(
     return { ...tab, runId, live }
   })
 
-  for (const run of runs) {
-    if (bound.has(run.runId)) continue
-    // An issue tab may already hold this run's issue with another live run.
-    if (
-      run.issueId &&
-      tabs.some((tab) => tab.kind === `issue` && tab.issueId === run.issueId)
-    ) {
-      continue
-    }
-    changed = true
-    bound.add(run.runId)
-    tabs.push(
-      run.issueId
-        ? {
-            kind: `issue`,
-            issueId: run.issueId,
-            face: `run`,
-            runId: run.runId,
-            from: null,
-            live: true,
-          }
-        : { kind: `run`, runId: run.runId, from: null, live: true }
-    )
-  }
-
   return changed ? { tabs } : state
 }
 
-/** Close tabs. EXP-877: a LIVE tab is never closed — the strip draws no × on
- * one, its context menu offers no Close, and Close others / Close all pass
- * over it. Closing never ends or kills a run. */
+/** Close tabs. EXP-923: EVERY tab closes again — the live exception went with
+ * the live tabs themselves. Closing never ends or kills a run. */
 export function closeTabs(
   state: WorkTabsState,
   keys: readonly string[]
 ): WorkTabsState {
   const closing = new Set(keys)
-  const closable = (tab: WorkTab) => closing.has(tabKey(tab)) && !tabIsLive(tab)
+  const closable = (tab: WorkTab) => closing.has(tabKey(tab))
   if (!state.tabs.some(closable)) return state
   return { tabs: state.tabs.filter((tab) => !closable(tab)) }
+}
+
+/** A run that just stopped being live, as the merge rule needs it. */
+export interface EndedRun {
+  runId: string
+  issueId: string | null
+  /** `coding_sessions.ended_by` — only `merge` closes anything. */
+  endedBy: string | null
+}
+
+/**
+ * EXP-923: a run whose PR MERGED is finished work, so its tab goes — together
+ * with any other tab of the same issue (the Issue face has nothing left to
+ * show either). Every OTHER ending (stopped, errored, swept) leaves the tab
+ * standing: you still want to read it.
+ */
+export function closeMergedRunTabs(
+  state: WorkTabsState,
+  ended: readonly EndedRun[]
+): WorkTabsState {
+  const merged = ended.filter((run) => run.endedBy === `merge`)
+  if (merged.length === 0) return state
+  const runIds = new Set(merged.map((run) => run.runId))
+  const issueIds = new Set(
+    merged.flatMap((run) => (run.issueId ? [run.issueId] : []))
+  )
+  const keys = state.tabs
+    .filter((tab) => {
+      if (tab.kind === `support`) return false
+      if (tab.runId !== null && runIds.has(tab.runId)) return true
+      return tab.kind === `issue` && issueIds.has(tab.issueId)
+    })
+    .map(tabKey)
+  return closeTabs(state, keys)
 }
 
 /** Drop tabs whose target no longer resolves (a deleted issue, a run of a
@@ -363,68 +384,6 @@ export function pruneTabs(
 ): WorkTabsState {
   const tabs = state.tabs.filter(resolves)
   return tabs.length === state.tabs.length ? state : { ...state, tabs }
-}
-
-// ── Agent groups (EXP-877) ───────────────────────────────────────────────────
-
-/** The group a run belongs to: its agent, normalised. A row without one (or
- * with a blank) is a claude run — the same rule `AgentBrandMark` draws by. */
-export function tabGroupAgent(agent: string | null | undefined): string {
-  const id = (agent ?? ``).trim().toLowerCase()
-  return id === `` ? KNOWN_AGENTS[0]! : id
-}
-
-const KNOWN_AGENTS: readonly string[] = contract.codingAgent.values
-
-export interface WorkTabGroup {
-  agent: string
-  tabs: WorkTab[]
-}
-
-/**
- * EXP-877: the live tabs, grouped by AGENT — claude first, then codex (the
- * contract's own order), then any agent this build does not know, each in the
- * tabs' stored order. Empty groups are omitted entirely; everything that is
- * not live is `rest`, untouched and in stored order.
- */
-export function groupedTabs(
-  tabs: readonly WorkTab[],
-  agentOf: (tab: WorkTab) => string | null | undefined
-): { groups: WorkTabGroup[]; rest: WorkTab[] } {
-  const byAgent = new Map<string, WorkTab[]>()
-  const rest: WorkTab[] = []
-  for (const tab of tabs) {
-    if (!tabIsLive(tab)) {
-      rest.push(tab)
-      continue
-    }
-    const agent = tabGroupAgent(agentOf(tab))
-    const bucket = byAgent.get(agent)
-    if (bucket) bucket.push(tab)
-    else byAgent.set(agent, [tab])
-  }
-  const groups: WorkTabGroup[] = []
-  for (const agent of KNOWN_AGENTS) {
-    const bucket = byAgent.get(agent)
-    if (bucket) {
-      groups.push({ agent, tabs: bucket })
-      byAgent.delete(agent)
-    }
-  }
-  // An agent this build has no contract value for still gets its own group,
-  // after the known ones and in first-seen order.
-  for (const [agent, bucket] of byAgent) groups.push({ agent, tabs: bucket })
-  return { groups, rest }
-}
-
-/** Strip order: the live groups first (contract agent order), then everything
- * else in its stored order. */
-export function orderedTabs(
-  tabs: readonly WorkTab[],
-  agentOf: (tab: WorkTab) => string | null | undefined = () => null
-): WorkTab[] {
-  const { groups, rest } = groupedTabs(tabs, agentOf)
-  return [...groups.flatMap((group) => group.tabs), ...rest]
 }
 
 /** Where a tab click goes. `issueHref` resolves an issue id to its board slug
@@ -515,79 +474,10 @@ export function partitionTabs(
   return visible
 }
 
-/** One thing the strip lays out, as the packing sees it. `packed` chips
- * compete for the row; everything else (a group's brand mark, its chevron, a
- * chip folded into a collapsed group) is ALWAYS drawn and only takes its width
- * off the budget. */
-export interface StripUnitMetric {
-  packed: boolean
-  width: number
-}
-
-/**
- * EXP-877: which units the strip renders. The unpacked ones always survive —
- * a group mark past the packing break would strand its whole group, and its
- * chevron is what makes room in the first place — so their widths come off
- * the budget FIRST and only the chips are then packed (`partitionTabs`).
- * Returns unit indices in order; the packed ones it left out are the "+N".
- */
-export function partitionUnits(
-  units: readonly StripUnitMetric[],
-  available: number,
-  gap: number,
-  overflowW: number,
-  activeIndex: number | null
-): number[] {
-  const packed: number[] = []
-  let fixed = 0
-  units.forEach((unit, index) => {
-    if (unit.packed) packed.push(index)
-    else fixed += unit.width + gap
-  })
-  // The active unit's slot AMONG the packed ones — an active unit that is not
-  // packed (it is always drawn) commits no width here.
-  const activeAt = activeIndex === null ? -1 : packed.indexOf(activeIndex)
-  const visiblePacked = partitionTabs(
-    packed.map((index) => units[index]!.width),
-    available - fixed,
-    gap,
-    overflowW,
-    activeAt < 0 ? null : activeAt
-  )
-  const keep = new Set(visiblePacked.map((at) => packed[at]!))
-  return units.flatMap((unit, index) =>
-    !unit.packed || keep.has(index) ? [index] : []
-  )
-}
-
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 export function workTabsStorageKey(teamId: string): string {
   return `exp:work-tabs:v1:${teamId}`
-}
-
-/** EXP-877: the collapsed agent groups — a SECOND store, per team and per
- * window, holding nothing but agent ids (a group folds to its brand mark). */
-export function workTabGroupsStorageKey(teamId: string): string {
-  return `exp:work-tab-groups:v1:${teamId}`
-}
-
-/** Read the collapsed-group list back: a string[] of agent ids, deduped.
- * Anything malformed is "nothing collapsed". */
-export function parseCollapsedGroups(raw: string | null | undefined): string[] {
-  if (!raw) return []
-  let json: unknown
-  try {
-    json = JSON.parse(raw)
-  } catch {
-    return []
-  }
-  if (!Array.isArray(json)) return []
-  const seen = new Set<string>()
-  for (const entry of json) {
-    if (typeof entry === `string` && entry !== ``) seen.add(entry)
-  }
-  return [...seen]
 }
 
 function str(value: unknown): value is string {

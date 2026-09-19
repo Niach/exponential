@@ -14,8 +14,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.domain.ISSUE_SYNCING_TITLE
 import com.exponential.app.domain.batchRunName
-import com.exponential.app.domain.chatRunSubject
+import com.exponential.app.domain.pastRunTitle
 import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-688: a coding session's IDENTITY line — status dot, mono identifier,
@@ -77,20 +78,18 @@ internal fun sessionRowIdentifier(
 
 /**
  * What the run is about: the issue's title, an action run's `action_name`
- * snapshot (EXP-253), else the batch's own name (EXP-876: its first covered
- * issue's title, else "Batch run") — never "not synced", except for an
- * issue-scoped session whose issue genuinely hasn't landed yet.
+ * snapshot (EXP-253), a chat run's own auto-title (EXP-905), else the batch's
+ * own name (EXP-876: its first covered issue's title, else "Batch run") — and,
+ * for an issue-scoped session whose issue genuinely hasn't landed yet,
+ * [ISSUE_SYNCING_TITLE].
+ *
+ * EXP-968: the live rows and the Recent ones are named by the SAME rule —
+ * this used to carry a second copy of it that said "Issue not synced yet"
+ * where every other client (and the Agent page one line below) said
+ * "Issue syncing…".
  */
 internal fun sessionRowTitle(
     session: CodingSessionEntity,
     issue: IssueEntity?,
     batchIssues: List<IssueEntity> = emptyList(),
-): String = when {
-    issue != null -> issue.title.ifBlank { "Untitled issue" }
-    session.issueId == null ->
-        // EXP-905: a chat run reads its agent's auto-title, else "Chat".
-        chatRunSubject(session)
-            ?: session.actionName?.takeIf { it.isNotBlank() }
-            ?: batchRunName(session, batchIssues).subject
-    else -> "Issue not synced yet"
-}
+): String = pastRunTitle(session, issue, batchIssues)

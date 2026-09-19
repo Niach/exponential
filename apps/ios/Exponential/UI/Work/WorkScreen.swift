@@ -49,9 +49,11 @@ struct WorkScreen: View {
     @State private var pendingMoveTarget: BoardEntity?
     @State private var showResumeConfirm = false
     @State private var resuming = false
-    /// EXP-773: Resume is a COMMAND — the watcher waits for the row the
-    /// desktop inserts and the screen swaps it in place.
-    @State private var startWatcher = StartedRunWatcher()
+    /// EXP-773/849/935: Resume and the account switch are COMMANDS — the
+    /// screen holds while the desktop answers with the successor row and
+    /// swaps it in place. Owned HERE (not by the run's own view, which is
+    /// unmounted on the Issue face) so the hold survives every face.
+    @State private var continuation = RunContinuation()
     /// EXP-696: whether THIS screen ever saw the run live — the issue-less
     /// auto-pop on the ended edge only fires after that, so a finished run
     /// opened from a list stays browsable.
@@ -389,7 +391,7 @@ struct WorkScreen: View {
             session: session,
             face: face,
             request: $runRequest,
-            onContinuation: { started in swapIn(started.sessionId) },
+            continuation: continuation,
             switcher: { switcherView }
         )
         .id(session.id)
@@ -748,10 +750,12 @@ struct WorkScreen: View {
             .onChange(of: shownEnded) { _, ended in
                 endedChanged(ended)
             }
-            // The desktop picked the resume up — swap the continuation in.
-            .onChange(of: startWatcher.startedSession) { _, started in
+            // The desktop picked the resume / switch up — swap the
+            // continuation in, on whichever face the reader is on.
+            .onChange(of: continuation.watcher.startedSession) { _, started in
                 if let started {
-                    startWatcher.startedSession = nil
+                    continuation.watcher.startedSession = nil
+                    continuation.landed(started.sessionId)
                     swapIn(started.sessionId)
                 }
             }
@@ -812,7 +816,7 @@ struct WorkScreen: View {
         UIApplication.endEditing()
         subjectModel?.stop()
         prGraphModel?.stop()
-        startWatcher.stop()
+        continuation.stop()
         if let vm = issueVM {
             // Stop synchronously: deferring it behind the async saves
             // could cancel the observers a quick pop-back just re-armed.
@@ -882,10 +886,11 @@ struct WorkScreen: View {
         // on its own; `facesChanged` lands a vanished diff back on the Run face.
         guard issueId == nil else { return }
         // EXP-849/773: a resume or switch ENDS this run on purpose — hold
-        // for the continuation instead of leaving.
-        guard startWatcher.sentCaption == nil, !resuming, !runChrome.continuationPending else {
-            return
-        }
+        // for the continuation instead of leaving. EXP-935: the hold is the
+        // screen's own (`RunContinuation`), so it holds on every face and
+        // until the successor lands or its deadline passes — it used to ride
+        // the run view's chrome preference, which the Issue face dropped.
+        guard !continuation.isPending, !resuming else { return }
         guard sawLiveSession else { return }
         dismiss()
     }
@@ -951,7 +956,7 @@ struct WorkScreen: View {
     private func resumeRun() {
         guard let shownSession, let device = resumeDevice, !resuming else { return }
         resuming = true
-        startWatcher.sending()
+        continuation.sending(.resume)
         let sessionId = shownSession.id
         Task {
             do {
@@ -960,7 +965,7 @@ struct WorkScreen: View {
                     sessionId: sessionId,
                     deviceId: device.deviceId
                 )
-                startWatcher.begin(
+                continuation.sent(
                     key: .resumed(fromId: sessionId),
                     userId: deps.auth.userId,
                     device: device,
@@ -968,7 +973,7 @@ struct WorkScreen: View {
                     accountId: accountId
                 )
             } catch {
-                startWatcher.failed(error.userFacingMessage)
+                continuation.failed(error.userFacingMessage)
             }
             resuming = false
         }

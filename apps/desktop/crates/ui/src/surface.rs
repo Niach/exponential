@@ -88,29 +88,6 @@ pub(crate) fn glass_section_band_fold(
     collapsed: bool,
     cx: &App,
 ) -> Stateful<Div> {
-    glass_section_band_fold_with(id, label, Some(count), collapsed, cx)
-}
-
-/// EXP-886 — [`glass_section_band_fold`] WITHOUT the trailing count: the
-/// Agent page's "Recent" band and the issue detail's "Runs" band (×4) are
-/// history folds whose size is not the point, so they show only the chevron
-/// and the label.
-pub(crate) fn glass_section_band_fold_uncounted(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    collapsed: bool,
-    cx: &App,
-) -> Stateful<Div> {
-    glass_section_band_fold_with(id, label, None, collapsed, cx)
-}
-
-fn glass_section_band_fold_with(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    count: Option<usize>,
-    collapsed: bool,
-    cx: &App,
-) -> Stateful<Div> {
     use gpui::IntoElement as _;
     use gpui_component::Sizable as _;
     let foreground = cx.theme().foreground;
@@ -123,15 +100,13 @@ fn glass_section_band_fold_with(
     .flex_shrink_0()
     .text_color(foreground.opacity(0.7))
     .into_any_element();
-    let count = count.map(|count| {
-        div()
-            .flex_shrink_0()
-            .text_xs()
-            .text_color(foreground.opacity(0.5))
-            .child(SharedString::from(count.to_string()))
-            .into_any_element()
-    });
-    glass_section_band(Some(chevron), label, count, cx)
+    let count = div()
+        .flex_shrink_0()
+        .text_xs()
+        .text_color(foreground.opacity(0.5))
+        .child(SharedString::from(count.to_string()))
+        .into_any_element();
+    glass_section_band(Some(chevron), label, Some(count), cx)
         .id(id)
         .cursor_pointer()
 }

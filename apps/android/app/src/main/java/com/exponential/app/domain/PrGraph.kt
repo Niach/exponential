@@ -32,13 +32,33 @@ object PrGraph {
     /** The subject's own batch — the issues its ONE pull request spans. */
     data class BatchEntry(val issues: List<IssueEntity>)
 
+    /**
+     * One run of the family, NAMED where it is resolved (EXP-968). The overlay
+     * used to join its rows against a second issue snapshot of its own, so a
+     * row could read "Issue syncing…" about an issue the very same graph had
+     * already resolved; the title now comes off the ONE pool `build` took.
+     */
+    data class RunRow(
+        val session: CodingSessionEntity,
+        /** 0 for the family's root, +1 per nesting level. */
+        val depth: Int,
+        /** Whether at least one child is nested right below. */
+        val hasChildren: Boolean,
+        /** The run's own issue, when it has one and it has synced. */
+        val issue: IssueEntity?,
+        /** EXP-876: the issues a BATCH run covers; empty for every other run. */
+        val batchIssues: List<IssueEntity>,
+        /** What the row is called — the ×4 rule ([pastRunTitle]). */
+        val title: String,
+    )
+
     data class Graph(
         /** The chain bottom-first; a lone pull request is a single entry. */
         val stack: List<StackEntry>,
         /** Null unless the subject's own PR spans more than one issue. */
         val batch: BatchEntry?,
-        /** The run family, nested — the subject's root run and its children. */
-        val tree: List<SessionTree.Row<CodingSessionEntity>>,
+        /** The run family, nested and named — the root run and its children. */
+        val tree: List<RunRow>,
         /**
          * The issues that still block the subject (`StackStart.openBlockers`).
          * Android/iOS extra over the pinned three fields: the overlay's Issue
@@ -85,7 +105,7 @@ object PrGraph {
         return Graph(
             stack = stack,
             batch = batch,
-            tree = SessionTree.nest(familyOf(session, sessions)),
+            tree = runRows(familyOf(session, sessions), issues),
             blockedBy = issue?.let { StackStart.openBlockers(it.id, relations, issues) }.orEmpty(),
             subjectIssueId = anchor?.id,
         )
@@ -126,6 +146,32 @@ object PrGraph {
         val first = covered.firstOrNull() ?: return emptyList()
         val grouped = entryIssuesFor(first, issues)
         return if (grouped.size > 1) grouped else covered
+    }
+
+    /**
+     * EXP-968: the family, nested AND named in one pass. Resolving the rows
+     * here is what keeps a label and its row on the same snapshot: the sheet
+     * renders what `build` decided instead of re-joining a pool of its own.
+     */
+    private fun runRows(
+        family: List<CodingSessionEntity>,
+        issues: List<IssueEntity>,
+    ): List<RunRow> {
+        if (family.isEmpty()) return emptyList()
+        val byId = issues.associateBy { it.id }
+        return SessionTree.nest(family).map { row ->
+            val session = row.session
+            val issue = session.issueId?.let(byId::get)
+            val batchIssues = batchRunIssues(session, issues)
+            RunRow(
+                session = session,
+                depth = row.depth,
+                hasChildren = row.hasChildren,
+                issue = issue,
+                batchIssues = batchIssues,
+                title = pastRunTitle(session, issue, batchIssues),
+            )
+        }
     }
 
     /** Every issue on [issue]'s pull request — itself when it has none. */

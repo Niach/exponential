@@ -16,6 +16,10 @@ import {
   ListRow,
   GlassSectionHeader,
   BoardGlyph,
+  TREE_BASE,
+  TREE_INDENT,
+  TreeGuides,
+  treeGuides,
 } from "@exp/ui"
 import { useSteerConfig } from "@/components/agent-session"
 import { useOpenComposer } from "@/hooks/use-open-composer"
@@ -357,7 +361,10 @@ function ReviewsPage() {
                 />
 
                 <div className="flex flex-col gap-0">
-                  {group.rows.map((row) => {
+                  {(() => {
+                  // EXP-965: the stack's connector, off the group's depths.
+                  const guides = treeGuides(group.rows.map((row) => row.depth))
+                  return group.rows.map((row, rowIndex) => {
                     const entry = row.entry
                     const issue = entry.issue
                     const isBatch = entry.issues.length > 1
@@ -376,16 +383,15 @@ function ReviewsPage() {
                       <ListRow
                         key={entry.key}
                         interactive
-                        className="group/row grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
+                        className="group/row relative grid grid-cols-[1.5rem_4.5rem_1fr_auto] gap-0"
                         // EXP-897: 14px per stacked level, the ×4 indent.
-                        style={
-                          row.depth > 0
-                            ? { paddingLeft: `${12 + row.depth * 14}px` }
-                            : undefined
-                        }
+                        style={{
+                          paddingLeft: `${TREE_BASE + row.depth * TREE_INDENT}px`,
+                        }}
                         onClick={() => openReview(issue.identifier)}
                         data-testid={`review-row-${issue.identifier}`}
                       >
+                        <TreeGuides guide={guides[rowIndex]} />
                         {/* A batch PR wears the batch glyph; the overlay on it
                             lists the issues it closes (EXP-897 Part 4).
                             EXP-916: the lead cell is ALWAYS drawn — a badge
@@ -535,7 +541,8 @@ function ReviewsPage() {
                         )}
                       </ListRow>
                     )
-                  })}
+                  })
+                  })()}
                 </div>
               </div>
             ))}

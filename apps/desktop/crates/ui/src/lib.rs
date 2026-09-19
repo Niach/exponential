@@ -134,6 +134,8 @@ mod tab_state;
 mod source_control;
 mod steer_viewer;
 mod transcript_rows;
+// EXP-965: the nested lists' connector lines.
+mod tree_guides;
 mod workflow_card;
 pub mod steer_wiring;
 mod support_thread;

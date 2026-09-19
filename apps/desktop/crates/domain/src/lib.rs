@@ -32,6 +32,8 @@
 //!   the Results face (web `lib/session-results.ts`'s twin);
 //! * [`session_tree`] — EXP-818 `nest_sessions`: the parent/child nesting
 //!   every session list renders (web `lib/session-tree.ts` twin);
+//! * [`tree_guides`] — EXP-965 `guides_for`: the elbow/tee/pass-through
+//!   connector a nested list draws over that nesting, ×4;
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
 //!   `lib/steer-image-message.ts`'s byte-identical twin;
 //! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
@@ -71,6 +73,7 @@ pub mod rows;
 pub mod session_results;
 pub mod session_tree;
 pub mod statuses;
+pub mod tree_guides;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

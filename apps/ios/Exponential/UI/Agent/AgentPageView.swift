@@ -29,6 +29,11 @@ struct AgentPageView: View {
     @State private var steerEnabled: Bool?
     /// The started run's push target, consumed once.
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
+    /// EXP-923: the history sheet — the finished runs, off the toolbar glyph.
+    @State private var showRecent = false
+    /// The run picked in that sheet, pushed once the sheet is gone (a push
+    /// racing its own dismissal lands on nothing).
+    @State private var pendingRecent: String?
     /// The seed's team has been made the active one (once per push).
     @State private var alignedSeedTeam = false
     /// EXP-820: the chips THIS mount shows — drawn once, never reshuffled
@@ -45,7 +50,10 @@ struct AgentPageView: View {
                 // `justify-center`, the IDE's `min_h_full`) — a lone prompt box
                 // pinned under the nav bar over an empty screen read as a page
                 // that failed to load.
-                let centred = sessions.rows.isEmpty && sessions.pastRows.isEmpty
+                // EXP-923: only the RUNNING rows count now — history moved
+                // into its own sheet, so an empty Running band is an empty
+                // page.
+                let centred = sessions.rows.isEmpty
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -91,6 +99,28 @@ struct AgentPageView: View {
         .navigationTitle("Agent")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        // EXP-923: history is a TOOLBAR glyph, not a fold under the composer
+        // (the ×4 rule) — the page lists what runs, the sheet what is over.
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showRecent = true } label: {
+                    AppIcon(AppIcons.settingsSessions, size: AppIcon.Size.medium)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .accessibilityLabel("Recent runs")
+                .accessibilityIdentifier("agent-history-button")
+            }
+        }
+        .sheet(isPresented: $showRecent, onDismiss: pushPendingRecent) {
+            if let sessions {
+                RecentRunsSheet(vm: sessions) { sessionId in
+                    pendingRecent = sessionId
+                    showRecent = false
+                }
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-page")
         .task(id: accountId) {
@@ -162,6 +192,14 @@ struct AgentPageView: View {
         } message: { prompt in
             blockedMessage(prompt)
         }
+    }
+
+    /// EXP-923: the sheet's pick, pushed once it has actually closed — the
+    /// same destination its rows had while they lived on the page.
+    private func pushPendingRecent() {
+        guard let sessionId = pendingRecent else { return }
+        pendingRecent = nil
+        sessionTarget = .init(sessionId: sessionId)
     }
 
     /// `This issue is blocked by EXP-11 and EXP-12. Start anyway, or start a

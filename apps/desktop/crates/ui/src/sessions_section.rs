@@ -1,355 +1,243 @@
-//! EXP-746 — the Devices screen's two run lists: **Running** (the user's live
-//! sessions, here and on every other machine) and **Recent** (their finished
-//! person-started runs; EXP-886 renamed it from "Past").
+//! EXP-746/EXP-923 — MY agent runs, as two lists.
 //!
-//! Running is where the dock's remote chips went. A chip could only ever be
-//! opened; a row can be opened AND ended, which is the affordance a session on
-//! a machine you are not sitting at actually needs. It lists BOTH halves —
-//! runs this process hosts and runs it does not — because "my sessions" is one
-//! list, and the dock's projection deliberately excludes the local ones.
+//! **Running** (the user's live sessions, here and on every other machine)
+//! moved OUT of a rendered section and into the RAIL (EXP-923): a live run is
+//! navigation now, not a document, so it lives in the sidebar beside the
+//! boards and never opens a top tab. What is left here is its data half,
+//! [`rail_running_rows`] — the one projection (remote ∪ local, nested) the
+//! rail draws.
 //!
-//! Recent is the ×4 section (web/iOS/Android have their own): own,
+//! **Recent** is the ×4 section (web/iOS/Android have their own): own,
 //! person-started, ENDED rows in the active team, newest end first
 //! ([`crate::queries::own_ended_runs`]). An automation's runs are NOT here —
 //! their home is the Automations tab's "Recent automated runs" (EXP-676), and
-//! listing them twice is the duplication that split.
-//!
-//! Both sections vanish entirely when empty: the Devices page already has an
-//! empty state, and two empty headers under it read as breakage. EXP-818 moved
-//! the pair onto the AGENT page's list column (`sidebar::render_sessions_tool`).
+//! listing them twice is the duplication that split. EXP-923 moved it behind
+//! the Agent page's history button, into the left column
+//! ([`RecentRunsNav`], `shell::LeftOccupant::RecentRuns`) — the composer's
+//! page is a composer and nothing else.
 //!
 //! EXP-827: both NEST — a run started by another run through
 //! `exponential_sessions_start` sits under it
 //! ([`domain::session_tree::nest_sessions`], the rail's rule) behind a fold
-//! chevron, so a parent's subtree can be collapsed out of the way.
+//! chevron, so a parent's subtree can be collapsed out of the way. EXP-965:
+//! the nesting draws a tree connector ([`domain::tree_guides`]).
 
 use std::collections::HashSet;
 
 use gpui::{
-    div, App, Entity, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
+    div, App, AppContext as _, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
+    SharedString, Styled, Subscription, Task, Window,
 };
-use gpui_component::{v_flex, ActiveTheme as _};
+use gpui_component::{scroll::ScrollableElement as _, v_flex};
 
 use crate::coding_flow::{LocalSessionHost, LocalSessions};
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen, TabOrigin};
 use crate::queries;
-use crate::run_rows::{
-    self, PastRunFacts, PastRunSpec, RunRowFold, RunRowKill, RunningRunFacts, RunningRunSpec,
-};
-use crate::surface::{glass_section_band_fold_uncounted, glass_section_header};
+use crate::run_rows::{self, PastRunFacts, PastRunSpec, RunRowFold};
+use crate::surface::glass_section_header;
 
-/// EXP-862 — how often a list re-derives itself on the CLOCK. Both sections
+/// EXP-862 — how often a list re-derives itself on the CLOCK. Both lists
 /// render relative times ("2 minutes ago") and a liveness that expires with
 /// `last_seen_at`, neither of which produces a collection delta to observe.
 const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// The Agent page's empty Running band (byte-identical ×4).
+/// The empty Running band's copy, byte-identical ×4. The DESKTOP has no empty
+/// state for it any more (EXP-923: the rail's Running section is hidden
+/// outright while nothing runs), but the string is a ×4 contract the phones
+/// still render, so it stays locked here rather than drifting on three
+/// clients at once.
+#[allow(dead_code)]
 const NO_RUNNING_COPY: &str = "No agents running right now.";
 
+/// EXP-923 — the number of Recent rows the history panel keeps. It is a
+/// backstop behind a composer, not an archive.
+const RECENT_CAP: usize = 20;
+
 // ---------------------------------------------------------------------------
-// Running
+// Running — the RAIL's section (EXP-923)
 // ---------------------------------------------------------------------------
 
-/// One live row, flattened off the synced collections so the render pass owns
-/// everything it draws (the collection read borrows `cx` immutably; the row
-/// callbacks need it mutably).
-#[derive(Clone)]
-struct RunningRow {
-    /// EXP-827: where the row sits in the session TREE
-    /// ([`domain::session_tree::nest_sessions`]) — a run a run started.
-    depth: usize,
-    has_children: bool,
-    /// EXP-874: what the row draws (the shared `run_rows` derivation).
-    facts: RunningRunFacts,
-    /// `Some` while THIS process hosts the run — the kill goes straight to the
+/// EXP-923 — one row of the rail's Running section.
+///
+/// Deliberately flat: the render pass owns everything it draws, because the
+/// collection read that derives it borrows `cx` immutably while the row's own
+/// callbacks need it mutably.
+pub(crate) struct RailRunRow {
+    pub(crate) session_id: String,
+    /// The issue the run belongs to — the row stays highlighted while EITHER
+    /// face of that work is on screen (EXP-870's Issue | Run pair).
+    pub(crate) issue_id: Option<String>,
+    /// EXP-827: where the row sits in the session TREE.
+    pub(crate) depth: usize,
+    pub(crate) has_children: bool,
+    /// EXP-876: the issue's identifier, a batch's `EXP-874 +2`, else none.
+    pub(crate) identifier: Option<SharedString>,
+    pub(crate) title: SharedString,
+    /// EXP-923: the leading glyph is the AGENT's brand mark, not a state dot
+    /// — a rail row says WHAT is running; the state rides the badge.
+    pub(crate) agent: coding::CodingAgent,
+    /// The run is waiting on a person (`needs_input`) — the mark wears the
+    /// yellow corner badge, the rail's one status signal here.
+    pub(crate) attention: bool,
+    /// The host machine's glyph (`icons::device_icon`, the Devices list's
+    /// own resolver) and its label, which the glyph's tooltip names.
+    pub(crate) device_icon: crate::icons::ExpIcon,
+    pub(crate) device_label: Option<SharedString>,
+    /// `Some` while THIS process hosts the run — a kill goes straight to the
     /// host instead of out through the relay.
-    local: Option<LocalSessionHost>,
+    pub(crate) local: Option<LocalSessionHost>,
+    /// Web `ownsLiveRow`: a paused host is never killed (it resumes when the
+    /// lid opens), so its row offers no Stop.
+    pub(crate) paused: bool,
 }
 
-/// EXP-862: the short-circuit for the derived rows. Hand-written because a
-/// [`LocalSessionHost`] is a live handle, not a value — what the ROW shows of
-/// it is only whether this process hosts the run.
-impl PartialEq for RunningRow {
-    fn eq(&self, other: &Self) -> bool {
-        self.depth == other.depth
-            && self.has_children == other.has_children
-            && self.facts == other.facts
-            && self.local.is_some() == other.local.is_some()
-    }
-}
+/// The user's live sessions: the ones on OTHER machines
+/// ([`queries::remote_session_rows`], the retired dock's projection) union the
+/// ones this process hosts, newest start first and NESTED by
+/// `parent_session_id`.
+///
+/// Not team-scoped, deliberately: "my live sessions" is one list, the way the
+/// dock's strip always read it — a run on another team's board is still a run
+/// of yours that is going right now.
+fn live_run_tree<T>(
+    cx: &mut App,
+    build: impl Fn(&domain::rows::CodingSession, usize, bool, Option<&LocalSessionHost>, i64, &App) -> T,
+) -> Vec<T> {
+    // Everything that needs `&mut App` first — the collection reads below
+    // borrow it immutably for the rest of the function.
+    let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
+        return Vec::new();
+    };
+    let own_device_id = queries::own_device_id(cx);
+    // A remote row can only be opened when there is a relay to open it
+    // through; without one the row would lead to a dead feed (the dock's
+    // chip rule). A LOCAL row needs no relay at all.
+    let relay = queries::remote_start_enabled(cx);
+    let local_sessions = LocalSessions::global_ref(cx);
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let collections = store.collections().clone();
+    let now = chrono::Utc::now().timestamp();
 
-pub(crate) struct RunningSessionsSection {
-    /// EXP-862: the rows, derived when the data (or the clock) changes and
-    /// never in `render` — the EXP-832 rule. Every repaint of the Agent page
-    /// used to re-read three collections and re-format every caption.
-    rows: Vec<RunningRow>,
-    /// EXP-827: the parent rows whose sub-sessions are folded away (the rail's
-    /// `collapsed_sessions`). Per view, never persisted.
-    collapsed: HashSet<String>,
-    /// EXP-862: the Agent page renders this band even with nothing in it
-    /// ("No agents running right now."); the list nav still hides it.
-    show_when_empty: bool,
-    /// EXP-862: the LIST this section is, when it renders as the left
-    /// column's `ListNav` — a row then opens its run pinned to it, so the
-    /// column keeps showing the rows the click came from. `None` on the Agent
-    /// page, where the breadcrumb rule derives the same answer.
-    list_origin: Option<TabOrigin>,
-    _subscriptions: Vec<Subscription>,
-    _tick: Task<()>,
-}
-
-impl RunningSessionsSection {
-    /// Not team-scoped, deliberately: "my live sessions" is one list, the way
-    /// the dock's strip always read it — a run on another team's board is
-    /// still a run of yours that is going right now.
-    pub(crate) fn new(cx: &mut gpui::Context<Self>) -> Self {
-        Self {
-            rows: Self::derive(cx),
-            collapsed: HashSet::new(),
-            show_when_empty: false,
-            list_origin: None,
-            _subscriptions: {
-                let mut subscriptions =
-                    watch_run_collections(cx, |this: &mut Self, cx| this.refresh(cx));
-                // EXP-874: the rows' Merge circles paint the shared two-click
-                // state (armed / merging / conflict).
-                let merge_state = crate::pr_merge::MergeState::global(cx);
-                subscriptions.push(cx.observe(&merge_state, |_, _, cx| cx.notify()));
-                subscriptions
-            },
-            _tick: tick(cx, |this: &mut Self, cx| this.refresh(cx)),
-        }
-    }
-
-    /// EXP-862 — the AGENT PAGE's band: always on screen, empty or not. The
-    /// composer's page is where you go to see what is running, so an empty
-    /// band that says so beats a page that silently omits it.
-    pub(crate) fn always(cx: &mut gpui::Context<Self>) -> Self {
-        Self {
-            show_when_empty: true,
-            ..Self::new(cx)
-        }
-    }
-
-    /// EXP-862: pin the list this section renders as (the left column's
-    /// `ListNav`). Called by the renderer, which is the only thing that knows
-    /// where the section ended up.
-    pub(crate) fn set_list_origin(&mut self, origin: Option<TabOrigin>) {
-        self.list_origin = origin;
-    }
-
-    /// Whether the band has anything to show (the composer page centres
-    /// itself when both bands are empty).
-    pub(crate) fn is_empty(&self) -> bool {
-        self.rows.is_empty()
-    }
-
-    /// EXP-862: re-derive and repaint — but only when something actually
-    /// changed. The 5s tick fires whether or not a caption moved.
-    fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        let next = Self::derive(cx);
-        if next != self.rows {
-            self.rows = next;
-            cx.notify();
-        }
-    }
-
-    /// The user's live sessions: the ones on OTHER machines
-    /// ([`queries::remote_session_rows`], the dock's projection) union the
-    /// ones this process hosts. Newest start first, so the strip order and
-    /// this list agree.
-    fn derive(cx: &mut App) -> Vec<RunningRow> {
-        // Everything that needs `&mut App` first — the collection reads below
-        // borrow it immutably for the rest of the function.
-        let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
-            return Vec::new();
-        };
-        let own_device_id = queries::own_device_id(cx);
-        // A remote row can only be opened when there is a relay to open it
-        // through; without one the row would lead to a dead feed (the dock's
-        // chip rule). A LOCAL row needs no relay at all.
-        let relay = queries::remote_start_enabled(cx);
-        let local_sessions = LocalSessions::global_ref(cx);
-        let Some(store) = sync::Store::try_global(cx) else {
-            return Vec::new();
-        };
-        let collections = store.collections().clone();
-        let now = chrono::Utc::now().timestamp();
-
-        let hosts: Vec<(String, LocalSessionHost)> = local_sessions
-            .as_ref()
-            .map(|sessions| {
-                let sessions = sessions.read(cx);
-                sessions
-                    .session_ids()
-                    .into_iter()
-                    .filter_map(|id| {
-                        let host = sessions.session_by_id(&id)?.host.clone();
-                        Some((id, host))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let local_ids: HashSet<String> = hosts.iter().map(|(id, _)| id.clone()).collect();
-
-        let sessions = collections.coding_sessions.read(cx);
-        let mut rows: Vec<&domain::rows::CodingSession> = if relay {
-            queries::remote_session_rows(sessions.iter(), &me, &own_device_id, &local_ids, now)
-        } else {
-            Vec::new()
-        };
-        // The local half: rows this process hosts, live by the same rule.
-        rows.extend(
+    let hosts: Vec<(String, LocalSessionHost)> = local_sessions
+        .as_ref()
+        .map(|sessions| {
+            let sessions = sessions.read(cx);
             sessions
-                .iter()
-                .filter(|session| local_ids.contains(&session.id))
-                .filter(|session| queries::coding_session_is_live(session, now)),
-        );
-        if rows.is_empty() {
-            return Vec::new();
-        }
-        rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
-        // EXP-827: nest a run started BY a run under it, the ONE rule the rail
-        // and the mobile lists use. The sort above is the ROOT order; children
-        // follow their parent, oldest first.
-        let tree = domain::session_tree::nest_sessions(
-            rows,
-            |session| session.id.as_str(),
-            |session| session.parent_session_id.as_deref(),
-            |session| session.started_at.as_deref(),
-        );
+                .session_ids()
+                .into_iter()
+                .filter_map(|id| {
+                    let host = sessions.session_by_id(&id)?.host.clone();
+                    Some((id, host))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let local_ids: HashSet<String> = hosts.iter().map(|(id, _)| id.clone()).collect();
 
-        tree.into_iter()
-            .map(|tree_row| {
-                let session = tree_row.session;
-                let host = hosts.iter().find(|(id, _)| id == &session.id).map(|(_, host)| host);
-                // EXP-850 §8: a run this process hosts reads the engine's own
-                // caption signal (it WROTE the column; waiting for the echo
-                // would only add latency), every other row the synced one.
-                let local_caption = host.and_then(|host| host.session.caption_signal().get());
-                // EXP-848: same precedence for the turn flag — the engine's
-                // own signal here, the synced `agent_busy` everywhere else.
-                let local_busy = host.map(|host| !host.session.turn_signal().is_idle());
-                RunningRow {
-                    depth: tree_row.depth,
-                    has_children: tree_row.has_children,
-                    facts: run_rows::running_run_facts(session, local_caption, local_busy, now, cx),
-                    local: host.cloned(),
-                }
-            })
-            .collect()
+    let sessions = collections.coding_sessions.read(cx);
+    let mut rows: Vec<&domain::rows::CodingSession> = if relay {
+        queries::remote_session_rows(sessions.iter(), &me, &own_device_id, &local_ids, now)
+    } else {
+        Vec::new()
+    };
+    // The local half: rows this process hosts, live by the same rule.
+    rows.extend(
+        sessions
+            .iter()
+            .filter(|session| local_ids.contains(&session.id))
+            .filter(|session| queries::coding_session_is_live(session, now)),
+    );
+    if rows.is_empty() {
+        return Vec::new();
     }
-
-    /// The confirm before a live run is ended — the session bar's ×
-    /// (EXP-769) and this list share it (`session_bar::prompt_kill_session`).
-    fn prompt_kill(
-        row_local: Option<LocalSessionHost>,
-        device_label: Option<String>,
-        session_id: String,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        crate::session_bar::prompt_kill_session(row_local, device_label, session_id, window, cx);
-    }
+    rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
+    // EXP-827: nest a run started BY a run under it, the ONE rule the rail
+    // and the mobile lists use. The sort above is the ROOT order; children
+    // follow their parent, oldest first.
+    let tree = domain::session_tree::nest_sessions(
+        rows,
+        |session| session.id.as_str(),
+        |session| session.parent_session_id.as_deref(),
+        |session| session.started_at.as_deref(),
+    );
+    tree.into_iter()
+        .map(|tree_row| {
+            let session = tree_row.session;
+            let host = hosts.iter().find(|(id, _)| id == &session.id).map(|(_, host)| host);
+            build(session, tree_row.depth, tree_row.has_children, host, now, cx)
+        })
+        .collect()
 }
 
-impl Render for RunningSessionsSection {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let open_session = open_session_id(window, cx);
-        let rows = drop_collapsed(
-            self.rows.iter().collect::<Vec<_>>(),
-            &self.collapsed,
-            |row| row.facts.session_id.as_str(),
-            |row| row.depth,
+/// EXP-923 — the rail's Running rows. Derived per paint like the rail's other
+/// live reads (its observers already cover sessions, devices and the local
+/// host set; [`tick`] covers the clock).
+pub(crate) fn rail_running_rows(cx: &mut App) -> Vec<RailRunRow> {
+    live_run_tree(cx, |session, depth, has_children, host, now, cx| {
+        let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
+        let issue = collections.as_ref().and_then(|collections| {
+            session
+                .issue_id
+                .as_deref()
+                .and_then(|id| collections.issues.read(cx).get(id).cloned())
+        });
+        // EXP-876: a batch row names itself after the issues it covers.
+        let batch_issues = run_rows::batch_run_issues(session, cx);
+        let device = collections.as_ref().and_then(|collections| {
+            queries::session_device_row(session, collections.devices.read(cx).iter()).cloned()
+        });
+        let presentation = match collections.as_ref() {
+            Some(collections) => queries::session_device_presentation(
+                session,
+                collections.devices.read(cx).iter(),
+                now * 1_000,
+            ),
+            None => queries::SessionDevicePresentation {
+                label: session.device_label.clone(),
+                offline: false,
+            },
+        };
+        // EXP-734: an issue-less run (action/chat) carries its own PR state.
+        let display = queries::coding_session_display(
+            session,
+            issue
+                .as_ref()
+                .and_then(|issue| issue.pr_state.as_deref())
+                .or(session.pr_state.as_deref()),
         );
-        if rows.is_empty() && !self.show_when_empty {
-            return v_flex();
+        RailRunRow {
+            session_id: session.id.clone(),
+            issue_id: session.issue_id.clone(),
+            depth,
+            has_children,
+            identifier: run_rows::run_identifier(session, issue.as_ref(), &batch_issues),
+            title: run_rows::run_title(session, issue.as_ref(), &batch_issues),
+            // EXP-877's fallback, kept: an unknown or absent agent id is
+            // claude, `codingSessions.start`'s own default.
+            agent: session
+                .agent
+                .as_deref()
+                .and_then(coding::CodingAgent::parse)
+                .unwrap_or_default(),
+            attention: display == queries::CodingSessionDisplay::NeedsInput,
+            device_icon: crate::icons::device_icon(
+                device.as_ref().and_then(|row| row.icon.as_deref()),
+                device.as_ref().is_some_and(|row| row.is_server()),
+            ),
+            device_label: presentation.label.clone().map(SharedString::from),
+            local: host.cloned(),
+            paused: queries::session_is_paused(display, &presentation),
         }
-        // NO gap on the headed section (EXP-697): the header's `pb_2` IS the
-        // 8px to the list, so the rows live in their own gapped column.
-        let mut column = v_flex().min_w_0();
-        if rows.is_empty() {
-            column = column.child(
-                div()
-                    .px_1()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(NO_RUNNING_COPY),
-            );
-        }
-        let list_origin = self.list_origin.clone();
-        for (index, row) in rows.into_iter().enumerate() {
-            let open_id = row.facts.session_id.clone();
-            let list_origin = list_origin.clone();
-            let fold = fold_for(
-                row.facts.session_id.clone(),
-                row.has_children,
-                &self.collapsed,
-                cx,
-            );
-            // Web `ownsLiveRow`: a paused host is never killed (it resumes
-            // when the lid opens). EXP-874: the kill rides the row's
-            // right-click menu, not a trailing button.
-            let kill = (!row.facts.paused).then(|| {
-                let session_id = row.facts.session_id.clone();
-                let local = row.local.clone();
-                let device_label = row.facts.device_label.clone();
-                RunRowKill {
-                    // EXP-849 fix-up: one verb, wherever the run is hosted.
-                    label: SharedString::from("Stop session"),
-                    on_kill: Box::new(move |_, window, cx| {
-                        Self::prompt_kill(
-                            local.clone(),
-                            device_label.clone(),
-                            session_id.clone(),
-                            window,
-                            cx,
-                        );
-                    }),
-                }
-            });
-            // EXP-862: the row whose session is on screen wears the flat
-            // list's selected paint, like every other list here.
-            let active = open_session.as_deref() == Some(row.facts.session_id.as_str());
-            let element = run_rows::render_running_run_row(
-                RunningRunSpec {
-                    id_prefix: "running-run",
-                    index,
-                    depth: row.depth,
-                    fold,
-                    facts: row.facts.clone(),
-                    on_open: Box::new(move |_, window, cx| {
-                        crate::session_screen::open_session_with_origin(
-                            &open_id,
-                            list_origin.clone(),
-                            window,
-                            cx,
-                        );
-                    }),
-                    kill,
-                },
-                active,
-                cx,
-            );
-            column = column.child(element);
-        }
-        // The section carries its OWN top spacing (the page column has no
-        // `gap`): a `gap_6` parent would reserve 24px for an empty section
-        // too, and both of these render nothing most of the time.
-        v_flex()
-            .min_w_0()
-            .mt_6()
-            .child(glass_section_header("Running", None, cx))
-            .child(column)
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
 // Recent (the `Past*` names predate EXP-886's rename)
 // ---------------------------------------------------------------------------
 
-/// One finished row, flattened like [`RunningRow`].
+/// One finished row, flattened off the collections like the rail's.
 #[derive(Clone, PartialEq)]
 struct PastRow {
     /// EXP-827: the session tree, exactly as Running nests it.
@@ -362,13 +250,12 @@ pub(crate) struct PastSessionsSection {
     nav: Entity<Navigation>,
     /// EXP-862: the rows, derived on a data change or the clock (EXP-832).
     rows: Vec<PastRow>,
-    /// EXP-827: the folded parents of this list (see
-    /// [`RunningSessionsSection::collapsed`]).
+    /// EXP-827: the parent rows whose sub-sessions are folded away. Per
+    /// view, never persisted.
     collapsed: HashSet<String>,
-    /// EXP-862: the whole SECTION folds. It is history behind a composer, so
-    /// it starts collapsed (EXP-886: the band carries no count).
-    expanded: bool,
-    /// EXP-862: see [`RunningSessionsSection::list_origin`].
+    /// EXP-923: the LIST this section is, when it renders as the left
+    /// column's panel — a row then opens its run pinned to it, so the column
+    /// keeps showing the rows the click came from.
     list_origin: Option<TabOrigin>,
     _subscriptions: Vec<Subscription>,
     _tick: Task<()>,
@@ -384,21 +271,17 @@ impl PastSessionsSection {
             nav,
             rows,
             collapsed: HashSet::new(),
-            expanded: false,
             list_origin: None,
             _subscriptions: subscriptions,
             _tick: tick(cx, |this: &mut Self, cx| this.refresh(cx)),
         }
     }
 
-    /// EXP-862: see [`RunningSessionsSection::set_list_origin`].
+    /// EXP-923: pin the list this section renders as (the left column's
+    /// Recent-runs panel). Called by the renderer, which is the only thing
+    /// that knows where the section ended up.
     pub(crate) fn set_list_origin(&mut self, origin: Option<TabOrigin>) {
         self.list_origin = origin;
-    }
-
-    /// Whether the section has anything to show.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.rows.is_empty()
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
@@ -423,10 +306,13 @@ impl PastSessionsSection {
         let collections = store.collections().clone();
         let now = chrono::Utc::now().timestamp();
         let sessions = collections.coding_sessions.read(cx);
-        let rows = queries::own_ended_runs(sessions.iter(), &me, &team_id);
+        let mut rows = queries::own_ended_runs(sessions.iter(), &me, &team_id);
         if rows.is_empty() {
             return Vec::new();
         }
+        // EXP-923: history behind a composer, capped — the roots are newest
+        // first, so the cut takes the oldest.
+        rows.truncate(RECENT_CAP);
         // EXP-827: a finished sub-session nests under the run that started it,
         // the same rule Running and the rail use. `own_ended_runs`' order is
         // the ROOT order (newest end first).
@@ -452,23 +338,15 @@ impl Render for PastSessionsSection {
             return v_flex();
         }
         let open_session = open_session_id(window, cx);
-        // ×4 copy: the section is "Recent" on every client (EXP-886), and
-        // EXP-862 made the header the FOLD — collapsed by default, no count.
-        let band = glass_section_band_fold_uncounted("past-sessions-fold", "Recent", !self.expanded, cx)
-            .on_click(cx.listener(|this, _, _window, cx| {
-                this.expanded = !this.expanded;
-                cx.notify();
-            }));
-        let section = v_flex().min_w_0().mt_6().child(band);
-        if !self.expanded {
-            return section;
-        }
         let rows = drop_collapsed(
             self.rows.iter().collect::<Vec<_>>(),
             &self.collapsed,
             |row| row.facts.session_id.as_str(),
             |row| row.depth,
         );
+        // EXP-965: the connector, off the VISIBLE depth sequence.
+        let guides =
+            domain::tree_guides::guides_for(&rows.iter().map(|row| row.depth).collect::<Vec<_>>());
         let mut column = v_flex().min_w_0();
         let list_origin = self.list_origin.clone();
         for (index, row) in rows.iter().enumerate() {
@@ -485,7 +363,7 @@ impl Render for PastSessionsSection {
                 PastRunSpec {
                     id_prefix: "past-run",
                     index,
-                    depth: row.depth,
+                    guides: guides.get(index).cloned().unwrap_or_default(),
                     fold,
                     facts: row.facts.clone(),
                     // EXP-773: a plain link. The transcript and Resume live in
@@ -503,7 +381,58 @@ impl Render for PastSessionsSection {
                 cx,
             ));
         }
-        section.child(column)
+        // ×4 copy: the section is "Recent" on every client (EXP-886).
+        // EXP-923 took its fold away — a panel you opened on purpose has
+        // nothing to gain from a second click to see what is in it.
+        v_flex()
+            .min_w_0()
+            .child(glass_section_header("Recent", None, cx))
+            .child(column)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The Recent-runs panel (EXP-923)
+// ---------------------------------------------------------------------------
+
+/// EXP-923 — the Agent page's history, in the left column: the Recent rows
+/// behind the composer's history button
+/// (`shell::LeftOccupant::RecentRuns`). Hidden by default, opened by that
+/// button alone, and gone the moment the window leaves the Chat screen.
+pub(crate) struct RecentRunsNav {
+    past: Entity<PastSessionsSection>,
+}
+
+impl RecentRunsNav {
+    pub(crate) fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let past = cx.new(|cx| PastSessionsSection::new(window, cx));
+        cx.observe(&past, |_, _, cx| cx.notify()).detach();
+        Self { past }
+    }
+}
+
+impl Render for RecentRunsNav {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-923: a row opens its run beside THIS panel — the Agent page is
+        // no longer a list, so nothing else would name one.
+        self.past.update(cx, |section, _| {
+            section.set_list_origin(None);
+        });
+        div()
+            .id("recent-runs-scroll")
+            .size_full()
+            .min_h_0()
+            .min_w_0()
+            .overflow_y_scrollbar()
+            .child(
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .px_2()
+                    .pt_2()
+                    .pb_2()
+                    .child(self.past.clone()),
+            )
     }
 }
 
@@ -511,7 +440,7 @@ impl Render for PastSessionsSection {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/// EXP-862 — the 5s re-derive both sections ride (EXP-832's pattern with a
+/// EXP-862 — the 5s re-derive every run list rides (EXP-832's pattern with a
 /// clock): the rows carry relative times and a liveness that expires, neither
 /// of which the collections signal. The refresh short-circuits on unchanged
 /// rows, so a quiet list costs one derivation and no repaint.
@@ -590,12 +519,6 @@ pub(crate) trait Collapsible {
     fn collapsed_mut(&mut self) -> &mut HashSet<String>;
 }
 
-impl Collapsible for RunningSessionsSection {
-    fn collapsed_mut(&mut self) -> &mut HashSet<String> {
-        &mut self.collapsed
-    }
-}
-
 impl Collapsible for PastSessionsSection {
     fn collapsed_mut(&mut self) -> &mut HashSet<String> {
         &mut self.collapsed
@@ -609,8 +532,8 @@ impl Collapsible for crate::automations_view::AutomationsView {
     }
 }
 
-/// Both sections join `coding_sessions` with the issues they name and the
-/// devices they ran on, so all three deltas RE-DERIVE them (EXP-862: the rows
+/// The Recent list joins `coding_sessions` with the issues it names and the
+/// devices they ran on, so all three deltas RE-DERIVE it (EXP-862: the rows
 /// are computed here and in the tick, never in `render`).
 fn watch_run_collections<V: 'static>(
     cx: &mut gpui::Context<V>,
@@ -635,8 +558,9 @@ fn watch_run_collections<V: 'static>(
 mod tests {
     use super::*;
 
-    /// EXP-862: the Agent page's empty Running band says exactly this, on all
-    /// four clients.
+    /// EXP-862: the empty Running band says exactly this, on every client
+    /// that still draws one (EXP-923: the desktop's rail section hides
+    /// instead, but the ×4 string stays locked here).
     #[test]
     fn the_empty_running_band_copy_is_locked() {
         assert_eq!(NO_RUNNING_COPY, "No agents running right now.");

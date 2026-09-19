@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +45,8 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrStack
+import com.exponential.app.domain.TreeGuide
+import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
@@ -53,6 +56,7 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.treeGuides
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
@@ -125,16 +129,20 @@ private fun ReviewsListContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             // EXP-818: flat rows under a band — the 6dp every converted list
             // uses, not the 3dp gap the carded rows needed.
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(REVIEW_ROW_GAP),
         ) {
             state.groups.forEach { group ->
                 item(key = "header-${group.board.id}") {
                     BoardHeader(board = group.board)
                 }
-                items(group.rows, key = { it.entry.groupKey }) { row ->
+                // EXP-965: the stack's connector — computed per GROUP, off
+                // the very rows the list draws.
+                val guides = TreeGuides.compute(group.rows.map { it.depth })
+                itemsIndexed(group.rows, key = { _, it -> it.entry.groupKey }) { index, row ->
                     val entry = row.entry
                     ReviewRow(
                         row = row,
+                        guide = guides.getOrNull(index),
                         failure = mergeErrors[entry.groupKey],
                         merging = entry.groupKey in merging,
                         onClick = { onOpenChanges(entry.representative.id) },
@@ -352,6 +360,8 @@ private fun RunReviewRow(
 @Composable
 private fun ReviewRow(
     row: ReviewRowEntry,
+    /** EXP-965: what this row draws in the gutters its indent leaves. */
+    guide: TreeGuide?,
     failure: MergeFailure?,
     merging: Boolean,
     onClick: () -> Unit,
@@ -371,8 +381,16 @@ private fun ReviewRow(
     // applies the same guard on its Reviews rows.
     val canFixConflicts = canOfferFixConflicts(failure, entry.branch)
 
-    // EXP-897: one stack level is 14dp of indent, on every client.
-    Column(modifier = Modifier.fillMaxWidth().padding(start = (STACK_INDENT_DP * row.depth).dp)) {
+    // EXP-897: one stack level is 14dp of indent, on every client; EXP-965:
+    // with the connector drawn in the gutter that indent leaves.
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            // EXP-965: `gap` = the list's own row spacing below, so the
+            // branch runs through it instead of breaking at every row.
+            .treeGuides(guide, REVIEW_ROW_GAP)
+            .padding(start = (TreeGuides.INDENT_DP * row.depth).dp),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -608,8 +626,8 @@ private fun MergeConfirmDialog(
     )
 }
 
-/** EXP-897: one stack level of indent, the ×4 number. */
-private const val STACK_INDENT_DP = 14
+/** EXP-965: the Reviews scroller's row spacing, which the connector spans. */
+private val REVIEW_ROW_GAP = 6.dp
 
 /**
  * EXP-897: the issues a batch pull request spans — the Reviews list's half of

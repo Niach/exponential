@@ -4,8 +4,8 @@ import type { Issue } from "@/db/schema"
 
 // EXP-907: the browser gesture on the work tabs — a MIDDLE click anywhere on
 // a tab closes it, exactly like its ×, and the browser's own middle-click
-// behaviour (autoscroll, open-in-new-tab) never fires. A LIVE tab has no ×
-// and takes no middle click either (EXP-877).
+// behaviour (autoscroll, open-in-new-tab) never fires. EXP-923: EVERY tab
+// takes it, a live one included — the "permanent" live tab is gone.
 
 const updateWorkTabs = vi.hoisted(() => vi.fn())
 const tabs = vi.hoisted(() => ({
@@ -28,8 +28,6 @@ vi.mock(`@/lib/collections`, () => ({
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@/hooks/use-work-tabs`, () => ({
   useWorkTabs: () => ({ tabs: tabs.value }),
-  useCollapsedTabGroups: () => [],
-  setTabGroupCollapsed: vi.fn(),
   updateWorkTabs,
 }))
 vi.mock(`@/components/agent-session-row`, () => ({
@@ -101,13 +99,14 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
     expect(updateWorkTabs).not.toHaveBeenCalled()
   })
 
-  it(`never closes a LIVE tab`, () => {
-    tabs.value = [
-      { kind: `run`, runId: `r1`, from: null, live: true },
-    ]
+  // EXP-923: a live run has no chip of its own any more, but a tab that is
+  // BOUND to one (you opened its issue) closes like every other.
+  it(`closes a tab bound to a live run`, () => {
+    tabs.value = [{ kind: `run`, runId: `r1`, from: null, live: true }]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-run:r1`)
+    expect(screen.getAllByLabelText(`Close tab`).length).toBeGreaterThan(0)
     auxClick(tab, 1)
-    expect(updateWorkTabs).not.toHaveBeenCalled()
+    expect(updateWorkTabs).toHaveBeenCalledTimes(1)
   })
 })

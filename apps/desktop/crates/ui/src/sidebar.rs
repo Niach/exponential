@@ -104,9 +104,6 @@ pub(crate) enum ToolWindow {
     Files,
     /// The trunk's local branches; activating also opens the changes screen.
     SourceControl,
-    /// EXP-818: the Agent page's sessions list — the caller's Running runs
-    /// and their Past ones, under the composer since EXP-851.
-    Sessions,
     /// EXP-851: the Reviews page's rows — a PR diff opened from there keeps
     /// the queue beside it.
     Reviews,
@@ -134,7 +131,6 @@ impl ToolWindow {
             ToolWindow::Support => Screen::Support,
             ToolWindow::Files => Screen::Files,
             ToolWindow::SourceControl => Screen::SourceControl,
-            ToolWindow::Sessions => Screen::Chat,
             ToolWindow::Reviews => Screen::Reviews,
             ToolWindow::Automations => Screen::Automations,
         }
@@ -150,7 +146,6 @@ impl ToolWindow {
             ToolWindow::Support => "Support",
             ToolWindow::Files => "Files",
             ToolWindow::SourceControl => "Source Control",
-            ToolWindow::Sessions => "Agent",
             ToolWindow::Reviews => "Reviews",
             ToolWindow::Automations => "Automations",
         }
@@ -413,9 +408,6 @@ pub(crate) fn focused_list(screen: Option<&Screen>) -> (ToolWindow, InboxTab) {
         }
         Some(Screen::Files) => (ToolWindow::Files, InboxTab::Inbox),
         Some(Screen::SourceControl) => (ToolWindow::SourceControl, InboxTab::Inbox),
-        Some(Screen::Chat) | Some(Screen::Session { .. }) => {
-            (ToolWindow::Sessions, InboxTab::Inbox)
-        }
         Some(Screen::Reviews) => (ToolWindow::Reviews, InboxTab::Inbox),
         Some(Screen::Automations) => (ToolWindow::Automations, InboxTab::Inbox),
         _ => (ToolWindow::BoardIssues, InboxTab::Inbox),
@@ -545,6 +537,12 @@ const NAV_ROW_GROUP: &str = "list-nav-issue-row";
 const NAV_HEADER_HEIGHT: f32 = 24.;
 const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
 const NAV_ROW_GAP: f32 = 2.;
+
+/// EXP-923/EXP-965: the space between two rows of the rail's Running section
+/// — the rail's own `gap_1`, as a number, because the connector has to BRIDGE
+/// it (`tree_guides::guide_layer`) and a literal in one of the two places
+/// would drift the moment the other moved.
+const RUNNING_ROW_GAP: f32 = 0.25 * theme::FONT_SIZE_PX;
 
 /// One flattened `ListNav` virtual-list row (EXP-915) — the big list's
 /// `ListRow` at the column's density: the issue rides behind the memoized
@@ -777,7 +775,22 @@ pub struct RailView {
     /// leaves the window any more; it folds its labels away instead).
     /// Re-derived at the top of every render from the window's occupant.
     compact: bool,
+    /// EXP-923: the parents of the Running section whose sub-runs are folded
+    /// away (the session lists' `collapsed`). Per window, never persisted.
+    collapsed_runs: HashSet<String>,
+    /// EXP-923: the Running rows carry a liveness that expires with
+    /// `last_seen_at` and produces no collection delta — the session lists'
+    /// 5s re-derive, here.
+    _tick: gpui::Task<()>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// EXP-923: the Running section folds its nested runs like every other
+/// session list ([`crate::sessions_section::fold_for`]).
+impl crate::sessions_section::Collapsible for RailView {
+    fn collapsed_mut(&mut self) -> &mut HashSet<String> {
+        &mut self.collapsed_runs
+    }
 }
 
 impl RailView {
@@ -838,6 +851,8 @@ impl RailView {
             last_branch: None,
             rail_scroll: ScrollHandle::new(),
             compact: false,
+            collapsed_runs: HashSet::new(),
+            _tick: crate::sessions_section::tick(cx, |_: &mut Self, cx| cx.notify()),
             _subscriptions: subscriptions,
         }
     }
@@ -1008,6 +1023,251 @@ impl RailView {
             }
         }
         out
+    }
+
+    /// EXP-923 — the rail's **Running** section: MY live runs, here and on
+    /// every other machine, between the boards and "This device".
+    ///
+    /// This is where a live run LIVES now. It used to own a top tab (EXP-870)
+    /// and, before that, a dock chip: both said "a run is a document you have
+    /// open", which is wrong — a run is a place, it comes and goes on its own
+    /// and a strip that fills up with unclosable chips is the strip telling
+    /// you so. The section HIDES entirely while nothing runs: a sidebar group
+    /// that is empty most of the day is noise, and the empty copy belongs to
+    /// the surfaces that promise an answer (mobile's band).
+    ///
+    /// A row leads with the AGENT's brand mark rather than a state dot —
+    /// which agent is on it is the thing you cannot get anywhere else, and
+    /// the one state that needs you (`needs_input`) rides the mark's corner
+    /// as the rail's own yellow badge. The HOST machine is the trailing
+    /// glyph, fixed: it never truncates, because "which machine" is the
+    /// question a remote run exists to raise.
+    ///
+    /// Returns `None` with nothing running (the caller renders neither the
+    /// rule nor the label).
+    fn render_running_section(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        let rows = crate::sessions_section::rail_running_rows(cx);
+        let rows = crate::sessions_section::drop_collapsed(
+            rows,
+            &self.collapsed_runs,
+            |row| row.session_id.as_str(),
+            |row| row.depth,
+        );
+        if rows.is_empty() {
+            return None;
+        }
+        // EXP-965: the connector, off the VISIBLE depth sequence.
+        let guides = domain::tree_guides::guides_for(
+            &rows.iter().map(|row| row.depth).collect::<Vec<_>>(),
+        );
+        let screen = resolved_screen(&self.nav, cx);
+        let elements: Vec<gpui::AnyElement> = rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                // EXP-870: the row stays current across the Issue | Run
+                // toggle — both faces are the same piece of work.
+                let active = match &screen {
+                    Some(Screen::Session { session_id }) => session_id == &row.session_id,
+                    Some(Screen::IssueDetail { issue_id }) => {
+                        row.issue_id.as_deref() == Some(issue_id.as_str())
+                    }
+                    _ => false,
+                };
+                self.rail_running_row(
+                    index,
+                    row,
+                    guides.get(index).cloned().unwrap_or_default(),
+                    active,
+                    cx,
+                )
+            })
+            .collect();
+        Some(
+            v_flex()
+                .w_full()
+                .gap(px(RUNNING_ROW_GAP))
+                .when(self.compact, |section| section.items_center())
+                .child(self.divider(cx))
+                .when(!self.compact, |section| {
+                    section.child(self.section_label("Running", cx))
+                })
+                .children(elements)
+                .into_any_element(),
+        )
+    }
+
+    /// ONE Running row ([`Self::render_running_section`]) in the rail's
+    /// current shape — the labelled row, or the icon column's 32px mark.
+    fn rail_running_row(
+        &self,
+        index: usize,
+        row: &crate::sessions_section::RailRunRow,
+        guides: domain::tree_guides::Guides,
+        active: bool,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let muted = cx.theme().muted_foreground;
+        let session_id = row.session_id.clone();
+        let issue_id = row.issue_id.clone();
+        // EXP-923: the lead is the agent's brand mark, with the attention
+        // badge on its corner — the compact column's badge rule, on a glyph.
+        let mark = crate::coding_selects::agent_mark(row.agent).with_size(px(16.));
+        let lead = div()
+            .relative()
+            .flex_shrink_0()
+            .child(mark)
+            .when(row.attention, |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top(px(-2.))
+                        .right(px(-2.))
+                        .size(px(6.))
+                        .rounded_full()
+                        .bg(theme::tokens::YELLOW.to_hsla())
+                        // The hairline keeps the dot readable over the glyph
+                        // it overlaps (the rail's own ground).
+                        .border_1()
+                        .border_color(theme::tokens::BACKGROUND.to_hsla()),
+                )
+            })
+            .into_any_element();
+        // The compact square has no room for two texts: the tooltip is the
+        // whole label the expanded row splits into identifier + title.
+        let label: SharedString = match &row.identifier {
+            Some(identifier) => format!("{identifier} {}", row.title).into(),
+            None => row.title.clone(),
+        };
+        let open = {
+            let session_id = session_id.clone();
+            move |window: &mut Window, cx: &mut App| {
+                // EXP-923: no tab — a live run is reachable from this row for
+                // as long as it runs.
+                crate::navigation::navigate_from_live_rail(
+                    window,
+                    cx,
+                    Screen::Session {
+                        session_id: session_id.clone(),
+                    },
+                );
+            }
+        };
+        if self.compact {
+            // EXP-923: nesting is not drawn in the icon column — 14px of
+            // indent inside a 32px square would only clip the mark.
+            return rail_compact_button(
+                ("rail-running", index),
+                lead,
+                label,
+                active,
+                None,
+                cx,
+            )
+            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)))
+            .into_any_element();
+        }
+        let fold = row.has_children.then(|| {
+            let collapsed = self.collapsed_runs.contains(&row.session_id);
+            let fold_id = row.session_id.clone();
+            div()
+                .id(("rail-running-fold", index))
+                .flex_shrink_0()
+                .cursor_pointer()
+                .child(
+                    Icon::from(if collapsed {
+                        registry::UI_CHEVRON_RIGHT
+                    } else {
+                        registry::UI_CHEVRON_DOWN
+                    })
+                    .xsmall()
+                    .text_color(muted),
+                )
+                .on_click(cx.listener(move |this: &mut Self, _, _window, cx| {
+                    // The row itself opens the run — folding must not.
+                    cx.stop_propagation();
+                    if !this.collapsed_runs.insert(fold_id.clone()) {
+                        this.collapsed_runs.remove(&fold_id);
+                    }
+                    cx.notify();
+                }))
+        });
+        let device_label = row.device_label.clone();
+        let device = div()
+            .id(("rail-running-device", index))
+            .flex_shrink_0()
+            .child(Icon::from(row.device_icon.clone()).xsmall().text_color(muted))
+            .when_some(device_label, |this, label| {
+                this.tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(label.clone()).build(window, cx)
+                })
+            });
+        let kill = (!row.paused).then(|| {
+            (
+                row.local.clone(),
+                row.device_label.clone().map(|label| label.to_string()),
+                session_id.clone(),
+            )
+        });
+        let _ = issue_id;
+        let row_el = crate::surface::flat_row_compact()
+            .id(("rail-running", index))
+            .w_full()
+            .flex_shrink_0()
+            .relative()
+            .cursor_pointer()
+            .pl(px(8. + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
+            .when(active, |this| {
+                this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
+            })
+            .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
+            .children(crate::tree_guides::guide_layer(
+                &guides,
+                8.,
+                RUNNING_ROW_GAP,
+            ))
+            .children(fold)
+            .child(lead)
+            .children(row.identifier.clone().map(|identifier| {
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .child(identifier)
+            }))
+            .child(div().flex_1().min_w_0().truncate().child(row.title.clone()))
+            .child(device)
+            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| open(window, cx)));
+        // EXP-874: the kill rides the row's right-click menu, not a trailing
+        // button — the session lists' own grammar.
+        match kill {
+            None => row_el.into_any_element(),
+            Some((local, device_label, session_id)) => row_el
+                .context_menu(move |menu, _window, cx| {
+                    let local = local.clone();
+                    let device_label = device_label.clone();
+                    let session_id = session_id.clone();
+                    menu.item(
+                        crate::controls::danger_menu_item(
+                            // EXP-849: one verb, wherever the run is hosted.
+                            SharedString::from("Stop session"),
+                            Icon::from(registry::CODING_STOP),
+                            cx,
+                        )
+                        .on_click(move |_, window, cx| {
+                            crate::session_bar::prompt_kill_session(
+                                local.clone(),
+                                device_label.clone(),
+                                session_id.clone(),
+                                window,
+                                cx,
+                            );
+                        }),
+                    )
+                })
+                .into_any_element(),
+        }
     }
 
     /// EXP-533: the rail footer's "still catching up" spinner. It answers
@@ -1795,6 +2055,9 @@ impl Render for RailView {
         // EXP-862: the action the composer is being seeded with, if any —
         // the pinned row that seeded it is active, and the Agent entry is not.
         let active_chat_action = self.active_chat_action(window, cx);
+        // EXP-923: MY live runs — between the boards and "This device",
+        // hidden while nothing is running.
+        let running_section = self.render_running_section(cx);
         // EXP-778: the Pinned section — hidden while nothing is pinned.
         let pinned_rows = self.render_pinned_rows(active_chat_action.as_deref(), cx);
         let pinned_section: Option<gpui::AnyElement> = (!pinned_rows.is_empty()).then(|| {
@@ -1957,6 +2220,7 @@ impl Render for RailView {
                         .children(pinned_section)
                         .child(self.divider(cx))
                         .children(board_icons)
+                        .children(running_section)
                         .child(self.divider(cx))
                         .child(self.rail_tool_icon(
                             "rail-files",
@@ -2012,8 +2276,8 @@ impl Render for RailView {
             // EXP-878 the conditional Drafts entry under Inbox):
             // [Inbox, Drafts?, Support, Devices, Actions, Automations,
             //  Reviews, Agent]
-            // / Pinned (EXP-778) / boards + "+" / Sessions / This device:
-            // [Files, Source Control].
+            // / Pinned (EXP-778) / boards + "+" / Running (EXP-923) / This
+            // device: [Files, Source Control].
             .child(crate::scroll_pane::v_scroll_pane(
                 "rail-scroll",
                 &self.rail_scroll,
@@ -2086,6 +2350,9 @@ impl Render for RailView {
                     .child(self.divider(cx))
                     .children(boards_header)
                     .children(board_icons)
+                    // EXP-923: Running — MY live runs, the live half of the
+                    // retired top-tab group.
+                    .children(running_section)
                     .child(self.divider(cx))
                     // Repo tool windows — this machine's trunk clone.
                     .child(self.section_label("This device", cx))
@@ -2188,10 +2455,6 @@ pub struct ListPanel {
     support_seq: u64,
     /// Bumped per poll spawn — at most ONE Support poll loop is ever live.
     support_poll_seq: u64,
-    /// EXP-818: the Sessions tool window's two sections (Running / Past),
-    /// the ones the Devices page carried until now. Built on first show.
-    sessions_running: Option<Entity<crate::sessions_section::RunningSessionsSection>>,
-    sessions_past: Option<Entity<crate::sessions_section::PastSessionsSection>>,
     /// [`ListMode::Nav`] only (EXP-862): the status groups folded away in the
     /// issue lists, by `group_key` — the big list's own `collapsed` set. Per
     /// panel, never persisted.
@@ -2350,8 +2613,6 @@ impl ListPanel {
             support_key: None,
             support_seq: 0,
             support_poll_seq: 0,
-            sessions_running: None,
-            sessions_past: None,
             nav_collapsed: HashSet::new(),
             nav_selected: HashSet::new(),
             nav_select_anchor: None,
@@ -3056,41 +3317,6 @@ impl ListPanel {
     }
 
     // -- Support tool window ----------------------------------------------------
-
-    /// *Sessions* tool window (EXP-818): the Agent page's list — the
-    /// caller's Running runs, then their Past ones, the two sections that
-    /// lived on the Devices page. Rows open the run's screen beside this
-    /// list; the center shows the Chat prompt while no row is selected.
-    fn render_sessions_tool(
-        &mut self,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let running = self
-            .sessions_running
-            .get_or_insert_with(|| cx.new(crate::sessions_section::RunningSessionsSection::new))
-            .clone();
-        let past = self
-            .sessions_past
-            .get_or_insert_with(|| {
-                cx.new(|cx| crate::sessions_section::PastSessionsSection::new(window, cx))
-            })
-            .clone();
-        // EXP-862: a row clicked HERE opens its run beside this very list
-        // (`row_origin_for`), instead of leaving the breadcrumb rule to derive
-        // one from whatever screen is up.
-        let origin = self.row_origin(cx);
-        running.update(cx, |section, _| section.set_list_origin(origin.clone()));
-        past.update(cx, |section, _| section.set_list_origin(origin));
-        div()
-            .id("sessions-scroll")
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .overflow_y_scrollbar()
-            .child(v_flex().w_full().min_w_0().px_2().pb_2().child(running).child(past))
-            .into_any_element()
-    }
 
     /// *Support* tool window (EXP-180): the active team's support tickets,
     /// filtered open/resolved. Threads are server-only tRPC data — a
@@ -3999,7 +4225,7 @@ impl ListPanel {
             rows.push(crate::run_rows::render_run_list_row(
                 "list-nav-automation",
                 index,
-                0,
+                domain::tree_guides::Guides::default(),
                 None,
                 facts,
                 active,
@@ -4038,7 +4264,6 @@ impl ListPanel {
     fn render_nav_body(
         &mut self,
         origin: &crate::navigation::TabOrigin,
-        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         match origin.tool {
@@ -4053,7 +4278,6 @@ impl ListPanel {
             // simplified body in Nav mode).
             ToolWindow::Inbox => self.render_inbox_tool(cx),
             ToolWindow::Support => self.render_support_tool(cx),
-            ToolWindow::Sessions => self.render_sessions_tool(window, cx),
             ToolWindow::Reviews => self.render_reviews_nav(cx),
             ToolWindow::Automations => self.render_automations_nav(cx),
             // Files / Source Control are not list ORIGINS (`Screen::list_origin`).
@@ -4131,7 +4355,7 @@ impl Render for ListPanel {
                         // the `Shell`'s, fixed above this pane — the ListNav
                         // starts at its back row.
                         let back = self.nav_back_row(&origin, cx);
-                        let body = self.render_nav_body(&origin, window, cx);
+                        let body = self.render_nav_body(&origin, cx);
                         // EXP-863: the bulk bar FLOATS over the bottom of the
                         // rows while a selection exists (EXP-289's no-jump
                         // rule — the rows never move for it).
@@ -4213,14 +4437,12 @@ mod tests {
             ToolWindow::SourceControl.origin_screen(None),
             Screen::SourceControl
         );
-        assert_eq!(ToolWindow::Sessions.origin_screen(None), Screen::Chat);
         assert_eq!(ToolWindow::Reviews.origin_screen(None), Screen::Reviews);
         assert_eq!(
             ToolWindow::Automations.origin_screen(None),
             Screen::Automations
         );
         // The back row's words — a board overrides with its own name.
-        assert_eq!(ToolWindow::Sessions.list_label(), "Agent");
         assert_eq!(ToolWindow::Inbox.list_label(), "Inbox");
         assert_eq!(ToolWindow::Support.list_label(), "Support");
         assert_eq!(ToolWindow::Reviews.list_label(), "Reviews");
@@ -4293,12 +4515,14 @@ mod tests {
             .0,
             ToolWindow::Support
         );
+        // EXP-923: a run is no longer "the Agent list" — nothing lists it,
+        // so the redundancy check falls back to the board list.
         assert_eq!(
             focused_list(Some(&Screen::Session {
                 session_id: "s1".into()
             }))
             .0,
-            ToolWindow::Sessions
+            ToolWindow::BoardIssues
         );
         assert_eq!(focused_list(Some(&Screen::Files)).0, ToolWindow::Files);
         assert_eq!(

@@ -3,9 +3,12 @@ import ExpUI
 import SwiftUI
 
 /// EXP-825: the Agent page's sessions — the caller's OWN live runs in the
-/// active team ("Running", nested by `SessionTree`, EXP-818) above the
-/// finished ones ("Recent", EXP-746; "Past" until EXP-886). Moved verbatim from the Devices tab,
-/// which keeps machines only (web parity, EXP-818).
+/// active team ("Running", nested by `SessionTree`, EXP-818). Moved verbatim
+/// from the Devices tab, which keeps machines only (web parity, EXP-818).
+///
+/// EXP-923: the finished runs are NOT here. "Recent" was a fold nobody opened
+/// under the composer; history now lives behind the page's toolbar glyph, in
+/// its own sheet (`RecentRunsSheet`) — the ×4 rule.
 ///
 /// EXP-893: a row only OPENS the run — its Work screen, where Merge / Fix
 /// conflicts live on the Changes face and the issue is one switch away. The
@@ -17,118 +20,41 @@ struct AgentSessionsList: View {
 
     @Environment(\.accountId) private var accountId
 
-    /// The Recent rows' tap target — the page pushes it.
-    @State private var sessionTarget: StartedRunWatcher.StartedSession?
-    /// EXP-862: "Recent" is FOLDED by default on every client — finished runs
-    /// are history, and an unfolded list of them buried the live ones. The
-    /// header expands inline; EXP-886 dropped its count ×4.
-    @State private var pastExpanded = false
-    /// EXP-897: the runs folded shut in each band. A parent run's children are
-    /// nested under it (`SessionTree`), and its chevron hides the whole
-    /// subtree — the ×4 rule, in BOTH bands.
+    /// EXP-897: the runs folded shut. A parent run's children are nested under
+    /// it (`SessionTree`), and its chevron hides the whole subtree — the ×4
+    /// rule.
     @State private var collapsedRunning: Set<String> = []
-    @State private var collapsedPast: Set<String> = []
 
     var body: some View {
-        // EXP-818: the Running/Recent groups are filled BANDS over flat rows
+        // EXP-818: the Running group is a filled BAND over flat rows
         // (`GlassSectionBand` + `.flatRow()`) — the runs read as a table, the
         // way web's and the IDE's session lists do.
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand("Running")
-                if vm.rows.isEmpty {
-                    noAgentsRow
-                } else {
-                    // EXP-818: a run started by another run nests under its
-                    // parent, indented (`SessionTree`, the ×4 rule). EXP-897:
-                    // every parent carries a fold, 14 pt per level.
-                    ForEach(runningRows, id: \.session.id) { entry in
-                        sessionRow(
-                            entry.session,
-                            expandable: entry.hasChildren,
-                            expanded: !collapsedRunning.contains(entry.session.session.id),
-                            onToggle: { toggle(&collapsedRunning, entry.session.session.id) }
-                        )
-                        .padding(.leading, CGFloat(entry.depth) * Self.indentPerLevel)
-                    }
-                }
-            }
-
-            // EXP-746: the caller's finished runs. Absent entirely when
-            // there are none — an empty history is not news.
-            if !vm.pastRows.isEmpty {
-                pastSection
-            }
-        }
-        .navigationDestination(item: $sessionTarget) { target in
-            WorkScreen(subject: .session(id: target.sessionId))
-                .environment(\.accountId, accountId)
-        }
-    }
-
-    // MARK: - Recent (EXP-746)
-
-    /// The caller's finished runs: title + byline, and a tap opens that run's
-    /// Work screen — where its transcript and its Resume live since EXP-773.
-    /// Automation runs stay under Automations (`PastRuns.select` drops every
-    /// `started_reason` row). EXP-862: collapsed until the band is tapped.
-    @ViewBuilder
-    private var pastSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand("Recent") {
-                AppIcon(
-                    pastExpanded ? AppIcons.uiChevronUp : AppIcons.uiChevronDown,
-                    size: 12
-                )
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                pastExpanded.toggle()
-            }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("past-runs-band")
-            if pastExpanded {
-                // EXP-897: Recent nests too — a child run is history under its
-                // parent, not a stranger in the same list.
-                ForEach(pastRows, id: \.session.id) { entry in
-                    let row = entry.session
-                    EndedRunRow(
-                        title: PastRuns.title(
-                            row.session, issue: row.issue, batchIssues: row.batchIssues
-                        ),
-                        // EXP-876: a batch's `EXP-874 +2`, an issue run's id.
-                        identifier: PastRuns.identifier(
-                            row.session, issue: row.issue, batchIssues: row.batchIssues
-                        ),
-                        byline: pastByline(row),
+            GlassSectionBand("Running")
+            if vm.rows.isEmpty {
+                noAgentsRow
+            } else {
+                // EXP-818: a run started by another run nests under its
+                // parent, indented (`SessionTree`, the ×4 rule). EXP-897:
+                // every parent carries a fold, 14 pt per level. EXP-965: the
+                // connector says which row hangs off which; the band's rows
+                // stack flush (spacing 0), so it bridges no gap.
+                let rows = runningRows
+                let guides = TreeGuides.compute(depths: rows.map(\.depth))
+                ForEach(Array(rows.enumerated()), id: \.element.session.session.id) { index, entry in
+                    sessionRow(
+                        entry.session,
                         expandable: entry.hasChildren,
-                        expanded: !collapsedPast.contains(row.session.id),
-                        onToggle: { toggle(&collapsedPast, row.session.id) },
-                        onOpen: { sessionTarget = .init(sessionId: row.session.id) }
+                        expanded: !collapsedRunning.contains(entry.session.session.id),
+                        onToggle: { toggle(&collapsedRunning, entry.session.session.id) }
                     )
-                    .padding(.leading, CGFloat(entry.depth) * Self.indentPerLevel)
-                    .accessibilityIdentifier("past-run-row")
+                    .treeGuides(guides[index])
                 }
             }
         }
-    }
-
-    /// "macbook · 5m ago" — the ×4 rule, fed the LIVE devices row's label (a
-    /// rename never rewrites the session's start-time snapshot) and this
-    /// client's own relative time.
-    private func pastByline(_ row: AgentsViewModel.PastRow) -> String {
-        PastRuns.byline(
-            device: row.device.displayLabel,
-            relativeTime: relativeWireDate(PastRuns.endedAt(row.session))
-        )
     }
 
     // MARK: - Nesting (EXP-818/EXP-897)
-
-    /// 14 pt per level, the ×4 measure (was 16 before the fold chevron took
-    /// its own 14 pt of leading).
-    private static let indentPerLevel: CGFloat = 14
 
     private var runningRows: [SessionTree.Row<AgentsViewModel.Row>] {
         SessionTree.visibleRows(
@@ -139,19 +65,6 @@ struct AgentSessionsList: View {
                 startedAt: { $0.session.startedAt }
             ),
             collapsed: collapsedRunning,
-            rowId: { $0.session.id }
-        )
-    }
-
-    private var pastRows: [SessionTree.Row<AgentsViewModel.PastRow>] {
-        SessionTree.visibleRows(
-            SessionTree.nest(
-                vm.pastRows,
-                id: { $0.session.id },
-                parent: { $0.session.parentSessionId },
-                startedAt: { $0.session.startedAt }
-            ),
-            collapsed: collapsedPast,
             rowId: { $0.session.id }
         )
     }

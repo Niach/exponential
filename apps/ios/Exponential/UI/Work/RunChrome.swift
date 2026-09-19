@@ -30,9 +30,6 @@ struct RunChrome: Equatable {
     var canMerge = false
     /// This viewer may Stop the run (own + live row).
     var canKill = false
-    /// A resume or account switch is on the wire: the run ENDS on purpose and
-    /// the screen must hold for the continuation instead of leaving.
-    var continuationPending = false
 
     struct Key: PreferenceKey {
         static let defaultValue = RunChrome()

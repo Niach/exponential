@@ -154,15 +154,21 @@ struct PrGraphSheet: View {
             }
         } else {
             section("Runs") {
-                ForEach(graph.tree, id: \.session.id) { row in
-                    runRow(row)
+                // EXP-965: the run tree's connector, off its depths. The
+                // section stacks its rows flush (spacing 0), so no gap to
+                // bridge.
+                let guides = TreeGuides.compute(depths: graph.tree.map(\.depth))
+                ForEach(Array(graph.tree.enumerated()), id: \.element.session.id) { index, row in
+                    runRow(row, guide: guides[index])
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func runRow(_ row: SessionTree.Row<CodingSessionEntity>) -> some View {
+    private func runRow(
+        _ row: SessionTree.Row<CodingSessionEntity>, guide: TreeGuide
+    ) -> some View {
         let session = row.session
         let state = CodingSessionDisplayState.of(session: session, prState: session.prState)
         Button { onOpenRun(session.id) } label: {
@@ -188,9 +194,10 @@ struct PrGraphSheet: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.leading, CGFloat(row.depth) * 14)
+            .padding(.leading, CGFloat(row.depth) * TreeGuides.indentPerLevel)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
+            .background(TreeGuidesOverlay(guide: guide))
             .glassRow()
             .contentShape(Rectangle())
         }
@@ -205,15 +212,17 @@ struct PrGraphSheet: View {
             emptyNote("This pull request stands on its own.")
         } else {
             section("The stack, bottom first") {
-                ForEach(graph.stack) { rung in
-                    stackRow(rung)
+                // EXP-965: the same connector the lists draw, over the rungs.
+                let guides = TreeGuides.compute(depths: graph.stack.map(\.depth))
+                ForEach(Array(graph.stack.enumerated()), id: \.element.id) { index, rung in
+                    stackRow(rung, guide: guides[index])
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func stackRow(_ rung: PrGraph.StackEntry) -> some View {
+    private func stackRow(_ rung: PrGraph.StackEntry, guide: TreeGuide) -> some View {
         let entry = rung.entry
         let isCurrent = entry.id == graph.entry?.id
         VStack(alignment: .leading, spacing: 6) {
@@ -238,24 +247,29 @@ struct PrGraphSheet: View {
                         .accessibilityLabel("Merge the whole stack")
                 }
             }
-            // The batch's own issues, folded underneath its entry.
+            // The batch's own issues, folded underneath its entry — one
+            // level deeper (EXP-965: 14 pt like everywhere else, with the
+            // connector that says they hang off this row).
             if entry.isBatch {
-                ForEach(entry.issues, id: \.id) { issue in
+                let childGuides = TreeGuides.compute(depths: entry.issues.map { _ in 1 })
+                ForEach(Array(entry.issues.enumerated()), id: \.element.id) { index, issue in
                     Button { onOpenIssue(issue.id) } label: {
                         Text("\(issue.identifier ?? "") \(issue.title)")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, 20)
                     }
                     .buttonStyle(.plain)
+                    // The stack row's own VStack spaces them 6pt apart.
+                    .treeGuides(childGuides[index], base: 0, gap: 6)
                 }
             }
         }
-        .padding(.leading, CGFloat(rung.depth) * 14)
+        .padding(.leading, CGFloat(rung.depth) * TreeGuides.indentPerLevel)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .background(TreeGuidesOverlay(guide: guide))
         .glassRow()
     }
 
