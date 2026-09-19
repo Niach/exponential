@@ -289,3 +289,7 @@ export function workflowFinalPrCaption(
     finalPrState === `merged` ? `Merged` : finalPrState === `closed` ? `Closed` : `Open`
   return `#${finalPrNumber} · ${label}`
 }
+
+export const RETRY_NODE_LABEL = `Retry`
+export const SKIP_NODE_LABEL = `Skip`
+export const SKIP_NODE_CONFIRM = `Its dependents go on without it. The node's work is not part of the final pull request.`

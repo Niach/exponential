@@ -669,6 +669,32 @@ export const workflowsRouter = router({
       })
     }),
 
+  /** A person unsticks a node: `retry` gives a failed (or stuck) node a fresh
+   *  attempt, `skip` takes it out so its dependents can go on without it. */
+  resolveNode: authedProcedure
+    .input(z.object({ nodeId: z.string().uuid(), action: z.enum([`retry`, `skip`]) }))
+    .mutation(async ({ ctx, input }) => {
+      const node = await loadNode(input.nodeId)
+      const workflow = await loadWorkflow(node.workflowId)
+      await assertTeamMember(ctx.session.user.id, workflow.teamId)
+      if (node.state === `landed`) throw bad(`That node already landed`)
+      if (workflow.status !== `running` && workflow.status !== `paused`) {
+        throw bad(`The workflow is not running`)
+      }
+      return ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        await tx
+          .update(workflowNodes)
+          .set(
+            input.action === `skip`
+              ? { state: `skipped`, note: null }
+              : { state: `blocked`, attempt: 0, sessionId: null, note: null }
+          )
+          .where(eq(workflowNodes.id, input.nodeId))
+        return { txId }
+      })
+    }),
+
   /** ENGINE: a node's state moved. */
   reportNode: authedProcedure
     .input(
@@ -685,8 +711,14 @@ export const workflowsRouter = router({
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertEngine(workflow, ctx.session.user.id)
-      // A landed node is final, and only `landNode` makes one.
-      if (node.state === `landed` || input.state === `landed`) {
+      // A landed node is final and only `landNode` makes one; a skipped one
+      // is a person's call the engine never takes back.
+      if (
+        node.state === `landed` ||
+        node.state === `skipped` ||
+        input.state === `landed` ||
+        input.state === `skipped`
+      ) {
         return { updated: false }
       }
       await ctx.db
@@ -719,11 +751,21 @@ export const workflowsRouter = router({
       if (nodeNeedsApproval(workflow.gate, node.kind) && !node.approvedAt) {
         return { merged: false, reason: `Waiting for a person to approve` }
       }
+      // Merged already (a person pressed Merge on GitHub, or the webhook
+      // beat this call): the train's step is done.
+      const [issue] = await ctx.db
+        .select({ prState: issues.prState })
+        .from(issues)
+        .where(eq(issues.id, node.issueId))
+        .limit(1)
       const { issuesRouter } = await import(`@/lib/trpc/issues`)
       try {
-        await issuesRouter
-          .createCaller(ctx)
-          .mergePr({ issueId: node.issueId, endSessions: true })
+        if (issue?.prState === `merged`) {
+          // fall through to the landed write below
+        } else
+          await issuesRouter
+            .createCaller(ctx)
+            .mergePr({ issueId: node.issueId, endSessions: true })
       } catch (err) {
         const reason = err instanceof Error ? err.message : `GitHub refused the merge`
         return { merged: false, reason: reason.slice(0, 500) }
