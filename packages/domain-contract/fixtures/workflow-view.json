@@ -1,0 +1,58 @@
+{
+  "bands": [
+    { "status": "draft", "band": "draft" },
+    { "status": "running", "band": "running" },
+    { "status": "paused", "band": "running" },
+    { "status": "done", "band": "done" },
+    { "status": "cancelled", "band": "done" },
+    { "status": "something-new", "band": "done" }
+  ],
+  "shapeLines": [
+    { "metrics": { "nodes": 12, "depth": 3, "width": 8, "cycles": [] }, "line": "12 nodes · depth 3 · width 8", "cycleNote": null },
+    { "metrics": { "nodes": 1, "depth": 1, "width": 1, "cycles": [] }, "line": "1 node · depth 1 · width 1", "cycleNote": null },
+    {
+      "metrics": { "nodes": 4, "depth": 2, "width": 2, "cycles": [["EXP-2", "EXP-3"], ["EXP-7"]] },
+      "line": "4 nodes · depth 2 · width 2",
+      "cycleNote": "These issues block each other in a cycle: EXP-2, EXP-3; EXP-7. Remove one relation to start."
+    }
+  ],
+  "captions": [
+    { "node": { "kind": "contract", "state": "blocked", "risk": "high" }, "workflowStatus": "draft", "caption": "Contract · high risk", "tone": "muted" },
+    { "node": { "kind": "leaf", "state": "blocked", "risk": "medium" }, "workflowStatus": "draft", "caption": "Leaf", "tone": "muted" },
+    { "node": { "kind": "leaf", "state": "in_review", "risk": "low" }, "workflowStatus": "running", "caption": "In review", "tone": "active" },
+    { "node": { "kind": "contract", "state": "running", "risk": "high" }, "workflowStatus": "running", "caption": "Contract · Running", "tone": "active" },
+    { "node": { "kind": "integration", "state": "waiting", "risk": "medium" }, "workflowStatus": "paused", "caption": "Integration · Waiting", "tone": "amber" },
+    { "node": { "kind": "leaf", "state": "landed", "risk": "medium" }, "workflowStatus": "done", "caption": "Landed", "tone": "success" },
+    { "node": { "kind": "leaf", "state": "failed", "risk": "medium" }, "workflowStatus": "running", "caption": "Failed", "tone": "danger" },
+    { "node": { "kind": "leaf", "state": "brand-new", "risk": "medium" }, "workflowStatus": "running", "caption": "brand-new", "tone": "muted" }
+  ],
+  "titles": [
+    { "identifier": "EXP-14", "members": 3, "title": "EXP-14 +3" },
+    { "identifier": "EXP-9", "members": 0, "title": "EXP-9" }
+  ],
+  "edges": [
+    {
+      "name": "a relation between members lifts to one edge between their nodes",
+      "nodes": [
+        { "id": "n1", "issueId": "p", "memberIssueIds": ["k1", "k2"] },
+        { "id": "n2", "issueId": "x", "memberIssueIds": [] },
+        { "id": "n3", "issueId": "y", "memberIssueIds": [] }
+      ],
+      "relations": [
+        { "type": "blocks", "issueId": "k2", "relatedIssueId": "x" },
+        { "type": "blocks", "issueId": "p", "relatedIssueId": "x" },
+        { "type": "blocks", "issueId": "k1", "relatedIssueId": "k2" },
+        { "type": "blocks", "issueId": "x", "relatedIssueId": "outside" },
+        { "type": "parent", "issueId": "p", "relatedIssueId": "y" },
+        { "type": "blocks", "issueId": "y", "relatedIssueId": "x" },
+        { "type": "blocks", "issueId": "x", "relatedIssueId": "y" }
+      ],
+      "cycleEdges": ["n2\nn3", "n3\nn2"],
+      "expected": [
+        { "from": "n1", "to": "n2", "cycle": false },
+        { "from": "n2", "to": "n3", "cycle": true },
+        { "from": "n3", "to": "n2", "cycle": true }
+      ]
+    }
+  ]
+}
