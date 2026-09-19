@@ -635,6 +635,12 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
           EXP_DEV_READY_FILE: readyFile,
           EXP_WINDOW_SIZE: WINDOW_SIZE,
           HOSTNAME: DEVICE_HOSTNAME,
+          // EXP-951: EVERY launch, not only Settings → Agents. The lane's
+          // device row is photographed as "This device" on the Agents screen
+          // (and mirrored by every client's machines band); without this the
+          // app registers and heartbeats the capture machine's REAL agent
+          // logins into it.
+          EXP_DEV_AGENT_ACCOUNT: DEMO_EMAIL,
           ZDOTDIR: options.zdotdir,
           ...(options.shellCwd ? { EXP_DEV_SHELL_CWD: options.shellCwd } : {}),
           ...options.driveVars,

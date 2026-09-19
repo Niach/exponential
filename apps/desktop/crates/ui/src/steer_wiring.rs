@@ -415,12 +415,18 @@ fn register_device(
     // doctor probe that produced this advertisement. Skipped when nothing is
     // installed — the server then leaves the column untouched, so an older
     // build's re-register can never blank a row.
-    let agent_accounts = report.and_then(|report| {
-        let accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
-        (!accounts.is_empty())
-            .then(|| serde_json::to_value(&accounts).ok())
-            .flatten()
-    });
+    //
+    // EXP-951: a shots capture (`EXP_DEV_AGENT_ACCOUNT`) registers DEMO
+    // logins, never the capture machine's real ones.
+    let agent_accounts = match crate::device_settings::dev_agent_status() {
+        Some(demo) => demo.accounts_json(),
+        None => report.and_then(|report| {
+            let accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
+            (!accounts.is_empty())
+                .then(|| serde_json::to_value(&accounts).ok())
+                .flatten()
+        }),
+    };
     // EXP-481: the local defaults ride as a first-ever SEED (server-side no-op
     // once the column is set); the device-sync beat reconciles the response
     // copy within one interval, so it is deliberately dropped here.

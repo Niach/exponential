@@ -198,7 +198,7 @@ pub(crate) fn own_agent_status(
     coding::agent_usage::AgentUsageMap,
 ) {
     if let Some(demo) = dev_agent_status() {
-        return demo;
+        return (demo.accounts, demo.usage);
     }
     let hub = CodingHub::global(cx);
     let hub = hub.read(cx);
@@ -222,6 +222,12 @@ pub(crate) fn own_agent_status(
 /// usage fetch, nothing personal to leak. Unset (every real build) this is a
 /// no-op.
 ///
+/// EXP-951: the same payload is what this machine REPORTS while the variable
+/// is set — `devices.register` ([`crate::steer_wiring`]) and every heartbeat
+/// ([`crate::device_sync`]) send it instead of the probe, so the capture
+/// host's synced row (the Agents screen's "This device") carries demo logins
+/// too, not the operator's.
+///
 /// EXP-733: the numbers are the SAME ones the stand-in desktop of the shots
 /// pipeline reports for the demo machine's synced row
 /// (`apps/web/scripts/screenshot-demo.ts` `DEMO_AGENT_STATUS`) — all three
@@ -229,12 +235,9 @@ pub(crate) fn own_agent_status(
 /// web/mobile machine-settings shots do. Each reset carries a few seconds of
 /// pad past the label it is meant to print, so the shutter (which fires some
 /// seconds after launch) still reads `3h 32m` rather than the minute below.
-fn dev_agent_status() -> Option<(
-    coding::agent_accounts::AgentAccounts,
-    coding::agent_usage::AgentUsageMap,
-)> {
+pub(crate) fn dev_agent_status() -> Option<coding::agent_usage::AgentStatusPayload> {
     use coding::agent_accounts::{AgentAccount, AgentAccounts};
-    use coding::agent_usage::{AgentUsage, AgentUsageMap, UsageWindow};
+    use coding::agent_usage::{AgentStatusPayload, AgentUsage, AgentUsageMap, UsageWindow};
 
     let email = std::env::var("EXP_DEV_AGENT_ACCOUNT")
         .ok()
@@ -297,7 +300,7 @@ fn dev_agent_status() -> Option<(
             window("weekly", "Week", 57, 4 * 86_400 + 9 * 3_600),
         ],
     );
-    Some((accounts, usage))
+    Some(AgentStatusPayload { accounts, usage })
 }
 
 /// EXP-484: tolerant parse of a `{ agent: T }` jsonb column. Entries that do
