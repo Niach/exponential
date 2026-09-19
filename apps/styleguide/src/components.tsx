@@ -3833,7 +3833,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `AgentOptionsRow (UI/Agent/AgentOptionsRow.swift) is the composer's host`
       ),
       android: na(
-        `EXP-872 retired AgentPickerPill: the Add-account sheet picks its agent with a PickerRow, and every launch surface picks an account.`
+        `EXP-872 retired AgentPickerPill: Add account picks its agent with a PickerRow; every launch surface picks an account.`
       ),
     },
     island: () => (
