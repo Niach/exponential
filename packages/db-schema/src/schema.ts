@@ -1140,6 +1140,12 @@ export interface DeviceAgentLaunchDefaults {
 }
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
+  /** EXP-872: the DEFAULT ACCOUNT — a profile id of `defaultAgent`'s logins
+   * (`agent_profiles`). "Default agent" became "default account" on every
+   * client: the setting stores the profile and the agent is derived from it;
+   * `defaultAgent` stays written beside it for older devices. Absent = the
+   * agent's active login. */
+  defaultAccount?: string
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
 // Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
@@ -1152,6 +1158,7 @@ export interface DeviceLaunchDefaults {
 // register.
 export const deviceLaunchDefaultsSchema = z.object({
   defaultAgent: z.string().min(1).max(32).nullish(),
+  defaultAccount: z.string().min(1).max(64).nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),

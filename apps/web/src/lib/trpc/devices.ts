@@ -114,6 +114,11 @@ function clampLaunchDefaults(
   const out: DeviceLaunchDefaults = {}
   if (input.defaultAgent && agentIds.includes(input.defaultAgent)) {
     out.defaultAgent = input.defaultAgent
+    // EXP-872: the default ACCOUNT rides only beside a valid default agent —
+    // it is one of that agent's profile ids, so alone it names nothing.
+    if (typeof input.defaultAccount === `string` && input.defaultAccount) {
+      out.defaultAccount = input.defaultAccount
+    }
   }
   if (input.agents) {
     const agents: Record<string, DeviceAgentLaunchDefaults> = {}
