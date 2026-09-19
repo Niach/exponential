@@ -106,14 +106,36 @@ public struct DeviceLaunchDefaults: Decodable, Equatable, Sendable {
     /// The machine's configured default agent. Clamped to what it actually
     /// runs by the reader — a signed-out default must not preselect.
     public let defaultAgent: String?
+    /// EXP-872: the machine's default ACCOUNT — a login profile id of
+    /// `defaultAgent` (`system` = its ambient login). "Default agent" became
+    /// "default account" on every client: the setting stores this, and the
+    /// agent derives from it (`AccountOptions.flatten`). Absent on an older
+    /// desktop, which is exactly the fallback ladder flatten already walks.
+    public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaults]?
 
     public init(
         defaultAgent: String? = nil,
+        defaultAccount: String? = nil,
         agents: [String: AgentLaunchDefaults]? = nil
     ) {
         self.defaultAgent = defaultAgent
+        self.defaultAccount = defaultAccount
         self.agents = agents
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case defaultAgent, defaultAccount, agents
+    }
+
+    /// Lenient like the rest of the device payload: a field of a shape this
+    /// build does not expect degrades to nil instead of throwing the whole
+    /// machine's defaults away.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        defaultAgent = try? c.decodeIfPresent(String.self, forKey: .defaultAgent)
+        defaultAccount = try? c.decodeIfPresent(String.self, forKey: .defaultAccount)
+        agents = try? c.decodeIfPresent([String: AgentLaunchDefaults].self, forKey: .agents)
     }
 }
 

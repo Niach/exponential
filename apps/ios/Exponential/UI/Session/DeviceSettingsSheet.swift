@@ -84,6 +84,9 @@ struct DeviceSettingsSheet: View {
     @State private var savingShare = false
     @State private var savingDefaultDevice = false
     @State private var defaultAgent = "claude"
+    /// EXP-872: the machine's default ACCOUNT — a login profile id of
+    /// `defaultAgent` (`""` = none stored, which reads as its active login).
+    @State private var defaultAccount = ""
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
     @State private var savingDefaults = false
@@ -243,6 +246,11 @@ struct DeviceSettingsSheet: View {
         let agents = editableAgents(device)
         let advertisedDefault = device.launchDefaults?.defaultAgent
         defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
+        // EXP-872: the stored account belongs to the stored agent — it only
+        // survives a clamp that kept that agent.
+        defaultAccount = defaultAgent == advertisedDefault
+            ? (device.launchDefaults?.defaultAccount ?? "")
+            : ""
         // A re-seed must not yank the tab the reader is looking at.
         selectedAgent = keepTab && agents.contains(selectedAgent) ? selectedAgent : defaultAgent
         var next: [String: AgentDraft] = [:]
@@ -507,29 +515,55 @@ struct DeviceSettingsSheet: View {
         return DomainContract.codingAgentValues.filter { set.contains($0) }
     }
 
+    /// EXP-872: every login this machine reports, as the ONE list the default
+    /// is picked from. A machine that reports none still offers a row per
+    /// editable agent, named by the agent — an offline box's default stays
+    /// editable even though it is advertising nothing right now.
+    private func accountOptions(_ device: SteerDevice) -> [AccountOption] {
+        let options = AccountOptions.flatten(
+            accounts: device.agentAccounts,
+            usage: device.agentUsage,
+            launchDefaults: device.launchDefaults
+        )
+        if !options.isEmpty { return options }
+        return editableAgents(device).map { agent in
+            AccountOption(
+                id: AgentAccountsRows.systemProfileId,
+                agent: agent,
+                email: LaunchVocabulary.agentLabel(agent),
+                isDeviceDefault: agent == defaultAgent
+            )
+        }
+    }
+
     /// EXP-694: the agent block is the SHARED `LaunchOptionsSection` — the
     /// sheet used to hand-roll the same tabs/model/effort/toggle rows, which is
     /// how it drifted (bare tabs bleeding to the screen edge, no brand marks).
-    /// Only "Default agent" stays here, as its own leading card: it is a
-    /// property of the MACHINE, not of the agent whose tab is open.
+    /// Only the default stays here, as its own leading card: it is a property
+    /// of the MACHINE, not of the agent whose tab is open.
+    ///
+    /// EXP-872: and it is a default ACCOUNT now, not a default agent — the
+    /// pick stores a login profile id and the agent derives from it. Shown
+    /// whenever there is anything to pick at all (a lone login is still the
+    /// machine's default, and the row is where a person reads which one it is).
     @ViewBuilder
     private func defaultsSection(_ device: SteerDevice) -> some View {
         let agents = editableAgents(device)
-        if agents.count > 1 {
+        let options = accountOptions(device)
+        if !options.isEmpty {
             Section {
-                // EXP-862: the SHARED agent picker (icon-only trigger, marked
-                // menu rows) — the same control the composer's options row and
-                // the IDE's settings wear.
+                // EXP-872: the SHARED account picker (brand mark + email over
+                // marked menu rows) — the same control the composer's options
+                // row and the IDE's settings wear.
                 HStack(spacing: 8) {
-                    Text("Default agent")
+                    Text("Default account")
                         .foregroundStyle(.white.opacity(TextOpacity.primary))
                     Spacer(minLength: 8)
-                    AgentPickerMenu(
-                        agents: agents,
-                        selection: defaultAgentBinding.wrappedValue,
-                        label: { LaunchVocabulary.agentLabel($0) },
+                    AccountPickerMenu(
+                        options: options,
+                        selection: selectedDefaultAccount(in: options),
                         mark: { AgentBrandMark.image($0) },
-                        onSelect: { defaultAgentBinding.wrappedValue = $0 }
+                        onSelect: { pickDefaultAccount($0) }
                     )
                 }
             }
@@ -554,19 +588,25 @@ struct DeviceSettingsSheet: View {
         )
     }
 
+    /// Which option the row reads as: the stored pair, else that agent's first
+    /// login (a stored profile the machine no longer reports), else the first
+    /// row — the same ladder `AccountOptions.flatten` walks for the default.
+    private func selectedDefaultAccount(in options: [AccountOption]) -> AccountOption? {
+        options.first { $0.agent == defaultAgent && $0.id == defaultAccount }
+            ?? options.first { $0.agent == defaultAgent }
+            ?? options.first
+    }
+
     /// Like `draftBinding`, a choke point that only a USER pick runs through —
-    /// a picker never writes its binding for a programmatic re-seed, which is
-    /// exactly why the live echo can't trigger a save loop.
-    private var defaultAgentBinding: Binding<String> {
-        Binding(
-            get: { defaultAgent },
-            set: { newValue in
-                guard newValue != defaultAgent else { return }
-                defaultAgent = newValue
-                defaultsPending = true
-                scheduleDefaultsAutosave()
-            }
-        )
+    /// a picker never writes for a programmatic re-seed, which is exactly why
+    /// the live echo can't trigger a save loop. EXP-872: one pick writes BOTH
+    /// halves, since the agent is derived from the account.
+    private func pickDefaultAccount(_ option: AccountOption) {
+        guard option.agent != defaultAgent || option.id != defaultAccount else { return }
+        defaultAgent = option.agent
+        defaultAccount = option.id
+        defaultsPending = true
+        scheduleDefaultsAutosave()
     }
 
     private func draftBinding<Value>(_ keyPath: WritableKeyPath<AgentDraft, Value>) -> Binding<Value> {
@@ -621,7 +661,11 @@ struct DeviceSettingsSheet: View {
         // Built synchronously: the payload is what the drafts say NOW, and a
         // later edit re-arms the debounce on its own.
         let payload = DeviceLaunchDefaultsInput(
-            defaultAgent: defaultAgent, agents: agents
+            defaultAgent: defaultAgent,
+            // EXP-872: omitted while nothing is stored — the machine then
+            // falls back to its active login, exactly as flatten does.
+            defaultAccount: defaultAccount.isEmpty ? nil : defaultAccount,
+            agents: agents
         )
         defaultsPending = false
         savingDefaults = true
