@@ -149,8 +149,8 @@
         "file": "shots/agents/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 41158,
-        "sha256": "dde6bcb55db338f035adaff883fae1f8c5b314a340927f505cb688ad5869f653"
+        "bytes": 45238,
+        "sha256": "a6f6dabcde52b95d8d6543b0dc14673ee2e5dc9200f85ad8329002540082b144"
       },
       "ios": {
         "file": "shots/agents/ios.webp",
