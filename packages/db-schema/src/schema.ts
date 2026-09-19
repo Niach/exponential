@@ -25,6 +25,9 @@ import {
   type ActionInputDef,
   actionInputsSchema,
   type AutomationTrigger,
+  type WorkflowLaunch,
+  type WorkflowMetricsJson,
+  type WorkflowNodeBudget,
   type CodingSessionBlocked,
   type CodingSessionResult,
   codingSessionStatusSchema,
@@ -1129,6 +1132,8 @@ export const fcmTokens = pgTable(
 export interface DeviceAgentLaunchDefaults {
   model?: string
   effort?: string
+  /** EXP-981: claude only; blank = the CLI's own default. */
+  subagentModel?: string
   ultracode?: boolean
   planMode?: boolean
 }
@@ -1152,6 +1157,8 @@ export const deviceLaunchDefaultsSchema = z.object({
       z.object({
         model: z.string().max(64).nullish(),
         effort: z.string().max(64).nullish(),
+        // EXP-981: claude only — the model its subagents run on.
+        subagentModel: z.string().max(64).nullish(),
         ultracode: z.boolean().nullish(),
         planMode: z.boolean().nullish(),
       })
@@ -2238,6 +2245,112 @@ export const automations = pgTable(
   ]
 )
 
+// EXP-978/981: a WORKFLOW — a picked set of issues of ONE repository, run as a
+// DAG by a deterministic engine on the runner device (no server scheduler, no
+// agents spawning agents). Team-scoped and synced like `actions` (its own
+// shape; board trash rules do NOT apply: a workflow spans boards).
+//
+// The `blocks` relations among the covered issues are the edges; they are
+// never copied here. `wave`/`lane` on the nodes are the server-computed layout
+// (`lib/workflow-layout.ts`): clients draw a grid, none of them lays out.
+export const workflows = pgTable(
+  `workflows`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // ONE repository per workflow (the integration branch lives in it).
+    // SET NULL keeps the row readable when the repo is unlinked; it can no
+    // longer start.
+    repositoryId: uuid(`repository_id`).references(() => repositories.id, {
+      onDelete: `set null`,
+    }),
+    creatorId: text(`creator_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    name: varchar({ length: 255 }).notNull(),
+    // contract `wfStatus` (documented varchar).
+    status: varchar({ length: 16 }).notNull().default(`draft`),
+    // devices.device_id of the runner: the engine's SINGLE writer. NULL on a
+    // draft nobody bound yet.
+    deviceId: varchar(`device_id`, { length: 128 }),
+    launch: jsonb().$type<WorkflowLaunch>().notNull().default(sql`'{}'::jsonb`),
+    // contract `wfGate` / `wfStartOn`.
+    gate: varchar({ length: 16 }).notNull().default(`human`),
+    startOn: varchar(`start_on`, { length: 16 }).notNull().default(`contract`),
+    // `exp/wf-<id8>`, stamped at create.
+    integrationBranch: varchar(`integration_branch`, { length: 255 }).notNull(),
+    // The ONE final PR integration → default branch.
+    finalPrUrl: text(`final_pr_url`),
+    finalPrNumber: integer(`final_pr_number`),
+    finalPrState: prStateEnum(`final_pr_state`),
+    // Dated answers, appended; part of every node prompt (≤64KB).
+    decisions: text().notNull().default(``),
+    metrics: jsonb()
+      .$type<WorkflowMetricsJson>()
+      .notNull()
+      .default(sql`'{"nodes":0,"edges":0,"depth":0,"width":0,"cycles":[]}'::jsonb`),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    endedAt: timestamp(`ended_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_workflows_team`).on(table.teamId),
+    index(`idx_workflows_repository`).on(table.repositoryId),
+  ]
+)
+
+// One NODE of a workflow: an issue, or a parent issue with its sub-issues (a
+// compound node, run as ONE batch session on one branch with one PR).
+// `team_id` is denormalized (app-written) for the shape's team scoping.
+export const workflowNodes = pgTable(
+  `workflow_nodes`,
+  {
+    id: uuidPk(),
+    workflowId: uuid(`workflow_id`)
+      .notNull()
+      .references(() => workflows.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // The node's representative issue (a compound node's PARENT).
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    // A compound node's sub-issues (`EXP-14 +3`); empty for a plain node.
+    memberIssueIds: jsonb(`member_issue_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    // contract `wfNodeKind` / `wfNodeState` / `wfRisk`.
+    kind: varchar({ length: 16 }).notNull().default(`leaf`),
+    state: varchar({ length: 16 }).notNull().default(`blocked`),
+    risk: varchar({ length: 8 }).notNull().default(`medium`),
+    wave: integer().notNull().default(0),
+    lane: integer().notNull().default(0),
+    // On a blocking cycle (server layout): drawn red, the workflow cannot start.
+    onCycle: boolean(`on_cycle`).notNull().default(false),
+    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
+      onDelete: `set null`,
+    }),
+    attempt: integer().notNull().default(0),
+    baseBranch: varchar(`base_branch`, { length: 255 }),
+    budget: jsonb().$type<WorkflowNodeBudget>(),
+    touches: text().array().notNull().default(sql`'{}'::text[]`),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_workflow_nodes_workflow`).on(table.workflowId),
+    index(`idx_workflow_nodes_team`).on(table.teamId),
+    index(`idx_workflow_nodes_issue`).on(table.issueId),
+    index(`idx_workflow_nodes_session`)
+      .on(table.sessionId)
+      .where(sql`session_id IS NOT NULL`),
+    uniqueIndex(`uniq_workflow_nodes_issue`).on(table.workflowId, table.issueId),
+  ]
+)
+
 // Per-user notification delivery prefs (SERVER-ONLY). Missing row = all
 // defaults (email on, daily digest). Email is a free delivery channel, never a
 // notification type and never plan-gated.
@@ -2754,6 +2867,14 @@ export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
 })
 
+export const selectWorkflowSchema = createSelectSchema(workflows)
+// What the `workflows` shape delivers: `creator_id` stays server-only.
+export const selectSyncedWorkflowSchema = selectWorkflowSchema.omit({
+  creatorId: true,
+})
+export type SyncedWorkflow = z.infer<typeof selectSyncedWorkflowSchema>
+export const selectWorkflowNodeSchema = createSelectSchema(workflowNodes)
+
 export const selectAutomationSchema = createSelectSchema(automations, {
   // TOLERANT read (unlike the strict write union in domain.ts): the web
   // automations collection must not brick on a future trigger kind, so runtime
@@ -2837,6 +2958,8 @@ export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
 export type Action = InferSelectModel<typeof actions>
 export type Automation = InferSelectModel<typeof automations>
+export type Workflow = InferSelectModel<typeof workflows>
+export type WorkflowNode = InferSelectModel<typeof workflowNodes>
 export type SyncedAction = Omit<Action, `body`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs

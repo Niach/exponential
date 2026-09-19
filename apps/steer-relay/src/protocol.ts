@@ -691,6 +691,8 @@ export interface StartSessionOptions {
   agent?: string
   model?: string
   effort?: string
+  /** EXP-981: claude only — the model its subagents run on. Pass-through. */
+  subagentModel?: string
   ultracode?: boolean
   planMode?: boolean
   /** EXP-481: resume the issue's existing worktree/agent session instead of

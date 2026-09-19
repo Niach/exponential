@@ -926,3 +926,119 @@ export function formatDateForMutation(date: Date | null | undefined) {
 
   return `${year}-${month}-${day}`
 }
+
+// ── Workflows (EXP-978/981) ─────────────────────────────────────────────────
+// A workflow = a picked set of issues of ONE repository, run as a DAG: the
+// `blocks` relations among them are the edges, a parent with its sub-issues is
+// ONE compound node (run as a batch), and each node's session + PR is its
+// state. The contract keys carry the `wf` prefix: `workflowStatus` was already
+// the agent feed's word for a Claude Code workflow TOOL run.
+//
+// All five are documented varchars (not pg enums): the node lifecycle grows
+// with the engine's phases, and an `ALTER TYPE` per phase buys nothing a zod
+// schema at the writers does not.
+export const wfStatusValues = [
+  `draft`,
+  `running`,
+  `paused`,
+  `done`,
+  `cancelled`,
+] as const
+export const wfNodeStateValues = [
+  // Filed mid-run by a session; not part of the graph until admitted.
+  `proposed`,
+  // Waiting on a blocker.
+  `blocked`,
+  // Every blocker satisfied `start_on`; the scheduler may start it.
+  `ready`,
+  `running`,
+  // Needs a person: a question, a rate limit, a login. The ONLY amber state
+  // and the only one that pushes.
+  `waiting`,
+  `in_review`,
+  // Merging a moved upstream in.
+  `updating`,
+  `landed`,
+  `failed`,
+  `skipped`,
+  `paused`,
+] as const
+export const wfNodeKindValues = [`contract`, `leaf`, `integration`] as const
+export const wfGateValues = [`none`, `agent`, `human`] as const
+export const wfStartOnValues = [`contract`, `pr_open`, `landed`] as const
+export const wfRiskValues = [`low`, `medium`, `high`] as const
+
+export type WfStatus = (typeof wfStatusValues)[number]
+export type WfNodeState = (typeof wfNodeStateValues)[number]
+export type WfNodeKind = (typeof wfNodeKindValues)[number]
+export type WfGate = (typeof wfGateValues)[number]
+export type WfStartOn = (typeof wfStartOnValues)[number]
+export type WfRisk = (typeof wfRiskValues)[number]
+
+export const wfStatusSchema = z.enum(wfStatusValues)
+export const wfNodeStateSchema = z.enum(wfNodeStateValues)
+export const wfNodeKindSchema = z.enum(wfNodeKindValues)
+export const wfGateSchema = z.enum(wfGateValues)
+export const wfStartOnSchema = z.enum(wfStartOnValues)
+export const wfRiskSchema = z.enum(wfRiskValues)
+
+/** `contract.workflow`, hand-mirrored (drift-tested). */
+export const WORKFLOW_MAX_PARALLEL_DEFAULT = 3
+export const WORKFLOW_MAX_ISSUES = 50
+export const WORKFLOW_MAX_PARALLEL_CAP = 8
+export const WORKFLOW_DECISIONS_MAX = 65536
+
+/** `workflows.launch`: what every node's run starts with. Every field is
+ *  optional; an absent one falls back to the runner device's defaults. */
+export interface WorkflowLaunch {
+  agent?: string | null
+  model?: string | null
+  /** Claude only: the model its subagents run on. */
+  subagentModel?: string | null
+  effort?: string | null
+  /** An agent profile id on the runner device. */
+  account?: string | null
+  maxParallel?: number | null
+}
+
+export const workflowLaunchSchema = z
+  .object({
+    agent: z.string().max(16).nullish(),
+    model: z.string().max(64).nullish(),
+    subagentModel: z.string().max(64).nullish(),
+    effort: z.string().max(32).nullish(),
+    account: z.string().max(64).nullish(),
+    maxParallel: z.number().int().min(1).max(WORKFLOW_MAX_PARALLEL_CAP).nullish(),
+  })
+  .strict()
+
+/** `workflow_nodes.budget`: crossing either pauses the node and notifies. */
+export interface WorkflowNodeBudget {
+  tokens?: number | null
+  minutes?: number | null
+}
+
+export const workflowNodeBudgetSchema = z
+  .object({
+    tokens: z.number().int().positive().nullish(),
+    minutes: z.number().int().positive().nullish(),
+  })
+  .strict()
+
+/** `workflows.metrics`: the plan's shape (written by the server layout) plus,
+ *  from the engine's phases on, the run's counters. */
+export interface WorkflowMetricsJson {
+  nodes: number
+  edges: number
+  depth: number
+  width: number
+  /** One entry per blocking cycle: its issue identifiers. Empty = startable. */
+  cycles: string[][]
+  /** `<fromNodeId>\n<toNodeId>` of every edge inside a cycle. */
+  cycleEdges?: string[]
+  [counter: string]: unknown
+}
+
+/** A `touches` glob: what a node expects to change (pre-serialises obvious
+ *  collisions). */
+export const workflowTouchesSchema = z.array(z.string().min(1).max(256)).max(64)

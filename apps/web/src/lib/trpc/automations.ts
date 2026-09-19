@@ -130,11 +130,16 @@ function assertRunnable(inputs: unknown, enabled: boolean): void {
 // the `automations` cap — an ACTION cap (EXP-409), so its absence really means
 // no agent is signed in on that machine, which is what the refusal says — and,
 // when an agent is pinned, advertise that agent.
-async function assertDeviceUsable(
+export async function assertDeviceUsable(
   deviceId: string,
   teamId: string,
   callerUserId: string,
-  agent: string | null | undefined
+  agent: string | null | undefined,
+  // EXP-981: workflows bind a runner the same way, behind their own cap.
+  what: { noun: string; cap: string; capMessage?: string } = {
+    noun: `Automation`,
+    cap: `automations`,
+  }
 ): Promise<void> {
   const { db } = await import(`@/db/connection`)
   const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
@@ -172,11 +177,12 @@ async function assertDeviceUsable(
     }
   }
   if (usableRows.length === 0) {
-    throw bad(`Automation device must be yours or shared with this team`)
+    throw bad(`${what.noun} device must be yours or shared with this team`)
   }
-  if (!usableRows.some((row) => (row.caps ?? []).includes(`automations`))) {
+  if (!usableRows.some((row) => (row.caps ?? []).includes(what.cap))) {
     throw bad(
-      `No agent is signed in on that machine — sign in on the device first`
+      what.capMessage ??
+        `No agent is signed in on that machine — sign in on the device first`
     )
   }
   if (agent && !usableRows.some((row) => (row.agents ?? []).includes(agent))) {

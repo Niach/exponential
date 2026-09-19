@@ -225,6 +225,40 @@
   "prState": {
     "values": ["open", "closed", "merged", "draft"]
   },
+  "wfStatus": {
+    "values": ["draft", "running", "paused", "done", "cancelled"]
+  },
+  "wfNodeState": {
+    "values": [
+      "proposed",
+      "blocked",
+      "ready",
+      "running",
+      "waiting",
+      "in_review",
+      "updating",
+      "landed",
+      "failed",
+      "skipped",
+      "paused"
+    ]
+  },
+  "wfNodeKind": {
+    "values": ["contract", "leaf", "integration"]
+  },
+  "wfGate": {
+    "values": ["none", "agent", "human"]
+  },
+  "wfStartOn": {
+    "values": ["contract", "pr_open", "landed"]
+  },
+  "wfRisk": {
+    "values": ["low", "medium", "high"]
+  },
+  "workflow": {
+    "maxParallelDefault": 3,
+    "maxIssues": 50
+  },
   "codingSessionStatus": {
     "values": ["running", "in_review", "ended"]
   },
@@ -372,7 +406,8 @@
   "builtinAction": {
     "createActionId": "builtin:create-action",
     "fixConflictsId": "builtin:fix-conflicts",
-    "chatId": "builtin:chat"
+    "chatId": "builtin:chat",
+    "planWorkflowId": "builtin:plan-workflow"
   },
   "actionInputs": {
     "max": 10,
@@ -1269,6 +1304,50 @@
         "done": "Updated team",
         "progressiveMany": "Updating {n} teams",
         "doneMany": "Updated {n} teams",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "workflows_create",
+        "title": "Create workflow",
+        "blurb": "Creates a draft workflow from backlog issues of one repository.",
+        "progressive": "Creating workflow",
+        "done": "Created workflow",
+        "progressiveMany": "Creating {n} workflows",
+        "doneMany": "Created {n} workflows",
+        "subjectKey": "name",
+        "result": "none"
+      },
+      {
+        "name": "workflows_get",
+        "title": "Read workflow",
+        "blurb": "Reads a workflow's graph: its nodes, the edges between them and its metrics.",
+        "progressive": "Reading workflow",
+        "done": "Read workflow",
+        "progressiveMany": "Reading {n} workflows",
+        "doneMany": "Read {n} workflows",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "workflows_list",
+        "title": "List workflows",
+        "blurb": "Lists the team's workflows with their status and their shape.",
+        "progressive": "Listing workflows",
+        "done": "Listed workflows",
+        "progressiveMany": "Listing workflows {n} times",
+        "doneMany": "Listed workflows {n} times",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "workflows_update",
+        "title": "Update workflow",
+        "blurb": "Changes a draft workflow's issues, its node plan or how it runs.",
+        "progressive": "Updating workflow",
+        "done": "Updated workflow",
+        "progressiveMany": "Updating {n} workflows",
+        "doneMany": "Updated {n} workflows",
         "subjectKey": "id",
         "result": "none"
       }

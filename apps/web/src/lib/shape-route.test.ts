@@ -12,6 +12,8 @@ import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscr
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
 import { Route as automationsRoute } from "@/routes/api/shapes/automations"
+import { Route as workflowNodesRoute } from "@/routes/api/shapes/workflow-nodes"
+import { Route as workflowsRoute } from "@/routes/api/shapes/workflows"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as pinsRoute } from "@/routes/api/shapes/pins"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
@@ -1034,7 +1036,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // ALL 22 shape routes (the file list in routes/api/shapes/ IS the list).
+  // ALL 24 shape routes (the file list in routes/api/shapes/ IS the list).
   // The pin is what makes adding a server-only column to a synced table safe
   // — an unpinned proxy would stream it to every client on the next deploy
   // with no code change and no test failure. A new route added without a
@@ -1063,6 +1065,8 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`team-members`, teamMembersRoute],
     [`teams`, teamsRoute],
     [`users`, usersRoute],
+    [`workflow-nodes`, workflowNodesRoute],
+    [`workflows`, workflowsRoute],
   ] as const
 
   it.each(allRoutes)(

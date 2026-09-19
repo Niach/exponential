@@ -4,6 +4,12 @@ import { contract } from "@exp/domain-contract"
 import {
   actionInputsSchema,
   automationTriggerSchema,
+  WORKFLOW_MAX_ISSUES,
+  wfNodeKindSchema,
+  wfRiskSchema,
+  workflowTouchesSchema,
+  type WfGate,
+  type WfStartOn,
   CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
   dateOnlySchema,
@@ -37,6 +43,7 @@ import {
   actions,
   attachments,
   automations,
+  workflows,
   codingSessions,
   comments,
   issueLabels,
@@ -330,6 +337,26 @@ async function getActionContext(id: string) {
 
 // Automation id → its team, for grant checks on update/toggle/delete
 // (EXP-660; owner-ship itself is enforced in the automations router).
+async function getWorkflowContext(id: string) {
+  const [row] = await db
+    .select({ teamId: workflows.teamId })
+    .from(workflows)
+    .where(eq(workflows.id, id))
+    .limit(1)
+  if (!row) throw new Error(`Workflow not found`)
+  return row
+}
+
+// exponential_workflows_update's `nodes[]` entry (declared loose on the wire).
+const workflowNodePatchSchema = z
+  .object({
+    issueId: z.string().min(1),
+    kind: wfNodeKindSchema.optional(),
+    risk: wfRiskSchema.optional(),
+    touches: workflowTouchesSchema.optional(),
+  })
+  .strict()
+
 async function getAutomationContext(id: string) {
   const [row] = await db
     .select({ teamId: automations.teamId })
@@ -4441,6 +4468,130 @@ export function registerExponentialTools(
         }
         await caller(user, request).automations.delete({ id })
         return ok({ ok: true, id })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Workflows (EXP-981): a picked set of issues planned and run as a DAG
+  // -----------------------------------------------------------------------
+
+  server.registerTool(
+    `exponential_workflows_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List a team's workflows (issues of one repo run as a DAG): status, runner device, metrics {nodes,depth,width,cycles}.`,
+      inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
+    },
+    async ({ teamId, limit, offset }) => {
+      try {
+        if (!access.full) assertTeamFullyGranted(access, teamId)
+        const rows = await caller(user, request).workflows.list({ teamId })
+        return ok(page(rows, limit, offset))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_workflows_get`,
+    {
+      annotations: READ_ONLY,
+      description: `A workflow's graph: nodes (issue, kind, state, risk, touches, wave/lane) and edges = blocks relations between them. A parent with sub-issues is ONE node. metrics.cycles non-empty = it cannot start; keep depth small.`,
+      inputSchema: strictInput({ id: uuidString }),
+    },
+    async ({ id }) => {
+      try {
+        if (!access.full) {
+          assertTeamFullyGranted(access, (await getWorkflowContext(id)).teamId)
+        }
+        return ok(await caller(user, request).workflows.get({ id }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_workflows_create`,
+    {
+      description: `Create a DRAFT workflow from backlog issues (UUIDs or identifiers) of ONE repository. Shape it with exponential_issue_relations_add (blocks = edge, parent = one batch node), then exponential_workflows_update.`,
+      inputSchema: strictInput({
+        teamId: uuidString,
+        issueIds: z.array(z.string().min(1)).min(1).max(WORKFLOW_MAX_ISSUES),
+        name: z.string().min(1).max(255).optional(),
+      }),
+    },
+    async ({ teamId, issueIds, name }) => {
+      try {
+        if (!access.full) assertTeamFullyGranted(access, teamId)
+        const ids = await Promise.all(
+          issueIds.map((id) => resolveIssueId(id, user.id, access))
+        )
+        const result = await caller(user, request).workflows.create({
+          teamId,
+          issueIds: ids,
+          name,
+        })
+        return ok(result.workflow)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_workflows_update`,
+    {
+      description: `Update a draft workflow; pass only what changes. addIssueIds/removeIssueIds change its issues; nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}]. Returns the fresh metrics.`,
+      inputSchema: strictInput({
+        id: uuidString,
+        name: z.string().min(1).max(255).optional(),
+        gate: z.enum(contract.wfGate.values as [string, ...string[]]).optional(),
+        startOn: z.enum(contract.wfStartOn.values as [string, ...string[]]).optional(),
+        addIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
+        removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
+        nodes: z.array(z.record(z.string(), z.unknown())).max(WORKFLOW_MAX_ISSUES).optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        if (!access.full) {
+          assertTeamFullyGranted(access, (await getWorkflowContext(input.id)).teamId)
+        }
+        const api = caller(user, request).workflows
+        const resolve = (ids: string[] | undefined) =>
+          Promise.all((ids ?? []).map((id) => resolveIssueId(id, user.id, access)))
+        if (input.name || input.gate || input.startOn) {
+          await api.update({
+            id: input.id,
+            name: input.name,
+            gate: input.gate as WfGate | undefined,
+            startOn: input.startOn as WfStartOn | undefined,
+          })
+        }
+        const [addIssueIds, removeIssueIds] = await Promise.all([
+          resolve(input.addIssueIds),
+          resolve(input.removeIssueIds),
+        ])
+        if (addIssueIds.length > 0 || removeIssueIds.length > 0) {
+          await api.setIssues({ id: input.id, addIssueIds, removeIssueIds })
+        }
+        // Declared loose to stay inside the MCP context budget; the strict
+        // shape validates here (and again in the router).
+        for (const raw of input.nodes ?? []) {
+          const node = workflowNodePatchSchema.parse(raw)
+          await api.updateNode({
+            workflowId: input.id,
+            ...node,
+            issueId: await resolveIssueId(node.issueId, user.id, access),
+          })
+        }
+        const { metrics } = await api.replan({ id: input.id })
+        return ok({ ok: true, id: input.id, metrics })
       } catch (e) {
         return err(e)
       }

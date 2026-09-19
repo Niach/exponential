@@ -128,6 +128,15 @@ function clampLaunchDefaults(
       ) {
         entry.effort = d.effort
       }
+      // EXP-981: claude's subagent model, from the same closed vocabulary.
+      if (
+        typeof d.subagentModel === `string` &&
+        agent === `claude` &&
+        (d.subagentModel === `` ||
+          agentModelValues(agent).includes(d.subagentModel))
+      ) {
+        entry.subagentModel = d.subagentModel
+      }
       // `typeof === boolean`, not `!== undefined`: the nullish schema lets
       // 0.14.10's explicit-null toggles through (EXP-495) and stored jsonb
       // must stay null-free (native clients parse it off the devices shape).

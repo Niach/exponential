@@ -51,6 +51,8 @@ import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportPollRouteImport } from './routes/api/support/poll'
+import { Route as ApiShapesWorkflowsRouteImport } from './routes/api/shapes/workflows'
+import { Route as ApiShapesWorkflowNodesRouteImport } from './routes/api/shapes/workflow-nodes'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
@@ -336,6 +338,16 @@ const ApiSupportReplyRoute = ApiSupportReplyRouteImport.update({
 const ApiSupportPollRoute = ApiSupportPollRouteImport.update({
   id: '/api/support/poll',
   path: '/api/support/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesWorkflowsRoute = ApiShapesWorkflowsRouteImport.update({
+  id: '/api/shapes/workflows',
+  path: '/api/shapes/workflows',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesWorkflowNodesRoute = ApiShapesWorkflowNodesRouteImport.update({
+  id: '/api/shapes/workflow-nodes',
+  path: '/api/shapes/workflow-nodes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
@@ -804,6 +816,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
+  '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
   '/api/support/poll': typeof ApiSupportPollRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -917,6 +931,8 @@ export interface FileRoutesByTo {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
+  '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
   '/api/support/poll': typeof ApiSupportPollRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -1035,6 +1051,8 @@ export interface FileRoutesById {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
+  '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
+  '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
   '/api/support/poll': typeof ApiSupportPollRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -1153,6 +1171,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/shapes/workflow-nodes'
+    | '/api/shapes/workflows'
     | '/api/support/poll'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1266,6 +1286,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/shapes/workflow-nodes'
+    | '/api/shapes/workflows'
     | '/api/support/poll'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1383,6 +1405,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
+    | '/api/shapes/workflow-nodes'
+    | '/api/shapes/workflows'
     | '/api/support/poll'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1492,6 +1516,8 @@ export interface RootRouteChildren {
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
+  ApiShapesWorkflowNodesRoute: typeof ApiShapesWorkflowNodesRoute
+  ApiShapesWorkflowsRoute: typeof ApiShapesWorkflowsRoute
   ApiSupportPollRoute: typeof ApiSupportPollRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
   ApiSupportThreadRoute: typeof ApiSupportThreadRoute
@@ -1802,6 +1828,20 @@ declare module '@tanstack/react-router' {
       path: '/api/support/poll'
       fullPath: '/api/support/poll'
       preLoaderRoute: typeof ApiSupportPollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/workflows': {
+      id: '/api/shapes/workflows'
+      path: '/api/shapes/workflows'
+      fullPath: '/api/shapes/workflows'
+      preLoaderRoute: typeof ApiShapesWorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/workflow-nodes': {
+      id: '/api/shapes/workflow-nodes'
+      path: '/api/shapes/workflow-nodes'
+      fullPath: '/api/shapes/workflow-nodes'
+      preLoaderRoute: typeof ApiShapesWorkflowNodesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/users': {
@@ -2521,6 +2561,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
+  ApiShapesWorkflowNodesRoute: ApiShapesWorkflowNodesRoute,
+  ApiShapesWorkflowsRoute: ApiShapesWorkflowsRoute,
   ApiSupportPollRoute: ApiSupportPollRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,
   ApiSupportThreadRoute: ApiSupportThreadRoute,

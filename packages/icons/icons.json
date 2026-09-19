@@ -117,6 +117,7 @@
     "nav-devices": "monitor",
     "nav-actions": "bot",
     "nav-automations": "zap",
+    "nav-workflows": "workflow",
     "nav-support": "life-buoy",
     "nav-settings": "settings",
     "nav-notifications": "bell",
