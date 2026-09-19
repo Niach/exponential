@@ -75,7 +75,7 @@
     },
     "expected": [
       { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
-      { "kind": "startNode", "nodeId": "c", "attempt": 1 }
+      { "kind": "startNode", "nodeId": "c", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }
     ]
   },
   {

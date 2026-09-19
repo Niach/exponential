@@ -251,8 +251,9 @@ fn workflow_command(trpc: &TrpcClient, proc: &str, id: &str) -> Result<(), ApiEr
 }
 
 /// `workflows.start` — draft → running. The server re-plans first and
-/// refuses a cycle, a missing repository/device or an unsupported `startOn`
-/// with the sentence `domain::workflow_view::workflow_start_blocker` shows.
+/// refuses a cycle or a missing repository/device with the sentence
+/// `domain::workflow_view::workflow_start_blocker` shows. EXP-983: every
+/// `start_on` runs, so the mode is never a refusal.
 pub fn start(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
     workflow_command(trpc, "workflows.start", id)
 }
@@ -336,6 +337,10 @@ pub struct NodeReport {
     /// Why the node is `failed` / `waiting`, in one sentence.
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub note: Patch<String>,
+    /// EXP-983: the SERIALIZATION edges a sibling collision produced — a
+    /// whole-array replace, so the engine sends the union it computed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_node_ids: Option<Vec<String>>,
 }
 
 impl NodeReport {
@@ -364,6 +369,11 @@ pub struct LandOutcome {
     pub merged: bool,
     #[serde(default)]
     pub reason: Option<String>,
+    /// EXP-983: the dependents whose LAST unlanded blocker this was. The
+    /// server retargeted their pull request onto the integration branch and
+    /// moved their `base_branch`; the engine then has them merge it in.
+    #[serde(default)]
+    pub retargeted: Vec<String>,
 }
 
 impl LandOutcome {
@@ -373,7 +383,11 @@ impl LandOutcome {
     pub fn is_waiting(&self) -> bool {
         matches!(
             self.reason.as_deref(),
-            Some("Waiting for a person to approve") | Some("The workflow is not running")
+            Some("Waiting for a person to approve")
+                | Some("The workflow is not running")
+                // EXP-983: the train lands in topological order, so a
+                // speculative node's turn simply has not come yet.
+                | Some("Waiting for its blockers to land")
         )
     }
 }
@@ -513,6 +527,38 @@ mod tests {
             .contains(r#""touches":[]"#));
     }
 
+    /// EXP-983 — the engine's two new halves of the wire: the serialization
+    /// edges it reports, and the dependents a land released.
+    #[test]
+    fn a_report_carries_the_serial_edges_and_a_land_its_retargets() {
+        let mut report = NodeReport::new("n-1", "running");
+        assert!(!serde_json::to_string(&report).unwrap().contains("afterNodeIds"));
+        report.after_node_ids = Some(vec!["n-2".to_string()]);
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains(r#""afterNodeIds":["n-2"]"#));
+        // A whole-array replace: an empty array deliberately CLEARS them.
+        report.after_node_ids = Some(Vec::new());
+        assert!(serde_json::to_string(&report)
+            .unwrap()
+            .contains(r#""afterNodeIds":[]"#));
+
+        let outcome: LandOutcome =
+            serde_json::from_str(r#"{"merged":true,"reason":null,"retargeted":["n-2","n-3"]}"#)
+                .unwrap();
+        assert_eq!(outcome.retargeted, ["n-2", "n-3"]);
+        // An older server's answer still decodes, with nothing retargeted.
+        let narrow: LandOutcome = serde_json::from_str(r#"{"merged":false}"#).unwrap();
+        assert!(narrow.retargeted.is_empty());
+        // The train's topological refusal is a WAIT, not a conflict: the
+        // node's turn simply has not come.
+        let waiting = LandOutcome {
+            merged: false,
+            reason: Some("Waiting for its blockers to land".to_string()),
+            retargeted: Vec::new(),
+        };
+        assert!(waiting.is_waiting());
+    }
+
     #[test]
     fn from_row_hydrates_the_synced_row() {
         // jsonb columns arrive TEXT-stored (§5.5) — both must re-parse.
@@ -568,9 +614,14 @@ mod tests {
             "lane": "1",
             "on_cycle": "t",
             "touches": "{apps/web/**,packages/ui/**}",
+            // EXP-983: the contract stamp and the serialization edges.
+            "checkpoint_at": "2026-09-19T10:00:00.000Z",
+            "after_node_ids": r#"["n-2"]"#,
         }))
         .unwrap();
         assert_eq!(row.member_ids(), vec!["i-2", "i-3"]);
+        assert_eq!(row.after_ids(), vec!["n-2"]);
+        assert!(row.checkpoint_at.is_some());
         assert_eq!(row.wave_index(), 2);
         assert_eq!(row.lane_index(), 1);
         assert!(row.is_on_cycle());
@@ -585,5 +636,7 @@ mod tests {
         assert!(!bare.is_on_cycle());
         assert!(bare.member_ids().is_empty());
         assert!(bare.touches.is_empty());
+        assert!(bare.after_ids().is_empty());
+        assert_eq!(bare.checkpoint_at, None);
     }
 }

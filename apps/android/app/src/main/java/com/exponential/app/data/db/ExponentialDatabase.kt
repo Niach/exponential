@@ -316,9 +316,15 @@ import androidx.room.TypeConverters
     //      for why a node is `failed` / `waiting`. Both nullable, both new on
     //      the workflow-nodes shape allowlist; destructive fallback wipes +
     //      resyncs so every node row arrives carrying them.
+    // v68 (EXP-983): workflow_nodes.checkpoint_at + after_node_ids — the stamp
+    //      that says a node published its contract (what an `on contract`
+    //      dependent starts on) and the engine-written serialization edges a
+    //      node merges in first. Both new on the workflow-nodes shape
+    //      allowlist; destructive fallback wipes + resyncs so every node row
+    //      arrives carrying them.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 67,
+    version = 68,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

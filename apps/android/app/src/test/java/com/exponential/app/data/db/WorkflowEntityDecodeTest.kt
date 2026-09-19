@@ -147,6 +147,8 @@ class WorkflowEntityDecodeTest {
               "attempt": 0,
               "base_branch": "exp/wf-abcd1234",
               "approved_at": "2026-09-19 11:00:00+00",
+              "checkpoint_at": "2026-09-19 11:30:00+00",
+              "after_node_ids": ["node-7", "node-9"],
               "note": "The rebase hit a conflict in apps/web/src/lib/workflows.ts",
               "budget": {"tokens": 120000, "minutes": 30},
               "touches": "{apps/web/**,packages/ui/**}",
@@ -173,6 +175,9 @@ class WorkflowEntityDecodeTest {
             "The rebase hit a conflict in apps/web/src/lib/workflows.ts",
             node.note,
         )
+        // EXP-983: the contract stamp and the engine's serialization edges.
+        assertEquals("2026-09-19 11:30:00+00", node.checkpointAt)
+        assertEquals(listOf("node-7", "node-9"), node.afterNodeIds)
         val budget = workflowNodeBudget(node.budget)
         assertEquals(120000, budget?.tokens)
         assertEquals(30, budget?.minutes)
@@ -203,5 +208,35 @@ class WorkflowEntityDecodeTest {
         assertTrue(node.memberIssueIds.isEmpty())
         assertTrue(node.touches.isEmpty())
         assertNull(workflowNodeBudget(node.budget))
+        // EXP-983: a node that published nothing and collided with nobody.
+        assertNull(node.checkpointAt)
+        assertTrue(node.afterNodeIds.isEmpty())
+    }
+
+    @Test
+    fun `the serialization edges decode in every wire dialect`() {
+        // Electric ships a jsonb cell as its JSON TEXT inside a string; tRPC
+        // and tests hand over a native array. Anything else — a null, a
+        // malformed cell — reads as EMPTY rather than dropping the node row.
+        fun nodeWith(afterNodeIds: String) = json.decodeFromString(
+            WorkflowNodeEntity.serializer(),
+            """
+                {
+                  "id": "node-3",
+                  "workflow_id": "wf-1",
+                  "issue_id": "issue-3",
+                  "checkpointAt": "2026-09-19 12:00:00+00",
+                  "after_node_ids": $afterNodeIds,
+                  "created_at": "2026-09-19 10:00:00+00",
+                  "updated_at": "2026-09-19 10:00:00+00"
+                }
+            """.trimIndent(),
+        )
+        assertEquals(listOf("node-1"), nodeWith("""["node-1"]""").afterNodeIds)
+        assertEquals(listOf("node-1", "node-2"), nodeWith("\"[\\\"node-1\\\",\\\"node-2\\\"]\"").afterNodeIds)
+        assertTrue(nodeWith("null").afterNodeIds.isEmpty())
+        assertTrue(nodeWith("\"not an array\"").afterNodeIds.isEmpty())
+        // The camelCase tRPC twin of the contract stamp.
+        assertEquals("2026-09-19 12:00:00+00", nodeWith("[]").checkpointAt)
     }
 }

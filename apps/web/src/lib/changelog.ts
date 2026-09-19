@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-19-workflows-speculative`,
+    date: `2026-09-19`,
+    title: `Workflows start dependents early and keep them in step`,
+    summary: `Dependent runs start as soon as their blockers publish a contract, upstream changes are merged in automatically, and colliding siblings are put in order.`,
+    body: `- **Start on contract**: with the default start mode a node pushes its contract first (types, stubs and tests) and announces it; everything that depends on it starts right away instead of waiting for the whole pull request. On PR open and When landed stay available as the careful settings.
+- **Branches shaped like the graph**: a node with one open blocker builds on that blocker's branch, a node with several builds on a merge of them that the engine prepares, so every pull request shows only its own work.
+- **Upstream moved**: when a blocker pushes again, its dependents are told between turns to merge the change in, with a short note of what changed. Nothing is ever rebased or force-pushed, and a real conflict has exactly one owner.
+- **Collisions become order**: when two parallel nodes touch the same code, the later one merges the other in first and the graph shows a dashed edge between them.
+- **Edges tell you more**: dashed means a dependent started early, red means upstream moved and the dependent is catching up, green means landed.
+- **Landing**: pull requests still land strictly in dependency order, and a dependent whose last blocker landed moves its pull request onto the workflow branch by itself.
+- **Asking upstream**: a run can ask the run it builds on to change what it handed over; a disagreement about an interface always comes to you.`,
+  },
+  {
     id: `2026-09-19-workflows-run`,
     date: `2026-09-19`,
     title: `Workflows run: parallel coding runs with a merge train`,

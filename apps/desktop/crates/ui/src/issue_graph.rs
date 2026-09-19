@@ -30,6 +30,7 @@ use domain::issue_graph::{
     block_graph, blocks_badge_label, open_blockers_of_set, BlockCounts, GraphIssue, GraphRelation,
     IssueGraph, ISSUE_GRAPH_CYCLE_NOTE, ISSUE_GRAPH_TRUNCATED_NOTE,
 };
+use domain::workflow_view::WorkflowEdgeStyle;
 
 use crate::icons::registry;
 use crate::issue_chip::issue_chip;
@@ -77,16 +78,89 @@ pub(crate) struct GridNode {
 pub(crate) struct GridEdge {
     pub(crate) from: String,
     pub(crate) to: String,
-    /// Inside a cycle: drawn red, and nothing on it can start.
-    pub(crate) cycle: bool,
-    /// EXP-982: the edge's FROM node landed — drawn green, so a workflow's
-    /// progress reads off the lines as well as the boxes.
-    pub(crate) landed: bool,
+    /// EXP-983: what the line SAYS — the ONE rule every client paints by
+    /// ([`domain::workflow_view::workflow_edge_style`]). The blocks
+    /// mini-graph only ever uses `Plain` and `Cycle`.
+    pub(crate) style: WorkflowEdgeStyle,
 }
+
+/// The dash and the gap a SPECULATIVE edge is drawn with: the dependent
+/// started before its blocker landed, so the line is not solid yet.
+const DASH: f32 = 5.;
+const DASH_GAP: f32 = 4.;
+/// How finely a curved edge is sampled before it is dashed.
+const CURVE_STEPS: usize = 24;
 
 /// How a host paints ONE box: its node and whether any of its edges is a
 /// cycle edge (the shared red rule).
 pub(crate) type RenderGridNode<'a> = &'a dyn Fn(&GridNode, bool, &App) -> gpui::AnyElement;
+
+/// The dash segments along one edge: the curve (or the straight line) is
+/// sampled, then walked, alternating [`DASH`] of ink with [`DASH_GAP`] of
+/// nothing. gpui paints paths, not patterns, so the dashes ARE short paths.
+fn dashes(
+    start: gpui::Point<Pixels>,
+    end: gpui::Point<Pixels>,
+    control: Option<gpui::Point<Pixels>>,
+) -> Vec<(gpui::Point<Pixels>, gpui::Point<Pixels>)> {
+    let at = |t: f32| match control {
+        // The quadratic the solid edges curve along, sampled.
+        Some(control) => {
+            let inverse = 1. - t;
+            let x = inverse * inverse * f32::from(start.x)
+                + 2. * inverse * t * f32::from(control.x)
+                + t * t * f32::from(end.x);
+            let y = inverse * inverse * f32::from(start.y)
+                + 2. * inverse * t * f32::from(control.y)
+                + t * t * f32::from(end.y);
+            point(px(x), px(y))
+        }
+        None => point(
+            px(f32::from(start.x) + (f32::from(end.x) - f32::from(start.x)) * t),
+            px(f32::from(start.y) + (f32::from(end.y) - f32::from(start.y)) * t),
+        ),
+    };
+    let steps = if control.is_some() { CURVE_STEPS } else { 1 };
+    let points: Vec<gpui::Point<Pixels>> = (0..=steps)
+        .map(|step| at(step as f32 / steps as f32))
+        .collect();
+
+    let mut dashes = Vec::new();
+    // How far into the current dash (or gap) the walk stands.
+    let mut drawn = 0.;
+    let mut inking = true;
+    let mut dash_start = points[0];
+    for window in points.windows(2) {
+        let (from, to) = (window[0], window[1]);
+        let dx = f32::from(to.x) - f32::from(from.x);
+        let dy = f32::from(to.y) - f32::from(from.y);
+        let length = (dx * dx + dy * dy).sqrt();
+        if length <= f32::EPSILON {
+            continue;
+        }
+        let mut walked = 0.;
+        while walked < length {
+            let want = if inking { DASH } else { DASH_GAP } - drawn;
+            let step = want.min(length - walked);
+            let t = (walked + step) / length;
+            let at = point(px(f32::from(from.x) + dx * t), px(f32::from(from.y) + dy * t));
+            if inking && step + drawn >= DASH - f32::EPSILON {
+                dashes.push((dash_start, at));
+            }
+            walked += step;
+            drawn += step;
+            if drawn >= if inking { DASH } else { DASH_GAP } - f32::EPSILON {
+                inking = !inking;
+                drawn = 0.;
+                dash_start = at;
+            }
+        }
+    }
+    if inking && drawn > 0. {
+        dashes.push((dash_start, *points.last().expect("sampled")));
+    }
+    dashes
+}
 
 /// EXP-981 — the shared grid: boxes at their `(wave, lane)`, the edges
 /// between them painted in one canvas pass (grey, RED on a cycle), and the
@@ -118,13 +192,13 @@ pub(crate) fn grid_view(
         .collect();
     // A node is on a cycle when one of its edges is.
     let mut on_cycle: HashMap<&str, bool> = HashMap::new();
-    // `(x1, y1, x2, y2, cycle, landed)` — cycle wins over landed.
-    let segments: Vec<(f32, f32, f32, f32, bool, bool)> = edges
+    // `(x1, y1, x2, y2, style)`.
+    let segments: Vec<(f32, f32, f32, f32, WorkflowEdgeStyle)> = edges
         .iter()
         .filter_map(|edge| {
             let from = places.get(edge.from.as_str())?;
             let to = places.get(edge.to.as_str())?;
-            if edge.cycle {
+            if edge.style == WorkflowEdgeStyle::Cycle {
                 on_cycle.insert(edge.from.as_str(), true);
                 on_cycle.insert(edge.to.as_str(), true);
             }
@@ -133,8 +207,7 @@ pub(crate) fn grid_view(
                 node_y(from.1, node_h) + node_h / 2.,
                 node_x(to.0),
                 node_y(to.1, node_h) + node_h / 2.,
-                edge.cycle,
-                edge.landed,
+                edge.style,
             ))
         })
         .collect();
@@ -148,24 +221,40 @@ pub(crate) fn grid_view(
         .child(
             canvas(|_, _, _| (), move |bounds: Bounds<Pixels>, _, window, _| {
                 let origin = bounds.origin;
-                for &(x1, y1, x2, y2, cycle, landed) in &segments {
-                    let color = if cycle {
-                        danger
-                    } else if landed {
-                        success
-                    } else {
-                        grey
+                for &(x1, y1, x2, y2, style) in &segments {
+                    // EXP-983: red for a cycle AND for upstream that moved,
+                    // green once the blocker landed, grey otherwise.
+                    let color = match style {
+                        WorkflowEdgeStyle::Cycle | WorkflowEdgeStyle::Stale => danger,
+                        WorkflowEdgeStyle::Landed => success,
+                        _ => grey,
                     };
                     let start = point(origin.x + px(x1), origin.y + px(y1));
                     let end = point(origin.x + px(x2), origin.y + px(y2));
+                    // The control point: one curve, inside the corridor
+                    // between the two waves. A straight edge uses neither.
+                    let control = point(origin.x + px((x1 + x2) / 2.), start.y);
+                    let curved = (y1 - y2).abs() >= 0.5;
+                    if style == WorkflowEdgeStyle::Speculative {
+                        // gpui's PathBuilder has no dash pattern, so the
+                        // dashes are painted as short segments along the
+                        // same curve.
+                        for (from, to) in dashes(start, end, curved.then_some(control)) {
+                            let mut path = gpui::PathBuilder::stroke(px(LINE));
+                            path.move_to(from);
+                            path.line_to(to);
+                            if let Ok(path) = path.build() {
+                                window.paint_path(path, color);
+                            }
+                        }
+                        continue;
+                    }
                     let mut path = gpui::PathBuilder::stroke(px(LINE));
                     path.move_to(start);
-                    if (y1 - y2).abs() < 0.5 {
-                        path.line_to(end);
+                    if curved {
+                        path.curve_to(end, control);
                     } else {
-                        // One quarter of the gap either side keeps the curve
-                        // inside the corridor between the two waves.
-                        path.curve_to(end, point(origin.x + px((x1 + x2) / 2.), start.y));
+                        path.line_to(end);
                     }
                     if let Ok(path) = path.build() {
                         window.paint_path(path, color);
@@ -348,9 +437,13 @@ pub(crate) fn graph_view(
         .map(|edge| GridEdge {
             from: edge.from.clone(),
             to: edge.to.clone(),
-            cycle: edge.cycle,
-            // The blocks mini-graph has no landing to report.
-            landed: false,
+            // The blocks mini-graph has no run to report: red on a cycle,
+            // grey otherwise.
+            style: if edge.cycle {
+                WorkflowEdgeStyle::Cycle
+            } else {
+                WorkflowEdgeStyle::Plain
+            },
         })
         .collect();
     let subjects: std::collections::HashSet<&str> = graph
@@ -507,4 +600,45 @@ pub(crate) fn graph_overlay(graph: &IssueGraph, view_width: f32, cx: &App) -> gp
         .min_w_0()
         .child(graph_view(graph, view_width, on_pick, cx))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EXP-983 — a speculative edge is DASHED: gpui paints paths, not
+    /// patterns, so the line becomes a run of short segments that still
+    /// starts where the edge starts and ends where it ends.
+    #[test]
+    fn a_dashed_edge_is_a_run_of_segments_along_the_line() {
+        let start = point(px(0.), px(0.));
+        let end = point(px(40.), px(0.));
+        let straight = dashes(start, end, None);
+        assert!(straight.len() > 2, "40px of line is several dashes");
+        assert_eq!(straight[0].0, start, "the first dash starts on the edge");
+        let last = straight.last().expect("dashes");
+        assert!(
+            f32::from(last.1.x) <= 40.,
+            "no dash runs past the end: {:?}",
+            last.1
+        );
+        for (from, to) in &straight {
+            let length = f32::from(to.x) - f32::from(from.x);
+            assert!(length > 0. && length <= DASH + 0.01, "dash of {length}px");
+        }
+
+        // A curved edge is sampled first, so its dashes leave the straight
+        // line between the two ends.
+        let curved = dashes(start, point(px(40.), px(40.)), Some(point(px(20.), px(0.))));
+        assert!(curved.len() > 2);
+        assert!(
+            curved
+                .iter()
+                .any(|(from, _)| f32::from(from.y) > 0. && f32::from(from.x) > 0.),
+            "the dashes follow the curve, not the chord"
+        );
+
+        // A zero-length edge simply draws nothing.
+        assert!(dashes(start, start, None).is_empty());
+    }
 }

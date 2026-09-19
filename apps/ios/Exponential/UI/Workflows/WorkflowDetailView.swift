@@ -87,6 +87,7 @@ struct WorkflowDetailView: View {
                 WorkflowNodeSheet(
                     node: node,
                     issues: model.issues,
+                    nodesById: model.nodesById,
                     enabled: model.isDraft,
                     gate: model.gate,
                     busy: model.busy,
@@ -594,6 +595,9 @@ struct WorkflowNodeTarget: Identifiable {
 struct WorkflowNodeSheet: View {
     let node: WorkflowNodeEntity
     let issues: [String: IssueEntity]
+    /// EXP-983 — the workflow's nodes by id: `after_node_ids` names NODES, and
+    /// the panel chips the issues behind them.
+    let nodesById: [String: WorkflowNodeEntity]
     /// Kind shapes the PLAN, so the server takes it on a draft only.
     let enabled: Bool
     /// contract `wfGate` — with `nodeNeedsApproval` it decides whether the node
@@ -634,6 +638,8 @@ struct WorkflowNodeSheet: View {
                         }
                     }
                 }
+
+                mergesInFirst
 
                 VStack(spacing: 2) {
                     GlassPickerRow(
@@ -702,6 +708,36 @@ struct WorkflowNodeSheet: View {
         }
     }
 
+    // MARK: - Speculative starts (EXP-983)
+
+    /// The serialization edges the engine wrote after two siblings' work
+    /// collided: this node merges those in before it pushes. Chipped as issues,
+    /// with the dashed border every speculative edge wears.
+    @ViewBuilder
+    private var mergesInFirst: some View {
+        let after = node.afterNodeIds.compactMap { nodesById[$0] }
+        if !after.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Merges in first")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(after) { other in
+                            chip(
+                                other.issueId,
+                                memberCount: other.memberIssueIds.count,
+                                cycle: other.onCycle
+                            )
+                            .overlay { SpeculativeChipBorder() }
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("workflow-node-merges-in-first")
+        }
+    }
+
     // MARK: - Running it (EXP-982)
 
     /// The node's own run: why it is stuck, its live session, its pull request,
@@ -710,6 +746,21 @@ struct WorkflowNodeSheet: View {
     private var runControls: some View {
         let issue = issues[node.issueId]
         VStack(alignment: .leading, spacing: 10) {
+            // EXP-983: a `contract` start releases the dependents the moment
+            // the node announces its contract — so say when that happened.
+            if let checkpoint = node.checkpointAt, !checkpoint.isEmpty {
+                let when = relativeWireDate(checkpoint)
+                Text(
+                    when.isEmpty
+                        ? WorkflowView.contractPublishedLabel
+                        : "\(WorkflowView.contractPublishedLabel) · \(when)"
+                )
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("workflow-node-checkpoint")
+            }
+
             // The engine's own words for a `failed` / `waiting` node.
             if let note = node.note, !note.isEmpty {
                 Text(note)
@@ -814,15 +865,22 @@ struct WorkflowNodeSheet: View {
         }
     }
 
+    /// One covered issue as the shared badge. `memberCount` names a compound
+    /// node the way the graph row does; `cycle` defaults to THIS node's, since
+    /// every chip but the serialization ones stands for this node's own work.
     @ViewBuilder
-    private func chip(_ issueId: String) -> some View {
+    private func chip(
+        _ issueId: String, memberCount: Int = 0, cycle: Bool? = nil
+    ) -> some View {
         let issue = issues[issueId]
         let status = IssueStatus.from(issue?.status)
         IssueChip(
-            identifier: issue?.identifier ?? issueId,
+            identifier: WorkflowView.nodeTitle(
+                identifier: issue?.identifier ?? issueId, memberCount: memberCount
+            ),
             title: issue?.title,
             iconName: status.iconName,
-            statusColor: node.onCycle ? DesignTokens.Semantic.red : status.color
+            statusColor: (cycle ?? node.onCycle) ? DesignTokens.Semantic.red : status.color
         )
     }
 }

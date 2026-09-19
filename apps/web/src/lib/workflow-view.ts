@@ -347,3 +347,6 @@ export function workflowEdgeStyle(
 
 /** The node panel's line once a node announced its contract. */
 export const CONTRACT_PUBLISHED_LABEL = `Contract published`
+
+/** The node panel's chip line over `after_node_ids`. Byte-identical ×4. */
+export const MERGES_IN_FIRST_LABEL = `Merges in first`

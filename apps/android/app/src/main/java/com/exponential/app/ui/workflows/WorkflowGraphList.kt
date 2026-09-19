@@ -23,7 +23,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
@@ -39,6 +43,7 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.LiveDot
+import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -62,6 +67,50 @@ internal fun workflowToneColor(tone: WorkflowView.Tone): Color = when (tone) {
     WorkflowView.Tone.Active -> MaterialTheme.colorScheme.onSurface
     WorkflowView.Tone.Muted ->
         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+}
+
+/**
+ * EXP-983: the colour an edge's style paints in, or null for the plain edge
+ * that says nothing. Web and the desktop draw the real lines; a phone has no
+ * drawn edges, so the `Blocked by` chips wear this instead.
+ */
+@Composable
+internal fun workflowEdgeStyleColor(style: WorkflowView.EdgeStyle): Color? = when (style) {
+    WorkflowView.EdgeStyle.Plain -> null
+    WorkflowView.EdgeStyle.Cycle, WorkflowView.EdgeStyle.Stale ->
+        MaterialTheme.colorScheme.error
+    WorkflowView.EdgeStyle.Landed -> DesignTokens.Semantic.Green
+    WorkflowView.EdgeStyle.Speculative ->
+        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+}
+
+/**
+ * The chip's ring: solid for a landed or a red edge, DASHED for a speculative
+ * one (the dependent started before its blocker landed, or the engine
+ * serialized two colliding siblings). Drawn outside the chip's own hairline,
+ * which is why the ring sits on a padded box rather than on the chip itself.
+ */
+@Composable
+private fun Modifier.workflowEdgeRing(style: WorkflowView.EdgeStyle): Modifier {
+    val color = workflowEdgeStyleColor(style) ?: return this.padding(2.dp)
+    val dashed = style == WorkflowView.EdgeStyle.Speculative
+    val radius = MdStyle.chipCornerRadius + 2.dp
+    return this
+        .drawBehind {
+            drawRoundRect(
+                color = color,
+                cornerRadius = CornerRadius(radius.toPx()),
+                style = Stroke(
+                    width = 1.dp.toPx(),
+                    pathEffect = if (dashed) {
+                        PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+                    } else {
+                        null
+                    },
+                ),
+            )
+        }
+        .padding(2.dp)
 }
 
 /**
@@ -322,8 +371,15 @@ private fun WorkflowNodeRow(
                     blockers.forEach { edge ->
                         val from = nodesById[edge.from] ?: return@forEach
                         val blocker = graph.issuesById[from.issueId] ?: return@forEach
+                        // EXP-983: no lines to draw here, so the chip carries
+                        // the edge's style — red on a cycle or a stale
+                        // upstream, green once the blocker landed, dashed
+                        // while the work below it is speculative.
+                        val style = WorkflowView.edgeStyle(edge, from.state, node.state)
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (edge.cycle) {
+                            if (style == WorkflowView.EdgeStyle.Cycle ||
+                                style == WorkflowView.EdgeStyle.Stale
+                            ) {
                                 Icon(
                                     ExpIcons.relationBlockedBy,
                                     contentDescription = null,
@@ -332,14 +388,20 @@ private fun WorkflowNodeRow(
                                 )
                                 Spacer(Modifier.width(4.dp))
                             }
-                            IssueChip(
-                                identifier = WorkflowView.nodeTitle(
-                                    blocker.identifier,
-                                    from.memberIssueIds.size,
-                                ),
-                                title = blocker.title,
-                                status = null,
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .workflowEdgeRing(style)
+                                    .testTag("workflow-blocker-${style.key}"),
+                            ) {
+                                IssueChip(
+                                    identifier = WorkflowView.nodeTitle(
+                                        blocker.identifier,
+                                        from.memberIssueIds.size,
+                                    ),
+                                    title = blocker.title,
+                                    status = null,
+                                )
+                            }
                         }
                     }
                 }

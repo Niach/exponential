@@ -343,6 +343,11 @@ pub struct WorkflowRun {
     pub name: String,
     /// `workflows.decisions` as synced — the answers every sibling shares.
     pub decisions: String,
+    /// EXP-983: contract `wfStartOn` — under `contract` the run is asked to
+    /// announce one with `exponential_workflows_checkpoint`.
+    pub start_on: String,
+    /// EXP-983: the identifiers of the issues this node builds on.
+    pub blockers: Vec<String>,
 }
 
 /// EXP-982: a run the workflow engine started for one node. Unattended like
@@ -1647,6 +1652,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         name: &workflow.name,
         base_branch: &base_branch,
         decisions: &workflow.decisions,
+        start_on: &workflow.start_on,
+        blockers: &workflow.blockers,
     });
     let rendered = match req {
         PrepareRequest::Issue(issue_req) if issue_req.resume_prompt => {

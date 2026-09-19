@@ -126,6 +126,11 @@ class WorkflowViewTest {
                     issueId = obj.getValue("issueId").jsonPrimitive.content,
                     memberIssueIds = obj.getValue("memberIssueIds").jsonArray
                         .map { it.jsonPrimitive.content },
+                    // EXP-983: the engine's serialization edges, absent on the
+                    // plain cases.
+                    afterNodeIds = obj["afterNodeIds"]?.jsonArray
+                        ?.map { it.jsonPrimitive.content }
+                        .orEmpty(),
                 )
             }
             val relations = case.getValue("relations").jsonArray.map { relation ->
@@ -144,10 +149,41 @@ class WorkflowViewTest {
                     from = obj.getValue("from").jsonPrimitive.content,
                     to = obj.getValue("to").jsonPrimitive.content,
                     cycle = obj.getValue("cycle").jsonPrimitive.boolean,
+                    serial = obj.getValue("serial").jsonPrimitive.boolean,
                 )
             }
             assertEquals(name, expected, WorkflowView.edges(nodes, relations, cycleEdges))
         }
+    }
+
+    // ── Speculative starts (EXP-983) ────────────────────────────────────────
+
+    @Test
+    fun `every edge is drawn in the style the fixture names`() {
+        val cases = fixture.getValue("edgeStyles").jsonArray
+        assertTrue(cases.size >= 7)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val edge = case.getValue("edge").jsonObject
+            assertEquals(
+                case.getValue("style").jsonPrimitive.content,
+                WorkflowView.edgeStyle(
+                    WorkflowView.Edge(
+                        from = "a",
+                        to = "b",
+                        cycle = edge.getValue("cycle").jsonPrimitive.boolean,
+                        serial = edge.getValue("serial").jsonPrimitive.boolean,
+                    ),
+                    case.getValue("fromState").jsonPrimitive.content,
+                    case.getValue("toState").jsonPrimitive.content,
+                ).key,
+            )
+        }
+    }
+
+    @Test
+    fun `the contract line is the shared sentence`() {
+        assertEquals("Contract published", WorkflowView.CONTRACT_PUBLISHED_LABEL)
     }
 
     @Test
@@ -185,6 +221,21 @@ class WorkflowViewTest {
             assertEquals(
                 case.getValue("blocker").stringOrNull(),
                 WorkflowView.startBlocker(startable, shape),
+            )
+        }
+        // EXP-983: no start mode is refused any more — all three run.
+        DomainContract.wfStartOnValues.forEach { startOn ->
+            assertNull(
+                startOn,
+                WorkflowView.startBlocker(
+                    WorkflowView.Startable(
+                        status = DomainContract.wfStatusDraft,
+                        deviceId = "dev",
+                        repositoryId = "repo",
+                        startOn = startOn,
+                    ),
+                    WorkflowView.Shape(nodes = 3, depth = 2, width = 2),
+                ),
             )
         }
     }
