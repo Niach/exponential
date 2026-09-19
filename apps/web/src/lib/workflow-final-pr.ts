@@ -107,7 +107,11 @@ export async function openWorkflowFinalPr(
     .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
     .where(eq(workflowNodes.workflowId, workflowId))
     .orderBy(asc(workflowNodes.wave), asc(workflowNodes.lane))
-  const open = nodes.filter((node) => node.state !== `landed` && node.state !== `skipped`)
+  // A `proposed` node was never admitted: it is not part of the workflow.
+  const open = nodes.filter(
+    (node) =>
+      node.state !== `landed` && node.state !== `skipped` && node.state !== `proposed`
+  )
   if (open.length > 0) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,

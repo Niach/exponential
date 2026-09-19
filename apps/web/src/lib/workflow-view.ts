@@ -294,8 +294,10 @@ export function workflowFinalPrCaption(
   finalPrState: string | null,
   finalPrNumber: number | null
 ): string | null {
-  if (nodes.length === 0) return null
-  const allIn = nodes.every((node) => node.state === `landed` || node.state === `skipped`)
+  // EXP-984: a `proposed` node was never admitted; it is not part of the run.
+  const real = nodes.filter((node) => node.state !== `proposed`)
+  if (real.length === 0) return null
+  const allIn = real.every((node) => node.state === `landed` || node.state === `skipped`)
   if (!allIn && finalPrNumber === null) return null
   if (finalPrNumber === null) return `Opening the pull request`
   const label =
@@ -350,3 +352,95 @@ export const CONTRACT_PUBLISHED_LABEL = `Contract published`
 
 /** The node panel's chip line over `after_node_ids`. Byte-identical ×4. */
 export const MERGES_IN_FIRST_LABEL = `Merges in first`
+
+
+// ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────────
+
+export const ADMIT_NODE_LABEL = `Admit`
+export const DISMISS_NODE_LABEL = `Dismiss`
+export const PROPOSED_NODE_NOTE = `Filed during the run. Admit it into the workflow or dismiss it.`
+export const AGENT_REVIEW_TITLE = `Agent review`
+export const REVIEW_MODEL_LABEL = `Review model`
+export const BUDGET_TITLE = `Budget`
+export const BUDGET_MINUTES_LABEL = `Minutes`
+export const BUDGET_TOKENS_LABEL = `Tokens`
+export const METRICS_TITLE = `Metrics`
+
+export interface ReviewLine {
+  verdict: string
+  round: number
+  oracle: { passed: boolean } | null
+}
+
+/**
+ * The node panel's one line about the latest agent review:
+ * `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+ * `Changes requested · round 2 · checks failed`, `Changes requested · round 2`.
+ */
+export function workflowReviewLine(review: ReviewLine): string {
+  const verdict = review.verdict === `approve` ? `Approved` : `Changes requested`
+  const parts = [verdict, `round ${review.round}`]
+  if (review.oracle) parts.push(review.oracle.passed ? `checks passed` : `checks failed`)
+  else if (review.verdict === `approve`) parts.push(`advisory`)
+  return parts.join(` · `)
+}
+
+export interface MetricRow {
+  label: string
+  value: string
+}
+
+const count = (metrics: Record<string, unknown>, key: string): number => {
+  const value = metrics[key]
+  return typeof value === `number` && Number.isFinite(value) ? value : 0
+}
+
+/**
+ * The detail's Metrics section for a STARTED workflow, in this order. A row
+ * appears only when it has something to say, except the critical path, which
+ * always does.
+ */
+export function workflowMetricRows(metrics: Record<string, unknown>): MetricRow[] {
+  const rows: MetricRow[] = [
+    {
+      label: `Critical path`,
+      value: `${count(metrics, `depth`)} waves for ${count(metrics, `nodes`)} nodes`,
+    },
+  ]
+  const landed = count(metrics, `landed`)
+  if (landed > 0) rows.push({ label: `Landed`, value: `${landed}` })
+  const mergeIns = count(metrics, `mergeIns`)
+  const changes = count(metrics, `contractChanges`)
+  if (mergeIns > 0) {
+    rows.push(
+      changes > 0
+        ? {
+            label: `Merge-ins per contract change`,
+            value: (mergeIns / changes).toFixed(1),
+          }
+        : { label: `Merge-ins`, value: `${mergeIns}` }
+    )
+  }
+  const escalations = count(metrics, `escalations`)
+  if (escalations > 0) {
+    rows.push({
+      label: `Escalations`,
+      value: `${escalations} (${count(metrics, `duplicateEscalations`)} duplicate)`,
+    })
+  }
+  const minutes = count(metrics, `operatorMinutes`)
+  if (minutes > 0) rows.push({ label: `Operator minutes`, value: `${minutes}` })
+  const rounds = count(metrics, `reviewRounds`)
+  if (rounds > 0) rows.push({ label: `Review rounds`, value: `${rounds}` })
+  const byOracle = count(metrics, `defectsByOracle`)
+  const byAgent = count(metrics, `defectsByAgentReview`)
+  if (byOracle + byAgent > 0) {
+    rows.push({
+      label: `Defects found`,
+      value: `${byOracle} by checks · ${byAgent} by agent review`,
+    })
+  }
+  const pauses = count(metrics, `budgetPauses`)
+  if (pauses > 0) rows.push({ label: `Budget pauses`, value: `${pauses}` })
+  return rows
+}

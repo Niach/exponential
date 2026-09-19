@@ -255,9 +255,13 @@
   "wfRisk": {
     "values": ["low", "medium", "high"]
   },
+  "wfReviewVerdict": {
+    "values": ["approve", "request_changes"]
+  },
   "workflow": {
     "maxParallelDefault": 3,
-    "maxIssues": 50
+    "maxIssues": 50,
+    "maxReviewRounds": 3
   },
   "codingSessionStatus": {
     "values": ["running", "in_review", "ended"]
@@ -407,7 +411,8 @@
     "createActionId": "builtin:create-action",
     "fixConflictsId": "builtin:fix-conflicts",
     "chatId": "builtin:chat",
-    "planWorkflowId": "builtin:plan-workflow"
+    "planWorkflowId": "builtin:plan-workflow",
+    "reviewNodeId": "builtin:review-node"
   },
   "actionInputs": {
     "max": 10,
@@ -1382,6 +1387,17 @@
         "progressiveMany": "Asking upstream runs {n} times",
         "doneMany": "Asked upstream runs {n} times",
         "subjectKey": "issueId",
+        "result": "none"
+      },
+      {
+        "name": "workflows_review_submit",
+        "title": "Submit node review",
+        "blurb": "Submits a review run's verdict on one workflow node.",
+        "progressive": "Submitting review",
+        "done": "Submitted review",
+        "progressiveMany": "Submitting {n} reviews",
+        "doneMany": "Submitted {n} reviews",
+        "subjectKey": "nodeId",
         "result": "none"
       },
       {

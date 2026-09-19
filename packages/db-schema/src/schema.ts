@@ -28,6 +28,7 @@ import {
   type WorkflowLaunch,
   type WorkflowMetricsJson,
   type WorkflowNodeBudget,
+  type WorkflowNodeReview,
   type CodingSessionBlocked,
   type CodingSessionResult,
   codingSessionStatusSchema,
@@ -2352,6 +2353,11 @@ export const workflowNodes = pgTable(
       .$type<string[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    // EXP-984: the agent review gate. `review_round` counts submitted
+    // reviews (max 3, then the node waits for a person); `review` is the
+    // latest verdict.
+    reviewRound: integer(`review_round`).notNull().default(0),
+    review: jsonb().$type<WorkflowNodeReview>(),
     // Why the node is `failed` or `waiting`, one line, engine-written.
     note: varchar({ length: 500 }),
     budget: jsonb().$type<WorkflowNodeBudget>(),

@@ -567,6 +567,23 @@
       "finalPrState": "closed",
       "finalPrNumber": 12,
       "caption": "#12 · Closed"
+    },
+    {
+      "states": [
+        "landed",
+        "proposed"
+      ],
+      "finalPrState": null,
+      "finalPrNumber": null,
+      "caption": "Opening the pull request"
+    },
+    {
+      "states": [
+        "proposed"
+      ],
+      "finalPrState": null,
+      "finalPrNumber": null,
+      "caption": null
     }
   ],
   "rowSubtitles": [
@@ -674,6 +691,128 @@
       "fromState": "blocked",
       "toState": "ready",
       "style": "plain"
+    }
+  ],
+  "reviewLines": [
+    {
+      "review": {
+        "verdict": "approve",
+        "round": 1,
+        "oracle": {
+          "passed": true
+        }
+      },
+      "line": "Approved · round 1 · checks passed"
+    },
+    {
+      "review": {
+        "verdict": "approve",
+        "round": 1,
+        "oracle": null
+      },
+      "line": "Approved · round 1 · advisory"
+    },
+    {
+      "review": {
+        "verdict": "request_changes",
+        "round": 2,
+        "oracle": {
+          "passed": false
+        }
+      },
+      "line": "Changes requested · round 2 · checks failed"
+    },
+    {
+      "review": {
+        "verdict": "request_changes",
+        "round": 3,
+        "oracle": null
+      },
+      "line": "Changes requested · round 3"
+    }
+  ],
+  "metricRows": [
+    {
+      "metrics": {
+        "nodes": 12,
+        "depth": 3,
+        "width": 8,
+        "cycles": []
+      },
+      "rows": [
+        {
+          "label": "Critical path",
+          "value": "3 waves for 12 nodes"
+        }
+      ]
+    },
+    {
+      "metrics": {
+        "nodes": 12,
+        "depth": 3,
+        "landed": 5,
+        "mergeIns": 9,
+        "contractChanges": 2,
+        "escalations": 4,
+        "duplicateEscalations": 1,
+        "operatorMinutes": 37,
+        "reviewRounds": 6,
+        "defectsByOracle": 2,
+        "defectsByAgentReview": 1,
+        "budgetPauses": 1
+      },
+      "rows": [
+        {
+          "label": "Critical path",
+          "value": "3 waves for 12 nodes"
+        },
+        {
+          "label": "Landed",
+          "value": "5"
+        },
+        {
+          "label": "Merge-ins per contract change",
+          "value": "4.5"
+        },
+        {
+          "label": "Escalations",
+          "value": "4 (1 duplicate)"
+        },
+        {
+          "label": "Operator minutes",
+          "value": "37"
+        },
+        {
+          "label": "Review rounds",
+          "value": "6"
+        },
+        {
+          "label": "Defects found",
+          "value": "2 by checks · 1 by agent review"
+        },
+        {
+          "label": "Budget pauses",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "metrics": {
+        "nodes": 2,
+        "depth": 2,
+        "mergeIns": 3,
+        "landed": "garbage"
+      },
+      "rows": [
+        {
+          "label": "Critical path",
+          "value": "2 waves for 2 nodes"
+        },
+        {
+          "label": "Merge-ins",
+          "value": "3"
+        }
+      ]
     }
   ]
 }
