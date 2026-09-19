@@ -295,11 +295,12 @@ pub struct RunRecord {
     pub extra: BTreeMap<String, serde_json::Value>,
 }
 
-/// EXP-862: the EXP-746 key an older build wrote for a run on a user-declared
-/// external ACP agent. Those agents are gone, so this build has no field for
-/// it: the key rides [`RunRecord::extra`] untouched (never in `DEAD_KEYS` —
-/// dropping it would make such a record look like an ordinary claude run) and
-/// [`RunRecord::is_retired_external_agent`] refuses to resume it.
+/// EXP-862/EXP-972: the EXP-746 key an older build wrote for a run on a
+/// user-declared external ACP agent. Those agents are gone and such a record
+/// names no agent this build can start (its `agent` field is the settings
+/// default it was recorded beside), so [`load_registry`] DROPS the whole
+/// entry — never a plain `DEAD_KEYS` removal, which would make it look like
+/// an ordinary claude run. The next write purges it from the file.
 pub const EXTERNAL_AGENT_KEY: &str = "externalAgent";
 
 /// EXP-792: the [`RunRecord::extra`] key carrying the launch's team MCP
@@ -439,17 +440,6 @@ pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, s
 }
 
 impl RunRecord {
-
-    /// EXP-862: whether an older build recorded this run on an external ACP
-    /// agent ([`EXTERNAL_AGENT_KEY`]). Its `agent` field carries the settings
-    /// default and means nothing, so a resume would relaunch a builtin CLI
-    /// that never saw the conversation — the launcher refuses instead.
-    pub fn is_retired_external_agent(&self) -> bool {
-        self.extra
-            .get(EXTERNAL_AGENT_KEY)
-            .is_some_and(|value| !value.is_null())
-    }
-
     /// EXP-773: whether this run was recorded on the ACP engine, i.e.
     /// whether its `acpSessionId` can be re-entered with `session/load`. A
     /// missing value, the retired `"pty"` and an id this build does not know
@@ -567,12 +557,23 @@ fn load_registry(data_dir: &Path) -> Registry {
                 for dead in DEAD_KEYS {
                     record.extra.remove(*dead);
                 }
-                // EXP-862: a retired external agent's declared env is where
-                // the user kept that agent's TOKEN. The spec itself rides
-                // `extra` so a resume can refuse by name, but the secret is
-                // scrubbed on the way in and the next write purges it from
-                // the file.
-                scrub_external_agent_env(&mut record);
+                // compat: drop records written by desktop/cli <= 0.14.39;
+                // delete this drop once CLIENT_MIN_VERSION_DESKTOP and _CLI
+                // >= 0.14.46. A run on a retired external ACP agent has no
+                // binary to resume or replay it, and its declared env is
+                // where the user kept that agent's TOKEN — the entry goes
+                // whole, and the next write purges it from the file.
+                if record
+                    .extra
+                    .get(EXTERNAL_AGENT_KEY)
+                    .is_some_and(|value| !value.is_null())
+                {
+                    log::info!(
+                        "run registry: dropping run {} recorded on a retired external agent",
+                        record.session_id
+                    );
+                    continue;
+                }
                 registry.records.push(record);
             }
             Err(err) => {
@@ -582,20 +583,6 @@ fn load_registry(data_dir: &Path) -> Registry {
         }
     }
     registry
-}
-
-/// EXP-862: blank the `env` map inside a retired [`EXTERNAL_AGENT_KEY`]
-/// entry, leaving the rest of the spec readable (a resume names it when it
-/// refuses). Pre-EXP-746 records are the only ones that ever carried a value.
-fn scrub_external_agent_env(record: &mut RunRecord) {
-    let Some(external) = record.extra.get_mut(EXTERNAL_AGENT_KEY) else {
-        return;
-    };
-    if let Some(entry) = external.as_object_mut() {
-        if entry.contains_key("env") {
-            entry.insert("env".to_string(), serde_json::json!({}));
-        }
-    }
 }
 
 fn load(data_dir: &Path) -> Vec<RunRecord> {
@@ -1023,13 +1010,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-862: external ACP agents are gone, but a `runs.json` an older
-    /// build wrote still names one. The spec rides `extra` so a resume can
-    /// refuse it by name instead of relaunching a builtin CLI that never saw
-    /// the conversation, and the agent's declared TOKEN is scrubbed on the
-    /// way in (settings.json was always its only home).
+    /// EXP-862/EXP-972: external ACP agents are gone, but a `runs.json` a
+    /// build <= 0.14.39 wrote may still name one. Such a record has no binary
+    /// to resume or replay it and its declared env carried the agent's TOKEN,
+    /// so the load drops the whole entry and the next write purges it. Its
+    /// neighbours (and an explicit `"externalAgent": null`) are untouched.
     #[test]
-    fn a_recorded_external_agent_is_kept_but_refused() {
+    fn a_recorded_external_agent_is_dropped_at_load() {
         let dir = temp_dir("external-retired");
         let now = now_secs();
         let json = format!(
@@ -1038,33 +1025,29 @@ mod tests {
                 "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d","recordedAt":{now},
                 "transport":"acp","externalAgent":{{"id":"acme","label":"Acme ACP",
                 "command":"acme","args":["--acp"],"env":{{"ACME_TOKEN":"sk-live-1"}}}}
+            }},{{
+                "sessionId":"sess-null","accountId":"acc-1","agent":"claude","kind":"team",
+                "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4e","recordedAt":{now},
+                "transport":"acp","externalAgent":null
             }}]"#
         );
         std::fs::write(registry_path(&dir), json).unwrap();
 
-        let loaded = get(&dir, "sess-1").expect("record");
-        assert!(loaded.is_retired_external_agent());
-        assert_eq!(loaded.extra[EXTERNAL_AGENT_KEY]["command"], "acme");
-        assert_eq!(
-            loaded.extra[EXTERNAL_AGENT_KEY]["env"],
-            serde_json::json!({}),
-            "the stale secret is dropped"
-        );
-        // A builtin record names no external agent at all.
-        assert!(!sample("sess-builtin").is_retired_external_agent());
+        assert!(get(&dir, "sess-1").is_none(), "the retired run is gone");
+        let null_keyed = get(&dir, "sess-null").expect("a null key is not a retired run");
+        assert_eq!(null_keyed.extra.get(EXTERNAL_AGENT_KEY), Some(&serde_json::Value::Null));
 
-        // A neighbour's write keeps the record (and purges the secret for
-        // good) rather than re-serializing it away.
+        // A neighbour's write purges the dropped entry from the file for good.
         record(&dir, sample("sess-2"));
         let raw = std::fs::read_to_string(registry_path(&dir)).unwrap();
         assert!(!raw.contains("ACME_TOKEN"), "{raw}");
         let entries: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
-        let kept = entries
-            .iter()
-            .find(|entry| entry["sessionId"] == "sess-1")
-            .expect("the record survives");
-        assert_eq!(kept["externalAgent"]["command"], "acme");
-        assert_eq!(kept["externalAgent"]["env"], serde_json::json!({}));
+        assert!(
+            entries.iter().all(|entry| entry["sessionId"] != "sess-1"),
+            "{raw}"
+        );
+        assert!(entries.iter().any(|entry| entry["sessionId"] == "sess-null"));
+        assert!(entries.iter().any(|entry| entry["sessionId"] == "sess-2"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

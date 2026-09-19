@@ -13,22 +13,17 @@ import Foundation
 /// open-issue circle off every session row on every client, and it was exactly
 /// the control a multi-issue run could never answer.
 ///
-/// The covered set has two sources, in this order:
-///   1. `coding_sessions.batch_issue_ids` — written at start, so the name is
-///      right from the run's first second (the composer's order, preserved).
-///   2. the issues sharing the row's `branch` — what `pr_open` stamped on both
-///      sides (EXP-545), which names batches started before the column existed
-///      or by a client too old to send it, from the moment their PR opens.
+/// The covered set has ONE source: `coding_sessions.batch_issue_ids`, written
+/// at start (the composer's order, preserved) and backfilled server-side for
+/// every batch that predates the column (EXP-972), so a row without it is
+/// simply not a batch anyone can name. The branch-mates fallback (the issues
+/// `pr_open` stamped with the run's `exp/batch-<id8>` branch) is gone.
 ///
 /// The twin of web `lib/batch-run.ts`, desktop `domain::batch_run` and Android
 /// `BatchRun.kt`: same order, same `+N`, same fallback string, same test names.
 public enum BatchRun {
     /// The one string a batch with no knowable issues shows. Byte-identical ×4.
     public static let fallback = "Batch run"
-
-    /// The launcher's batch branch marker (`exp/batch-<id8>`), deliberately
-    /// lowercase so it can never parse as an issue branch.
-    public static let branchPrefix = "exp/batch-"
 
     /// What a batch row shows.
     public struct Name: Equatable {
@@ -63,34 +58,23 @@ public enum BatchRun {
         session.issueId == nil && session.actionName == nil
     }
 
-    /// The issues a batch run covers, in NAMING order: the stored order when
-    /// the row recorded it, else the branch-mates oldest first (a
-    /// deterministic order every client reaches the same way — `created_at` is
-    /// on every issue row, identifiers break the tie).
+    /// The issues a batch run covers, in NAMING order: the order the row
+    /// stored. An id whose issue has not synced is skipped, never a blank row.
     public static func issues(
         _ session: CodingSessionEntity,
         issues: [IssueEntity]
     ) -> [IssueEntity] {
         guard isBatch(session) else { return [] }
         let ids = issueIds(session.batchIssueIds)
-        if !ids.isEmpty {
-            let byId = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            return ids.compactMap { byId[$0] }
-        }
-        guard let branch = session.branch, branch.hasPrefix(branchPrefix) else { return [] }
-        return
-            issues
-            .filter { $0.branch == branch }
-            .sorted { a, b in
-                if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
-                return (a.identifier ?? "") < (b.identifier ?? "")
-            }
+        guard !ids.isEmpty else { return [] }
+        let byId = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return ids.compactMap { byId[$0] }
     }
 
     /// Name a batch run. `issues` is whatever the caller has synced; only the
     /// covered ones are read. A batch whose issues are all unknown (no stored
-    /// ids, no PR yet — or a row whose issues left the viewer's teams) keeps
-    /// the old generic label rather than inventing one.
+    /// ids — or a row whose issues left the viewer's teams) keeps the old
+    /// generic label rather than inventing one.
     public static func name(
         _ session: CodingSessionEntity,
         issues: [IssueEntity]

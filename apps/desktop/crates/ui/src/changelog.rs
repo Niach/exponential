@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-19-release-train",
+    date: "2026-09-19",
+    title: "Release train 2026-09-19",
+    summary: "Workflows ship on every client, the phone tab bar keeps its Agents and New issue buttons, and a round of fixes from the release review.",
+    body: r#"- **Workflows**: plan a set of backlog issues as one dependency graph, let a device run them in parallel with a merge train and a review gate, and follow it from the web, the desktop app, iOS and Android.
+- **Phones**: the tab bar shows the Agents and New issue buttons on every tab, the Agent page keeps past runs behind a history button, and the board switcher lists teams and boards only.
+- **Review fixes**: a workflow dependent can no longer be merged into your default branch behind the final pull request, a node's approval is bound to the reviewer run and the commit it reviewed, the metrics beat is recorded again, a skipped node's issue no longer moves to done with the final pull request, and a stacked start refuses a blocking cycle that runs through a closed issue.
+- **Cleanup**: batch runs are named from their stored issue list on every client (older runs were backfilled), the staleness sweep only deletes runs whose machine is gone, and retired external-agent run records are dropped when the desktop app or CLI loads them."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-workflows-review-gate",
     date: "2026-09-19",
     title: "Workflows review themselves, grow while they run, and keep to a budget",
@@ -58,7 +71,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-workflows-run",
     date: "2026-09-19",
     title: "Workflows run: parallel coding runs with a merge train",
@@ -72,7 +85,7 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-release-train",
     date: "2026-09-18",
     title: "Release train 2026-09-18",
@@ -88,7 +101,7 @@ const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-device-icons",
     date: "2026-09-18",
     title: "Device icons and 36 more board icons",
@@ -100,7 +113,7 @@ const PREVIOUS_3: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
     id: "2026-09-18-component-foundation",
     date: "2026-09-18",
     title: "One picker, one search field, one date picker",
@@ -115,7 +128,7 @@ const PREVIOUS_4: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
     id: "2026-09-17-release-train",
     date: "2026-09-17",
     title: "Release train 2026-09-17",
@@ -132,7 +145,7 @@ const PREVIOUS_5: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
     id: "2026-09-tab-shell-polish",
     date: "2026-09-17",
     title: "Tabs keep their state, chats get their names",
@@ -144,7 +157,7 @@ const PREVIOUS_6: ChangelogEntry = ChangelogEntry {
 
 /// The entry before that.
 #[allow(dead_code)]
-const PREVIOUS_7: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_8: ChangelogEntry = ChangelogEntry {
     id: "2026-09-diff-ui-one-design",
     date: "2026-09-17",
     title: "One diff design, everywhere",

@@ -102,8 +102,13 @@ const COMMANDS_PER_HEARTBEAT = 32
 // model vocabulary — degrades a single field instead of failing the whole
 // write; UI clients pre-clamp via agentSeed anyway. Unknown agents, invalid
 // models/efforts, and capability-masked toggles are dropped.
+//
+// `existing` = the row's current copy, for the one write that REPLACES it
+// (setLaunchDefaults): a client that saves the whole object without a key it
+// has no vocabulary for must not erase what a newer client set.
 function clampLaunchDefaults(
-  input: z.infer<typeof deviceLaunchDefaultsSchema>
+  input: z.infer<typeof deviceLaunchDefaultsSchema>,
+  existing: DeviceLaunchDefaults | null = null
 ): DeviceLaunchDefaults {
   const agentIds = contract.codingAgent.values as readonly string[]
   const out: DeviceLaunchDefaults = {}
@@ -136,6 +141,15 @@ function clampLaunchDefaults(
           agentModelValues(agent).includes(d.subagentModel))
       ) {
         entry.subagentModel = d.subagentModel
+      } else if (
+        d.subagentModel === undefined &&
+        typeof existing?.agents?.[agent]?.subagentModel === `string`
+      ) {
+        // compat: clients before 0.14.46 never send subagentModel; delete once
+        // CLIENT_MIN_VERSION_* >= 0.14.46 on every platform. The KEY is
+        // absent (an explicit null is a clear), so the stored value rides
+        // along instead of vanishing under an older client's full-object save.
+        entry.subagentModel = existing.agents[agent].subagentModel
       }
       // `typeof === boolean`, not `!== undefined`: the nullish schema lets
       // 0.14.10's explicit-null toggles through (EXP-495) and stored jsonb
@@ -804,7 +818,7 @@ export const devicesRouter = router({
           txid: null,
         }
       }
-      const clamped = clampLaunchDefaults(input.launchDefaults)
+      const clamped = clampLaunchDefaults(input.launchDefaults, row.launchDefaults)
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)

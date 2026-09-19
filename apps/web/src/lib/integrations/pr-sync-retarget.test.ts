@@ -24,6 +24,8 @@ const h = vi.hoisted(() => ({
     async (): Promise<Array<{ number: number; url: string; headRef: string }>> => []
   ),
   retargetPullRequest: vi.fn(async () => {}),
+  // EXP-983: which child issues a live workflow covers (by issue id).
+  issueLandsInLiveWorkflow: vi.fn(async (_db: unknown, _issueId: string) => false),
   // The linked-issue → repo-row lookup (EXP-462 override resolution + the
   // EXP-466 raw-default guard): rows the chainable select mock below
   // resolves with.
@@ -85,6 +87,9 @@ vi.mock(`@/lib/steer`, () => ({
   relayPostInput: h.relayPostInput,
 }))
 vi.mock(`@/lib/trpc`, () => ({ generateTxId: vi.fn() }))
+vi.mock(`@/lib/workflows`, () => ({
+  issueLandsInLiveWorkflow: h.issueLandsInLiveWorkflow,
+}))
 
 import {
   applyPrClosedState,
@@ -113,6 +118,7 @@ beforeEach(() => {
   h.awaitRows = []
   h.updates.length = 0
   h.findStackForPull.mockResolvedValue(null)
+  h.issueLandsInLiveWorkflow.mockResolvedValue(false)
 })
 
 describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
@@ -285,7 +291,9 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
         headRef: `exp/EXP-321`,
       },
     ])
-    h.awaitRows = [{ prUrl: `https://github.com/owner/repo/pull/241` }]
+    h.awaitRows = [
+      { id: `issue-241`, prUrl: `https://github.com/owner/repo/pull/241`, prStackNumber: 7 },
+    ]
 
     await retargetChildrenOfMergedPr({
       prUrl: PARENT_PR_URL,
@@ -299,6 +307,39 @@ describe(`retargetChildrenOfMergedPr (EXP-324)`, () => {
       base: `master`,
       token: `tok`,
     })
+  })
+
+  // EXP-983: a workflow node's dependents are the merge train's. Node A
+  // merged into the integration branch; D (based on exp/A) must NOT be
+  // pointed at the default branch, or the next landNode(D) would squash it
+  // into `master` past the workflow's final PR.
+  it(`leaves a child that a live workflow covers alone and retargets the rest`, async () => {
+    h.listOpenPullsByBase.mockResolvedValue([
+      { number: 241, url: `https://github.com/owner/repo/pull/241`, headRef: `exp/APP-7` },
+      { number: 242, url: `https://github.com/owner/repo/pull/242`, headRef: `exp/EXP-321` },
+    ])
+    h.awaitRows = [
+      { id: `issue-d`, prUrl: `https://github.com/owner/repo/pull/241`, prStackNumber: null },
+      { id: `issue-x`, prUrl: `https://github.com/owner/repo/pull/242`, prStackNumber: null },
+    ]
+    h.issueLandsInLiveWorkflow.mockImplementation(
+      async (_db: unknown, issueId: string) => issueId === `issue-d`
+    )
+
+    await retargetChildrenOfMergedPr({
+      prUrl: PARENT_PR_URL,
+      headBranch: `exp/APP-6`,
+    })
+
+    expect(h.retargetPullRequest).toHaveBeenCalledTimes(1)
+    expect(h.retargetPullRequest).toHaveBeenCalledWith({
+      repo: `owner/repo`,
+      prNumber: 242,
+      base: `master`,
+      token: `tok`,
+    })
+    // Nor is the synced stack edge of the workflow child touched.
+    expect(h.updates).toEqual([{ prBaseBranch: `master` }])
   })
 
   it(`bails silently when no installation token resolves`, async () => {

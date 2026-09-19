@@ -1,23 +1,22 @@
+- Workflows: sadu issues z backlogu jedného repozitára naplánuješ ako graf toho, čo čo blokuje, a necháš zariadenie, nech ich beží súbežne; Workflows sedí za tlačidlom na stránke Agent
+- Workflow si svoju prácu dotiahne sám: uzly štartujú, len čo dobehnú ich blokátory, pull requesty sa zlučujú v poradí závislostí do vetvy workflow a jeden záverečný pull request nesie celý diff
+- Workflow sa kontroluje sám: každý pull request prejde zvláštnym behom recenzie, nadväzujúce issue sa môže pridať za behu a uzol cez rozpočet sa pozastaví a počká na teba
+- Pod-issues a blokátory v každom zozname: pod-issue sedí pod svojím rodičom na spojnici a jeden odznak počíta, čo riadok blokuje, a otvorí graf závislostí
+- Spustenie blokovaného issue ukáže celú reťaz a ponúkne Cancel, Start anyway alebo naskladaný pull request, a povie, prečo stack nejde
+- Beh, ktorý narazí na limit, ti pošle push a riadok v schránke, ktorý ho otvorí; vypneš to v nastaveniach notifikácií pri Blocked runs
+- Na stránke Agent sa minulé behy presunuli za tlačidlo histórie a tlačidlá chatu a New issue sedia v lište kariet na každej karte
+- Prepínač boardov vypisuje len tímy a boardy a beh otvorený z issue už neukáže prázdnu obrazovku, kým ním nepohneš
 - Ikony zariadení: každému stroju dáš v jeho nastaveniach vlastnú ikonu, monitor, server alebo notebook či značku Apple, Windows alebo Linux, a pre boardy aj akcie vyberáš z 96 ikon
 - Tvár Run začína zoznamom úloh agenta, beh na pozadí si drží svoju záložku a záložky aj lišty sedia v jednej línii so záznamom
-- Zariadenia sa zložia do jedného riadku, ukážu, kedy sa limitné okno obnoví, a prihlásenie sa dá zo stroja odobrať; ponuka obrazovky Work sedí len na tvári Issue, prepínač tvárí počíta zmenené súbory behu a schová sa do rozbaleného poľa na písanie, a issues batch behu sa otvoria v liste
-- Volania do Exponentialu stoja ako vlastná skupina, Read 3 issues namiesto všeobecného behu nástroja, a ťah, ktorý nezmenil žiadny súbor, už neukáže prázdnu kartu úprav
-- Stop v bežiacej relácii je teraz obyčajné tlačidlo v lište, rovnako vysoké ako tlačidlo späť, namiesto pilulky s rozbitým obrysom
-- Riadky v zázname behu sa už neprekrývajú a chat sa posúva mimo karty nad poľom na písanie
-- Chatovací beh nesie meno toho, na čom agent pracuje, namiesto toho, aby všade hlásil „Chat“
 - Jeden diff všade: súbory diffu stoja v strome, v ktorom skáčeš, a úpravy agenta z jedného ťahu sa zbierajú do jednej karty „Edited files“, s číslami riadkov, so skrytými nezmenenými riadkami na rozbalenie a s pomenovanými premenovanými aj binárnymi súbormi
 - Spotreba na jednom mieste: prehľad ukáže vlastný účet behu, jeho limitné okná aj kontextové okno a k tomu ostatné prihlásenia na tom stroji
 - Zariadenia nesú prihlásenia: každý stroj vypíše svoje účty agenta s tarifom, stavom a spotrebou a ozubené koleso zariadenia skrýva Update a Remove
 - Jedno hľadanie issue: rovnaké zoradenie nesie každý zoznam issue, každý výber aj každú #-ponuku a horný výsledok je rovno vybraný
-- Bežiaci príkaz ukáže len svoje posledné riadky a beh, ktorý stíchne, sa označí ako ukončený a zostane v zozname
 - Jedna obrazovka Work: issue, jeho beh a zmeny sú tváre jednej obrazovky, prepínaš ich lištou dole a Stop či Resume sedí vpravo hore
 - Naskladané pull requesty: issue môžeš spustiť nad tým, ktoré ho blokuje, celú reťaz spojiť cez Merge stack, na práci vidíš odznak stacku alebo batchu a odpovieš na otázku, ktorú ti pošle vnorený beh
 - Výsledky z behu: beh, ktorý nahrá snímky obrazovky, dostane tvár Results zoskupenú podľa tém, jednu dlaždicu na platformu
-- Batch behy podľa mena: beh cez niekoľko issues číta EXP-874 +2 vedľa názvu prvého issue namiesto „Batch run“
 - Správy dorazia hneď: správa napísaná, keď agent pracuje, ide k nemu okamžite a svieti ako odoslaná, kým ju neprečíta, čakajúca správa je vidieť v lište nad poľom na písanie a Stop vráti text do poľa na písanie
 - GitHub usporiadaný: pripojenie GitHubu, pridanie repozitára aj nastavenie repozitára boardu sa správajú rovnako ako na počítači a chyby sa ukážu tam, kde práve si
-- Tichšie tlačidlá a jasnejšie výbery: plný krúžok si nechá len hlavná akcia obrazovky a výber agenta nesie značku Claude Code alebo Codex, zatiaľ čo ponuky zariadení začínajú ikonou notebooku či servera
-- Stránka Agent drží tvoje behy: minulé behy sa zložia za počet, ktorý môžeš otvoriť, a keď nič nebeží, pole na písanie sedí uprostred stránky
 - Filtre issues sú preč: hľadanie pokryje, na čo slúžili, a zoskupenie aj pásy stavov zostávajú
 - Pokračovať e-mailom alebo prístupovým kľúčom: prihlás sa šesťmiestnym kódom, ktorý ti príde e-mailom, alebo cez Face ID či Touch ID; všetky možnosti sú v jednom zozname Continue
 - Zmena účtu uprostred behu a návrat tam, odkiaľ si prišiel: beh Claude na limite môže pokračovať pod iným účtom a odchod z relácie ťa vráti na issue alebo board, odkiaľ si ju otvoril

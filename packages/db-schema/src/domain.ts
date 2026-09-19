@@ -1080,8 +1080,15 @@ export interface WorkflowNodeReview {
   model: string | null
   round: number
   at: string
+  /** The commit the reviewer reviewed (the PR head's sha, 7-40 lowercase
+   *  hex). The engine lands a node ONLY while its PR head still matches:
+   *  a push after the review means a fresh review. Absent on old rows. */
+  head?: string
 }
 
 export const workflowReviewOracleSchema = z
   .object({ command: z.string().min(1).max(500), passed: z.boolean() })
   .strict()
+
+/** `WorkflowNodeReview.head`: a git commit sha, abbreviated or full. */
+export const workflowReviewHeadSchema = z.string().regex(/^[0-9a-f]{7,40}$/)

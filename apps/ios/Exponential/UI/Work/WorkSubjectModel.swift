@@ -218,25 +218,23 @@ final class WorkSubjectModel {
     }
 
     /// EXP-876: keep the covered-issue pool pointed at `session` — the issues
-    /// a BATCH run is NAMED by, read by id (what the run stored at start) OR
-    /// by branch (what `pr_open` stamped on both sides, EXP-545, which is all
-    /// a pre-column run has). A non-batch subject clears it and observes
-    /// nothing.
+    /// a BATCH run is NAMED by, read by id (`batch_issue_ids`, what the run
+    /// stored at start; EXP-972 dropped the branch-mates fallback). A
+    /// non-batch subject clears it and observes nothing.
     private func observeBatch(for session: CodingSessionEntity?) {
         let batch = session.flatMap { BatchRun.isBatch($0) ? $0 : nil }
         let ids = BatchRun.issueIds(batch?.batchIssueIds)
-        let branch = batch?.branch ?? ""
-        let key = (ids + [branch]).joined(separator: "\u{0}")
+        let key = ids.joined(separator: "\u{0}")
         guard batchKey != key else { return }
         batchKey = key
         batchObservationTask?.cancel()
         batchObservationTask = nil
         batchIssues = []
-        guard !ids.isEmpty || branch.hasPrefix(BatchRun.branchPrefix) else { return }
+        guard !ids.isEmpty else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in
             try IssueEntity
-                .filter(ids.contains(Column("id")) || Column("branch") == branch)
+                .filter(ids.contains(Column("id")))
                 .fetchAll(db)
         }
         batchObservationTask = Task { [weak self] in

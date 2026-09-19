@@ -142,7 +142,7 @@ struct PrGraphSheet: View {
     @ViewBuilder
     private var runSection: some View {
         // EXP-930: a batch run links NO issue, so the covered set — which the
-        // graph resolved off `batch_issue_ids` (else the `exp/batch-…` branch)
+        // graph resolved off `batch_issue_ids`
         // — is what the badge promised and therefore what leads here. The
         // whole set, not "everything but me": this run IS the batch.
         if let batch = graph.batch {

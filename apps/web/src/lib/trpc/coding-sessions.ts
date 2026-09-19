@@ -23,6 +23,7 @@ import {
   issues,
   sessionAttachments,
   teams,
+  workflowNodes,
 } from "@/db/schema"
 import {
   assertTeamMember,
@@ -139,10 +140,11 @@ async function resolveSessionDevice(
 
 // EXP-637's resume link, hardened (EXP-639). `resumed_from_id` is a real FK
 // (grants nothing by itself) but the run it names may be gone:
-// the 2h idle sweep (lib/coding-session-sweep.ts) DELETES stale running rows,
-// so a desktop run-registry record easily outlives its session and the insert
-// would fail with a raw 23503 (a 500 on the user's Resume click). Resolve it
-// first and degrade to NULL when the row no longer exists.
+// the 2h idle sweep (lib/coding-session-sweep.ts) DELETES stale running rows
+// whose device row is gone, so a desktop run-registry record can outlive its
+// session and the insert would fail with a raw 23503 (a 500 on the user's
+// Resume click). Resolve it first and degrade to NULL when the row no longer
+// exists.
 //
 // EXP-906: the predecessor's place in its session TREE rides along. A resume
 // (desktop Resume, `steer.startSession({resumeSessionId})`, the account
@@ -237,6 +239,41 @@ async function restampChildren(
   }
 }
 
+// EXP-978: a workflow node points at the run working it (`session_id`). A
+// resume ends the predecessor and mints a new row, so without this the
+// engine keeps evaluating the ENDED predecessor and re-emits land/resume
+// actions against a run that is live under another id. Re-point every node
+// that named the predecessor at the successor, on every subject (a node run
+// is an issue or batch run, but the succession is the same everywhere).
+// Best-effort like `restampChildren`: a failed re-point is logged, never a
+// failed start — the next evaluation names the stale row and its owner can
+// resume again.
+async function repointWorkflowNodes(
+  db: Context[`db`],
+  predecessorId: string,
+  successorId: string
+): Promise<void> {
+  try {
+    await db
+      .update(workflowNodes)
+      .set({ sessionId: successorId })
+      .where(eq(workflowNodes.sessionId, predecessorId))
+  } catch (err) {
+    console.error(`[coding-sessions] workflow node re-point failed:`, err)
+  }
+}
+
+/** The two succession writes every resume performs, after the insert. */
+async function adoptPredecessor(
+  db: Context[`db`],
+  predecessorId: string,
+  successorId: string,
+  successorTeamId: string
+): Promise<void> {
+  await restampChildren(db, predecessorId, successorId, successorTeamId)
+  await repointWorkflowNodes(db, predecessorId, successorId)
+}
+
 // The desktop launcher's live "coding now" record (§4a step 7). One row per
 // interactive session; synced to every client as an Electric shape.
 // Three subjects: issue-scoped (issueId), batch-scoped (teamId — the
@@ -270,7 +307,8 @@ async function resolveAutomationId(
  * confined to the run's own team so a row can never advertise an issue its
  * viewers may not read. Lenient like `bindStartAttachments`: an id that is
  * not a live issue of this team is dropped, never a refused start, and an
- * empty result stores NULL so the branch fallback takes over.
+ * empty result stores NULL ("not a batch", or nothing to name it by — every
+ * client then reads `Batch run`; EXP-972 retired the branch fallback).
  */
 async function resolveBatchIssueIds(
   db: Context[`db`],
@@ -519,7 +557,8 @@ export const codingSessionsRouter = router({
           // nothing else links a batch to its issues before `pr_open`.
           // Batch form only (it names the team, not an issue); ids outside
           // that team are dropped rather than refused, so one stale id can
-          // never fail a start.
+          // never fail a start. Optional because every OTHER subject omits
+          // it, not for older clients: NULL simply means "not a batch".
           batchIssueIds: z.array(z.string().uuid()).max(30).optional(),
           // Label fallback for a start that outran `devices.register` — see
           // resolveSessionDevice. Never used when the registry has a row.
@@ -668,7 +707,7 @@ export const codingSessionsRouter = router({
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
         if (predecessor) {
-          await restampChildren(ctx.db, predecessor.id, session!.id, input.teamId!)
+          await adoptPredecessor(ctx.db, predecessor.id, session!.id, input.teamId!)
         }
 
         return { session }
@@ -729,7 +768,7 @@ export const codingSessionsRouter = router({
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
         if (predecessor) {
-          await restampChildren(ctx.db, predecessor.id, session!.id, action.teamId)
+          await adoptPredecessor(ctx.db, predecessor.id, session!.id, action.teamId)
         }
 
         return { session }
@@ -772,7 +811,7 @@ export const codingSessionsRouter = router({
           .returning()
         await bindStartAttachments(ctx.db, session!, input.attachmentIds)
         if (predecessor) {
-          await restampChildren(ctx.db, predecessor.id, session!.id, issueCtx.teamId)
+          await adoptPredecessor(ctx.db, predecessor.id, session!.id, issueCtx.teamId)
         }
 
         return { session }
@@ -792,8 +831,8 @@ export const codingSessionsRouter = router({
       )
       // EXP-876: the covered issues, confined to the team the row belongs to
       // and de-duplicated, in the order they were sent (that is the order
-      // every client names the row by). A client too old to send them leaves
-      // the column NULL and the row keeps naming itself off its branch.
+      // every client names the row by). A start that sends none stores NULL
+      // and the row reads `Batch run` everywhere (EXP-972: no branch fallback).
       const batchIssueIds = await resolveBatchIssueIds(
         ctx.db,
         input.teamId!,
@@ -823,7 +862,7 @@ export const codingSessionsRouter = router({
         .returning()
       await bindStartAttachments(ctx.db, session!, input.attachmentIds)
       if (predecessor) {
-        await restampChildren(ctx.db, predecessor.id, session!.id, input.teamId!)
+        await adoptPredecessor(ctx.db, predecessor.id, session!.id, input.teamId!)
       }
 
       return { session }
@@ -834,8 +873,9 @@ export const codingSessionsRouter = router({
   // `running` row whose updated_at stopped advancing as a crashed desktop:
   // it ends it `ended_by = stale` on a device with the `stale-end` cap (which
   // never reads that as a kill, EXP-888 — the stale branch below REVIVES it)
-  // and DELETES it on older builds, whose kill-switch fires on any `ended`
-  // flip but never on a vanished row.
+  // and DELETES only a row whose host device row no longer exists (EXP-972;
+  // older builds' kill-switch fired on any `ended` flip but never on a
+  // vanished row, which is why the delete path exists at all).
   // A ping that finds its row GONE therefore means "swept while actually
   // alive" — a laptop suspend longer than CODING_SESSION_STALE_HOURS is the
   // routine case (EXP-105) — so when the client supplies the row's original

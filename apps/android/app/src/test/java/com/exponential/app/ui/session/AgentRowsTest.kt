@@ -827,14 +827,12 @@ class AgentRowsTest {
             "i-1",
             identifier = "EXP-874",
             title = "Session list fixes",
-            branch = "exp/batch-1a2b3c4d",
             createdAt = "2026-09-01T10:00:00Z",
         ),
         issue(
             "i-2",
             identifier = "EXP-876",
             title = "Batch run names",
-            branch = "exp/batch-1a2b3c4d",
             createdAt = "2026-09-02T10:00:00Z",
         ),
     )
@@ -859,12 +857,9 @@ class AgentRowsTest {
                 covered,
             ),
         )
-        // A run started before the column existed: its issues are the ones
-        // `pr_open` put on its branch.
-        assertEquals(
-            "EXP-874 +1",
-            pastRunIdentifier(pastRun("d", branch = "exp/batch-1a2b3c4d"), null, covered),
-        )
+        // EXP-972: a batch branch alone names nothing — the server backfills
+        // `batch_issue_ids`, so no stored ids means no knowable issues.
+        assertNull(pastRunIdentifier(pastRun("d", branch = "exp/batch-1a2b3c4d"), null, covered))
         // Nothing to name it by — the generic label, and no lead-in.
         assertNull(pastRunIdentifier(pastRun("e"), null, covered))
         assertEquals("Batch run", pastRunTitle(pastRun("e"), null, covered))
@@ -891,8 +886,8 @@ class AgentRowsTest {
             batchRunIssues(pastRun("b", batchIssueIds = """["gone","i-1"]"""), covered)
                 .map { it.id },
         )
-        // A branch that is not a batch's matches nothing.
-        for (branch in listOf("exp/chat-1a2b3c4d", "exp/EXP-874")) {
+        // No branch names a batch — stored ids or nothing (EXP-972).
+        for (branch in listOf("exp/batch-1a2b3c4d", "exp/chat-1a2b3c4d", "exp/EXP-874")) {
             assertEquals(emptyList<String>(), batchRunIssues(pastRun("c", branch = branch), covered).map { it.id })
         }
         // The column is raw jsonb TEXT off the wire — anything else is empty.

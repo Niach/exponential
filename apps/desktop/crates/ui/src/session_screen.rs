@@ -222,11 +222,6 @@ fn journal_events(session_id: &str, cx: &App) -> Option<Vec<steer::frames::Activ
 /// to the relay and the "no transcript" banner.
 fn open_transcript(record: &coding::run_registry::RunRecord, cx: &App) -> Option<engine::EngineSession> {
     let runtime = crate::steer_wiring::runtime(cx)?;
-    // EXP-862: a run an older build recorded on an external ACP agent has no
-    // binary to replay here any more.
-    if record.is_retired_external_agent() {
-        return None;
-    }
     let agent = record.agent;
     // The ACP id is the handle a replay wants; the agent-native ones are the
     // fallback for a record written before the handshake answered.

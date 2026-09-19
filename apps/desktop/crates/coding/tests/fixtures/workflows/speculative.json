@@ -430,7 +430,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "setSerialEdge", "nodeId": "b", "after": ["a"] },
+      { "kind": "setSerialEdge", "nodeId": "b", "state": "running", "after": ["a"] },
       {
         "kind": "mergeUpstream",
         "nodeId": "b",
@@ -609,6 +609,183 @@
     "expected": [
       { "kind": "deleteBase", "baseBranch": "exp/wf-abcdef12-base-EXP-3" },
       { "kind": "deleteIntegrationBranch" }
+    ]
+  },
+  {
+    "name": "rule 4: nothing is said to a run parked on a question",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "startOn": "pr_open"
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1" },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "waiting", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" }
+      ],
+      "edges": [["a", "b"]],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": true, "needsInput": true } },
+      "tips": { "exp/EXP-1": "sha-a2" },
+      "propagated": { "b": { "exp/EXP-1": "sha-a1" } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 5: a colliding pair the DAG already orders gets no serialization edge",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "startOn": "pr_open"
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/EXP-1" },
+        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
+      ],
+      "edges": [["a", "b"], ["a", "c"], ["b", "c"]],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "conflicts": [["a", "b"]],
+      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" }, "b": { "exp/EXP-1": "sha-a1" } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 5: a colliding pair is ordered by wave before lane, the way the train runs",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "startOn": "landed"
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "running", "wave": 0, "lane": 1, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "running", "wave": 1, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12" },
+        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
+      ],
+      "edges": [["a", "c"], ["b", "c"]],
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "conflicts": [["a", "b"]],
+      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" }, "b": { "exp/wf-abcdef12": "sha-i1" } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setSerialEdge", "nodeId": "b", "state": "running", "after": ["a"] },
+      {
+        "kind": "mergeUpstream",
+        "nodeId": "b",
+        "sessionId": "s-b",
+        "baseBranch": "exp/EXP-1",
+        "sha": "sha-a1"
+      }
+    ]
+  },
+  {
+    "name": "rule 1: a dependent whose blockers collide waits, and says why, instead of flipping every beat",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "startOn": "pr_open"
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-b", "branch": "exp/EXP-2", "baseBranch": "exp/wf-abcdef12", "afterNodeIds": ["a"] },
+        { "id": "c", "issueId": "i-c", "kind": "integration", "state": "ready", "wave": 1, "lane": 0 }
+      ],
+      "edges": [["a", "c"], ["b", "c"]],
+      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "identifier": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+      "conflicts": [["a", "b"]],
+      "tips": { "exp/EXP-1": "sha-a1", "exp/EXP-2": "sha-b1", "exp/wf-abcdef12": "sha-i1" },
+      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" }, "b": { "exp/wf-abcdef12": "sha-i1", "exp/EXP-1": "sha-a1" } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "setNodeState",
+        "nodeId": "c",
+        "state": "waiting",
+        "note": "Its blockers EXP-1 and EXP-2 conflict; one has to merge the other in"
+      }
+    ]
+  },
+  {
+    "name": "rule 1: a refused land holds the node updating while its head has not moved",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "startOn": "landed"
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "updating", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": false } },
+      "tips": { "exp/EXP-1": "sha-a1", "exp/wf-abcdef12": "sha-i1" },
+      "prHead": { "a": "sha-a1" },
+      "landRefused": { "a": "sha-a1" },
+      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 1: a refused land is asked again once the head moved",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "startOn": "landed"
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "updating", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": false } },
+      "tips": { "exp/EXP-1": "sha-a2", "exp/wf-abcdef12": "sha-i1" },
+      "prHead": { "a": "sha-a2" },
+      "landRefused": { "a": "sha-a1" },
+      "propagated": { "a": { "exp/wf-abcdef12": "sha-i1" } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "a", "state": "in_review" },
+      { "kind": "landNode", "nodeId": "a" }
     ]
   }
 ]

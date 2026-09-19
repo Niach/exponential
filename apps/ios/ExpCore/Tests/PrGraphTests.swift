@@ -162,7 +162,7 @@ final class PrGraphTests: XCTestCase {
     // face`. The pill on a batch run says `2 issues`; behind it the run face
     // lists those two. A batch row links NO issue (`issue_id` is null), so
     // keying the overlay off `issueId` was what left it with nothing to show:
-    // the covered set comes off `batch_issue_ids`, else the batch branch.
+    // the covered set comes off `batch_issue_ids`.
     func testListsTheBatchsIssuesOnABatchRunsRunFace() {
         let one = issue("one", identifier: "BATA")
         let two = issue("two", identifier: "BATB")
@@ -172,14 +172,15 @@ final class PrGraphTests: XCTestCase {
         // ...and the run tree is still there, under the issues it covers.
         XCTAssertEqual(stored.tree.map(\.session.id), ["run"])
 
-        // No stored ids: the branch-mates ARE the covered set, oldest first.
+        // EXP-972: no stored ids names nothing — the branch-mates are NOT a
+        // fallback any more (the server backfills `batch_issue_ids`).
         let older = issue("older", identifier: "BATA", branch: "exp/batch-1")
         let newer = issue(
             "newer", identifier: "BATB", branch: "exp/batch-1",
             createdAt: "2026-09-16T10:00:00Z"
         )
         let byBranch = runGraph(batchRun(branch: "exp/batch-1"), [newer, older])
-        XCTAssertEqual(byBranch.batch?.issues.map(\.identifier), ["BATA", "BATB"])
+        XCTAssertNil(byBranch.batch)
     }
 
     func testReportsNothingForABatchRunWhoseIssuesAreUnknown() {

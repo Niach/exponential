@@ -24,11 +24,7 @@ import {
   selectPastRuns,
   PAST_RUN_CAP,
 } from "@/lib/past-runs"
-import {
-  BATCH_BRANCH_PREFIX,
-  batchRunIssues,
-  isBatchRun,
-} from "@/lib/batch-run"
+import { batchRunIssues, isBatchRun } from "@/lib/batch-run"
 
 /** EXP-734: what a run's Merge control acts on. An issue-scoped run merges
  * through its issue; a batch run through the representative issue of its ONE
@@ -130,20 +126,6 @@ function useBatchIssues(
     ids.sort()
     return ids
   }, [batches])
-  const branches = useMemo(() => {
-    const names = [
-      ...new Set(
-        batches
-          .map((session) => session.branch)
-          .filter(
-            (branch): branch is string =>
-              Boolean(branch) && branch!.startsWith(BATCH_BRANCH_PREFIX)
-          )
-      ),
-    ]
-    names.sort()
-    return names
-  }, [batches])
 
   const { data: coveredRows } = useLiveQuery(
     (query) =>
@@ -154,24 +136,12 @@ function useBatchIssues(
         : undefined,
     [coveredIds.join(`,`)]
   )
-  const { data: branchRows } = useLiveQuery(
-    (query) =>
-      branches.length > 0
-        ? query
-            .from({ issues: issueCollection })
-            .where(({ issues }) => inArray(issues.branch, branches))
-        : undefined,
-    [branches.join(`,`)]
-  )
 
   return useMemo(() => {
-    const pool = [
-      ...((coveredRows ?? []) as Issue[]),
-      ...((branchRows ?? []) as Issue[]),
-    ]
+    const pool = (coveredRows ?? []) as Issue[]
     if (pool.length === 0) return () => []
     return (session: CodingSession) => batchRunIssues(session, pool)
-  }, [coveredRows, branchRows])
+  }, [coveredRows])
 }
 
 // Team Agents page + dock data: the caller's OWN live coding sessions in the

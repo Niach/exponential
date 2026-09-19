@@ -1,23 +1,22 @@
+- Workflows: planifici un set de issue-uri din backlogul unui repository ca un graf al a ceea ce blochează ce și lași un dispozitiv să le ruleze în paralel; Workflows stă în spatele unui buton din pagina Agent
+- Un workflow își duce singur munca la capăt: nodurile pornesc pe măsură ce aterizează blocajele lor, pull request-urile se unesc în ordinea dependențelor în ramura workflow-ului, iar un pull request final poartă tot diff-ul
+- Workflow-urile se verifică singure: o rulare separată recitește fiecare pull request, un issue de continuare se poate alătura din mers, iar un nod peste bugetul lui se oprește și te așteaptă
+- Sub-issue-uri și blocaje în fiecare listă: un sub-issue stă sub părintele lui pe o linie de legătură, iar o insignă numără ce blochează rândul și deschide graful dependențelor
+- Pornirea unui issue blocat arată tot lanțul și oferă Cancel, Start anyway sau un pull request stivuit, și spune de ce nu se poate un stack
+- O rulare care atinge o limită îți trimite un push și un rând în inbox care o deschide; îl închizi din setările de notificări, la Blocked runs
+- În pagina Agent rulările trecute au trecut în spatele unui buton de istoric, iar butoanele de chat și New issue stau în bara de file pe fiecare filă
+- Selectorul de boarduri listează doar echipe și boarduri, iar o rulare deschisă dintr-un issue nu mai arată un ecran gol până nu tragi de el
 - Pictograme de dispozitiv: dă fiecărei mașini pictograma ei în setări, un monitor, un server, un laptop ori semnul Apple, Windows sau Linux, și alege dintre 96 de pictograme pentru boarduri și acțiuni
 - Fața Run începe cu lista de sarcini a agentului, o rulare în fundal își păstrează fila, iar filele și barele se aliniază cu jurnalul
-- Dispozitivele se pliază la câte un rând, arată când se resetează o fereastră de consum, iar un cont poate fi scos de pe o mașină; meniul ecranului Work stă doar pe fața Issue, selectorul de fețe numără fișierele schimbate și intră în câmpul desfăcut, iar issue-urile unui batch se deschid într-o foaie
-- Apelurile către Exponential apar ca grup propriu, Read 3 issues în loc de o rulare generică de unealtă, iar o tură fără fișiere schimbate nu mai arată un card gol
-- Stop într-o sesiune vie este acum un buton simplu din bară, la aceeași înălțime cu butonul înapoi, în loc de o pastilă cu conturul rupt
-- Rândurile din jurnalul unei rulări nu se mai suprapun, iar conversația derulează liber pe lângă cardul de deasupra câmpului de scris
-- O rulare de chat își ia numele din ceea ce lucrează agentul, în loc să scrie „Chat” peste tot
 - Un singur diff peste tot: fișierele unui diff stau într-un arbore prin care sari, iar modificările unei ture se strâng într-un card „Edited files”, cu numere de rând, rânduri neschimbate pe care le poți deschide, și fișiere redenumite sau binare numite
 - Consumul într-un singur loc: un panou arată contul propriu al rulării, ferestrele lui de limită și fereastra de context, plus celelalte conturi de pe acea mașină
 - Dispozitivele poartă conturile: fiecare mașină își listează conturile de agent cu plan, stare și consum, iar rotița unui dispozitiv ține Update și Remove
 - O singură căutare de issue: aceeași ordonare poartă fiecare listă, fiecare selector și fiecare meniu #, cu primul rezultat deja ales
-- O comandă în curs arată doar ultimele ei rânduri, iar o rulare care tace e marcată ca încheiată și rămâne în listă
 - Un singur ecran Work: un issue, rularea lui și modificările sunt fețe ale aceluiași ecran, treci între ele din bara de jos, iar Stop sau Resume stă în colțul din dreapta sus
 - Pull request-uri stivuite: pornește un issue peste cel care îl blochează, unește lanțul cu Merge stack, citește insigna de stack sau de batch de pe lucrare și răspunde la întrebarea unei rulări imbricate
 - Rezultatele unei rulări: cea care publică capturi de ecran capătă o față Results, grupată pe teme, câte o dală pentru fiecare platformă
-- Rulări batch cu nume: o rulare peste mai multe issue-uri scrie EXP-874 +2 lângă titlul primului issue în loc de „Batch run”
 - Mesaje care ajung imediat: un mesaj scris în timp ce agentul lucrează ajunge la el pe loc și rămâne marcat ca trimis până e citit, un mesaj în așteptare apare într-o bară deasupra câmpului, iar Stop îți dă textul înapoi în câmpul de scris
 - GitHub pus la punct: conectarea GitHub, adăugarea unui repository și setarea repositoryului unui board funcționează ca pe calculator, iar erorile apar acolo unde ești
-- Butoane mai discrete și selectoare mai clare: doar acțiunea principală păstrează un cerc plin, selectorul de agent poartă semnul Claude Code sau Codex, iar meniurile de dispozitive încep cu o pictogramă de laptop sau de server
-- Pagina Agent îți ține rulările: rulările trecute se pliază în spatele unui număr pe care îl poți deschide, iar când nu rulează nimic, câmpul de scris stă la mijlocul paginii
 - Filtrele de issue-uri au dispărut: căutarea acoperă la ce erau folosite, iar gruparea și benzile de status rămân
 - Continuă cu e-mailul sau cu o cheie de acces: intră cu un cod din 6 cifre trimis pe e-mail, ori cu Face ID sau Touch ID; toate variantele stau într-o listă Continue
 - Schimbare de cont în mijlocul rulării și înapoi de unde ai venit: o rulare Claude la limită poate continua pe alt cont, iar ieșirea dintr-o sesiune te duce înapoi la issue-ul sau boardul din care ai deschis-o

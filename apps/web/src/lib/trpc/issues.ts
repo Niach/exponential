@@ -2713,6 +2713,14 @@ export const issuesRouter = router({
           ...(await collectIssueAttachmentStorageKeysInTx(tx, issueId))
         )
 
+        // EXP-981: a workflow covering this issue loses a node (FK cascade)
+        // or a compound member and must re-lay out; read which BEFORE the
+        // delete, nothing points back afterwards.
+        const { workflowIdsCoveringIssues, replanWorkflow } = await import(
+          `@/lib/workflows`
+        )
+        const coveringWorkflowIds = await workflowIdsCoveringIssues(tx, [issueId])
+
         const deleted = await tx
           .delete(issues)
           .where(eq(issues.id, issueId))
@@ -2723,6 +2731,10 @@ export const issuesRouter = router({
             code: `NOT_FOUND`,
             message: `Issue not found`,
           })
+        }
+
+        for (const workflowId of coveringWorkflowIds) {
+          await replanWorkflow(tx, workflowId)
         }
 
         return { txId, id: deleted[0].id }

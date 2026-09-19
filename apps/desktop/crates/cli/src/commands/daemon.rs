@@ -2984,6 +2984,50 @@ impl AutomationHost {
         // Unconditional: a beat that could not read the remote has no
         // branches to speculate on at all, which leaves those nodes blocked.
         coding::workflows::confine_branches_to_tips(&mut plan.snapshot);
+        // The host bookkeeping the engine reads, settled against this beat's
+        // rows and tips: a reviewer run that ended without a verdict
+        // releases its head (bounded), a session this daemon is resuming
+        // reads live, and a land refusal is forgotten once the head moved.
+        {
+            let mut state = workflow_state(settings_path, &self.device_id, &workflow_id);
+            let review_round_of: HashMap<String, i64> = plan
+                .snapshot
+                .nodes
+                .iter()
+                .map(|node| (node.id.clone(), node.review_round))
+                .collect();
+            let outcomes = coding::workflows::settle_review_runs(
+                &mut state,
+                &review_round_of,
+                |session_id| plan.review_session_live.get(session_id).copied(),
+            );
+            for outcome in outcomes {
+                match outcome {
+                    coding::workflows::ReviewRunEnd::Verdict { .. } => {}
+                    coding::workflows::ReviewRunEnd::Retry { node_id, failures } => log::warn!(
+                        "workflow {workflow_id}: the review of {node_id} ended without a verdict ({failures}); trying again"
+                    ),
+                    coding::workflows::ReviewRunEnd::GaveUp { node_id, note } => {
+                        log::warn!("workflow {workflow_id}: {node_id} — {note}");
+                        let mut report = api::workflows::NodeReport::new(&node_id, "in_review");
+                        report.note = api::patch::Patch::Set(one_line_note(&note));
+                        self.report_node(&report);
+                    }
+                }
+            }
+            plan.snapshot.reviewed_head = state.reviewed_head.clone();
+            coding::workflows::apply_resuming(&mut plan.snapshot, &mut state.resuming);
+            coding::workflows::prune_land_refused(&mut state.land_refused, &plan.snapshot.pr_head);
+            plan.snapshot.land_refused = state.land_refused.clone();
+            update_workflow_state(settings_path, &self.device_id, &workflow_id, move |persisted| {
+                persisted.reviewed_head = state.reviewed_head;
+                persisted.review_runs = state.review_runs;
+                persisted.review_rounds = state.review_rounds;
+                persisted.review_failures = state.review_failures;
+                persisted.resuming = state.resuming;
+                persisted.land_refused = state.land_refused;
+            });
+        }
         // A base this pass could NOT put up. Nothing may be cut from it: the
         // node waits for the next beat rather than starting on a wrong base.
         let mut unbuilt: HashSet<String> = HashSet::new();
@@ -3045,7 +3089,7 @@ impl AutomationHost {
                     );
                 }
                 coding::workflows::Decision::LandNode { node_id } => {
-                    self.land_workflow_node(&plan, &node_id, &branch);
+                    self.land_workflow_node(&plan, &node_id, &branch, settings_path);
                 }
                 // EXP-983: the branch under a run moved — a live run takes
                 // the text where it stands, an ended one is resumed with it.
@@ -3081,7 +3125,9 @@ impl AutomationHost {
                         *metrics
                             .entry(api::workflows::COUNTER_MERGE_INS.to_string())
                             .or_default() += 1;
-                    } else if let Err(err) = self.resume_workflow_node(&session_id, text) {
+                    } else if let Err(err) =
+                        self.resume_workflow_node(&plan, &session_id, text, settings_path)
+                    {
                         log::warn!("workflow resume of {session_id} failed: {err}");
                     } else {
                         *metrics
@@ -3135,7 +3181,9 @@ impl AutomationHost {
                             else {
                                 continue;
                             };
-                            if let Err(err) = self.resume_workflow_node(&session_id, text) {
+                            if let Err(err) =
+                                self.resume_workflow_node(&plan, &session_id, text, settings_path)
+                            {
                                 log::warn!("workflow resume of {session_id} failed: {err}");
                                 continue;
                             }
@@ -3167,12 +3215,11 @@ impl AutomationHost {
                     log::info!("workflow {workflow_id}: paused {node_id} — {note}");
                 }
                 // EXP-983: the collision the engine decided to serialize.
-                coding::workflows::Decision::SetSerialEdge { node_id, after } => {
-                    let state = plan
-                        .nodes
-                        .get(&node_id)
-                        .map(|node| node.state.clone())
-                        .unwrap_or_else(|| "running".to_string());
+                coding::workflows::Decision::SetSerialEdge {
+                    node_id,
+                    state,
+                    after,
+                } => {
                     let mut report = api::workflows::NodeReport::new(&node_id, state);
                     report.after_node_ids = Some(after);
                     self.report_node(&report);
@@ -3322,7 +3369,14 @@ impl AutomationHost {
                 false
             }
             Err(err) => {
+                // Visible on the node, like a conflict: a `ready` node whose
+                // base never comes up would otherwise sit there without a word.
                 log::warn!("workflow {workflow_id}: base {base_branch} — {err}");
+                let mut report = api::workflows::NodeReport::new(node_id, "waiting");
+                report.note = api::patch::Patch::Set(one_line_note(&format!(
+                    "Its base {base_branch} could not be built: {err}"
+                )));
+                self.report_node(&report);
                 false
             }
         }
@@ -3660,6 +3714,7 @@ impl AutomationHost {
             )?;
             Ok(session_id)
         })();
+        let round_at_launch = node.review_round;
         match started {
             Ok(session_id) => update_workflow_state(
                 settings_path,
@@ -3669,6 +3724,11 @@ impl AutomationHost {
                     state
                         .review_runs
                         .insert(node_id.to_string(), session_id.clone());
+                    // A run that ends with the round still here submitted
+                    // no verdict (settled at the top of the next pass).
+                    state
+                        .review_rounds
+                        .insert(node_id.to_string(), round_at_launch);
                 },
             ),
             Err(err) => {
@@ -3689,7 +3749,13 @@ impl AutomationHost {
     /// The merge train's one step. The gate saying "not yet" is nothing to
     /// do; anything else is GitHub refusing the merge, and the node has to
     /// merge the trunk in (steered if it is live, resumed if it ended).
-    fn land_workflow_node(&self, plan: &WorkflowPlan, node_id: &str, branch: &str) {
+    fn land_workflow_node(
+        &self,
+        plan: &WorkflowPlan,
+        node_id: &str,
+        branch: &str,
+        settings_path: &Path,
+    ) {
         let outcome = match api::workflows::land_node(&self.ctx.trpc, node_id) {
             Ok(outcome) => outcome,
             Err(err) => {
@@ -3720,6 +3786,19 @@ impl AutomationHost {
         let mut report = api::workflows::NodeReport::new(node_id, "updating");
         report.note = api::patch::Patch::Set(one_line_note(&reason));
         self.report_node(&report);
+        // The head GitHub refused: the engine holds the node `updating`
+        // until it moves, instead of asking GitHub again every beat.
+        if let Some(head) = plan.snapshot.pr_head.get(node_id).cloned() {
+            let node = node_id.to_string();
+            update_workflow_state(
+                settings_path,
+                &self.device_id,
+                &plan.snapshot.workflow.id,
+                move |state| {
+                    state.land_refused.insert(node, head);
+                },
+            );
+        }
         let Some(session_id) = plan
             .nodes
             .get(node_id)
@@ -3734,12 +3813,22 @@ impl AutomationHost {
         }
         // The run ended on this machine: re-enter its RECORDED conversation
         // with the merge instruction as its first message.
-        if let Err(err) = self.resume_workflow_node(&session_id, prompt) {
+        if let Err(err) = self.resume_workflow_node(plan, &session_id, prompt, settings_path) {
             log::warn!("workflow resume of {session_id} failed: {err}");
         }
     }
 
-    fn resume_workflow_node(&self, session_id: &str, prompt: String) -> anyhow::Result<()> {
+    /// Re-enter an ended node run with `prompt` as its first message. On
+    /// success the old session is remembered as RESUMING, so it reads live
+    /// to the engine until the node names the new run (the server re-points
+    /// `session_id` on `codingSessions.start`) or the grace passes.
+    fn resume_workflow_node(
+        &self,
+        plan: &WorkflowPlan,
+        session_id: &str,
+        prompt: String,
+        settings_path: &Path,
+    ) -> anyhow::Result<()> {
         let Some(record) = coding::run_registry::get(&self.ctx.data_dir, session_id) else {
             anyhow::bail!("no recorded run for {session_id} on this machine");
         };
@@ -3775,7 +3864,18 @@ impl AutomationHost {
             prepared,
             issue_id,
             false,
-        )
+        )?;
+        let old = session_id.to_string();
+        let now_ms = plan.snapshot.now_ms;
+        update_workflow_state(
+            settings_path,
+            &self.device_id,
+            &plan.snapshot.workflow.id,
+            move |state| {
+                state.resuming.insert(old, now_ms);
+            },
+        );
+        Ok(())
     }
 }
 
@@ -3793,6 +3893,10 @@ struct WorkflowPlan {
     /// `contractChanges` metric).
     review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
     checkpointed: HashSet<String>,
+    /// EXP-984: `reviewer session id → live` off the synced rows, for every
+    /// reviewer run this device recorded (a row that has not synced is
+    /// absent) — what settles a review that ended without a verdict.
+    review_session_live: HashMap<String, bool>,
     name: String,
     team_id: String,
     decisions: String,
@@ -3911,8 +4015,13 @@ fn workflow_plan(
             review: row.review_facts().map(|review| coding::workflows::ReviewFacts {
                 verdict: review.verdict,
                 round: review.round,
+                head: review.head,
             }),
             budget: workflow_node_budget(row),
+            updated_at_ms: row
+                .updated_at
+                .as_deref()
+                .and_then(coding::workflows::parse_wire_timestamp_ms),
         };
         by_id.insert(facts.id.clone(), facts.clone());
         nodes.push(facts);
@@ -3970,6 +4079,7 @@ fn workflow_plan(
             pr_head: HashMap::new(),
             reviewed_head: engine_state.reviewed_head.clone(),
             findings_sent: engine_state.findings_sent.clone(),
+            land_refused: engine_state.land_refused.clone(),
             now_ms,
         },
         nodes: by_id,
@@ -3977,6 +4087,7 @@ fn workflow_plan(
         branch_of,
         review_of,
         checkpointed,
+        review_session_live: review_session_liveness(&engine_state, session_rows),
         name: workflow.name.clone().unwrap_or_default(),
         team_id,
         decisions: workflow.decisions.clone().unwrap_or_default(),
@@ -4037,11 +4148,7 @@ fn workflow_session_facts(row: &domain::rows::CodingSession) -> coding::workflow
             .started_at
             .as_deref()
             .or(row.created_at.as_deref())
-            .and_then(|raw| {
-                chrono::DateTime::parse_from_rfc3339(raw)
-                    .ok()
-                    .map(|parsed| parsed.timestamp_millis())
-            }),
+            .and_then(coding::workflows::parse_wire_timestamp_ms),
         tokens_used: None,
     }
 }
@@ -4072,6 +4179,26 @@ fn live_reviews(
             })
         })
         .map(|(node_id, _)| node_id.clone())
+        .collect()
+}
+
+/// EXP-984: every reviewer run this device recorded, with whether its synced
+/// row is still live; a row that has not synced is left out (neither live
+/// nor ended, so nothing is settled on it).
+fn review_session_liveness(
+    state: &coding::workflows::WorkflowState,
+    session_rows: &[domain::rows::CodingSession],
+) -> HashMap<String, bool> {
+    state
+        .review_runs
+        .values()
+        .filter_map(|session_id| {
+            let row = session_rows.iter().find(|row| &row.id == session_id)?;
+            Some((
+                session_id.clone(),
+                matches!(row.status.as_deref(), Some("running" | "in_review")),
+            ))
+        })
         .collect()
 }
 

@@ -14,6 +14,7 @@ import { and, eq, inArray } from "drizzle-orm"
 import { boards, issueRelations, issues, repositories } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
 import { canonicalizeRelation, insertRelationInTx } from "@/lib/issue-relations"
+import { findRelationCycle } from "@/lib/relation-cycles"
 import { effectiveBoardBranch } from "@/lib/trpc/repositories"
 import type { Context } from "@/lib/trpc"
 
@@ -306,6 +307,30 @@ export async function resolveStackChain(
   // and idempotently (a repeated start, or a pick that only restates what the
   // relations already say, writes nothing).
   if (pick) {
+    // The walk above judges the stack over OPEN blockers only: a settled
+    // issue drops out with its own blockers, which is right for the plan but
+    // blind to the graph the row would land in. T blocks X (done), X blocks
+    // P: stacking T on P writes `P blocks T` and closes a real 3-cycle the
+    // walk never saw. Ask the relation graph itself before writing.
+    const cycle = await findRelationCycle(db, {
+      issueId: pick.id,
+      relatedIssueId: issueId,
+      type: `blocks`,
+    })
+    if (cycle) {
+      const identifierOf = new Map(
+        [...rowsById.values()].map((row) => [row.id, row.identifier])
+      )
+      const missing = [...new Set(cycle)].filter((id) => !identifierOf.has(id))
+      if (missing.length > 0) {
+        const named = await db
+          .select({ id: issues.id, identifier: issues.identifier })
+          .from(issues)
+          .where(inArray(issues.id, missing))
+        for (const row of named) identifierOf.set(row.id, row.identifier)
+      }
+      throw new StackCycleError(cycle.map((id) => identifierOf.get(id) ?? id))
+    }
     const canonical = canonicalizeRelation(pick.id, issueId, `blocks`)
     await insertRelationInTx(db as never, {
       ...canonical,

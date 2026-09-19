@@ -19,12 +19,11 @@ import kotlinx.serialization.json.JsonPrimitive
 // open-issue circle off every session row on every client, and it was exactly
 // the control a multi-issue run could never answer.
 //
-// The covered set has two sources, in this order:
-//   1. `coding_sessions.batch_issue_ids` — written at start, so the name is
-//      right from the run's first second (the composer's order, preserved).
-//   2. the issues sharing the row's `branch` — what `pr_open` stamped on both
-//      sides (EXP-545), which names batches started before the column existed
-//      or by a client too old to send it, from the moment their PR opens.
+// The covered set has ONE source: `coding_sessions.batch_issue_ids`, written
+// at start (the composer's order, preserved) and backfilled server-side for
+// every batch that predates the column (EXP-972), so a row without it is
+// simply not a batch anyone can name. The branch-mates fallback (the issues
+// `pr_open` stamped with the run's `exp/batch-<id8>` branch) is gone.
 //
 // The twin of web `lib/batch-run.ts`, desktop `domain::batch_run` and iOS
 // `BatchRun.swift`: same order, same `+N`, same fallback string, same test
@@ -32,10 +31,6 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** The one string a batch with no knowable issues shows. Byte-identical ×4. */
 const val BATCH_RUN_FALLBACK = "Batch run"
-
-/** The launcher's batch branch marker (`exp/batch-<id8>`), deliberately
- *  lowercase so it can never parse as an issue branch. */
-const val BATCH_RUN_BRANCH_PREFIX = "exp/batch-"
 
 /** What a batch row shows: `EXP-874 +2` beside the first issue's title. */
 data class BatchRunName(
@@ -67,10 +62,8 @@ fun isBatchRun(session: CodingSessionEntity): Boolean =
     session.issueId == null && session.actionName == null
 
 /**
- * The issues a batch run covers, in NAMING order: the stored order when the
- * row recorded it, else the branch-mates oldest first (a deterministic order
- * every client reaches the same way — `created_at` is on every issue row,
- * identifiers break the tie).
+ * The issues a batch run covers, in NAMING order: the order the row stored.
+ * An id whose issue has not synced is skipped, never a blank row.
  */
 fun batchRunIssues(
     session: CodingSessionEntity,
@@ -78,23 +71,16 @@ fun batchRunIssues(
 ): List<IssueEntity> {
     if (!isBatchRun(session)) return emptyList()
     val ids = batchRunIssueIds(session.batchIssueIds)
-    if (ids.isNotEmpty()) {
-        val byId = issues.associateBy { it.id }
-        return ids.mapNotNull(byId::get)
-    }
-    val branch = session.branch?.takeIf { it.startsWith(BATCH_RUN_BRANCH_PREFIX) }
-        ?: return emptyList()
-    // ISO-8601 UTC stamps order lexicographically, like every other list here.
-    return issues
-        .filter { it.branch == branch }
-        .sortedWith(compareBy({ it.createdAt }, { it.identifier }))
+    if (ids.isEmpty()) return emptyList()
+    val byId = issues.associateBy { it.id }
+    return ids.mapNotNull(byId::get)
 }
 
 /**
  * Name a batch run. [issues] is whatever the caller has synced; only the
- * covered ones are read. A batch whose issues are all unknown (no stored ids,
- * no PR yet — or a row whose issues left the viewer's teams) keeps the old
- * generic label rather than inventing one.
+ * covered ones are read. A batch whose issues are all unknown (no stored ids
+ * — or a row whose issues left the viewer's teams) keeps the old generic
+ * label rather than inventing one.
  */
 fun batchRunName(
     session: CodingSessionEntity,

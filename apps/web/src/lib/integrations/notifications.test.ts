@@ -218,13 +218,46 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         actionName: null,
       },
     ])
-    selectResults.push([{ identifier: `EXP-12` }])
+    // The covered rows, in whatever order the lookup returns them: the name
+    // follows the STORED order (lib/batch-run.ts), the same rule every list
+    // row uses, so the push and the row it opens agree.
+    selectResults.push([
+      { id: `issue-3`, identifier: `EXP-14`, title: `Third` },
+      { id: `issue-1`, identifier: `EXP-12`, title: `First` },
+      { id: `issue-2`, identifier: `EXP-13`, title: `Second` },
+    ])
     selectResults.push([{ id: `owner` }])
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([])
     await notifySessionBlocked(`sess-1`, blocked)
     expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(
       `EXP-12 +2 hit a rate limit`
+    )
+
+    // A lead issue that no longer resolves: the next covered one leads and
+    // the stored count still names the whole batch — batchRunName's rule,
+    // not a fall-through to `Agent run`.
+    vi.mocked(sendToUsers).mockClear()
+    selectResults.push([
+      {
+        userId: `owner`,
+        teamId: `team-1`,
+        teamSlug: `acme`,
+        issueId: null,
+        batchIssueIds: [`gone`, `issue-2`, `issue-3`],
+        actionName: null,
+      },
+    ])
+    selectResults.push([
+      { id: `issue-2`, identifier: `EXP-13`, title: `Second` },
+      { id: `issue-3`, identifier: `EXP-14`, title: `Third` },
+    ])
+    selectResults.push([{ id: `owner` }])
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([])
+    await notifySessionBlocked(`sess-1`, blocked)
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(
+      `EXP-13 +2 hit a rate limit`
     )
 
     vi.mocked(sendToUsers).mockClear()

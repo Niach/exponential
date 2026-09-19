@@ -1,23 +1,22 @@
+- Workflows: egy tároló backlog-issue-it egyetlen gráfként tervezed meg, ki mit blokkol, és egy géppel párhuzamosan futtatod; a Workflows az Agent oldal egyik gombja mögött ül
+- A workflow maga viszi végig a munkát: a csomópontok akkor indulnak, amikor a blokkolóik beérkeznek, a pull requestek függőségi sorrendben olvadnak a workflow ágába, és egy záró pull request viszi az egész diffet
+- A workflow ellenőrzi magát: külön futás nézi át minden pull requestjét, egy követő issue menet közben is csatlakozhat, a keretét túllépő csomópont pedig megáll és rád vár
+- Al-issue-k és blokkolók minden listában: az al-issue a szülője alatt ül egy összekötő vonalon, egy jelvény pedig számolja, mi blokkolja a sort, és megnyitja a függőségi gráfot
+- Egy blokkolt issue indítása a teljes láncot mutatja, és felkínálja a Cancel, a Start anyway vagy az egymásra épülő pull request lehetőséget, és megmondja, miért nem megy a stack
+- A korlátjába ütköző futás push üzenetet és egy postaláda-sort küld, ami megnyitja; az értesítési beállításokban, a Blocked runs alatt kapcsolható ki
+- Az Agent oldalon a korábbi futások egy előzmények gomb mögé kerültek, a csevegés és a New issue gomb pedig minden fülön ott van a fülsávban
+- A boardváltó csak csapatokat és boardokat sorol, és az issue-ból nyitott futás már nem mutat üres képernyőt, amíg meg nem húzod
 - Eszközikonok: minden gépnek saját ikont adhatsz a beállításaiban, monitort, szervert vagy laptopot, vagy az Apple, a Windows vagy a Linux jelét, a boardokhoz és akciókhoz pedig 96 ikon közül választhatsz
 - A Run arc az ügynök feladatlistájával indul, a háttérben futó menet megtartja a fülét, a fülek és sávok pedig a naplóhoz igazodnak
-- Az eszközök egy-egy sorba hajtódnak, mutatják, mikor áll vissza egy használati ablak, és egy bejelentkezés eltávolítható a gépről; a Work képernyő menüje csak az Issue arcon ül, az arcváltó számolja a futás módosított fájljait és a kinyitott szerkesztőmezőbe húzódik, egy batch futás issue-i pedig lapon nyílnak meg
-- Az Exponential hívásai saját csoportként állnak, Read 3 issues az általános eszközfutás helyett, és a fájlt nem módosító kör már nem mutat üres kártyát
-- A futó munkamenetben a Stop mostantól sima sávgomb, ugyanolyan magas, mint a vissza gomb, nem pedig tabletta törött kerettel
-- Egy futás naplójának sorai már nem csúsznak egymásra, és a beszélgetés elgördül a szerkesztőmező fölötti kártya mellől
-- A csevegőfutás arról kapja a nevét, amin az ügynök dolgozik, ahelyett hogy mindenhol „Chat” állna
 - Egy diff mindenhol: a diff fájljai fában állnak, amelyben ugrálhatsz, egy kör módosításai pedig egyetlen „Edited files” kártyára gyűlnek, sorszámokkal, kinyitható változatlan sorokkal, az átnevezett és bináris fájlok névvel
 - A használat egy helyen: egy panel mutatja a futás saját fiókját, a korlátablakait és a kontextusablakot, valamint a gép többi bejelentkezését
 - Az eszközök hordozzák a bejelentkezéseket: minden gép felsorolja az ügynökfiókjait csomaggal, állapottal és használattal, egy eszköz fogaskereke pedig az Update és a Remove helye
 - Egyetlen issue-kereső: ugyanaz a sorrend hajtja minden issue-listát, választót és #-menüt, a legfelső találat pedig már ki van jelölve
-- A futó parancs csak az utolsó sorait mutatja, az elnémuló futás pedig befejezettként marad a listán
 - Egyetlen Work képernyő: egy issue, a futása és a változások ugyanannak a képernyőnek az arcai, az alsó sávval válthatsz köztük, a Stop vagy a Resume pedig jobbra fent ül
 - Egymásra épülő pull requestek: indíts egy issue-t arra, ami blokkolja, fűzd össze a láncot a Merge stackkel, olvasd le a munkán a stack- vagy batch-jelvényt, és válaszolj egy beágyazott futás kérdésére
 - Egy futás eredményei: a képernyőképeket közzétevő futás Results arcot kap, téma szerint csoportosítva, platformonként egy csempével
-- Batch futások néven: a több issue-t lefedő futás EXP-874 +2 feliratot mutat az első issue címe mellett a „Batch run” helyett
 - Az üzenetek azonnal célba érnek: az ügynök munkája közben írt üzenet rögtön eljut hozzá, és elküldöttként áll, amíg el nem olvassa, a várakozó üzenet a szerkesztőmező fölötti sávban látszik, a Stop pedig visszaadja a szöveget a mezőbe
 - A GitHub rendbe téve: a GitHub összekapcsolása, a tároló hozzáadása és a board tárolójának beállítása úgy működik, mint az asztali gépen, a hibák pedig ott jelennek meg, ahol vagy
-- Csendesebb gombok és világosabb választók: kitöltött kört csak a képernyő fő művelete kap, az ügynökválasztó a Claude Code vagy a Codex jelét viseli, az eszközmenük pedig laptop- vagy szerverikonnal kezdenek
-- Az Agent oldal tartja a futásaidat: a korábbi futások egy szám mögé hajtódnak össze, amit kinyithatsz, és ha semmi sem fut, a szerkesztőmező az oldal közepén ül
 - Az issue-szűrők eltűntek: a keresés lefedi, amire használták őket, a csoportosítás és a státuszsávok maradnak
 - Folytatás e-maillel vagy azonosítókulccsal: lépj be a levélben kapott hatjegyű kóddal, vagy Face ID-val, illetve Touch ID-val; minden lehetőség egyetlen Continue listában van
 - Fiókváltás futás közben, és vissza oda, ahonnan jöttél: a korlátjába ütköző Claude-futás másik fiókkal folytatható, a munkamenetből kilépve pedig visszakerülsz arra az issue-ra vagy boardra, ahonnan megnyitottad

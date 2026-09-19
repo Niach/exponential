@@ -4,6 +4,7 @@ vi.mock(`@/db/connection`, () => ({ db: {} }))
 
 import {
   foldCompoundNodes,
+  loadWorkflowEdges,
   nodeEdges,
   workflowIntegrationBranch,
 } from "@/lib/workflows"
@@ -93,5 +94,37 @@ describe(`workflowIntegrationBranch`, () => {
     expect(workflowIntegrationBranch(`8cef8d22-dafc-4fb7-8e4f-01483ab0b5d0`)).toBe(
       `exp/wf-8cef8d22`
     )
+  })
+})
+
+// EXP-984: a `proposed` node was never admitted. The engine drops it; so must
+// the server's graph, or a covered node blocked by a proposed outsider never
+// lands (`landNode` waits on it, `retargetReleasedDependents` never releases).
+describe(`loadWorkflowEdges`, () => {
+  function fakeExecutor(results: unknown[][]) {
+    const queue = [...results]
+    const chain = (rows: unknown[]) => {
+      const p = Promise.resolve(rows) as Promise<unknown[]> & Record<string, () => unknown>
+      for (const m of [`from`, `where`, `innerJoin`]) p[m] = () => p
+      return p
+    }
+    return { select: () => chain(queue.shift() ?? []) } as never
+  }
+
+  it(`leaves proposed nodes and their edges out`, async () => {
+    const executor = fakeExecutor([
+      [
+        { id: `n1`, issueId: `a`, memberIssueIds: [], state: `blocked`, baseBranch: null },
+        { id: `n2`, issueId: `b`, memberIssueIds: [], state: `proposed`, baseBranch: null },
+        { id: `n3`, issueId: `c`, memberIssueIds: [`c1`], state: `landed`, baseBranch: null },
+      ],
+      [
+        { issueId: `b`, relatedIssueId: `a` },
+        { issueId: `c1`, relatedIssueId: `a` },
+      ],
+    ])
+    const graph = await loadWorkflowEdges(executor, `wf-1`)
+    expect(graph.nodes.map((node) => node.id)).toEqual([`n1`, `n3`])
+    expect(graph.edges).toEqual([[`n3`, `n1`]])
   })
 })

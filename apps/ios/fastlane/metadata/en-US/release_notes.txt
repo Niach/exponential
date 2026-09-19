@@ -1,23 +1,22 @@
+- Workflows: plan a set of backlog issues of one repository as a graph of what blocks what, and let a device run them in parallel; Workflows sits behind a button on the Agent page
+- A workflow lands its own work: nodes start as their blockers land, pull requests merge in dependency order into the workflow's branch, and one final pull request carries the whole diff
+- Workflows check themselves: a separate run reviews every pull request, a follow-up issue can join a workflow while it runs, and a node over its budget pauses and waits for you
+- Sub-issues and blockers in every list: a sub-issue sits under its parent on a connector line, and one badge counts what blocks a row and opens the dependency graph
+- Starting a blocked issue shows the whole chain and offers Cancel, Start anyway or a stacked pull request, and says why a stack is not possible
+- A coding run that hits a rate limit sends you a push and an inbox row that opens it; turn it off under notification settings, Blocked runs
+- On the Agent page past runs moved behind a history button, and the chat and New issue buttons sit in the tab bar on every tab
+- The board switcher lists teams and boards only, and a run opened from an issue no longer shows an empty screen until you drag it
 - Device icons: give each machine its own icon in its settings, a monitor, server or laptop or the Apple, Windows or Linux mark, and pick from 96 icons for boards and actions
 - The Run face leads with the agent's task list, a background lane keeps its tab while it runs, and the tabs and strips line up with the transcript
-- Devices fold to one row each, show when a usage window resets, and a login can be removed from a machine; the Work screen's menu sits on the Issue face only, the face switcher counts the run's changed files and tucks into the expanded composer, and a batch run's issues open in a sheet
-- Calls to Exponential read as their own group, Read 3 issues instead of a generic tool run, and a turn that changed no file no longer shows an empty edits card
-- The Stop button on a running session is a plain bar button now, the same height as the back button, instead of a pill that drew a broken outline
-- Rows in a run's transcript no longer overlap each other, and the chat scrolls clear of the card above the composer
-- A chat run takes its name from what the agent is working on, instead of reading Chat everywhere
 - One diff everywhere: a diff's files sit in a tree you can jump around, and an agent's edits in a turn collect in one Edited files card, with line numbers, hidden unchanged lines you can open, and renames and binary files named
 - Usage in one place: an overlay shows the run's own account, its limit windows and the context window, plus the other logins on that machine
 - Devices carry the logins: every machine lists its agent logins with plan, health and usage, and a device's gear button holds Update and Remove
 - One issue search: the same ranking drives every issue list, picker and # menu, with the top result ready to pick
-- A running command shows only its last lines, and a run that goes quiet is marked ended and stays in the list
 - One Work screen: an issue, its coding run and its changes are faces of one screen, switched from the bar at the bottom, with Stop or Resume in the top-right corner
 - Stacked pull requests: start an issue on top of the one that blocks it, merge the chain with Merge stack, read the stack or batch badge on the work, and answer a question a nested run sends you
 - Results from a run: a run that publishes screenshots gains a Results face, grouped by topic, one tile per platform
-- Batch runs by name: a run covering several issues reads EXP-874 +2 beside the first issue's title instead of Batch run
 - Messages that land at once: a message typed while the agent works reaches it immediately and shows as sent until it is read, a waiting message shows in a bar above the composer, and Stop hands the text back to your composer
 - GitHub, sorted out: connecting GitHub, adding a repository and setting a board's repository read and behave the same as on the desktop, with errors shown where you are
-- Quieter buttons and clearer pickers: only a screen's main action keeps a filled circle, and the agent picker carries the Claude Code or Codex mark while device menus lead with a laptop or server icon
-- The Agent page holds your runs: past runs fold behind a count you can open, and with nothing running the prompt sits in the middle of the page
 - Issue filters are gone: search covers what they did, and grouping and the status bands stay
 - Continue with email, or with a passkey: sign in with a 6-digit code mailed to you, or with Face ID or Touch ID; every option is one Continue list
 - Switch account mid-run, and come back where you were: a Claude run at its limit can carry on with another account, and leaving a session returns you to the issue or board you opened it from

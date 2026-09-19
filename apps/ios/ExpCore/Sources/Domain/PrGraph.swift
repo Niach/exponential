@@ -178,7 +178,7 @@ public enum PrGraph {
     /// `pr_url` of its own, so before this it resolved nothing at all — the
     /// pill and its sheet, the one surface built to name work that spans
     /// several issues, never appeared on the very run that spans them. Its
-    /// covered set (`batch_issue_ids`, else its branch's issues) IS the entry.
+    /// covered set (`batch_issue_ids`) IS the entry.
     ///
     /// The PR-grouped entry wins whenever there is one: it carries the branch
     /// and the base the stack chains on, so a batch PR stacked on another

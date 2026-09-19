@@ -920,6 +920,78 @@ describe(`devices.setLaunchDefaults`, () => {
     })
   })
 
+  // compat: clients before 0.14.46 never send subagentModel; delete once
+  // CLIENT_MIN_VERSION_* >= 0.14.46 on every platform.
+  it(`carries a stored claude subagentModel forward when the save omits the KEY`, async () => {
+    h.state.selectQueue = deviceRow({
+      launchDefaults: {
+        defaultAgent: `claude`,
+        agents: { claude: { model: `fable`, subagentModel: `sonnet` } },
+      },
+      launchDefaultsUpdatedAt: new Date(`2026-09-18T10:00:00Z`),
+    })
+    // An older client's whole-object save: it re-sends every field it knows
+    // and has no `subagentModel` key at all.
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        defaultAgent: `claude`,
+        agents: { claude: { model: `opus`, effort: `high` } },
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `claude`,
+      agents: { claude: { model: `opus`, effort: `high`, subagentModel: `sonnet` } },
+    })
+    expect(h.state.updates[0]?.set).toMatchObject({
+      launchDefaults: result.launchDefaults,
+    })
+  })
+
+  it(`lets a newer client clear or replace subagentModel explicitly`, async () => {
+    const stored = {
+      defaultAgent: `claude`,
+      agents: { claude: { model: `fable`, subagentModel: `sonnet` } },
+    }
+    // Blank = "the CLI's own default" (EXP-981): an explicit value, kept.
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    let result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        defaultAgent: `claude`,
+        agents: { claude: { model: `fable`, subagentModel: `` } },
+      },
+    })
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `claude`,
+      agents: { claude: { model: `fable`, subagentModel: `` } },
+    })
+
+    // An explicit null (the key is PRESENT) is a clear, not an omission: the
+    // stored value does not ride along and the jsonb stays null-free.
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        defaultAgent: `claude`,
+        agents: { claude: { model: `fable`, subagentModel: null } },
+      },
+    })
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `claude`,
+      agents: { claude: { model: `fable` } },
+    })
+
+    // Nothing stored: an omitted key stays omitted.
+    h.state.selectQueue = deviceRow()
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { agents: { claude: { model: `fable` } } },
+    })
+    expect(result.launchDefaults).toEqual({ agents: { claude: { model: `fable` } } })
+  })
+
   it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {
     h.state.selectQueue = deviceRow({ caps: [`actions`] })
     const result = await caller.setLaunchDefaults({

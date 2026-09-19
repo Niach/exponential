@@ -1351,6 +1351,11 @@ impl WorkflowNodeRow {
                 .get("round")
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or_else(|| self.review_count()),
+            head: review
+                .get("head")
+                .and_then(serde_json::Value::as_str)
+                .filter(|head| !head.is_empty())
+                .map(str::to_string),
         })
     }
 
@@ -1384,6 +1389,11 @@ pub struct WorkflowNodeReview {
     /// The model that reviewed (a `risk: high` node: never its author's).
     pub model: Option<String>,
     pub round: i64,
+    /// The commit the reviewer judged (`git rev-parse HEAD` in its
+    /// worktree), 7-40 lowercase hex; absent on rows older than the field.
+    /// The engine reads an approval of another head than the pull request's
+    /// current one as STALE.
+    pub head: Option<String>,
 }
 
 /// A jsonb `string[]` cell as a plain id list; anything else reads empty.
