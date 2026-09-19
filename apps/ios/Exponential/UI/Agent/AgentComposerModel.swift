@@ -58,8 +58,8 @@ final class AgentComposerModel {
     var sending = false
     var error: String?
     /// EXP-897: the blocked-start prompt, up while the reader chooses between
-    /// a stacked PR, an ordinary run and cancelling. Non-nil ONLY for a single
-    /// checked issue with open blockers.
+    /// a stacked PR, an ordinary run and cancelling. EXP-980: it asks for a
+    /// BATCH too (blockers outside the picked set), and never for a resume.
     var blockedPrompt: BlockedStartPrompt?
 
     /// The repo registry — one tRPC read; the chat picker and the `repo`
@@ -79,11 +79,12 @@ final class AgentComposerModel {
     /// The text a seed dropped into the draft — a draft that still equals
     /// it has not been typed in.
     private var seededDraft = ""
-    /// EXP-897: the sole checked issue's `blocks` rows and their issues, read
-    /// live off GRDB — `StackStart.openBlockers` applies the rules.
+    /// EXP-897/EXP-980: every `blocks` row and the issues at either end, read
+    /// live off GRDB — `IssueGraph` applies the rules. The whole table rather
+    /// than one issue's rows: the prompt asks for a BATCH as well, and draws
+    /// the TRANSITIVE chain, so the subject no longer bounds the read.
     private var blockerRelations: [IssueRelationEntity] = []
     private var blockerIssues: [IssueEntity] = []
-    private var blockerIssueId: String?
     private var blockerTask: Task<Void, Never>?
 
     /// A batch run is deliberately loose but not unbounded — one session on
@@ -143,8 +144,7 @@ final class AgentComposerModel {
     // MARK: - Load
 
     func load() async {
-        refreshBlockers()
-        watchPoolForBlockers()
+        observeBlockers()
         guard let teamId else { return }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
         // EXP-615: one repository pre-picks for a chat (web parity); the
@@ -252,49 +252,49 @@ final class AgentComposerModel {
 
     // MARK: - Blocked start (EXP-897)
 
-    /// The sole checked issue's OPEN blockers, or empty. An action subject, a
-    /// chat and a BATCH are never stacked, so they never ask.
+    /// EXP-980: the OPEN issues that block the picked set from OUTSIDE it —
+    /// for one issue AND for a batch (a blocker picked into the same batch is
+    /// not in its way). An action subject and a chat are never blocked, so
+    /// they never ask.
     var openBlockers: [IssueEntity] {
-        guard actionId == nil, effectiveChecked.count == 1,
-              let issueId = effectiveChecked.first
-        else { return [] }
-        return StackStart.openBlockers(
-            issueId: issueId, relations: blockerRelations, issues: blockerIssues
+        guard actionId == nil else { return [] }
+        return IssueGraph.openBlockersOfSet(
+            ids: effectiveChecked, relations: blockerRelations, issues: blockerIssues
         )
     }
 
     /// EXP-897: the target machine reads the frame's `stack` payload. An
     /// older desktop/CLI has no `stack` field in its decoder and would run
-    /// UNSTACKED while the server had already recorded a stack, so the alert
-    /// hides "Stacked PR" for it and `startStacked()` refuses to send one.
+    /// UNSTACKED while the server had already recorded a stack, so the prompt
+    /// DISABLES "Stacked PR" for it (EXP-980: disabled, never hidden) and
+    /// `startStacked()` refuses to send one.
     var canStackStart: Bool { device?.canStackStart == true }
 
-    /// Re-point the blocker observation at the sole checked issue (or tear it
-    /// down). Called from every path that can change the subject, and again
-    /// when the pool reloads: the gate reads `effectiveChecked`, exactly
-    /// like `openBlockers`, so a stale checked id (a seeded `?issues=` id
-    /// whose row is not in the pool yet) neither arms it early nor skips the
-    /// prompt once the row lands.
-    private func refreshBlockers() {
-        let effective = effectiveChecked
-        let issueId = (actionId == nil && effective.count == 1) ? effective.first : nil
-        guard issueId != blockerIssueId else { return }
-        blockerIssueId = issueId
-        blockerTask?.cancel()
-        blockerTask = nil
-        blockerRelations = []
-        blockerIssues = []
-        blockedPrompt = nil
-        guard let issueId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+    /// Why the prompt's "Stacked PR" is off, or nil when it is on — the shared
+    /// rule over the picked count, the machine's capability and the graph.
+    func stackDisabledReason(_ prompt: BlockedStartPrompt) -> StackStart.StackDisabledReason? {
+        StackStart.stackDisabledReason(
+            pickedCount: prompt.issueIds.count,
+            canStack: canStackStart,
+            hasCycle: prompt.graph.hasCycle
+        )
+    }
+
+    /// Every `blocks` row and the issues at either end. Armed once: the rule
+    /// is keyed on the picked SET, which changes without any database change,
+    /// so there is nothing per-subject to re-point.
+    private func observeBlockers() {
+        guard blockerTask == nil, let pool = try? deps.db.pool(forAccountId: accountId)
+        else { return }
         let observation = ValueObservation.tracking {
             db -> ([IssueRelationEntity], [IssueEntity]) in
             let relations = try IssueRelationEntity
-                .filter(Column("related_issue_id") == issueId)
                 .filter(Column("type") == IssueRelationType.blocks.rawValue)
                 .fetchAll(db)
-            let issues = try IssueEntity
-                .filter(relations.map(\.issueId).contains(Column("id")))
-                .fetchAll(db)
+            let ids = Array(Set(relations.flatMap { [$0.issueId, $0.relatedIssueId] }))
+            let issues = ids.isEmpty
+                ? []
+                : try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
             return (relations, issues)
         }
         blockerTask = Task { [weak self] in
@@ -307,21 +307,10 @@ final class AgentComposerModel {
         }
     }
 
-    /// The pool is a computed view over the sessions model's observations,
-    /// so a checked id can enter (or leave) it without any composer call:
-    /// re-run the gate whenever what `effectiveChecked` reads changes. The
-    /// tracking fires once per change and re-arms itself; `refreshBlockers`
-    /// dedupes on the resolved id, so a no-op change costs nothing.
-    private func watchPoolForBlockers() {
-        withObservationTracking {
-            _ = effectiveChecked
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                refreshBlockers()
-                watchPoolForBlockers()
-            }
-        }
+    /// The subject changed under an open prompt: it is about a set that is no
+    /// longer picked, so it goes.
+    private func refreshBlockers() {
+        blockedPrompt = nil
     }
 
     // MARK: - Subject
@@ -669,34 +658,46 @@ final class AgentComposerModel {
 
     // MARK: - Submit
 
-    /// EXP-897: a start on a BLOCKED issue asks first — start anyway, or
-    /// build on the blocker's pull request. Everything else sends straight
-    /// through; a batch, an action run and a chat are never stacked.
+    /// EXP-897/EXP-980: a start on BLOCKED work asks first — start anyway, or
+    /// build on the blocker's pull request. One issue and a batch both ask;
+    /// an action run and a chat never do, and neither does a RESUME (it
+    /// re-enters a run whose blockers were answered when it started, the
+    /// desktop's rule since EXP-897).
     func submit() {
         guard canSubmit, !sending else { return }
-        let blockers = openBlockers
-        if !blockers.isEmpty, let issueId = effectiveChecked.first {
-            blockedPrompt = BlockedStartPrompt(
-                issueId: issueId, identifiers: blockers.map { $0.identifier ?? "" }
-            )
-            return
+        if !resumeActive {
+            let blockers = openBlockers
+            if !blockers.isEmpty {
+                let picked = effectiveChecked
+                blockedPrompt = BlockedStartPrompt(
+                    issueIds: picked,
+                    identifiers: blockers.map { $0.identifier ?? "" },
+                    graph: IssueGraph.blockGraph(
+                        subjectIds: picked, relations: blockerRelations, issues: blockerIssues
+                    ),
+                    issues: blockerIssues
+                )
+                return
+            }
         }
         send(stack: nil)
     }
 
-    /// The reader chose an ordinary run despite the blockers.
+    /// The reader chose an ordinary run despite the blockers — exactly what
+    /// was picked, the whole batch for a batch.
     func startAnyway() {
         blockedPrompt = nil
         send(stack: nil)
     }
 
     /// The reader chose a stacked pull request: the branch is cut from the
-    /// blocker's PR branch and the pull request is based on it. Never sent to
-    /// a machine without `stacked-start` (the alert hides the choice; this
-    /// guard keeps a stale tap from downgrading to a plain run).
+    /// blocker's PR branch and the pull request is based on it. Never sent
+    /// while the shared rule disables the choice (a machine without
+    /// `stacked-start`, a batch, a cycle) — the button is disabled there, and
+    /// this guard keeps a stale tap from downgrading to a plain run.
     func startStacked() {
+        guard let prompt = blockedPrompt, stackDisabledReason(prompt) == nil else { return }
         blockedPrompt = nil
-        guard canStackStart else { return }
         send(stack: true)
     }
 
@@ -834,12 +835,27 @@ final class AgentComposerModel {
     }
 }
 
-/// EXP-897: what the blocked-start prompt shows — the issue it is about and
-/// the identifiers of the blockers, which the alert prints monospaced inside
-/// the sentence (a UIKit alert cannot host chips; every other client renders
-/// `IssueChip`s there, a documented divergence).
+/// EXP-897/EXP-980: what the blocked-start prompt shows — the work it is
+/// about, the identifiers of the blockers outside it, and the transitive chain
+/// the sheet draws under the sentence (`IssueGraphView`). A real sheet, not an
+/// OS alert: an alert cannot host a graph.
 struct BlockedStartPrompt: Identifiable {
-    let issueId: String
+    /// The picked issues, in pick order.
+    let issueIds: [String]
+    /// The open blockers OUTSIDE the picked set, by identifier.
     let identifiers: [String]
-    var id: String { issueId }
+    let graph: IssueGraph.Graph
+    /// The synced rows the graph names its nodes from.
+    let issues: [IssueEntity]
+
+    var id: String { issueIds.joined(separator: ",") }
+
+    /// Two or more picked issues = a batch, which reads differently and can
+    /// never be stacked.
+    var isBatch: Bool { issueIds.count > 1 }
+
+    /// Byte-identical ×4 (`StackStart`).
+    var title: String {
+        isBatch ? StackStart.blockedBatchTitle : StackStart.blockedStartTitle
+    }
 }

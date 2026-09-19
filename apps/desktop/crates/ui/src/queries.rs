@@ -15,6 +15,8 @@ use gpui::{App, AppContext as _};
 use sync::Store;
 
 use domain::board::build_status_groups;
+use domain::issue_graph::{block_counts, BlockCounts, GraphIssue, GraphRelation};
+use domain::issue_nesting::{nest_issue_rows, NestingRelation};
 use domain::rows::{Issue, IssueStatusRow, Label};
 use domain::statuses::{resolve_status_sorted, sort_team_statuses, ResolvedStatus};
 
@@ -32,6 +34,10 @@ pub struct BoardData {
     /// issue id → its labels (for the row label chips), shared behind `Rc`
     /// so per-frame row building clones a handle, not the resolved vec.
     pub labels_by_issue: HashMap<String, Rc<Vec<Label>>>,
+    /// EXP-980: issue id → its `blocks` badge numbers, computed ONCE per
+    /// query over the synced relations and EVERY synced issue (a blocker on
+    /// another board still counts). An issue with neither count is absent.
+    pub block_counts: HashMap<String, BlockCounts>,
 }
 
 /// One status group as the views consume it — [`domain::board::IssueGroup`]
@@ -41,6 +47,12 @@ pub struct BoardData {
 pub struct BoardGroup {
     pub status: ResolvedStatus,
     pub issues: Vec<Rc<Issue>>,
+    /// EXP-980: row-parallel with [`Self::issues`] — the nesting depth each
+    /// row renders at (0 = a root). A sub-issue leaves its own status group
+    /// and follows its parent here, so this vector and `issues` are ONE
+    /// tree-ordered sequence; `domain::tree_guides::guides_for` turns it
+    /// into the elbow connectors.
+    pub depths: Vec<usize>,
 }
 
 /// `use-board-view-data.ts`: one board's issues, grouped by status.
@@ -121,13 +133,83 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
         }
     }
 
+    // EXP-980: the `blocks` badge numbers, once per query. The whole synced
+    // issue set feeds them — a blocker on another board is still in the way,
+    // so scoping them to the list would under-count every row.
+    let all_issues = collections.issues.read(cx);
+    let relation_rows = collections.issue_relations.read(cx);
+    let graph_issues: Vec<GraphIssue<'_>> = all_issues
+        .iter()
+        .map(|issue| GraphIssue {
+            id: &issue.id,
+            identifier: &issue.identifier,
+            status: issue.status.as_wire().unwrap_or_default(),
+        })
+        .collect();
+    let graph_relations: Vec<GraphRelation<'_>> = relation_rows
+        .iter()
+        .map(|row| GraphRelation {
+            kind: row.kind.as_deref().unwrap_or_default(),
+            issue_id: &row.issue_id,
+            related_issue_id: &row.related_issue_id,
+        })
+        .collect();
+    let block_counts = block_counts(&graph_relations, &graph_issues);
+
+    // EXP-980: sub-issues leave their own status group and follow their
+    // parent. The ROOT decided the group and the sort position above; this
+    // only re-threads the rows, so the comparator's work survives.
+    let group_ids: Vec<Vec<String>> = groups
+        .iter()
+        .map(|group| group.issues.iter().map(|issue| issue.id.clone()).collect())
+        .collect();
+    let nesting: Vec<NestingRelation<'_>> = relation_rows
+        .iter()
+        .map(|row| NestingRelation {
+            kind: row.kind.as_deref().unwrap_or_default(),
+            issue_id: &row.issue_id,
+            related_issue_id: &row.related_issue_id,
+        })
+        .collect();
+    let identifiers: HashMap<&str, &str> = groups
+        .iter()
+        .flat_map(|group| group.issues.iter())
+        .map(|issue| (issue.id.as_str(), issue.identifier.as_str()))
+        .collect();
+    let nested = nest_issue_rows(&group_ids, &nesting, |id| {
+        identifiers.get(id).copied().unwrap_or(id).to_string()
+    });
+
     // The grouped issues move behind `Rc` handles (one allocation per issue,
     // no row payload copies) — the list's rows clone these per frame.
-    let groups = groups
+    let mut by_id: HashMap<String, Rc<Issue>> = HashMap::new();
+    let statuses: Vec<ResolvedStatus> = groups
+        .iter()
+        .map(|group| group.status.clone())
+        .collect();
+    for group in groups {
+        for issue in group.issues {
+            by_id.insert(issue.id.clone(), Rc::new(issue));
+        }
+    }
+    let groups: Vec<BoardGroup> = statuses
         .into_iter()
-        .map(|group| BoardGroup {
-            status: group.status,
-            issues: group.issues.into_iter().map(Rc::new).collect(),
+        .zip(nested)
+        .filter(|(_, rows)| !rows.is_empty())
+        .map(|(status, rows)| {
+            let mut issues: Vec<Rc<Issue>> = Vec::with_capacity(rows.len());
+            let mut depths: Vec<usize> = Vec::with_capacity(rows.len());
+            for row in &rows {
+                if let Some(issue) = by_id.get(&row.id) {
+                    issues.push(issue.clone());
+                    depths.push(row.depth);
+                }
+            }
+            BoardGroup {
+                status,
+                issues,
+                depths,
+            }
         })
         .collect();
 
@@ -135,6 +217,7 @@ fn board_data_from(cx: &App, issues: Vec<Issue>, team_id: Option<&str>) -> Board
         is_ready,
         groups,
         labels_by_issue,
+        block_counts,
     }
 }
 
@@ -192,6 +275,9 @@ pub(crate) struct BoardDataKey {
     labels: u64,
     boards: u64,
     issue_statuses: u64,
+    /// EXP-980: the nesting and the `blocks` badges are derived from the
+    /// relation rows, so a relation echo has to re-run the pipeline.
+    issue_relations: u64,
     ready: bool,
     today: String,
 }
@@ -204,6 +290,7 @@ pub(crate) fn board_data_key(cx: &App) -> BoardDataKey {
         labels: collections.labels.read(cx).revision(),
         boards: collections.boards.read(cx).revision(),
         issue_statuses: collections.issue_statuses.read(cx).revision(),
+        issue_relations: collections.issue_relations.read(cx).revision(),
         ready: collections.issues.read(cx).is_ready()
             && collections.boards.read(cx).is_ready()
             && collections.issue_labels.read(cx).is_ready()
@@ -633,13 +720,35 @@ impl MessageInboxEntry {
     }
 }
 
-/// One inbox card — an issue group, a synthetic Support group or an agent
-/// message. Entries are interleaved newest-first by their latest item (web
-/// `inbox-view.tsx` sorts all groups together).
+/// One blocked run (EXP-980): an issue-less `session_blocked` row is its own
+/// entry, like an agent message. Click marks it read and opens the run —
+/// unless the run has been pruned (`session_id` NULL), when the row is still
+/// worth reading but leads nowhere.
+pub struct SessionInboxEntry {
+    pub item: domain::rows::Notification,
+    /// The synced team's name (`None` when the team row hasn't synced).
+    pub team_name: Option<String>,
+}
+
+impl SessionInboxEntry {
+    pub fn unread(&self) -> usize {
+        usize::from(self.item.read_at.is_none())
+    }
+
+    /// The run to open, when it is still synced.
+    pub fn session_id(&self) -> Option<&str> {
+        self.item.session_id.as_deref().filter(|id| !id.is_empty())
+    }
+}
+
+/// One inbox card — an issue group, a synthetic Support group, an agent
+/// message or a blocked run. Entries are interleaved newest-first by their
+/// latest item (web `inbox-view.tsx` sorts all groups together).
 pub enum InboxEntry {
     Issue(InboxGroup),
     Support(SupportInboxGroup),
     Message(MessageInboxEntry),
+    Session(SessionInboxEntry),
 }
 
 impl InboxEntry {
@@ -648,6 +757,7 @@ impl InboxEntry {
             InboxEntry::Issue(group) => group.unread,
             InboxEntry::Support(group) => group.unread,
             InboxEntry::Message(entry) => entry.unread(),
+            InboxEntry::Session(entry) => entry.unread(),
         }
     }
 }
@@ -722,14 +832,15 @@ pub fn support_unread(cx: &App, team_id: &str) -> bool {
         })
 }
 
-/// The issue-less kinds the inbox renders: helpdesk replies (EXP-180) and
-/// agent messages (EXP-801). Any other issue-less kind is unknown-future and
-/// skipped everywhere this is consulted.
+/// The issue-less kinds the inbox renders: helpdesk replies (EXP-180), agent
+/// messages (EXP-801) and blocked runs (EXP-980). Any other issue-less kind is
+/// unknown-future and skipped everywhere this is consulted.
 fn issueless_kind_renderable(kind: Option<&str>) -> bool {
     matches!(
         kind,
         Some(domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY)
             | Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
+            | Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED)
     )
 }
 
@@ -814,18 +925,21 @@ fn build_inbox_entries(
         Issue(String),
         Support(Option<String>),
         Message(String),
+        Session(String),
     }
 
     let mut order: Vec<Key> = Vec::new();
     let mut by_issue: HashMap<String, InboxGroup> = HashMap::new();
     let mut by_support_team: HashMap<Option<String>, SupportInboxGroup> = HashMap::new();
     let mut by_message: HashMap<String, MessageInboxEntry> = HashMap::new();
+    let mut by_session: HashMap<String, SessionInboxEntry> = HashMap::new();
     for notification in notifications {
         let unread = notification.read_at.is_none();
         let Some(issue_id) = notification.issue_id.clone() else {
-            // Issue-less rows are the helpdesk fan-out (EXP-180) or an agent's
-            // message (EXP-801, one entry per row); any other issue-less kind
-            // is unknown-future and skipped.
+            // Issue-less rows are the helpdesk fan-out (EXP-180), an agent's
+            // message (EXP-801) or a blocked run (EXP-980) — the last two one
+            // entry per row; any other issue-less kind is unknown-future and
+            // skipped.
             if !issueless_kind_renderable(notification.kind.as_deref()) {
                 continue;
             }
@@ -837,6 +951,19 @@ fn build_inbox_entries(
                 by_message.insert(
                     notification.id.clone(),
                     MessageInboxEntry {
+                        item: notification,
+                        team_name,
+                    },
+                );
+                continue;
+            }
+            if notification.kind.as_deref()
+                == Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED)
+            {
+                order.push(Key::Session(notification.id.clone()));
+                by_session.insert(
+                    notification.id.clone(),
+                    SessionInboxEntry {
                         item: notification,
                         team_name,
                     },
@@ -889,6 +1016,7 @@ fn build_inbox_entries(
                 .remove(&team_id)
                 .map(InboxEntry::Support),
             Key::Message(id) => by_message.remove(&id).map(InboxEntry::Message),
+            Key::Session(id) => by_session.remove(&id).map(InboxEntry::Session),
         })
         .collect()
 }
@@ -2963,6 +3091,7 @@ mod tests {
                 InboxEntry::Issue(group) => group.issue.id.as_str(),
                 InboxEntry::Support(_) => "support",
                 InboxEntry::Message(_) => "message",
+                InboxEntry::Session(_) => "session",
             })
             .collect();
         assert_eq!(kinds, ["i-2", "support", "i-1"]);
@@ -2996,6 +3125,42 @@ mod tests {
         assert_eq!(second.team_name, None);
         assert_eq!(second.unread(), 0);
         assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 2);
+    }
+
+    /// EXP-980: a blocked run's row is issue-less and names its run — one
+    /// entry each, like an agent message, and a pruned run (`session_id`
+    /// NULL) still renders rather than vanishing.
+    #[test]
+    fn inbox_lists_blocked_runs_one_entry_each() {
+        let blocked = |id: &str, session_id: Option<&str>, created_at: &str, read: bool| {
+            let mut row =
+                notification(id, None, Some("w-1"), "session_blocked", created_at, read);
+            row.session_id = session_id.map(str::to_string);
+            row
+        };
+        let entries = build_inbox_entries(
+            vec![
+                blocked("b-1", Some("s-1"), "2026-07-18T10:00:00Z", false),
+                notification("n-support", None, Some("w-1"), "support_reply", "2026-07-18T09:30:00Z", false),
+                blocked("b-2", None, "2026-07-18T09:00:00Z", false),
+            ],
+            |_| None,
+            |team_id| (team_id == "w-1").then(|| "Acme".to_string()),
+        );
+        assert_eq!(entries.len(), 3);
+        let InboxEntry::Session(first) = &entries[0] else {
+            panic!("expected a Session entry");
+        };
+        assert_eq!(first.item.id, "b-1");
+        assert_eq!(first.session_id(), Some("s-1"));
+        assert_eq!(first.team_name.as_deref(), Some("Acme"));
+        assert!(matches!(&entries[1], InboxEntry::Support(_)));
+        let InboxEntry::Session(second) = &entries[2] else {
+            panic!("expected a Session entry");
+        };
+        // The run is gone; the row stays, it just leads nowhere.
+        assert_eq!(second.session_id(), None);
+        assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 3);
     }
 
     #[test]

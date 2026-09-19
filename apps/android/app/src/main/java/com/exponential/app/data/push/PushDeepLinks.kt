@@ -23,6 +23,9 @@ object PushDeepLinks {
     /** Push `type` of an agent's message (EXP-801) — issue-less, lives in the inbox. */
     const val TYPE_AGENT_MESSAGE = "agent_message"
 
+    /** Push `type` of a blocked coding run (EXP-980) — issue-less, carries a run. */
+    const val TYPE_SESSION_BLOCKED = "session_blocked"
+
     /** Query param carrying the push's recipient through the deep link. */
     const val PARAM_USER_ID = "userId"
 
@@ -30,15 +33,29 @@ object PushDeepLinks {
         data class Issue(val id: String) : Target
         data class SupportThread(val id: String) : Target
 
+        /** The coding run a `session_blocked` push is about (EXP-980). */
+        data class Session(val id: String) : Target
+
         /** The My Work inbox — where an agent's message renders (EXP-801). */
         data object Inbox : Target
     }
 
-    /** What a tapped push should open, or null when it carries no target. */
-    fun target(type: String?, issueId: String?, threadId: String?): Target? = when {
+    /**
+     * What a tapped push should open, or null when it carries no target. A
+     * `session_blocked` push routes to its run; without a run id (pruned since
+     * it was sent) it still lands in the inbox, where its row lives.
+     */
+    fun target(
+        type: String?,
+        issueId: String?,
+        threadId: String?,
+        sessionId: String? = null,
+    ): Target? = when {
         !issueId.isNullOrEmpty() -> Target.Issue(issueId)
         type == TYPE_SUPPORT_REPLY && !threadId.isNullOrEmpty() ->
             Target.SupportThread(threadId)
+        type == TYPE_SESSION_BLOCKED && !sessionId.isNullOrEmpty() -> Target.Session(sessionId)
+        type == TYPE_SESSION_BLOCKED -> Target.Inbox
         type == TYPE_AGENT_MESSAGE -> Target.Inbox
         else -> null
     }
@@ -53,6 +70,7 @@ object PushDeepLinks {
         val base = when (target) {
             is Target.Issue -> "exponential://issue/${target.id}"
             is Target.SupportThread -> "exponential://support/${target.id}"
+            is Target.Session -> "exponential://session/${target.id}"
             Target.Inbox -> "exponential://inbox"
         }
         if (targetUserId.isNullOrEmpty()) return base

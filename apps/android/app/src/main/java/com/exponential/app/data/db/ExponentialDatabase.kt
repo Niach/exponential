@@ -296,9 +296,15 @@ import androidx.room.TypeConverters
     //      (NULL = the kind default every client derives). New column on the
     //      devices shape allowlist; destructive fallback wipes + resyncs so
     //      every row arrives carrying it.
+    // v65 (EXP-980): notifications.session_id — the coding run a
+    //      `session_blocked` row is about (issue-less, like the support and
+    //      agent-message rows before it), so the inbox row and its push both
+    //      land on the run. New column on the notifications shape allowlist;
+    //      destructive fallback wipes + resyncs so every row arrives carrying
+    //      it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 64,
+    version = 65,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -48,6 +48,8 @@ struct IssueListView: View {
     // Inline status/priority editing straight from a row's icon (EXP-247) —
     // non-selection rows only, moderator-gated.
     @State private var inlineEdit: InlineEdit?
+    /// EXP-980: the issue whose blocks mini-graph is up (a row badge tap).
+    @State private var blocksTarget: IssueGraphTarget?
     // Transient feedback under/instead of the bar: no desktop online, relay
     // off. Auto-clears (errors included — the bar is modal enough that a
     // sticky error would just block the list).
@@ -143,6 +145,20 @@ struct IssueListView: View {
                 inlineEditContent(edit, vm: vm)
             }
         }
+        // EXP-980: the row badge's mini-graph — the issue's transitive
+        // blockers and blocked work, a tap on a node opening that issue.
+        .sheet(item: $blocksTarget) { target in
+            if let vm = viewModel {
+                IssueGraphSheet(
+                    graph: vm.blockGraph(forIssueId: target.id),
+                    issues: vm.relationIssues,
+                    onOpenIssue: { id in
+                        blocksTarget = nil
+                        pushRoute(.issue(accountId: accountId, id: id))
+                    }
+                )
+            }
+        }
         .onAppear {
             if viewModel == nil {
                 let vm = IssueListViewModel(
@@ -190,8 +206,10 @@ struct IssueListView: View {
 
             // EXP-314: one group per TEAM STATUS row, in the resolver's order,
             // plus any appended out-of-vocabulary group (see visibleGroups).
-            let groups = vm.visibleGroups
-            if groups.allSatisfy({ vm.issues(forGroup: $0).isEmpty }) {
+            // EXP-980: the rows come back NESTED — sub-issues follow their
+            // root wherever it sits, so a group a nesting emptied is gone.
+            let groups = vm.renderGroups
+            if groups.isEmpty {
                 // An empty board says so instead of
                 // rendering a blank list — and, since EXP-698 r5, carries the
                 // getting-started checklist underneath, exactly like web and
@@ -217,32 +235,37 @@ struct IssueListView: View {
                 .tabBarBottomInset(showsTabBarClearance)
             } else {
                 List {
-                    ForEach(groups, id: \.id) { group in
-                        let statusIssues = vm.issues(forGroup: group)
-                        if !statusIssues.isEmpty {
-                            Section {
-                                // EXP-620: the header is an ordinary row, not a
-                                // `header:` view — plain List pins those, and the
-                                // pinning is what forced an opaque backing on it
-                                // (EXP-578/EXP-593). It sits outside the collapse
-                                // guard so a collapsed group keeps its header.
-                                statusHeader(group: group, count: statusIssues.count, vm: vm)
-                                    .listRowBackground(Color.clear)
-                                    .listRowSeparator(.hidden)
-                                    .listRowInsets(EdgeInsets())
-                                if !vm.collapsedStatuses.contains(group.id) {
-                                    ForEach(statusIssues, id: \.id) { issue in
-                                        // EXP-698 r5: no `.swipeActions`. A
-                                        // swipe peeled the glass card off its
-                                        // background to reveal a system tray no
-                                        // other client has; status and priority
-                                        // are one tap away on the row's own
-                                        // glyphs, and a selection does the rest.
-                                        issueRow(issue: issue, vm: vm)
-                                            .listRowBackground(Color.clear)
-                                            .listRowSeparator(.hidden)
-                                            .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
-                                    }
+                    ForEach(groups) { group in
+                        Section {
+                            // EXP-620: the header is an ordinary row, not a
+                            // `header:` view — plain List pins those, and the
+                            // pinning is what forced an opaque backing on it
+                            // (EXP-578/EXP-593). It sits outside the collapse
+                            // guard so a collapsed group keeps its header.
+                            // EXP-980: the count is the rows DISPLAYED here,
+                            // sub-issues included.
+                            statusHeader(group: group.status, count: group.rows.count, vm: vm)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets())
+                            if !vm.collapsedStatuses.contains(group.id) {
+                                // EXP-965: the elbow connectors, off the rows'
+                                // own depths. The list spaces rows 3pt apart
+                                // (1.5 above + 1.5 below), which the branch
+                                // runs through.
+                                let guides = TreeGuides.compute(depths: group.rows.map(\.depth))
+                                ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, row in
+                                    // EXP-698 r5: no `.swipeActions`. A
+                                    // swipe peeled the glass card off its
+                                    // background to reveal a system tray no
+                                    // other client has; status and priority
+                                    // are one tap away on the row's own
+                                    // glyphs, and a selection does the rest.
+                                    issueRow(issue: row.issue, vm: vm)
+                                        .treeGuides(guides[index], gap: 3)
+                                        .listRowBackground(Color.clear)
+                                        .listRowSeparator(.hidden)
+                                        .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                                 }
                             }
                         }
@@ -503,6 +526,15 @@ struct IssueListView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
+
+                // EXP-980: the blocks badge, right after the title. Tapping
+                // the pill (not the row) opens this issue's mini-graph.
+                if let counts = vm.blockCounts[issue.id] {
+                    BlocksBadge(counts: counts) {
+                        blocksTarget = IssueGraphTarget(id: issue.id)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                }
 
                 // Trailing meta — labels, due date, assignee. ONE fixed-size
                 // group so the row reserves exactly its intrinsic width and
@@ -988,7 +1020,10 @@ struct IssueListView: View {
             )
             return
         }
-        let ids = (viewModel?.issues ?? []).filter { selectedIds.contains($0.id) }.map(\.id)
+        // EXP-980: in the NESTED display order — what the reader sees is the
+        // order the batch goes out in.
+        let ids = (viewModel?.displayOrderedIssues ?? [])
+            .filter { selectedIds.contains($0.id) }.map(\.id)
         exitSelection()
         startNotice = nil
         pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: ids)))

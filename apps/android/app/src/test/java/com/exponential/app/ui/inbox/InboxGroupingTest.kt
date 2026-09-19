@@ -25,13 +25,14 @@ class InboxGroupingTest {
         id: String,
         issueId: String? = null,
         teamId: String? = null,
+        sessionId: String? = null,
         type: String = DomainContract.notificationTypeSupportReply,
         title: String = "title-$id",
         body: String? = null,
         readAt: String? = null,
     ) = NotificationEntity(
-        id = id, userId = "u1", issueId = issueId, teamId = teamId, type = type,
-        title = title, body = body, readAt = readAt, createdAt = ts, updatedAt = ts,
+        id = id, userId = "u1", issueId = issueId, teamId = teamId, sessionId = sessionId,
+        type = type, title = title, body = body, readAt = readAt, createdAt = ts, updatedAt = ts,
     )
 
     private fun issue(id: String) = IssueEntity(
@@ -131,6 +132,42 @@ class InboxGroupingTest {
         assertEquals(1, state.totalUnread)
     }
 
+    /**
+     * EXP-980: a blocked coding run is its own issue-less entry, carrying the
+     * run its tap opens; a row whose run was pruned still renders and only
+     * marks read.
+     */
+    @Test
+    fun blockedRunsAreOneEntryEachAndCarryTheirRun() {
+        val state = buildInboxState(
+            notifications = listOf(
+                notification(
+                    "s1", teamId = "t1", sessionId = "run-1",
+                    type = DomainContract.notificationTypeSessionBlocked,
+                    title = "EXP-12 hit a rate limit", body = "Rate limited · resets in 2h",
+                ),
+                notification(
+                    "s2", teamId = "t1", sessionId = null,
+                    type = DomainContract.notificationTypeSessionBlocked, readAt = ts,
+                ),
+            ),
+            issues = emptyList(),
+            teams = listOf(team("t1", "Acme")),
+        )
+
+        val sessions = state.entries.filterIsInstance<InboxEntry.Session>()
+        assertEquals(2, sessions.size)
+        assertEquals("session:s1", sessions[0].key)
+        assertEquals("Acme", sessions[0].teamName)
+        assertEquals("EXP-12 hit a rate limit", sessions[0].notification.title)
+        assertEquals("run-1", sessions[0].sessionId)
+        assertEquals(1, sessions[0].unread)
+        // The pruned run's row stays, with nothing to open.
+        assertNull(sessions[1].sessionId)
+        assertEquals(0, sessions[1].unread)
+        assertEquals(1, state.totalUnread)
+    }
+
     @Test
     fun issueLessNonSupportRowsStayDropped() {
         val state = buildInboxState(
@@ -190,6 +227,24 @@ class InboxGroupingTest {
         assertEquals(DomainContract.notificationTypeSupportReply, row.type)
     }
 
+    // EXP-980: the shape gained a nullable session_id, set on session_blocked.
+    @Test
+    fun decodesSessionBlockedRowWithSessionId() {
+        val row = json.decodeFromString(
+            NotificationEntity.serializer(),
+            """
+            {"id":"s1","user_id":"u1","issue_id":null,"team_id":"t1","session_id":"run-1",
+             "type":"session_blocked","title":"EXP-12 hit a rate limit",
+             "body":"Rate limited · resets in 2h","read_at":null,
+             "created_at":"$ts","updated_at":"$ts"}
+            """.trimIndent(),
+        )
+        assertNull(row.issueId)
+        assertEquals("t1", row.teamId)
+        assertEquals("run-1", row.sessionId)
+        assertEquals(DomainContract.notificationTypeSessionBlocked, row.type)
+    }
+
     @Test
     fun decodesIssueAnchoredRowWithoutTeamId() {
         val row = json.decodeFromString(
@@ -202,5 +257,6 @@ class InboxGroupingTest {
         )
         assertEquals("i1", row.issueId)
         assertNull(row.teamId)
+        assertNull(row.sessionId)
     }
 }

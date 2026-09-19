@@ -96,6 +96,7 @@ export function MyIssuesView({
           <IssueList
             groups={visibleGroups}
             blockCounts={blockCounts}
+            graphTeamId={team?.id}
             issueLabelMap={issueLabelMap}
             labels={labelList}
             users={users}

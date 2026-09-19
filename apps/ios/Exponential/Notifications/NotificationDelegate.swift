@@ -49,6 +49,15 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
             // Helpdesk pushes (EXP-180) carry a threadId and NO issue keys —
             // route to the Support thread view instead of an issue.
             deepLinkBus.navigateToSupportThread(threadId, userId: userInfo["userId"] as? String)
+        } else if userInfo["type"] as? String == "session_blocked" {
+            // A blocked run (EXP-980) carries no issue keys — its `sessionId`
+            // is the run to open. Without one (the run has been pruned) the
+            // row lives in the inbox and nowhere else, so the tap lands there.
+            if let sessionId = userInfo["sessionId"] as? String {
+                deepLinkBus.navigateToSession(sessionId, userId: userInfo["userId"] as? String)
+            } else {
+                deepLinkBus.navigateToInbox(userId: userInfo["userId"] as? String)
+            }
         } else if userInfo["type"] as? String == "agent_message" {
             // An agent's message (EXP-801) carries no issue keys either — it
             // renders in the My Work inbox, so the tap opens that.

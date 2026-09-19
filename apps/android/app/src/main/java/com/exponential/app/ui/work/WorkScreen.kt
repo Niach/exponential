@@ -556,12 +556,17 @@ fun WorkScreen(
 
     // EXP-897: the badge's overlay — the section follows the face on screen.
     if (graphSheetOpen) {
+        // EXP-980: the Issue face draws the blocks CHAIN, not a chip row.
+        val blocksGraph by graphVm.blocksGraph.collectAsStateWithLifecycle()
+        val graphIssuesById by graphVm.issuesById.collectAsStateWithLifecycle()
         PrGraphSheet(
             graph = graph,
             face = face,
             nowMs = liveClock,
             merging = graphMerging,
             mergeError = graphMergeError,
+            blocksGraph = blocksGraph,
+            issuesById = graphIssuesById,
             onOpenIssue = onOpenIssue,
             onOpenRun = { id ->
                 shownSessionId = id

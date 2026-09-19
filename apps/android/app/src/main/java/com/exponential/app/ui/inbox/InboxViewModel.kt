@@ -81,6 +81,20 @@ sealed interface InboxEntry {
         override val unread: Int get() = if (notification.readAt == null) 1 else 0
         override val key: String get() = "message:${notification.id}"
     }
+
+    /**
+     * One blocked coding run (EXP-980): an issue-less `session_blocked` row,
+     * its own entry like an agent message. Tapping marks it read AND opens the
+     * run; a row whose `session_id` is NULL (the run was pruned) still
+     * renders, and its tap only marks read.
+     */
+    data class Session(val notification: NotificationEntity, val teamName: String?) : InboxEntry {
+        override val unread: Int get() = if (notification.readAt == null) 1 else 0
+        override val key: String get() = "session:${notification.id}"
+
+        /** The run to open, or null once it is gone. */
+        val sessionId: String? get() = notification.sessionId?.takeIf { it.isNotEmpty() }
+    }
 }
 
 data class InboxState(
@@ -93,6 +107,7 @@ private sealed interface GroupKey {
     data class Issue(val issueId: String) : GroupKey
     data class Support(val teamId: String?) : GroupKey
     data class Message(val notificationId: String) : GroupKey
+    data class Session(val notificationId: String) : GroupKey
 }
 
 /**
@@ -115,12 +130,14 @@ internal fun buildInboxState(
         val key = if (iid == null) {
             // Issue-less rows are the helpdesk fan-out (`support_reply`,
             // EXP-180) — grouped per ticket team instead of dropped, with
-            // NULL/unknown team ids collapsing into one generic bucket — or
-            // an agent's message (`agent_message`, EXP-801), one entry each.
+            // NULL/unknown team ids collapsing into one generic bucket — an
+            // agent's message (`agent_message`, EXP-801) or a blocked coding
+            // run (`session_blocked`, EXP-980), one entry each.
             when (n.type) {
                 DomainContract.notificationTypeSupportReply ->
                     GroupKey.Support(n.teamId?.takeIf { teamMap.containsKey(it) })
                 DomainContract.notificationTypeAgentMessage -> GroupKey.Message(n.id)
+                DomainContract.notificationTypeSessionBlocked -> GroupKey.Session(n.id)
                 else -> continue
             }
         } else {
@@ -144,6 +161,10 @@ internal fun buildInboxState(
                 ),
             )
             is GroupKey.Message -> InboxEntry.Message(
+                notification = ns.single(),
+                teamName = ns.single().teamId?.let { teamMap[it]?.name },
+            )
+            is GroupKey.Session -> InboxEntry.Session(
                 notification = ns.single(),
                 teamName = ns.single().teamId?.let { teamMap[it]?.name },
             )
@@ -185,7 +206,11 @@ class InboxViewModel @Inject constructor(
 
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)
 
-    /** Tap on an agent message (EXP-801): mark that one row read. */
+    /**
+     * Tap on an agent message (EXP-801) or a blocked run (EXP-980): mark that
+     * one row read. The blocked-run row's caller ALSO navigates to the run
+     * when it still has one.
+     */
     fun markMessageRead(notification: NotificationEntity) = markRead(listOf(notification))
 
     /**

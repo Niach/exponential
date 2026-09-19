@@ -111,7 +111,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
-             "v45_device_icon"]
+             "v45_device_icon",
+             "v46_notification_session_id"]
         )
     }
 
@@ -149,7 +150,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
-             "v45_device_icon"]
+             "v45_device_icon",
+             "v46_notification_session_id"]
         )
     }
 
@@ -215,7 +217,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
-             "v45_device_icon"]
+             "v45_device_icon",
+             "v46_notification_session_id"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -301,7 +304,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v42_coding_session_batch_issue_ids",
              "v43_coding_session_agent_account",
              "v44_coding_session_agent_title",
-             "v45_device_icon"]
+             "v45_device_icon",
+             "v46_notification_session_id"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1747,6 +1751,45 @@ final class DatabaseMigrationTests: XCTestCase {
                 sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
                     + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
                     + "WHERE \"shape\" = 'devices'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v46 (EXP-980): a store created before `notifications.session_id` existed
+    // must gain it (nullable text — the run a `session_blocked` row taps into)
+    // and get the notifications offset reset, so already-synced rows re-arrive
+    // carrying it.
+    func testNotificationSessionIdColumnAddedToExistingStore() throws {
+        let pool = try makePool("notif-session-id")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v45_device_icon")
+        try pool.write { db in
+            if try db.columns(in: "notifications").contains(where: { $0.name == "session_id" }) {
+                try db.alter(table: "notifications") { t in t.drop(column: "session_id") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('notifications', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "notifications").contains("session_id"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let added = try pool.read { db in
+            try db.columns(in: "notifications").first { $0.name == "session_id" }
+        }
+        XCTAssertNotNil(added)
+        XCTAssertFalse(added?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'notifications'"
             )
         }
         XCTAssertEqual(reset, true)

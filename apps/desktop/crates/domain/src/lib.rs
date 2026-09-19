@@ -34,6 +34,12 @@
 //!   every session list renders (web `lib/session-tree.ts` twin);
 //! * [`tree_guides`] — EXP-965 `guides_for`: the elbow/tee/pass-through
 //!   connector a nested list draws over that nesting, ×4;
+//! * [`issue_nesting`] — EXP-980 `nest_issue_rows`: sub-issues follow their
+//!   parent in EVERY issue list, byte-locked ×4 by
+//!   `packages/domain-contract/fixtures/issue-nesting.json`;
+//! * [`issue_graph`] — EXP-980's `blocks` graph (per-row counts, a picked
+//!   set's outside blockers, the laid-out mini-graph), byte-locked ×4 by
+//!   `fixtures/issue-graph.json`;
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
 //!   `lib/steer-image-message.ts`'s byte-identical twin;
 //! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
@@ -64,6 +70,8 @@ pub mod edit_card;
 pub mod enums;
 pub mod hydrate;
 pub mod image_message;
+pub mod issue_graph;
+pub mod issue_nesting;
 pub mod issue_search;
 pub mod options;
 pub mod pr_graph;

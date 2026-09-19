@@ -66,6 +66,7 @@ export function IssueBlocksBadge({
       </MobilePopoverTrigger>
       <MobilePopoverContent
         align="start"
+        collisionPadding={12}
         mobileTitle={label}
         className="w-auto max-w-[min(36rem,90vw)] p-3"
         data-testid="issue-blocks-overlay"

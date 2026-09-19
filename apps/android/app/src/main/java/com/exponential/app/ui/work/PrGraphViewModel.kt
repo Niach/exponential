@@ -10,6 +10,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.batchRunIssues
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -73,6 +75,26 @@ class PrGraphViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PrGraph.Graph(emptyList(), null, emptyList()))
 
     /**
+     * EXP-980: the subject's BLOCKS graph — the transitive chain the overlay's
+     * Issue face draws where it used to list a flat row of blocker chips. The
+     * same rule and the same view the list badges and the blocked-start dialog
+     * use; empty whenever the subject is an issue-less run.
+     */
+    val blocksGraph: StateFlow<IssueGraph.Graph> = combine(
+        subject,
+        allIssues,
+        dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() },
+    ) { current, issues, relations ->
+        val id = current.issueId
+        if (id == null) EMPTY_GRAPH else IssueGraph.blockGraph(listOf(id), relations, issues)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EMPTY_GRAPH)
+
+    /** The pool the graph's nodes resolve against. */
+    val issuesById: StateFlow<Map<String, IssueEntity>> = allIssues
+        .map { issues -> issues.associateBy { it.id } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
      * EXP-876: the issues the SHOWN run covers when it is a BATCH — what names
      * an issue-less run in the Work screen's header, where "Batch run" told
      * two batches apart no better than it did in the list. Empty for every
@@ -114,3 +136,10 @@ class PrGraphViewModel @Inject constructor(
         }
     }
 }
+
+private val EMPTY_GRAPH = IssueGraph.Graph(
+    nodes = emptyList(),
+    edges = emptyList(),
+    hasCycle = false,
+    truncated = false,
+)

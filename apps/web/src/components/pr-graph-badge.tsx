@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   conceptIcon,
   MobilePopover,
@@ -23,6 +23,7 @@ import {
 import { badgeKind, badgeLabel, prGraph } from "@/lib/pr-graph"
 import { blockGraph, type GraphRelation } from "@/lib/issue-graph"
 import { IssueGraphView } from "@/components/issue-graph"
+import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
 import { MERGE_STACK_LABEL } from "@/lib/pr-stack"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
@@ -90,10 +91,19 @@ export function PrGraphBadge({
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
 
+  // EXP-980: an issue row carries no `team_id` on the client (the issues shape
+  // drops its scoping columns), so `eq(i.teamId, …)` matched NOTHING and the
+  // overlay never resolved a batch partner or a blocker. The team's issues =
+  // the issues of the team's boards.
+  const boardIds = useTeamBoardIds(teamId)
   const { data: issueRows } = useLiveQuery(
     (query) =>
-      query.from({ i: issueCollection }).where(({ i }) => eq(i.teamId, teamId)),
-    [teamId]
+      boardIds.length > 0
+        ? query
+            .from({ i: issueCollection })
+            .where(({ i }) => inArray(i.boardId, boardIds))
+        : undefined,
+    [boardIds.join(`,`)]
   )
   const { data: sessionRows } = useLiveQuery(
     (query) =>

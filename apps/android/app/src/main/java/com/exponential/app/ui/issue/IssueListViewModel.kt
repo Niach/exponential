@@ -21,6 +21,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueDraftEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
+import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
@@ -32,6 +33,8 @@ import com.exponential.app.data.electric.elapsedTicker
 import com.exponential.app.data.electric.isCatchingUp
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
+import com.exponential.app.domain.IssueGraph
+import com.exponential.app.domain.IssueNesting
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
@@ -78,7 +81,19 @@ private const val BULK_CHUNK_SIZE = 200
 // (row id, or `builtin:<key>` for a constructed fallback).
 data class IssueGroup(val status: ResolvedIssueStatus, val issues: List<IssueWithLabels>)
 
-data class IssueWithLabels(val issue: IssueEntity, val labels: List<LabelEntity>)
+data class IssueWithLabels(
+    val issue: IssueEntity,
+    val labels: List<LabelEntity>,
+    // EXP-980: 0 = a root row, +1 per nesting level ([IssueNesting]). A
+    // sub-issue sits in its ROOT's group, wherever its own status is.
+    val depth: Int = 0,
+    // …which is why the row carries its OWN resolved status: its group's row
+    // no longer speaks for it. Null = the caller resolves it (My Issues groups
+    // by the cross-team anchor enum).
+    val status: ResolvedIssueStatus? = null,
+    // EXP-980: the blocks badge numbers, null when there is nothing to show.
+    val blocks: IssueGraph.Counts? = null,
+)
 
 // Intermediate result of the heavy group/sort pipeline. Kept separate from
 // IssueListState so the transient UI flags (busy/error/refreshing) can be
@@ -250,12 +265,26 @@ class IssueListViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
+     * EXP-980: every synced issue and every synced relation — ONE observation
+     * each, shared by the grouping pipeline (nesting + the blocks badges) and
+     * by the mini-graph the badge opens. A blocker on another board still
+     * counts, so neither may be scoped to this board.
+     */
+    val allIssues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val relations: StateFlow<List<IssueRelationEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
      * The target board's team issues, newest-first — drives the create
      * screen's `#IDENTIFIER` autocomplete (masterplan §5e). Same scoping as
      * IssueDetailViewModel.issueRefCandidates / the web IssueRefProvider.
      */
     val issueRefCandidates: StateFlow<List<IssueRefTarget>> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+        allIssues,
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
         _board,
         statusesForTeam,
@@ -307,6 +336,10 @@ class IssueListViewModel @Inject constructor(
             dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
             statusesForTeam,
             usersForTeam,
+            // EXP-980: the nesting rows and the blocks badges — computed ONCE
+            // per list change here, never per row.
+            relations,
+            allIssues,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -323,6 +356,10 @@ class IssueListViewModel @Inject constructor(
         val teamStatuses = values[5] as List<ResolvedIssueStatus>
         @Suppress("UNCHECKED_CAST")
         val teamUsers = values[6] as List<UserEntity>
+        @Suppress("UNCHECKED_CAST")
+        val relationRows = values[7] as List<IssueRelationEntity>
+        @Suppress("UNCHECKED_CAST")
+        val syncedIssues = values[8] as List<IssueEntity>
 
         val joinsByIssue = joins.groupBy { it.issueId }
         val labelsById = labels.associateBy { it.id }
@@ -335,7 +372,11 @@ class IssueListViewModel @Inject constructor(
 
         val decorated = issues.map { issue ->
             val labelIds = joinsByIssue[issue.id]?.map { it.labelId } ?: emptyList()
-            IssueWithLabels(issue, labelIds.mapNotNull { labelsById[it] })
+            IssueWithLabels(
+                issue = issue,
+                labels = labelIds.mapNotNull { labelsById[it] },
+                status = statusByIssue.getValue(issue.id),
+            )
         }
 
         // One group per team status row, in canonical order; empty groups are
@@ -365,9 +406,17 @@ class IssueListViewModel @Inject constructor(
         val grouped = teamStatuses.map(::groupOf).filter { it.issues.isNotEmpty() } +
             extras.map(::groupOf)
 
+        // EXP-980: sub-issues nest under their parent ACROSS the groups — the
+        // root decides the group and the position — and every row that has
+        // one carries its blocks badge. Both are one pass over the whole list.
+        val nested = nestListRows(grouped.map { it.issues }, relationRows, syncedIssues)
+        val nestedGroups = grouped.mapIndexedNotNull { index, group ->
+            nested[index].takeIf { it.isNotEmpty() }?.let { group.copy(issues = it) }
+        }
+
         GroupedIssueState(
             board = board,
-            groups = grouped,
+            groups = nestedGroups,
             labels = labels,
             users = users,
             teamUsers = teamUsers,
@@ -1119,6 +1168,38 @@ internal const val DRAFT_ARG = "draft"
 // ViewModel — navigation clears it as the screen pops, which would abort the
 // save mid-request. Process-lifetime, mirroring descriptionFlushScope.
 private val draftFlushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+/**
+ * EXP-980: run the shared nesting rule over the WHOLE list at once (the root
+ * decides the group, so a sub-issue moves between groups) and stamp each
+ * surviving row with its depth and its blocks badge counts.
+ *
+ * [groups] are the caller's groups in display order; the result has the same
+ * shape, with a group a nesting emptied coming back empty (the caller hides
+ * it). [syncedIssues] is EVERY synced issue, not just the listed ones — a
+ * blocker on another board still counts towards a badge. Shared by the board
+ * list and My Issues.
+ */
+internal fun nestListRows(
+    groups: List<List<IssueWithLabels>>,
+    relations: List<IssueRelationEntity>,
+    syncedIssues: List<IssueEntity>,
+): List<List<IssueWithLabels>> {
+    val byId = LinkedHashMap<String, IssueWithLabels>()
+    for (rows in groups) {
+        for (row in rows) byId.putIfAbsent(row.issue.id, row)
+    }
+    val counts = IssueGraph.blockCounts(relations, syncedIssues)
+    val nested = IssueNesting.nestIssueRows(
+        groups.map { rows -> rows.map { it.issue.id } },
+        relations,
+    ) { id -> byId[id]?.issue?.identifier ?: id }
+    return nested.map { rows ->
+        rows.mapNotNull { row ->
+            byId[row.id]?.copy(depth = row.depth, blocks = counts[row.id])
+        }
+    }
+}
 
 /**
  * The enum anchor to write for a status that has NO synced row yet (a

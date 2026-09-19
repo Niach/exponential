@@ -166,6 +166,80 @@ pub(crate) fn start_anyway_label() -> &'static str {
     "Start anyway"
 }
 
+/// EXP-897/EXP-980 — the blocked-start dialog's copy, byte-identical ×4 (web
+/// `lib/stack-start.ts`, iOS `StackStart.swift`, Android `StackStart.kt`).
+/// The title and body for ONE picked issue.
+pub(crate) fn blocked_start_title() -> &'static str {
+    "This issue is blocked"
+}
+const BLOCKED_START_BODY_PREFIX: &str = "This issue is blocked by ";
+const BLOCKED_START_BODY_SUFFIX: &str = ". Start anyway, or start a stacked PR?";
+
+/// The title when two or more issues were picked.
+pub(crate) fn blocked_batch_title() -> &'static str {
+    "Some of these issues are blocked"
+}
+
+/// The batch body, above the graph.
+pub(crate) fn blocked_batch_body() -> &'static str {
+    "Open issues outside this batch block it. Start anyway?"
+}
+
+/// The one-issue body sentence: the same prefix and suffix around plain
+/// `#IDENT` identifiers.
+pub(crate) fn blocked_start_body(identifiers: &[String]) -> String {
+    let names: Vec<String> = identifiers
+        .iter()
+        .map(|identifier| format!("#{identifier}"))
+        .collect();
+    format!(
+        "{BLOCKED_START_BODY_PREFIX}{}{BLOCKED_START_BODY_SUFFIX}",
+        names.join(", ")
+    )
+}
+
+/// EXP-980 — why "Stacked PR" is off. It is never HIDDEN any more: the
+/// dialog disables it and captions it with [`stack_disabled_note`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StackDisabledReason {
+    /// These issues block each other — nothing can sit on top.
+    Cycle,
+    /// A batch was picked; a stacked PR starts one issue.
+    Batch,
+    /// The runner device lacks the `stacked-start` capability.
+    Cap,
+}
+
+/// One reason at a time, the most fundamental first: a cycle can never stack,
+/// a batch never does, a missing capability is fixed by an update. `None` =
+/// the stacked start is on.
+pub(crate) fn stack_disabled_reason(
+    picked_count: usize,
+    can_stack: bool,
+    has_cycle: bool,
+) -> Option<StackDisabledReason> {
+    if has_cycle {
+        return Some(StackDisabledReason::Cycle);
+    }
+    if picked_count > 1 {
+        return Some(StackDisabledReason::Batch);
+    }
+    if !can_stack {
+        return Some(StackDisabledReason::Cap);
+    }
+    None
+}
+
+pub(crate) fn stack_disabled_note(reason: StackDisabledReason) -> &'static str {
+    match reason {
+        StackDisabledReason::Cycle => {
+            "These issues block each other in a cycle. Remove one relation to stack them."
+        }
+        StackDisabledReason::Batch => "A stacked PR starts one issue at a time.",
+        StackDisabledReason::Cap => "Update Exponential on this device to start stacked PRs.",
+    }
+}
+
 /// The remote subject half of a [`api::steer::StartSessionInput`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteSubject<'a> {
@@ -538,6 +612,58 @@ mod tests {
     fn the_blocked_start_labels_are_byte_locked() {
         assert_eq!(stack_label(), "Stacked PR");
         assert_eq!(start_anyway_label(), "Start anyway");
+    }
+
+    /// EXP-980: the dialog's titles and bodies, byte for byte — the web, iOS
+    /// and Android constants say exactly this.
+    #[test]
+    fn keeps_the_dialog_copy_byte_identical() {
+        assert_eq!(blocked_start_title(), "This issue is blocked");
+        assert_eq!(blocked_batch_title(), "Some of these issues are blocked");
+        assert_eq!(
+            blocked_batch_body(),
+            "Open issues outside this batch block it. Start anyway?"
+        );
+        assert_eq!(
+            blocked_start_body(&["ABC-12".to_string(), "ABC-13".to_string()]),
+            "This issue is blocked by #ABC-12, #ABC-13. Start anyway, or start a stacked PR?"
+        );
+    }
+
+    /// EXP-980 `stackDisabledReason` → `names one reason, the most
+    /// fundamental first`.
+    #[test]
+    fn names_one_reason_the_most_fundamental_first() {
+        assert_eq!(stack_disabled_reason(1, true, false), None);
+        assert_eq!(
+            stack_disabled_reason(1, false, false),
+            Some(StackDisabledReason::Cap)
+        );
+        assert_eq!(
+            stack_disabled_reason(2, false, false),
+            Some(StackDisabledReason::Batch)
+        );
+        assert_eq!(
+            stack_disabled_reason(2, true, true),
+            Some(StackDisabledReason::Cycle)
+        );
+    }
+
+    /// EXP-980 `stackDisabledReason` → `has a note for every reason`.
+    #[test]
+    fn has_a_note_for_every_reason() {
+        assert_eq!(
+            stack_disabled_note(StackDisabledReason::Cap),
+            "Update Exponential on this device to start stacked PRs."
+        );
+        assert_eq!(
+            stack_disabled_note(StackDisabledReason::Batch),
+            "A stacked PR starts one issue at a time."
+        );
+        assert_eq!(
+            stack_disabled_note(StackDisabledReason::Cycle),
+            "These issues block each other in a cycle. Remove one relation to stack them."
+        );
     }
 
     /// EXP-897: the stacked flag rides the SINGLE-ISSUE remote payload and

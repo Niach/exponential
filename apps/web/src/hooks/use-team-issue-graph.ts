@@ -1,7 +1,11 @@
 import { useMemo } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { Issue, IssueRelation } from "@/db/schema"
-import { issueCollection, issueRelationCollection } from "@/lib/collections"
+import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import type { Board, Issue, IssueRelation } from "@/db/schema"
+import {
+  boardCollection,
+  issueCollection,
+  issueRelationCollection,
+} from "@/lib/collections"
 import { blockCounts, type BlockCounts } from "@/lib/issue-graph"
 
 export interface TeamIssueGraph {
@@ -11,6 +15,25 @@ export interface TeamIssueGraph {
   issues: Issue[]
   /** Per issue id; absent = no open blocker and blocking nothing open. */
   counts: Map<string, BlockCounts>
+}
+
+/**
+ * The team's synced board ids, sorted. An issue row carries NO `team_id` on
+ * the client (the issues shape drops its scoping columns), so "the team's
+ * issues" is always "the issues of the team's boards".
+ */
+export function useTeamBoardIds(teamId: string | undefined): string[] {
+  const { data: boardRows } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query.from({ b: boardCollection }).where(({ b }) => eq(b.teamId, teamId))
+        : undefined,
+    [teamId]
+  )
+  return useMemo(
+    () => ((boardRows ?? []) as Board[]).map((board) => board.id).sort(),
+    [boardRows]
+  )
 }
 
 const EMPTY: TeamIssueGraph = { relations: [], issues: [], counts: new Map() }
@@ -30,12 +53,15 @@ export function useTeamIssueGraph(teamId: string | undefined): TeamIssueGraph {
         : undefined,
     [teamId]
   )
+  const boardIds = useTeamBoardIds(teamId)
   const { data: issueRows } = useLiveQuery(
     (query) =>
-      teamId
-        ? query.from({ i: issueCollection }).where(({ i }) => eq(i.teamId, teamId))
+      boardIds.length > 0
+        ? query
+            .from({ i: issueCollection })
+            .where(({ i }) => inArray(i.boardId, boardIds))
         : undefined,
-    [teamId]
+    [boardIds.join(`,`)]
   )
 
   return useMemo(() => {

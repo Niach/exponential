@@ -42,18 +42,33 @@ final class InboxViewModel {
         var unread: Int { notification.readAt == nil ? 1 : 0 }
     }
 
-    /// One merged stream (web parity): issue groups, Support groups and
-    /// agent messages interleaved by latest activity, newest first.
+    /// One blocked run (EXP-980): an issue-less `session_blocked` row is its
+    /// own entry, like an agent message. Tapping marks it read AND opens the
+    /// run; a row whose `sessionId` is NULL (the run has been pruned) still
+    /// renders and only marks read.
+    struct BlockedRunEntry: Identifiable {
+        let notification: NotificationEntity
+        /// Resolved team name (nil when unresolved); shown only with >1 team.
+        let teamName: String?
+        var id: String { "blocked-run:\(notification.id)" }
+        var unread: Int { notification.readAt == nil ? 1 : 0 }
+        var sessionId: String? { notification.sessionId }
+    }
+
+    /// One merged stream (web parity): issue groups, Support groups, agent
+    /// messages and blocked runs interleaved by latest activity, newest first.
     enum Entry: Identifiable {
         case issue(Group)
         case support(SupportGroup)
         case message(MessageEntry)
+        case blockedRun(BlockedRunEntry)
 
         var id: String {
             switch self {
             case .issue(let group): return "issue:\(group.id)"
             case .support(let group): return group.id
             case .message(let entry): return entry.id
+            case .blockedRun(let entry): return entry.id
             }
         }
 
@@ -62,6 +77,7 @@ final class InboxViewModel {
             case .issue(let group): return group.unread
             case .support(let group): return group.unread
             case .message(let entry): return entry.unread
+            case .blockedRun(let entry): return entry.unread
             }
         }
     }
@@ -145,7 +161,9 @@ final class InboxViewModel {
     /// issue-keyed rows need their issue in the local store (the notifications
     /// shape is static per user, so delivered rows outlive membership and a
     /// left team's rows keep syncing without their issues), and issue-less
-    /// rows are helpdesk support replies or agent messages (EXP-801).
+    /// rows are helpdesk support replies, agent messages (EXP-801) or blocked
+    /// runs (EXP-980 — renderable with or WITHOUT a `sessionId`: the run may
+    /// have been pruned, and the row still has to be readable and clearable).
     /// MainNavigator's tab-bar dot applies the same rule (REV-15) so the dot
     /// can never stay lit over an inbox that shows "You're all caught up"
     /// with no Mark-all-read escape.
@@ -153,6 +171,7 @@ final class InboxViewModel {
         guard let issueId = notification.issueId else {
             return notification.type == DomainContract.notificationTypeSupportReply
                 || notification.type == DomainContract.notificationTypeAgentMessage
+                || notification.type == DomainContract.notificationTypeSessionBlocked
         }
         return issueIds.contains(issueId)
     }
@@ -169,16 +188,23 @@ final class InboxViewModel {
         // Keyed by resolved team id; "" is the generic (NULL/unknown) bucket.
         var supportByTeam: [String: [NotificationEntity]] = [:]
         var messagesById: [String: NotificationEntity] = [:]
+        var blockedRunsById: [String: NotificationEntity] = [:]
         for n in sorted {
             guard Self.isRenderable(n, issueIds: issueIds) else { continue }
             guard let iid = n.issueId else {
-                // Issue-less rows: an agent message (EXP-801) is one entry
-                // per row; everything else here is support_reply (helpdesk
-                // tickets have no issue). A team_id that doesn't resolve to a
-                // synced team collapses into the generic group — web parity.
+                // Issue-less rows: an agent message (EXP-801) and a blocked
+                // run (EXP-980) are one entry per row; everything else here is
+                // support_reply (helpdesk tickets have no issue). A team_id
+                // that doesn't resolve to a synced team collapses into the
+                // generic group — web parity.
                 if n.type == DomainContract.notificationTypeAgentMessage {
                     order.append("message:\(n.id)")
                     messagesById[n.id] = n
+                    continue
+                }
+                if n.type == DomainContract.notificationTypeSessionBlocked {
+                    order.append("blocked-run:\(n.id)")
+                    blockedRunsById[n.id] = n
                     continue
                 }
                 let teamKey = n.teamId.flatMap { teamsById[$0]?.id } ?? ""
@@ -202,6 +228,12 @@ final class InboxViewModel {
                 guard let n = messagesById[id] else { return nil }
                 let teamName = n.teamId.flatMap { teamsById[$0]?.name }
                 return .message(MessageEntry(notification: n, teamName: teamName))
+            }
+            if key.hasPrefix("blocked-run:") {
+                let id = String(key.dropFirst("blocked-run:".count))
+                guard let n = blockedRunsById[id] else { return nil }
+                let teamName = n.teamId.flatMap { teamsById[$0]?.name }
+                return .blockedRun(BlockedRunEntry(notification: n, teamName: teamName))
             }
             if key.hasPrefix("support:") {
                 let teamKey = String(key.dropFirst("support:".count))
@@ -227,6 +259,10 @@ final class InboxViewModel {
     }
 
     func markMessageRead(_ entry: MessageEntry) {
+        markRead([entry.notification])
+    }
+
+    func markBlockedRunRead(_ entry: BlockedRunEntry) {
         markRead([entry.notification])
     }
 

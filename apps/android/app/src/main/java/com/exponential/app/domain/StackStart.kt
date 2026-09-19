@@ -30,6 +30,55 @@ object StackStart {
     const val BODY_PREFIX = "This issue is blocked by "
     const val BODY_SUFFIX = ". Start anyway, or start a stacked PR?"
 
+    // EXP-980: the dialog also asks for a BATCH (blockers outside the picked
+    // set, [IssueGraph.openBlockersOfSet]), draws the transitive chain as the
+    // mini-graph, and never hides the stacked button: it is DISABLED with one
+    // of the reason notes below. All byte-identical ×4.
+
+    /** The title when two or more issues were picked. */
+    const val BLOCKED_BATCH_TITLE = "Some of these issues are blocked"
+
+    /** The batch body, above the graph. */
+    const val BLOCKED_BATCH_BODY = "Open issues outside this batch block it. Start anyway?"
+
+    /**
+     * Why "Stacked PR" is disabled: the runner device lacks the `stacked-start`
+     * capability (an older app or daemon).
+     */
+    const val STACK_NEEDS_UPDATE_NOTE = "Update Exponential on this device to start stacked PRs."
+
+    /** Why "Stacked PR" is disabled for a batch. */
+    const val STACK_SINGLE_ISSUE_NOTE = "A stacked PR starts one issue at a time."
+
+    /** Why "Stacked PR" is disabled on a blocking cycle. */
+    const val STACK_CYCLE_NOTE =
+        "These issues block each other in a cycle. Remove one relation to stack them."
+
+    /** Why the stacked start is off — [stackDisabledReason]'s vocabulary. */
+    enum class StackDisabledReason { Cycle, Batch, Cap }
+
+    /**
+     * Why the stacked start is off, or null when it is on. One reason at a
+     * time, the most fundamental first: a cycle can never stack, a batch never
+     * does, a missing capability is fixed by an update.
+     */
+    fun stackDisabledReason(
+        pickedCount: Int,
+        canStack: Boolean,
+        hasCycle: Boolean,
+    ): StackDisabledReason? = when {
+        hasCycle -> StackDisabledReason.Cycle
+        pickedCount > 1 -> StackDisabledReason.Batch
+        !canStack -> StackDisabledReason.Cap
+        else -> null
+    }
+
+    fun stackDisabledNote(reason: StackDisabledReason): String = when (reason) {
+        StackDisabledReason.Cycle -> STACK_CYCLE_NOTE
+        StackDisabledReason.Batch -> STACK_SINGLE_ISSUE_NOTE
+        StackDisabledReason.Cap -> STACK_NEEDS_UPDATE_NOTE
+    }
+
     /**
      * The issues that still block [issueId].
      *

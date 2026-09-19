@@ -56,7 +56,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, FixedOffset};
-use domain::contract::NOTIFICATION_TYPE_SUPPORT_REPLY;
+use domain::contract::{NOTIFICATION_TYPE_SESSION_BLOCKED, NOTIFICATION_TYPE_SUPPORT_REPLY};
 use domain::rows::Notification;
 use gpui::{
     AnyWindowHandle, App, AppContext as _, Context, Entity, Global, SharedString,
@@ -194,6 +194,15 @@ fn route_for(row: &Notification) -> Route {
         return Route::Support {
             team_id: row.team_id.clone(),
         };
+    }
+    // EXP-980: a blocked run opens the run it is about; a row whose run has
+    // been pruned falls back to the inbox.
+    if row.kind.as_deref() == Some(NOTIFICATION_TYPE_SESSION_BLOCKED) {
+        if let Some(session_id) = row.session_id.as_deref().filter(|id| !id.is_empty()) {
+            return Route::Session {
+                session_id: session_id.to_string(),
+            };
+        }
     }
     Route::Inbox
 }
@@ -678,6 +687,7 @@ mod tests {
             user_id: "u1".to_string(),
             issue_id: Some(format!("issue-{id}")),
             team_id: None,
+            session_id: None,
             kind: Some("issue_comment".to_string()),
             title: Some(format!("Title {id}")),
             body: Some(format!("Body {id}")),
@@ -693,6 +703,17 @@ mod tests {
             issue_id: None,
             team_id: team_id.map(str::to_string),
             kind: Some(NOTIFICATION_TYPE_SUPPORT_REPLY.to_string()),
+            ..row(id, "2026-08-27T10:00:00+00:00")
+        }
+    }
+
+    /// EXP-980: an issue-less blocked-run row naming its run.
+    fn blocked_row(id: &str, session_id: Option<&str>) -> Notification {
+        Notification {
+            issue_id: None,
+            team_id: Some("team-a".to_string()),
+            session_id: session_id.map(str::to_string),
+            kind: Some(NOTIFICATION_TYPE_SESSION_BLOCKED.to_string()),
             ..row(id, "2026-08-27T10:00:00+00:00")
         }
     }
@@ -785,6 +806,17 @@ mod tests {
                 team_id: Some("team-b".to_string())
             }
         );
+        // EXP-980: a blocked run opens the run; a pruned one falls back to
+        // the inbox rather than routing nowhere.
+        let blocked = compose(&[blocked_row("b", Some("s-1"))]).unwrap();
+        assert_eq!(
+            blocked.route,
+            Route::Session {
+                session_id: "s-1".to_string()
+            }
+        );
+        let pruned = compose(&[blocked_row("b", None)]).unwrap();
+        assert_eq!(pruned.route, Route::Inbox);
     }
 
     #[test]

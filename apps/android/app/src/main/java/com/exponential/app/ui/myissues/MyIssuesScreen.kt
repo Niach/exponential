@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,10 +27,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.TreeGuides
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.LongPressIssueRow
 import com.exponential.app.ui.theme.TextEmphasis
@@ -49,6 +52,20 @@ fun MyIssuesListContent(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
+    // EXP-980: the row whose blocks badge opened the mini-graph (null = none).
+    var graphIssueId by remember { mutableStateOf<String?>(null) }
+
+    graphIssueId?.let { subjectId ->
+        val graphIssues by viewModel.allIssues.collectAsStateWithLifecycle()
+        val graphRelations by viewModel.relations.collectAsStateWithLifecycle()
+        IssueGraphSheet(
+            subjectIds = listOf(subjectId),
+            issues = graphIssues,
+            relations = graphRelations,
+            onOpenIssue = onOpenIssue,
+            onDismiss = { graphIssueId = null },
+        )
+    }
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
@@ -76,23 +93,34 @@ fun MyIssuesListContent(
                     )
                 }
                 if (!isCollapsed) {
-                    items(group.issues, key = { it.issue.id }) { entry ->
-                        // Rows span boards — the identifier's board
-                        // prefix ({PREFIX}-{n}) disambiguates; the assignee
-                        // avatar is omitted (it's always me).
-                        LongPressIssueRow(
-                            issue = entry.issue,
-                            labels = entry.labels,
-                            assignee = null,
-                            canMutate = true,
-                            onMarkDone = {
-                                viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
-                            },
-                            onMoveToBacklog = {
-                                viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Backlog)
-                            },
-                            onClick = { onOpenIssue(entry.issue.id) },
-                        )
+                    // EXP-980/965: sub-issues hang off their parent with the
+                    // shared elbow connector.
+                    val guides = TreeGuides.compute(group.issues.map { it.depth })
+                    itemsIndexed(group.issues, key = { _, it -> it.issue.id }) { index, entry ->
+                        TreeGuidesRow(
+                            depth = entry.depth,
+                            guide = guides.getOrNull(index),
+                            gap = RowGap,
+                        ) {
+                            // Rows span boards — the identifier's board
+                            // prefix ({PREFIX}-{n}) disambiguates; the assignee
+                            // avatar is omitted (it's always me).
+                            LongPressIssueRow(
+                                issue = entry.issue,
+                                labels = entry.labels,
+                                assignee = null,
+                                canMutate = true,
+                                blocks = entry.blocks,
+                                onBlocksClick = { graphIssueId = entry.issue.id },
+                                onMarkDone = {
+                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Done)
+                                },
+                                onMoveToBacklog = {
+                                    viewModel.updateIssueStatus(entry.issue.id, IssueStatus.Backlog)
+                                },
+                                onClick = { onOpenIssue(entry.issue.id) },
+                            )
+                        }
                     }
                 }
             }
@@ -138,3 +166,6 @@ private fun GroupHeader(
         )
     }
 }
+
+/** The list's own row spacing — what a nesting connector has to bridge. */
+private val RowGap = 3.dp

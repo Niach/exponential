@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.PrStack
@@ -36,6 +37,7 @@ import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
+import com.exponential.app.ui.components.IssueGraphList
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TreeGuidesRow
@@ -113,6 +115,10 @@ fun PrGraphSheet(
     nowMs: Long,
     merging: Boolean,
     mergeError: MergeFailure?,
+    // EXP-980: the subject's blocks graph and the pool its nodes resolve
+    // against — the Issue face draws the CHAIN instead of a flat chip row.
+    blocksGraph: IssueGraph.Graph,
+    issuesById: Map<String, IssueEntity>,
     onOpenIssue: (String) -> Unit,
     onOpenRun: (String) -> Unit,
     onMergeStack: (String) -> Unit,
@@ -127,9 +133,18 @@ fun PrGraphSheet(
     ) {
         when (face) {
             WorkFaceKind.Issue -> {
-                if (graph.blockedBy.isNotEmpty()) {
+                // EXP-980: the flat "Blocked by" chip row became the MINI-GRAPH
+                // — the same one the list badges and the blocked-start dialog
+                // draw, so a chain of blockers reads as a chain. "In batch
+                // with" stays a chip row: a batch has no order to show.
+                val blocked = graph.blockedBy.isNotEmpty()
+                if (blocked) {
                     SectionHeader("Blocked by")
-                    IssueChipRow(graph.blockedBy) { onDismiss(); onOpenIssue(it) }
+                    IssueGraphList(
+                        graph = blocksGraph,
+                        issuesById = issuesById,
+                        onOpenIssue = { onDismiss(); onOpenIssue(it) },
+                    )
                 }
                 val siblings = graph.batch?.issues.orEmpty()
                     .filter { it.id != graph.subjectIssueId }
@@ -137,7 +152,7 @@ fun PrGraphSheet(
                     SectionHeader("In batch with")
                     IssueChipRow(siblings) { onDismiss(); onOpenIssue(it) }
                 }
-                if (graph.blockedBy.isEmpty() && siblings.isEmpty()) {
+                if (!blocked && siblings.isEmpty()) {
                     EmptyNote("Nothing else is linked to this issue.")
                 }
             }

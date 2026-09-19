@@ -53,6 +53,8 @@ fun PersonalScreen(
     onOpenSupport: () -> Unit,
     // EXP-878: a draft row resumes the create screen on the draft's own board.
     onOpenDraft: (boardId: String, draftId: String) -> Unit = { _, _ -> },
+    // EXP-980: a blocked-run inbox row opens the run it is about.
+    onOpenSession: (String) -> Unit = {},
     inboxViewModel: InboxViewModel = hiltViewModel(),
     draftsViewModel: DraftsViewModel = hiltViewModel(),
 ) {
@@ -122,6 +124,7 @@ fun PersonalScreen(
                 else -> InboxListContent(
                     onOpenIssue = onOpenIssue,
                     onOpenSupport = onOpenSupport,
+                    onOpenSession = onOpenSession,
                     viewModel = inboxViewModel,
                 )
             }

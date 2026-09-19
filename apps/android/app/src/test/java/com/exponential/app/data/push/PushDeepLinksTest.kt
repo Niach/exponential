@@ -60,6 +60,48 @@ class PushDeepLinksTest {
         )
     }
 
+    /**
+     * EXP-980: a blocked run routes to the run; with no run id left (pruned
+     * since the push was sent) it still lands in the inbox, where its row is.
+     */
+    @Test
+    fun `a blocked run push targets the run`() {
+        assertEquals(
+            PushDeepLinks.Target.Session("run-1"),
+            PushDeepLinks.target(
+                type = PushDeepLinks.TYPE_SESSION_BLOCKED,
+                issueId = null,
+                threadId = null,
+                sessionId = "run-1",
+            ),
+        )
+        assertEquals(
+            "exponential://session/run-1?userId=user-1",
+            PushDeepLinks.uri(PushDeepLinks.Target.Session("run-1"), "user-1"),
+        )
+        assertEquals(
+            PushDeepLinks.Target.Inbox,
+            PushDeepLinks.target(
+                type = PushDeepLinks.TYPE_SESSION_BLOCKED,
+                issueId = null,
+                threadId = null,
+                sessionId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `a session id without the blocked type is ignored`() {
+        assertNull(
+            PushDeepLinks.target(
+                type = "issue_comment",
+                issueId = null,
+                threadId = null,
+                sessionId = "run-1",
+            ),
+        )
+    }
+
     @Test
     fun `a thread id without the support type is ignored`() {
         assertNull(PushDeepLinks.target(type = "issue_comment", issueId = null, threadId = "t1"))

@@ -73,6 +73,7 @@ mod inbox;
 mod invite_link;
 pub mod issue_detail;
 mod issue_files;
+mod issue_graph;
 mod issue_header;
 mod issue_list;
 mod issue_chip;

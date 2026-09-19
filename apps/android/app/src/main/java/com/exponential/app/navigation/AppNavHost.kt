@@ -150,6 +150,11 @@ fun AppNavHost() {
                     launchSingleTop = true
                     popUpTo("home")
                 }
+            // EXP-980: a blocked run's push tap lands on the run itself. Same
+            // snapshot hazard as the issue route — the session screen reads
+            // its id from SavedStateHandle once.
+            is DeepLinkBus.Target.Session ->
+                navController.navigateDeepLink("steer/${target.id}")
             // EXP-825: the web's `/t/{team}/agent` — the composer, empty.
             DeepLinkBus.Target.Agent ->
                 navController.navigateDeepLink(agentRoute(AgentComposerSeed.EMPTY))
@@ -511,6 +516,8 @@ private fun AuthenticatedNav(
                 onOpenDraft = { boardId, draftId ->
                     navController.navigate("board/$boardId/new?draft=$draftId")
                 },
+                // EXP-980: a blocked-run row opens the run it is about.
+                onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
                 // Support-group taps land on the Support tab (the inbox
                 // ViewModel has already selected the group's team).
                 onOpenSupport = {

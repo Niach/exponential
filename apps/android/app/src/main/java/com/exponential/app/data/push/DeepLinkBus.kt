@@ -26,6 +26,10 @@ class DeepLinkBus @Inject constructor() {
         // renders in the My Work inbox and nowhere else.
         data object Inbox : Target
 
+        // exponential://session/{id} — a session_blocked push tap (EXP-980):
+        // straight to the run that hit the wall.
+        data class Session(val id: String) : Target
+
         // A verified https `/t/{team}/agent` App Link (EXP-825): the Agent
         // page composer, opened with an empty seed on the active account.
         data object Agent : Target
@@ -88,6 +92,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openInbox() {
         _target.value = Target.Inbox
+    }
+
+    fun openSession(id: String) {
+        _target.value = Target.Session(id)
     }
 
     fun openAgent() {

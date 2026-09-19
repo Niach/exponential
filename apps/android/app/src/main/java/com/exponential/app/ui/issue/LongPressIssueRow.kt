@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.IssueGraph
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.icons.ExpIcons
@@ -40,6 +41,9 @@ fun LongPressIssueRow(
     onMarkDone: () -> Unit,
     onMoveToBacklog: () -> Unit,
     onClick: () -> Unit,
+    // EXP-980: the row's blocks badge and the mini-graph its pill opens.
+    blocks: IssueGraph.Counts? = null,
+    onBlocksClick: (() -> Unit)? = null,
 ) {
     var showActions by remember { mutableStateOf(false) }
 
@@ -47,6 +51,8 @@ fun LongPressIssueRow(
         issue = issue,
         labels = labels,
         assignee = assignee,
+        blocks = blocks,
+        onBlocksClick = onBlocksClick,
         onClick = onClick,
         onLongClick = if (canMutate) ({ showActions = true }) else null,
     )

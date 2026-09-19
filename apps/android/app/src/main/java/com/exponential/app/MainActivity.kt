@@ -159,6 +159,10 @@ class MainActivity : ComponentActivity() {
             }
             // agent_message push taps (EXP-801): the My Work inbox.
             "inbox" -> if (switchToPushAccount(linkUserId)) deepLinkBus.openInbox()
+            // session_blocked push taps (EXP-980): the run that hit the wall.
+            "session" -> data.pathSegments.firstOrNull()?.let {
+                if (switchToPushAccount(linkUserId)) deepLinkBus.openSession(it)
+            }
             // Fired by the server's post-GitHub-App-install page: closes the
             // Custom Tab (singleTask clear-top) and lands back on the repo
             // picker, which consumes this and re-fetches the repo list. The
@@ -181,6 +185,7 @@ class MainActivity : ComponentActivity() {
             type = intent.getStringExtra("type"),
             issueId = intent.getStringExtra("issueId"),
             threadId = intent.getStringExtra("threadId"),
+            sessionId = intent.getStringExtra("sessionId"),
         ) ?: return
         if (!switchToPushAccount(intent.getStringExtra("userId"))) return
         // Belt-and-braces beside the savedInstanceState gate: an in-process
@@ -193,6 +198,10 @@ class MainActivity : ComponentActivity() {
             is PushDeepLinks.Target.SupportThread -> {
                 intent.removeExtra("threadId")
                 deepLinkBus.openSupportThread(target.id)
+            }
+            is PushDeepLinks.Target.Session -> {
+                intent.removeExtra("sessionId")
+                deepLinkBus.openSession(target.id)
             }
             PushDeepLinks.Target.Inbox -> {
                 intent.removeExtra("type")

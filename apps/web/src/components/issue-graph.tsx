@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils"
 // members a red one. Phones get the same rows as a list grouped by wave
 // (`IssueGraphList` on the natives); the web keeps the grid and scrolls it.
 
-const NODE_W = 116
+const NODE_W = 172
 const NODE_H = 28
 const WAVE_GAP = 40
 const LANE_GAP = 8

@@ -16,6 +16,12 @@ final class IssueListViewModel {
     /// EXP-314: the team's `issue_statuses` rows (every synced team's rows land
     /// in the pool; `teamStatuses` scopes them to this board's team).
     var statusRows: [IssueStatusEntity] = []
+    /// EXP-980: every synced `issue_relations` row — `parent` rows nest the
+    /// list, `blocks` rows badge it.
+    var relations: [IssueRelationEntity] = []
+    /// The issues at either end of a `blocks` row. A blocker on another board
+    /// still counts, so the badge reads a pool WIDER than this board's rows.
+    var relationIssues: [IssueEntity] = []
     /// Collapsed status GROUP KEYS (`ResolvedIssueStatus.id`), not enum values.
     var collapsedStatuses: Set<String> = []
     var permissions: TeamPermissions = .denied
@@ -69,6 +75,7 @@ final class IssueListViewModel {
                     guard let self else { return }
                     self.board = board
                     self.refreshPermissions(for: board)
+                    self.rebuildRows()
                 }
             } catch {}
         })
@@ -82,7 +89,37 @@ final class IssueListViewModel {
         observationTasks.append(Task { [weak self] in
             do {
                 for try await issues in issueObservation.values(in: pool) {
-                    self?.issues = issues
+                    guard let self else { return }
+                    self.issues = issues
+                    self.rebuildRows()
+                }
+            } catch {}
+        })
+
+        // EXP-980: the relation rows the list nests (`parent`) and badges
+        // (`blocks`) with, plus the issues at either end of a `blocks` row —
+        // a blocker on ANOTHER board still counts, so the badge's pool is
+        // wider than this board's. One tracked read, like PrGraphModel's.
+        let relationObservation = ValueObservation.tracking {
+            db -> ([IssueRelationEntity], [IssueEntity]) in
+            let relations = try IssueRelationEntity.fetchAll(db)
+            let ids = Array(Set(
+                relations
+                    .filter { $0.type == IssueRelationType.blocks.rawValue }
+                    .flatMap { [$0.issueId, $0.relatedIssueId] }
+            ))
+            let issues = ids.isEmpty
+                ? []
+                : try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
+            return (relations, issues)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await (relations, issues) in relationObservation.values(in: pool) {
+                    guard let self else { return }
+                    self.relations = relations
+                    self.relationIssues = issues
+                    self.rebuildRows()
                 }
             } catch {}
         })
@@ -107,7 +144,9 @@ final class IssueListViewModel {
         observationTasks.append(Task { [weak self] in
             do {
                 for try await rows in statusObservation.values(in: pool) {
-                    self?.statusRows = rows
+                    guard let self else { return }
+                    self.statusRows = rows
+                    self.rebuildRows()
                 }
             } catch {}
         })
@@ -215,21 +254,72 @@ final class IssueListViewModel {
         )
     }
 
+    // MARK: - Rendered rows (EXP-980)
+
+    /// One rendered group: a status row and the rows displayed under it (a
+    /// group a nesting emptied is dropped, so every group here has rows).
+    struct RenderGroup: Identifiable {
+        let status: ResolvedIssueStatus
+        let rows: [NestedIssueRow]
+        var id: String { status.id }
+    }
+
+    /// The list, nested and ready to draw. Recomputed ONCE per incoming change
+    /// (not per row) — the nesting rule runs over ALL groups at once, because
+    /// a sub-issue follows its ROOT out of its own status group.
+    private(set) var renderGroups: [RenderGroup] = []
+
+    /// EXP-980: the per-row blocks badge numbers, computed once per list
+    /// change over the synced relation rows and their issues.
+    private(set) var blockCounts: [String: IssueGraph.BlockCounts] = [:]
+
+    /// The rows in DISPLAY order, flattened — what anything that used to walk
+    /// the flat list reads now (the selection bar's start payload).
+    var displayOrderedIssues: [IssueEntity] {
+        renderGroups.flatMap { $0.rows.map(\.issue) }
+    }
+
+    /// The mini-graph a row's badge opens: the issue's transitive blockers and
+    /// blocked work over the same pool the counts came from.
+    func blockGraph(forIssueId issueId: String) -> IssueGraph.Graph {
+        IssueGraph.blockGraph(
+            subjectIds: [issueId], relations: relations, issues: relationIssues
+        )
+    }
+
+    private func rebuildRows() {
+        let groups = visibleGroups
+        let sorted = groups.map { issues(forGroup: $0) }
+        let byId = Dictionary(
+            sorted.flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
+        )
+        let nested = IssueNesting.nestIssueRows(
+            groups: sorted.map { $0.map(\.id) },
+            relations: relations,
+            identifierOf: { byId[$0]?.identifier ?? $0 }
+        )
+        renderGroups = zip(groups, nested).compactMap { group, rows in
+            let mapped = rows.compactMap { row in
+                byId[row.id].map { NestedIssueRow(issue: $0, depth: row.depth) }
+            }
+            return mapped.isEmpty ? nil : RenderGroup(status: group, rows: mapped)
+        }
+        blockCounts = IssueGraph.blockCounts(relations: relations, issues: relationIssues)
+    }
+
     /// EXP-523: a cheap value that changes exactly when the list's SHAPE does
-    /// — which issues are visible, and which group each one lands in. Bound to
-    /// the List's `.animation(_:value:)` so a status change or an incoming
-    /// sync MOVES rows instead of teleporting them.
-    ///
-    /// Deliberately a hash rather than the rows themselves: `issues(forGroup:)`
-    /// sorts each group, and re-deriving all of that just to compare would
-    /// double the list's cost on every render. This is one O(n) pass with no
-    /// allocation.
+    /// — which issues are visible, which group each one lands in and how deep
+    /// it hangs. Bound to the List's `.animation(_:value:)` so a status change
+    /// or an incoming sync MOVES rows instead of teleporting them. Read off the
+    /// already-built rows: the nesting ran once, this is one O(n) pass over it.
     var layoutSignature: Int {
-        let team = teamStatuses
         var hasher = Hasher()
-        for issue in issues {
-            hasher.combine(issue.id)
-            hasher.combine(IssueStatusResolver.resolve(issue, team: team).id)
+        for group in renderGroups {
+            hasher.combine(group.status.id)
+            for row in group.rows {
+                hasher.combine(row.issue.id)
+                hasher.combine(row.depth)
+            }
         }
         return hasher.finalize()
     }

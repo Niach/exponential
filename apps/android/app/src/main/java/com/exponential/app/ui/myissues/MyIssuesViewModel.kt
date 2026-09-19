@@ -8,13 +8,16 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
+import com.exponential.app.data.db.IssueRelationEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.accountDatabaseFlow
+import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.issueStatusOrder
 import com.exponential.app.domain.sortIssuesForGroup
 import com.exponential.app.ui.issue.IssueWithLabels
+import com.exponential.app.ui.issue.nestListRows
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,6 +55,20 @@ class MyIssuesViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    /**
+     * EXP-980: every synced issue and relation — the nesting rows, the blocks
+     * badges and the mini-graph the badge opens. A parent or a blocker that is
+     * NOT assigned to me still has to resolve, so neither may be scoped to the
+     * assignee.
+     */
+    val allIssues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val relations: StateFlow<List<IssueRelationEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val state: StateFlow<MyIssuesState> =
         combine(dbFlow, auth.userId) { db, userId -> db to userId }
             .flatMapLatest { (db, userId) ->
@@ -63,8 +80,9 @@ class MyIssuesViewModel @Inject constructor(
                         db.boardDao().observeAll(),
                         db.labelDao().observeAll(),
                         db.issueLabelDao().observeAllJoins(),
-                    ) { issues, boards, labels, joins ->
-                        buildState(issues, boards, labels, joins)
+                        combine(relations, allIssues) { rows, synced -> rows to synced },
+                    ) { issues, boards, labels, joins, graph ->
+                        buildState(issues, boards, labels, joins, graph.first, graph.second)
                     }
                 }
             }
@@ -75,6 +93,8 @@ class MyIssuesViewModel @Inject constructor(
         boards: List<BoardEntity>,
         labels: List<LabelEntity>,
         joins: List<IssueLabelEntity>,
+        relations: List<IssueRelationEntity>,
+        syncedIssues: List<IssueEntity>,
     ): MyIssuesState {
         val boardsById = boards.associateBy { it.id }
         val labelsById = labels.associateBy { it.id }
@@ -105,7 +125,14 @@ class MyIssuesViewModel @Inject constructor(
             )
         }.filter { it.issues.isNotEmpty() }
 
-        return MyIssuesState(groups = groups, boardsById = boardsById, loaded = true)
+        // EXP-980: the same nesting + blocks badges the board list runs, over
+        // ALL groups at once — the root decides the group here too.
+        val nested = nestListRows(groups.map { it.issues }, relations, syncedIssues)
+        val nestedGroups = groups.mapIndexedNotNull { index, group ->
+            nested[index].takeIf { it.isNotEmpty() }?.let { group.copy(issues = it) }
+        }
+
+        return MyIssuesState(groups = nestedGroups, boardsById = boardsById, loaded = true)
     }
 
     /**

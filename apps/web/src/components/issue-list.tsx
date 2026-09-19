@@ -87,6 +87,8 @@ interface IssueListProps {
   // EXP-980: per-issue blocks badge counts (`useTeamIssueGraph`), computed
   // once per list.
   blockCounts?: ReadonlyMap<string, BlockCounts>
+  // The team those counts (and the badge's graph) belong to.
+  graphTeamId?: string
   // Enables bulk selection (hover checkboxes on md+, shift-click ranges,
   // Cmd/Ctrl+A, Esc). Undefined = bulk select off. Selection also requires
   // canModerate.
@@ -207,6 +209,8 @@ interface IssueRowProps {
   /** EXP-980: open blockers / open blocked issues; both 0 = no badge. */
   blockedBy: number
   blocking: number
+  /** The badge's graph scope. An issue row carries no team id itself. */
+  graphTeamId: string | undefined
 }
 
 // REV-46: memoized so a selection toggle reconciles only the toggled row —
@@ -236,6 +240,7 @@ const IssueRow = memo(function IssueRow({
   guideKey,
   blockedBy,
   blocking,
+  graphTeamId,
 }: IssueRowProps) {
   const guide = useMemo(
     () => (guideKey ? (JSON.parse(guideKey) as TreeGuide) : null),
@@ -353,10 +358,10 @@ const IssueRow = memo(function IssueRow({
         </div>
         <span className="flex items-center gap-1.5 text-sm truncate md:ml-2 min-w-0 max-md:flex-1">
           <span className="truncate">{issue.title}</span>
-          {(blockedBy > 0 || blocking > 0) && (
+          {(blockedBy > 0 || blocking > 0) && graphTeamId && (
             <IssueBlocksBadge
               issueId={issue.id}
-              teamId={issue.teamId}
+              teamId={graphTeamId}
               blockedBy={blockedBy}
               blocking={blocking}
             />
@@ -449,6 +454,7 @@ export function IssueList({
   emptyStateExtra,
   renderRowAction,
   blockCounts: counts = NO_COUNTS,
+  graphTeamId,
   bulkTeamId,
   selectedIds = EMPTY_SELECTION,
   onSelectedIdsChange: setSelectedIds = noopSetSelectedIds,
@@ -812,6 +818,7 @@ export function IssueList({
                     guideKey={guideKeys[index] ?? ``}
                     blockedBy={counts.get(issue.id)?.blockedBy ?? 0}
                     blocking={counts.get(issue.id)?.blocking ?? 0}
+                    graphTeamId={graphTeamId}
                   />
                 )
               })}

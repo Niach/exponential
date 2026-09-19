@@ -6,8 +6,9 @@
 //! opens a popover whose SECTION depends on the face that is up, built from
 //! the same row primitives and the same copy so the three read as one thing:
 //!
-//! * **Issue** — "Blocked by" (the canonical `blocks` relations pointing AT
-//!   this issue) and "In batch with" (the other issues on its pull request);
+//! * **Issue** — "Blocked by" (EXP-980: the transitive `blocks` GRAPH around
+//!   this issue, `crate::issue_graph`, where a flat chip list used to sit)
+//!   and "In batch with" (the other issues on its pull request);
 //! * **Run** — the run's session tree, nested, live dots, a click opens a run;
 //! * **Changes / review** — the PR stack BOTTOM-UP: identifier(s), PR state, a
 //!   batch glyph with the batch's issues folded underneath, and "Merge stack"
@@ -44,6 +45,10 @@ pub(crate) struct BadgeSpec {
     pub graph: PrGraph,
     pub face: BadgeFace,
     pub blocked_by: Vec<Issue>,
+    /// EXP-980: the transitive `blocks` graph around the subject issue — the
+    /// Issue face draws THIS where a flat chip list used to sit. Empty on the
+    /// Run and Changes faces (and for an issue-less run).
+    pub blocks_graph: domain::issue_graph::IssueGraph,
 }
 
 impl BadgeSpec {
@@ -100,16 +105,15 @@ pub(crate) fn blocked_by(issue_id: &str, cx: &App) -> Vec<Issue> {
     };
     let collections = store.collections();
     let issues = collections.issues.read(cx);
-    let mut blockers: Vec<Issue> = collections
-        .relations_for_issue(issue_id, cx)
-        .into_iter()
-        .filter(|row| {
-            row.kind.as_deref() == Some(domain::contract::ISSUE_RELATION_TYPE_BLOCKS)
-                && row.related_issue_id == issue_id
-        })
-        .filter_map(|row| issues.get(&row.issue_id).cloned())
-        .filter(|blocker| !status_is_closed(blocker))
-        .collect();
+    // EXP-980: the ONE `openBlockers` rule (`chat_launch::blockers_of`), not
+    // a second copy of it — this used to re-derive the inverse-side filter.
+    let relations = collections.relations_for_issue(issue_id, cx);
+    let mut blockers: Vec<Issue> =
+        crate::chat_launch::blockers_of(issue_id, &relations, |id| issues.get(id))
+            .into_iter()
+            .filter(|blocker| !status_is_closed(blocker))
+            .cloned()
+            .collect();
     blockers.sort_by(|a, b| sync::cmp_identifiers(&a.identifier, &b.identifier));
     blockers.dedup_by(|a, b| a.id == b.id);
     blockers
@@ -139,6 +143,10 @@ pub(crate) fn issue_spec(
         graph: pr_graph::pr_graph(Some(issue), session, &issues, &sessions),
         face,
         blocked_by: blocked_by(&issue.id, cx),
+        blocks_graph: match face {
+            BadgeFace::Issue => crate::issue_graph::graph_for(&[issue.id.as_str()], cx),
+            _ => domain::issue_graph::IssueGraph::default(),
+        },
     }
 }
 
@@ -159,6 +167,7 @@ pub(crate) fn session_spec(session: &CodingSession, face: BadgeFace, cx: &App) -
         graph: pr_graph::pr_graph(None, Some(session), &issues, &sessions),
         face,
         blocked_by: Vec::new(),
+        blocks_graph: domain::issue_graph::IssueGraph::default(),
     }
 }
 
@@ -270,8 +279,18 @@ fn overlay(spec: &BadgeSpec, _window: &mut Window, cx: &App) -> AnyElement {
     let mut column = v_flex().w(px(OVERLAY_W)).min_w_0().gap_2();
     match spec.face {
         BadgeFace::Issue => {
+            // EXP-980: the transitive blocks GRAPH, not a flat chip list —
+            // "blocked by EXP-11" never said what blocks EXP-11.
             if !spec.blocked_by.is_empty() {
-                column = column.child(section("Blocked by", issue_rows(&spec.blocked_by, cx), cx));
+                column = column.child(section(
+                    "Blocked by",
+                    vec![crate::issue_graph::graph_overlay(
+                        &spec.blocks_graph,
+                        OVERLAY_W,
+                        cx,
+                    )],
+                    cx,
+                ));
             }
             if let Some(batch) = spec.graph.batch.as_ref() {
                 let others: Vec<Issue> = batch.issues.clone();
@@ -649,6 +668,7 @@ mod tests {
             graph: pr_graph::pr_graph(Some(&issues[0]), None, issues, &[]),
             face,
             blocked_by: Vec::new(),
+            blocks_graph: domain::issue_graph::IssueGraph::default(),
         }
     }
 

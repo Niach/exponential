@@ -537,6 +537,9 @@ const NAV_ROW_GROUP: &str = "list-nav-issue-row";
 const NAV_HEADER_HEIGHT: f32 = 24.;
 const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
 const NAV_ROW_GAP: f32 = 2.;
+/// EXP-980: the `ListNav` row's own left padding (`flat_row_compact`'s
+/// `px_2`) — the base the sub-issue gutters are measured off.
+const NAV_ROW_PAD: f32 = 8.;
 
 /// EXP-923/EXP-965: the space between two rows of the rail's Running section
 /// — the rail's own `gap_1`, as a number, because the connector has to BRIDGE
@@ -560,6 +563,11 @@ enum NavRow {
         /// rows below it into each other's element state.
         index: usize,
         issue: Rc<Issue>,
+        /// EXP-980: the sub-issue connector (the big list's `ListRow::Issue`
+        /// carries the same), off the group's visible depth sequence.
+        guides: domain::tree_guides::Guides,
+        /// EXP-980: the row's `blocks` badge numbers.
+        counts: domain::issue_graph::BlockCounts,
     },
 }
 
@@ -2559,6 +2567,10 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
         Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE) => {
             Icon::new(registry::NOTIFICATION_AGENT_MESSAGE)
         }
+        // EXP-980: a run that hit a rate limit — the registry's waiting glyph.
+        Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED) => {
+            Icon::new(registry::NOTIFICATION_SESSION_BLOCKED)
+        }
         _ => Icon::new(registry::NAV_NOTIFICATIONS),
     }
 }
@@ -2822,6 +2834,7 @@ impl ListPanel {
                     queries::InboxEntry::Issue(group) => self.inbox_issue_row(group, cx),
                     queries::InboxEntry::Support(group) => self.inbox_support_row(group, cx),
                     queries::InboxEntry::Message(entry) => self.inbox_message_row(entry, cx),
+                    queries::InboxEntry::Session(entry) => self.inbox_session_row(entry, cx),
                 })
                 .collect();
             div()
@@ -3172,6 +3185,142 @@ impl ListPanel {
             }))
             // EXP-862: the compact inbox drops the avatar circle (web parity):
             // the type glyph alone leads the row.
+            .child(
+                h_flex()
+                    .size_4()
+                    .flex_shrink_0()
+                    .items_center()
+                    .justify_center()
+                    .child(type_icon.xsmall().text_color(theme.muted_foreground)),
+            )
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .gap_1p5()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_xs()
+                                    .truncate()
+                                    .when(unread, |this| this.font_weight(FontWeight::MEDIUM))
+                                    .text_color(if unread {
+                                        theme.foreground
+                                    } else {
+                                        theme.muted_foreground
+                                    })
+                                    .child(sentence),
+                            )
+                            .when_some(team_name, |this, name| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(name),
+                                )
+                            }),
+                    )
+                    .when_some(body, |this, body| {
+                        this.child(
+                            div()
+                                .w_full()
+                                .text_xs()
+                                .truncate()
+                                .text_color(theme.muted_foreground)
+                                .child(body),
+                        )
+                    }),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_1p5()
+                    .pt_0p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(time),
+                    )
+                    .child(
+                        div()
+                            .size_2()
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .when(unread, |this| this.bg(theme.primary)),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// One blocked-run row (EXP-980): the waiting badge, the title ("EXP-12
+    /// hit a rate limit"), the team name when synced and the reason
+    /// underneath. Click marks it read and opens the run — a pruned run
+    /// (`session_id` NULL) only marks read.
+    fn inbox_session_row(
+        &self,
+        entry: &queries::SessionInboxEntry,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let theme = cx.theme();
+        let theme_radius = theme.radius;
+        let unread = entry.unread() > 0;
+        let unread_ids: Vec<String> = if unread {
+            vec![entry.item.id.clone()]
+        } else {
+            Vec::new()
+        };
+        let session_id = entry.session_id().map(str::to_string);
+        let target_team = entry.item.team_id.clone();
+        let time: SharedString = entry
+            .item
+            .created_at
+            .as_deref()
+            .map(crate::inbox::relative_time)
+            .unwrap_or_default()
+            .into();
+        let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
+        let body: Option<SharedString> = entry
+            .item
+            .body
+            .clone()
+            .filter(|body| !body.trim().is_empty())
+            .map(Into::into);
+        let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
+        let type_icon =
+            notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED));
+        h_flex()
+            .id(SharedString::from(format!("mini-inbox-session-{}", entry.item.id)))
+            .w_full()
+            .items_start()
+            .gap_2()
+            .px_2()
+            .py_1p5()
+            .rounded(theme_radius)
+            .hover(|this| this.bg(theme.list_hover))
+            .cursor_pointer()
+            .on_click(cx.listener(move |this, _, window, cx| {
+                // Web `markGroupRead`, then open the run itself (a
+                // cross-team row switches the window's team first, like the
+                // Support group). A pruned run leads nowhere.
+                mark_group_read(&unread_ids, cx);
+                let Some(session_id) = session_id.clone() else {
+                    return;
+                };
+                if let Some(team_id) = target_team.clone() {
+                    if active_team_id(&this.nav, cx).as_deref() != Some(team_id.as_str()) {
+                        switch_team(window, cx, team_id);
+                    }
+                }
+                crate::session_screen::open_session(&session_id, window, cx);
+            }))
             .child(
                 h_flex()
                     .size_4()
@@ -3815,7 +3964,7 @@ impl ListPanel {
         if !data.is_ready {
             return self.list_skeleton(cx);
         }
-        self.nav_prepare_rows(&data.groups, cx);
+        self.nav_prepare_rows(&data, cx);
         if self.nav_rows.is_empty() {
             return self.list_note(empty_copy, cx);
         }
@@ -3873,10 +4022,17 @@ impl ListPanel {
                 count,
                 collapsed,
             } => self.nav_group_header(status, *count, *collapsed, cx),
-            NavRow::Issue { index, issue } => {
+            NavRow::Issue {
+                index,
+                issue,
+                guides,
+                counts,
+            } => {
                 let statuses = self.nav_row_statuses.clone();
                 let any_selected = !self.nav_selected.is_empty();
-                self.nav_issue_row(*index, issue, &statuses, any_selected, cx)
+                let guides = guides.clone();
+                let counts = *counts;
+                self.nav_issue_row(*index, issue, &statuses, any_selected, &guides, counts, cx)
             }
         };
         div()
@@ -3895,11 +4051,9 @@ impl ListPanel {
     /// to be an undifferentiated run of issues, which is the one thing the
     /// big list never was; web's `board-issue-list-pane.tsx` got the same
     /// header in this wave.
-    fn nav_prepare_rows(
-        &mut self,
-        groups: &[queries::BoardGroup],
-        cx: &mut gpui::Context<Self>,
-    ) {
+    fn nav_prepare_rows(&mut self, data: &queries::BoardData, cx: &mut gpui::Context<Self>) {
+        let groups = &data.groups;
+        let counts = &data.block_counts;
         // EXP-863: the selection's universe for this render — every listed
         // id (the bulk bar's, folded groups included) and the unfolded ones
         // (the Shift-range's); a selected id whose row left the data set
@@ -3944,10 +4098,17 @@ impl ListPanel {
                 index += group.issues.len();
                 continue;
             }
-            for issue in &group.issues {
+            // EXP-980: the connector off this group's own depth sequence.
+            let guides = domain::tree_guides::guides_for(&group.depths);
+            for (position, issue) in group.issues.iter().enumerate() {
                 rows.push(NavRow::Issue {
                     index,
                     issue: issue.clone(),
+                    guides: guides.get(position).cloned().unwrap_or_default(),
+                    counts: counts
+                        .get(issue.id.as_str())
+                        .copied()
+                        .unwrap_or_default(),
                 });
                 index += 1;
             }
@@ -4035,6 +4196,8 @@ impl ListPanel {
         issue: &Rc<Issue>,
         statuses: &Rc<Vec<ResolvedStatus>>,
         any_selected: bool,
+        guides: &domain::tree_guides::Guides,
+        counts: domain::issue_graph::BlockCounts,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let screen = Screen::IssueDetail {
@@ -4100,6 +4263,17 @@ impl ListPanel {
             None,
             cx,
         )
+        // EXP-980: the sub-issue indent + EXP-965's elbow, at the narrow
+        // column's 8px gutter (the rail's running rows' geometry).
+        .relative()
+        .pl(px(NAV_ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
+        .children(crate::tree_guides::guide_layer(guides, NAV_ROW_PAD, NAV_ROW_GAP))
+        .children(crate::issue_graph::blocks_badge(
+            SharedString::from(format!("nav-blocks-{}", issue.id)),
+            &issue.id,
+            counts,
+            cx,
+        ))
         .group(NAV_ROW_GROUP)
         .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
             let modifiers = event.modifiers();
