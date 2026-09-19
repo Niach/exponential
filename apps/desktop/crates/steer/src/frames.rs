@@ -1599,6 +1599,16 @@ pub enum ServerFrame {
     Interrupt,
     /// EXP-861: a viewer revoking one queued message.
     Unqueue { id: String },
+    /// EXP-988/EXP-936: the run's own `exponential_sessions_compact` asked
+    /// the host to compact the agent's context at the next turn boundary;
+    /// `keep` names what the summary must preserve. Declared ahead of the
+    /// behaviour: the publisher ignores it until EXP-936 lands.
+    #[serde(rename_all = "camelCase")]
+    CompactRequest {
+        session_id: String,
+        #[serde(default)]
+        keep: Option<String>,
+    },
     Bye {
         #[serde(default)]
         outcome: Option<String>,
@@ -3285,6 +3295,23 @@ mod tests {
             ServerFrame::parse(r#"{"t":"unqueue","id":"m1"}"#).unwrap(),
             ServerFrame::Unqueue {
                 id: "m1".to_string()
+            }
+        );
+        // EXP-988/EXP-936: the compaction request, relay → publisher; `keep`
+        // is optional on the wire.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"compact_request","sessionId":"s1","keep":"open threads"}"#)
+                .unwrap(),
+            ServerFrame::CompactRequest {
+                session_id: "s1".to_string(),
+                keep: Some("open threads".to_string()),
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"compact_request","sessionId":"s1"}"#).unwrap(),
+            ServerFrame::CompactRequest {
+                session_id: "s1".to_string(),
+                keep: None,
             }
         );
         assert_eq!(ClientFrame::Interrupt.to_json(), r#"{"t":"interrupt"}"#);
