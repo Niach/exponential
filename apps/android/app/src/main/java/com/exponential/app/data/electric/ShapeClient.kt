@@ -702,8 +702,7 @@ class ShapeClient<T : Any>(
 
     /** Data ops (insert/update/partial/delete) in a batch — control msgs excluded. */
     private fun countDataOps(messages: List<ShapeMessage<T>>): Int = messages.count {
-        it is ShapeMessage.Insert || it is ShapeMessage.Update ||
-            it is ShapeMessage.PartialUpdate || it is ShapeMessage.Delete
+        it is ShapeMessage.Insert || it is ShapeMessage.PartialUpdate || it is ShapeMessage.Delete
     }
 
     private fun decodeMessages(body: String): List<ShapeMessage<T>> {
@@ -738,7 +737,13 @@ class ShapeClient<T : Any>(
         val operation = (msg.headers["operation"] as? JsonElement)?.jsonPrimitive?.contentOrNull
         val key = msg.key ?: return null
         val valueJson = msg.value
-        val decodedValue: T? = if (valueJson is JsonObject) {
+        // EXP-985: an `update` is NEVER decoded into T. Electric ships only the
+        // changed columns (plus the PK) on an update, and kotlinx defaults make
+        // that partial decode "successfully" into a full entity whose absent
+        // columns are blank — the draft entity (every column defaulted) lost
+        // its board_id to a timestamp-only update and dropped out of the list.
+        // The raw column bag goes to the column-wise apply instead.
+        val decodedValue: T? = if (operation != "update" && valueJson is JsonObject) {
             try {
                 json.decodeFromJsonElement(valueSerializer, valueJson)
             } catch (error: SerializationException) {
@@ -749,12 +754,10 @@ class ShapeClient<T : Any>(
 
         return when (operation) {
             // A full-row insert that won't decode used to vanish silently; surface
-            // it (the row still arrives on the next refetch). Updates that fail to
-            // decode fall through to PartialUpdate, which tolerant-apply absorbs.
+            // it (the row still arrives on the next refetch).
             "insert" -> decodedValue?.let { ShapeMessage.Insert(key, it) }
                 ?: run { onDecodeDrop(key); null }
-            "update" -> decodedValue?.let { ShapeMessage.Update(key, it) }
-                ?: (valueJson as? JsonObject)?.let { ShapeMessage.PartialUpdate(key, it.toString()) }
+            "update" -> (valueJson as? JsonObject)?.let { ShapeMessage.PartialUpdate(key, it.toString()) }
             "delete" -> ShapeMessage.Delete(key, decodedValue)
             else -> null
         }
