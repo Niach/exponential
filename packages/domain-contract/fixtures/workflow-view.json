@@ -515,5 +515,47 @@
       "finalPrNumber": 12,
       "caption": "#12 · Closed"
     }
+  ],
+  "rowSubtitles": [
+    {
+      "status": "running",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "3 nodes · depth 2 · width 2"
+    },
+    {
+      "status": "paused",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "Paused · 3 nodes · depth 2 · width 2"
+    },
+    {
+      "status": "cancelled",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "Cancelled · 3 nodes · depth 2 · width 2"
+    },
+    {
+      "status": "done",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "3 nodes · depth 2 · width 2"
+    }
   ]
 }

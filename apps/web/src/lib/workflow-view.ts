@@ -293,3 +293,12 @@ export function workflowFinalPrCaption(
 export const RETRY_NODE_LABEL = `Retry`
 export const SKIP_NODE_LABEL = `Skip`
 export const SKIP_NODE_CONFIRM = `Its dependents go on without it. The node's work is not part of the final pull request.`
+
+/** A list row's secondary text: the shape line, led by the status word for
+ *  the two statuses a band alone does not tell apart. */
+export function workflowRowSubtitle(status: string, metrics: WorkflowShape): string {
+  const shape = workflowShapeLine(metrics)
+  if (status === `paused`) return `Paused · ${shape}`
+  if (status === `cancelled`) return `Cancelled · ${shape}`
+  return shape
+}

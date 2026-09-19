@@ -6,6 +6,7 @@ import {
   workflowEdges,
   workflowFinalPrCaption,
   workflowMergeTrain,
+  workflowRowSubtitle,
   workflowStartBlocker,
   workflowTrainStepLabel,
   type TrainStep,
@@ -76,6 +77,12 @@ describe(`workflow view (contract fixture)`, () => {
           c.finalPrNumber
         )
       ).toBe(c.caption)
+    }
+  })
+
+  it(`leads a list row with the status word where the band is not enough`, () => {
+    for (const c of fixture.rowSubtitles) {
+      expect(workflowRowSubtitle(c.status, c.metrics)).toBe(c.subtitle)
     }
   })
 })
