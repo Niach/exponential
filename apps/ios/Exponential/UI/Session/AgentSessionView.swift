@@ -3994,7 +3994,13 @@ private struct FollowPinTracker: ViewModifier {
     /// height, which fires the observer again before the run loop ever
     /// turns. Deferring breaks the re-entrancy and coalesces a burst of
     /// growth samples into a single scroll.
-    private func queueGrowthRepin() {
+    ///
+    /// EXP-975: `stranded` is the one caller that skips the `atBottom` gate.
+    /// A viewport past the content's end shows nothing whoever scrolled
+    /// where, so the pin's state is no reason to leave it there; the scroll
+    /// it issues lands within slack of the end and the pin metrics re-arm
+    /// follow off that movement like any other arrival.
+    private func queueGrowthRepin(stranded: Bool = false) {
         guard !repinQueued else { return }
         let now = Date()
         if now.timeIntervalSince(burstOpenedAt) >= Self.growthBurstWindow {
@@ -4006,7 +4012,7 @@ private struct FollowPinTracker: ViewModifier {
         growthRepins += 1
         Task { @MainActor in
             repinQueued = false
-            guard atBottom, !userScrolling else { return }
+            guard stranded || atBottom, !userScrolling else { return }
             repin()
         }
     }
@@ -4090,6 +4096,20 @@ private struct FollowPinTracker: ViewModifier {
                     // pure layout churn.
                     if new.height > old.height, new.below > 0, atBottom, !userScrolling {
                         queueGrowthRepin()
+                    } else if FeedFollowPolicy.stranded(
+                        below: Double(new.below), slack: Double(slack), userScrolling: userScrolling
+                    ) {
+                        // EXP-975: the content SHRANK under the offset — a
+                        // lazy estimate collapsing after the first burst of a
+                        // fresh run pinned against it, a shorter history
+                        // committing, the window sliding a tall row out — and
+                        // the viewport now hangs past the end over nothing
+                        // but the background. UIKit clamps that offset only
+                        // on the next gesture; the reader saw a black screen
+                        // until they dragged. Same deferred, rate-limited
+                        // scroll as growth, so a strand that keeps re-forming
+                        // can no more storm the layout than growth can.
+                        queueGrowthRepin(stranded: true)
                     }
                 }
         } else {

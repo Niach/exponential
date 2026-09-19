@@ -98,4 +98,31 @@ final class FeedFollowPolicyTests: XCTestCase {
             .hold
         )
     }
+
+    // MARK: - EXP-975: stranded past the end
+
+    // The fresh-run black screen: the lazy content collapsed under a bottom
+    // pin taken against its estimate, leaving the viewport thousands of
+    // points below the real end.
+    func testAViewportFarPastTheEndIsStranded() {
+        XCTAssertTrue(FeedFollowPolicy.stranded(below: -4200, slack: 120, userScrolling: false))
+    }
+
+    // The pin's slack is the tolerance: within it the reader IS at the end.
+    func testWithinSlackPastTheEndIsNotStranded() {
+        XCTAssertFalse(FeedFollowPolicy.stranded(below: -120, slack: 120, userScrolling: false))
+        XCTAssertFalse(FeedFollowPolicy.stranded(below: -40, slack: 120, userScrolling: false))
+    }
+
+    // Content still below the viewport is the growth chaser's case, not this.
+    func testContentBelowTheViewportIsNotStranded() {
+        XCTAssertFalse(FeedFollowPolicy.stranded(below: 300, slack: 120, userScrolling: false))
+        XCTAssertFalse(FeedFollowPolicy.stranded(below: 0, slack: 120, userScrolling: false))
+    }
+
+    // A rubber-band past the end belongs to the gesture; it springs back on
+    // its own and must not be met with a scroll.
+    func testABouncePastTheEndIsNotStranded() {
+        XCTAssertFalse(FeedFollowPolicy.stranded(below: -400, slack: 120, userScrolling: true))
+    }
 }
