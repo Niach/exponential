@@ -65,6 +65,12 @@ final class WorkflowDetailModel {
         WorkflowView.mergeTrain(nodes, gate: gate)
     }
 
+    /// EXP-984 — the run's counters as the detail's Metrics rows. Empty-ish on
+    /// a draft, where the section is hidden anyway.
+    var metricRows: [WorkflowView.MetricRow] {
+        WorkflowView.metricRows(metrics)
+    }
+
     /// The final-PR node's caption, or nil while that node is not drawn.
     var finalPrCaption: String? {
         WorkflowView.finalPrCaption(
@@ -244,6 +250,15 @@ final class WorkflowDetailModel {
         update(WorkflowPatch(launch: next))
     }
 
+    /// EXP-984 — the model the gate's agent reviews run on; nil lets the engine
+    /// pick one.
+    func setReviewModel(_ value: String?) {
+        var next = launch
+        next.agent = agent
+        next.reviewModel = value
+        update(WorkflowPatch(launch: next))
+    }
+
     private func update(_ patch: WorkflowPatch) {
         guard !busy else { return }
         busy = true
@@ -317,6 +332,16 @@ final class WorkflowDetailModel {
         run { accountId, _ in
             try await self.deps.workflowsApi.resolveNode(
                 accountId: accountId, nodeId: nodeId, action: action
+            )
+        }
+    }
+
+    /// EXP-984 — decide a `proposed` node: admit it into the run (the server
+    /// re-plans) or dismiss it, which deletes the row.
+    func admitNode(_ nodeId: String, admit: Bool) {
+        run { accountId, _ in
+            try await self.deps.workflowsApi.admitNode(
+                accountId: accountId, nodeId: nodeId, admit: admit
             )
         }
     }

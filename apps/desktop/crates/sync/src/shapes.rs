@@ -737,6 +737,10 @@ pub const SHAPES: [ShapeSpec; 24] = [
             // engine's serialization edges.
             "checkpoint_at",
             "after_node_ids",
+            // EXP-984: the agent review gate — how many rounds were
+            // submitted, and the latest verdict.
+            "review_round",
+            "review",
             "note",
             "budget",
             "touches",
@@ -1163,6 +1167,10 @@ mod tests {
             // EXP-983: speculative starts read both.
             "checkpoint_at",
             "after_node_ids",
+            // EXP-984: the agent review gate and the node's budget.
+            "review_round",
+            "review",
+            "budget",
         ] {
             assert!(spec.columns.contains(&column), "workflow_nodes needs {column}");
         }

@@ -567,6 +567,17 @@ data class WorkflowNodeEntity(
     @JsonNames("afterNodeIds")
     @Serializable(with = PgUuidArraySerializer::class)
     val afterNodeIds: List<String> = emptyList(),
+    // EXP-984: the agent review gate. `review_round` counts the rounds this
+    // node bounced back to its author (at most
+    // `DomainContract.workflowMaxReviewRounds`, then it waits for a person);
+    // `review` is the latest submitted verdict, a jsonb cell kept as its raw
+    // text and read tolerantly (`workflowNodeReview`) like every other one.
+    @ColumnInfo(name = "review_round")
+    @SerialName("review_round")
+    @JsonNames("reviewRound")
+    @Serializable(with = PgIntSerializer::class)
+    val reviewRound: Int? = 0,
+    @Serializable(with = JsonAsStringSerializer::class) val review: String? = null,
     // EXP-982: why the node is `failed` / `waiting`, in the engine's own words.
     val note: String? = null,
     @Serializable(with = JsonAsStringSerializer::class) val budget: String? = null,

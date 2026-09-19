@@ -14,6 +14,7 @@ import {
   DialogTitle,
   getDeviceIcon,
   GlassGroup,
+  GlassInputRow,
   GlassSectionHeader,
   Input,
   Sheet,
@@ -34,6 +35,7 @@ import {
   type WfRisk,
   type WfStartOn,
   type WorkflowLaunch,
+  type WorkflowNodeBudget,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
@@ -67,23 +69,34 @@ import {
   workflowCycleNote,
   workflowFinalPrCaption,
   workflowMergeTrain,
+  workflowMetricRows,
   workflowNodeKindLabel,
   workflowNodeNeedsApproval,
+  workflowReviewLine,
   workflowShapeLine,
   workflowNodeTitle,
   workflowStartBlocker,
   workflowTrainStepLabel,
+  ADMIT_NODE_LABEL,
+  AGENT_REVIEW_TITLE,
   APPROVE_NODE_LABEL,
+  BUDGET_MINUTES_LABEL,
+  BUDGET_TITLE,
+  BUDGET_TOKENS_LABEL,
   CANCEL_WORKFLOW_CONFIRM,
   CANCEL_WORKFLOW_LABEL,
   CONTRACT_PUBLISHED_LABEL,
   DELETE_WORKFLOW_LABEL,
+  DISMISS_NODE_LABEL,
   MERGE_TRAIN_EMPTY,
   MERGE_TRAIN_TITLE,
+  METRICS_TITLE,
   PAUSE_WORKFLOW_LABEL,
   PLAN_WORKFLOW_LABEL,
+  PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
+  REVIEW_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   START_WORKFLOW_LABEL,
@@ -104,6 +117,12 @@ import {
 // EXP-983: every start rule runs, so the Start picker no longer holds a draft
 // back, and the node panel says the two things a speculative start adds — the
 // contract this node published, and the sibling work it merges in first.
+//
+// EXP-984: the run learns to judge itself and to grow. The node panel gains
+// the agent reviewer's latest verdict, the two decisions a follow-up filed
+// mid-run needs (Admit · Dismiss), and the node's own budget; the
+// configuration gains the model reviews run on; and a started workflow
+// carries its counters under the graph.
 
 const WorkflowIcon = conceptIcon(`nav-workflows`)
 const DeleteIcon = conceptIcon(`ui-delete`)
@@ -399,6 +418,10 @@ export function WorkflowDetail({
         />
       )}
 
+      {workflow.status !== `draft` && (
+        <MetricsSection metrics={workflow.metrics} />
+      )}
+
       <HowItRunsSection workflow={workflow} onSave={save} />
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
@@ -547,6 +570,32 @@ function MergeTrainStrip({
   )
 }
 
+/** EXP-984: the run's counters, straight out of the synced `metrics` jsonb.
+ *  Hidden on a draft: a plan that never ran has nothing to count yet. The
+ *  ROWS are the view helper's call — which ones appear, and how each reads. */
+function MetricsSection({ metrics }: { metrics: Record<string, unknown> }) {
+  const rows = workflowMetricRows(metrics)
+  return (
+    <section className="flex flex-col" data-testid="workflow-metrics">
+      <GlassSectionHeader label={METRICS_TITLE} />
+      <GlassGroup>
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            className="flex items-center gap-3 px-4 py-3"
+            data-testid={`workflow-metric-${row.label}`}
+          >
+            <span className="shrink-0 text-sm text-foreground">{row.label}</span>
+            <span className="ml-auto truncate text-sm text-foreground/70">
+              {row.value}
+            </span>
+          </div>
+        ))}
+      </GlassGroup>
+    </section>
+  )
+}
+
 /** The start configuration, persisted field by field with `workflows.update`.
  *  Same vocabulary as the Agent composer's options line — device, agent,
  *  model, subagent model (claude), effort, account — plus the workflow's own
@@ -680,6 +729,32 @@ function HowItRunsSection({
               if (value !== null) {
                 patchLaunch({
                   subagentModel: value === CLI_DEFAULT_MODEL ? null : value,
+                })
+              }
+            }}
+          />
+        )}
+        {/* EXP-984: only the agent gate reviews anything, so only it has a
+            model to pick. The reviewer is claude whatever the author runs on
+            (a `risk: high` node is never reviewed by its own model). */}
+        {workflow.gate === `agent` && (
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle={REVIEW_MODEL_LABEL}
+            disabled={readOnly}
+            value={launch.reviewModel || CLI_DEFAULT_MODEL}
+            options={[
+              { value: CLI_DEFAULT_MODEL, label: `Default` },
+              ...contract.codingModel.values.map((value) => ({
+                value,
+                label: modelLabel(value),
+              })),
+            ]}
+            onChange={(value) => {
+              if (value !== null) {
+                patchLaunch({
+                  reviewModel: value === CLI_DEFAULT_MODEL ? null : value,
                 })
               }
             }}
@@ -833,7 +908,11 @@ export function WorkflowNodePanel({
     })
     .filter((row): row is Issue => Boolean(row))
 
-  const updateNode = async (patch: { kind?: WfNodeKind; risk?: WfRisk }) => {
+  const updateNode = async (patch: {
+    kind?: WfNodeKind
+    risk?: WfRisk
+    budget?: WorkflowNodeBudget | null
+  }) => {
     onError(null)
     try {
       await trpc.workflows.updateNode.mutate(
@@ -842,6 +921,20 @@ export function WorkflowNodePanel({
       )
     } catch (caught) {
       onError(trpcErrorMessage(caught, `The node could not be updated`))
+    }
+  }
+
+  // EXP-984: a follow-up the run filed for itself. Admitting makes it a node
+  // like any other; dismissing drops it — either way the server replans.
+  const admit = async (admitted: boolean) => {
+    onError(null)
+    try {
+      await trpc.workflows.admitNode.mutate(
+        { nodeId: node.id, admit: admitted },
+        { context: { skipErrorToast: true } }
+      )
+    } catch (caught) {
+      onError(trpcErrorMessage(caught, `The node could not be admitted`))
     }
   }
 
@@ -870,13 +963,22 @@ export function WorkflowNodePanel({
     }
   }
 
+  // A proposal is not part of the run: nothing about it is approved, retried
+  // or skipped until somebody admits it.
+  const proposed = node.state === `proposed`
   // The gate only ever holds an OPEN pull request; once landed there is
   // nothing left to approve or take back.
   const needsApproval =
+    !proposed &&
     node.state === `in_review` &&
     workflowNodeNeedsApproval(gate, node.kind) &&
     !node.approvedAt
-  const canWithdraw = Boolean(node.approvedAt) && node.state !== `landed`
+  const canWithdraw =
+    !proposed && Boolean(node.approvedAt) && node.state !== `landed`
+  const review = readNodeReview(node.review)
+  // The node is history once it landed or was skipped; a budget on it would
+  // never be read again.
+  const canBudget = node.state !== `landed` && node.state !== `skipped`
 
   return (
     <div className="flex flex-col gap-3" data-testid="workflow-node-panel">
@@ -928,6 +1030,15 @@ export function WorkflowNodePanel({
           {node.note}
         </p>
       )}
+      {proposed && (
+        <p
+          className="text-xs text-muted-foreground"
+          data-testid="workflow-node-proposed-note"
+        >
+          {PROPOSED_NODE_NOTE}
+        </p>
+      )}
+      {review && <AgentReviewBlock review={review} />}
       <GlassGroup>
         <Combobox
           triggerVariant="row"
@@ -959,6 +1070,14 @@ export function WorkflowNodePanel({
           }}
         />
       </GlassGroup>
+      {canBudget && (
+        <NodeBudgetBlock
+          key={node.id}
+          nodeId={node.id}
+          budget={node.budget}
+          onSave={(budget) => void updateNode({ budget })}
+        />
+      )}
       {node.touches.length > 0 && (
         <div
           className="flex flex-col gap-0.5"
@@ -1037,7 +1156,28 @@ export function WorkflowNodePanel({
           {WITHDRAW_APPROVAL_LABEL}
         </Button>
       )}
-      {node.state === `failed` && (
+      {proposed && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            data-testid="workflow-node-admit"
+            onClick={() => void admit(true)}
+          >
+            {ADMIT_NODE_LABEL}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            data-testid="workflow-node-dismiss"
+            onClick={() => void admit(false)}
+          >
+            {DISMISS_NODE_LABEL}
+          </Button>
+        </div>
+      )}
+      {/* A budget pause (EXP-984) is resolved the same way as a failure. */}
+      {!proposed && (node.state === `failed` || node.state === `paused`) && (
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
@@ -1078,5 +1218,195 @@ export function WorkflowNodePanel({
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+// ── Agent review (EXP-984) ──────────────────────────────────────────────────
+
+/** What the panel reads off the node's `review` jsonb. TOLERANT: the column is
+ *  written by the engine, so a row from a newer server must never blank the
+ *  panel out — anything unreadable simply reads as absent. */
+interface PanelReview {
+  verdict: string
+  findings: string
+  oracle: { command: string; passed: boolean } | null
+  round: number
+}
+
+function readNodeReview(value: unknown): PanelReview | null {
+  if (!value || typeof value !== `object` || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  if (typeof row.verdict !== `string` || !row.verdict) return null
+  const raw = row.oracle
+  const oracle =
+    raw && typeof raw === `object` && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : null
+  return {
+    verdict: row.verdict,
+    findings: typeof row.findings === `string` ? row.findings : ``,
+    oracle:
+      oracle && typeof oracle.command === `string` && oracle.command
+        ? { command: oracle.command, passed: oracle.passed === true }
+        : null,
+    round:
+      typeof row.round === `number` && Number.isFinite(row.round)
+        ? row.round
+        : 0,
+  }
+}
+
+/** Long findings fold behind "Show more" — the agent-session rule, on the
+ *  panel's smaller budget. */
+const FINDINGS_CLAMP_LINES = 4
+const FINDINGS_CLAMP_CHARS = 280
+
+/** The reviewer's latest verdict: the one line (green for an approval, red for
+ *  requested changes), its findings, and the check it actually ran. */
+function AgentReviewBlock({ review }: { review: PanelReview }) {
+  const [expanded, setExpanded] = useState(false)
+  const approved = review.verdict === `approve`
+  const long =
+    review.findings.length > FINDINGS_CLAMP_CHARS ||
+    review.findings.split(`\n`).length > FINDINGS_CLAMP_LINES
+  return (
+    <div className="flex flex-col gap-1" data-testid="workflow-node-review">
+      <span className="text-xs text-muted-foreground">{AGENT_REVIEW_TITLE}</span>
+      <span
+        className={cn(
+          `text-xs`,
+          approved ? `text-emerald-500` : `text-destructive`
+        )}
+        data-testid="workflow-node-review-line"
+      >
+        {workflowReviewLine(review)}
+      </span>
+      {review.findings && (
+        <p
+          className={cn(
+            `text-xs whitespace-pre-wrap text-muted-foreground`,
+            long && !expanded && `line-clamp-4`
+          )}
+          data-testid="workflow-node-review-findings"
+        >
+          {review.findings}
+        </p>
+      )}
+      {long && (
+        <Button
+          variant="text"
+          size="inline"
+          className="self-start font-medium"
+          data-testid="workflow-node-review-more"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? `Show less` : `Show more`}
+        </Button>
+      )}
+      {review.oracle && (
+        <span
+          className="truncate font-mono text-xs text-muted-foreground"
+          data-testid="workflow-node-review-oracle"
+        >
+          {review.oracle.command}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ── Budgets (EXP-984) ───────────────────────────────────────────────────────
+
+/** Both fields hold a positive integer or nothing at all; anything else reads
+ *  as nothing (and normalises away the moment the field is left). */
+const budgetNumber = (value: unknown): number | null =>
+  typeof value === `number` && Number.isInteger(value) && value > 0
+    ? value
+    : null
+
+const budgetField = (raw: string): number | null => {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+const budgetText = (value: number | null): string =>
+  value === null ? `` : String(value)
+
+/** The node's own ceiling. The engine pauses a node that crosses either one
+ *  and tells the person who started the workflow; editing it follows the issue
+ *  title's rule — a plain field that saves on blur. Both fields empty means no
+ *  budget at all (`budget: null`). */
+function NodeBudgetBlock({
+  nodeId,
+  budget,
+  onSave,
+}: {
+  nodeId: string
+  budget: unknown
+  onSave: (budget: WorkflowNodeBudget | null) => void
+}) {
+  const row =
+    budget && typeof budget === `object` && !Array.isArray(budget)
+      ? (budget as Record<string, unknown>)
+      : {}
+  const minutes = budgetNumber(row.minutes)
+  const tokens = budgetNumber(row.tokens)
+  const [draft, setDraft] = useState({
+    minutes: budgetText(minutes),
+    tokens: budgetText(tokens),
+  })
+  // The row is the truth: an engine write (or another member's edit) lands in
+  // the fields. Our own save echoes back identical, so nothing flickers.
+  useEffect(() => {
+    setDraft({ minutes: budgetText(minutes), tokens: budgetText(tokens) })
+  }, [minutes, tokens])
+
+  const commit = () => {
+    const nextMinutes = budgetField(draft.minutes)
+    const nextTokens = budgetField(draft.tokens)
+    setDraft({
+      minutes: budgetText(nextMinutes),
+      tokens: budgetText(nextTokens),
+    })
+    if (nextMinutes === minutes && nextTokens === tokens) return
+    onSave(
+      nextMinutes === null && nextTokens === null
+        ? null
+        : { minutes: nextMinutes, tokens: nextTokens }
+    )
+  }
+
+  const field = (which: `minutes` | `tokens`, label: string) => (
+    <GlassInputRow
+      id={`workflow-node-budget-${which}-${nodeId}`}
+      label={label}
+      inputMode="numeric"
+      placeholder="None"
+      data-testid={`workflow-node-budget-${which}`}
+      value={draft[which]}
+      onChange={(event) =>
+        setDraft((previous) => ({ ...previous, [which]: event.target.value }))
+      }
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === `Enter`) event.currentTarget.blur()
+        if (event.key === `Escape`) {
+          setDraft({ minutes: budgetText(minutes), tokens: budgetText(tokens) })
+          event.currentTarget.blur()
+        }
+      }}
+    />
+  )
+
+  return (
+    <section className="flex flex-col" data-testid="workflow-node-budget-block">
+      <GlassSectionHeader label={BUDGET_TITLE} />
+      <GlassGroup>
+        {field(`minutes`, BUDGET_MINUTES_LABEL)}
+        {field(`tokens`, BUDGET_TOKENS_LABEL)}
+      </GlassGroup>
+    </section>
   )
 }

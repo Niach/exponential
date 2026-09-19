@@ -288,7 +288,10 @@ class WorkflowViewTest {
     @Test
     fun `the final pull request appears only once everything is in`() {
         val cases = fixture.getValue("finalPr").jsonArray
-        assertTrue(cases.size >= 6)
+        // EXP-984 added the two `proposed` cases: a proposal is not part of
+        // the run, so it neither holds the final PR back nor stands in for a
+        // workflow that has no real nodes at all.
+        assertTrue(cases.size >= 8)
         cases.forEach { element ->
             val case = element.jsonObject
             val states = case.getValue("states").jsonArray.map { it.jsonPrimitive.content }
@@ -358,6 +361,89 @@ class WorkflowViewTest {
                 assertTrue(WorkflowView.nodeNeedsApproval(gate, kind))
             }
         }
+    }
+
+    // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
+
+    @Test
+    fun `every agent review reads as the fixture's one line`() {
+        val cases = fixture.getValue("reviewLines").jsonArray
+        assertTrue(cases.size >= 4)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val review = case.getValue("review").jsonObject
+            assertEquals(
+                case.getValue("line").jsonPrimitive.content,
+                WorkflowView.reviewLine(
+                    WorkflowView.ReviewLine(
+                        verdict = review.getValue("verdict").jsonPrimitive.content,
+                        round = review.getValue("round").jsonPrimitive.int,
+                        // A null oracle = the reviewer ran no check, which is
+                        // what makes an approval advisory.
+                        oraclePassed = (review.getValue("oracle") as? kotlinx.serialization.json.JsonObject)
+                            ?.getValue("passed")?.jsonPrimitive?.boolean,
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `the metrics section is the fixture's rows, in its order`() {
+        val cases = fixture.getValue("metricRows").jsonArray
+        assertTrue(cases.size >= 3)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            // Through the tolerant jsonb read the synced row takes: a counter
+            // a newer server wrote as something other than a number simply
+            // does not count.
+            val counters = workflowMetricCounters(case.getValue("metrics").toString())
+            val expected = case.getValue("rows").jsonArray.map { row ->
+                val obj = row.jsonObject
+                obj.getValue("label").jsonPrimitive.content to
+                    obj.getValue("value").jsonPrimitive.content
+            }
+            assertEquals(
+                expected,
+                WorkflowView.metricRows(counters).map { it.label to it.value },
+            )
+        }
+    }
+
+    @Test
+    fun `the review, proposal, budget and metrics words are the shared ones`() {
+        assertEquals("Admit", WorkflowView.ADMIT_NODE_LABEL)
+        assertEquals("Dismiss", WorkflowView.DISMISS_NODE_LABEL)
+        assertEquals(
+            "Filed during the run. Admit it into the workflow or dismiss it.",
+            WorkflowView.PROPOSED_NODE_NOTE,
+        )
+        assertEquals("Agent review", WorkflowView.AGENT_REVIEW_TITLE)
+        assertEquals("Review model", WorkflowView.REVIEW_MODEL_LABEL)
+        assertEquals("Budget", WorkflowView.BUDGET_TITLE)
+        assertEquals("Minutes", WorkflowView.BUDGET_MINUTES_LABEL)
+        assertEquals("Tokens", WorkflowView.BUDGET_TOKENS_LABEL)
+        assertEquals("Metrics", WorkflowView.METRICS_TITLE)
+    }
+
+    @Test
+    fun `a review's line is read off the synced jsonb cell`() {
+        val review = workflowNodeReview(
+            """
+                {
+                  "verdict": "approve",
+                  "findings": "The contract tests cover the new branch.",
+                  "oracle": {"command": "bun run test", "passed": true},
+                  "model": "opus",
+                  "round": 1,
+                  "at": "2026-09-19 12:00:00+00"
+                }
+            """.trimIndent(),
+        )
+        assertEquals("Approved · round 1 · checks passed", WorkflowView.reviewLine(review!!.line))
+        // A cell with no verdict is nothing to show, never an empty card.
+        assertNull(workflowNodeReview("""{"round": 2}"""))
+        assertNull(workflowNodeReview(null))
     }
 
     @Test

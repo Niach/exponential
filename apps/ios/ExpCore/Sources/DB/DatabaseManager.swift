@@ -1863,6 +1863,36 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v50 (EXP-984 agent review gate): `workflow_nodes.review_round` +
+        // `.review` ride the same shape — how many review rounds the node has
+        // been through and the latest submitted verdict (a jsonb payload stored
+        // as text like `budget`). Same guarded additive ALTERs + offset reset
+        // as v49.
+        migrator.registerMigration("v50_workflow_node_review") { db in
+            guard try db.tableExists("workflow_nodes") else { return }
+            let existing = Set(try db.columns(in: "workflow_nodes").map(\.name))
+            // A counter, like `attempt`: NOT NULL with a 0 default, so a row
+            // synced before the reviewer ever ran still reads as round 0.
+            if !existing.contains("review_round") {
+                try db.alter(table: "workflow_nodes") { t in
+                    t.add(column: "review_round", .integer).notNull().defaults(to: 0)
+                }
+            }
+            if !existing.contains("review") {
+                try db.alter(table: "workflow_nodes") { t in
+                    t.add(column: "review", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the columns.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'workflow-nodes'
+                    """)
+            }
+        }
+
         return migrator
     }
 

@@ -35,14 +35,16 @@ use sync::Store;
 
 use domain::workflow_view::{
     workflow_cycle_note, workflow_edge_style, workflow_final_pr_caption, workflow_merge_train,
-    workflow_node_caption, workflow_node_needs_approval, workflow_node_title, workflow_node_tone,
-    workflow_shape_line, workflow_start_blocker, workflow_train_step_label, CaptionNode, EdgeNode,
-    EdgeRelation, StartableWorkflow, TrainNode, WorkflowNodeTone, APPROVE_NODE_LABEL,
-    CANCEL_WORKFLOW_CONFIRM, CANCEL_WORKFLOW_LABEL, CONTRACT_PUBLISHED_LABEL,
-    DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE, MERGES_IN_FIRST_LABEL, MERGE_TRAIN_EMPTY,
-    MERGE_TRAIN_TITLE, OPEN_RUN_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL,
-    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, SKIP_NODE_CONFIRM, SKIP_NODE_LABEL,
-    START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
+    workflow_metric_rows, workflow_node_caption, workflow_node_needs_approval, workflow_node_title,
+    workflow_node_tone, workflow_review_line, workflow_shape_line, workflow_start_blocker,
+    workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation, ReviewLine, StartableWorkflow,
+    TrainNode, WorkflowNodeTone, ADMIT_NODE_LABEL, AGENT_REVIEW_TITLE, APPROVE_NODE_LABEL,
+    BUDGET_MINUTES_LABEL, BUDGET_TITLE, BUDGET_TOKENS_LABEL, CANCEL_WORKFLOW_CONFIRM,
+    CANCEL_WORKFLOW_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL, DISMISS_NODE_LABEL,
+    FINAL_PR_TITLE, MERGES_IN_FIRST_LABEL, MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
+    OPEN_RUN_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
+    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, SKIP_NODE_CONFIRM,
+    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
 };
 
 use crate::actions_view::page_scaffold_with;
@@ -79,6 +81,19 @@ const START_ON_CHOICES: [(&str, &str); 3] = [
 /// `1` to `8` — the contract's `workflowMaxParallel` cap.
 const MAX_PARALLEL_CAP: usize = 8;
 
+/// EXP-984: the models an AGENT review may run on — claude's, plus the blank
+/// "the engine picks one" (which is the author's model, swapped for a
+/// high-risk node). Shown only under the Agent-review gate.
+const REVIEW_MODEL_CHOICES: [(&str, &str); 4] = [
+    ("Default", ""),
+    ("Fable", "fable"),
+    ("Opus", "opus"),
+    ("Sonnet", "sonnet"),
+];
+
+/// EXP-984: how many lines of a review's findings show before the fold.
+const FINDINGS_PREVIEW_LINES: usize = 4;
+
 pub struct WorkflowView {
     #[allow(dead_code)] // held for the team-switch re-render subscription
     nav: Entity<Navigation>,
@@ -90,6 +105,14 @@ pub struct WorkflowView {
     /// The name last pushed into the input, so a remote rename repaints it
     /// while a local edit in flight does not bounce.
     name_seeded: String,
+    /// EXP-984: the picked node's budget, saved on blur like the name.
+    budget_minutes: Entity<InputState>,
+    budget_tokens: Entity<InputState>,
+    /// The node the two budget fields currently hold, so picking another one
+    /// reseeds them (and a save can never write onto the wrong node).
+    budget_node: Option<String>,
+    /// EXP-984: whether the agent review's findings are unfolded.
+    findings_expanded: bool,
     scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -108,6 +131,23 @@ impl WorkflowView {
                 }
             },
         )];
+        // EXP-984: the node budget's two fields. Both save on blur (and on
+        // Enter), exactly like the workflow name above.
+        let budget_minutes =
+            cx.new(|cx| InputState::new(window, cx).placeholder(BUDGET_MINUTES_LABEL));
+        let budget_tokens =
+            cx.new(|cx| InputState::new(window, cx).placeholder(BUDGET_TOKENS_LABEL));
+        for field in [&budget_minutes, &budget_tokens] {
+            subscriptions.push(cx.subscribe_in(
+                field,
+                window,
+                |this, _, event: &InputEvent, _window, cx| {
+                    if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                        this.save_budget(cx);
+                    }
+                },
+            ));
+        }
         let nav = nav_for_window(window, cx);
         subscriptions.push(cx.observe(&nav, |_, _, cx| cx.notify()));
         if let Some(store) = Store::try_global(cx) {
@@ -133,6 +173,10 @@ impl WorkflowView {
             picked: None,
             name_input,
             name_seeded: String::new(),
+            budget_minutes,
+            budget_tokens,
+            budget_node: None,
+            findings_expanded: false,
             scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
@@ -150,6 +194,10 @@ impl WorkflowView {
         }
         self.workflow_id = workflow_id.to_string();
         self.picked = None;
+        // The budget fields belong to a node of the OLD workflow: forget
+        // them, or the next blur would save onto it.
+        self.budget_node = None;
+        self.findings_expanded = false;
         // Swap the name UNCONDITIONALLY on a workflow switch, or the next
         // blur would write the previous workflow's name onto this one.
         self.name_seeded = String::new();
@@ -190,6 +238,34 @@ impl WorkflowView {
         let mut input = api::workflows::WorkflowUpdate::new(self.workflow_id.clone());
         input.name = Some(name);
         spawn_update(input, cx);
+    }
+
+    /// EXP-984 — save the picked node's budget. Both fields empty (or
+    /// unreadable) is a budget of NOTHING, which clears the column; anything
+    /// else sends the positive whole numbers the server's schema takes.
+    fn save_budget(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(node_id) = self.budget_node.clone() else {
+            return;
+        };
+        let Some(issue_id) = self
+            .nodes(cx)
+            .into_iter()
+            .find(|node| node.id == node_id)
+            .and_then(|node| node.issue_id)
+        else {
+            return;
+        };
+        let minutes = budget_field(&self.budget_minutes, cx);
+        let tokens = budget_field(&self.budget_tokens, cx);
+        let mut input =
+            api::workflows::WorkflowNodeUpdate::new(self.workflow_id.clone(), issue_id);
+        input.budget = match (minutes, tokens) {
+            (None, None) => api::Patch::Null,
+            (minutes, tokens) => {
+                api::Patch::Set(api::workflows::NodeBudget { minutes, tokens })
+            }
+        };
+        spawn_update_node(input, cx);
     }
 
     /// The nodes in the server's layout order, with the issue each one
@@ -312,6 +388,7 @@ impl WorkflowView {
                     },
                     compound: false,
                     glyph: Some(registry::NOTIFICATION_PR_MERGED),
+                    proposed: false,
                 },
             );
         }
@@ -359,18 +436,24 @@ impl WorkflowView {
     /// The picked node's panel: its issue, its members, Kind / Risk, the
     /// `touches` globs and a way into the issue.
     fn render_node_panel(
-        &self,
+        &mut self,
         row: &domain::rows::WorkflowRow,
         nodes: &[domain::rows::WorkflowNodeRow],
+        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        let picked = self.picked.as_deref()?;
-        let node = nodes.iter().find(|node| node.id == picked)?;
+        let picked = self.picked.clone()?;
+        let node = nodes.iter().find(|node| node.id == picked)?.clone();
         let issue_id = node.issue_id.clone()?;
-        let facts = NodeFacts::derive(node, row, cx);
+        // EXP-984: the budget fields follow the picked node.
+        self.seed_budget(&node, window, cx);
+        let facts = NodeFacts::derive(&node, row, cx);
         let muted = cx.theme().muted_foreground;
         let workflow_id = self.workflow_id.clone();
         let draft = row.status_wire() == domain::contract::WF_STATUS_DRAFT;
+        // EXP-984: a node nobody admitted yet is decided on, not run.
+        let proposed = node.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED;
+        let settled = matches!(node.state_wire(), "landed" | "skipped");
 
         let members: Vec<gpui::AnyElement> = node
             .member_ids()
@@ -417,9 +500,48 @@ impl WorkflowView {
                 .when(!members.is_empty(), |this| {
                     this.child(v_flex().min_w_0().gap_1().children(members))
                 })
+                // EXP-984: a node filed mid-run that nobody admitted yet —
+                // what it is, and the two decisions a member can take.
+                .when(proposed, |this| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(PROPOSED_NODE_NOTE)),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("workflow-node-admit")
+                                    .primary()
+                                    .small()
+                                    .icon(Icon::from(registry::UI_CHECK))
+                                    .label(ADMIT_NODE_LABEL)
+                                    .on_click({
+                                        let node_id = node.id.clone();
+                                        move |_, _window, cx| {
+                                            spawn_admit(node_id.clone(), true, cx)
+                                        }
+                                    }),
+                            )
+                            .child(
+                                Button::new("workflow-node-dismiss")
+                                    .ghost()
+                                    .small()
+                                    .label(DISMISS_NODE_LABEL)
+                                    .on_click({
+                                        let node_id = node.id.clone();
+                                        move |_, _window, cx| {
+                                            spawn_admit(node_id.clone(), false, cx)
+                                        }
+                                    }),
+                            ),
+                    )
+                })
                 // EXP-983: the contract this node announced, and the
                 // siblings it has to merge in before it can land.
-                .when_some(contract_published_line(node), |this, line| {
+                .when_some(contract_published_line(&node), |this, line| {
                     this.child(
                         div()
                             .text_xs()
@@ -493,6 +615,15 @@ impl WorkflowView {
                             .children(touches),
                     )
                 })
+                // EXP-984: the latest AGENT review — its verdict line in the
+                // tone it earned, the findings themselves, and the command
+                // the reviewer actually ran.
+                .children(self.render_agent_review(&node, cx))
+                // EXP-984: what this node may spend. A settled node has
+                // spent it; a proposal has not started.
+                .when(!proposed && !settled, |this| {
+                    this.child(self.render_budget(window, cx))
+                })
                 // EXP-982: why the node is failed or waiting, in the
                 // sentence the engine reported.
                 .when_some(node.note.clone(), |this, note| {
@@ -520,9 +651,159 @@ impl WorkflowView {
                         }),
                 )
                 // EXP-982: the node's run, its pull request, the gate and
-                // the two ways out of a failure.
-                .children(node_run_actions(node, &issue_id, cx))
-                .children(node_gate_actions(node, row))
+                // the two ways out of a failure. EXP-984: a proposal has
+                // none of them — it is admitted or dismissed, nothing else.
+                .children((!proposed).then(|| node_run_actions(&node, &issue_id, cx)).unwrap_or_default())
+                .children((!proposed).then(|| node_gate_actions(&node, row)).unwrap_or_default())
+                .into_any_element(),
+        )
+    }
+
+    /// EXP-984 — the picked node's budget fields, reseeded whenever the
+    /// picked node changes (never while the same node is being edited, or a
+    /// synced echo would eat what is being typed).
+    fn seed_budget(
+        &mut self,
+        node: &domain::rows::WorkflowNodeRow,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.budget_node.as_deref() == Some(node.id.as_str()) {
+            return;
+        }
+        self.budget_node = Some(node.id.clone());
+        let (minutes, tokens) = node.budget_limits();
+        let text = |value: Option<i64>| {
+            value.map(|value| value.to_string()).unwrap_or_default()
+        };
+        self.budget_minutes
+            .update(cx, |input, cx| input.set_value(text(minutes), window, cx));
+        self.budget_tokens
+            .update(cx, |input, cx| input.set_value(text(tokens), window, cx));
+    }
+
+    /// EXP-984 — the `Budget` block: two optional whole numbers, saved on
+    /// blur. Both empty clears the budget.
+    fn render_budget(
+        &self,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let field = |state: &Entity<InputState>| {
+            crate::surface::glass_row_input(crate::controls::glass_input(state, window, cx))
+                .into_any_element()
+        };
+        v_flex()
+            .min_w_0()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(BUDGET_TITLE)),
+            )
+            .child(crate::surface::glass_group_rows(vec![
+                crate::surface::glass_input_row(
+                    BUDGET_MINUTES_LABEL,
+                    field(&self.budget_minutes),
+                    cx,
+                ),
+                crate::surface::glass_input_row(
+                    BUDGET_TOKENS_LABEL,
+                    field(&self.budget_tokens),
+                    cx,
+                ),
+            ]))
+            .into_any_element()
+    }
+
+    /// EXP-984 — the `Agent review` block, or nothing while no review was
+    /// submitted: the verdict line in its tone, the findings (folded once
+    /// they run long) and the oracle command in mono.
+    fn render_agent_review(
+        &self,
+        node: &domain::rows::WorkflowNodeRow,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let review = node.review_facts()?;
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let tone = if review.verdict == domain::contract::WF_REVIEW_VERDICT_APPROVE {
+            theme.success
+        } else {
+            theme.danger
+        };
+        let line = workflow_review_line(ReviewLine {
+            verdict: &review.verdict,
+            round: review.round,
+            oracle: review.oracle_passed,
+        });
+        let findings = review.findings.trim().to_string();
+        let lines = findings.lines().count();
+        let folds = lines > FINDINGS_PREVIEW_LINES;
+        let shown = if folds && !self.findings_expanded {
+            findings
+                .lines()
+                .take(FINDINGS_PREVIEW_LINES)
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            findings.clone()
+        };
+        let expanded = self.findings_expanded;
+        let view = cx.entity().downgrade();
+        Some(
+            v_flex()
+                .min_w_0()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(AGENT_REVIEW_TITLE)),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(tone)
+                        .child(SharedString::from(line)),
+                )
+                .when(!shown.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.foreground)
+                            .child(SharedString::from(shown)),
+                    )
+                })
+                .when(folds, |this| {
+                    this.child(
+                        crate::controls::text_button(
+                            "workflow-node-findings-fold",
+                            if expanded { "Show less" } else { "Show more" },
+                            crate::controls::TextButtonVariant::Text,
+                            cx,
+                        )
+                        .on_click(move |_, _window, cx| {
+                            let Some(view) = view.upgrade() else {
+                                return;
+                            };
+                            view.update(cx, |this, cx| {
+                                this.findings_expanded = !this.findings_expanded;
+                                cx.notify();
+                            });
+                        }),
+                    )
+                })
+                .when_some(review.oracle_command.clone(), |this, command| {
+                    this.child(
+                        div()
+                            .font_family("monospace")
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(command)),
+                    )
+                })
                 .into_any_element(),
         )
     }
@@ -576,6 +857,9 @@ impl WorkflowView {
                             launch.model = None;
                             launch.effort = None;
                             launch.subagent_model = None;
+                            // EXP-984: a review model belongs to that same
+                            // closed set.
+                            launch.review_model = None;
                         }),
                         cx,
                     );
@@ -682,6 +966,30 @@ impl WorkflowView {
             },
             cx,
         ));
+        // EXP-984: what an AGENT review runs on — only worth a row when the
+        // gate actually reviews.
+        if row.gate.as_deref() == Some(domain::contract::WF_GATE_AGENT) {
+            rows.push(pick_row(
+                "workflow-review-model",
+                REVIEW_MODEL_LABEL,
+                &REVIEW_MODEL_CHOICES,
+                launch.review_model.as_deref().unwrap_or_default(),
+                draft,
+                {
+                    let update = update_launch.clone();
+                    move |value: &str, cx: &mut App| {
+                        let value = value.to_string();
+                        update(
+                            Box::new(move |launch| {
+                                launch.review_model = (!value.is_empty()).then_some(value);
+                            }),
+                            cx,
+                        );
+                    }
+                },
+                cx,
+            ));
+        }
         rows.push(pick_row(
             "workflow-start-on",
             "Start",
@@ -840,7 +1148,7 @@ impl Render for WorkflowView {
             });
 
         let graph = self.render_graph(&row, &nodes, cx);
-        let panel = self.render_node_panel(&row, &nodes, cx);
+        let panel = self.render_node_panel(&row, &nodes, _window, cx);
         let body = h_flex()
             .w_full()
             .min_w_0()
@@ -851,6 +1159,8 @@ impl Render for WorkflowView {
 
         let how = self.render_how_it_runs(&row, cx);
         let train = (!draft).then(|| render_merge_train(&row, &nodes, cx));
+        // EXP-984: the run's counters. A draft has run nothing to count.
+        let metrics = (!draft).then(|| render_metrics(&row, cx)).flatten();
         let _ = team_id;
 
         page_scaffold_with(
@@ -861,7 +1171,8 @@ impl Render for WorkflowView {
                 .child(header)
                 .child(body)
                 .children(train)
-                .child(how),
+                .child(how)
+                .children(metrics),
             WORKFLOW_COLUMN_W,
         )
     }
@@ -951,7 +1262,8 @@ fn node_gate_actions(
                 .into_any_element(),
         );
     }
-    if state == "failed" {
+    // A budget pause (EXP-984) is resolved the same way as a failure.
+    if state == "failed" || state == "paused" {
         actions.push(
             Button::new("workflow-node-retry")
                 .small()
@@ -1175,6 +1487,49 @@ fn render_merge_train(
         .into_any_element()
 }
 
+/// EXP-984 — the detail's `Metrics` section: the counters the server and the
+/// engine accumulate inside `workflows.metrics`, as label/value rows. `None`
+/// while the blob has nothing to say at all.
+fn render_metrics(row: &domain::rows::WorkflowRow, cx: &App) -> Option<gpui::AnyElement> {
+    let metrics = row.metrics.clone()?;
+    let rows = workflow_metric_rows(&metrics);
+    if rows.is_empty() {
+        return None;
+    }
+    let value_rows: Vec<gpui::Div> = rows
+        .into_iter()
+        .map(|entry| {
+            crate::surface::glass_picker_row(
+                SharedString::from(entry.label),
+                None,
+                div()
+                    .child(SharedString::from(entry.value))
+                    .into_any_element(),
+                cx,
+            )
+        })
+        .collect();
+    Some(
+        v_flex()
+            .min_w_0()
+            .child(crate::surface::glass_section_header(METRICS_TITLE, None, cx))
+            .child(crate::surface::glass_group_rows(value_rows))
+            .into_any_element(),
+    )
+}
+
+/// EXP-984 — one budget field as a positive whole number, or `None` when it
+/// is empty (or not one), which is what clears that half of the budget.
+fn budget_field(state: &Entity<InputState>, cx: &App) -> Option<u32> {
+    state
+        .read(cx)
+        .value()
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|value| *value > 0)
+}
+
 /// The contract's node KIND picks with their shipped labels.
 const WF_KIND_CHOICES: [(&str, &str); 3] = [
     ("Contract", domain::contract::WF_NODE_KIND_CONTRACT),
@@ -1203,6 +1558,9 @@ struct NodeFacts {
     /// EXP-982: the state's GLYPH, so a state reads by shape as well as by
     /// colour. `None` for the states that are only a word.
     glyph: Option<crate::icons::ExpIcon>,
+    /// EXP-984: a follow-up nobody admitted yet — drawn with a DASHED
+    /// outline, because it is not part of the run.
+    proposed: bool,
 }
 
 impl NodeFacts {
@@ -1242,6 +1600,7 @@ impl NodeFacts {
             tone: workflow_node_tone(node.state_wire()),
             compound: !members.is_empty(),
             glyph: state_glyph(node.state_wire(), workflow.status_wire()),
+            proposed: node.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED,
         }
     }
 }
@@ -1292,6 +1651,9 @@ fn render_node_box(
     let title = facts.map(|facts| facts.title.clone()).unwrap_or_default();
     let caption = facts.map(|facts| facts.caption.clone()).unwrap_or_default();
     let compound = facts.is_some_and(|facts| facts.compound);
+    // EXP-984: a proposal is drawn with a DASHED outline — it is in the
+    // graph to be decided on, not because it is part of the run.
+    let proposed = facts.is_some_and(|facts| facts.proposed);
     let glyph = facts.and_then(|facts| facts.glyph.clone());
     let target = node_id.to_string();
     let card = div()
@@ -1304,6 +1666,7 @@ fn render_node_box(
         .px_2()
         .rounded(gpui::px(6.))
         .border_1()
+        .when(proposed, |this| this.border_dashed())
         .border_color(border)
         .bg(theme::tokens::glass::FILL_CARD.to_hsla())
         .cursor_pointer()
@@ -1568,6 +1931,21 @@ fn spawn_approve(node_id: String, approved: bool, cx: &mut App) {
         .detach();
 }
 
+/// EXP-984 — a member's call on a `proposed` node: admit it into the run, or
+/// dismiss the follow-up altogether.
+fn spawn_admit(node_id: String, admit: bool, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::workflows::admit_node(&trpc, &node_id, admit) {
+                log::warn!("workflows: admitNode {node_id} failed: {err}");
+            }
+        })
+        .detach();
+}
+
 fn spawn_resolve(node_id: String, action: &'static str, cx: &mut App) {
     let Some(trpc) = queries::trpc_client(cx) else {
         return;
@@ -1677,5 +2055,45 @@ mod tests {
     #[test]
     fn the_serialization_targets_come_off_the_row() {
         assert_eq!(node_row(None).after_ids(), vec!["n-2", "n-3"]);
+    }
+
+    /// EXP-984 — the Review-model row offers claude's models and the blank
+    /// "the engine picks one", in the Model picker's own order.
+    #[test]
+    fn the_review_model_choices_are_claudes_plus_the_default() {
+        assert_eq!(REVIEW_MODEL_CHOICES[0], ("Default", ""));
+        let offered: Vec<(&str, &str)> = REVIEW_MODEL_CHOICES[1..].to_vec();
+        assert_eq!(offered, crate::coding_selects::MODEL_CHOICES.to_vec());
+    }
+
+    /// EXP-984 — the node panel's review block reads the synced blob: the
+    /// line, the findings and the command the reviewer ran.
+    #[test]
+    fn the_review_block_reads_the_synced_verdict() {
+        let row: domain::rows::WorkflowNodeRow = serde_json::from_value(serde_json::json!({
+            "id": "n-1",
+            "workflow_id": "wf-1",
+            "issue_id": "i-1",
+            "review_round": 2,
+            "review": r#"{"verdict":"request_changes","findings":"src/a.rs:4 off by one",
+                "oracle":{"command":"cargo test -p coding","passed":false},"round":2}"#,
+        }))
+        .expect("the row hydrates");
+        let review = row.review_facts().expect("a verdict");
+        assert_eq!(
+            domain::workflow_view::workflow_review_line(ReviewLine {
+                verdict: &review.verdict,
+                round: review.round,
+                oracle: review.oracle_passed,
+            }),
+            "Changes requested · round 2 · checks failed"
+        );
+        assert_eq!(review.findings, "src/a.rs:4 off by one");
+        assert_eq!(
+            review.oracle_command.as_deref(),
+            Some("cargo test -p coding")
+        );
+        // A node nobody reviewed renders no block at all.
+        assert!(node_row(None).review_facts().is_none());
     }
 }

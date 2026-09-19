@@ -46,17 +46,14 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-19-workflows-speculative",
+    id: "2026-09-19-workflows-review-gate",
     date: "2026-09-19",
-    title: "Workflows start dependents early and keep them in step",
-    summary: "Dependent runs start as soon as their blockers publish a contract, upstream changes are merged in automatically, and colliding siblings are put in order.",
-    body: r#"- **Start on contract**: with the default start mode a node pushes its contract first (types, stubs and tests) and announces it; everything that depends on it starts right away instead of waiting for the whole pull request. On PR open and When landed stay available as the careful settings.
-- **Branches shaped like the graph**: a node with one open blocker builds on that blocker's branch, a node with several builds on a merge of them that the engine prepares, so every pull request shows only its own work.
-- **Upstream moved**: when a blocker pushes again, its dependents are told between turns to merge the change in, with a short note of what changed. Nothing is ever rebased or force-pushed, and a real conflict has exactly one owner.
-- **Collisions become order**: when two parallel nodes touch the same code, the later one merges the other in first and the graph shows a dashed edge between them.
-- **Edges tell you more**: dashed means a dependent started early, red means upstream moved and the dependent is catching up, green means landed.
-- **Landing**: pull requests still land strictly in dependency order, and a dependent whose last blocker landed moves its pull request onto the workflow branch by itself.
-- **Asking upstream**: a run can ask the run it builds on to change what it handed over; a disagreement about an interface always comes to you."#,
+    title: "Workflows review themselves, grow while they run, and keep to a budget",
+    summary: "An agent review gate backed by real checks, follow-up issues that join a running workflow, per-node budgets and a metrics section.",
+    body: r#"- **Agent review**: with the Agent review gate every pull request of a workflow is reviewed by a separate run that never sees the author's reasoning. It reads the issue and the diff, runs the tests, and says what is wrong and where. An approval counts only when the checks it ran passed; otherwise it is advice and you still approve. High risk nodes get an adversarial reviewer on a different model. After three rounds without agreement the node waits for you, and the contract always does.
+- **Workflows that grow**: a follow-up issue a run files and links behind its own work joins the running workflow by itself. One that would change what existing nodes wait for shows up dashed as a proposal you admit or dismiss.
+- **Budgets**: give a node a limit in minutes or tokens. A run that goes over is paused, you get a notification, and Retry picks it up again.
+- **Metrics**: every started workflow shows how deep its critical path is for its size, how many merge-ins a contract change caused, how often runs escalated and how many of those were duplicates, the minutes it waited for you, and how many defects the checks found compared to the agent review."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

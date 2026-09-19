@@ -403,6 +403,48 @@ pub fn plan_workflow_prompt(request: &str) -> String {
     format!("{PLAN_WORKFLOW_PROGRAM}\n\n## Request\n\n{request}\n\n{SCRATCH_CWD_NOTE}")
 }
 
+/// EXP-984 — the extra paragraph a `risk: high` node's review carries. A
+/// high-risk node is also reviewed on a model that is never its author's
+/// ([`crate::workflows`] picks it), so this is a second opinion in every
+/// sense.
+pub const REVIEW_NODE_ADVERSARIAL_LINE: &str = "This node is HIGH RISK. Be adversarial: assume there is a defect and try to find the input, the ordering or the failure that breaks it before you consider approving.";
+
+/// EXP-984 — the shipped program of the hidden "Review node" builtin: the
+/// AGENT REVIEW of one workflow node, started by the engine on the runner
+/// device and by nothing else.
+///
+/// The author's reasoning NEVER enters it, by construction: the only inputs
+/// are the node's id, its issue identifier, the branch it was based on and
+/// whether the node is high risk. No run summary, no transcript, no pull
+/// request description — the reviewer reads the issue and the diff itself,
+/// and its verdict is worth something precisely because it saw nothing else.
+pub fn review_node_prompt(
+    node_id: &str,
+    identifier: &str,
+    base_branch: &str,
+    adversarial: bool,
+) -> String {
+    // Omitted whole (the line AND its newline) for an ordinary node.
+    let adversarial_line = if adversarial {
+        format!("{REVIEW_NODE_ADVERSARIAL_LINE}\n")
+    } else {
+        String::new()
+    };
+    format!(
+        "You are REVIEWING one node of an Exponential workflow. You did not write this code and you have not seen its author's reasoning: judge only what is in front of you. You change NO files and you push nothing.
+
+Node: {node_id}
+Issue: {identifier}
+The work is checked out in this directory on a throwaway branch. It was based on `{base_branch}`: read the change with `git diff origin/{base_branch}...HEAD`.
+
+1. Read the issue with exponential_issues_get (description and comments): that is the requirement.
+2. Read the whole diff. Look for: requirements not met, behaviour that contradicts the issue, broken or missing tests, contract changes that would break the nodes that build on this one, security problems, dead or duplicated code.
+3. RUN the checks: the tests this change touches and, if the repository has them, the contract tests. An opinion is advisory; a command you ran is evidence. Remember the exact command and whether it passed.
+4. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed; empty when you approve without remarks), oracle = {{command, passed}} for what you ran (omit it only if nothing could be run), model = the model you are.
+{adversarial_line}Then finish with exponential_sessions_end."
+    )
+}
+
 /// EXP-637 — the RESUME fallback prompt: a run is being resumed but its
 /// agent's native transcript is gone (pruned, another agent, a machine that
 /// never recorded one), so a FRESH session is spawned in the same workspace
@@ -469,6 +511,14 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
         // creator's — with the workflow line the server writes standing in.
         domain::contract::BUILTIN_PLAN_WORKFLOW_ID => Some(plan_workflow_prompt(
             "Workflow: <the workflow you press Plan on>",
+        )),
+        // EXP-984: the reviewer's program is shipped too; only the engine
+        // ever starts it, so the preview stands in for every value.
+        domain::contract::BUILTIN_REVIEW_NODE_ID => Some(review_node_prompt(
+            "<the node under review>",
+            "<its issue>",
+            "<the branch it was cut from>",
+            false,
         )),
         domain::contract::BUILTIN_FIX_CONFLICTS_ID => Some(fix_pr_conflicts_prompt(
             "<the issue you pick>",
@@ -1123,5 +1173,60 @@ why you stopped)."
         assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_issue_relations_add"));
         // It writes no code — never a branch, a commit or a pull request.
         assert!(!PLAN_WORKFLOW_PROGRAM.contains("exponential_pr_open"));
+    }
+
+    /// EXP-984 — the reviewer's program, byte for byte. An ordinary node's
+    /// prompt carries no adversarial line at all (not an empty one).
+    #[test]
+    fn the_review_prompt_is_the_shipped_program() {
+        assert_eq!(
+            review_node_prompt("n-1", "EXP-42", "exp/wf-abcdef12", false),
+            "You are REVIEWING one node of an Exponential workflow. You did not write this code and you have not seen its author's reasoning: judge only what is in front of you. You change NO files and you push nothing.
+
+Node: n-1
+Issue: EXP-42
+The work is checked out in this directory on a throwaway branch. It was based on `exp/wf-abcdef12`: read the change with `git diff origin/exp/wf-abcdef12...HEAD`.
+
+1. Read the issue with exponential_issues_get (description and comments): that is the requirement.
+2. Read the whole diff. Look for: requirements not met, behaviour that contradicts the issue, broken or missing tests, contract changes that would break the nodes that build on this one, security problems, dead or duplicated code.
+3. RUN the checks: the tests this change touches and, if the repository has them, the contract tests. An opinion is advisory; a command you ran is evidence. Remember the exact command and whether it passed.
+4. Submit ONE verdict with exponential_workflows_review_submit: nodeId above, verdict approve or request_changes, findings (concrete, with file and line, in the order they should be fixed; empty when you approve without remarks), oracle = {command, passed} for what you ran (omit it only if nothing could be run), model = the model you are.
+Then finish with exponential_sessions_end."
+        );
+
+        // A high-risk node gets exactly one extra paragraph.
+        let adversarial = review_node_prompt("n-1", "EXP-42", "exp/wf-abcdef12", true);
+        assert_eq!(
+            adversarial,
+            review_node_prompt("n-1", "EXP-42", "exp/wf-abcdef12", false).replace(
+                "\nThen finish",
+                &format!("\n{REVIEW_NODE_ADVERSARIAL_LINE}\nThen finish")
+            )
+        );
+    }
+
+    /// EXP-984 — the author's reasoning can never reach the reviewer: the
+    /// prompt has no input but the node id, the issue identifier, the base
+    /// branch and the risk flag, so ANY other text is absent by
+    /// construction. Rendered with every substitution marked, nothing of a
+    /// run summary, a transcript or a pull request body can appear.
+    #[test]
+    fn the_review_prompt_can_carry_no_author_summary() {
+        let prompt = review_node_prompt("NODE", "IDENT", "BASE", true);
+        let mut left = prompt.clone();
+        for value in ["NODE", "IDENT", "BASE"] {
+            left = left.replace(value, "");
+        }
+        // What remains is the shipped program alone — the same string for
+        // every node of every workflow on every machine.
+        assert_eq!(
+            left,
+            review_node_prompt("", "", "", true),
+            "the only variables are the four arguments"
+        );
+        // And the words a summary would come under are simply not in it.
+        for absent in ["summary", "transcript", "pull request description"] {
+            assert!(!prompt.to_lowercase().contains(absent), "{absent}");
+        }
     }
 }

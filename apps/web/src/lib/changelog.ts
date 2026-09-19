@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-19-workflows-review-gate`,
+    date: `2026-09-19`,
+    title: `Workflows review themselves, grow while they run, and keep to a budget`,
+    summary: `An agent review gate backed by real checks, follow-up issues that join a running workflow, per-node budgets and a metrics section.`,
+    body: `- **Agent review**: with the Agent review gate every pull request of a workflow is reviewed by a separate run that never sees the author's reasoning. It reads the issue and the diff, runs the tests, and says what is wrong and where. An approval counts only when the checks it ran passed; otherwise it is advice and you still approve. High risk nodes get an adversarial reviewer on a different model. After three rounds without agreement the node waits for you, and the contract always does.
+- **Workflows that grow**: a follow-up issue a run files and links behind its own work joins the running workflow by itself. One that would change what existing nodes wait for shows up dashed as a proposal you admit or dismiss.
+- **Budgets**: give a node a limit in minutes or tokens. A run that goes over is paused, you get a notification, and Retry picks it up again.
+- **Metrics**: every started workflow shows how deep its critical path is for its size, how many merge-ins a contract change caused, how often runs escalated and how many of those were duplicates, the minutes it waited for you, and how many defects the checks found compared to the agent review.`,
+  },
+  {
     id: `2026-09-19-workflows-speculative`,
     date: `2026-09-19`,
     title: `Workflows start dependents early and keep them in step`,

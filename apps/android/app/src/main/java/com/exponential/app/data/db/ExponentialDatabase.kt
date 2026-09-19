@@ -322,9 +322,14 @@ import androidx.room.TypeConverters
     //      node merges in first. Both new on the workflow-nodes shape
     //      allowlist; destructive fallback wipes + resyncs so every node row
     //      arrives carrying them.
+    // v69 (EXP-984): workflow_nodes.review_round + review — the agent review
+    //      gate: how many rounds the node bounced back to its author, and the
+    //      latest submitted verdict (jsonb kept as raw text, read tolerantly).
+    //      Both new on the workflow-nodes shape allowlist; destructive
+    //      fallback wipes + resyncs so every node row arrives carrying them.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 68,
+    version = 69,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -322,6 +322,18 @@ any conflict, run the tests you touched, and push."
     )
 }
 
+/// EXP-984 — what a node's AUTHOR is told when its agent review asked for
+/// changes. The findings ride VERBATIM (the reviewer wrote them with file and
+/// line), under their own heading, so nothing of the reviewer's text is
+/// paraphrased on the way.
+pub fn review_findings_prompt(round: i64, findings: &str) -> String {
+    let max = domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS;
+    format!(
+        "The agent review requested changes (round {round} of {max}). Address every point, push, \
+then end the run again.\n\nFindings:\n{findings}"
+    )
+}
+
 /// Append [`workflow_section`] to a finished prompt (one blank line before
 /// the heading), BEFORE the requester's additional instructions. `None`
 /// leaves every non-workflow prompt byte-identical.
@@ -554,6 +566,17 @@ exponential_sessions_ask_parent.\n"
             upstream_moved_prompt("exp/EXP-1", "a1b2c3 add the token parser"),
             "Upstream moved: a1b2c3 add the token parser. Run git fetch origin and git merge \
 origin/exp/EXP-1, resolve any conflict, run the tests you touched, and push."
+        );
+    }
+
+    /// EXP-984 — the findings reach the author whole, under their heading,
+    /// with the round and the cap spelled out.
+    #[test]
+    fn the_findings_prompt_carries_the_round_and_the_text_verbatim() {
+        assert_eq!(
+            review_findings_prompt(2, "src/a.rs:4 off by one\nsrc/b.rs:9 no test"),
+            "The agent review requested changes (round 2 of 3). Address every point, push, then \
+end the run again.\n\nFindings:\nsrc/a.rs:4 off by one\nsrc/b.rs:9 no test"
         );
     }
 

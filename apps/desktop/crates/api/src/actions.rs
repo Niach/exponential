@@ -37,6 +37,12 @@ pub const BUILTIN_CHAT_ID: &str = domain::contract::BUILTIN_CHAT_ID;
 /// because the run is meaningless without that workflow's id.
 pub const BUILTIN_PLAN_WORKFLOW_ID: &str = domain::contract::BUILTIN_PLAN_WORKFLOW_ID;
 
+/// The hidden "Review node" builtin's id (EXP-984) — the AGENT REVIEW of one
+/// workflow node. It has no factory at all: no client constructs it and no
+/// picker offers it, because only the workflow ENGINE on the runner device
+/// ever starts one.
+pub const BUILTIN_REVIEW_NODE_ID: &str = domain::contract::BUILTIN_REVIEW_NODE_ID;
+
 /// EXP-981: the device capability a planner start needs. An older build would
 /// fall through and author an ACTION instead of planning the workflow, so the
 /// server refuses a device without it.
@@ -48,6 +54,7 @@ pub fn is_builtin_action_id(id: &str) -> bool {
         || id == BUILTIN_FIX_CONFLICTS_ID
         || id == BUILTIN_CHAT_ID
         || id == BUILTIN_PLAN_WORKFLOW_ID
+        || id == BUILTIN_REVIEW_NODE_ID
 }
 
 /// The name each builtin renders under (web `builtinActionName`). `None` =
@@ -59,6 +66,10 @@ pub fn builtin_action_name(id: &str) -> Option<&'static str> {
         BUILTIN_FIX_CONFLICTS_ID => Some(BUILTIN_FIX_CONFLICTS_NAME),
         BUILTIN_CHAT_ID => Some(BUILTIN_CHAT_NAME),
         BUILTIN_PLAN_WORKFLOW_ID => Some(BUILTIN_PLAN_WORKFLOW_NAME),
+        // EXP-984: the hidden reviewer. It has no factory (no client ever
+        // constructs it — only the workflow engine starts it), but its run
+        // rows carry this name snapshot, byte-identical to the server's.
+        BUILTIN_REVIEW_NODE_ID => Some(BUILTIN_REVIEW_NODE_NAME),
         _ => None,
     }
 }
@@ -88,6 +99,9 @@ const BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER: &str =
 const BUILTIN_FIX_CONFLICTS_NAME: &str = "Fix merge conflicts";
 const BUILTIN_CHAT_NAME: &str = "Chat";
 const BUILTIN_PLAN_WORKFLOW_NAME: &str = "Plan workflow";
+/// EXP-984: the hidden "Review node" builtin's display name — byte-identical
+/// to the web's `BUILTIN_REVIEW_NODE_NAME`.
+pub const BUILTIN_REVIEW_NODE_NAME: &str = "Review node";
 /// EXP-981: the planner composer's hint — byte-identical to the web factory
 /// (`builtinPlanWorkflowAction.promptPlaceholder`).
 const BUILTIN_PLAN_WORKFLOW_PROMPT_PLACEHOLDER: &str =

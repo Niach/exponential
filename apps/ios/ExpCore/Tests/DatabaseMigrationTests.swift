@@ -115,7 +115,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v46_notification_session_id",
              "v47_workflows",
              "v48_workflow_node_approval",
-             "v49_workflow_node_checkpoint"]
+             "v49_workflow_node_checkpoint",
+             "v50_workflow_node_review"]
         )
     }
 
@@ -157,7 +158,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v46_notification_session_id",
              "v47_workflows",
              "v48_workflow_node_approval",
-             "v49_workflow_node_checkpoint"]
+             "v49_workflow_node_checkpoint",
+             "v50_workflow_node_review"]
         )
     }
 
@@ -227,7 +229,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v46_notification_session_id",
              "v47_workflows",
              "v48_workflow_node_approval",
-             "v49_workflow_node_checkpoint"]
+             "v49_workflow_node_checkpoint",
+             "v50_workflow_node_review"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -317,7 +320,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v46_notification_session_id",
              "v47_workflows",
              "v48_workflow_node_approval",
-             "v49_workflow_node_checkpoint"]
+             "v49_workflow_node_checkpoint",
+             "v50_workflow_node_review"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1034,15 +1038,16 @@ final class DatabaseMigrationTests: XCTestCase {
         )
         // `wave` / `lane` / `on_cycle` ARE the server-computed layout: no
         // client lays a graph out. EXP-982's `approved_at` + `note` arrive as
-        // v48 ALTERs and EXP-983's `checkpoint_at` + `after_node_ids` as v49
-        // ones, so they sit at the END of a fresh store's column list.
+        // v48 ALTERs, EXP-983's `checkpoint_at` + `after_node_ids` as v49 ones
+        // and EXP-984's `review_round` + `review` as v50 ones, so they sit at
+        // the END of a fresh store's column list.
         XCTAssertEqual(
             try columnNames(pool, "workflow_nodes"),
             ["id", "workflow_id", "team_id", "issue_id", "member_issue_ids",
              "kind", "state", "risk", "wave", "lane", "on_cycle", "session_id",
              "attempt", "base_branch", "budget", "touches", "created_at",
              "updated_at", "approved_at", "note", "checkpoint_at",
-             "after_node_ids"]
+             "after_node_ids", "review_round", "review"]
         )
         // status_id is NULLABLE: NULL means the team's Backlog builtin.
         let draftStatusId = try pool.read { db in
@@ -1943,6 +1948,51 @@ final class DatabaseMigrationTests: XCTestCase {
             XCTAssertNotNil(added, name)
             XCTAssertFalse(added?.isNotNull ?? true, name)
         }
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'workflow-nodes'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v50 (EXP-984): a store created before `workflow_nodes.review_round` and
+    // `.review` existed must gain both — the counter NOT NULL with a 0 default
+    // (a node no reviewer ever saw is at round 0), the verdict a nullable text
+    // column holding the jsonb — and get the workflow-nodes offset reset, so
+    // already-synced nodes re-arrive carrying them.
+    func testWorkflowNodeReviewColumnsAddedToExistingStore() throws {
+        let pool = try makePool("workflow-node-review")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v49_workflow_node_checkpoint")
+        try pool.write { db in
+            for column in ["review_round", "review"] {
+                let present = try db.columns(in: "workflow_nodes").contains { $0.name == column }
+                if present {
+                    try db.alter(table: "workflow_nodes") { t in t.drop(column: column) }
+                }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('workflow-nodes', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "workflow_nodes").contains("review_round"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let columns = try pool.read { db in try db.columns(in: "workflow_nodes") }
+        let round = columns.first { $0.name == "review_round" }
+        XCTAssertNotNil(round)
+        XCTAssertTrue(round?.isNotNull ?? false)
+        let review = columns.first { $0.name == "review" }
+        XCTAssertNotNil(review)
+        XCTAssertFalse(review?.isNotNull ?? true)
         let reset = try pool.read { db in
             try Bool.fetchOne(
                 db,

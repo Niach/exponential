@@ -46,7 +46,7 @@ use crate::action_prompt::{
     TriggerNote, WorkspaceNote,
 };
 use crate::action_prompt::{
-    create_action_prompt, fix_pr_conflicts_prompt, plan_workflow_prompt,
+    create_action_prompt, fix_pr_conflicts_prompt, plan_workflow_prompt, review_node_prompt,
     PLAN_WORKFLOW_PROMPT_PREFIX,
 };
 use crate::batch_launcher::{
@@ -400,6 +400,31 @@ pub enum ActionRunKind {
     /// no token and no worktree. Its prompt is the shipped program plus the
     /// start's request, whose first line names the workflow.
     PlanWorkflow,
+    /// The hidden "Review node" builtin (EXP-984): the AGENT REVIEW of one
+    /// workflow node, started by the workflow engine on the runner device and
+    /// by nothing else. It runs in a THROWAWAY worktree of its own, cut from
+    /// `origin/<branch>` onto `review_branch` — never pushed, removed when the
+    /// run ends — and it changes nothing: it reads the issue and the diff,
+    /// runs the checks it can, and submits ONE verdict over MCP.
+    ReviewNode {
+        /// The `workflow_nodes` row under review (the verdict's argument).
+        node_id: String,
+        /// The node's representative issue identifier.
+        identifier: String,
+        /// The node's OWN pushed branch — what is checked out.
+        branch: String,
+        /// What the node was cut from: the diff the reviewer reads is
+        /// `origin/<base_branch>...HEAD`.
+        base_branch: String,
+        /// The local, never-pushed branch this review works on
+        /// (`exp/wf-<id8>-review-<IDENT>-r<round>`) — named by the engine,
+        /// which is the only place that knows the workflow and the round.
+        review_branch: String,
+        /// A `risk: high` node: the prompt tells the reviewer to hunt for
+        /// the defect, and the engine already picked a model that is not the
+        /// author's.
+        adversarial: bool,
+    },
     /// The hidden "Chat" builtin (EXP-615): a conversation with the agent over
     /// the tracker's MCP tools, no PR contract. The repository is an OPTIONAL
     /// ANCHOR (EXP-739): given one, the run gets its own `exp/chat-<id8>`
@@ -2159,6 +2184,12 @@ fn prepare_action(
             "the fix-conflicts run needs the pull request's repository".to_string(),
         ));
     }
+    // EXP-984: a review with no checkout is an opinion about nothing.
+    if matches!(req.kind, ActionRunKind::ReviewNode { .. }) && repo.is_none() {
+        return Err(CodingError::Io(
+            "the review run needs the node's repository".to_string(),
+        ));
+    }
     // EXP-712: the fix-conflicts run is the only action shape that belongs to
     // a BOARD (the PR's). Everything else works the repo's own default.
     let fix_board_id = match &req.kind {
@@ -2169,7 +2200,13 @@ fn prepare_action(
     // run unattended — the only shape whose prompt names
     // `exponential_sessions_end` (the only shape the server registers it
     // for). Computed up front because the chat validation below depends on it.
-    let run_reason = started_reason(&req.origin, req.trigger.as_ref(), None);
+    // EXP-984: a reviewer run is the workflow ENGINE's, exactly like a node
+    // run — unattended, and the only shape of action run that reports through
+    // `exponential_sessions_end`.
+    let run_reason = match &req.kind {
+        ActionRunKind::ReviewNode { .. } => Some(WORKFLOW_STARTED_REASON),
+        _ => started_reason(&req.origin, req.trigger.as_ref(), None),
+    };
     let unattended = run_reason.is_some();
     // EXP-739: a chat run is NOT repo-bound. The chat is a conversation with
     // the tracker over MCP and code is an optional ANCHOR, so a repo-less one
@@ -2335,6 +2372,34 @@ fn prepare_action(
                     base_branch = fix_rebase_onto.clone();
                     worktree
                 }
+                // EXP-984: the reviewer works on a THROWAWAY branch cut from
+                // the node's own pushed branch — it reads that work, runs
+                // checks against it, and pushes nothing. Its base for the
+                // cleanup below is the node's branch, so a review that (by
+                // construction) committed nothing is removed at the end.
+                ActionRunKind::ReviewNode {
+                    branch: node_branch,
+                    review_branch,
+                    ..
+                } => {
+                    crate::git_worktree::validate_branch_arg(node_branch, "review node")?;
+                    crate::git_worktree::validate_branch_arg(review_branch, "review run")?;
+                    launch_hold = Some(crate::launch_gate::hold(&clone));
+                    crate::git_worktree::fetch_base(&clone, node_branch, &url)?;
+                    // The round is part of the branch name, so this is a
+                    // fresh branch per review; a crashed earlier attempt at
+                    // the SAME round reuses its worktree, which holds the
+                    // same commits (nothing here ever writes).
+                    let worktree = crate::git_worktree::create_worktree(
+                        &clone,
+                        review_branch,
+                        &format!("origin/{node_branch}"),
+                        &url,
+                    )?;
+                    run_branch = Some(review_branch.clone());
+                    base_branch = Some(node_branch.clone());
+                    worktree
+                }
                 // EXP-637 (decision 1): a Team action or a Chat run gets its
                 // OWN worktree + branch cut from the repo's default, instead
                 // of writing into the trunk clone. Whatever the agent
@@ -2488,6 +2553,23 @@ fn prepare_action(
         ActionRunKind::Chat => chat_user_prompt
             .as_deref()
             .map(|prompt| chat_prompt(prompt, workspace.as_ref(), unattended)),
+        // EXP-984: the shipped reviewer program. Its ONLY inputs are the
+        // node, its issue and the base of the diff — the author's reasoning
+        // never reaches it.
+        ActionRunKind::ReviewNode {
+            node_id,
+            identifier,
+            base_branch,
+            adversarial,
+            ..
+        } => Some(review_node_prompt(
+            node_id,
+            identifier,
+            base_branch,
+            // A high-risk node's review is adversarial: the engine picks a
+            // model other than the author's, and the prompt says it in words.
+            *adversarial,
+        )),
         ActionRunKind::FixConflicts {
             branch,
             default_branch,
@@ -2625,9 +2707,11 @@ fn prepare_action(
     // EXP-637: a Team/Chat run owns its worktree, so it also owns cleaning
     // it up — but NEVER the fix-conflicts worktree (that is the PR's branch,
     // shared with the issue session that opened it).
+    // EXP-984: the reviewer's throwaway worktree goes the same way — it
+    // committed nothing, so the cleanup's "left nothing behind" test passes.
     let run_cleanup = match (&req.kind, &trunk_clone, &run_branch, &base_branch) {
         (
-            ActionRunKind::Team | ActionRunKind::Chat,
+            ActionRunKind::Team | ActionRunKind::Chat | ActionRunKind::ReviewNode { .. },
             Some(clone),
             Some(branch),
             Some(base_branch),
@@ -2654,6 +2738,7 @@ fn prepare_action(
                 ActionRunKind::Chat => RunKind::Chat,
                 ActionRunKind::CreateAction => RunKind::CreateAction,
                 ActionRunKind::PlanWorkflow => RunKind::PlanWorkflow,
+                ActionRunKind::ReviewNode { .. } => RunKind::ReviewNode,
                 ActionRunKind::FixConflicts { .. } => RunKind::FixConflicts,
             },
             action_id: req.action_id.clone(),

@@ -3,7 +3,9 @@ package com.exponential.app.data.db
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.shape
+import com.exponential.app.domain.workflowMetricCounters
 import com.exponential.app.domain.workflowNodeBudget
+import com.exponential.app.domain.workflowNodeReview
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -149,6 +151,15 @@ class WorkflowEntityDecodeTest {
               "approved_at": "2026-09-19 11:00:00+00",
               "checkpoint_at": "2026-09-19 11:30:00+00",
               "after_node_ids": ["node-7", "node-9"],
+              "review_round": 2,
+              "review": {
+                "verdict": "request_changes",
+                "findings": "The new column is missing from the shape allowlist.",
+                "oracle": {"command": "bun run typecheck", "passed": false},
+                "model": "opus",
+                "round": 2,
+                "at": "2026-09-19 12:00:00+00"
+              },
               "note": "The rebase hit a conflict in apps/web/src/lib/workflows.ts",
               "budget": {"tokens": 120000, "minutes": 30},
               "touches": "{apps/web/**,packages/ui/**}",
@@ -181,6 +192,17 @@ class WorkflowEntityDecodeTest {
         val budget = workflowNodeBudget(node.budget)
         assertEquals(120000, budget?.tokens)
         assertEquals(30, budget?.minutes)
+        // EXP-984: the agent review gate — the round counter and the latest
+        // verdict, the jsonb read as tolerantly as the budget beside it.
+        assertEquals(2, node.reviewRound)
+        val review = workflowNodeReview(node.review)
+        assertEquals(DomainContract.wfReviewVerdictRequestChanges, review?.verdict)
+        assertEquals("The new column is missing from the shape allowlist.", review?.findings)
+        assertEquals("bun run typecheck", review?.oracle?.command)
+        assertEquals(false, review?.oracle?.passed)
+        assertEquals("opus", review?.model)
+        assertEquals(2, review?.round)
+        assertEquals("2026-09-19 12:00:00+00", review?.at)
     }
 
     @Test
@@ -211,6 +233,86 @@ class WorkflowEntityDecodeTest {
         // EXP-983: a node that published nothing and collided with nobody.
         assertNull(node.checkpointAt)
         assertTrue(node.afterNodeIds.isEmpty())
+        // EXP-984: nobody reviewed it yet — round zero, no verdict.
+        assertEquals(0, node.reviewRound)
+        assertNull(workflowNodeReview(node.review))
+    }
+
+    @Test
+    fun `the review cell decodes in every wire dialect`() {
+        // Electric ships a jsonb cell as its JSON TEXT inside a string; tRPC
+        // hands over the object itself. Anything malformed reads as NO review
+        // rather than dropping the node row.
+        fun nodeWith(review: String) = json.decodeFromString(
+            WorkflowNodeEntity.serializer(),
+            """
+                {
+                  "id": "node-4",
+                  "workflow_id": "wf-1",
+                  "issue_id": "issue-4",
+                  "reviewRound": 3,
+                  "review": $review,
+                  "created_at": "2026-09-19 10:00:00+00",
+                  "updated_at": "2026-09-19 10:00:00+00"
+                }
+            """.trimIndent(),
+        )
+        val native = nodeWith("""{"verdict":"approve","round":1,"findings":"Looks right."}""")
+        assertEquals(3, native.reviewRound)
+        val decoded = workflowNodeReview(native.review)
+        assertEquals(DomainContract.wfReviewVerdictApprove, decoded?.verdict)
+        assertEquals(1, decoded?.round)
+        // An approval with no oracle is ADVISORY, which is what a null here
+        // means downstream.
+        assertNull(decoded?.oracle)
+
+        val text = nodeWith("\"{\\\"verdict\\\":\\\"request_changes\\\",\\\"round\\\":2}\"")
+        assertEquals(
+            DomainContract.wfReviewVerdictRequestChanges,
+            workflowNodeReview(text.review)?.verdict,
+        )
+        assertNull(workflowNodeReview(nodeWith("null").review))
+        assertNull(workflowNodeReview(nodeWith("\"not an object\"").review))
+    }
+
+    @Test
+    fun `the launch options carry the review model`() {
+        val row = """
+            {
+              "id": "wf-4",
+              "team_id": "team-1",
+              "name": "EXP-984",
+              "launch": {"agent":"claude","reviewModel":"opus","maxParallel":4},
+              "integration_branch": "exp/wf-22222222",
+              "created_at": "2026-09-19 10:00:00+00",
+              "updated_at": "2026-09-19 10:00:00+00"
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(WorkflowEntity.serializer(), row)
+        assertEquals("opus", entity.launchOptions.reviewModel)
+        // Absent = the engine picks the review model itself.
+        assertEquals("", json.decodeFromString(
+            WorkflowEntity.serializer(),
+            row.replace("""{"agent":"claude","reviewModel":"opus","maxParallel":4}""", """{"agent":"claude"}"""),
+        ).launchOptions.reviewModel)
+    }
+
+    @Test
+    fun `the metric counters keep every number and drop everything else`() {
+        val counters = workflowMetricCounters(
+            """
+                {"nodes":12,"depth":3,"width":8,"cycles":[["EXP-1"]],"landed":"garbage",
+                 "mergeIns":9,"contractChanges":2,"budgetPauses":1}
+            """.trimIndent(),
+        )
+        assertEquals(12, counters["nodes"])
+        assertEquals(3, counters["depth"])
+        assertEquals(9, counters["mergeIns"])
+        assertEquals(1, counters["budgetPauses"])
+        // A list is not a counter, and neither is a word.
+        assertNull(counters["cycles"])
+        assertNull(counters["landed"])
+        assertTrue(workflowMetricCounters(null).isEmpty())
     }
 
     @Test

@@ -34,6 +34,11 @@ pub struct WorkflowLaunch {
     pub account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_parallel: Option<u32>,
+    /// EXP-984: the model AGENT REVIEWS run on. Absent = the engine picks
+    /// one (the author's); a `risk: high` node is always reviewed on a model
+    /// other than its author's, whatever this says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_model: Option<String>,
 }
 
 /// One `workflows` row as the wire carries it (the shape's column set;
@@ -178,6 +183,23 @@ pub struct WorkflowNodeUpdate {
     /// A whole-array replace; `Some(vec![])` deliberately CLEARS the globs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub touches: Option<Vec<String>>,
+    /// EXP-984: the node's budget, editable at ANY status ([`Patch::Null`]
+    /// clears it). Crossing either half pauses the node and notifies the
+    /// workflow's creator.
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub budget: Patch<NodeBudget>,
+}
+
+/// `workflow_nodes.budget` — whole minutes and whole tokens, each optional.
+/// Both absent is written as `budget: null` (a [`Patch::Null`]), never as an
+/// empty object the server would store as a budget of nothing.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeBudget {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u32>,
 }
 
 /// The `workflows` cap a device advertises once it can run the engine
@@ -304,6 +326,47 @@ pub fn resolve_node(trpc: &TrpcClient, node_id: &str, action: &str) -> Result<()
     #[derive(Deserialize)]
     struct Ignored {}
     let _: Ignored = trpc.mutation("workflows.resolveNode", &Input { node_id, action })?;
+    Ok(())
+}
+
+/// EXP-984: `workflows.admitNode` — a follow-up filed mid-run arrived as a
+/// `proposed` node. `admit: true` makes it part of the run (state `blocked`,
+/// re-planned); `false` deletes it. Member-gated, never the engine's call.
+pub fn admit_node(trpc: &TrpcClient, node_id: &str, admit: bool) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        node_id: &'a str,
+        admit: bool,
+    }
+    #[derive(Deserialize)]
+    struct Ignored {}
+    let _: Ignored = trpc.mutation("workflows.admitNode", &Input { node_id, admit })?;
+    Ok(())
+}
+
+/// EXP-984: the counters only the DEVICE can see — one merge-in per upstream
+/// movement actually delivered, one contract change per checkpointed node
+/// whose branch moved again. Everything else is counted by the server.
+pub const COUNTER_MERGE_INS: &str = "mergeIns";
+pub const COUNTER_CONTRACT_CHANGES: &str = "contractChanges";
+
+/// ENGINE: `workflows.reportMetrics` — add `deltas` to the synced
+/// `workflows.metrics` counters, batched once per beat. A key the server does
+/// not know is refused whole, so only the two constants above are ever sent.
+pub fn report_metrics(
+    trpc: &TrpcClient,
+    id: &str,
+    deltas: &std::collections::BTreeMap<String, u32>,
+) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+        deltas: &'a std::collections::BTreeMap<String, u32>,
+    }
+    #[derive(Deserialize)]
+    struct Ignored {}
+    let _: Ignored = trpc.mutation("workflows.reportMetrics", &Input { id, deltas })?;
     Ok(())
 }
 
@@ -559,6 +622,35 @@ mod tests {
         assert!(waiting.is_waiting());
     }
 
+    /// EXP-984 — the review model rides the launch object, and a budget is a
+    /// TRI-STATE: omitted leaves it, `null` clears it, an object sets it.
+    #[test]
+    fn the_review_model_and_the_budget_tristate_serialize() {
+        let mut input = WorkflowUpdate::new("wf-1");
+        input.launch = Some(WorkflowLaunch {
+            model: Some("opus".to_string()),
+            review_model: Some("fable".to_string()),
+            ..WorkflowLaunch::default()
+        });
+        let json = serde_json::to_string(&input).unwrap();
+        assert!(json.contains(r#""reviewModel":"fable""#));
+
+        let untouched = WorkflowNodeUpdate::new("wf-1", "i-1");
+        assert!(!serde_json::to_string(&untouched).unwrap().contains("budget"));
+        let mut cleared = WorkflowNodeUpdate::new("wf-1", "i-1");
+        cleared.budget = crate::patch::Patch::Null;
+        assert!(serde_json::to_string(&cleared)
+            .unwrap()
+            .contains(r#""budget":null"#));
+        let mut set = WorkflowNodeUpdate::new("wf-1", "i-1");
+        set.budget = crate::patch::Patch::Set(NodeBudget {
+            minutes: Some(45),
+            tokens: None,
+        });
+        let json = serde_json::to_string(&set).unwrap();
+        assert!(json.contains(r#""budget":{"minutes":45}"#), "{json}");
+    }
+
     #[test]
     fn from_row_hydrates_the_synced_row() {
         // jsonb columns arrive TEXT-stored (§5.5) — both must re-parse.
@@ -617,8 +709,25 @@ mod tests {
             // EXP-983: the contract stamp and the serialization edges.
             "checkpoint_at": "2026-09-19T10:00:00.000Z",
             "after_node_ids": r#"["n-2"]"#,
+            // EXP-984: the review gate's counter + latest verdict, and the
+            // budget — all three TEXT-stored like every jsonb column.
+            "review_round": "2",
+            "review": r#"{"verdict":"request_changes","findings":"src/a.rs:4 off by one",
+                "oracle":{"command":"cargo test -p coding","passed":false},
+                "model":"fable","round":2,"at":"2026-09-19T11:00:00.000Z"}"#,
+            "budget": r#"{"minutes":45,"tokens":0}"#,
         }))
         .unwrap();
+        assert_eq!(row.review_count(), 2);
+        let review = row.review_facts().expect("the verdict decodes");
+        assert_eq!(review.verdict, "request_changes");
+        assert_eq!(review.round, 2);
+        assert_eq!(review.oracle_passed, Some(false));
+        assert_eq!(review.oracle_command.as_deref(), Some("cargo test -p coding"));
+        assert_eq!(review.model.as_deref(), Some("fable"));
+        // A zero token budget is no budget at all (the server's schema is
+        // positive-only), so only the minutes survive.
+        assert_eq!(row.budget_limits(), (Some(45), None));
         assert_eq!(row.member_ids(), vec!["i-2", "i-3"]);
         assert_eq!(row.after_ids(), vec!["n-2"]);
         assert!(row.checkpoint_at.is_some());
@@ -638,5 +747,9 @@ mod tests {
         assert!(bare.touches.is_empty());
         assert!(bare.after_ids().is_empty());
         assert_eq!(bare.checkpoint_at, None);
+        // EXP-984: no review and no budget read as exactly that.
+        assert_eq!(bare.review_count(), 0);
+        assert_eq!(bare.review_facts(), None);
+        assert_eq!(bare.budget_limits(), (None, None));
     }
 }

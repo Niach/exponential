@@ -130,6 +130,9 @@ pub enum RunKind {
     /// EXP-981: the hidden "Plan workflow" builtin — a scratch run like
     /// [`Self::CreateAction`], so it owns no worktree either.
     PlanWorkflow,
+    /// EXP-984: the hidden "Review node" builtin — the agent review of one
+    /// workflow node, in a throwaway worktree it owns and drops at the end.
+    ReviewNode,
     FixConflicts,
     Issue,
     Batch,
@@ -148,7 +151,7 @@ impl RunKind {
     /// fix-conflicts run works in the PR branch's shared worktree, and
     /// issue/batch worktrees survive their session by design.
     pub fn owns_run_worktree(self) -> bool {
-        matches!(self, Self::Team | Self::Chat)
+        matches!(self, Self::Team | Self::Chat | Self::ReviewNode)
     }
 }
 

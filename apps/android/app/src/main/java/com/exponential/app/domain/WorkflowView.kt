@@ -341,8 +341,11 @@ object WorkflowView {
         finalPrState: String?,
         finalPrNumber: Int?,
     ): String? {
-        if (nodeStates.isEmpty()) return null
-        val allIn = nodeStates.all {
+        // EXP-984: a `proposed` node was never admitted; it is not part of the
+        // run, so nothing waits for it.
+        val real = nodeStates.filter { it != DomainContract.wfNodeStateProposed }
+        if (real.isEmpty()) return null
+        val allIn = real.all {
             it == DomainContract.wfNodeStateLanded || it == DomainContract.wfNodeStateSkipped
         }
         if (!allIn && finalPrNumber == null) return null
@@ -410,4 +413,117 @@ object WorkflowView {
 
     /** The node panel's line once a node announced its contract. */
     const val CONTRACT_PUBLISHED_LABEL = "Contract published"
+
+    // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
+
+    const val ADMIT_NODE_LABEL = "Admit"
+    const val DISMISS_NODE_LABEL = "Dismiss"
+    const val PROPOSED_NODE_NOTE =
+        "Filed during the run. Admit it into the workflow or dismiss it."
+    const val AGENT_REVIEW_TITLE = "Agent review"
+    const val REVIEW_MODEL_LABEL = "Review model"
+    const val BUDGET_TITLE = "Budget"
+    const val BUDGET_MINUTES_LABEL = "Minutes"
+    const val BUDGET_TOKENS_LABEL = "Tokens"
+    const val METRICS_TITLE = "Metrics"
+
+    /**
+     * The three fields [reviewLine] reads off `workflow_nodes.review`.
+     * [oraclePassed] null = the reviewer ran no executable check, which is
+     * what makes an approval merely advisory.
+     */
+    data class ReviewLine(
+        val verdict: String,
+        val round: Int,
+        val oraclePassed: Boolean? = null,
+    )
+
+    /**
+     * The node panel's one line about the latest agent review:
+     * `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+     * `Changes requested · round 2 · checks failed`,
+     * `Changes requested · round 2`.
+     */
+    fun reviewLine(review: ReviewLine): String {
+        val verdict = if (review.verdict == DomainContract.wfReviewVerdictApprove) {
+            "Approved"
+        } else {
+            "Changes requested"
+        }
+        val parts = ArrayList<String>(3)
+        parts.add(verdict)
+        parts.add("round ${review.round}")
+        when {
+            review.oraclePassed != null ->
+                parts.add(if (review.oraclePassed) "checks passed" else "checks failed")
+            review.verdict == DomainContract.wfReviewVerdictApprove -> parts.add("advisory")
+        }
+        return parts.joinToString(" · ")
+    }
+
+    data class MetricRow(val label: String, val value: String)
+
+    /**
+     * The detail's Metrics section for a STARTED workflow, in this order. A row
+     * appears only when it has something to say, except the critical path,
+     * which always does. [counters] = the numeric keys of `workflows.metrics`
+     * ([workflowMetricCounters]); anything the jsonb does not carry as a
+     * number simply counts as zero.
+     */
+    fun metricRows(counters: Map<String, Int>): List<MetricRow> {
+        fun count(key: String): Int = counters[key] ?: 0
+        val rows = ArrayList<MetricRow>()
+        rows.add(
+            MetricRow(
+                label = "Critical path",
+                value = "${count("depth")} waves for ${count("nodes")} nodes",
+            ),
+        )
+        val landed = count("landed")
+        if (landed > 0) rows.add(MetricRow("Landed", "$landed"))
+        val mergeIns = count("mergeIns")
+        val changes = count("contractChanges")
+        if (mergeIns > 0) {
+            rows.add(
+                if (changes > 0) {
+                    MetricRow(
+                        label = "Merge-ins per contract change",
+                        value = ratio(mergeIns, changes),
+                    )
+                } else {
+                    MetricRow("Merge-ins", "$mergeIns")
+                },
+            )
+        }
+        val escalations = count("escalations")
+        if (escalations > 0) {
+            rows.add(
+                MetricRow(
+                    label = "Escalations",
+                    value = "$escalations (${count("duplicateEscalations")} duplicate)",
+                ),
+            )
+        }
+        val minutes = count("operatorMinutes")
+        if (minutes > 0) rows.add(MetricRow("Operator minutes", "$minutes"))
+        val rounds = count("reviewRounds")
+        if (rounds > 0) rows.add(MetricRow("Review rounds", "$rounds"))
+        val byOracle = count("defectsByOracle")
+        val byAgent = count("defectsByAgentReview")
+        if (byOracle + byAgent > 0) {
+            rows.add(
+                MetricRow(
+                    label = "Defects found",
+                    value = "$byOracle by checks · $byAgent by agent review",
+                ),
+            )
+        }
+        val pauses = count("budgetPauses")
+        if (pauses > 0) rows.add(MetricRow("Budget pauses", "$pauses"))
+        return rows
+    }
+
+    /** One decimal, dot-separated in every locale (web's `toFixed(1)`). */
+    private fun ratio(numerator: Int, denominator: Int): String =
+        String.format(java.util.Locale.US, "%.1f", numerator.toDouble() / denominator)
 }

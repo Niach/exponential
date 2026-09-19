@@ -21,6 +21,9 @@ final class WorkflowViewTests: XCTestCase {
         let rowSubtitles: [RowSubtitleCase]
         // EXP-983 — speculative starts.
         let edgeStyles: [EdgeStyleCase]
+        // EXP-984 — the agent review gate and the run's counters.
+        let reviewLines: [ReviewLineCase]
+        let metricRows: [MetricRowCase]
     }
 
     private struct BandCase: Decodable {
@@ -141,6 +144,21 @@ final class WorkflowViewTests: XCTestCase {
         let subtitle: String
     }
 
+    private struct ReviewLineCase: Decodable {
+        let review: WorkflowNodeReview
+        let line: String
+    }
+
+    private struct MetricRowCase: Decodable {
+        let metrics: WorkflowMetrics
+        let rows: [FixtureMetricRow]
+    }
+
+    private struct FixtureMetricRow: Decodable, Equatable {
+        let label: String
+        let value: String
+    }
+
     /// The committed contract fixture, read through `#filePath` because the
     /// unit-test bundle carries no repo resources.
     private func fixture() throws -> Fixture {
@@ -241,6 +259,77 @@ final class WorkflowViewTests: XCTestCase {
 
     func testTheSpeculativeCopyIsByteLocked() {
         XCTAssertEqual(WorkflowView.contractPublishedLabel, "Contract published")
+        XCTAssertEqual(WorkflowView.mergesInFirstLabel, "Merges in first")
+    }
+
+    // MARK: - Review gate, dynamic graphs, budgets, metrics (EXP-984)
+
+    // The node panel's review line and the detail's Metrics rows, over the same
+    // fixture the other three read: a verdict, its round, and what the oracle
+    // (or its absence) makes of it; then the counters, in order, each row only
+    // when it has something to say.
+    func testReviewAndMetricsFixtureCases() throws {
+        let fixture = try fixture()
+
+        XCTAssertFalse(fixture.reviewLines.isEmpty)
+        for testCase in fixture.reviewLines {
+            XCTAssertEqual(
+                WorkflowView.reviewLine(testCase.review),
+                testCase.line,
+                "\(testCase.review.verdict) round \(testCase.review.round)"
+            )
+        }
+
+        XCTAssertFalse(fixture.metricRows.isEmpty)
+        for testCase in fixture.metricRows {
+            XCTAssertEqual(
+                WorkflowView.metricRows(testCase.metrics).map {
+                    FixtureMetricRow(label: $0.label, value: $0.value)
+                },
+                testCase.rows
+            )
+        }
+    }
+
+    // The review gate's copy, byte for byte — the note is what a `proposed`
+    // node's panel says before a member decides.
+    func testTheReviewGateCopyIsByteLocked() {
+        XCTAssertEqual(WorkflowView.admitNodeLabel, "Admit")
+        XCTAssertEqual(WorkflowView.dismissNodeLabel, "Dismiss")
+        XCTAssertEqual(
+            WorkflowView.proposedNodeNote,
+            "Filed during the run. Admit it into the workflow or dismiss it."
+        )
+        XCTAssertEqual(WorkflowView.agentReviewTitle, "Agent review")
+        XCTAssertEqual(WorkflowView.reviewModelLabel, "Review model")
+        XCTAssertEqual(WorkflowView.budgetTitle, "Budget")
+        XCTAssertEqual(WorkflowView.budgetMinutesLabel, "Minutes")
+        XCTAssertEqual(WorkflowView.budgetTokensLabel, "Tokens")
+        XCTAssertEqual(WorkflowView.metricsTitle, "Metrics")
+    }
+
+    // A `proposed` node is NOT part of the run: it never holds the final PR up,
+    // and a graph of nothing but proposals draws no final-PR node at all.
+    func testProposedNodesAreNotPartOfTheRun() {
+        XCTAssertEqual(
+            WorkflowView.finalPrCaption(
+                states: ["landed", "proposed"], finalPrState: nil, finalPrNumber: nil
+            ),
+            "Opening the pull request"
+        )
+        XCTAssertNil(
+            WorkflowView.finalPrCaption(
+                states: ["proposed"], finalPrState: nil, finalPrNumber: nil
+            )
+        )
+        // They are not in the merge train either — nothing proposed has a PR.
+        let proposed = makeWorkflowNode(
+            id: "a", issueId: "i1", state: DomainContract.wfNodeStateProposed
+        )
+        XCTAssertTrue(proposed.isProposed)
+        XCTAssertTrue(
+            WorkflowView.mergeTrain([proposed], gate: DomainContract.wfGateHuman).isEmpty
+        )
     }
 
     // MARK: - Running a workflow (EXP-982)
@@ -475,6 +564,43 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertNil(WorkflowNodeBudget.parse(nil))
         XCTAssertNil(WorkflowNodeBudget.parse("{}"))
         XCTAssertEqual(WorkflowNodeBudget.parse(#"{"minutes":30}"#)?.minutes, 30)
+    }
+
+    // EXP-984: the review payload and the open counter set go the same way —
+    // an unknown key is ignored, a missing one defaults, and a payload that
+    // names no verdict is no review at all rather than a blank block.
+    func testTheReviewPayloadAndCountersParseTolerantly() {
+        let review = WorkflowNodeReview.parse(
+            #"""
+            {"verdict":"request_changes","findings":"The oracle is missing.",
+             "oracle":{"command":"bun test","passed":false},"model":"opus",
+             "round":2,"at":"2026-09-19T09:00:00Z","future":"x"}
+            """#
+        )
+        XCTAssertEqual(review?.verdict, "request_changes")
+        XCTAssertEqual(review?.findings, "The oracle is missing.")
+        XCTAssertEqual(review?.oracle, WorkflowReviewOracle(command: "bun test", passed: false))
+        XCTAssertEqual(review?.model, "opus")
+        XCTAssertEqual(review?.round, 2)
+        XCTAssertNil(WorkflowNodeReview.parse(nil))
+        XCTAssertNil(WorkflowNodeReview.parse("not json"))
+        XCTAssertNil(WorkflowNodeReview.parse("{}"))
+        XCTAssertEqual(WorkflowNodeReview.parse(#"{"verdict":"approve"}"#)?.round, 0)
+
+        // The counters ride the metrics jsonb beside the shape keys; a value
+        // that is not a whole number is left out rather than read as 0.
+        let metrics = WorkflowMetrics.parse(
+            #"{"nodes":2,"depth":2,"cycles":[],"landed":"garbage","reviewRounds":6}"#
+        )
+        XCTAssertEqual(metrics.counters["reviewRounds"], 6)
+        XCTAssertEqual(metrics.counters["nodes"], 2)
+        XCTAssertNil(metrics.counters["landed"])
+        XCTAssertNil(metrics.counters["cycles"])
+
+        // EXP-984: the launch's review model rides the same tolerant parse.
+        XCTAssertEqual(
+            WorkflowLaunch.parse(#"{"reviewModel":"opus"}"#).reviewModel, "opus"
+        )
     }
 }
 

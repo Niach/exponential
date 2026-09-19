@@ -35,6 +35,10 @@ import { cn } from "@/lib/utils"
 // landed node, red while the dependent merges a moved upstream in, and DASHED
 // while it builds on work that has not landed (a speculative start, or a
 // serialization edge two colliding siblings were given).
+//
+// EXP-984: a `proposed` node — a follow-up filed mid-run that nobody admitted
+// yet — is drawn with a DASHED outline. It is in the picture, but it is not
+// part of the run until a member admits it.
 
 const NODE_W = 208
 const NODE_H = 66
@@ -209,6 +213,9 @@ export function WorkflowNodeCard({
         data-testid={`workflow-node-${node.id}-card`}
         className={cn(
           `absolute bottom-0 left-0 flex h-[calc(100%-4px)] w-[calc(100%-4px)] cursor-pointer flex-col justify-center gap-1 rounded-md border border-glass-stroke bg-glass-row px-2 py-1 text-left outline-none transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`,
+          // Not admitted into the run yet — the same dashed outline the final
+          // pull request wears while it is still only an intention.
+          node.state === `proposed` && `border-dashed`,
           selected && `ring-1 ring-primary`,
           node.onCycle && `ring-1 ring-destructive`
         )}

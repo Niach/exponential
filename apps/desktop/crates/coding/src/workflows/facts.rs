@@ -151,16 +151,24 @@ pub fn conventional_branch(identifier: &str) -> String {
 /// that is not up: a run's first push is what makes its branch real, and a
 /// beat whose `ls-remote` failed carries no branches at all, which leaves
 /// every speculative node blocked rather than cut from thin air.
+///
+/// EXP-984: the same pass fills [`super::Snapshot::pr_head`] — the tip of
+/// each node's OWN branch, which is what an agent review runs against.
 pub fn confine_branches_to_tips(snapshot: &mut super::Snapshot) {
+    let mut heads = HashMap::new();
     for node in &mut snapshot.nodes {
-        if node
+        match node
             .branch
             .as_ref()
-            .is_some_and(|branch| !snapshot.tips.contains_key(branch))
+            .and_then(|branch| snapshot.tips.get(branch))
         {
-            node.branch = None;
+            Some(sha) => {
+                heads.insert(node.id.clone(), sha.clone());
+            }
+            None => node.branch = None,
         }
     }
+    snapshot.pr_head = heads;
 }
 
 /// Prune a conflict cache to the keys this pass could still ask for, so
@@ -260,11 +268,15 @@ mod tests {
         confine_branches_to_tips(&mut snapshot);
         assert_eq!(snapshot.nodes[0].branch.as_deref(), Some("exp/EXP-1"));
         assert_eq!(snapshot.nodes[1].branch, None);
+        // EXP-984: the same pass names the head a review would run against.
+        assert_eq!(snapshot.pr_head.get("a").map(String::as_str), Some("sha-a1"));
+        assert_eq!(snapshot.pr_head.get("b"), None);
 
         // A beat with no remote view at all leaves nothing to base on.
         snapshot.tips.clear();
         confine_branches_to_tips(&mut snapshot);
         assert!(snapshot.nodes.iter().all(|node| node.branch.is_none()));
+        assert!(snapshot.pr_head.is_empty());
     }
 
     /// A cached verdict costs no git at all, and the cache keeps only the

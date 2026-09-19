@@ -26,12 +26,37 @@ data class WorkflowLaunch(
     /** An agent profile id on the runner device; "" = its active login. */
     val account: String = "",
     val maxParallel: Int = DomainContract.workflowMaxParallelDefault,
+    /**
+     * EXP-984: the model agent reviews run on; "" = the engine picks one (a
+     * `risk: high` node is ALWAYS reviewed on a model other than its author's).
+     */
+    val reviewModel: String = "",
 )
 
 /** `workflow_nodes.budget`: crossing either pauses the node and notifies. */
 data class WorkflowNodeBudget(
     val tokens: Int? = null,
     val minutes: Int? = null,
+)
+
+/**
+ * EXP-984: an executable check the reviewer RAN. An agent's opinion is
+ * advisory; a passing oracle is what turns its approval into the approval.
+ */
+data class WorkflowReviewOracle(
+    val command: String,
+    val passed: Boolean,
+)
+
+/** `workflow_nodes.review`: the latest submitted agent verdict. */
+data class WorkflowNodeReview(
+    val verdict: String,
+    val findings: String = "",
+    val oracle: WorkflowReviewOracle? = null,
+    /** The model that reviewed; "" = the row did not say. */
+    val model: String = "",
+    val round: Int = 0,
+    val at: String = "",
 )
 
 private fun parseObject(raw: String?): JsonObject? {
@@ -47,6 +72,9 @@ private fun JsonObject.int(key: String): Int? = (this[key] as? JsonPrimitive)?.l
     it.intOrNull ?: it.content.trim().toIntOrNull()
 }
 
+private fun JsonObject.boolean(key: String): Boolean =
+    (this[key] as? JsonPrimitive)?.content?.trim().equals("true", ignoreCase = true)
+
 /** The workflow's launch options, every field defaulted. */
 fun workflowLaunch(raw: String?): WorkflowLaunch {
     val obj = parseObject(raw) ?: return WorkflowLaunch()
@@ -58,6 +86,7 @@ fun workflowLaunch(raw: String?): WorkflowLaunch {
         account = obj.string("account"),
         maxParallel = obj.int("maxParallel")?.takeIf { it >= 1 }
             ?: DomainContract.workflowMaxParallelDefault,
+        reviewModel = obj.string("reviewModel"),
     )
 }
 
@@ -67,6 +96,36 @@ fun workflowNodeBudget(raw: String?): WorkflowNodeBudget? {
     val budget = WorkflowNodeBudget(tokens = obj.int("tokens"), minutes = obj.int("minutes"))
     return budget.takeIf { it.tokens != null || it.minutes != null }
 }
+
+/**
+ * EXP-984: the node's latest agent review, or null while nobody reviewed it.
+ * A cell without a verdict is nothing to show — the review block renders off
+ * the verdict alone, so a half-written object never paints an empty card.
+ */
+fun workflowNodeReview(raw: String?): WorkflowNodeReview? {
+    val obj = parseObject(raw) ?: return null
+    val verdict = obj.string("verdict").takeIf { it.isNotEmpty() } ?: return null
+    val oracle = (obj["oracle"] as? JsonObject)?.let { cell ->
+        val command = cell.string("command")
+        if (command.isEmpty()) null else WorkflowReviewOracle(command, cell.boolean("passed"))
+    }
+    return WorkflowNodeReview(
+        verdict = verdict,
+        findings = obj.string("findings"),
+        oracle = oracle,
+        model = obj.string("model"),
+        round = obj.int("round") ?: 0,
+        at = obj.string("at"),
+    )
+}
+
+/** The review line's inputs, in the shared rule's shape. */
+val WorkflowNodeReview.line: WorkflowView.ReviewLine
+    get() = WorkflowView.ReviewLine(
+        verdict = verdict,
+        round = round,
+        oraclePassed = oracle?.passed,
+    )
 
 /** `workflows.metrics`: the plan's shape, as [WorkflowView] reads it. */
 fun workflowMetrics(raw: String?): WorkflowView.Shape {
@@ -89,8 +148,24 @@ fun workflowMetrics(raw: String?): WorkflowView.Shape {
     )
 }
 
+/**
+ * EXP-984: every NUMERIC key of `workflows.metrics` — the run's counters live
+ * in the same jsonb as the shape keys, so the Metrics section reads them all
+ * at once ([WorkflowView.metricRows]). Anything that is not a number (a list,
+ * a word a newer server wrote) is simply absent, which counts as zero.
+ */
+fun workflowMetricCounters(raw: String?): Map<String, Int> {
+    val obj = parseObject(raw) ?: return emptyMap()
+    val counters = LinkedHashMap<String, Int>()
+    for (key in obj.keys) obj.int(key)?.let { counters[key] = it }
+    return counters
+}
+
 /** The workflow's shape line + cycle note source, off its synced row. */
 val WorkflowEntity.shape: WorkflowView.Shape get() = workflowMetrics(metrics)
+
+/** The run's counters off the synced row, as the Metrics section reads them. */
+val WorkflowEntity.metricCounters: Map<String, Int> get() = workflowMetricCounters(metrics)
 
 /** The launch options off the synced row. */
 val WorkflowEntity.launchOptions: WorkflowLaunch get() = workflowLaunch(launch)

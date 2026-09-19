@@ -15,10 +15,13 @@ import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DeviceLiveness
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.WorkflowLaunch
+import com.exponential.app.domain.WorkflowNodeBudget
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.edgeNode
 import com.exponential.app.domain.launchOptions
+import com.exponential.app.domain.metricCounters
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.trainNode
 import com.exponential.app.domain.stableDeviceOrder
@@ -228,6 +231,35 @@ class WorkflowDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * EXP-984: the node's budget — crossing either bound pauses the run and
+     * notifies the workflow's creator. Both fields empty CLEARS it (the
+     * explicit null the router reads as "no budget"), and it stays editable at
+     * any status.
+     */
+    fun setNodeBudget(issueId: String, minutes: Int?, tokens: Int?) {
+        val budget = WorkflowNodeBudget(tokens = tokens, minutes = minutes)
+        val empty = budget.tokens == null && budget.minutes == null
+        mutate("The budget could not be saved") { accountId ->
+            workflowsApi.updateNode(
+                accountId,
+                workflowId,
+                issueId,
+                budget = budget.takeUnless { empty },
+                clearBudget = empty,
+            )
+        }
+    }
+
+    /** EXP-984: take a mid-run proposal into the graph, or throw it away. */
+    fun admitNode(nodeId: String, admit: Boolean) {
+        mutate(
+            if (admit) "The node could not be admitted" else "The node could not be dismissed",
+        ) { accountId ->
+            workflowsApi.admitNode(accountId, nodeId, admit)
+        }
+    }
+
     // ── Running a workflow (EXP-982) ────────────────────────────────────────
     // The server flips INTENT only; the bound device's engine does the work off
     // these same synced rows, so every button below is one mutation and then
@@ -273,6 +305,21 @@ class WorkflowDetailViewModel @Inject constructor(
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-984: the run's counters, as the Metrics section's rows. A DRAFT has
+     * run nothing, so it has no metrics to read — the section is hidden there
+     * rather than showing a critical path with nothing behind it.
+     */
+    val metricRows: StateFlow<List<WorkflowView.MetricRow>> = workflow
+        .map { row ->
+            if (row == null || row.status == DomainContract.wfStatusDraft) {
+                emptyList()
+            } else {
+                WorkflowView.metricRows(row.metricCounters)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun start() {
         mutate("The workflow could not be started") { accountId ->

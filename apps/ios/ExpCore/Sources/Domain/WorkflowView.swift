@@ -412,6 +412,9 @@ public enum WorkflowView {
     public static func finalPrCaption(
         states: [String], finalPrState: String?, finalPrNumber: Int?
     ) -> String? {
+        // EXP-984: a `proposed` node was never admitted; it is not part of the
+        // run.
+        let states = states.filter { $0 != DomainContract.wfNodeStateProposed }
         if states.isEmpty { return nil }
         let allIn = states.allSatisfy {
             $0 == DomainContract.wfNodeStateLanded || $0 == DomainContract.wfNodeStateSkipped
@@ -478,4 +481,98 @@ public enum WorkflowView {
 
     /// The node panel's line once a node announced its contract.
     public static let contractPublishedLabel = "Contract published"
+
+    /// The node panel's chip line over `after_node_ids`. Byte-identical ×4.
+    public static let mergesInFirstLabel = "Merges in first"
+
+    // MARK: - Review gate, dynamic graphs, budgets, metrics (EXP-984)
+
+    public static let admitNodeLabel = "Admit"
+    public static let dismissNodeLabel = "Dismiss"
+    public static let proposedNodeNote =
+        "Filed during the run. Admit it into the workflow or dismiss it."
+    public static let agentReviewTitle = "Agent review"
+    public static let reviewModelLabel = "Review model"
+    public static let budgetTitle = "Budget"
+    public static let budgetMinutesLabel = "Minutes"
+    public static let budgetTokensLabel = "Tokens"
+    public static let metricsTitle = "Metrics"
+
+    /// The node panel's one line about the latest agent review:
+    /// `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+    /// `Changes requested · round 2 · checks failed`,
+    /// `Changes requested · round 2`.
+    public static func reviewLine(_ review: WorkflowNodeReview) -> String {
+        let approved = review.verdict == DomainContract.wfReviewVerdictApprove
+        var parts = [approved ? "Approved" : "Changes requested", "round \(review.round)"]
+        if let oracle = review.oracle {
+            parts.append(oracle.passed ? "checks passed" : "checks failed")
+        } else if approved {
+            parts.append("advisory")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    public struct MetricRow: Sendable, Equatable {
+        public let label: String
+        public let value: String
+
+        public init(label: String, value: String) {
+            self.label = label
+            self.value = value
+        }
+    }
+
+    /// The detail's Metrics section for a STARTED workflow, in this order. A
+    /// row appears only when it has something to say, except the critical path,
+    /// which always does.
+    public static func metricRows(_ metrics: WorkflowMetrics) -> [MetricRow] {
+        func count(_ key: String) -> Int { metrics.counters[key] ?? 0 }
+        var rows = [
+            // The shape keys read off the typed fields; every other counter
+            // comes out of the open set beside them.
+            MetricRow(
+                label: "Critical path",
+                value: "\(metrics.depth) waves for \(metrics.nodes) nodes"
+            )
+        ]
+        let landed = count("landed")
+        if landed > 0 { rows.append(MetricRow(label: "Landed", value: "\(landed)")) }
+        let mergeIns = count("mergeIns")
+        let changes = count("contractChanges")
+        if mergeIns > 0 {
+            rows.append(
+                changes > 0
+                    ? MetricRow(
+                        label: "Merge-ins per contract change",
+                        value: String(format: "%.1f", Double(mergeIns) / Double(changes))
+                    )
+                    : MetricRow(label: "Merge-ins", value: "\(mergeIns)")
+            )
+        }
+        let escalations = count("escalations")
+        if escalations > 0 {
+            rows.append(MetricRow(
+                label: "Escalations",
+                value: "\(escalations) (\(count("duplicateEscalations")) duplicate)"
+            ))
+        }
+        let minutes = count("operatorMinutes")
+        if minutes > 0 {
+            rows.append(MetricRow(label: "Operator minutes", value: "\(minutes)"))
+        }
+        let rounds = count("reviewRounds")
+        if rounds > 0 { rows.append(MetricRow(label: "Review rounds", value: "\(rounds)")) }
+        let byOracle = count("defectsByOracle")
+        let byAgent = count("defectsByAgentReview")
+        if byOracle + byAgent > 0 {
+            rows.append(MetricRow(
+                label: "Defects found",
+                value: "\(byOracle) by checks · \(byAgent) by agent review"
+            ))
+        }
+        let pauses = count("budgetPauses")
+        if pauses > 0 { rows.append(MetricRow(label: "Budget pauses", value: "\(pauses)")) }
+        return rows
+    }
 }

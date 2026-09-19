@@ -1,0 +1,783 @@
+[
+  {
+    "name": "proposed: a proposed blocker never blocks its dependent",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "startOn": "landed"
+      },
+      "nodes": [
+        { "id": "p", "issueId": "i-p", "kind": "leaf", "state": "proposed", "wave": 0, "lane": 0 },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+      ],
+      "edges": [["p", "b"]],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "b", "state": "ready" },
+      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }
+    ]
+  },
+  {
+    "name": "proposed: the final pull request opens although a proposed node exists",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 },
+        { "id": "p", "issueId": "i-p", "kind": "leaf", "state": "proposed", "wave": 1, "lane": 0 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "openFinalPr" }]
+  },
+  {
+    "name": "proposed: a proposed node is never mirrored, started or landed",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "p",
+          "issueId": "i-p",
+          "kind": "leaf",
+          "state": "proposed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-p"
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b"
+        }
+      ],
+      "issues": { "i-p": { "prState": "merged" }, "i-b": {} },
+      "sessions": { "s-p": { "live": false }, "s-b": { "live": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7: the agent gate reviews a node's pushed branch",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "medium",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 0
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }
+    ]
+  },
+  {
+    "name": "rule 7: the same head is never reviewed twice",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "reviewedHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7: a review already in flight is never doubled",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a2" },
+      "reviewedHead": { "a": "sha-a1" },
+      "reviewInFlight": ["a"],
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7: an approved node needs no review, the train takes it instead",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "approvedAt": "2026-09-19T10:00:00.000Z"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+  },
+  {
+    "name": "rule 7: three rounds and the node stops bouncing",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 3,
+          "review": { "verdict": "request_changes", "round": 3 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a4" },
+      "reviewedHead": { "a": "sha-a3" },
+      "findingsSent": { "a": 3 },
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7: no agent gate, no review",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7: a high-risk node is reviewed adversarially, never by its author's model",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }
+    ]
+  },
+  {
+    "name": "rule 7: an adversarial review keeps a review model that already differs",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus",
+        "reviewModel": "sonnet"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "sonnet", "adversarial": true }
+    ]
+  },
+  {
+    "name": "rule 7: an adversarial review swaps a review model equal to the author's",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "fable",
+        "reviewModel": "fable"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": true }
+    ]
+  },
+  {
+    "name": "rule 7: an adversarial review with no models at all picks opus",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": true }
+    ]
+  },
+  {
+    "name": "rule 7: an ordinary review with no models at all runs on the device default",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "adversarial": false }]
+  },
+  {
+    "name": "rule 7: ONE review start per pass, in landing order",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-b"
+        },
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1", "b": "sha-b1" },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }
+    ]
+  },
+  {
+    "name": "rule 7: the findings of a round go to the live author once",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 1,
+          "review": { "verdict": "request_changes", "round": 1 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "reviewedHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "a", "state": "in_review" },
+      { "kind": "sendFindings", "nodeId": "a", "sessionId": "s-a" }
+    ]
+  },
+  {
+    "name": "rule 7: findings already delivered are never repeated",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 1,
+          "review": { "verdict": "request_changes", "round": 1 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "reviewedHead": { "a": "sha-a1" },
+      "findingsSent": { "a": 1 },
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7: nothing is said mid-turn, and no review starts while the author works",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 1,
+          "review": { "verdict": "request_changes", "round": 1 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true, "agentBusy": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a2" },
+      "reviewedHead": { "a": "sha-a1" },
+      "findingsSent": { "a": 1 },
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 7: an ENDED author run is resumed with the findings",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 2,
+          "review": { "verdict": "request_changes", "round": 2 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": false } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a2" },
+      "reviewedHead": { "a": "sha-a2" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "sendFindings", "nodeId": "a" }]
+  },
+  {
+    "name": "rule 7: a fresh push after changes were requested starts the next round",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 1,
+          "review": { "verdict": "request_changes", "round": 1 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a2" },
+      "reviewedHead": { "a": "sha-a1" },
+      "findingsSent": { "a": 1 },
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }
+    ]
+  },
+  {
+    "name": "rule 8: a run over its minute budget is paused",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "budget": { "minutes": 30 }
+        }
+      ],
+      "sessions": { "s-a": { "live": true, "startedAtMs": 998140000 } },
+      "integrationBranchExists": true,
+      "nowMs": 1000000000
+    },
+    "expected": [
+      {
+        "kind": "pauseNode",
+        "nodeId": "a",
+        "sessionId": "s-a",
+        "note": "Over budget: 31 of 30 minutes"
+      }
+    ]
+  },
+  {
+    "name": "rule 8: a run over its token budget is paused",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "budget": { "minutes": 600, "tokens": 500000 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": {
+        "s-a": { "live": true, "agentBusy": true, "startedAtMs": 999400000, "tokensUsed": 750000 }
+      },
+      "integrationBranchExists": true,
+      "nowMs": 1000000000
+    },
+    "expected": [
+      {
+        "kind": "pauseNode",
+        "nodeId": "a",
+        "sessionId": "s-a",
+        "note": "Over budget: 750000 of 500000 tokens"
+      }
+    ]
+  },
+  {
+    "name": "rule 8: a run still inside its budget is left alone",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "budget": { "minutes": 30, "tokens": 500000 }
+        }
+      ],
+      "sessions": {
+        "s-a": { "live": true, "startedAtMs": 999400000, "tokensUsed": 120000 }
+      },
+      "integrationBranchExists": true,
+      "nowMs": 1000000000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 8: a paused node is left exactly where a person left it",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "paused",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "budget": { "minutes": 30 }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true, "startedAtMs": 998140000 } },
+      "integrationBranchExists": true,
+      "nowMs": 1000000000
+    },
+    "expected": []
+  }
+]

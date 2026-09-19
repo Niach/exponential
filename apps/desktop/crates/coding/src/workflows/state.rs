@@ -11,7 +11,11 @@
 //!       "propagated": { "<nodeId>": { "<branch>": "<sha>" } },
 //!       "synthetic": { "<baseBranch>": [["<branch>", "<sha>"]] },
 //!       "conflicts": { "<nodeA>|<nodeB>|<shaA>|<shaB>": true },
-//!       "basesDeleted": ["<baseBranch>"]
+//!       "basesDeleted": ["<baseBranch>"],
+//!       "reviewedHead": { "<nodeId>": "<sha>" },
+//!       "findingsSent": { "<nodeId>": 2 },
+//!       "reviewRuns": { "<nodeId>": "<sessionId>" },
+//!       "checkpointTips": { "<nodeId>": "<sha>" }
 //!     }
 //!   }
 //! }
@@ -60,6 +64,19 @@ pub struct WorkflowState {
     pub conflicts: HashMap<String, bool>,
     /// EXP-983: synthetic bases this device already dropped.
     pub bases_deleted: HashSet<String>,
+    /// EXP-984: `node id → the branch tip its last agent review ran
+    /// against`, so one push is reviewed once however many beats pass.
+    pub reviewed_head: HashMap<String, String>,
+    /// EXP-984: `node id → the highest review round whose findings were
+    /// delivered to its author` — said once per round, never per beat.
+    pub findings_sent: HashMap<String, i64>,
+    /// EXP-984: `node id → the session id of its reviewer run`, so a live
+    /// review is never started twice (its liveness comes off the synced
+    /// `coding_sessions` row).
+    pub review_runs: HashMap<String, String>,
+    /// EXP-984: `node id → the branch tip last counted as a contract
+    /// change`, the input to the `contractChanges` metric.
+    pub checkpoint_tips: HashMap<String, String>,
 }
 
 /// The conflict cache's key: the pair and the tips it was decided at, both
@@ -126,6 +143,10 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                                 .collect()
                         })
                         .unwrap_or_default(),
+                    reviewed_head: read_string_map(entry.get("reviewedHead")),
+                    findings_sent: read_round_map(entry.get("findingsSent")),
+                    review_runs: read_string_map(entry.get("reviewRuns")),
+                    checkpoint_tips: read_string_map(entry.get("checkpointTips")),
                 },
             )
         })
@@ -152,6 +173,32 @@ fn read_propagated(value: Option<&Value>) -> HashMap<String, HashMap<String, Str
                             .collect(),
                     ))
                 })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// EXP-984: a flat `key → string` map (`reviewedHead`, `reviewRuns`,
+/// `checkpointTips`); anything malformed is dropped, which at worst re-runs
+/// one review or re-counts one metric.
+fn read_string_map(value: Option<&Value>) -> HashMap<String, String> {
+    value
+        .and_then(Value::as_object)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// EXP-984: `node id → round`.
+fn read_round_map(value: Option<&Value>) -> HashMap<String, i64> {
+    value
+        .and_then(Value::as_object)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_i64()?)))
                 .collect()
         })
         .unwrap_or_default()
@@ -217,6 +264,10 @@ pub fn write_states(
                 "synthetic": state.synthetic,
                 "conflicts": state.conflicts,
                 "basesDeleted": bases_deleted,
+                "reviewedHead": state.reviewed_head,
+                "findingsSent": state.findings_sent,
+                "reviewRuns": state.review_runs,
+                "checkpointTips": state.checkpoint_tips,
             }),
         );
     }
@@ -351,6 +402,14 @@ mod tests {
         );
         mine.bases_deleted
             .insert("exp/wf-abcdef12-base-EXP-9".to_string());
+        // EXP-984: the review gate's at-most-once bookkeeping.
+        mine.reviewed_head
+            .insert("node-1".to_string(), "sha-a2".to_string());
+        mine.findings_sent.insert("node-1".to_string(), 2);
+        mine.review_runs
+            .insert("node-1".to_string(), "sess-r1".to_string());
+        mine.checkpoint_tips
+            .insert("node-1".to_string(), "sha-a2".to_string());
         let states: HashMap<String, WorkflowState> = [("wf-1".to_string(), mine.clone())].into();
         write_states(&path, "d", &states).unwrap();
         assert_eq!(read_states(&path, "d")["wf-1"], mine);
@@ -368,6 +427,8 @@ mod tests {
                 "propagated": { "node-1": "not-a-map" },
                 "synthetic": { "base": [["only-one"]] },
                 "conflicts": { "k": "not-a-bool" },
+                "reviewedHead": { "node-1": 7 },
+                "findingsSent": { "node-1": "two" },
             } } }
         });
         std::fs::write(&path, raw.to_string()).unwrap();
@@ -375,6 +436,8 @@ mod tests {
         assert!(read["wf-1"].propagated.is_empty());
         assert_eq!(read["wf-1"].synthetic["base"], Vec::new());
         assert!(read["wf-1"].conflicts.is_empty());
+        assert!(read["wf-1"].reviewed_head.is_empty());
+        assert!(read["wf-1"].findings_sent.is_empty());
     }
 
     /// A malformed nudge key is dropped rather than poisoning the set: the
