@@ -1273,7 +1273,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Surfaces`,
     blurb: `The bottom strip of coding tabs (EXP-769). It sits OUTSIDE the content card, on the bare page ground below it, the mirror of the desktop's head toolbar above (EXP-771): the card stops 6px short and the band takes the last 36 down to the window bottom, with no fill and no border of its own and its chips inset 8. Give it a fill and the ground reads as a second card. It holds the rich tabs of the user's running sessions and, on the desktop, the open terminals — a session tab leads with its 6px liveness dot and carries the issue's mono identifier, the title and a muted " · machine" caption; a terminal tab leads with the terminal glyph and wears its exit code as a badge. Right after the last tab sit two ghost 24px glyph buttons: Chat (a promptless chat run on the default agent) and add (a plain terminal, desktop only). Nothing else: no header, no collapse, no label when empty — the strip is always there so Chat is always one click away. Selecting a tab opens that session or terminal FULLSCREEN in the content area; the web navigates to the session route, the desktop shows the screen. The × on a live session kills it (confirmed), on an ended one closes the transcript tab, on a terminal closes the terminal.`,
     status: {
-      web: na(`EXP-818: no bottom band on the web — sessions are the sidebar's Sessions group and the Agent page's list.`),
+      web: na(`EXP-818: no bottom band on the web — live runs are the sidebar's Running section (EXP-923), past ones the Recent panel.`),
       desktop: ok(
         `session_bar::SessionBar`,
         `apps/desktop/crates/ui/src/session_bar.rs`,
