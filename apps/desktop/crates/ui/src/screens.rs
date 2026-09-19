@@ -20,10 +20,9 @@
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, App, AppContext as _,
-    ClickEvent, Entity, FocusHandle, Focusable, FontWeight, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
-    Subscription, Window, WindowId,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    Focusable, FontWeight, InteractiveElement as _, IntoElement, MouseButton, ParentElement,
+    Render, StatefulInteractiveElement as _, Styled, Subscription, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -49,26 +48,9 @@ use crate::sidebar::{rail_shared_for_window, ListMode, ListPanel, RailShared};
 /// wall expiring) — the 5s the session lists ride.
 const LIVE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// EXP-877: how long an agent group takes to fold to its mark (or unfold).
-const GROUP_ANIM: std::time::Duration = std::time::Duration::from_millis(200);
-
-/// EXP-877: the gap between strip items — chips, marks, chevrons alike.
-const GROUP_GAP: f32 = 4.;
-
-/// EXP-877: the collapse chevron's tooltip. Byte-identical with the web.
-const COLLAPSE_GROUP: &str = "Collapse";
-
-/// EXP-877: the collapse/expand width slide in flight. `from`/`to` are
-/// FRACTIONS of the group's natural width — the render measures that number
-/// itself, and this only says which way the slide runs and which element id
-/// replays it (`seq`, the `diff.rs` chevron recipe).
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct GroupAnim {
-    group: TabGroup,
-    from: f32,
-    to: f32,
-    seq: u64,
-}
+/// EXP-923: the gap between strip chips. (EXP-877's agent CLUSTERS are gone
+/// with the live tabs — the strip is a flat list of plain chips again.)
+const STRIP_GAP: f32 = 4.;
 
 /// Stable serialization name (§3.3: never change once shipped in a layout).
 pub const PANEL_NAME: &str = "Screens";
@@ -339,10 +321,11 @@ struct TabEntry {
     origin: Option<TabOrigin>,
     issue_id: Option<String>,
     run_id: Option<String>,
-    /// EXP-870: the bound run is one of MY live runs — the tab sits in the
-    /// strip's leading agent group. EXP-877: a live tab is NOT closable, so
-    /// there is no dismissal memory any more; it leaves the group when its
-    /// run ends and becomes an ordinary, closable transcript tab.
+    /// EXP-870/EXP-923: the bound run is one of MY live runs. It no longer
+    /// decides whether the tab EXISTS (a live run lives in the rail's Running
+    /// section, never in the strip) nor whether it can be closed — only what
+    /// the chip's lead says: an issue tab whose run is going wears the run's
+    /// liveness dot instead of the issue's status glyph.
     live: bool,
 }
 
@@ -365,22 +348,15 @@ impl TabEntry {
         }
     }
 
-    /// EXP-877 — whether this tab can be closed AT ALL. A LIVE tab cannot:
-    /// a run you are hosting is not a document you put away, and the tab
-    /// leaves on its own the moment the run ends. THE rule — every close path
-    /// (the ×, middle-click, the Close item, Close others, Close all) reads
-    /// it, so a new one cannot forget it.
-    fn closable(&self) -> bool {
-        !self.live
-    }
-
-    /// EXP-877 — whether a BULK close (Close others / Close all) takes this
+    /// EXP-923 — whether a BULK close (Close others / Close all) takes this
     /// tab. `keep` is the one tab Close others spares; `None` = Close all.
     /// The bottom bar's terminals are a different strip and never go (EXP-769).
+    ///
+    /// EXP-877's live exemption is GONE: every tab is closable again, because
+    /// a live run is always one click away in the rail's Running section, so
+    /// closing its chip cannot lose it.
     fn swept_by_bulk_close(&self, keep: Option<&Screen>) -> bool {
-        self.closable()
-            && !self.screen.is_dock_tab()
-            && keep.is_none_or(|keep| &self.screen != keep)
+        !self.screen.is_dock_tab() && keep.is_none_or(|keep| &self.screen != keep)
     }
 
     /// EXP-870: whether `screen` is one of this tab's faces — the face on show,
@@ -433,16 +409,19 @@ enum LivePlanOp {
     MarkLive { ix: usize, run_id: String, bind: bool },
     /// Tab `ix`'s run ended: it stays open, it just leaves the live group.
     MarkNotLive(usize),
-    /// A live run with no tab gets one — in the background, never activated.
-    Add { issue_id: Option<String>, run_id: String },
 }
 
-/// EXP-870/EXP-877, THE live-tab rule, pure: every live run of mine owns a
-/// tab, always — a live tab cannot be closed, so there is nothing to
-/// remember about one the user dismissed (EXP-877 deleted that whole lane: a
-/// run you are hosting is not a document, and hiding it made the strip lie
-/// about what the machine is doing). A tab whose run ENDS keeps its place as
-/// an ordinary closable transcript; an ended run is never auto-added.
+/// EXP-923, THE live-tab rule, pure: a live run NEVER opens a tab. It lives
+/// in the rail's Running section, which is where you go back to it; a chip
+/// for it would be a second copy of the same row, and the strip filling up
+/// with runs the machine started on its own is what took the rule away
+/// (EXP-870 gave every live run a tab, EXP-877 made those tabs unclosable —
+/// both were the strip claiming a run is a document you opened).
+///
+/// What is left is MARKING: a tab that already exists for this work — an
+/// issue tab you started the run from — wears its run's liveness on the chip
+/// and binds its Run face to it. A tab whose run ENDS stays open as an
+/// ordinary transcript.
 ///
 /// `viewed` is the run the window is SHOWING: a tab bound to it is being read
 /// (a past run of an issue that also has a live one), so it is never rebound
@@ -456,7 +435,6 @@ fn live_tab_plan(
         live.iter().map(|run| run.session_id.as_str()).collect();
     let mut ops = Vec::new();
     let mut claimed = std::collections::HashSet::new();
-    let mut added_issues = std::collections::HashSet::new();
     for run in live {
         let ix = match &run.issue_id {
             Some(issue_id) => tabs
@@ -484,17 +462,9 @@ fn live_tab_plan(
                     }
                 }
             }
-            None => {
-                if let Some(issue_id) = &run.issue_id {
-                    if !added_issues.insert(issue_id.clone()) {
-                        continue;
-                    }
-                }
-                ops.push(LivePlanOp::Add {
-                    issue_id: run.issue_id.clone(),
-                    run_id: run.session_id.clone(),
-                });
-            }
+            // EXP-923: no tab for this run and none is opened — the rail's
+            // Running section is where it lives.
+            None => {}
         }
     }
     for (ix, tab) in tabs.iter().enumerate() {
@@ -505,81 +475,90 @@ fn live_tab_plan(
     ops
 }
 
-/// EXP-877: the agent a live tab's run is on — the strip GROUPS by it, so a
-/// window running three claude runs and one codex run reads as two clusters
-/// rather than four chips in start order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) enum TabGroup {
-    /// Claude comes first: it is the default agent, so an unknown or absent
-    /// id lands here too rather than inventing a third group.
-    Claude,
-    Codex,
+/// EXP-923 — the work the rail's Running section opened with NO tab. It has
+/// to be remembered, not decided per navigation: the header's `Issue | Run`
+/// control is a `set_screen` and carries no marker at all
+/// ([`set_tab_face`]), so without this the first flip to the Issue face
+/// would grow the chip the rail click deliberately did not.
+#[derive(Clone, Debug, PartialEq)]
+struct TablessWork {
+    issue_id: Option<String>,
+    run_id: String,
 }
 
-/// EXP-877: the group a run's wire agent id names. `None`, and anything this
-/// build does not know, is Claude (`codingSessions.start`'s own fallback).
-pub(crate) fn tab_group(agent: Option<&str>) -> TabGroup {
-    match agent.and_then(coding::CodingAgent::parse) {
-        Some(coding::CodingAgent::Codex) => TabGroup::Codex,
-        _ => TabGroup::Claude,
-    }
-}
-
-/// EXP-870/EXP-877: the top strip's display order — the live runs first,
-/// clustered by agent ([`TabGroup`]'s own order: claude, then codex), then
-/// the ordinary tabs. Within every cluster the tabs keep the order they were
-/// opened in, so nothing ever jumps sideways while you read it.
-///
-/// `groups[ix]` is the tab's group when it is LIVE and `None` when it is not.
-fn strip_order(groups: &[Option<TabGroup>]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..groups.len()).collect();
-    // `sort_by_key` is stable, so equal keys keep their tab order.
-    order.sort_by_key(|&ix| match groups[ix] {
-        Some(group) => (0u8, Some(group)),
-        None => (1, None),
-    });
-    order
-}
-
-/// EXP-877: `order` cut into CONSECUTIVE runs that share a group — the strip
-/// renders one agent cluster (mark, chips, collapse chevron) per `Some`
-/// segment and the plain chips of the single trailing `None` one. Each entry
-/// is `(group, start, end)` as POSITIONS in `order`, `end` exclusive.
-///
-/// Pure, and the reason it is not just "iterate and compare": an empty group
-/// must produce no segment at all (an agent with no live run draws no mark),
-/// which falls out of only emitting a segment for a non-empty run.
-fn group_segments(
-    order: &[usize],
-    groups: &[Option<TabGroup>],
-) -> Vec<(Option<TabGroup>, usize, usize)> {
-    let mut segments: Vec<(Option<TabGroup>, usize, usize)> = Vec::new();
-    for (pos, &ix) in order.iter().enumerate() {
-        let group = groups.get(ix).copied().flatten();
-        match segments.last_mut() {
-            Some(last) if last.0 == group => last.2 = pos + 1,
-            _ => segments.push((group, pos, pos + 1)),
+impl TablessWork {
+    /// Whether `screen` is one of this work's two faces.
+    fn holds(&self, screen: &Screen) -> bool {
+        match screen {
+            Screen::Session { session_id } => self.run_id == *session_id,
+            Screen::IssueDetail { issue_id } => {
+                self.issue_id.as_deref() == Some(issue_id.as_str())
+            }
+            _ => false,
         }
     }
-    segments
 }
 
-/// EXP-877 — the group a fold has to give up: the ACTIVE tab's, when that tab
-/// is live and its group is folded. `None` = nothing to unfold (no active tab,
-/// an ordinary tab, or a group that is already open).
+/// EXP-923 — whether a navigation opens NO tab. Two ways in: the rail's
+/// Running section asked for it ([`PendingOrigin::LiveRail`]), or the window
+/// is still on that same tab-less work and this is a face flip (`set_screen`,
+/// so no marker at all). Either way an EXISTING tab — the issue you started
+/// the run from — wins: it is reused and goes active, so one piece of work is
+/// one chip and never two.
 ///
-/// Pure, because the three edges that reach it are hard to see from any one
-/// of them: a navigation onto a run in a folded group, a tab that BECOMES
-/// live into one, and a live tab that changes group when its row finally
-/// names its agent. All three end with the active chip painted at width 0
-/// behind a mark, with `active_ix = None` so the overflow never rescues it.
-fn group_to_expand(
-    groups: &[Option<TabGroup>],
-    active: Option<usize>,
-    collapsed: &HashSet<TabGroup>,
-) -> Option<TabGroup> {
-    let group = groups.get(active?).copied().flatten()?;
-    collapsed.contains(&group).then_some(group)
+/// Pure, because the halves come from opposite ends of `sync_tabs` and
+/// getting any of them wrong is silent: miss the marker and every rail click
+/// grows the strip; miss `existing` and clicking a run whose issue is open
+/// leaves the chip behind unhighlighted; miss `tabless` and the Issue face
+/// grows the chip the rail click did not.
+fn opens_no_tab(
+    pending: Option<&PendingOrigin>,
+    existing: Option<usize>,
+    tabless_holds: bool,
+) -> bool {
+    existing.is_none()
+        && match pending {
+            Some(PendingOrigin::LiveRail) => true,
+            // A face flip / a tab activation: no marker, so the window's
+            // current tab-less work is the whole answer.
+            None => tabless_holds,
+            // Any REAL navigation elsewhere opens its tab as it always did.
+            Some(_) => false,
+        }
+}
+
+/// EXP-923 — the tabs a MERGE end takes with it: the ones bound to a run in
+/// `merged`, plus every tab on the same ISSUE (the issue's own tab, which
+/// would otherwise sit there over a done issue whose branch is gone). Every
+/// other end keeps its tab — a stopped run still has a transcript to read.
+///
+/// `tabs` is `(run_id, issue_id)` per tab, in tab order; the result is
+/// indices, ASCENDING.
+fn tabs_closed_by_merge(
+    tabs: &[(Option<String>, Option<String>)],
+    merged: &[String],
+) -> Vec<usize> {
+    if merged.is_empty() {
+        return Vec::new();
+    }
+    let ends = |run_id: Option<&String>| {
+        run_id.is_some_and(|run_id| merged.iter().any(|id| id == run_id))
+    };
+    let issues: HashSet<&str> = tabs
+        .iter()
+        .filter(|(run_id, _)| ends(run_id.as_ref()))
+        .filter_map(|(_, issue_id)| issue_id.as_deref())
+        .collect();
+    tabs.iter()
+        .enumerate()
+        .filter(|(_, (run_id, issue_id))| {
+            ends(run_id.as_ref())
+                || issue_id
+                    .as_deref()
+                    .is_some_and(|issue_id| issues.contains(issue_id))
+        })
+        .map(|(ix, _)| ix)
+        .collect()
 }
 
 /// EXP-851: which list a tab ends up carrying. `pending` is the marker the
@@ -603,7 +582,8 @@ fn resolve_tab_origin(
         None => existing.cloned(),
         Some(PendingOrigin::Explicit(origin)) => Some(origin.clone()),
         Some(PendingOrigin::Derive) => derived.or_else(|| existing.cloned()),
-        Some(PendingOrigin::Rail) => None,
+        // EXP-923: the rail's Running rows lend no list either.
+        Some(PendingOrigin::Rail) | Some(PendingOrigin::LiveRail) => None,
     }
 }
 
@@ -1107,12 +1087,9 @@ pub struct ScreensPanel {
     /// consumed by [`Self::apply_pending_run_face`] the moment the view is
     /// built.
     pending_run_face: Option<(String, RunFace)>,
-    /// EXP-877: the agent groups this window has collapsed to their mark.
-    /// Per WINDOW, not persisted: it is a glance-level fold of chrome, and a
-    /// collapse you have to undo on the next launch is a setting.
-    collapsed_groups: HashSet<TabGroup>,
-    /// EXP-877: the collapse/expand width slide in flight, if any.
-    group_anim: Option<GroupAnim>,
+    /// EXP-923: the live run this window is showing WITHOUT a tab — opened
+    /// from the rail's Running section ([`TablessWork`]).
+    tabless: Option<TablessWork>,
     /// EXP-870: the live chips' clock-derived facts (a usage wall expiring)
     /// as of the last tick — those move with the clock, not with a row.
     live_chip_facts: Vec<(String, crate::queries::LiveSig)>,
@@ -1297,8 +1274,7 @@ impl ScreensPanel {
             rail,
             tabs: Vec::new(),
             pending_run_face: None,
-            collapsed_groups: HashSet::new(),
-            group_anim: None,
+            tabless: None,
             live_chip_facts: Vec::new(),
             _live_tick: cx.spawn_in(window, async move |this, cx| loop {
                 cx.background_executor().timer(LIVE_TICK).await;
@@ -1410,8 +1386,8 @@ impl ScreensPanel {
             // is team data and goes.
             self.tabs
                 .retain(|tab| matches!(tab.screen, Screen::Terminal { .. }));
-            self.collapsed_groups.clear();
             self.pending_run_face = None;
+            self.tabless = None;
             // EXP-746: the session views go with their tabs (a dropped tab
             // must not keep a relay socket or an engine drain alive).
             self.shutdown_all_sessions(cx);
@@ -1426,7 +1402,8 @@ impl ScreensPanel {
                 rail.clear_selected_file(cx);
                 rail.clear_sc_selection(cx);
             });
-            // EXP-870: the new team's live runs get their tabs straight away.
+            // EXP-923: the surviving tabs (terminals) carry no live run, but
+            // the pass also clears any stale marking.
             self.reconcile_live_tabs(cx);
         }
         let Some(screen) = resolved_screen(&self.nav, cx) else {
@@ -1484,6 +1461,32 @@ impl ScreensPanel {
                     .position(|tab| tab.issue_id.as_deref() == Some(issue_id.as_str()))
             })
         });
+        // EXP-923: a live run opened from the rail's Running section gets NO
+        // tab of its own. An EXISTING tab for the same work (the issue you
+        // started it from) is still reused and still goes active — the two
+        // highlights are the same piece of work, not two copies of it.
+        // EXP-923: the rail's Running rows open a live run with no tab, and
+        // that decision outlives the click — the Issue | Run flips inside it
+        // carry no marker of their own.
+        if let Some(PendingOrigin::LiveRail) = pending_origin {
+            self.tabless = (existing.is_none())
+                .then(|| match &screen {
+                    Screen::Session { session_id } => Some(TablessWork {
+                        issue_id: issue_of_screen.clone(),
+                        run_id: session_id.clone(),
+                    }),
+                    _ => None,
+                })
+                .flatten();
+        } else if pending_origin.is_some() {
+            // A real navigation somewhere else ends it.
+            self.tabless = None;
+        }
+        let tabless_holds = self
+            .tabless
+            .as_ref()
+            .is_some_and(|work| work.holds(&screen));
+        let opens_no_tab = opens_no_tab(pending_origin.as_ref(), existing, tabless_holds);
         match existing {
             Some(ix) => {
                 // Dedupe keeps ONE tab; a real re-navigation refreshes its
@@ -1501,6 +1504,7 @@ impl ScreensPanel {
                     self.bind_run(ix, session_id, cx);
                 }
             }
+            None if opens_no_tab => {}
             None => {
                 self.tabs.push(TabEntry::new(
                     screen.clone(),
@@ -1509,11 +1513,6 @@ impl ScreensPanel {
                 ));
             }
         }
-        // EXP-877: whatever the window SHOWS is visible in the strip — a
-        // folded agent group unfolds the moment one of its runs is the one
-        // you are looking at, so the active chip is never hidden behind a
-        // mark. AFTER the match, so a tab that was just pushed counts too.
-        self.expand_active_group(cx);
         match screen {
             Screen::IssueDetail { issue_id } => {
                 self.issue_detail.update(cx, |detail, cx| {
@@ -1624,7 +1623,7 @@ impl ScreensPanel {
     /// `cx.notify()`; nothing here recomputes them.
     fn sync_session_tabs(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.rekey_run_tabs(window, cx);
-        let (swaps, ended) = {
+        let (swaps, ended, merged) = {
             let sessions = Store::global(cx).collections().coding_sessions.read(cx);
             let open = self.open_session_ids();
             let rows: Vec<(String, Option<String>)> = sessions
@@ -1642,7 +1641,20 @@ impl ScreensPanel {
                 })
                 .cloned()
                 .collect();
-            (resume_swaps(&open, &rows), ended)
+            // EXP-923: the runs that ended BY THE MERGE — their work is done
+            // (the PR landed, the issue flipped), so the tab holding them
+            // goes. Every other end keeps its tab as a read-only transcript.
+            let merged: Vec<String> = ended
+                .iter()
+                .filter(|id| {
+                    sessions.get(id.as_str()).is_some_and(|row| {
+                        row.ended_by.as_deref()
+                            == Some(domain::contract::CODING_SESSION_ENDED_BY_MERGE)
+                    })
+                })
+                .cloned()
+                .collect();
+            (resume_swaps(&open, &rows), ended, merged)
         };
         for session_id in ended {
             if let Some(view) = self.sessions.get(&session_id) {
@@ -1654,9 +1666,33 @@ impl ScreensPanel {
         for (old_id, new_id) in swaps {
             self.take_over_session_tab(&old_id, &new_id, window, cx);
         }
+        self.close_merged_run_tabs(&merged, window, cx);
         // EXP-870: AFTER the resume swap — a resumed run takes its
         // predecessor's tab rather than getting a second one.
         self.reconcile_live_tabs(cx);
+    }
+
+    /// EXP-923 — a run that ended because ITS PR merged takes its tab with
+    /// it, along with any other tab on the same issue: the work is finished
+    /// (the branch is gone, the issue is done), so a chip left behind is a
+    /// document about nothing. Every other end keeps the tab — a stopped run
+    /// still has a transcript worth reading.
+    fn close_merged_run_tabs(
+        &mut self,
+        merged: &[String],
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let views: Vec<(Option<String>, Option<String>)> = self
+            .tabs
+            .iter()
+            .map(|tab| (tab.run_id.clone(), tab.issue_id.clone()))
+            .collect();
+        // Highest index first — removal is by index, and closing the active
+        // tab re-activates a neighbour safely mid-loop.
+        for ix in tabs_closed_by_merge(&views, merged).into_iter().rev() {
+            self.remove_tab(ix, true, window, cx);
+        }
     }
 
     /// EXP-870: a run tab opened before its row synced has no issue yet. Once
@@ -1821,51 +1857,6 @@ impl ScreensPanel {
         }
     }
 
-    /// EXP-877: every tab's strip group — its run's agent while the tab is
-    /// LIVE, `None` otherwise. One collection read for the whole strip, so
-    /// the ordering, the segmenting and the width bookkeeping all key off the
-    /// same snapshot.
-    fn tab_groups(&self, cx: &App) -> Vec<Option<TabGroup>> {
-        let store = Store::try_global(cx);
-        let sessions = store.as_ref().map(|store| store.collections().coding_sessions.read(cx));
-        self.tabs
-            .iter()
-            .map(|tab| {
-                if !tab.live {
-                    return None;
-                }
-                let agent = sessions
-                    .as_ref()
-                    .zip(tab.run_id.as_deref())
-                    .and_then(|(sessions, run_id)| sessions.get(run_id))
-                    .and_then(|row| row.agent.clone());
-                Some(tab_group(agent.as_deref()))
-            })
-            .collect()
-    }
-
-    /// EXP-877: unfold the group of whatever the window is showing, if it is
-    /// a live run in a folded one. Not routed through
-    /// [`Self::set_group_collapsed`]: this runs inside the nav observer,
-    /// where a repaint is already coming, and a 200ms slide on every
-    /// navigation would be noise.
-    fn expand_active_group(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.collapsed_groups.is_empty() {
-            return;
-        }
-        let Some(screen) = resolved_screen(&self.nav, cx) else {
-            return;
-        };
-        let active = self.tabs.iter().position(|tab| tab.live && tab.holds(&screen));
-        let Some(group) = group_to_expand(&self.tab_groups(cx), active, &self.collapsed_groups)
-        else {
-            return;
-        };
-        self.collapsed_groups.remove(&group);
-        self.group_anim = None;
-        cx.notify();
-    }
-
     /// EXP-877/EXP-879: hand a recorded sub-face request to its run's view,
     /// once that view exists. A request for a run this window never opens
     /// simply waits — it is consumed by identity, so it can only ever fire on
@@ -1881,48 +1872,8 @@ impl ScreensPanel {
         view.update(cx, |view, cx| view.set_run_face(face, cx));
     }
 
-    /// EXP-877: whether `group`'s chips are folded away behind its mark.
-    fn group_collapsed(&self, group: Option<TabGroup>) -> bool {
-        group.is_some_and(|group| self.collapsed_groups.contains(&group))
-    }
-
-    /// EXP-877: fold `group` to its mark (or unfold it), sliding the chips
-    /// out over [`GROUP_ANIM`]. The tween is one-shot and SETTLES: the timer
-    /// clears the record, and the group then paints at its steady width.
-    fn set_group_collapsed(
-        &mut self,
-        group: TabGroup,
-        collapsed: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.collapsed_groups.contains(&group) == collapsed {
-            return;
-        }
-        if collapsed {
-            self.collapsed_groups.insert(group);
-        } else {
-            self.collapsed_groups.remove(&group);
-        }
-        let seq = self.group_anim.as_ref().map_or(0, |anim| anim.seq) + 1;
-        // Fractions of the group's natural width — the render measures that,
-        // this only says which way the slide runs.
-        let (from, to) = if collapsed { (1., 0.) } else { (0., 1.) };
-        self.group_anim = Some(GroupAnim { group, from, to, seq });
-        cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor().timer(GROUP_ANIM).await;
-            let _ = this.update(cx, |this, cx| {
-                if this.group_anim.as_ref().is_some_and(|anim| anim.seq == seq) {
-                    this.group_anim = None;
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
-    /// EXP-870: every live run of mine owns a tab ([`live_tab_plan`]).
+    /// EXP-923: mark the tabs whose run is live ([`live_tab_plan`]) — it
+    /// never opens one.
     fn reconcile_live_tabs(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return;
@@ -1962,23 +1913,8 @@ impl ScreensPanel {
                     }
                 }
                 LivePlanOp::MarkNotLive(ix) => self.tabs[ix].live = false,
-                LivePlanOp::Add { issue_id, run_id } => {
-                    let mut tab = TabEntry::new(
-                        Screen::Session { session_id: run_id },
-                        None,
-                        issue_id,
-                    );
-                    tab.live = true;
-                    self.tabs.push(tab);
-                }
             }
         }
-        // EXP-877: this is where a tab BECOMES live, and where a live tab
-        // changes group (the run's row arrives naming codex after the tab was
-        // grouped under the claude fallback) — both can drop the active chip
-        // into a folded group behind the strip, which `sync_tabs` alone never
-        // catches because no navigation happened.
-        self.expand_active_group(cx);
         cx.notify();
     }
 
@@ -2140,13 +2076,6 @@ impl ScreensPanel {
         if let Some(origin) = &entry.origin {
             crate::sidebar::apply_origin(window, cx, origin);
         }
-        // EXP-877: activating a chip inside a folded group (from the overflow
-        // menu, a keyboard step) unfolds it.
-        if entry.live {
-            if let Some(group) = self.tab_groups(cx).get(ix).copied().flatten() {
-                self.set_group_collapsed(group, false, window, cx);
-            }
-        }
         set_screen(window, cx, Some(entry.screen));
     }
 
@@ -2159,14 +2088,12 @@ impl ScreensPanel {
     /// `coding_sessions` row rides on it since EXP-773. The manager's
     /// `TabClosed` echo then finds the entry already gone.
     ///
-    /// EXP-877: a LIVE tab is NOT closable — no ×, no middle-click, no Close
-    /// item, and the bulk closes skip it. A run you are hosting is not a
-    /// document you put away; the tab leaves on its own the moment the run
-    /// ends, and until then the strip is an honest list of what the machine
-    /// is doing. Every close path funnels through here, so the refusal is one
-    /// line rather than a rule each caller has to remember.
+    /// EXP-923: EVERY tab closes again — the × is back on a chip whose run
+    /// is live, because that run is a row in the rail's Running section for
+    /// as long as it runs and closing the chip cannot lose it. (EXP-877 made
+    /// live tabs unclosable; the tabs themselves are gone now.)
     fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if !self.tabs.get(ix).is_some_and(TabEntry::closable) {
+        if ix >= self.tabs.len() {
             return;
         }
         self.remove_tab(ix, true, window, cx);
@@ -2196,12 +2123,9 @@ impl ScreensPanel {
                 detail.flush_description(cx);
             });
         }
-        // EXP-870: the strip SHOWS live tabs first, so "the neighbour" is the
-        // one beside the closed chip on screen, not in storage order.
-        let display_pos = strip_order(&self.tab_groups(cx))
-            .iter()
-            .position(|&tab_ix| tab_ix == ix)
-            .unwrap_or(ix);
+        // EXP-923: the strip is tab order again (the live cluster that led it
+        // is gone), so the chip's display position IS its index.
+        let display_pos = ix;
         let closed = self.tabs.remove(ix);
         self.forget_tab(&closed, cx);
         let active = resolved_screen(&self.nav, cx);
@@ -2209,13 +2133,13 @@ impl ScreensPanel {
             // The neighbor within the SAME strip: closing a bottom-bar tab
             // lands on the next bottom-bar tab (the web's dock never jumps to
             // an issue), closing a top tab on the next top tab.
-            let order = strip_order(&self.tab_groups(cx));
-            let strip: Vec<bool> = order
+            let strip: Vec<bool> = self
+                .tabs
                 .iter()
-                .map(|&tab_ix| self.tabs[tab_ix].screen.is_dock_tab())
+                .map(|tab| tab.screen.is_dock_tab())
                 .collect();
             let next = neighbor_in_strip(&strip, display_pos, closed.screen.is_dock_tab())
-                .map(|pos| self.tabs[order[pos]].screen.clone());
+                .map(|pos| self.tabs[pos].screen.clone());
             set_screen(window, cx, next);
         }
         if let (true, Screen::Terminal { tab }) = (kill_terminal, &closed.screen) {
@@ -2460,35 +2384,20 @@ impl ScreensPanel {
         if let Some((label, _)) = content.badge.as_ref() {
             children.push(0.5 * rem + measure_text(window, label, base_font, gpui::rems(0.75)));
         }
-        // EXP-877: a LIVE chip carries no × and no undock at all — it is not
-        // closable, so measuring a button slot for it would leave a 24px hole
-        // in the strip. The undock slot on the others is `invisible`, not
-        // absent, so it keeps its box.
-        if !entry.live {
-            children.push(if entry.screen.undockable() {
-                XSMALL_BUTTON_PX * 2. + CLUSTER_GAP_REMS * rem
-            } else {
-                XSMALL_BUTTON_PX
-            });
-        }
+        // EXP-923: every chip carries the × (and, where the screen allows,
+        // the hover undock) — the live exemption went with the live tabs. The
+        // undock slot is `invisible`, not absent, so it keeps its box.
+        children.push(if entry.screen.undockable() {
+            XSMALL_BUTTON_PX * 2. + CLUSTER_GAP_REMS * rem
+        } else {
+            XSMALL_BUTTON_PX
+        });
 
-        // EXP-905: `surface::rich_tab`'s padding pair — `8 + 4` beside a ×,
-        // `8 + 8` on a live chip that carries none.
-        let (pad_left, pad_right) = crate::surface::rich_tab_padding(!entry.live);
+        // EXP-905: `surface::rich_tab`'s padding pair — `8 + 4` beside a ×.
+        let (pad_left, pad_right) = crate::surface::rich_tab_padding(true);
         let gaps = rich_tab_child_gap(window) * children.len().saturating_sub(1) as f32;
         (pad_left + pad_right + gaps + children.into_iter().sum::<f32>())
             .min(crate::surface::RICH_TAB_MAX_W)
-    }
-
-    /// EXP-877: the width one agent group's own chrome takes out of the strip
-    /// — the brand mark, and the collapse chevron while it is expanded.
-    fn group_chrome_width(&self, group: TabGroup) -> f32 {
-        /// A `web_icon_xs` ghost `Button`.
-        const GROUP_BUTTON_PX: f32 = 24.;
-        let expanded = !self.collapsed_groups.contains(&group);
-        GROUP_BUTTON_PX
-            + GROUP_GAP
-            + if expanded { GROUP_BUTTON_PX + GROUP_GAP } else { 0. }
     }
 
     /// EXP-277: the hand-rolled rounded tab strip. Hosted INSIDE the titlebar
@@ -2504,11 +2413,10 @@ impl ScreensPanel {
     /// chip). `available` is the caller's width for the strip, with
     /// `max_w_full` as the safety net.
     ///
-    /// EXP-877: the live runs lead the strip in AGENT clusters
-    /// ([`group_segments`]), each behind a brand mark and a collapse chevron.
-    /// A collapsed cluster's chips take no width and never fall into "+N":
-    /// they are folded, not hidden, and offering them in the overflow menu
-    /// would undo the fold the moment you used it.
+    /// EXP-923: a FLAT list of plain chips, in tab order. The agent clusters
+    /// that led it (EXP-877) went with the live tabs — live runs are rail
+    /// rows now, so the strip holds only what you opened: issues, support
+    /// threads, ended-run transcripts.
     pub(crate) fn render_tab_strip(
         &mut self,
         available: gpui::Pixels,
@@ -2518,102 +2426,46 @@ impl ScreensPanel {
         // EXP-769/EXP-870: the TOP strip holds every tab but terminals (the
         // bottom bar's, `render_session_bar_tabs`). `top` maps strip
         // position → real tab index; every handler keys on the real index.
-        // EXP-870/EXP-877: live-run tabs lead the strip, clustered by agent.
-        let groups = self.tab_groups(cx);
-        let top: Vec<usize> = strip_order(&groups)
-            .into_iter()
+        let top: Vec<usize> = (0..self.tabs.len())
             .filter(|&ix| !self.tabs[ix].screen.is_dock_tab())
             .collect();
         if top.is_empty() {
             return gpui::Empty.into_any_element();
         }
-        let segments = group_segments(&top, &groups);
         let active = resolved_screen(&self.nav, cx);
         let active_ix = active
             .as_ref()
             .and_then(|screen| self.tabs.iter().position(|tab| &tab.screen == screen));
         let panel = cx.entity().downgrade();
 
-        // Measured for EVERY position, collapsed or not: a folded group still
-        // needs its natural width for the slide.
         let widths: Vec<f32> = top
             .iter()
             .map(|&ix| self.measure_chip_width(&self.tabs[ix], window, cx))
             .collect();
-        let collapsed_pos =
-            |pos: usize| self.group_collapsed(groups[top[pos]]);
-        // Only the UNFOLDED chips compete for the strip's width; the groups'
-        // own chrome comes off the top.
-        let chrome: f32 = segments
-            .iter()
-            .filter_map(|&(group, _, _)| group)
-            .map(|group| self.group_chrome_width(group))
-            .sum();
-        let open: Vec<usize> = (0..top.len()).filter(|&pos| !collapsed_pos(pos)).collect();
-        let open_widths: Vec<f32> = open.iter().map(|&pos| widths[pos]).collect();
-        let active_open = active_ix
-            .and_then(|ix| top.iter().position(|&t| t == ix))
-            .and_then(|pos| open.iter().position(|&p| p == pos));
-        let visible_open = partition_tabs(
-            &open_widths,
-            (f32::from(available) - chrome).max(0.),
+        let active_pos = active_ix.and_then(|ix| top.iter().position(|&t| t == ix));
+        let visible = partition_tabs(
+            &widths,
+            f32::from(available).max(0.),
             chip_gap(window),
-            overflow_button_width(window, open.len().saturating_sub(1)),
-            active_open,
+            overflow_button_width(window, top.len().saturating_sub(1)),
+            active_pos,
         );
-        let visible: HashSet<usize> =
-            visible_open.iter().map(|&slot| open[slot]).collect();
-        let hidden: Vec<Screen> = open
-            .iter()
-            .filter(|pos| !visible.contains(pos))
-            .map(|&pos| self.tabs[top[pos]].screen.clone())
+        let shown: HashSet<usize> = visible.iter().copied().collect();
+        let hidden: Vec<Screen> = (0..top.len())
+            .filter(|pos| !shown.contains(pos))
+            .map(|pos| self.tabs[top[pos]].screen.clone())
             .collect();
-        let tab_count = open.len();
+        let tab_count = top.len();
 
         let mut strip = h_flex()
             .id("center-tab-strip")
             .max_w_full()
-            .gap(px(GROUP_GAP))
+            .gap(px(STRIP_GAP))
             .items_center();
-        for (group, start, end) in segments {
-            let Some(group) = group else {
-                // The ordinary tabs: plain chips, no cluster chrome.
-                for pos in start..end {
-                    if visible.contains(&pos) {
-                        strip =
-                            strip.child(self.tab_chip(top[pos], active_ix, tab_count, &panel, cx));
-                    }
-                }
-                continue;
-            };
-            let folded = self.collapsed_groups.contains(&group);
-            let animating = self
-                .group_anim
-                .as_ref()
-                .filter(|anim| anim.group == group)
-                .copied();
-            // A folded group draws nothing inside — except mid-slide, where
-            // the chips are what is sliding.
-            let chips: Vec<gpui::AnyElement> = if folded && animating.is_none() {
-                Vec::new()
-            } else {
-                (start..end)
-                    .filter(|pos| animating.is_some() || visible.contains(pos))
-                    .map(|pos| {
-                        self.tab_chip(top[pos], active_ix, tab_count, &panel, cx)
-                    })
-                    .collect()
-            };
-            let natural: f32 = (start..end).map(|pos| widths[pos]).sum::<f32>()
-                + chip_gap(window) * (end - start).saturating_sub(1) as f32;
-            strip = strip.child(self.agent_group(
-                group,
-                folded,
-                animating,
-                natural,
-                chips,
-                cx,
-            ));
+        for pos in 0..top.len() {
+            if shown.contains(&pos) {
+                strip = strip.child(self.tab_chip(top[pos], active_ix, tab_count, &panel, cx));
+            }
         }
 
         // EXP-288: the hidden tabs collapse into a "+N" dropdown; clicking
@@ -2624,85 +2476,8 @@ impl ScreensPanel {
         strip.into_any_element()
     }
 
-    /// EXP-877: ONE agent cluster — its brand mark, the chips, and the
-    /// collapse chevron. The mark is the way BACK: clicking it unfolds the
-    /// cluster, which is why a folded group still renders (as the mark alone)
-    /// rather than vanishing.
-    fn agent_group(
-        &self,
-        group: TabGroup,
-        folded: bool,
-        animating: Option<GroupAnim>,
-        natural: f32,
-        chips: Vec<gpui::AnyElement>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let mark_icon = crate::coding_selects::mark_icon(match group {
-            TabGroup::Claude => ExpIcon::Claude,
-            TabGroup::Codex => ExpIcon::Codex,
-        })
-        .with_size(px(14.));
-        let mark = Button::new(("tab-group", group as usize))
-            .ghost()
-            .web_icon_xs()
-            .icon(mark_icon)
-            .tooltip(match group {
-                TabGroup::Claude => "Claude Code runs",
-                TabGroup::Codex => "Codex runs",
-            })
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                cx.stop_propagation();
-                this.set_group_collapsed(group, false, window, cx);
-            }));
-
-        // The chips live in an overflow-hidden box so the slide clips them
-        // instead of pushing the rest of the strip around.
-        let mut lane = h_flex()
-            .gap(px(GROUP_GAP))
-            .overflow_hidden()
-            .flex_shrink_0()
-            .children(chips);
-        if folded && animating.is_none() {
-            lane = lane.w(px(0.));
-        }
-        let lane: gpui::AnyElement = match animating {
-            Some(anim) => lane
-                .with_animation(
-                    SharedString::from(format!("tab-group-{}-{}", group as usize, anim.seq)),
-                    Animation::new(GROUP_ANIM).with_easing(theme::motion::decelerate()),
-                    move |this, delta| {
-                        this.w(px(natural * (anim.from + (anim.to - anim.from) * delta)))
-                    },
-                )
-                .into_any_element(),
-            None => lane.into_any_element(),
-        };
-
-        h_flex()
-            .gap(px(GROUP_GAP))
-            .items_center()
-            .flex_shrink_0()
-            .child(mark)
-            .child(lane)
-            .when(!folded, |row| {
-                row.child(
-                    Button::new(("tab-group-collapse", group as usize))
-                        .ghost()
-                        .web_icon_xs()
-                        .icon(Icon::from(registry::UI_CHEVRON_LEFT))
-                        .tooltip(COLLAPSE_GROUP)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            this.set_group_collapsed(group, true, window, cx);
-                        })),
-                )
-            })
-            .into_any_element()
-    }
-
-    /// EXP-877: ONE top-strip chip. A LIVE chip is not closable — no ×, no
-    /// middle-click close, no Close item, and no hover undock (undocking it
-    /// would close it here). Everything else keeps the EXP-235 set.
+    /// ONE top-strip chip, with the EXP-235 set on every one of them
+    /// (EXP-923 dropped the live chip's exemptions).
     fn tab_chip(
         &self,
         ix: usize,
@@ -2712,8 +2487,7 @@ impl ScreensPanel {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let entry = &self.tabs[ix];
-        let live = entry.live;
-        let undockable = !live && entry.screen.undockable();
+        let undockable = entry.screen.undockable();
         let content = tab_chip_content(entry, cx);
         let mut tab = crate::surface::RichTab::new(("center-tab", ix), Some(ix) == active_ix);
         tab.status = match &content.lead {
@@ -2725,8 +2499,7 @@ impl ScreensPanel {
         };
         tab.identifier = content.identifier;
         tab.title = content.title;
-        // EXP-905: a live chip has no × cluster — even padding both sides.
-        tab.closable = !live;
+        tab.closable = true;
         crate::surface::rich_tab(tab, cx)
             .group(TAB_GROUP)
             // Tab activation re-selects the tab's origin sidebar entry, then
@@ -2736,16 +2509,14 @@ impl ScreensPanel {
                 cx.stop_propagation();
                 this.activate_tab(ix, window, cx);
             }))
-            // Middle-click closes (EXP-235) — not a live chip.
-            .when(!live, |chip| {
-                chip.on_mouse_down(
-                    MouseButton::Middle,
-                    cx.listener(move |this, _, window, cx| {
-                        cx.stop_propagation();
-                        this.close_tab(ix, window, cx);
-                    }),
-                )
-            })
+            // Middle-click closes (EXP-235).
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |this, _, window, cx| {
+                    cx.stop_propagation();
+                    this.close_tab(ix, window, cx);
+                }),
+            )
             // Right-click context menu (EXP-235). Hosted in the titlebar this
             // used to lose to the Linux WM window menu; the strip's
             // `app_title_bar::interactive` wrapper now swallows the press that
@@ -2756,13 +2527,13 @@ impl ScreensPanel {
                     let close = panel.clone();
                     let close_others = panel.clone();
                     let close_all = panel.clone();
-                    let menu = menu.when(!live, |menu| {
-                        menu.item(PopupMenuItem::new("Close").on_click(move |_, window, cx| {
+                    let menu = menu.item(PopupMenuItem::new("Close").on_click(
+                        move |_, window, cx| {
                             let _ = close.update(cx, |this, cx| {
                                 this.close_tab(ix, window, cx);
                             });
-                        }))
-                    });
+                        },
+                    ));
                     menu.item(
                         PopupMenuItem::new("Close others")
                             .disabled(tab_count <= 1)
@@ -2782,8 +2553,7 @@ impl ScreensPanel {
             // EXP-698: the lead glyph, the mono shortcode and the truncating
             // title are `rich_tab`'s standard children; only the
             // strip-specific trailing cluster is built here.
-            .when(!live, |chip| {
-                chip.child(
+            .child(
                     h_flex()
                         .gap_0p5()
                         // Hover-revealed undock (EXP-65): `invisible` keeps
@@ -2820,8 +2590,7 @@ impl ScreensPanel {
                                     },
                                 )),
                         ),
-                )
-            })
+            )
             .into_any_element()
     }
 
@@ -3734,8 +3503,12 @@ impl Render for ScreensPanel {
                     .is_some_and(|view| view.read(cx).run_face(cx) == RunFace::Diff),
                 _ => false,
             };
-            let occupant =
-                crate::shell::left_occupant_for(screen.as_ref(), origin.as_ref(), run_diff);
+            let occupant = crate::shell::left_occupant_for(
+                screen.as_ref(),
+                origin.as_ref(),
+                run_diff,
+                crate::navigation::recent_runs_open(window, cx),
+            );
             let available = (window.viewport_size().width
                 - px(crate::shell::left_column_width_for(occupant))
                 - px(2. * crate::shell::PANEL_MARGIN + 16.))
@@ -3824,10 +3597,9 @@ mod tests {
         assert_eq!(parse_run_face(None), None);
     }
     use super::{
-        group_segments, group_to_expand, live_tab_plan, strip_order, tab_group, LivePlanOp,
-        TabEntry, TabGroup, TabLiveView,
+        live_tab_plan, opens_no_tab, tabs_closed_by_merge, LivePlanOp, TabEntry, TabLiveView,
+        TablessWork,
     };
-    use std::collections::HashSet;
     use crate::navigation::{PendingOrigin, Screen, TabOrigin};
     use crate::sidebar::ToolWindow;
 
@@ -3958,38 +3730,41 @@ mod tests {
         }));
     }
 
-    /// EXP-870/EXP-877: every live run of mine gets a tab — merged into its
-    /// issue's tab when one is open, a tab of its own otherwise; an ended run
-    /// leaves the live group but keeps its tab. There is no dismissal lane
-    /// left (EXP-877: a live tab cannot be closed), so the plan is a pure
-    /// function of the tabs and the live runs.
+    /// EXP-923, THE rule: a live run NEVER adds a tab. The plan only MARKS
+    /// the tabs that already hold one — an issue tab you started the run from
+    /// — and lets go when the run ends. (EXP-870 gave every live run a tab
+    /// and EXP-877 made it unclosable; both are gone: a live run lives in the
+    /// rail's Running section, and a second copy of it in the strip is the
+    /// duplication this issue removes.)
     #[test]
-    fn live_tab_plan_adds_and_merges_without_dismissals() {
-        // An open issue tab absorbs its run (binding it), an issue-less run
-        // gets its own tab.
+    fn a_live_run_never_adds_a_tab() {
+        // An open issue tab absorbs its run (binding it); the issue-less run
+        // beside it produces nothing at all.
         let tabs = [view(Some("i1"), None, false)];
         let live = [run("s1", Some("i1")), run("s2", None)];
         assert_eq!(
             live_tab_plan(&tabs, &live, None),
-            vec![
-                LivePlanOp::MarkLive {
-                    ix: 0,
-                    run_id: "s1".into(),
-                    bind: true
-                },
-                LivePlanOp::Add {
-                    issue_id: None,
-                    run_id: "s2".into()
-                },
-            ]
+            vec![LivePlanOp::MarkLive {
+                ix: 0,
+                run_id: "s1".into(),
+                bind: true
+            }]
         );
+        // No tabs at all: nothing is opened, however many runs are live.
+        assert!(live_tab_plan(&[], &[run("s1", Some("i1"))], None).is_empty());
+        assert!(live_tab_plan(
+            &[],
+            &[run("s1", Some("i1")), run("s2", Some("i1")), run("s3", None)],
+            None
+        )
+        .is_empty());
         // A tab bound to a LIVE run keeps it when a second run of the issue
         // starts — and an unchanged plan is EMPTY (no repaint per tick).
         let tabs = [view(Some("i1"), Some("s1"), true)];
         let live = [run("s1", Some("i1")), run("s9", Some("i1"))];
         assert!(live_tab_plan(&tabs, &live, None).is_empty());
-        // A past run being READ is not rebound under the reader; it only
-        // joins the live group.
+        // A past run being READ is not rebound under the reader; the tab only
+        // learns that a run of its issue is live.
         let tabs = [view(Some("i1"), Some("s0"), false)];
         assert_eq!(
             live_tab_plan(&tabs, &[run("s1", Some("i1"))], Some("s0")),
@@ -4008,42 +3783,21 @@ mod tests {
                 bind: true
             }]
         );
-        // EXP-877: a run with no tab ALWAYS gets one — there is nothing that
-        // can keep it away, however many times its tab was closed before.
-        assert_eq!(
-            live_tab_plan(&[], &[run("s1", Some("i1"))], None),
-            vec![LivePlanOp::Add {
-                issue_id: Some("i1".into()),
-                run_id: "s1".into()
-            }]
-        );
         // No live runs at all: nothing to do.
         assert!(live_tab_plan(&[], &[], None).is_empty());
-        // A live tab whose run ended stays open, just not live.
+        // A marked tab whose run ended stays open, just not live.
         assert_eq!(
             live_tab_plan(&[view(Some("i1"), Some("s1"), true)], &[], None),
             vec![LivePlanOp::MarkNotLive(0)]
         );
-        // Two new runs on one issue add ONE tab.
-        assert_eq!(
-            live_tab_plan(
-                &[],
-                &[run("s1", Some("i1")), run("s2", Some("i1"))],
-                None
-            ),
-            vec![LivePlanOp::Add {
-                issue_id: Some("i1".into()),
-                run_id: "s1".into()
-            }]
-        );
     }
 
-    /// EXP-877: a live tab is NOT closable — not by the ×, not by
-    /// middle-click, not by the Close item, and not by Close others / Close
-    /// all. Every close path funnels through [`TabEntry::closable`] and
-    /// [`TabEntry::swept_by_bulk_close`], so this pins both.
+    /// EXP-923: EVERY tab closes again — including one whose run is live.
+    /// The run is a row in the rail's Running section for as long as it runs,
+    /// so closing its chip cannot lose it; the × that EXP-877 took away is
+    /// back, and the bulk closes take the same tabs the × would.
     #[test]
-    fn a_live_tab_is_not_closable() {
+    fn every_tab_is_closable_again() {
         let session = |id: &str| Screen::Session {
             session_id: id.to_string(),
         };
@@ -4058,131 +3812,115 @@ mod tests {
             None,
         );
 
-        assert!(!live.closable(), "a live run's tab refuses every close");
-        // A run that ENDED is an ordinary transcript tab, and closes.
-        assert!(ended.closable());
-        assert!(issue.closable());
-
-        // Close all takes the top strip's closable tabs and nothing else —
-        // never the live one. (A terminal is the bottom bar's strip and is
-        // spared by `is_dock_tab`; `TabId` has no test constructor, and the
-        // strip split itself is pinned by `a_close_never_activates_the_other_strip`.)
-        assert!(!live.swept_by_bulk_close(None));
+        // Close all takes the top strip's tabs, live marking or not. (A
+        // terminal is the bottom bar's strip and is spared by `is_dock_tab`;
+        // `TabId` has no test constructor, and the strip split itself is
+        // pinned by `a_close_never_activates_the_other_strip`.)
+        assert!(live.swept_by_bulk_close(None));
         assert!(ended.swept_by_bulk_close(None));
         assert!(issue.swept_by_bulk_close(None));
 
-        // Close others spares the tab it was invoked on — and still never
-        // takes the live one, even when the kept tab is something else.
+        // Close others spares exactly the tab it was invoked on.
         let keep = issue.screen.clone();
         assert!(!issue.swept_by_bulk_close(Some(&keep)));
         assert!(ended.swept_by_bulk_close(Some(&keep)));
-        assert!(!live.swept_by_bulk_close(Some(&keep)));
-        // …including when Close others is invoked ON the live tab: nothing
-        // about it is closable, so the `keep` match never even matters.
+        assert!(live.swept_by_bulk_close(Some(&keep)));
         assert!(!live.swept_by_bulk_close(Some(&live.screen)));
     }
 
-    /// EXP-877: the active chip is never left folded behind an agent mark.
-    /// Three edges reach this — a navigation onto a run in a folded group, a
-    /// tab that BECOMES live into one (start a codex run with codex folded),
-    /// and a live tab that changes group when its row finally names its
-    /// agent (a cold start groups it under the claude fallback first).
+    /// EXP-923: a click in the rail's Running section opens NO tab — unless
+    /// the work already has one, which is reused (and goes active) rather
+    /// than duplicated. Every OTHER navigation still opens its tab.
     #[test]
-    fn a_folded_group_gives_way_to_the_active_tab() {
-        let claude = Some(TabGroup::Claude);
-        let codex = Some(TabGroup::Codex);
-        let folded = |groups: &[TabGroup]| -> HashSet<TabGroup> {
-            groups.iter().copied().collect()
+    fn a_rail_running_click_opens_no_tab_but_reuses_one() {
+        assert!(opens_no_tab(Some(&PendingOrigin::LiveRail), None, false));
+        assert!(
+            !opens_no_tab(Some(&PendingOrigin::LiveRail), Some(2), false),
+            "the issue's tab already holds this work: reuse it"
+        );
+        // Every other MARKER opens a tab as before.
+        assert!(!opens_no_tab(Some(&PendingOrigin::Rail), None, false));
+        assert!(!opens_no_tab(Some(&PendingOrigin::Derive), None, false));
+        assert!(!opens_no_tab(
+            Some(&PendingOrigin::Explicit(origin(ToolWindow::Reviews))),
+            None,
+            false
+        ));
+        // … even while the window sits on tab-less work: a real navigation
+        // TO that work (from Recent, from a deep link) opens its tab.
+        assert!(!opens_no_tab(Some(&PendingOrigin::Derive), None, true));
+
+        // The Issue | Run flip inside a tab-less run carries no marker at
+        // all — the remembered work is what keeps the chip away.
+        assert!(opens_no_tab(None, None, true));
+        assert!(
+            !opens_no_tab(None, None, false),
+            "an ordinary set_screen with nothing remembered still opens its tab"
+        );
+        assert!(!opens_no_tab(None, Some(0), true));
+    }
+
+    /// EXP-923: the remembered tab-less work covers BOTH faces — the run and
+    /// its issue — so flipping between them keeps the strip untouched.
+    #[test]
+    fn tabless_work_holds_both_faces() {
+        let work = TablessWork {
+            issue_id: Some("i1".into()),
+            run_id: "s1".into(),
         };
-
-        // The active tab is a live codex run and codex is folded: unfold it.
-        assert_eq!(
-            group_to_expand(&[claude, codex], Some(1), &folded(&[TabGroup::Codex])),
-            Some(TabGroup::Codex)
-        );
-        // The REGROUP edge: the same tab, now read as codex rather than as
-        // the claude fallback, unfolds its new group.
-        assert_eq!(
-            group_to_expand(&[codex], Some(0), &folded(&[TabGroup::Codex])),
-            Some(TabGroup::Codex)
-        );
-        // A group that is already open is not news, so nothing repaints.
-        assert_eq!(
-            group_to_expand(&[claude, codex], Some(1), &folded(&[TabGroup::Claude])),
-            None
-        );
-        // An ORDINARY active tab is in no group at all.
-        assert_eq!(
-            group_to_expand(&[claude, None], Some(1), &folded(&[TabGroup::Claude])),
-            None
-        );
-        // Nothing active, and an index no tab has: never a panic.
-        assert_eq!(group_to_expand(&[claude], None, &folded(&[TabGroup::Claude])), None);
-        assert_eq!(group_to_expand(&[claude], Some(9), &folded(&[TabGroup::Claude])), None);
-        assert_eq!(group_to_expand(&[], Some(0), &folded(&[TabGroup::Claude])), None);
+        assert!(work.holds(&Screen::Session {
+            session_id: "s1".into()
+        }));
+        assert!(work.holds(&Screen::IssueDetail {
+            issue_id: "i1".into()
+        }));
+        assert!(!work.holds(&Screen::Session {
+            session_id: "s2".into()
+        }));
+        assert!(!work.holds(&Screen::IssueDetail {
+            issue_id: "i2".into()
+        }));
+        assert!(!work.holds(&Screen::Chat));
+        // An issue-LESS run (a chat, an action, a batch) has only one face.
+        let chat = TablessWork {
+            issue_id: None,
+            run_id: "s3".into(),
+        };
+        assert!(chat.holds(&Screen::Session {
+            session_id: "s3".into()
+        }));
+        assert!(!chat.holds(&Screen::IssueDetail {
+            issue_id: "i1".into()
+        }));
     }
 
-    /// EXP-877: the wire agent id → the strip's group. Claude is the
-    /// fallback for everything, because it is what a run with no recorded
-    /// agent actually launched as.
+    /// EXP-923: a run that ended because ITS PR merged takes its tab — and
+    /// its issue's tab — with it. Nothing else does.
     #[test]
-    fn the_group_falls_back_to_claude() {
-        assert_eq!(tab_group(Some("claude")), TabGroup::Claude);
-        assert_eq!(tab_group(Some("codex")), TabGroup::Codex);
-        assert_eq!(tab_group(Some(" Codex ")), TabGroup::Codex);
-        assert_eq!(tab_group(None), TabGroup::Claude);
-        assert_eq!(tab_group(Some("pi")), TabGroup::Claude);
-        assert_eq!(tab_group(Some("")), TabGroup::Claude);
-    }
-
-    /// EXP-870/EXP-877: live tabs lead the strip, clustered by agent (claude
-    /// then codex), every cluster in open order, then the ordinary tabs.
-    #[test]
-    fn live_tabs_lead_the_strip_clustered_by_agent() {
-        let claude = Some(TabGroup::Claude);
-        let codex = Some(TabGroup::Codex);
-        // [ordinary, codex, ordinary, claude, codex] → claude, codex×2, rest.
+    fn a_merge_end_closes_the_tabs_of_that_work() {
+        let tab = |run: Option<&str>, issue: Option<&str>| {
+            (run.map(str::to_string), issue.map(str::to_string))
+        };
+        let tabs = [
+            // 0: the run's own tab, on issue i1
+            tab(Some("s1"), Some("i1")),
+            // 1: the SAME issue, opened separately (no run bound)
+            tab(None, Some("i1")),
+            // 2: another issue entirely
+            tab(Some("s2"), Some("i2")),
+            // 3: an issue-less run (a chat) that also merged
+            tab(Some("s3"), None),
+        ];
         assert_eq!(
-            strip_order(&[None, codex, None, claude, codex]),
-            vec![3, 1, 4, 0, 2]
+            tabs_closed_by_merge(&tabs, &["s1".to_string(), "s3".to_string()]),
+            vec![0, 1, 3]
         );
-        // Stable within a cluster and within the ordinary tail.
-        assert_eq!(
-            strip_order(&[claude, claude, None, None]),
-            vec![0, 1, 2, 3]
-        );
-        assert_eq!(strip_order(&[]), Vec::<usize>::new());
-        // No live runs: the strip is exactly the tab order.
-        assert_eq!(strip_order(&[None, None, None]), vec![0, 1, 2]);
-    }
-
-    /// EXP-877: the order cut into clusters. An agent with no live run
-    /// produces NO segment (no mark for an empty group), the ordinary tabs
-    /// are the single trailing `None` segment, and the positions are into the
-    /// ORDER, not into `tabs`.
-    #[test]
-    fn group_segments_cut_the_order_into_clusters() {
-        let claude = Some(TabGroup::Claude);
-        let codex = Some(TabGroup::Codex);
-        let groups = [None, codex, None, claude, codex];
-        let order = strip_order(&groups);
-        assert_eq!(
-            group_segments(&order, &groups),
-            vec![(claude, 0, 1), (codex, 1, 3), (None, 3, 5)]
-        );
-        // Only claude runs: one segment, no codex mark anywhere.
-        let groups = [claude, claude];
-        assert_eq!(
-            group_segments(&strip_order(&groups), &groups),
-            vec![(claude, 0, 2)]
-        );
-        // Only ordinary tabs: one plain segment, no marks at all.
-        let groups = [None, None];
-        assert_eq!(
-            group_segments(&strip_order(&groups), &groups),
-            vec![(None, 0, 2)]
-        );
-        assert!(group_segments(&[], &[]).is_empty());
+        // A merge of a run nobody has open closes nothing.
+        assert!(tabs_closed_by_merge(&tabs, &["s9".to_string()]).is_empty());
+        // No merge ends at all: every tab stays (an ordinary end keeps its
+        // transcript).
+        assert!(tabs_closed_by_merge(&tabs, &[]).is_empty());
+        assert!(tabs_closed_by_merge(&[], &["s1".to_string()]).is_empty());
     }
 
     fn ids(values: &[&str]) -> Vec<String> {

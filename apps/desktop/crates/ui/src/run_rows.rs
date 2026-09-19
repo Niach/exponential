@@ -238,8 +238,9 @@ pub(crate) struct RunningRunSpec {
     /// Element-id namespace: two run lists can share one parent.
     pub(crate) id_prefix: &'static str,
     pub(crate) index: usize,
-    /// EXP-827: nesting depth (0 = a root run), 14px per level.
-    pub(crate) depth: usize,
+    /// EXP-827/EXP-965: where the row sits in the tree — the 14px-per-level
+    /// indent AND the connector it draws ([`domain::tree_guides`]).
+    pub(crate) guides: domain::tree_guides::Guides,
     pub(crate) fold: Option<RunRowFold>,
     pub(crate) facts: RunningRunFacts,
     pub(crate) on_open: RunRowAction,
@@ -250,15 +251,26 @@ pub(crate) struct RunningRunSpec {
 pub(crate) struct PastRunSpec {
     pub(crate) id_prefix: &'static str,
     pub(crate) index: usize,
-    pub(crate) depth: usize,
+    pub(crate) guides: domain::tree_guides::Guides,
     pub(crate) fold: Option<RunRowFold>,
     pub(crate) facts: PastRunFacts,
     pub(crate) on_open: RunRowAction,
 }
 
+/// EXP-965: the session lists' base left padding — the connector's gutters
+/// are measured off it.
+const ROW_PAD: f32 = 12.;
+
 /// The flat list row both kinds sit in: `list_hover` under the pointer,
-/// `list_active` while its session is on screen (EXP-811/862).
-fn row_shell(id_prefix: &'static str, index: usize, depth: usize, active: bool, cx: &App) -> gpui::Stateful<gpui::Div> {
+/// `list_active` while its session is on screen (EXP-811/862). EXP-965: a
+/// NESTED row paints its tree connector in the gutter its indent reserves.
+fn row_shell(
+    id_prefix: &'static str,
+    index: usize,
+    guides: &domain::tree_guides::Guides,
+    active: bool,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
     let row_hover = theme.list_hover;
     let row_active = theme.list_active;
@@ -267,14 +279,16 @@ fn row_shell(id_prefix: &'static str, index: usize, depth: usize, active: bool, 
         .flex()
         .w_full()
         .min_w_0()
+        .relative()
         .items_center()
         .gap_2()
         .px_3()
         .py_2p5()
-        .pl(gpui::px(12. + 14. * depth as f32))
+        .pl(gpui::px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
         .cursor_pointer()
         .when(active, |this| this.bg(row_active))
         .hover(move |style| style.bg(if active { row_active } else { row_hover }))
+        .children(crate::tree_guides::guide_layer(guides, ROW_PAD))
 }
 
 fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: Hsla) -> impl IntoElement {
@@ -317,7 +331,7 @@ pub(crate) fn render_running_run_row(
     let RunningRunSpec {
         id_prefix,
         index,
-        depth,
+        guides,
         fold,
         facts,
         on_open,
@@ -377,7 +391,7 @@ pub(crate) fn render_running_run_row(
                 .map(|label| small_line(label, theme::tokens::YELLOW.to_hsla())),
         );
 
-    let row = row_shell(id_prefix, index, depth, active, cx)
+    let row = row_shell(id_prefix, index, &guides, active, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
         .child(body);
     match kill {
@@ -405,7 +419,7 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
     let PastRunSpec {
         id_prefix,
         index,
-        depth,
+        guides,
         fold,
         facts,
         on_open,
@@ -451,7 +465,7 @@ pub(crate) fn render_past_run_row(spec: PastRunSpec, active: bool, cx: &App) -> 
                     .child(facts.byline),
             )
         });
-    row_shell(id_prefix, index, depth, active, cx)
+    row_shell(id_prefix, index, &guides, active, cx)
         .on_click(move |event, window, cx| on_open(event, window, cx))
         .child(body)
         .child(
@@ -488,12 +502,12 @@ impl RunListFacts {
 }
 
 /// A row of a mixed list (never killable). EXP-897: it carries the tree's
-/// `depth` and fold like every other session row — the Automations log nests
+/// place and fold like every other session row — the Automations log nests
 /// its child runs too.
 pub(crate) fn render_run_list_row(
     id_prefix: &'static str,
     index: usize,
-    depth: usize,
+    guides: domain::tree_guides::Guides,
     fold: Option<RunRowFold>,
     facts: RunListFacts,
     active: bool,
@@ -505,7 +519,7 @@ pub(crate) fn render_run_list_row(
             RunningRunSpec {
                 id_prefix,
                 index,
-                depth,
+                guides,
                 fold,
                 facts,
                 on_open,
@@ -518,7 +532,7 @@ pub(crate) fn render_run_list_row(
             PastRunSpec {
                 id_prefix,
                 index,
-                depth,
+                guides,
                 fold,
                 facts,
                 on_open,

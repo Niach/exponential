@@ -48,7 +48,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
@@ -58,9 +57,10 @@ use gpui_component::input::{InputEvent, InputState, TextareaState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::notification::Notification;
 use gpui_component::popover::Popover;
+use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _,
-    WindowExt as _,
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Selectable as _,
+    Sizable as _, WindowExt as _,
 };
 use sync::Store;
 
@@ -85,6 +85,10 @@ use crate::surface::{glass_pill, PillMode, PillSize};
 /// The page's one field: wide, rounded, Enter sends and Shift+Enter breaks a
 /// line — the steer composer's rhythm, on a page with nothing else on it.
 const PROMPT_MAX_W: f32 = 640.;
+
+/// EXP-923: the history button's tooltip — the only word on the Agent page's
+/// own chrome, and the panel's own heading is the ×4 "Recent".
+const RECENT_RUNS_LABEL: &str = "Recent runs";
 
 /// EXP-822: the repo-less entry of the Repository pick, byte-identical to the
 /// web chat page's `NO_REPO_LABEL` (`lib/chat-repo.ts`).
@@ -358,12 +362,9 @@ pub(crate) struct ChatScreenView {
     /// picked (a menu can outlive the chip it was opened from).
     spare_picks: ActionInputPicks,
     focus_handle: FocusHandle,
-    /// EXP-851: the Agent page's OWN session list — the Running and Past
-    /// sections that sat in the retired tool column beside it. They stack
-    /// UNDER the composer now, in the page's one scroll.
-    sessions_running: Entity<crate::sessions_section::RunningSessionsSection>,
-    sessions_past: Entity<crate::sessions_section::PastSessionsSection>,
-    /// That one scroll (composer + both sections).
+    /// EXP-923: the page's one scroll. It holds the composer and NOTHING
+    /// else — the live runs moved to the rail and the finished ones behind
+    /// the history button's panel, so the Agent page is a composer again.
     page_scroll: gpui::ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -477,12 +478,6 @@ impl ChatScreenView {
             suggestions: pick_chat_suggestions(suggestion_seed()),
             spare_picks: ActionInputPicks::default(),
             focus_handle: cx.focus_handle(),
-            // EXP-862: the Agent page's Running band is ALWAYS on screen —
-            // empty it says so ("No agents running right now."), which is the
-            // answer the page exists to give.
-            sessions_running: cx.new(crate::sessions_section::RunningSessionsSection::always),
-            sessions_past: cx
-                .new(|cx| crate::sessions_section::PastSessionsSection::new(window, cx)),
             page_scroll: gpui::ScrollHandle::new(),
             _subscriptions: subscriptions,
         };
@@ -2603,18 +2598,30 @@ impl Render for ChatScreenView {
         if let Some(error) = &self.error {
             notes = notes.child(div().text_color(danger).child(error.clone()));
         }
-        // EXP-851: composer on top, the Running/Past session rows beneath it,
-        // ONE scroll. The composer keeps its centred max-width column; the
-        // sections share it so the page reads as one stack rather than the
-        // retired centre-plus-list split.
-        // EXP-862: with nothing running and nothing past, the composer is the
-        // whole page — so it sits in the MIDDLE of it (web `justify-center`),
-        // not pinned under the top edge above two empty bands.
-        let only_composer =
-            self.sessions_running.read(cx).is_empty() && self.sessions_past.read(cx).is_empty();
+        // EXP-923: the composer IS the page, so it sits in the middle of it
+        // (web `justify-center`) rather than pinned under the top edge — the
+        // two session bands that used to follow it are the rail's Running
+        // section and the history button's panel now.
+        //
+        // That button is the page's one piece of chrome: a ghost history
+        // glyph in the content area's top-left corner, over the composer
+        // column rather than in it (the column is centred; the button is
+        // not). It toggles `LeftOccupant::RecentRuns` in the left column.
+        let history_open = crate::navigation::recent_runs_open(window, cx);
+        let history = Button::new("chat-recent-runs")
+            .ghost()
+            .cursor_pointer()
+            .small()
+            .icon(Icon::from(registry::SETTINGS_SESSIONS))
+            .selected(history_open)
+            .tooltip(RECENT_RUNS_LABEL)
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                crate::navigation::toggle_recent_runs(window, cx);
+            }));
         v_flex()
             .size_full()
             .min_h_0()
+            .relative()
             .track_focus(&self.focus_handle)
             .child(crate::scroll_pane::v_scroll_pane(
                 "chat-page-scroll",
@@ -2625,13 +2632,11 @@ impl Render for ChatScreenView {
                     .items_center()
                     .p_6()
                     .gap_6()
-                    .when(only_composer, |column| {
-                        column.min_h_full().justify_center()
-                    })
-                    // Both stacks must NOT shrink: inside the scroll column a
+                    .min_h_full()
+                    .justify_center()
+                    // The stack must NOT shrink: inside the scroll column a
                     // flex-shrinkable child gets squeezed to the viewport and
-                    // its trailing rows (options, the blocker note) painted
-                    // under the Running band that follows.
+                    // its trailing rows (options, the blocker note) clipped.
                     .child(
                         v_flex()
                             .w_full()
@@ -2646,17 +2651,9 @@ impl Render for ChatScreenView {
                             )
                             .child(options)
                             .child(notes),
-                    )
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .max_w(px(PROMPT_MAX_W))
-                            .min_w_0()
-                            .flex_shrink_0()
-                            .child(self.sessions_running.clone())
-                            .child(self.sessions_past.clone()),
                     ),
             ))
+            .child(div().absolute().top_2().left_2().child(history))
     }
 }
 

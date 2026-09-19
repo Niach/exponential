@@ -133,6 +133,10 @@ import {
   type PickerOption,
   type SessionResultEntry,
   type StatusGlyphProps,
+  TREE_BASE,
+  TREE_INDENT,
+  TreeGuides,
+  treeGuides,
 } from "@exp/ui"
 
 import { tokenSlug } from "./component-styles.ts"
@@ -962,6 +966,63 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
+    id: `tree-guides`,
+    title: `Tree guides`,
+    kind: `Lists & rows`,
+    blurb: `EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own, and a folded subtree draws nothing at all. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform.`,
+    status: {
+      web: ok(
+        `TreeGuides / treeGuides`,
+        `packages/ui/src/tree-guides-view.tsx`,
+        `the pure rule is tree-guides.ts; drawn as one absolutely positioned SVG inside the row`
+      ),
+      desktop: ok(
+        `Guides / guides_for`,
+        `apps/desktop/crates/domain/src/tree_guides.rs`,
+        `domain::tree_guides; the painter is crates/ui/src/tree_guides.rs`
+      ),
+      ios: ok(
+        `TreeGuides / TreeGuidesOverlay`,
+        `apps/ios/ExpCore/Sources/Domain/TreeGuides.swift`,
+        `the overlay is ExpUI/Sources/TreeGuidesOverlay.swift`
+      ),
+      android: ok(
+        `TreeGuides / TreeGuidesOverlay`,
+        `apps/android/app/src/main/java/com/exponential/app/domain/TreeGuides.kt`,
+        `the overlay is ui/components/TreeGuidesOverlay.kt`
+      ),
+    },
+    island: () => {
+      // root ▸ a ▸ (a1, a2) ▸ b — every case in five rows: an elbow, a tee,
+      // a pass-through and a last child.
+      const rows = [
+        { depth: 0, label: `EXP-923 · Running runs move back to the sidebar` },
+        { depth: 1, label: `EXP-965 · Tree connector lines` },
+        { depth: 2, label: `EXP-973 · Split button on every menu item` },
+        { depth: 2, label: `APP-14 · Fix the merge queue` },
+        { depth: 1, label: `APP-15 · Ship the usage sheet` },
+      ]
+      const guides = treeGuides(rows.map((row) => row.depth))
+      return (
+        <div className="w-96">
+          <GlassSectionHeader label="Running" />
+          {rows.map((row, index) => (
+            <ListRow
+              key={row.label}
+              interactive
+              className="relative h-8 gap-1.5 py-0 pr-2 text-sm"
+              style={{ paddingLeft: `${TREE_BASE + row.depth * TREE_INDENT}px` }}
+            >
+              <TreeGuides guide={guides[index]} />
+              <AgentBrandMark agent={index % 2 === 0 ? `claude` : `codex`} />
+              <span className="min-w-0 flex-1 truncate">{row.label}</span>
+            </ListRow>
+          ))}
+        </div>
+      )
+    },
+  },
+  {
     id: `row-shell`,
     title: `Row shell`,
     kind: `Lists & rows`,
@@ -1172,7 +1233,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `rich-tab`,
     title: `Rich tab`,
     kind: `Buttons & chips`,
-    blurb: `The STRIP tab — the desktop's top tab strip and session bar, the web agent dock. 26 tall, radius 10, padding 0/10, no chrome at rest: hover takes the row fill, active the active fill and full foreground. A 16px status glyph or a 6px dot leads, the title truncates at 180, a mono identifier sits at 50%, an exit code rides a small badge, and the close is a ghost 20px X. Never a pill: pills carry a label, this carries a state.`,
+    blurb: `The STRIP tab — the desktop's top tab strip and session bar, the web agent dock. 32 tall, radius 6, capped at 240, padding left 8 and right 4 (the short side is the 24px ghost X beside it; 8 on a chip that carries none), gap 6; no chrome at rest, hover and active both take the active fill and full foreground, active adds the card hairline. ONE 14px lead box holds either a 14px status glyph or the 8px liveness dot, so a run chip's title lines up with an issue chip's; the mono identifier is text-xs, the title truncates at 180, an exit code rides a small badge. Never a pill: pills carry a label, this carries a state. EXP-923: every chip closes again and the strip is a flat list of them — the live agent CLUSTERS are gone with the live tabs, which are rail rows now.`,
     status: {
       web: ok(`RichTab`, `packages/ui/src/rich-tab.tsx`),
       desktop: ok(`surface::rich_tab`, DESKTOP_SURFACE),

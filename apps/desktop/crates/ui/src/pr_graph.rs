@@ -317,21 +317,32 @@ fn section(label: &'static str, rows: Vec<AnyElement>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// The overlay's base left padding — EXP-965's gutters are measured off it.
+const ROW_PAD: f32 = 8.;
+
 /// The shared row shell every section draws — the glass list row, hovered.
-fn row_shell(id: SharedString, depth: usize, cx: &App) -> gpui::Stateful<gpui::Div> {
+/// EXP-965: a NESTED row paints its tree connector in the gutter its indent
+/// reserves, exactly like the session lists' rows.
+fn row_shell(
+    id: SharedString,
+    guides: &domain::tree_guides::Guides,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
     let hover = cx.theme().list_hover;
     crate::surface::flat_row()
         .id(id)
         .flex()
         .w_full()
         .min_w_0()
+        .relative()
         .items_center()
         .gap_1p5()
         .px_2()
         .py_1()
-        .pl(px(8. + 14. * depth as f32))
+        .pl(px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
+        .children(crate::tree_guides::guide_layer(guides, ROW_PAD))
 }
 
 fn mono(text: impl Into<SharedString>, color: Hsla) -> gpui::Div {
@@ -351,7 +362,11 @@ fn issue_rows(issues: &[Issue], cx: &App) -> Vec<AnyElement> {
         .iter()
         .map(|issue| {
             let issue_id = issue.id.clone();
-            row_shell(SharedString::from(format!("pr-graph-issue-{issue_id}")), 0, cx)
+            row_shell(
+                SharedString::from(format!("pr-graph-issue-{issue_id}")),
+                &domain::tree_guides::Guides::default(),
+                cx,
+            )
                 .child(mono(issue.identifier.clone(), muted))
                 .child(
                     div()
@@ -382,10 +397,15 @@ fn run_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
     let now = chrono::Utc::now().timestamp();
     let muted = cx.theme().muted_foreground;
     let foreground = cx.theme().foreground;
+    // EXP-965: the connector, off the tree's depth sequence.
+    let guides = domain::tree_guides::guides_for(
+        &spec.graph.tree.iter().map(|row| row.depth).collect::<Vec<_>>(),
+    );
     spec.graph
         .tree
         .iter()
-        .map(|row| {
+        .enumerate()
+        .map(|(index, row)| {
             let session = &row.session;
             let session_id = session.id.clone();
             let live = crate::queries::coding_session_is_live(session, now);
@@ -407,7 +427,7 @@ fn run_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
             let title = crate::run_rows::run_title(session, issue.as_ref(), &batch_issues);
             row_shell(
                 SharedString::from(format!("pr-graph-run-{session_id}")),
-                row.depth,
+                &guides.get(index).cloned().unwrap_or_default(),
                 cx,
             )
             .child(div().flex_shrink_0().size_1p5().rounded_full().bg(dot))
@@ -434,6 +454,18 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
     let muted = cx.theme().muted_foreground;
     let foreground = cx.theme().foreground;
     let size = spec.graph.stack.len();
+    // EXP-965: the connector needs the WHOLE visible sequence up front — a
+    // batch member folds its issues out one level deeper, so the rows are
+    // interleaved and the depths cannot be read off the stack alone.
+    let mut depths: Vec<usize> = Vec::with_capacity(size * 2);
+    for member in spec.graph.stack.iter() {
+        depths.push(member.depth);
+        if member.entry.is_batch() {
+            depths.extend(std::iter::repeat_n(member.depth + 1, member.entry.issues.len()));
+        }
+    }
+    let guides = domain::tree_guides::guides_for(&depths);
+    let guide_at = |position: usize| guides.get(position).cloned().unwrap_or_default();
     let mut rows: Vec<AnyElement> = Vec::with_capacity(size * 2);
     for (index, member) in spec.graph.stack.iter().enumerate() {
         let entry = &member.entry;
@@ -448,7 +480,7 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
             .unwrap_or_else(|| "open".to_string());
         let mut row = row_shell(
             SharedString::from(format!("pr-graph-stack-{issue_id}")),
-            member.depth,
+            &guide_at(rows.len()),
             cx,
         )
         .child(mono(entry.identifiers(), if current { foreground } else { muted }))
@@ -493,7 +525,7 @@ fn stack_rows(spec: &BadgeSpec, cx: &App) -> Vec<AnyElement> {
                 rows.push(
                     row_shell(
                         SharedString::from(format!("pr-graph-batch-{}", issue.id)),
-                        member.depth + 1,
+                        &guide_at(rows.len()),
                         cx,
                     )
                     .child(mono(issue.identifier.clone(), muted))
