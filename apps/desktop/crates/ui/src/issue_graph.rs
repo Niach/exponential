@@ -56,12 +56,45 @@ const LINE: f32 = 1.;
 /// navigates (a popover navigates in place, a dialog closes first).
 pub(crate) type OnPickIssue = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-fn node_x(wave: usize) -> f32 {
-    wave as f32 * (NODE_W + COL_GAP)
+/// How one host's grid is measured: the cell, the gaps between cells, the
+/// viewport it scrolls inside, and where an edge LEAVES and ENTERS a cell
+/// (offsets from the cell's top-left). Boxes anchor on their side middles;
+/// the workflow graph's circles anchor on the circle, not on the label
+/// underneath it.
+#[derive(Clone, Copy)]
+pub(crate) struct GridGeometry {
+    pub(crate) node_w: f32,
+    pub(crate) node_h: f32,
+    pub(crate) col_gap: f32,
+    pub(crate) lane_gap: f32,
+    pub(crate) view_w: f32,
+    pub(crate) view_h: f32,
+    pub(crate) edge_out: (f32, f32),
+    pub(crate) edge_in: (f32, f32),
 }
 
-fn node_y(lane: usize, node_h: f32) -> f32 {
-    lane as f32 * (node_h + LANE_GAP)
+impl GridGeometry {
+    /// The blocks mini-graph: one-line boxes, edges side to side.
+    pub(crate) fn boxes(view_w: f32) -> Self {
+        Self {
+            node_w: NODE_W,
+            node_h: NODE_H,
+            col_gap: COL_GAP,
+            lane_gap: LANE_GAP,
+            view_w,
+            view_h: VIEW_H,
+            edge_out: (NODE_W, NODE_H / 2.),
+            edge_in: (0., NODE_H / 2.),
+        }
+    }
+
+    fn x(&self, wave: usize) -> f32 {
+        wave as f32 * (self.node_w + self.col_gap)
+    }
+
+    fn y(&self, lane: usize) -> f32 {
+        lane as f32 * (self.node_h + self.lane_gap)
+    }
 }
 
 /// EXP-981 — one placed box of the shared grid, keyed by whatever the host
@@ -101,26 +134,29 @@ pub(crate) type RenderGridNode<'a> = &'a dyn Fn(&GridNode, bool, &App) -> gpui::
 fn dashes(
     start: gpui::Point<Pixels>,
     end: gpui::Point<Pixels>,
-    control: Option<gpui::Point<Pixels>>,
+    controls: Option<(gpui::Point<Pixels>, gpui::Point<Pixels>)>,
 ) -> Vec<(gpui::Point<Pixels>, gpui::Point<Pixels>)> {
-    let at = |t: f32| match control {
-        // The quadratic the solid edges curve along, sampled.
-        Some(control) => {
+    let at = |t: f32| match controls {
+        // The cubic the solid edges curve along, sampled.
+        Some((first, second)) => {
             let inverse = 1. - t;
-            let x = inverse * inverse * f32::from(start.x)
-                + 2. * inverse * t * f32::from(control.x)
-                + t * t * f32::from(end.x);
-            let y = inverse * inverse * f32::from(start.y)
-                + 2. * inverse * t * f32::from(control.y)
-                + t * t * f32::from(end.y);
-            point(px(x), px(y))
+            let blend = |p0: Pixels, p1: Pixels, p2: Pixels, p3: Pixels| {
+                inverse * inverse * inverse * f32::from(p0)
+                    + 3. * inverse * inverse * t * f32::from(p1)
+                    + 3. * inverse * t * t * f32::from(p2)
+                    + t * t * t * f32::from(p3)
+            };
+            point(
+                px(blend(start.x, first.x, second.x, end.x)),
+                px(blend(start.y, first.y, second.y, end.y)),
+            )
         }
         None => point(
             px(f32::from(start.x) + (f32::from(end.x) - f32::from(start.x)) * t),
             px(f32::from(start.y) + (f32::from(end.y) - f32::from(start.y)) * t),
         ),
     };
-    let steps = if control.is_some() { CURVE_STEPS } else { 1 };
+    let steps = if controls.is_some() { CURVE_STEPS } else { 1 };
     let points: Vec<gpui::Point<Pixels>> = (0..=steps)
         .map(|step| at(step as f32 / steps as f32))
         .collect();
@@ -168,8 +204,7 @@ fn dashes(
 pub(crate) fn grid_view(
     nodes: &[GridNode],
     edges: &[GridEdge],
-    view_width: f32,
-    node_h: f32,
+    geometry: GridGeometry,
     notes: &[SharedString],
     render_node: RenderGridNode<'_>,
     cx: &App,
@@ -182,8 +217,8 @@ pub(crate) fn grid_view(
 
     let waves = nodes.iter().map(|node| node.wave).max().unwrap_or(0);
     let lanes = nodes.iter().map(|node| node.lane).max().unwrap_or(0);
-    let width = node_x(waves) + NODE_W;
-    let height = node_y(lanes, node_h) + node_h;
+    let width = geometry.x(waves) + geometry.node_w;
+    let height = geometry.y(lanes) + geometry.node_h;
 
     // Where each node sits, so the edges can be painted in one pass.
     let places: HashMap<&str, (usize, usize)> = nodes
@@ -192,8 +227,8 @@ pub(crate) fn grid_view(
         .collect();
     // A node is on a cycle when one of its edges is.
     let mut on_cycle: HashMap<&str, bool> = HashMap::new();
-    // `(x1, y1, x2, y2, style)`.
-    let segments: Vec<(f32, f32, f32, f32, WorkflowEdgeStyle)> = edges
+    // `(x1, y1, x2, y2, gap start, gap end, style)`.
+    let segments: Vec<(f32, f32, f32, f32, f32, f32, WorkflowEdgeStyle)> = edges
         .iter()
         .filter_map(|edge| {
             let from = places.get(edge.from.as_str())?;
@@ -203,10 +238,12 @@ pub(crate) fn grid_view(
                 on_cycle.insert(edge.to.as_str(), true);
             }
             Some((
-                node_x(from.0) + NODE_W,
-                node_y(from.1, node_h) + node_h / 2.,
-                node_x(to.0),
-                node_y(to.1, node_h) + node_h / 2.,
+                geometry.x(from.0) + geometry.edge_out.0,
+                geometry.y(from.1) + geometry.edge_out.1,
+                geometry.x(to.0) + geometry.edge_in.0,
+                geometry.y(to.1) + geometry.edge_in.1,
+                geometry.x(from.0) + geometry.node_w,
+                geometry.x(to.0),
                 edge.style,
             ))
         })
@@ -221,7 +258,7 @@ pub(crate) fn grid_view(
         .child(
             canvas(|_, _, _| (), move |bounds: Bounds<Pixels>, _, window, _| {
                 let origin = bounds.origin;
-                for &(x1, y1, x2, y2, style) in &segments {
+                for &(x1, y1, x2, y2, gap_start, gap_end, style) in &segments {
                     // EXP-983: red for a cycle AND for upstream that moved,
                     // green once the blocker landed, grey otherwise.
                     let color = match style {
@@ -229,22 +266,41 @@ pub(crate) fn grid_view(
                         WorkflowEdgeStyle::Landed => success,
                         _ => grey,
                     };
-                    let start = point(origin.x + px(x1), origin.y + px(y1));
-                    let end = point(origin.x + px(x2), origin.y + px(y2));
-                    // The control point: one curve, inside the corridor
-                    // between the two waves. A straight edge uses neither.
-                    let control = point(origin.x + px((x1 + x2) / 2.), start.y);
+                    let at = |x: f32, y: f32| point(origin.x + px(x), origin.y + px(y));
+                    let (start, end) = (at(x1, y1), at(x2, y2));
+                    // The curve lives in the GAP between two cells: a level
+                    // stub runs from the anchor to its cell's edge first, so
+                    // an edge never cuts through a label beside (or under)
+                    // its anchor. It leaves and arrives HORIZONTALLY, both
+                    // control points on the gap's middle, so a fan of edges
+                    // gathers into one bus instead of hooking at one end. A
+                    // backwards (cycle) edge has no gap and curves anchor to
+                    // anchor.
+                    let (c1, c2) = if gap_end > gap_start {
+                        (gap_start, gap_end)
+                    } else {
+                        (x1, x2)
+                    };
+                    let (curve_from, curve_to) = (at(c1, y1), at(c2, y2));
+                    let middle = (c1 + c2) / 2.;
+                    let controls = (at(middle, y1), at(middle, y2));
                     let curved = (y1 - y2).abs() >= 0.5;
                     if style == WorkflowEdgeStyle::Speculative {
-                        // gpui's PathBuilder has no dash pattern, so the
-                        // dashes are painted as short segments along the
-                        // same curve.
-                        for (from, to) in dashes(start, end, curved.then_some(control)) {
-                            let mut path = gpui::PathBuilder::stroke(px(LINE));
-                            path.move_to(from);
-                            path.line_to(to);
-                            if let Ok(path) = path.build() {
-                                window.paint_path(path, color);
+                        // gpui's PathBuilder dashes per path, so the dashes
+                        // are painted as short segments along the same route.
+                        let route = [
+                            (start, curve_from, None),
+                            (curve_from, curve_to, curved.then_some(controls)),
+                            (curve_to, end, None),
+                        ];
+                        for (from, to, controls) in route {
+                            for (from, to) in dashes(from, to, controls) {
+                                let mut path = gpui::PathBuilder::stroke(px(LINE));
+                                path.move_to(from);
+                                path.line_to(to);
+                                if let Ok(path) = path.build() {
+                                    window.paint_path(path, color);
+                                }
                             }
                         }
                         continue;
@@ -252,10 +308,10 @@ pub(crate) fn grid_view(
                     let mut path = gpui::PathBuilder::stroke(px(LINE));
                     path.move_to(start);
                     if curved {
-                        path.curve_to(end, control);
-                    } else {
-                        path.line_to(end);
+                        path.line_to(curve_from);
+                        path.cubic_bezier_to(curve_to, controls.0, controls.1);
                     }
+                    path.line_to(end);
                     if let Ok(path) = path.build() {
                         window.paint_path(path, color);
                     }
@@ -270,10 +326,10 @@ pub(crate) fn grid_view(
         grid = grid.child(
             div()
                 .absolute()
-                .left(px(node_x(node.wave)))
-                .top(px(node_y(node.lane, node_h)))
-                .w(px(NODE_W))
-                .h(px(node_h))
+                .left(px(geometry.x(node.wave)))
+                .top(px(geometry.y(node.lane)))
+                .w(px(geometry.node_w))
+                .h(px(geometry.node_h))
                 .child(render_node(node, cycled, cx)),
         );
     }
@@ -284,8 +340,8 @@ pub(crate) fn grid_view(
         .child(
             div()
                 .id("exp-graph-scroll")
-                .w(px(view_width.min(width)))
-                .h(px(VIEW_H.min(height)))
+                .w(px(geometry.view_w.min(width)))
+                .h(px(geometry.view_h.min(height)))
                 .overflow_scroll()
                 .child(grid),
         )
@@ -469,7 +525,7 @@ pub(crate) fn graph_view(
         };
         node_chip(&node.key, outline, on_pick.clone(), cx)
     };
-    grid_view(&nodes, &edges, view_width, NODE_H, &notes, &render, cx)
+    grid_view(&nodes, &edges, GridGeometry::boxes(view_width), &notes, &render, cx)
 }
 
 /// One node: the shared issue chip (status glyph + identifier + as much title
@@ -629,7 +685,11 @@ mod tests {
 
         // A curved edge is sampled first, so its dashes leave the straight
         // line between the two ends.
-        let curved = dashes(start, point(px(40.), px(40.)), Some(point(px(20.), px(0.))));
+        let curved = dashes(
+            start,
+            point(px(40.), px(40.)),
+            Some((point(px(20.), px(0.)), point(px(20.), px(40.)))),
+        );
         assert!(curved.len() > 2);
         assert!(
             curved

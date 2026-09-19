@@ -202,6 +202,8 @@ export const WITHDRAW_APPROVAL_LABEL = `Withdraw approval`
 export const MERGE_TRAIN_TITLE = `Merge train`
 export const MERGE_TRAIN_EMPTY = `Nothing is waiting to land.`
 export const FINAL_PR_TITLE = `Final pull request`
+/** The strip over the graph that lists the runs that are up, one tap away. */
+export const RUNNING_NOW_LABEL = `Running now`
 
 export interface StartableWorkflow {
   status: string

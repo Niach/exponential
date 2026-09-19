@@ -1,7 +1,8 @@
 import { useMemo } from "react"
 import { conceptIcon, LiveDot } from "@exp/ui"
+import { RunningIndicator } from "@/components/agent-session-row"
+import type { SessionDisplayState } from "@/lib/coding-session-display"
 import type { Issue, WorkflowNode } from "@/db/schema"
-import { IssueChip } from "@/components/issue-chip"
 import { WaveGraph } from "@/components/issue-graph"
 import {
   workflowEdges,
@@ -19,9 +20,12 @@ import { cn } from "@/lib/utils"
 // NODE rows instead of issues. The geometry is the server's (`wave` = column,
 // `lane` = row, `on_cycle` = red); the edges come from the team's synced
 // `blocks` relations through `workflowEdges`, so nothing about the DAG is
-// stored twice. A compound node (a parent run as one batch with its
-// sub-issues) is drawn as a STACKED card: a second card edge peeking out
-// behind the front one.
+// stored twice. A node is a CIRCLE in the ring its state earns, its title and
+// ONE caption centred underneath, so the edges run circle to circle and never
+// through a label. A compound node (a parent run as one batch with its
+// sub-issues) is STACKED: a second circle edge peeking out behind the front
+// one. While a node's run is up the circle carries that session's own dot
+// (`RunningIndicator`), pinging only while the agent works.
 //
 // Phones keep the grid and scroll it, exactly like the blocks mini-graph —
 // the wave-grouped list is the natives' phone form (`IssueGraphList`).
@@ -40,8 +44,25 @@ import { cn } from "@/lib/utils"
 // yet — is drawn with a DASHED outline. It is in the picture, but it is not
 // part of the run until a member admits it.
 
-const NODE_W = 208
-const NODE_H = 66
+const NODE_CIRCLE = 30
+const NODE_W = 140
+const NODE_H = NODE_CIRCLE + 4 + 16 + 16
+const WAVE_GAP = 64
+const LANE_GAP = 14
+/** The air an edge keeps from the circle it leaves or enters. */
+const EDGE_AIR = 4
+const EDGE_OUT = { x: NODE_W / 2 + NODE_CIRCLE / 2 + EDGE_AIR, y: NODE_CIRCLE / 2 }
+const EDGE_IN = { x: NODE_W / 2 - NODE_CIRCLE / 2 - EDGE_AIR, y: NODE_CIRCLE / 2 }
+
+/** One node's coding session as the graph reads it (`workflowNodeRuns`). */
+export interface WorkflowNodeRun {
+  sessionId: string
+  /** Still up (`running` / `in_review`). */
+  live: boolean
+  state: SessionDisplayState
+  /** The agent is mid-turn: the dot pings. */
+  working: boolean
+}
 
 /** The caption's paint per `workflowNodeTone` (amber = a person is needed). */
 const TONE_CLASS: Record<WorkflowNodeTone, string> = {
@@ -50,6 +71,29 @@ const TONE_CLASS: Record<WorkflowNodeTone, string> = {
   amber: `text-amber-500`,
   success: `text-emerald-500`,
   danger: `text-destructive`,
+}
+
+/** The circle's ring + wash per tone. A quiet node keeps the glass hairline. */
+const RING_CLASS: Record<WorkflowNodeTone, string> = {
+  muted: `border-glass-stroke-strong bg-glass-row`,
+  active: `border-primary bg-primary/15`,
+  amber: `border-amber-500 bg-amber-500/15`,
+  success: `border-emerald-500 bg-emerald-500/15`,
+  danger: `border-destructive bg-destructive/15`,
+}
+
+/** A live run paints the circle in its SESSION's tone, not the node's. */
+const RUN_RING_CLASS: Record<SessionDisplayState, string> = {
+  running: `border-emerald-500 bg-emerald-500/15`,
+  review: `border-emerald-500 bg-emerald-500/15`,
+  needs_input: `border-amber-500 bg-amber-500/15`,
+  done: `border-sky-500 bg-sky-500/15`,
+}
+const RUN_TEXT_CLASS: Record<SessionDisplayState, string> = {
+  running: `text-emerald-500`,
+  review: `text-emerald-500`,
+  needs_input: `text-amber-500`,
+  done: `text-sky-500`,
 }
 
 const WarningIcon = conceptIcon(`ui-warning`)
@@ -82,6 +126,7 @@ export function WorkflowGraph({
   workflowStatus,
   cycleEdges,
   finalPr,
+  runByNodeId,
   selectedNodeId,
   onSelect,
   className,
@@ -98,6 +143,8 @@ export function WorkflowGraph({
   /** EXP-982: `workflowFinalPrCaption` and the workflow's `finalPrUrl`. A null
    *  caption draws no final node at all. */
   finalPr?: { caption: string | null; url: string | null }
+  /** Each node's synced coding session; absent = none (or not synced yet). */
+  runByNodeId?: ReadonlyMap<string, WorkflowNodeRun>
   selectedNodeId: string | null
   onSelect: (nodeId: string) => void
   className?: string
@@ -137,17 +184,22 @@ export function WorkflowGraph({
   if (nodes.length === 0) return null
 
   return (
-    <div className={cn(`overflow-auto`, className)} data-testid="workflow-graph">
+    <div className={cn(`overflow-auto p-1.5`, className)} data-testid="workflow-graph">
       <WaveGraph
         nodes={gridNodes}
         edges={edges}
         nodeWidth={NODE_W}
         nodeHeight={NODE_H}
+        waveGap={WAVE_GAP}
+        laneGap={LANE_GAP}
+        edgeOut={EDGE_OUT}
+        edgeIn={EDGE_IN}
         idPrefix="workflow-graph"
         nodeProps={(id) => ({
-          // The box itself stays plain: the card inside carries the ring, so
-          // the stacked edge behind it is not ringed twice.
+          // The cell itself stays plain: the circle inside carries the ring,
+          // and its ping halo and pick ring paint past the cell's box.
           className: `items-stretch`,
+          overflowVisible: true,
           testId: `workflow-node-${id}`,
         })}
         renderNode={(id) => {
@@ -166,6 +218,7 @@ export function WorkflowGraph({
               node={node}
               issue={issueById.get(node.issueId)}
               workflowStatus={workflowStatus}
+              run={runByNodeId?.get(node.id)}
               selected={selectedNodeId === node.id}
               onSelect={() => onSelect(node.id)}
             />
@@ -176,74 +229,96 @@ export function WorkflowGraph({
   )
 }
 
-/** One node's card. A node whose issue row has not synced keeps its caption —
- *  the graph must never blank out on a row that is still on its way. */
+/** One node: the circle over its title and caption. A node whose issue row
+ *  has not synced keeps its caption — the graph must never blank out on a row
+ *  that is still on its way. */
 export function WorkflowNodeCard({
   node,
   issue,
   workflowStatus,
+  run,
   selected,
   onSelect,
 }: {
   node: WorkflowNode
   issue: Issue | undefined
   workflowStatus: string
+  run?: WorkflowNodeRun
   selected: boolean
   onSelect: () => void
 }) {
   const compound = node.memberIssueIds.length > 0
   const title = issue
     ? workflowNodeTitle(issue.identifier, node.memberIssueIds.length)
-    : null
+    : node.issueId.slice(0, 8)
   const caption = workflowNodeCaption(node, workflowStatus)
+  const tone = workflowNodeTone(node.state)
+  const liveRun = run?.live ? run : undefined
   return (
-    <div className="relative h-full w-full">
-      {compound && (
-        /* The batch's second card edge, peeking out top-right. */
-        <div
-          aria-hidden
-          className="absolute top-0 right-0 h-[calc(100%-4px)] w-[calc(100%-4px)] rounded-md border border-glass-stroke bg-glass-section"
-          data-testid={`workflow-node-${node.id}-stack`}
-        />
-      )}
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-pressed={selected}
-        data-testid={`workflow-node-${node.id}-card`}
-        className={cn(
-          `absolute bottom-0 left-0 flex h-[calc(100%-4px)] w-[calc(100%-4px)] cursor-pointer flex-col justify-center gap-1 rounded-md border border-glass-stroke bg-glass-row px-2 py-1 text-left outline-none transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`,
-          // Not admitted into the run yet — the same dashed outline the final
-          // pull request wears while it is still only an intention.
-          node.state === `proposed` && `border-dashed`,
-          selected && `ring-1 ring-primary`,
-          node.onCycle && `ring-1 ring-destructive`
-        )}
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-testid={`workflow-node-${node.id}-card`}
+      data-running={liveRun ? `true` : undefined}
+      className="group flex h-full w-full cursor-pointer flex-col items-center gap-1 rounded-md outline-none"
+    >
+      <span
+        className="relative shrink-0"
+        style={{ width: NODE_CIRCLE, height: NODE_CIRCLE }}
       >
-        {issue && title ? (
-          <IssueChip
-            issue={{ ...issue, identifier: title }}
-            preview={false}
-            className="w-full border-0 bg-transparent px-0"
+        {compound && (
+          /* The batch's second circle edge, peeking out top-right. */
+          <span
+            aria-hidden
+            className="absolute -top-[3px] left-1 size-full rounded-full border border-glass-stroke-strong"
+            data-testid={`workflow-node-${node.id}-stack`}
           />
-        ) : (
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {node.issueId.slice(0, 8)}
-          </span>
         )}
         <span
+          data-testid={`workflow-node-${node.id}-circle`}
           className={cn(
-            `flex min-w-0 items-center gap-1.5 text-xs`,
-            TONE_CLASS[workflowNodeTone(node.state)]
+            `absolute inset-0 flex items-center justify-center rounded-full border transition-colors duration-fast group-hover:brightness-125 group-focus-visible:ring-[3px] group-focus-visible:ring-ring/50`,
+            liveRun ? RUN_RING_CLASS[liveRun.state] : RING_CLASS[tone],
+            liveRun ? RUN_TEXT_CLASS[liveRun.state] : TONE_CLASS[tone],
+            // Not admitted into the run yet — the same dashed outline the
+            // final pull request wears while it is still only an intention.
+            node.state === `proposed` && `border-dashed`,
+            // The pick is a halo OUTSIDE the ring, so the state colour stays.
+            selected && `outline outline-1 outline-offset-2 outline-primary`,
+            node.onCycle && `border-destructive`
+          )}
+        >
+          {liveRun ? (
+            <RunningIndicator state={liveRun.state} working={liveRun.working} />
+          ) : (
+            /* A draft's caption names the plan, so no state reads off it. */
+            workflowStatus !== `draft` && <WorkflowStateGlyph state={node.state} />
+          )}
+        </span>
+      </span>
+      <span className="flex w-full min-w-0 flex-col items-center">
+        <span
+          className={cn(
+            `max-w-full truncate text-xs`,
+            selected && `font-medium`,
+            !issue && `font-mono text-muted-foreground`
+          )}
+          data-testid={`workflow-node-${node.id}-title`}
+        >
+          {title}
+        </span>
+        <span
+          className={cn(
+            `max-w-full truncate text-xs`,
+            liveRun ? RUN_TEXT_CLASS[liveRun.state] : TONE_CLASS[tone]
           )}
           data-testid={`workflow-node-${node.id}-caption`}
         >
-          {/* A draft's caption names the plan, so no state reads off it. */}
-          {workflowStatus !== `draft` && <WorkflowStateGlyph state={node.state} />}
-          <span className="truncate">{caption}</span>
+          {caption}
         </span>
-      </button>
-    </div>
+      </span>
+    </button>
   )
 }
 
@@ -253,11 +328,21 @@ export function WorkflowNodeCard({
 function FinalPrCard({ caption, url }: { caption: string; url: string | null }) {
   const body = (
     <>
-      <span className="truncate text-sm font-medium">{FINAL_PR_TITLE}</span>
-      <span className="truncate text-xs text-muted-foreground">{caption}</span>
+      <span
+        className="flex shrink-0 items-center justify-center rounded-full border border-dashed border-glass-stroke-strong bg-glass-row text-muted-foreground"
+        style={{ width: NODE_CIRCLE, height: NODE_CIRCLE }}
+      >
+        <MergedIcon className="size-3.5" />
+      </span>
+      <span className="flex w-full min-w-0 flex-col items-center">
+        <span className="max-w-full truncate text-xs">{FINAL_PR_TITLE}</span>
+        <span className="max-w-full truncate text-xs text-muted-foreground">
+          {caption}
+        </span>
+      </span>
     </>
   )
-  const className = `flex h-full w-full flex-col justify-center gap-1 rounded-md border border-dashed border-glass-stroke bg-glass-row px-2 py-1 text-left`
+  const className = `flex h-full w-full flex-col items-center gap-1 rounded-md`
   if (!url) {
     return (
       <div className={className} data-testid="workflow-final-pr">
@@ -273,7 +358,7 @@ function FinalPrCard({ caption, url }: { caption: string; url: string | null }) 
       data-testid="workflow-final-pr"
       className={cn(
         className,
-        `outline-none transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`
+        `outline-none transition-colors duration-fast hover:brightness-125 focus-visible:ring-[3px] focus-visible:ring-ring/50`
       )}
     >
       {body}
