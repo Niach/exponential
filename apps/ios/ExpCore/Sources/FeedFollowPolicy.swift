@@ -51,4 +51,28 @@ public enum FeedFollowPolicy {
         if userScrolling, atBottom, offsetDelta < 0 { return .unpin }
         return .hold
     }
+
+    /// EXP-975: whether the viewport is STRANDED past the content's end — the
+    /// content's bottom edge sits more than `slack` ABOVE the visible rect's
+    /// bottom, so the reader sees nothing but the background.
+    ///
+    /// A lazy feed's content height is an ESTIMATE until its rows realise. A
+    /// bottom pin taken against that estimate (the first burst of a fresh run
+    /// lands a tall prompt row and the rest is extrapolated from it) scrolls
+    /// to an end that then collapses under the offset once the real rows
+    /// size, and the scroll view holds the stale offset until a gesture
+    /// clamps it: a black screen that snaps back on the first drag. The same
+    /// strand follows any shrink under a stationary offset — a staged replay
+    /// committing a shorter history, the window sliding a tall row out.
+    ///
+    /// - Parameters:
+    ///   - below: the content's bottom edge minus the visible rect's bottom;
+    ///     negative once the viewport reaches past the end.
+    ///   - slack: the pin's own tolerance, so a bounce past the end (which
+    ///     the phase gate already excludes) and rounding never count.
+    ///   - userScrolling: a drag or its momentum is driving the offset — a
+    ///     rubber-band past the end is the gesture's, never a strand.
+    public static func stranded(below: Double, slack: Double, userScrolling: Bool) -> Bool {
+        !userScrolling && below < -slack
+    }
 }
