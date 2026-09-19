@@ -154,7 +154,9 @@ struct PrGraphSheet: View {
             }
         } else {
             section("Runs") {
-                // EXP-965: the run tree's connector, off its depths.
+                // EXP-965: the run tree's connector, off its depths. The
+                // section stacks its rows flush (spacing 0), so no gap to
+                // bridge.
                 let guides = TreeGuides.compute(depths: graph.tree.map(\.depth))
                 ForEach(Array(graph.tree.enumerated()), id: \.element.session.id) { index, row in
                     runRow(row, guide: guides[index])
@@ -259,7 +261,8 @@ struct PrGraphSheet: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
-                    .treeGuides(childGuides[index], base: 0)
+                    // The stack row's own VStack spaces them 6pt apart.
+                    .treeGuides(childGuides[index], base: 0, gap: 6)
                 }
             }
         }

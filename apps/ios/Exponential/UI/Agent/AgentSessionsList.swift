@@ -37,7 +37,8 @@ struct AgentSessionsList: View {
                 // EXP-818: a run started by another run nests under its
                 // parent, indented (`SessionTree`, the ×4 rule). EXP-897:
                 // every parent carries a fold, 14 pt per level. EXP-965: the
-                // connector says which row hangs off which.
+                // connector says which row hangs off which; the band's rows
+                // stack flush (spacing 0), so it bridges no gap.
                 let rows = runningRows
                 let guides = TreeGuides.compute(depths: rows.map(\.depth))
                 ForEach(Array(rows.enumerated()), id: \.element.session.session.id) { index, entry in

@@ -356,6 +356,10 @@ struct ReviewsListContent: View {
         }
     }
 
+    /// EXP-965: the gap the rows sit apart — this list's `listRowInsets`
+    /// (1.5 above + 1.5 below), which the connector runs through.
+    private static let rowGap: CGFloat = 3
+
     @ViewBuilder
     private func entryRow(_ row: ReviewRow, guide: TreeGuide) -> some View {
         let entry = row.entry
@@ -369,8 +373,10 @@ struct ReviewsListContent: View {
             }
         }
         // EXP-897: 14 pt per stack level (`TreeGuides.indentPerLevel`, the ×4
-        // measure); EXP-965 draws the connector in the gutter it opens.
-        .treeGuides(guide)
+        // measure); EXP-965 draws the connector in the gutter it opens, and
+        // spans the list's own row gap so the branch is one line, not a dash
+        // per row.
+        .treeGuides(guide, gap: Self.rowGap)
     }
 
     /// EXP-897: the row's stack line — what it is built ON, the "Merge stack"
