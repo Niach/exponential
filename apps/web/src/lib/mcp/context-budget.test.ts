@@ -213,6 +213,25 @@ it(`registers exponential_sessions_results only behind its gate`, () => {
   ).toBe(true)
 })
 
+// EXP-988/EXP-936: compaction acts on the caller's OWN run, so it rides the
+// same gate as publishing pictures — a human's MCP client never sees it.
+it(`registers exponential_sessions_compact only behind the session gate`, () => {
+  expect(
+    serializeToolDefs().some(
+      (def) => def.name === `exponential_sessions_compact`
+    )
+  ).toBe(true)
+  const headerless = serializeToolDefs({
+    helpdesk: true,
+    sessionsEnd: false,
+    askParent: false,
+    sessionResults: false,
+  })
+  expect(
+    headerless.some((def) => def.name === `exponential_sessions_compact`)
+  ).toBe(false)
+})
+
 it(`keeps the serialized MCP tool context within budget`, () => {
   const defs = serializeToolDefs()
   // The gated one counts too: an unattended run carries it from turn one.
@@ -335,6 +354,10 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_issues_create`,
     `exponential_issue_relations_add`,
     `exponential_report_bug`,
+    // EXP-988: the three contract tools the leaves fill in.
+    `exponential_attachments_list`,
+    `exponential_attachments_upload`,
+    `exponential_sessions_compact`,
   ]) {
     expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
   }

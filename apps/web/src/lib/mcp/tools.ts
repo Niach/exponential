@@ -182,6 +182,19 @@ import {
 } from "@/lib/steer-child-messages"
 import { err, ok } from "./helpers"
 import { inlineImageForContext } from "./inline-image"
+// EXP-988: the workflow contract's handler files. The registry owns the
+// registration, the zod schema and the access checks; each file owns ONE
+// tool's behaviour and is filled by its leaf (EXP-979 / EXP-929 / EXP-936)
+// without touching this module.
+import {
+  countIssueAttachments,
+  listIssueAttachments,
+} from "./handlers/attachments-list"
+import {
+  finalizeSignedAttachmentUpload,
+  mintSignedAttachmentUpload,
+} from "./handlers/attachments-upload"
+import { requestSessionCompaction } from "./handlers/sessions-compact"
 import { ALWAYS_LOAD_META } from "./always-load"
 import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
@@ -1320,6 +1333,9 @@ export function registerExponentialTools(
           labelIds: labelRows.map((r) => r.labelId),
           relations,
           recentComments,
+          // EXP-988/EXP-979: how many files the issue carries, so an agent
+          // knows whether exponential_attachments_list is worth a call.
+          attachmentCount: await countIssueAttachments(id),
         })
       } catch (e) {
         return err(e)
@@ -1439,6 +1455,33 @@ export function registerExponentialTools(
   // -----------------------------------------------------------------------
   // Attachments
   // -----------------------------------------------------------------------
+
+  // EXP-988/EXP-979: the issue's Files list. Access = attachments_get's rule
+  // (grant on the issue's board + team membership); the query lives in the
+  // handler file. Metadata only — bytes ride exponential_attachments_get.
+  server.registerTool(
+    `exponential_attachments_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List an issue's attachments (UUID or identifier), newest first: id, filename, contentType, sizeBytes, createdAt and the commentId when a file hangs on a comment. Metadata only; exponential_attachments_get fetches one file's bytes. Paged with limit/offset; total counts every row.`,
+      inputSchema: strictInput({
+        issueId: z.string().min(1),
+        limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
+      }),
+    },
+    async ({ issueId: issueIdInput, limit, offset }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        const ctxIssue = await getIssueTeamContext(issueId)
+        assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+        await resolveTeamAccess(user.id, ctxIssue.teamId)
+        return ok(await listIssueAttachments({ issueId, limit, offset }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
 
   server.registerTool(
     `exponential_attachments_get`,
@@ -3364,6 +3407,46 @@ export function registerExponentialTools(
     )
   }
 
+  // EXP-988/EXP-936: the run asks its HOST to compact its context. Same gate
+  // as sessions_results: the tool acts on the caller's own run, so a caller
+  // with no run of its own (a human's MCP client) never sees it. The request
+  // is relayed as a `compact_request` steer frame and executed by the device
+  // at the next turn boundary; the handler file owns ownership, the refusal
+  // codes and the relay hop.
+  if (gates.sessionResults) {
+    server.registerTool(
+      `exponential_sessions_compact`,
+      {
+        description: `Ask the host to compact this run's context at the next turn boundary. reason is logged on the run; keep names what the summary must preserve (open threads, decisions, file paths). Returns accepted, or refusedBecause: too_early (under half the context used), cooldown (compacted within the last 20 turns), not_own_session, unsupported_agent. Only your own run.`,
+        inputSchema: strictInput({
+          reason: z.string().trim().min(1).max(500),
+          keep: z.string().trim().min(1).max(2_000).optional(),
+        }),
+      },
+      async ({ reason, keep }) => {
+        try {
+          if (!sessionId) {
+            return err(
+              new Error(
+                `No coding session: exponential_sessions_compact only works inside a session started by the Exponential launcher (missing X-Exp-Session-Id).`
+              )
+            )
+          }
+          return ok(
+            await requestSessionCompaction({
+              sessionId,
+              userId: user.id,
+              reason,
+              keep,
+            })
+          )
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
   // EXP-660: the session read side. No tRPC list/get exists (clients read the
   // Electric shape), so these are direct reads over the SAME predicate the
   // shape uses: the caller's teams minus trashed/archived boards.
@@ -5095,17 +5178,25 @@ export function registerExponentialTools(
   // -----------------------------------------------------------------------
   // Attachments upload (base64 payload → S3 → attachments row)
   // -----------------------------------------------------------------------
+  // EXP-988/EXP-929: three shapes of ONE tool. `dataBase64` present = the
+  // inline path below (unchanged). Absent = a SIGNED upload: the call returns
+  // an upload URL + curl line (the sessions_results shape) and a later call
+  // with `attachmentId` alone finalizes the row. The signed halves live in
+  // handlers/attachments-upload.ts; the access checks stay here.
 
   server.registerTool(
     `exponential_attachments_upload`,
     {
-      description: `Upload a base64-encoded file and attach it to an issue (UUID or identifier). Images (png/jpeg/webp/gif/avif, max 10 MB) and video/audio (max 50 MB) also return a "markdown" field. Embed that string to show the image or player. Other types (max 50 MB) land in the issue's Files list, return no markdown, and must not be embedded. Storage limits apply; base64 inflates ~33%.`,
+      description: `Attach a file to an issue (UUID or identifier). With dataBase64: uploads the bytes now (base64 inflates ~33%). Without it: returns attachmentId, a 10-minute signed uploadUrl and a ready curl line for filename/contentType (+ optional commentId); then call again with attachmentId alone to finalize. Images (png/jpeg/webp/gif/avif, 10 MB) and video/audio (50 MB) return "markdown" to embed; other types (50 MB) land in Files, no markdown, never embed. Storage limits apply.`,
       inputSchema: strictInput({
-        issueId: z.string().min(1),
-        filename: z.string().min(1).max(255),
-        contentType: z.string().min(1).max(255),
-        dataBase64: z.string().min(1),
+        issueId: z.string().min(1).optional(),
+        filename: z.string().min(1).max(255).optional(),
+        contentType: z.string().min(1).max(255).optional(),
+        dataBase64: z.string().min(1).optional(),
         alt: z.string().max(500).optional(),
+        // EXP-929: the signed path's two extra keys.
+        commentId: uuidString.optional(),
+        attachmentId: uuidString.optional(),
       }),
     },
     async ({
@@ -5114,8 +5205,40 @@ export function registerExponentialTools(
       contentType: contentTypeInput,
       dataBase64,
       alt,
+      commentId,
+      // Renamed: the inline path below mints its own `attachmentId`.
+      attachmentId: finalizeId,
     }) => {
       try {
+        // The finalize call: attachmentId ALONE.
+        if (finalizeId !== undefined) {
+          if (
+            issueIdInput !== undefined ||
+            filenameInput !== undefined ||
+            contentTypeInput !== undefined ||
+            dataBase64 !== undefined ||
+            commentId !== undefined
+          ) {
+            throw new Error(
+              `Pass attachmentId alone to finalize a signed upload; the other fields belong to the first call.`
+            )
+          }
+          return ok(
+            await finalizeSignedAttachmentUpload({
+              attachmentId: finalizeId,
+              userId: user.id,
+            })
+          )
+        }
+        if (
+          issueIdInput === undefined ||
+          filenameInput === undefined ||
+          contentTypeInput === undefined
+        ) {
+          throw new Error(
+            `issueId, filename and contentType are required (with dataBase64 to upload now, without it to get a signed upload URL).`
+          )
+        }
         // Canonicalized (lowercase essence) so the exact-match inline-image
         // classification behaves identically for every stored row.
         const contentType = canonicalizeContentType(contentTypeInput)
@@ -5130,6 +5253,30 @@ export function registerExponentialTools(
         const issueCtx = await getIssueTeamContext(issueId)
         assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
         await assertTeamMember(user.id, issueCtx.teamId)
+
+        // The signed path: no bytes in context, an upload URL instead.
+        if (dataBase64 === undefined) {
+          const origin = process.env.BETTER_AUTH_URL
+            ? appBaseUrl()
+            : new URL(request.url).origin
+          return ok(
+            await mintSignedAttachmentUpload({
+              issueId,
+              teamId: issueCtx.teamId,
+              boardId: issueCtx.boardId,
+              userId: user.id,
+              filename,
+              contentType,
+              commentId,
+              origin,
+            })
+          )
+        }
+        if (commentId !== undefined) {
+          throw new Error(
+            `commentId is for the signed upload; attach an inline upload to a comment through exponential_comments_create's attachmentIds.`
+          )
+        }
 
         const body = new Uint8Array(Buffer.from(dataBase64, `base64`))
         if (body.byteLength === 0) {

@@ -521,6 +521,17 @@
         "result": "none"
       },
       {
+        "name": "attachments_list",
+        "title": "List attachments",
+        "blurb": "Lists the files attached to an issue, with their sizes.",
+        "progressive": "Listing attachments",
+        "done": "Listed attachments",
+        "progressiveMany": "Listing attachments {n} times",
+        "doneMany": "Listed attachments {n} times",
+        "subjectKey": "issueId",
+        "result": "list"
+      },
+      {
         "name": "attachments_upload",
         "title": "Upload attachment",
         "blurb": "Uploads a file and returns the link to embed in an issue or a comment.",
@@ -1145,6 +1156,17 @@
         "progressiveMany": "Asking parent session {n} times",
         "doneMany": "Asked parent session {n} times",
         "subjectKey": "question",
+        "result": "none"
+      },
+      {
+        "name": "sessions_compact",
+        "title": "Compact context",
+        "blurb": "Asks the host to compact this run's context at the next turn boundary.",
+        "progressive": "Requesting compaction",
+        "done": "Requested compaction",
+        "progressiveMany": "Requesting compaction {n} times",
+        "doneMany": "Requested compaction {n} times",
+        "subjectKey": "reason",
         "result": "none"
       },
       {

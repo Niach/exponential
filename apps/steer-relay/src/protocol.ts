@@ -837,6 +837,13 @@ export type ServerFrame =
   | { t: `interrupt` }
   // EXP-861: revoke one queued message (relay → publisher).
   | { t: `unqueue`; id: string }
+  // EXP-988/EXP-936: relay → publisher. The run's OWN MCP call
+  // (`exponential_sessions_compact`) asked the host to compact the agent's
+  // context; the host does it at the next turn boundary, or refuses (the
+  // verdict rides the tool result, never a frame). `keep` = what the summary
+  // must preserve. Declared ahead of the behaviour: the hub route that sends
+  // it and the device side that acts on it are EXP-936's.
+  | { t: `compact_request`; sessionId: string; keep?: string }
   // EXP-481: fire-and-forget check-in nudge to a device's control socket —
   // the web server persisted new work (a queued command, edited launch
   // defaults) and an online device should heartbeat NOW instead of on its

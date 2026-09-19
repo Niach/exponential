@@ -1140,6 +1140,11 @@ async fn pump_connection(
                                 return LoopEnd::Dropped;
                             }
                         }
+                        // EXP-988: declared by the workflow contract, acted
+                        // on by EXP-936 (compact at the next turn boundary).
+                        Some(ServerFrame::CompactRequest { .. }) => {
+                            log::debug!("steer publisher: compact_request not handled yet");
+                        }
                         Some(ServerFrame::StartSession { .. })
                         | Some(ServerFrame::CheckIn)
                         | Some(ServerFrame::HistoryRequest { .. }) => {
