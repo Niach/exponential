@@ -339,6 +339,16 @@ pub fn reclaimed_workspace_note(
     note
 }
 
+/// EXP-935: what a resume that SWITCHES the account opens its first turn
+/// with. A mid-run switch (`steer.startSession({resumeSessionId, account})`)
+/// carries no prompt of its own, so a native reload used to sit on
+/// `RESUMED_IDLE_CAPTION` until a person typed — from the outside, switching
+/// the account did nothing at all. The run says why it was restarted and
+/// carries on by itself.
+pub const ACCOUNT_SWITCH_CONTINUE_PROMPT: &str = "Your account was switched; the previous run \
+ended on purpose. Continue exactly where you left off: pick up the task in progress, do not \
+restart or re-plan finished work, and report when done.";
+
 /// The issue-context body.
 fn issue_body(description: Option<&str>) -> &str {
     match description {

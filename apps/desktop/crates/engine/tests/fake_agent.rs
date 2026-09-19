@@ -404,6 +404,23 @@ async fn run_turn(
             }
             StopReason::EndTurn
         }
+        // EXP-969: the same fold, but its `completed` edge NEVER comes — a
+        // manual `/compact` that lands no `compact_boundary`. The turn ends
+        // with the gate still open, which is what used to strand the bar.
+        "compact-silent" => {
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                    CompactionId::new("c-1"),
+                    CompactionStatus::InProgress,
+                )),
+            ));
+            let deadline = Instant::now() + BUDGET;
+            while Instant::now() < deadline && !state.fold_released.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            StopReason::EndTurn
+        }
         // EXP-873: a compaction held open until the test releases it, the
         // way claude's auto-compaction holds a turn; the turn ends with it.
         "compact" => {
@@ -1069,6 +1086,44 @@ fn a_message_sent_mid_compaction_is_held_until_the_fold_ends() {
     until("the held message reaches the agent", || prompts() >= 2);
     until("its row", || has_user_row(&harness.sink, "after the fold"));
     until("the idle edge", || signal.is_idle());
+    assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
+    harness.session.kill("killed");
+}
+
+/// EXP-969: a fold whose `completed` edge never arrives (a manual
+/// `/compact`) must not strand the bar — the turn ending closes the gate and
+/// the held message goes to the agent as the next turn, instead of sitting
+/// there while the run reads as busy forever.
+#[test]
+fn a_held_message_drains_when_a_silent_compaction_turn_ends() {
+    let harness = start_fake("queue-compact-silent");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+
+    harness.session.send_prompt("compact-silent".to_string());
+    until("the compaction to open", || {
+        events_of(&harness.sink, "compaction")
+            .iter()
+            .any(|event| event["phase"] == "started")
+    });
+    harness.session.steer("after the fold".to_string());
+    until("the held line", || last_queue(&harness.sink).is_some_and(|m| m.len() == 1));
+    assert!(
+        last_queue(&harness.sink).expect("a queue frame")[0].get("sent").is_none(),
+        "held while the gate is open"
+    );
+
+    // The turn ends with no `completed` edge at all.
+    harness.state.fold_released.store(true, Ordering::SeqCst);
+    until("the held message reaches the agent", || prompts() >= 2);
+    until("its row", || has_user_row(&harness.sink, "after the fold"));
+    until("the idle edge", || signal.is_idle());
+    assert!(
+        events_of(&harness.sink, "compaction")
+            .iter()
+            .any(|event| event["phase"] == "ended"),
+        "the turn end closed the strip too"
+    );
     assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
     harness.session.kill("killed");
 }

@@ -3022,6 +3022,12 @@ fn prepare_resume_run(
         .as_deref()
         .map(str::trim)
         .filter(|text| !text.is_empty());
+    // EXP-935: an account SWITCH is a resume with no prompt at all, so a
+    // native reload idled on `RESUMED_IDLE_CAPTION` until a person typed and
+    // the switch looked like it had done nothing. The switch opens the first
+    // turn itself, on every resume shape (the degraded one re-reads the
+    // transcript first and then hears this).
+    let switch_note = req.account.is_some();
     // A re-created worktree is news the agent's transcript cannot know: it
     // opens the first turn, alone when nothing else was sent (the one resume
     // shape that starts a turn on top of a native reload — the alternative
@@ -3043,7 +3049,9 @@ fn prepare_resume_run(
                     branch,
                     &default_branch,
                     ahead,
-                    native_resume && extra.is_none(),
+                    // EXP-935: a switch DOES ask for something, so the note
+                    // must not tell the agent to acknowledge and wait.
+                    native_resume && extra.is_none() && !switch_note,
                 )
             })
         })
@@ -3080,6 +3088,16 @@ fn prepare_resume_run(
                 extra,
             ),
         }))
+    };
+    // EXP-935: the continue instruction rides LAST — after whatever the
+    // resume already says (the re-read prompt, the person's own text), and
+    // after the reclaimed-workspace note `with_note` prepended.
+    let rendered = match (switch_note, rendered) {
+        (true, Some(body)) => {
+            Some(format!("{body}\n\n{}", crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT))
+        }
+        (true, None) => Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT.to_string()),
+        (false, body) => body,
     };
     let attachment_ids = prompt_attachment_ids(extra);
     let personal_key = key_handle
@@ -5510,6 +5528,93 @@ mod tests {
         let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
         assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
         assert_eq!(fresh.account().as_deref(), Some(target.id.as_str()));
+    }
+
+    /// EXP-935 — a mid-run account switch is a resume with no prompt of its
+    /// own, so the reloaded conversation used to idle until a person typed:
+    /// from the outside the switch did nothing. The switch itself opens the
+    /// first turn with the continue instruction; an ordinary resume still
+    /// seeds no prompt at all.
+    #[test]
+    fn an_account_switch_resume_opens_the_first_turn_with_the_continue_prompt() {
+        let seed_projects = |dir: &Path, deps: &mut CodingDeps| {
+            let projects = dir.join("claude-projects");
+            let project_dir = projects.join("-Users-u-worktree--71h4ur");
+            fs::create_dir_all(&project_dir).unwrap();
+            fs::write(project_dir.join("claude-1.jsonl"), "{\"turn\":1}\n").unwrap();
+            deps.claude_projects_root = Some(projects);
+        };
+        let canned = || {
+            canned_server_recording(vec![(
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
+                    .to_string(),
+            )])
+        };
+
+        // A plain resume: nothing is asked, the agent waits.
+        let plain_dir = temp_dir("resume-no-switch-prompt");
+        let (base, _captured) = canned();
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: plain_dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &plain_dir.0, worktrees);
+        seed_projects(&plain_dir.0, &mut deps);
+        let plain = match prepare(
+            &PrepareRequest::ResumeRun(resume_request(resume_record(&plain_dir.0, "sess-old"))),
+            &deps,
+        )
+        .unwrap()
+        {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(plain.acp.prompt, None, "an ordinary native resume seeds nothing");
+
+        // The same resume, switching the account: the continue prompt.
+        let dir = temp_dir("resume-switch-prompt");
+        let (base, _captured) = canned();
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &dir.0, worktrees);
+        seed_projects(&dir.0, &mut deps);
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.account = Some(target.id.clone());
+        let switched = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(
+            switched.acp.prompt.as_deref(),
+            Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT),
+            "the switch opens the turn itself"
+        );
+
+        // A switch that ALSO carries composer text keeps both, the person's
+        // words first.
+        let both_dir = temp_dir("resume-switch-prompt-text");
+        let (base, _captured) = canned();
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: both_dir.0.join("unused"),
+            seen: Default::default(),
+        });
+        let mut deps = make_deps(&base, &both_dir.0, worktrees);
+        seed_projects(&both_dir.0, &mut deps);
+        let target = crate::agent_profiles::create(&both_dir.0, CodingAgent::Claude, "Work").unwrap();
+        let mut req = resume_request(resume_record(&both_dir.0, "sess-old"));
+        req.account = Some(target.id.clone());
+        req.prompt = Some("and rerun the tests".to_string());
+        let both = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let prompt = both.acp.prompt.as_deref().expect("a seed prompt");
+        assert!(prompt.starts_with("and rerun the tests"), "{prompt}");
+        assert!(prompt.ends_with(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT), "{prompt}");
     }
 
     /// EXP-909 — a resume that SWITCHES logins starts the continuation row on

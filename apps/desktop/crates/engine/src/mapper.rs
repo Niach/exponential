@@ -64,10 +64,11 @@ use crate::local::{
 pub const FLUSH_IDLE: Duration = Duration::from_millis(250);
 
 /// How long a started compaction may stay open before the mapper closes it
-/// itself. Mirrors `steer::activity::COMPACTION_MAX` (crate-private there);
-/// the four clients hold their "compacting" strip until the `ended` edge, so
-/// an agent that dies mid-compaction must not strand it.
-pub const COMPACTION_MAX: Duration = Duration::from_secs(300);
+/// itself. EXP-969: mirrors the clients' own backstop — `steer::feed::
+/// COMPACTION_TIMEOUT` and web `COMPACTION_TIMEOUT_MS` (180s, moved in
+/// lockstep) — so the device never holds the queue gate shut longer than the
+/// strip a viewer is looking at.
+pub const COMPACTION_MAX: Duration = Duration::from_secs(180);
 
 /// How many ANSWERED asks the mapper keeps for re-ack (EXP-766). A long
 /// unattended run answers thousands of permissions; each one held its options
@@ -928,6 +929,11 @@ impl Mapper {
         if matches!(stop, StopReason::Cancelled) {
             self.on_cancel(out);
         }
+        // EXP-969: an agent cannot be compacting BETWEEN turns, so the turn
+        // end closes a fold whose own `ended` edge never came (a manual
+        // `/compact` that lands no `compact_boundary`). The host's queue gate
+        // reads this edge: without it the held messages wait forever.
+        self.end_compaction(None, out);
         // EXP-873: every prompt of the turn has answered, so a mid-turn
         // message whose replay never came was still read (the CLI folded it
         // without echoing) — it becomes its row now rather than sitting in
@@ -3293,6 +3299,48 @@ mod tests {
             out.wire.iter().any(|event| matches!(event, steer::ActivityEvent::RateLimit { .. })),
             "{:?}",
             out.wire
+        );
+    }
+
+    /// EXP-969: a fold whose own `ended` edge never came (a manual
+    /// `/compact` that lands no `compact_boundary`) closes on the turn end —
+    /// an agent cannot be compacting between turns, and the host's queue
+    /// gate reads exactly that edge.
+    #[test]
+    fn a_turn_end_closes_a_compaction_whose_end_never_came() {
+        use agent_client_protocol::schema::v1::{
+            CompactionId, CompactionStatus, CompactionUpdate,
+        };
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                CompactionId::new("c-1"),
+                CompactionStatus::InProgress,
+            ))),
+            &mut out,
+        );
+        assert!(mapper.compacting(), "the fold is open");
+
+        let mut ended = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut ended);
+        assert!(!mapper.compacting(), "the turn end closed it");
+        assert!(
+            ended.wire.iter().any(|event| matches!(
+                event,
+                ActivityEvent::Compaction { phase: CompactionPhase::Ended, .. }
+            )),
+            "{:?}",
+            ended.wire
+        );
+
+        // The next turn end says nothing: the fold is already closed.
+        let mut again = MapOut::default();
+        mapper.on_stop(StopReason::EndTurn, &mut again);
+        assert!(
+            !again.wire.iter().any(|event| matches!(event, ActivityEvent::Compaction { .. })),
+            "{:?}",
+            again.wire
         );
     }
 

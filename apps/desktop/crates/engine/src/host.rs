@@ -1061,6 +1061,12 @@ pub(crate) struct SessionCtx {
     /// the idle edge). Set once by `spawn_engine`; absent on a bare test
     /// context, where nothing drains.
     pub(crate) queue_commands: OnceLock<flume::Sender<EngineCommand>>,
+    /// EXP-969: a drain asked for while the compaction gate was still open.
+    /// The gate's own close edge normally requests the drain, but a fold that
+    /// never lands one (a manual `/compact` with no `compact_boundary`) used
+    /// to strand every held line: the flush tick re-checks this flag and
+    /// drains the moment the gate is down.
+    pub(crate) drain_wanted: AtomicBool,
     /// FEED-25: when the agent last produced anything the mapper emitted (or
     /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
     /// snapshots never advance it.
@@ -1131,18 +1137,36 @@ impl SessionCtx {
 
     /// EXP-861: ask the command loop to send the held messages, if any and
     /// if no compaction is open. Cheap when nothing is held (one lock, no
-    /// send).
-    fn request_drain(&self) {
+    /// send). EXP-969: a request the open gate refuses is REMEMBERED, never
+    /// dropped — [`SessionCtx::poll_drain`] retries it on the flush tick, so
+    /// a fold whose `ended` edge never lands cannot strand the bar.
+    pub(crate) fn request_drain(&self) {
         let held = self
             .prompt_queue
             .lock()
             .map(|queue| queue.iter().any(|message| message.held.is_some()))
             .unwrap_or(false);
-        if !held || self.compaction_open() {
+        if !held {
+            self.drain_wanted.store(false, Ordering::SeqCst);
             return;
         }
+        if self.compaction_open() {
+            self.drain_wanted.store(true, Ordering::SeqCst);
+            return;
+        }
+        self.drain_wanted.store(false, Ordering::SeqCst);
         if let Some(commands) = self.queue_commands.get() {
             let _ = commands.send(EngineCommand::DrainQueue);
+        }
+    }
+
+    /// EXP-969: the flush tick's half of [`SessionCtx::request_drain`] — a
+    /// drain the gate refused earlier goes out as soon as the gate is down
+    /// (the mapper's own `COMPACTION_MAX` backstop closes a fold nothing else
+    /// ever ends, and this is what notices).
+    pub(crate) fn poll_drain(&self) {
+        if self.drain_wanted.load(Ordering::SeqCst) {
+            self.request_drain();
         }
     }
 
@@ -1189,6 +1213,9 @@ impl SessionCtx {
             })
             .unwrap_or(false);
         if accepted {
+            // EXP-969: this line wants a drain the moment the gate is down,
+            // even if no edge ever announces it.
+            self.drain_wanted.store(true, Ordering::SeqCst);
             self.publish_queue();
         } else {
             log::warn!(
@@ -1822,6 +1849,10 @@ where
                         let mut out = MapOut::default();
                         ctx.with_mapper(|mapper| mapper.flush(&mut out));
                         ctx.dispatch(out);
+                        // EXP-969: the gate may have come down without an
+                        // edge anyone dispatched (the mapper's stale-fold
+                        // backstop); a held line drains here.
+                        ctx.poll_drain();
                     }
                 }
             }

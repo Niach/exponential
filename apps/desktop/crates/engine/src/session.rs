@@ -579,6 +579,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         blocked: Mutex::new(None),
         prompt_queue: Mutex::new(std::collections::VecDeque::new()),
         queue_commands: OnceLock::new(),
+        drain_wanted: AtomicBool::new(false),
         last_activity: Mutex::new(std::time::Instant::now()),
         failure: Mutex::new(None),
         exit: ExitState::default(),

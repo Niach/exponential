@@ -1689,15 +1689,11 @@ fn live_probe(
 /// a stuck 100 % is exactly what the user is waiting to see fall). A window
 /// with no `resets_at`, or one whose stamp does not parse, never kills the
 /// frame — an unreadable stamp is not evidence of a reset.
+///
+/// EXP-964: the predicate itself lives in [`usage_cache`], because the CACHED
+/// report needs the same question answered the same way.
 fn any_reset_passed(windows: &[UsageWindow], now: u64) -> bool {
-    let now_ms = (now as i64).saturating_mul(1000);
-    windows.iter().any(|window| {
-        window
-            .resets_at
-            .as_deref()
-            .and_then(crate::agent_accounts::unix_millis_from_iso)
-            .is_some_and(|at| now_ms >= at)
-    })
+    usage_cache::any_reset_passed(windows, now)
 }
 
 /// What a live publisher's frame covers, relative to the agent's poll.
