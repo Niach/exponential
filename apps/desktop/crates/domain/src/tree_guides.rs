@@ -1,6 +1,7 @@
 //! EXP-965 — the TREE CONNECTOR every nested list draws instead of bare
-//! indentation (web `lib/tree-guides.ts`, iOS `TreeGuides.swift`, Android
-//! `TreeGuides.kt` — the same rule and the same four tests).
+//! indentation (web `packages/ui/src/tree-guides.ts`, iOS
+//! `ExpCore/Sources/Domain/TreeGuides.swift`, Android `domain/TreeGuides.kt`
+//! — the same rule and the same tests).
 //!
 //! A nested list is a sequence of VISIBLE rows with a depth each (whatever a
 //! fold left standing). From that sequence alone the connector falls out:

@@ -305,7 +305,7 @@ fn overlay(spec: &BadgeSpec, _window: &mut Window, cx: &App) -> AnyElement {
 fn section(label: &'static str, rows: Vec<AnyElement>, cx: &App) -> AnyElement {
     v_flex()
         .min_w_0()
-        .gap_0p5()
+        .gap(px(ROW_GAP))
         .child(
             div()
                 .px_1()
@@ -319,6 +319,11 @@ fn section(label: &'static str, rows: Vec<AnyElement>, cx: &App) -> AnyElement {
 
 /// The overlay's base left padding — EXP-965's gutters are measured off it.
 const ROW_PAD: f32 = 8.;
+
+/// The space [`section`] leaves between two overlay rows. The connector
+/// bridges it (EXP-965), so the two numbers are ONE — a `gap_0p5` here and a
+/// literal there would drift the moment either moved.
+const ROW_GAP: f32 = 0.125 * theme::FONT_SIZE_PX;
 
 /// The shared row shell every section draws — the glass list row, hovered.
 /// EXP-965: a NESTED row paints its tree connector in the gutter its indent
@@ -342,7 +347,7 @@ fn row_shell(
         .pl(px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .children(crate::tree_guides::guide_layer(guides, ROW_PAD))
+        .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
 }
 
 fn mono(text: impl Into<SharedString>, color: Hsla) -> gpui::Div {

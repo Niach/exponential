@@ -412,7 +412,9 @@ impl ReviewsView {
             // EXP-965: and the connector that indent's gutter carries.
             .pl(gpui::px(12. + crate::tree_guides::LEVEL_PITCH * entry.depth as f32))
             .gap_2()
-            .children(crate::tree_guides::guide_layer(guides, 12.))
+            // EXP-965: the stack's rows stack FLUSH inside their board block
+            // (the `v_flex` carries no gap), so there is nothing to bridge.
+            .children(crate::tree_guides::guide_layer(guides, 12., 0.))
             .when(selected, |this| this.bg(row_active))
             .hover(move |this| this.bg(row_hover))
             .cursor_pointer()

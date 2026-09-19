@@ -538,6 +538,12 @@ const NAV_HEADER_HEIGHT: f32 = 24.;
 const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
 const NAV_ROW_GAP: f32 = 2.;
 
+/// EXP-923/EXP-965: the space between two rows of the rail's Running section
+/// — the rail's own `gap_1`, as a number, because the connector has to BRIDGE
+/// it (`tree_guides::guide_layer`) and a literal in one of the two places
+/// would drift the moment the other moved.
+const RUNNING_ROW_GAP: f32 = 0.25 * theme::FONT_SIZE_PX;
+
 /// One flattened `ListNav` virtual-list row (EXP-915) — the big list's
 /// `ListRow` at the column's density: the issue rides behind the memoized
 /// query's `Rc`, so rebuilding the vector per frame clones handles, never
@@ -1080,7 +1086,7 @@ impl RailView {
         Some(
             v_flex()
                 .w_full()
-                .gap_1()
+                .gap(px(RUNNING_ROW_GAP))
                 .when(self.compact, |section| section.items_center())
                 .child(self.divider(cx))
                 .when(!self.compact, |section| {
@@ -1215,7 +1221,11 @@ impl RailView {
                 this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
             })
             .hover(|this| this.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-            .children(crate::tree_guides::guide_layer(&guides, 8.))
+            .children(crate::tree_guides::guide_layer(
+                &guides,
+                8.,
+                RUNNING_ROW_GAP,
+            ))
             .children(fold)
             .child(lead)
             .children(row.identifier.clone().map(|identifier| {

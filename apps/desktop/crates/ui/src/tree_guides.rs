@@ -9,6 +9,14 @@
 //! `source_control::gutter_cell` recipe), behind the row's own children: a
 //! quad for every straight vertical (cheap) and one stroked path for the
 //! rounded elbow.
+//!
+//! GAP BRIDGING (×4): a list that SPACES its rows would otherwise show the
+//! connector in dashes — every segment stops at a row edge, and the gap
+//! between two rows is nobody's. The rule: a vertical that starts at the
+//! row's TOP edge starts one row-gap ABOVE it instead (the layer is absolute
+//! and unclipped, so it simply paints into the gap), while tees and
+//! pass-throughs still end at the BOTTOM edge — so every gap is covered
+//! exactly once, by the row below it.
 
 use gpui::{
     canvas, div, point, px, size, AnyElement, Bounds, IntoElement, ParentElement, Pixels, Styled,
@@ -25,6 +33,15 @@ const LINE: f32 = 1.;
 /// The elbow's corner radius.
 const RADIUS: f32 = 5.;
 
+/// Where a row's top-edge segments START, given the row's own top and the
+/// list's row gap: one gap higher, so the line bridges the space above the
+/// row. Pure (and trivial) on purpose — it is the ONE place the ×4 bridging
+/// rule turns into a number, and getting its SIGN wrong is a dashed line
+/// nobody can explain.
+fn segment_top(row_top: f32, gap: f32) -> f32 {
+    row_top - gap.max(0.)
+}
+
 /// The x of level `level`'s gutter CENTRE, given the list's base left pad —
 /// the middle of the 14px band between `pad + 14*level` and `pad + 14*(level
 /// + 1)`, which is where that level's leading glyph sits.
@@ -38,8 +55,10 @@ fn gutter_center(pad: f32, level: usize) -> f32 {
 /// and never eats a click.
 ///
 /// `pad` is the list's base left padding (12 for the session rows and the
-/// Reviews stack, 8 for the PR-graph overlay).
-pub(crate) fn guide_layer(guides: &Guides, pad: f32) -> Option<AnyElement> {
+/// Reviews stack, 8 for the PR-graph overlay); `gap` is the vertical spacing
+/// that list puts BETWEEN its rows, which the top-edge segments extend over
+/// (0 for the flat lists that stack with none).
+pub(crate) fn guide_layer(guides: &Guides, pad: f32, gap: f32) -> Option<AnyElement> {
     let Some(elbow) = guides.elbow_at else {
         return None;
     };
@@ -63,9 +82,13 @@ pub(crate) fn guide_layer(guides: &Guides, pad: f32) -> Option<AnyElement> {
             .right_0()
             .child(
                 canvas(|_, _, _| (), move |bounds: Bounds<Pixels>, _, window, _| {
-                    let top = bounds.origin.y;
-                    let bottom = top + bounds.size.height;
-                    let mid = top + bounds.size.height / 2.;
+                    // The top-edge segments start a row-gap HIGHER, so the
+                    // line carries across the space between two rows; the
+                    // bottom stays the row's own edge, and the row below
+                    // covers the rest.
+                    let top = px(segment_top(f32::from(bounds.origin.y), gap));
+                    let bottom = bounds.origin.y + bounds.size.height;
+                    let mid = bounds.origin.y + bounds.size.height / 2.;
                     let vertical = |window: &mut gpui::Window, x: f32, from: Pixels, to: Pixels| {
                         if to <= from {
                             return;
@@ -119,9 +142,21 @@ mod tests {
         assert_eq!(12. + LEVEL_PITCH, 26.);
     }
 
+    /// EXP-965 gap bridging: a top-edge segment starts one row-gap ABOVE the
+    /// row, so a spaced list draws one line rather than a dashed one. A list
+    /// that stacks its rows flush (gap 0) is unchanged, and a nonsense
+    /// negative gap never pushes the start DOWN into the row.
+    #[test]
+    fn a_top_segment_bridges_the_row_gap() {
+        assert_eq!(segment_top(100., 0.), 100.);
+        assert_eq!(segment_top(100., 3.5), 96.5);
+        assert_eq!(segment_top(100., 1.75), 98.25);
+        assert_eq!(segment_top(100., -4.), 100.);
+    }
+
     /// A root row paints nothing at all.
     #[test]
     fn a_root_row_has_no_layer() {
-        assert!(guide_layer(&Guides::default(), 12.).is_none());
+        assert!(guide_layer(&Guides::default(), 12., 0.).is_none());
     }
 }

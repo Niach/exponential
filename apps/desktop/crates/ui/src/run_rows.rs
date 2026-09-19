@@ -261,6 +261,14 @@ pub(crate) struct PastRunSpec {
 /// are measured off it.
 const ROW_PAD: f32 = 12.;
 
+/// EXP-965: the vertical space between two of these rows — ZERO. Every list
+/// that draws them stacks them flush under a section band and reads as a
+/// table (EXP-818's `flat_row` rule: the Recent panel, the Automations log,
+/// the list nav), so there is no gap for the connector to bridge. A list
+/// that ever spaces them has to move this number with its own `gap_*`, or
+/// the connector goes back to dashes.
+const ROW_GAP: f32 = 0.;
+
 /// The flat list row both kinds sit in: `list_hover` under the pointer,
 /// `list_active` while its session is on screen (EXP-811/862). EXP-965: a
 /// NESTED row paints its tree connector in the gutter its indent reserves.
@@ -288,7 +296,7 @@ fn row_shell(
         .cursor_pointer()
         .when(active, |this| this.bg(row_active))
         .hover(move |style| style.bg(if active { row_active } else { row_hover }))
-        .children(crate::tree_guides::guide_layer(guides, ROW_PAD))
+        .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
 }
 
 fn fold_chevron(id_prefix: &'static str, index: usize, fold: RunRowFold, muted: Hsla) -> impl IntoElement {
