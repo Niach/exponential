@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Comment, Issue, IssueEvent, User } from "@/db/schema"
 import { forgetTabMemory, issueMemoryOwner } from "@/lib/work-tab-memory"
+import { IssueTimeline } from "@/components/issue-timeline"
 
 // EXP-900/EXP-468: the timeline folds its events at read time and the header
 // grows a "Show all" toggle only when the fold actually hid something. The
@@ -107,8 +108,7 @@ const users: User[] = [
   { id: `B`, name: `Bob`, email: `bob@example.com` } as User,
 ]
 
-async function renderTimeline() {
-  const { IssueTimeline } = await import(`@/components/issue-timeline`)
+function renderTimeline() {
   return render(
     <IssueTimeline issue={issue} currentUserId="A" users={users} hideComposer />
   )
@@ -127,9 +127,9 @@ describe(`IssueTimeline activity fold`, () => {
     forgetTabMemory(issueMemoryOwner(`i1`))
   })
 
-  it(`hides a same-actor round trip and offers Show all`, async () => {
+  it(`hides a same-actor round trip and offers Show all`, () => {
     staged.rows.set(`e`, roundTrip)
-    await renderTimeline()
+    renderTimeline()
     expect(screen.queryAllByTestId(`event-row`)).toHaveLength(0)
     expect(screen.getByText(`Activity`)).toBeTruthy()
     const toggle = screen.getByTestId(`activity-show-all`)
@@ -146,22 +146,22 @@ describe(`IssueTimeline activity fold`, () => {
     expect(screen.getByText(`Activity (2)`)).toBeTruthy()
   })
 
-  it(`a comment by another actor in between keeps both moves`, async () => {
+  it(`a comment by another actor in between keeps both moves`, () => {
     staged.rows.set(`e`, roundTrip)
     staged.rows.set(`comments`, [comment(`c1`, `B`, 1)])
-    await renderTimeline()
+    renderTimeline()
     expect(screen.getAllByTestId(`event-row`)).toHaveLength(2)
     expect(screen.getAllByTestId(`comment-row`)).toHaveLength(1)
     expect(screen.queryByTestId(`activity-show-all`)).toBeNull()
     expect(screen.getByText(`Activity (3)`)).toBeTruthy()
   })
 
-  it(`a chain shows as one net row and the toggle stays available`, async () => {
+  it(`a chain shows as one net row and the toggle stays available`, () => {
     staged.rows.set(`e`, [
       event(`e1`, `status_changed`, { fromStatusId: `a`, toStatusId: `b` }, 0),
       event(`e2`, `status_changed`, { fromStatusId: `b`, toStatusId: `c` }, 1),
     ])
-    await renderTimeline()
+    renderTimeline()
     expect(screen.getAllByTestId(`event-row`).map((n) => n.textContent)).toEqual(
       [`e2:{"toStatusId":"c","fromStatusId":"a"}`]
     )
@@ -169,12 +169,12 @@ describe(`IssueTimeline activity fold`, () => {
     expect(screen.getByTestId(`activity-show-all`).textContent).toBe(`Show all`)
   })
 
-  it(`offers no toggle when nothing folded`, async () => {
+  it(`offers no toggle when nothing folded`, () => {
     staged.rows.set(`e`, [
       event(`e1`, `status_changed`, { fromStatusId: `a`, toStatusId: `b` }, 0),
       event(`e2`, `label_added`, { labelId: `L` }, 1),
     ])
-    await renderTimeline()
+    renderTimeline()
     expect(screen.getAllByTestId(`event-row`)).toHaveLength(2)
     expect(screen.queryByTestId(`activity-show-all`)).toBeNull()
   })

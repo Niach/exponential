@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.CommentKind
 import com.exponential.app.data.db.commentKindOf
+import com.exponential.app.domain.ActivityFold
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.GlassPill
@@ -73,7 +74,10 @@ internal val TimelineRail = GlassTokens.StrokeCard
 // The activity timeline: the synthesized "created the issue" item, regular
 // comments as glass cards, and activity events (status/assignee/label/PR
 // changes) merged by time along a gutter rail; runs of >2 consecutive events
-// collapse behind a "Show N activity items" expander (EXP-240). Mirrors
+// collapse behind a "Show N activity items" expander (EXP-240). EXP-900 folds
+// the events themselves at READ TIME first (`ActivityFold`, this issue's
+// comments as barriers) and EXP-468 hangs the "Show all" / "Show less" toggle
+// off the Activity header to get the raw rows back. Mirrors
 // apps/web/src/components/issue-timeline.tsx. Composing happens in the docked
 // bottom-bar composer — the VM instance is shared with it (hoisted draft).
 @Composable
@@ -96,6 +100,8 @@ fun CommentThread(
     // Expanded collapsed-runs, keyed by the run's first event id so sync
     // re-emits don't reset expansion; reset per issue.
     var expandedRuns by remember(issueId) { mutableStateOf(setOf<String>()) }
+    // EXP-468: the unfolded timeline, behind the header toggle; reset per issue.
+    var showAllActivity by remember(issueId) { mutableStateOf(false) }
 
     val humanComments = remember(state.comments) {
         state.comments.filter { commentKindOf(it.kind) == CommentKind.Regular }
@@ -107,12 +113,37 @@ fun CommentThread(
     // events merged by time. The id is a secondary sort key so items sharing a
     // createdAt (e.g. a comment + the status event of one mutation) keep a
     // stable order across syncs.
-    val timeline = remember(threads, state.events, state.issue) {
-        // EXP-530: `created` events are suppressed entirely (eventRowVisible)
-        // — the synthesized Created header already shows creation, and the
-        // rows exist only as the automation-trigger substrate.
+    // EXP-900: the fold reads the FULL event list — `created` rows included,
+    // because they break a run the way any other unfoldable event does — with
+    // every regular comment of this issue (replies too) as a barrier, so a
+    // reviewer's comment keeps the round trip it sits between visible.
+    val foldedEvents = remember(state.events, humanComments, showAllActivity) {
+        if (showAllActivity) {
+            state.events
+        } else {
+            ActivityFold.foldActivity(
+                state.events,
+                humanComments.map {
+                    ActivityFold.ActivityBarrier(it.issueId, it.authorId, it.createdAt)
+                },
+            )
+        }
+    }
+    // EXP-530: `created` events are suppressed entirely (eventRowVisible) —
+    // the synthesized Created header already shows creation, and the rows
+    // exist only as the automation-trigger substrate. The filter runs AFTER
+    // the fold, never before it.
+    val visibleEvents = remember(foldedEvents) {
+        foldedEvents.filter { eventRowVisible(it.type) }
+    }
+    // The toggle appears only once folding actually removed a row the
+    // timeline would otherwise have drawn (EXP-468).
+    val foldedAnything = remember(state.events, visibleEvents, showAllActivity) {
+        !showAllActivity && visibleEvents.size < state.events.count { eventRowVisible(it.type) }
+    }
+    val timeline = remember(threads, visibleEvents, state.issue) {
         val merged = (threads.topLevel.map { TimelineItem.Comment(it) } +
-            state.events.filter { eventRowVisible(it.type) }.map { TimelineItem.Event(it) })
+            visibleEvents.map { TimelineItem.Event(it) })
             .sortedWith(compareBy({ it.createdAt }, { it.id }))
         listOfNotNull(state.issue?.let { TimelineItem.Created(it) }) + merged
     }
@@ -141,15 +172,30 @@ fun CommentThread(
             color = GlassTokens.StrokeSection,
         )
         Spacer(Modifier.height(12.dp))
-        Text(
-            "Activity",
-            style = MaterialTheme.typography.labelMedium,
-            color = CommentMeta,
-            // Stable hook for the store-screenshot test (mirrors the iOS
-            // `comment-thread-header` accessibility id) — the copy has already
-            // drifted once and silently killed the screengrab run.
-            modifier = Modifier.testTag("comment-thread-header"),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Activity",
+                style = MaterialTheme.typography.labelMedium,
+                color = CommentMeta,
+                // Stable hook for the store-screenshot test (mirrors the iOS
+                // `comment-thread-header` accessibility id) — the copy has already
+                // drifted once and silently killed the screengrab run.
+                modifier = Modifier.testTag("comment-thread-header"),
+            )
+            Spacer(Modifier.weight(1f))
+            // EXP-468: byte-identical copy ×4.
+            if (foldedAnything || showAllActivity) {
+                GlassPill(
+                    if (showAllActivity) "Show less" else "Show all",
+                    size = PillSize.Sm,
+                    onClick = { showAllActivity = !showAllActivity },
+                    modifier = Modifier.testTag("activity-show-all"),
+                )
+            }
+        }
         Spacer(Modifier.height(8.dp))
 
         rows.forEachIndexed { index, row ->
