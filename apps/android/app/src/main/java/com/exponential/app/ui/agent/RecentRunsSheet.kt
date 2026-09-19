@@ -1,5 +1,6 @@
 package com.exponential.app.ui.agent
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -65,10 +66,16 @@ fun RecentRunsSheet(
         LazyColumn(
             modifier = Modifier.fillMaxWidth().testTag("recent-runs-sheet"),
             contentPadding = PaddingValues(horizontal = 16.dp),
+            // EXP-818: the 6dp every converted list uses.
+            verticalArrangement = Arrangement.spacedBy(AGENT_LIST_ROW_GAP),
         ) {
             itemsIndexed(tree, key = { _, entry -> entry.session.session.id }) { index, entry ->
                 val row = entry.session
-                TreeGuidesRow(depth = entry.depth, guide = guides.getOrNull(index)) {
+                TreeGuidesRow(
+                    depth = entry.depth,
+                    guide = guides.getOrNull(index),
+                    gap = AGENT_LIST_ROW_GAP,
+                ) {
                     EndedRunRow(
                         // The ×4 rule (domain `pastRunTitle`): the issue's
                         // title, a sync placeholder while it is missing, the

@@ -129,7 +129,7 @@ private fun ReviewsListContent(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
             // EXP-818: flat rows under a band — the 6dp every converted list
             // uses, not the 3dp gap the carded rows needed.
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(REVIEW_ROW_GAP),
         ) {
             state.groups.forEach { group ->
                 item(key = "header-${group.board.id}") {
@@ -386,7 +386,9 @@ private fun ReviewRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .treeGuides(guide)
+            // EXP-965: `gap` = the list's own row spacing below, so the
+            // branch runs through it instead of breaking at every row.
+            .treeGuides(guide, REVIEW_ROW_GAP)
             .padding(start = (TreeGuides.INDENT_DP * row.depth).dp),
     ) {
         Row(
@@ -623,6 +625,9 @@ private fun MergeConfirmDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+/** EXP-965: the Reviews scroller's row spacing, which the connector spans. */
+private val REVIEW_ROW_GAP = 6.dp
 
 /**
  * EXP-897: the issues a batch pull request spans — the Reviews list's half of

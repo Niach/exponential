@@ -167,6 +167,8 @@ fun PrGraphSheet(
                 }
                 graph.tree.forEachIndexed { index, row ->
                     val session = row.session
+                    // The sheet's column stacks its rows flush, so the
+                    // connector needs no gap to bridge (EXP-965).
                     TreeGuidesRow(depth = row.depth, guide = runGuides.getOrNull(index)) {
                         Row(
                             modifier = Modifier

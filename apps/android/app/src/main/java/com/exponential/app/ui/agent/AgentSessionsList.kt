@@ -17,6 +17,9 @@ import com.exponential.app.ui.session.RunningSessionRow
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
+/** EXP-965: the Agent page scroller's row spacing, which the connector spans. */
+internal val AGENT_LIST_ROW_GAP = 6.dp
+
 /**
  * EXP-825: the caller's OWN coding sessions — the RUNNING ones (live rows,
  * EXP-312: owner-only) under the Agent page composer, moved here verbatim from
@@ -65,7 +68,13 @@ internal fun LazyListScope.agentSessionsList(
         val guides = TreeGuides.compute(tree.map { it.depth })
         itemsIndexed(tree, key = { _, it -> it.session.session.id }) { index, entry ->
             val row = entry.session
-            TreeGuidesRow(depth = entry.depth, guide = guides.getOrNull(index)) {
+            TreeGuidesRow(
+                depth = entry.depth,
+                guide = guides.getOrNull(index),
+                // The Agent page's scroller spaces its rows; the branch
+                // bridges that gap instead of breaking at every row.
+                gap = AGENT_LIST_ROW_GAP,
+            ) {
                 // EXP-893: a row only OPENS the run — the Work screen it
                 // lands on merges (Changes face) and reaches the issue or
                 // the action from there; the trailing circles are gone.

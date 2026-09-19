@@ -9,6 +9,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.TreeGuide
 import com.exponential.app.domain.TreeGuides
@@ -29,20 +30,29 @@ private val GuideRadius = 5.dp
  * Draw [guide] in the gutter bands to the LEFT of this row's content. Apply it
  * BEFORE the indent padding, so the draw area still spans the gutters the
  * lines live in ([TreeGuidesRow] does exactly that).
+ *
+ * [gap] is the LIST's row spacing: every vertical that starts at the row's top
+ * edge starts that much ABOVE it (nothing clips the row, so the ink lands in
+ * the list's own gap), while a pass-through or a tee still ends at the bottom
+ * edge — the next row's extension is what covers the gap. Without it a spaced
+ * list drew the branch as a dashed ladder. The ×4 rule; the pure shape
+ * (`domain/TreeGuides.kt`) knows nothing about it.
  */
-fun Modifier.treeGuides(guide: TreeGuide?): Modifier {
+fun Modifier.treeGuides(guide: TreeGuide?, gap: Dp = 0.dp): Modifier {
     if (guide == null || guide.isEmpty) return this
     return drawBehind {
         val indent = TreeGuides.INDENT_DP.dp.toPx()
         val stroke = Stroke(width = GuideWidth.toPx())
         val radius = GuideRadius.toPx()
         val midY = size.height / 2f
+        // The row above ends `gap` up there: start every downward line from it.
+        val top = -gap.toPx()
         fun centreOf(level: Int) = indent * level + indent / 2f
 
         // An ancestor whose subtree carries on: a straight full-height line.
         guide.passThrough.forEach { level ->
             val path = Path().apply {
-                moveTo(centreOf(level), 0f)
+                moveTo(centreOf(level), top)
                 lineTo(centreOf(level), size.height)
             }
             drawPath(path, GlassTokens.StrokeStrong, style = stroke)
@@ -55,12 +65,12 @@ fun Modifier.treeGuides(guide: TreeGuide?): Modifier {
             if (guide.tee) {
                 // A later sibling follows: the vertical runs the whole height
                 // and the stub branches off it square.
-                moveTo(x, 0f)
+                moveTo(x, top)
                 lineTo(x, size.height)
                 moveTo(x, midY)
                 lineTo(right, midY)
             } else {
-                moveTo(x, 0f)
+                moveTo(x, top)
                 lineTo(x, midY - radius)
                 arcTo(
                     rect = Rect(x, midY - 2f * radius, x + 2f * radius, midY),
@@ -78,19 +88,21 @@ fun Modifier.treeGuides(guide: TreeGuide?): Modifier {
 /**
  * One nested row: [TreeGuides.INDENT_DP] of indent per level with [guide]
  * drawn in the gutters it leaves behind. Every nesting list wraps its row in
- * this instead of a bare indent padding.
+ * this instead of a bare indent padding. [gap] = the list's row spacing, so
+ * the branch bridges it.
  */
 @Composable
 fun TreeGuidesRow(
     depth: Int,
     guide: TreeGuide?,
     modifier: Modifier = Modifier,
+    gap: Dp = 0.dp,
     content: @Composable () -> Unit,
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .treeGuides(guide)
+            .treeGuides(guide, gap)
             .padding(start = (TreeGuides.INDENT_DP * depth).dp),
     ) {
         content()
