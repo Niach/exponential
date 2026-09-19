@@ -206,6 +206,7 @@
     "notification-pr-merged": "git-merge",
     "notification-support-reply": "life-buoy",
     "notification-agent-message": "bot",
+    "notification-session-blocked": "hourglass",
     "notification-mark-read": "list-checks",
     "notification-mute": "bell-off",
 

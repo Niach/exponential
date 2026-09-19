@@ -249,6 +249,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "headphones" => ExpIcon::Headphones,
         "heart" => ExpIcon::Heart,
         "history" => ExpIcon::History,
+        "hourglass" => ExpIcon::Hourglass,
         "house" => ExpIcon::House,
         "image" => ExpIcon::Image,
         "images" => ExpIcon::Images,
@@ -549,6 +550,8 @@ pub const NOTIFICATION_MUTE: ExpIcon = ExpIcon::BellOff;
 pub const NOTIFICATION_PR_MERGED: ExpIcon = ExpIcon::GitMerge;
 /// Registry concept `notification-pr-opened` -> Lucide `git-pull-request`.
 pub const NOTIFICATION_PR_OPENED: ExpIcon = ExpIcon::GitPullRequest;
+/// Registry concept `notification-session-blocked` -> Lucide `hourglass`.
+pub const NOTIFICATION_SESSION_BLOCKED: ExpIcon = ExpIcon::Hourglass;
 /// Registry concept `notification-support-reply` -> Lucide `life-buoy`.
 pub const NOTIFICATION_SUPPORT_REPLY: ExpIcon = ExpIcon::LifeBuoy;
 /// Registry concept `pr-batch` -> Lucide `boxes`.

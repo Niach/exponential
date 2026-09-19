@@ -82,6 +82,7 @@ import {
   insertRelationInTx,
   loadIssueRelations,
 } from "@/lib/issue-relations"
+import { findRelationCycle } from "@/lib/relation-cycles"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
@@ -2411,6 +2412,14 @@ export function registerExponentialTools(
             }
             for (const id of ids) {
               if (!lowerTeamId || teamIdByIssue.get(id) !== lowerTeamId) continue
+              // EXP-980: the PR is already open on GitHub, so a cycle is
+              // skipped rather than refused — never written.
+              const cycle = await findRelationCycle(tx, {
+                issueId: lower.issueId,
+                relatedIssueId: id,
+                type: `blocks`,
+              }).catch(() => [id])
+              if (cycle) continue
               await insertRelationInTx(tx, {
                 ...canonicalizeRelation(lower.issueId, id, `blocks`),
                 source: `user`,

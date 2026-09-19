@@ -3480,6 +3480,45 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `hourglass`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "hourglass",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M5 22h14"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M5 2h14"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `house`: ImageVector by lazy {
         ImageVector.Builder(
             name = "house",
@@ -7767,6 +7806,7 @@ public object ExpIcons {
         "headphones" -> `headphones`
         "heart" -> `heart`
         "history" -> `history`
+        "hourglass" -> `hourglass`
         "house" -> `house`
         "image" -> `image`
         "images" -> `images`
@@ -8066,6 +8106,8 @@ public object ExpIcons {
     public val notificationPrMerged: ImageVector get() = `git-merge`
     /** Concept `notification-pr-opened`. */
     public val notificationPrOpened: ImageVector get() = `git-pull-request`
+    /** Concept `notification-session-blocked`. */
+    public val notificationSessionBlocked: ImageVector get() = `hourglass`
     /** Concept `notification-support-reply`. */
     public val notificationSupportReply: ImageVector get() = `life-buoy`
     /** Concept `pr-batch`. */

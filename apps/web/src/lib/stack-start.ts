@@ -21,6 +21,46 @@ export const STACKED_PR_LABEL = `Stacked PR`
 export const BLOCKED_START_BODY_PREFIX = `This issue is blocked by `
 export const BLOCKED_START_BODY_SUFFIX = `. Start anyway, or start a stacked PR?`
 
+// EXP-980: the dialog also asks for a BATCH (blockers outside the picked set,
+// `openBlockersOfSet` in `issue-graph.ts`), draws the transitive chain as the
+// mini-graph, and never hides the stacked button: it is DISABLED with one of
+// the reason notes below. All byte-identical ×4.
+/** The title when two or more issues were picked. */
+export const BLOCKED_BATCH_TITLE = `Some of these issues are blocked`
+/** The batch body, above the graph. */
+export const BLOCKED_BATCH_BODY = `Open issues outside this batch block it. Start anyway?`
+/** Why "Stacked PR" is disabled: the runner device lacks the `stacked-start`
+ *  capability (an older app or daemon). */
+export const STACK_NEEDS_UPDATE_NOTE = `Update Exponential on this device to start stacked PRs.`
+/** Why "Stacked PR" is disabled for a batch. */
+export const STACK_SINGLE_ISSUE_NOTE = `A stacked PR starts one issue at a time.`
+/** Why "Stacked PR" is disabled on a blocking cycle. */
+export const STACK_CYCLE_NOTE = `These issues block each other in a cycle. Remove one relation to stack them.`
+
+export type StackDisabledReason = `cycle` | `batch` | `cap`
+
+/**
+ * Why the stacked start is off, or null when it is on. One reason at a time,
+ * the most fundamental first: a cycle can never stack, a batch never does, a
+ * missing capability is fixed by an update.
+ */
+export function stackDisabledReason(args: {
+  pickedCount: number
+  canStack: boolean
+  hasCycle: boolean
+}): StackDisabledReason | null {
+  if (args.hasCycle) return `cycle`
+  if (args.pickedCount > 1) return `batch`
+  if (!args.canStack) return `cap`
+  return null
+}
+
+export function stackDisabledNote(reason: StackDisabledReason): string {
+  if (reason === `cycle`) return STACK_CYCLE_NOTE
+  if (reason === `batch`) return STACK_SINGLE_ISSUE_NOTE
+  return STACK_NEEDS_UPDATE_NOTE
+}
+
 /** The anchor statuses that mean a blocker is no longer in the way. A custom
  *  status anchors into one of these automatically (EXP-314), so this set is
  *  keyed on the dual-written ANCHOR enum, never on status rows. */

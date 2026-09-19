@@ -897,6 +897,13 @@
       "when": 1789761848755,
       "tag": "0127_device_icon",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1789785509771,
+      "tag": "0128_session_blocked_notification",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ import {
   MAX_START_PROMPT_IMAGES,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
+import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import {
   notifyParentOfChildBlocked,
   notifyParentOfChildEnd,
@@ -1461,6 +1462,8 @@ export const codingSessionsRouter = router({
       // never awaited into the result's meaning; the helper never throws.
       if (didUpdate && blocked && !wasBlocked) {
         await notifyParentOfChildBlocked(ctx.db, input.id, blocked)
+        // EXP-980: and EVERY run tells its owner (inbox row + push).
+        await notifySessionBlocked(input.id, blocked)
       }
 
       return { updated: didUpdate, wasBlocked }

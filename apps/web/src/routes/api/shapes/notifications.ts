@@ -39,6 +39,7 @@ export const Route = createFileRoute(`/api/shapes/notifications`)({
           `user_id`,
           `issue_id`,
           `team_id`,
+          `session_id`,
           `type`,
           `title`,
           `body`,

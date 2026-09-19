@@ -11,6 +11,10 @@ import {
   deleteRelationInTx,
   insertRelationInTx,
 } from "@/lib/issue-relations"
+import {
+  assertNoRelationCycle,
+  isDirectedRelationType,
+} from "@/lib/relation-cycles"
 import { issuesRouter } from "@/lib/trpc/issues"
 
 // EXP-736 — explicit ("user") issue relations. The auto-derived `#IDENT`
@@ -86,24 +90,15 @@ export const relationsRouter = router({
       }
 
       return await ctx.db.transaction(async (tx) => {
-        // Cycle guard for the two directed types: A blocks B and B blocks A
-        // (or two-way parenthood) is never a state a user meant to reach, and
+        // EXP-980: the TRANSITIVE cycle guard for the two directed types. A
+        // blocks B blocks C blocks A (or circular parenthood) is never a
+        // state a user meant to reach, nothing on it could ever start, and
         // the UNIQUE index can't catch it — the pairs differ.
-        const [reverse] = await tx
-          .select({ id: issueRelations.id })
-          .from(issueRelations)
-          .where(
-            and(
-              eq(issueRelations.issueId, canonical.relatedIssueId),
-              eq(issueRelations.relatedIssueId, canonical.issueId),
-              eq(issueRelations.type, canonical.type)
-            )
-          )
-          .limit(1)
-        if (reverse) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `The opposite relation already exists`,
+        if (isDirectedRelationType(canonical.type)) {
+          await assertNoRelationCycle(tx, {
+            issueId: canonical.issueId,
+            relatedIssueId: canonical.relatedIssueId,
+            type: canonical.type,
           })
         }
 

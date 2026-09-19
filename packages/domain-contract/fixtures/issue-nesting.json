@@ -1,0 +1,117 @@
+[
+  {
+    "name": "a list without parent relations stays flat",
+    "groups": [["a", "b"], ["c"]],
+    "identifiers": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+    "relations": [
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "related", "issueId": "a", "relatedIssueId": "c" }
+    ],
+    "expected": [
+      [{ "id": "a", "depth": 0 }, { "id": "b", "depth": 0 }],
+      [{ "id": "c", "depth": 0 }]
+    ]
+  },
+  {
+    "name": "a sub-issue follows its parent and leaves its own position",
+    "groups": [["a", "b", "c"]],
+    "identifiers": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+    "relations": [{ "type": "parent", "issueId": "c", "relatedIssueId": "a" }],
+    "expected": [
+      [{ "id": "b", "depth": 0 }, { "id": "c", "depth": 0 }, { "id": "a", "depth": 1 }]
+    ]
+  },
+  {
+    "name": "the root decides the group: a sub-issue leaves its own status group",
+    "groups": [["p", "x"], ["k", "y"]],
+    "identifiers": { "p": "EXP-1", "x": "EXP-2", "k": "EXP-3", "y": "EXP-4" },
+    "relations": [{ "type": "parent", "issueId": "p", "relatedIssueId": "k" }],
+    "expected": [
+      [{ "id": "p", "depth": 0 }, { "id": "k", "depth": 1 }, { "id": "x", "depth": 0 }],
+      [{ "id": "y", "depth": 0 }]
+    ]
+  },
+  {
+    "name": "a group emptied by nesting comes back empty",
+    "groups": [["p"], ["k"]],
+    "identifiers": { "p": "EXP-1", "k": "EXP-2" },
+    "relations": [{ "type": "parent", "issueId": "p", "relatedIssueId": "k" }],
+    "expected": [[{ "id": "p", "depth": 0 }, { "id": "k", "depth": 1 }], []]
+  },
+  {
+    "name": "siblings keep the list order: group order first, then position in the group",
+    "groups": [["p", "k3"], ["k2", "k1"]],
+    "identifiers": { "p": "EXP-1", "k1": "EXP-2", "k2": "EXP-3", "k3": "EXP-4" },
+    "relations": [
+      { "type": "parent", "issueId": "p", "relatedIssueId": "k1" },
+      { "type": "parent", "issueId": "p", "relatedIssueId": "k2" },
+      { "type": "parent", "issueId": "p", "relatedIssueId": "k3" }
+    ],
+    "expected": [
+      [
+        { "id": "p", "depth": 0 },
+        { "id": "k3", "depth": 1 },
+        { "id": "k2", "depth": 1 },
+        { "id": "k1", "depth": 1 }
+      ],
+      []
+    ]
+  },
+  {
+    "name": "sub-issues nest recursively",
+    "groups": [["c", "b", "a"]],
+    "identifiers": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3" },
+    "relations": [
+      { "type": "parent", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "parent", "issueId": "b", "relatedIssueId": "c" }
+    ],
+    "expected": [
+      [{ "id": "a", "depth": 0 }, { "id": "b", "depth": 1 }, { "id": "c", "depth": 2 }]
+    ]
+  },
+  {
+    "name": "a parent outside the list leaves the sub-issue a root",
+    "groups": [["a", "b"]],
+    "identifiers": { "a": "EXP-1", "b": "EXP-2" },
+    "relations": [{ "type": "parent", "issueId": "elsewhere", "relatedIssueId": "a" }],
+    "expected": [[{ "id": "a", "depth": 0 }, { "id": "b", "depth": 0 }]]
+  },
+  {
+    "name": "several listed parents: the lowest identifier wins",
+    "groups": [["p2", "p1", "k"]],
+    "identifiers": { "p1": "EXP-10", "p2": "EXP-20", "k": "EXP-30" },
+    "relations": [
+      { "type": "parent", "issueId": "p2", "relatedIssueId": "k" },
+      { "type": "parent", "issueId": "p1", "relatedIssueId": "k" }
+    ],
+    "expected": [
+      [{ "id": "p2", "depth": 0 }, { "id": "p1", "depth": 0 }, { "id": "k", "depth": 1 }]
+    ]
+  },
+  {
+    "name": "every member of a parent cycle stays a root, what hangs off it still nests",
+    "groups": [["a", "b", "c", "d"]],
+    "identifiers": { "a": "EXP-1", "b": "EXP-2", "c": "EXP-3", "d": "EXP-4" },
+    "relations": [
+      { "type": "parent", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "parent", "issueId": "b", "relatedIssueId": "c" },
+      { "type": "parent", "issueId": "c", "relatedIssueId": "a" },
+      { "type": "parent", "issueId": "b", "relatedIssueId": "d" }
+    ],
+    "expected": [
+      [
+        { "id": "a", "depth": 0 },
+        { "id": "b", "depth": 0 },
+        { "id": "d", "depth": 1 },
+        { "id": "c", "depth": 0 }
+      ]
+    ]
+  },
+  {
+    "name": "a self relation is ignored",
+    "groups": [["a"]],
+    "identifiers": { "a": "EXP-1" },
+    "relations": [{ "type": "parent", "issueId": "a", "relatedIssueId": "a" }],
+    "expected": [[{ "id": "a", "depth": 0 }]]
+  }
+]
