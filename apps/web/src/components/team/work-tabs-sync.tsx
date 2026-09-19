@@ -103,6 +103,9 @@ export function WorkTabsSync({
   }, [teamId, routeKey])
 
   const viewedRunId = path?.kind === `run` ? path.runId : null
+  // EXP-902: the issue whose Issue face is up — a run binding under its tab
+  // must not flip the page being read (`reconcileLive`).
+  const viewedIssueId = route?.kind === `issue` ? route.issueId : null
   const { runs, isReady, now } = useMyLiveRuns(teamId, userId, 30_000)
   const live = useMemo<LiveRun[]>(
     () => runs.map((run) => ({ runId: run.id, issueId: run.issueId })),
@@ -113,10 +116,12 @@ export function WorkTabsSync({
 
   useEffect(() => {
     if (!isReady) return
-    updateWorkTabs(teamId, (state) => reconcileLive(state, live, viewedRunId))
+    updateWorkTabs(teamId, (state) =>
+      reconcileLive(state, live, viewedRunId, viewedIssueId)
+    )
     // `liveKey` is the runs' value identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, liveKey, isReady, viewedRunId])
+  }, [teamId, liveKey, isReady, viewedRunId, viewedIssueId])
 
   // EXP-923: the merge close. Only a run that WAS live here and is not any
   // more is looked up — a run already ended when this mounted never closes a

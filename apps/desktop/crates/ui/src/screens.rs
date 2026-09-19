@@ -1927,12 +1927,16 @@ impl ScreensPanel {
                 LivePlanOp::MarkLive { ix, run_id, bind } => {
                     self.tabs[ix].live = true;
                     if bind {
-                        let showing_old_run = matches!(self.tabs[ix].screen, Screen::Session { .. })
-                            && active.as_ref() != Some(&self.tabs[ix].screen);
+                        let background = active.as_ref() != Some(&self.tabs[ix].screen);
                         self.bind_run(ix, &run_id, cx);
-                        // A background tab showing its previous run flips to
-                        // the live one; the tab being READ is left alone.
-                        if showing_old_run {
+                        // EXP-902: a BACKGROUND tab flips to the run that just
+                        // landed under it — whether it showed its previous run
+                        // or the issue face (a run you did not open yourself:
+                        // an agent spawned it, an automation started it), so
+                        // the chip's next click opens the run, not the issue.
+                        // The tab being READ is left alone. (A run you start
+                        // from the issue navigates to the Run face itself.)
+                        if background {
                             self.tabs[ix].screen = Screen::Session { session_id: run_id };
                         }
                     }
