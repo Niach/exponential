@@ -8,7 +8,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context as _};
-use api::actions::{BUILTIN_CHAT_ID, BUILTIN_FIX_CONFLICTS_ID};
+use api::actions::{
+    BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID,
+    BUILTIN_PLAN_WORKFLOW_ID,
+};
 use api::issues::FetchedIssue;
 use coding::{
     ActionInputValue, ActionLaunchRequest, ActionRunKind, CodingDeps, GitWorktrees, IssueSeed,
@@ -242,6 +245,9 @@ pub fn resolve_action_request(
     // tools wired, OPTIONALLY anchored to a repo (EXP-739; desktop
     // `action_run.rs` parity).
     let chatting = action_id == BUILTIN_CHAT_ID;
+    // EXP-981: the hidden planner builtin — a scratch run that shapes ONE
+    // draft workflow through the MCP tools and writes no code.
+    let planning = action_id == BUILTIN_PLAN_WORKFLOW_ID;
 
     // EXP-259: the fix-conflicts PR target — resolved from the `pr` input
     // BEFORE anything else so a bad pick fails fast.
@@ -274,12 +280,17 @@ pub fn resolve_action_request(
     };
 
     let (action, repo_group) = if builtin {
-        let mut action = if fixing {
-            api::actions::builtin_fix_conflicts_action(team_id)
-        } else if chatting {
-            api::actions::builtin_chat_action(team_id)
-        } else {
-            api::actions::builtin_create_action(team_id)
+        // EXP-981: named explicitly, never an `else` — an id this build does
+        // not know must REFUSE, not fall through to the creator and author an
+        // action nobody asked for (desktop `action_run.rs` parity).
+        let mut action = match action_id {
+            BUILTIN_FIX_CONFLICTS_ID => api::actions::builtin_fix_conflicts_action(team_id),
+            BUILTIN_CHAT_ID => api::actions::builtin_chat_action(team_id),
+            BUILTIN_PLAN_WORKFLOW_ID => api::actions::builtin_plan_workflow_action(team_id),
+            BUILTIN_CREATE_ACTION_ID => api::actions::builtin_create_action(team_id),
+            other => bail!(
+                "this app version does not know the builtin action `{other}`; update Exponential on this machine"
+            ),
         };
         // The runner composes the builtin prompts itself — the input schema
         // is a dialog-side concern only (desktop parity).
@@ -388,8 +399,10 @@ pub fn resolve_action_request(
                 issue_id,
             }
         }
-        // EXP-615: the builtin kinds are id-dispatched (desktop parity).
+        // EXP-615/EXP-981: the builtin kinds are id-dispatched (desktop
+        // parity); the factory above already refused an unknown id.
         None if chatting => ActionRunKind::Chat,
+        None if planning => ActionRunKind::PlanWorkflow,
         None if builtin => ActionRunKind::CreateAction,
         None => ActionRunKind::Team,
     };

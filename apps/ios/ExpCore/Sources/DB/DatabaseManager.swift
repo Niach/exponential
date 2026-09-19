@@ -1748,6 +1748,64 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v47 (EXP-981 workflows): two brand-new team-scoped tables for the
+        // 23rd and 24th Electric shapes — a `workflows` row (its plan's shape
+        // and how it runs) and its `workflow_nodes` (the server-computed
+        // `wave`/`lane` layout included). The `blocks` relations among the
+        // covered issues ARE the edges and are never copied here. Brand-new
+        // shapes have no offset row and snapshot from scratch, so — unlike an
+        // added column — nothing resets here (the v20 `automations` precedent).
+        migrator.registerMigration("v47_workflows") { db in
+            try db.create(table: "workflows", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull().indexed()
+                // SET NULL server-side once the repository is unlinked.
+                t.column("repository_id", .text)
+                t.column("name", .text).notNull().defaults(to: "")
+                t.column("status", .text).notNull().defaults(to: "draft")
+                // The steer device id (text), not the devices ROW id.
+                t.column("device_id", .text)
+                // The launch jsonb, stored as stringified JSON.
+                t.column("launch", .text)
+                t.column("gate", .text).notNull().defaults(to: "human")
+                t.column("start_on", .text).notNull().defaults(to: "contract")
+                t.column("integration_branch", .text).notNull().defaults(to: "")
+                t.column("final_pr_url", .text)
+                t.column("final_pr_number", .integer)
+                t.column("final_pr_state", .text)
+                t.column("decisions", .text).notNull().defaults(to: "")
+                // The plan-shape jsonb, stored as stringified JSON.
+                t.column("metrics", .text)
+                t.column("started_at", .text)
+                t.column("ended_at", .text)
+                t.column("created_at", .text).notNull().defaults(to: "")
+                t.column("updated_at", .text).notNull().defaults(to: "")
+            }
+            try db.create(table: "workflow_nodes", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("workflow_id", .text).notNull().indexed()
+                t.column("team_id", .text).notNull().indexed()
+                t.column("issue_id", .text).notNull().indexed()
+                // jsonb string[] of a compound node's sub-issues.
+                t.column("member_issue_ids", .text)
+                t.column("kind", .text).notNull().defaults(to: "leaf")
+                t.column("state", .text).notNull().defaults(to: "blocked")
+                t.column("risk", .text).notNull().defaults(to: "medium")
+                // The server-computed layout: column = wave, row = lane.
+                t.column("wave", .integer).notNull().defaults(to: 0)
+                t.column("lane", .integer).notNull().defaults(to: 0)
+                t.column("on_cycle", .boolean).notNull().defaults(to: false)
+                t.column("session_id", .text)
+                t.column("attempt", .integer).notNull().defaults(to: 0)
+                t.column("base_branch", .text)
+                t.column("budget", .text)
+                // text[] of the globs the node expects to change.
+                t.column("touches", .text)
+                t.column("created_at", .text).notNull().defaults(to: "")
+                t.column("updated_at", .text).notNull().defaults(to: "")
+            }
+        }
+
         return migrator
     }
 
@@ -1755,6 +1813,9 @@ public final class DatabaseManager: @unchecked Sendable {
         guard let pool = lock.withLock({ pools[accountId] }) else { return }
         try pool.write { db in
             try db.execute(sql: "DELETE FROM electric_offsets")
+            // EXP-981: nodes reference issues and their workflow — child first.
+            try db.execute(sql: "DELETE FROM workflow_nodes")
+            try db.execute(sql: "DELETE FROM workflows")
             // EXP-778: pins point at issues/sessions/actions — first.
             try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.

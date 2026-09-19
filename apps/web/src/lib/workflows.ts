@@ -183,11 +183,13 @@ export async function replanWorkflow(
     .where(eq(workflowNodes.workflowId, workflowId))
 
   if (RESHAPED.has(workflow.status) && nodes.length > 0) {
-    const picked = nodes.map((node) => node.issueId)
-    const parentOf = await loadParentMap(tx, [
-      ...picked,
-      ...nodes.flatMap((node) => node.memberIssueIds),
-    ])
+    // Everything the workflow covers is re-folded from scratch, so a sub-issue
+    // whose `parent` link was REMOVED comes back as a node of its own instead
+    // of silently leaving the workflow with its old compound node.
+    const picked = [
+      ...new Set(nodes.flatMap((node) => [node.issueId, ...node.memberIssueIds])),
+    ]
+    const parentOf = await loadParentMap(tx, picked)
     const candidates = [...new Set([...parentOf.keys(), ...parentOf.values()])]
     const open = candidates.length
       ? await tx
@@ -210,9 +212,9 @@ export async function replanWorkflow(
         )
       )
     }
+    nodes = nodes.filter((node) => keep.has(node.issueId))
     for (const node of nodes) {
-      const next = keep.get(node.issueId)
-      if (!next) continue
+      const next = keep.get(node.issueId)!
       if (next.memberIssueIds.join() === [...node.memberIssueIds].sort().join()) continue
       await tx
         .update(workflowNodes)
@@ -220,7 +222,26 @@ export async function replanWorkflow(
         .where(eq(workflowNodes.id, node.id))
       node.memberIssueIds = next.memberIssueIds
     }
-    nodes = nodes.filter((node) => keep.has(node.issueId))
+    const have = new Set(nodes.map((node) => node.issueId))
+    const fresh = folded.filter((node) => !have.has(node.issueId))
+    if (fresh.length > 0) {
+      const inserted = await tx
+        .insert(workflowNodes)
+        .values(
+          fresh.map((node) => ({
+            workflowId,
+            teamId: workflow.teamId,
+            issueId: node.issueId,
+            memberIssueIds: node.memberIssueIds,
+          }))
+        )
+        .returning({
+          id: workflowNodes.id,
+          issueId: workflowNodes.issueId,
+          memberIssueIds: workflowNodes.memberIssueIds,
+        })
+      nodes = [...nodes, ...inserted]
+    }
   }
 
   const covered = [

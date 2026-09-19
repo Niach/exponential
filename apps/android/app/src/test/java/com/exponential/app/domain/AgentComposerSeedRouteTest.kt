@@ -41,10 +41,32 @@ class AgentComposerSeedRouteTest {
     @Test
     fun `the pattern declares every arg as a query placeholder`() {
         assertEquals(
-            "agent?issues={issues}&action={action}&device={device}&pr={pr}&text={text}&icon={icon}",
+            "agent?issues={issues}&action={action}&device={device}&pr={pr}&text={text}" +
+                "&icon={icon}&workflow={workflow}",
             AGENT_ROUTE_PATTERN,
         )
-        assertEquals(listOf("issues", "action", "device", "pr", "text", "icon"), AGENT_ROUTE_ARGS)
+        assertEquals(
+            listOf("issues", "action", "device", "pr", "text", "icon", "workflow"),
+            AGENT_ROUTE_ARGS,
+        )
+    }
+
+    /**
+     * EXP-981: the workflow detail's Plan button seeds the hidden
+     * plan-workflow builtin AND the workflow it plans — a malformed id is
+     * dropped like every other (a link is a shortcut, not a guarantee).
+     */
+    @Test
+    fun `a plan-workflow seed carries the workflow id`() {
+        val workflowId = "3f9d2a1c-3333-4aaa-8bbb-000000000003"
+        val seed = AgentComposerSeed(
+            actionId = DomainContract.builtinPlanWorkflowId,
+            workflowId = workflowId,
+        )
+        val route = agentRoute(seed)
+        assertEquals("agent?action=builtin%3Aplan-workflow&workflow=$workflowId", route)
+        assertEquals(seed, AgentComposerSeed.fromArgs(argsOf(route)))
+        assertNull(AgentComposerSeed.fromArgs { if (it == "workflow") "nope" else null }.workflowId)
     }
 
     @Test

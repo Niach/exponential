@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueSearch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -464,6 +465,95 @@ data class AutomationEntity(
     val model: String? = null,
     val effort: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// One workflow (EXP-981, the 23rd Electric shape): a picked set of backlog
+// issues of ONE repository, planned as a DAG and — from the engine on — run by
+// the bound device. Team-scoped like `automations` (a workflow spans boards,
+// so the board trash rules do not apply). The `blocks` relations among the
+// covered issues are the EDGES and are never copied here.
+//
+// `launch` and `metrics` are jsonb kept as their raw JSON text and parsed
+// tolerantly at the consumer ([WorkflowRows] — unknown keys ignored, missing
+// keys default), the way every other jsonb column on this shape family is.
+@Entity(
+    tableName = "workflows",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class WorkflowEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
+    // SET NULL server-side: the row stays readable when the repo is unlinked.
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
+    val name: String = "",
+    // contract `wfStatus` (documented varchar). An unknown value reads as Done
+    // rather than vanishing (`WorkflowView.band`).
+    val status: String = DomainContract.wfStatusDraft,
+    // devices.device_id of the runner: the engine's SINGLE writer. NULL on a
+    // draft nobody bound yet.
+    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val launch: String? = null,
+    // contract `wfGate` / `wfStartOn`.
+    val gate: String = DomainContract.wfGateHuman,
+    @ColumnInfo(name = "start_on") @SerialName("start_on") @JsonNames("startOn") val startOn: String = DomainContract.wfStartOnContract,
+    @ColumnInfo(name = "integration_branch") @SerialName("integration_branch") @JsonNames("integrationBranch") val integrationBranch: String = "",
+    @ColumnInfo(name = "final_pr_url") @SerialName("final_pr_url") @JsonNames("finalPrUrl") val finalPrUrl: String? = null,
+    @ColumnInfo(name = "final_pr_number")
+    @SerialName("final_pr_number")
+    @JsonNames("finalPrNumber")
+    @Serializable(with = PgIntSerializer::class)
+    val finalPrNumber: Int? = null,
+    @ColumnInfo(name = "final_pr_state") @SerialName("final_pr_state") @JsonNames("finalPrState") val finalPrState: String? = null,
+    // Dated answers, appended; part of every node prompt (≤64KB).
+    val decisions: String = "",
+    @Serializable(with = JsonAsStringSerializer::class) val metrics: String? = null,
+    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
+    @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// One NODE of a workflow (EXP-981, the 24th Electric shape): an issue, or a
+// parent issue with its sub-issues (a compound node run as ONE batch on one
+// branch with one PR). `team_id` is denormalized server-side for the shape's
+// team scoping, exactly like the issue-child shapes.
+//
+// `wave` / `lane` / `on_cycle` ARE the server-computed layout — no client ever
+// lays a workflow out; they draw column = wave, row = lane.
+@Entity(
+    tableName = "workflow_nodes",
+    indices = [Index("workflow_id"), Index("team_id"), Index("issue_id")],
+)
+@Serializable
+data class WorkflowNodeEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "workflow_id") @SerialName("workflow_id") @JsonNames("workflowId") val workflowId: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // The node's representative issue (a compound node's PARENT).
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String,
+    // A compound node's sub-issues (`EXP-14 +3`); empty for a plain node.
+    @ColumnInfo(name = "member_issue_ids")
+    @SerialName("member_issue_ids")
+    @JsonNames("memberIssueIds")
+    @Serializable(with = PgUuidArraySerializer::class)
+    val memberIssueIds: List<String> = emptyList(),
+    // contract `wfNodeKind` / `wfNodeState` / `wfRisk`.
+    val kind: String = DomainContract.wfNodeKindLeaf,
+    val state: String = DomainContract.wfNodeStateBlocked,
+    val risk: String = DomainContract.wfRiskMedium,
+    @Serializable(with = PgIntSerializer::class) val wave: Int? = 0,
+    @Serializable(with = PgIntSerializer::class) val lane: Int? = 0,
+    // On a blocking cycle (server layout): drawn red, and nothing can start.
+    @ColumnInfo(name = "on_cycle") @SerialName("on_cycle") @JsonNames("onCycle") val onCycle: PgBool = false,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @Serializable(with = PgIntSerializer::class) val attempt: Int? = 0,
+    @ColumnInfo(name = "base_branch") @SerialName("base_branch") @JsonNames("baseBranch") val baseBranch: String? = null,
+    @Serializable(with = JsonAsStringSerializer::class) val budget: String? = null,
+    // A Postgres `text[]` of globs: what this node expects to change.
+    @Serializable(with = PgUuidArraySerializer::class) val touches: List<String> = emptyList(),
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

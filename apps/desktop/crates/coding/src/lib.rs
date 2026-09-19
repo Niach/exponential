@@ -96,7 +96,8 @@ pub use batch_launcher::{
 pub use action_prompt::{
     chat_prompt, create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt,
     render_action_prompt_full, render_action_prompt_with_trigger, render_run_resume_prompt,
-    ActionInputValue, TriggerNote, TriggerNoteKind, WorkspaceNote,
+    plan_workflow_prompt, ActionInputValue, TriggerNote, TriggerNoteKind, WorkspaceNote,
+    PLAN_WORKFLOW_PROMPT_PREFIX,
 };
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};

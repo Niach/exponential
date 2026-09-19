@@ -105,6 +105,9 @@ internal fun LaunchOptionsSection(
     onModelChange: (String) -> Unit,
     effort: String,
     onEffortChange: (String) -> Unit,
+    /** EXP-981: claude's subagent model — "" is the CLI's own default. */
+    subagentModel: String = CLI_DEFAULT_MODEL,
+    onSubagentModelChange: ((String) -> Unit)? = null,
     noDeviceNote: String? = null,
     ultracode: Boolean = false,
     onUltracodeChange: (Boolean) -> Unit = {},
@@ -200,6 +203,20 @@ internal fun LaunchOptionsSection(
             enabled = automation || !ultracode,
             onSelect = onEffortChange,
         )
+        // EXP-981: the model a claude run's SUBAGENTS spend, stored per agent
+        // in the machine's launch defaults. Offered only where the caller
+        // edits it (the device sheet today); every other agent has none.
+        if (onSubagentModelChange != null && supportsSubagentModel(agent)) {
+            GroupDivider()
+            PickerRow(
+                label = SUBAGENT_MODEL_LABEL,
+                value = subagentModelLabel(subagentModel),
+                options = subagentModelOptions(),
+                selected = subagentModel,
+                optionLabel = ::subagentModelLabel,
+                onSelect = onSubagentModelChange,
+            )
+        }
 
         // ── Toggles ──────────────────────────────────────────────────────────
         // claude gets Ultracode + Plan mode, codex neither (EXP-849 dropped
@@ -254,6 +271,8 @@ internal fun availableAgentsFor(device: SteerDevice?): List<String> =
 /** Every launch option for one agent, ready to drop into the sheet's state. */
 internal data class AgentSeed(
     val model: String,
+    /** EXP-981: claude only — "" is the CLI's own default for subagents. */
+    val subagentModel: String,
     val effort: String,
     val ultracode: Boolean,
     val planMode: Boolean,
@@ -284,7 +303,7 @@ internal fun defaultAgentFor(device: SteerDevice?): String {
  */
 internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
     val defaults = device?.launchDefaults?.agents?.get(agent)
-        ?: return AgentSeed(defaultModelFor(agent), CLI_DEFAULT_EFFORT, false, false)
+        ?: return AgentSeed(defaultModelFor(agent), CLI_DEFAULT_MODEL, CLI_DEFAULT_EFFORT, false, false)
     val models = modelValuesFor(agent)
     return AgentSeed(
         model = defaults.model
@@ -293,6 +312,10 @@ internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
                 else it == CLI_DEFAULT_MODEL || it in models
             }
             ?: defaultModelFor(agent),
+        // EXP-981: claude only; every other agent ignores a stored value.
+        subagentModel = defaults.subagentModel
+            ?.takeIf { supportsSubagentModel(agent) && (it == CLI_DEFAULT_MODEL || it in models) }
+            ?: CLI_DEFAULT_MODEL,
         effort = defaults.effort
             ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
             ?: CLI_DEFAULT_EFFORT,

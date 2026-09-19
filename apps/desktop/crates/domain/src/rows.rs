@@ -1053,6 +1053,245 @@ impl DeviceWorktreeRow {
     }
 }
 
+/// `workflows` shape row (EXP-981) — the 23rd shape: a picked set of issues
+/// of ONE repository, planned as a DAG. Team-scoped like `actions` (a
+/// workflow spans boards, so the board trash rules do NOT apply); the
+/// server-only `creator_id` stays behind the proxy's allowlist.
+///
+/// `launch` and `metrics` are jsonb — TEXT-stored by the sync store (§5.5)
+/// and re-parsed tolerantly, so an unknown key from a newer server is simply
+/// ignored rather than dropping the row.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkflowRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    /// SET NULL when the repo is unlinked: the row stays readable, the
+    /// workflow can no longer start.
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// contract `wfStatus` — a RAW wire word (`domain::workflow_view` maps an
+    /// unknown one into the Done band rather than failing hydration).
+    #[serde(default)]
+    pub status: Option<String>,
+    /// `devices.device_id` of the runner (the TEXT steer id, not a row uuid);
+    /// `None` on a draft nobody bound yet.
+    #[serde(default)]
+    pub device_id: Option<String>,
+    /// jsonb `WorkflowLaunch` — every field optional, an absent one falls back
+    /// to the runner device's own launch defaults.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub launch: Option<serde_json::Value>,
+    /// contract `wfGate` — raw wire word.
+    #[serde(default)]
+    pub gate: Option<String>,
+    /// contract `wfStartOn` — raw wire word.
+    #[serde(default)]
+    pub start_on: Option<String>,
+    /// `exp/wf-<id8>`, stamped at create.
+    #[serde(default)]
+    pub integration_branch: Option<String>,
+    /// The ONE final PR integration → default branch.
+    #[serde(default)]
+    pub final_pr_url: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub final_pr_number: Option<i64>,
+    #[serde(default)]
+    pub final_pr_state: Option<String>,
+    /// Dated answers, appended; part of every node prompt.
+    #[serde(default)]
+    pub decisions: Option<String>,
+    /// jsonb `WorkflowMetricsJson` — the plan's shape, written by the server
+    /// layout. `metrics.cycles` non-empty = the workflow cannot start.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub metrics: Option<serde_json::Value>,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub ended_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl WorkflowRow {
+    /// The status as the band rule reads it; a row with no synced status is a
+    /// draft (the server column is NOT NULL DEFAULT `draft`).
+    pub fn status_wire(&self) -> &str {
+        self.status.as_deref().unwrap_or("draft")
+    }
+
+    /// The metrics counters the list row and the header render. A missing or
+    /// unparseable payload reads as an EMPTY shape (`0 nodes · depth 0 ·
+    /// width 0`), never a dropped row.
+    pub fn shape(&self) -> crate::workflow_view::WorkflowShape {
+        let Some(metrics) = self.metrics.as_ref() else {
+            return crate::workflow_view::WorkflowShape::default();
+        };
+        let count = |key: &str| {
+            metrics
+                .get(key)
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0) as usize
+        };
+        let cycles = metrics
+            .get("cycles")
+            .and_then(serde_json::Value::as_array)
+            .map(|groups| {
+                groups
+                    .iter()
+                    .filter_map(serde_json::Value::as_array)
+                    .map(|keys| {
+                        keys.iter()
+                            .filter_map(|key| key.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        crate::workflow_view::WorkflowShape {
+            nodes: count("nodes"),
+            depth: count("depth"),
+            width: count("width"),
+            cycles,
+        }
+    }
+
+    /// `metrics.cycleEdges` (`<fromNodeId>\n<toNodeId>`) — the edges the graph
+    /// paints red. Empty when the plan is acyclic.
+    pub fn cycle_edges(&self) -> Vec<String> {
+        self.metrics
+            .as_ref()
+            .and_then(|metrics| metrics.get("cycleEdges"))
+            .and_then(serde_json::Value::as_array)
+            .map(|keys| {
+                keys.iter()
+                    .filter_map(|key| key.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// One `launch` field as a wire string; blank/absent = the device default.
+    pub fn launch_str(&self, key: &str) -> Option<String> {
+        self.launch
+            .as_ref()
+            .and_then(|launch| launch.get(key))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    }
+
+    /// `launch.maxParallel`, or the contract default when unset.
+    pub fn max_parallel(&self) -> usize {
+        self.launch
+            .as_ref()
+            .and_then(|launch| launch.get("maxParallel"))
+            .and_then(serde_json::Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(crate::contract::WORKFLOW_MAX_PARALLEL_DEFAULT)
+    }
+}
+
+/// `workflow_nodes` shape row (EXP-981) — the 24th shape: ONE node of a
+/// workflow (an issue, or a parent issue with its sub-issues as a compound
+/// node run as one batch). `wave`/`lane`/`on_cycle` ARE the server-computed
+/// layout — no client lays a graph out.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct WorkflowNodeRow {
+    pub id: String,
+    #[serde(default)]
+    pub workflow_id: Option<String>,
+    /// Denormalized (app-written) for the shape's team scoping.
+    #[serde(default)]
+    pub team_id: Option<String>,
+    /// The node's representative issue (a compound node's PARENT).
+    #[serde(default)]
+    pub issue_id: Option<String>,
+    /// A compound node's sub-issues (`EXP-14 +3`); empty for a plain node.
+    /// jsonb string[] — TEXT-stored, re-parsed tolerantly.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub member_issue_ids: Option<serde_json::Value>,
+    /// contract `wfNodeKind` / `wfNodeState` / `wfRisk` — raw wire words.
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub risk: Option<String>,
+    /// The graph COLUMN (server layout).
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub wave: Option<i64>,
+    /// The graph ROW inside the wave (server layout).
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub lane: Option<i64>,
+    /// On a blocking cycle: drawn red, and the workflow cannot start.
+    #[serde(default, deserialize_with = "tolerant_opt_bool")]
+    pub on_cycle: Option<bool>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub attempt: Option<i64>,
+    #[serde(default)]
+    pub base_branch: Option<String>,
+    /// jsonb `WorkflowNodeBudget` (`tokens`/`minutes`); `None` = unbounded.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub budget: Option<serde_json::Value>,
+    /// The path globs this node expects to change — a Postgres `text[]` cell,
+    /// parsed like `IssueDraftRow::label_ids`.
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    pub touches: Vec<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl WorkflowNodeRow {
+    /// The compound node's sub-issue ids; empty for a plain node.
+    pub fn member_ids(&self) -> Vec<String> {
+        self.member_issue_ids
+            .as_ref()
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The node's kind; the server column is NOT NULL DEFAULT `leaf`.
+    pub fn kind_wire(&self) -> &str {
+        self.kind.as_deref().unwrap_or("leaf")
+    }
+
+    /// The node's state; the server column is NOT NULL DEFAULT `blocked`.
+    pub fn state_wire(&self) -> &str {
+        self.state.as_deref().unwrap_or("blocked")
+    }
+
+    /// The node's risk; the server column is NOT NULL DEFAULT `medium`.
+    pub fn risk_wire(&self) -> &str {
+        self.risk.as_deref().unwrap_or("medium")
+    }
+
+    pub fn wave_index(&self) -> usize {
+        self.wave.unwrap_or(0).max(0) as usize
+    }
+
+    pub fn lane_index(&self) -> usize {
+        self.lane.unwrap_or(0).max(0) as usize
+    }
+
+    pub fn is_on_cycle(&self) -> bool {
+        self.on_cycle.unwrap_or(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

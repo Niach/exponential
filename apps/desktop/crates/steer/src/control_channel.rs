@@ -181,6 +181,10 @@ pub struct RemoteStart {
     /// unchanged keeps every other consumer untouched. Dropped on a resume
     /// (the recorded run already knows its base).
     pub stack: Option<StartStack>,
+    /// EXP-981: the model claude's SUBAGENTS run on. Absent = this machine's
+    /// own launch default; a BLANK string is the deliberate "the CLI's own
+    /// default" pick. Dropped on a resume, like the other launch options.
+    pub subagent_model: Option<String>,
 }
 
 /// EXP-897 — the launcher's view of an inbound [`StartStack`]: the same plan
@@ -230,6 +234,7 @@ pub(crate) fn remote_start_from_frame(
     account: Option<String>,
     prompt: Option<String>,
     stack: Option<StartStack>,
+    subagent_model: Option<String>,
 ) -> Option<RemoteStart> {
     // EXP-637: a resume is its OWN subject — the recorded run supplies the
     // rest. The web server rides `issueId` / `actionId` / `actionName` /
@@ -260,6 +265,7 @@ pub(crate) fn remote_start_from_frame(
             // EXP-897: a resume re-enters the worktree it recorded, base
             // included — a stack on the frame would say nothing new.
             stack: None,
+            subagent_model: None,
         });
     }
     let subject = match (issue_id, issue_ids, action_id) {
@@ -294,6 +300,7 @@ pub(crate) fn remote_start_from_frame(
         resume,
         prompt,
         stack,
+        subagent_model,
     })
 }
 
@@ -667,11 +674,12 @@ async fn connect_and_listen(
                             account,
                             prompt,
                             stack,
+                            subagent_model,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
                             plan_mode, resume, resume_session_id, mcp_server_ids, account, prompt,
-                            stack,
+                            stack, subagent_model,
                         ) {
                             Some(start) => {
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
@@ -791,6 +799,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("resume frame");
         assert_eq!(
@@ -831,6 +840,7 @@ mod tests {
             Some("0a1b2c3d".into()),
             None,
             None,
+            None,
         )
         .expect("switch frame");
         assert_eq!(switched.account.as_deref(), Some("0a1b2c3d"));
@@ -869,6 +879,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .expect("hinted resume frame");
             assert_eq!(
@@ -897,6 +908,7 @@ mod tests {
                 None,
                 false,
                 Some("sess-old".into()),
+                None,
                 None,
                 None,
                 None,
@@ -931,6 +943,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -946,6 +959,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             })
         );
 
@@ -972,6 +986,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Batch {
@@ -991,6 +1006,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             })
         );
     }
@@ -1024,6 +1040,7 @@ mod tests {
                 // EXP-825: the chat text rides the frame's `prompt`, no input.
                 Some("what does trunk_sync do?".into()),
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1045,6 +1062,7 @@ mod tests {
                 resume: false,
                 prompt: Some("what does trunk_sync do?".into()),
                 stack: None,
+                subagent_model: None,
             })
         );
     }
@@ -1097,6 +1115,7 @@ mod tests {
             None,
             None,
             Some(stack.clone()),
+            None,
         )
         .expect("stacked issue frame");
         assert_eq!(start.subject, RemoteStartSubject::Issue("issue-12".into()));
@@ -1131,6 +1150,7 @@ mod tests {
             None,
             None,
             Some(stack),
+            None,
         )
         .expect("resume frame");
         assert_eq!(resumed.stack, None);
@@ -1187,6 +1207,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Issue("issue-9".into()),
@@ -1202,6 +1223,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             })
         );
     }
@@ -1232,6 +1254,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .expect("issue frame");
         assert_eq!(issue.started_reason.as_deref(), Some("agent"));
@@ -1253,6 +1276,7 @@ mod tests {
             None,
             false,
             Some("sess-old".into()),
+            None,
             None,
             None,
             None,
@@ -1287,6 +1311,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -1294,6 +1319,7 @@ mod tests {
         assert_eq!(
             remote_start_from_frame(
                 None, None, None, None, None, None, None, None, None, None, None, None, None, None, false, None,
+                None,
                 None,
                 None,
                 None,
@@ -1319,6 +1345,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -1350,6 +1377,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -1371,6 +1399,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -1406,6 +1435,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1427,6 +1457,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -1447,6 +1478,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -1506,6 +1538,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             Some(RemoteStart {
                 subject: RemoteStartSubject::Action {
@@ -1527,6 +1560,7 @@ mod tests {
                 resume: false,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             })
         );
     }
@@ -1551,6 +1585,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,
@@ -1582,6 +1617,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             ),
             None
         );
@@ -1603,6 +1639,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 None,

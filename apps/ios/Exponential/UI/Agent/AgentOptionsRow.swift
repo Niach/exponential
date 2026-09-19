@@ -259,10 +259,14 @@ struct OptionPillLabel: View {
 }
 
 /// EXP-825: the `⋯` sheet — the options that did not earn a pill: Effort
-/// (Reasoning / Thinking per agent) and Ultracode (claude only — it IS
-/// `--effort ultracode`, so it disables the Effort row). EXP-862 promoted the
-/// Account out of here into the row itself. No MCP-server picker: mobile has
-/// none.
+/// (Reasoning / Thinking per agent), the Subagent model (EXP-981, claude only)
+/// and Ultracode (claude only — it IS `--effort ultracode`, so it disables the
+/// Effort row). EXP-862 promoted the Account out of here into the row itself.
+/// No MCP-server picker: mobile has none.
+///
+/// The Subagent model sits here rather than on the pill row: the row already
+/// carries eight pills on a phone, and this is the same place its sibling
+/// Effort lives.
 struct AgentOptionsSheet: View {
     let model: AgentComposerModel
 
@@ -284,6 +288,21 @@ struct AgentOptionsSheet: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 12)
                 .glassRow()
+
+                // EXP-981: the model this run's SUBAGENTS get. Claude-only,
+                // hidden for every other agent exactly like Ultracode.
+                if LaunchVocabulary.supportsSubagentModel(launch.agent) {
+                    GlassPickerRow(
+                        "Subagent model",
+                        selection: $launch.subagentModel,
+                        options: LaunchVocabulary.subagentModelValues(),
+                        label: { LaunchVocabulary.subagentModelLabel($0) }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .glassRow()
+                    .accessibilityIdentifier("agent-subagent-model-row")
+                }
 
                 if launch.agent == "claude" {
                     Toggle("Ultracode", isOn: $launch.ultracode)

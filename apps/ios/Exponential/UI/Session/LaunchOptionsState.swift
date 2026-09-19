@@ -24,6 +24,10 @@ import Foundation
 final class LaunchOptionsState {
     var agent = "claude"
     var model = ""
+    /// EXP-981: claude only — the model its subagents run on.
+    /// `LaunchVocabulary.cliDefault` = the CLI's own default, which a start
+    /// sends as NO field at all.
+    var subagentModel = LaunchVocabulary.cliDefault
     var effort = LaunchVocabulary.cliDefault
     var ultracode = false
     var planMode = false
@@ -99,6 +103,7 @@ final class LaunchOptionsState {
     private func applyAgentDefaults(for value: String, device: SteerDevice?) {
         let advertised = device?.agentDefaults(for: value)
         model = Self.seedModel(advertised?.model, for: value)
+        subagentModel = Self.seedSubagentModel(advertised?.subagentModel, for: value)
         effort = Self.seedEffort(advertised?.effort, for: value)
         ultracode = advertised?.ultracode ?? false
         planMode = advertised?.planMode ?? false
@@ -109,6 +114,9 @@ final class LaunchOptionsState {
     private func clampToggles() {
         if agent != "claude" {
             ultracode = false
+        }
+        if !LaunchVocabulary.supportsSubagentModel(agent) {
+            subagentModel = LaunchVocabulary.cliDefault
         }
         if !LaunchVocabulary.supportsPlanMode(agent) {
             planMode = false
@@ -123,6 +131,19 @@ final class LaunchOptionsState {
               LaunchVocabulary.modelValues(for: agent).contains(value)
         else {
             return LaunchVocabulary.defaultModel(for: agent)
+        }
+        return value
+    }
+
+    /// An advertised SUBAGENT model (EXP-981), validated against claude's
+    /// contract list. Blank, unknown, or any non-claude agent = the "Default"
+    /// row: the CLI picks its own.
+    static func seedSubagentModel(_ value: String?, for agent: String) -> String {
+        guard LaunchVocabulary.supportsSubagentModel(agent),
+              let value, !value.isEmpty,
+              DomainContract.codingModelValues.contains(value)
+        else {
+            return LaunchVocabulary.cliDefault
         }
         return value
     }
@@ -158,6 +179,12 @@ final class LaunchOptionsState {
         return SteerStartOptions(
             agent: agent,
             model: model == LaunchVocabulary.cliDefault ? "" : model,
+            // EXP-981: claude only, and "Default" means the field is ABSENT —
+            // the server validates it against the contract model list, which
+            // has no blank, so an empty string would be refused.
+            subagentModel: isClaude && subagentModel != LaunchVocabulary.cliDefault
+                ? subagentModel
+                : nil,
             effort: effort == LaunchVocabulary.cliDefault ? "" : effort,
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.

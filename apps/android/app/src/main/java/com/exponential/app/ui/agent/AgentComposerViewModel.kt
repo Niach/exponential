@@ -97,8 +97,17 @@ internal fun composerPlaceholder(subject: ComposerSubject?, selectedAction: Acti
 sealed interface ComposerSubject {
     data class Issues(val ids: List<String>) : ComposerSubject
 
-    /** [inputs] are the typed pick values keyed by def key; "" = cleared. */
-    data class Action(val id: String, val inputs: Map<String, String>) : ComposerSubject
+    /**
+     * [inputs] are the typed pick values keyed by def key; "" = cleared.
+     * EXP-981: [workflowId] is set only for the hidden Plan workflow builtin —
+     * it is what that run is ABOUT, and the server refuses it beside any other
+     * action id.
+     */
+    data class Action(
+        val id: String,
+        val inputs: Map<String, String>,
+        val workflowId: String? = null,
+    ) : ComposerSubject
 }
 
 /**
@@ -120,6 +129,8 @@ data class LaunchDraft(
     val pickedDeviceId: String? = null,
     val agent: String = DEFAULT_AGENT,
     val model: String = "",
+    /** EXP-981: claude only — the model its subagents run on ("" = default). */
+    val subagentModel: String = "",
     val effort: String = "",
     val ultracode: Boolean = false,
     val planMode: Boolean = false,
@@ -407,6 +418,7 @@ class AgentComposerViewModel @Inject constructor(
             _subject.value = ComposerSubject.Action(
                 actionId,
                 if (seed.icon.isNullOrEmpty()) emptyMap() else mapOf("icon" to seed.icon),
+                workflowId = seed.workflowId,
             )
             _pendingPrIssueId.value = seed.prIssueId
         } else if (seed.effectiveIssueIds.isNotEmpty()) {
@@ -557,6 +569,11 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(effort = value)
     }
 
+    /** EXP-981: claude's subagent model; "" = the CLI's own default. */
+    fun setSubagentModel(value: String) {
+        _launch.value = _launch.value.copy(subagentModel = value)
+    }
+
     fun setUltracode(value: Boolean) {
         _launch.value = _launch.value.copy(ultracode = value)
     }
@@ -574,6 +591,7 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(
             agent = agent,
             model = seed.model,
+            subagentModel = seed.subagentModel,
             effort = seed.effort,
             ultracode = seed.ultracode,
             // EXP-772: a chat (no subject) starts in build mode; a subject
@@ -610,6 +628,11 @@ class AgentComposerViewModel @Inject constructor(
         return SteerStartOptions(
             model = draft.model,
             effort = draft.effort,
+            // EXP-981: claude only, and omitted for "Default" — the server
+            // validates it against the closed model vocabulary, which has no
+            // entry for the empty string.
+            subagentModel = draft.subagentModel
+                .takeIf { it.isNotEmpty() && agent == DEFAULT_AGENT },
             ultracode = if (agent == DEFAULT_AGENT) draft.ultracode else null,
             planMode = when {
                 resume -> false
@@ -758,6 +781,8 @@ class AgentComposerViewModel @Inject constructor(
                             options,
                             ActionInputValues.wireValues(row.inputs.orEmpty(), subject.inputs),
                             prompt,
+                            // EXP-981: set only by a Plan-workflow seed.
+                            workflowId = subject.workflowId,
                         )
                     }
                 }

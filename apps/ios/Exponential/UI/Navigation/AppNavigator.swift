@@ -44,6 +44,12 @@ enum AppRoute: Hashable {
     /// caller's Running/Recent sessions), a pushed detail. Every play button
     /// lands here with a `seed`; the Chat FAB with an empty one.
     case agent(accountId: String, seed: AgentComposerSeed)
+    /// EXP-981: the team's workflows — a pushed list off the Agent page's
+    /// Workflows button. A phone gets no tab of its own for them (web and the
+    /// IDE put the entry in their sidebars).
+    case workflows(accountId: String)
+    /// One workflow: its graph, its node panel and how it runs.
+    case workflow(accountId: String, id: String)
     case settings
     case serverDetail(accountId: String)
     case teamSettings(accountId: String, teamId: String)
@@ -720,6 +726,12 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
             AgentPageView(seed: seed)
+                .environment(\.accountId, accountId)
+        case let .workflows(accountId):
+            WorkflowsListView()
+                .environment(\.accountId, accountId)
+        case let .workflow(accountId, id):
+            WorkflowDetailView(workflowId: id)
                 .environment(\.accountId, accountId)
         case .settings:
             SettingsView()

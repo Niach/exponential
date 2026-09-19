@@ -565,6 +565,79 @@ pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool
     (out, collection.is_ready())
 }
 
+/// EXP-981: a team's synced `workflows` rows, NEWEST FIRST inside whatever
+/// band the caller groups them into (`domain::workflow_view::workflow_band`).
+/// The bool is the shape's readiness — an empty list before it is "still
+/// syncing", never "no workflows".
+pub fn team_workflows(cx: &App, team_id: &str) -> (Vec<domain::rows::WorkflowRow>, bool) {
+    let collections = Store::global(cx).collections();
+    let collection = collections.workflows.read(cx);
+    let mut out: Vec<domain::rows::WorkflowRow> = collection
+        .iter()
+        .filter(|row| row.team_id.as_deref() == Some(team_id))
+        .cloned()
+        .collect();
+    // ISO-8601 sorts lexicographically — newest first, id-tiebroken so the
+    // order is stable across repaints (the collection is a map).
+    out.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    (out, collection.is_ready())
+}
+
+/// EXP-981: one workflow's nodes in the SERVER's layout order (wave, then
+/// lane) — no client lays a graph out.
+pub fn workflow_nodes(cx: &App, workflow_id: &str) -> Vec<domain::rows::WorkflowNodeRow> {
+    let collections = Store::global(cx).collections();
+    let mut out: Vec<domain::rows::WorkflowNodeRow> = collections
+        .workflow_nodes
+        .read(cx)
+        .iter()
+        .filter(|row| row.workflow_id.as_deref() == Some(workflow_id))
+        .cloned()
+        .collect();
+    out.sort_by(|a, b| {
+        a.wave_index()
+            .cmp(&b.wave_index())
+            .then_with(|| a.lane_index().cmp(&b.lane_index()))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    out
+}
+
+/// EXP-981: every input the workflow surfaces derive from — the two workflow
+/// shapes plus the issues and relations the graph joins.
+#[derive(PartialEq, Eq)]
+pub(crate) struct WorkflowDataKey {
+    team_id: Option<String>,
+    workflow_id: Option<String>,
+    workflows: u64,
+    workflow_nodes: u64,
+    issues: u64,
+    issue_relations: u64,
+    ready: bool,
+}
+
+pub(crate) fn workflow_data_key(
+    cx: &App,
+    team_id: Option<&str>,
+    workflow_id: Option<&str>,
+) -> WorkflowDataKey {
+    let collections = Store::global(cx).collections();
+    WorkflowDataKey {
+        team_id: team_id.map(str::to_string),
+        workflow_id: workflow_id.map(str::to_string),
+        workflows: collections.workflows.read(cx).revision(),
+        workflow_nodes: collections.workflow_nodes.read(cx).revision(),
+        issues: collections.issues.read(cx).revision(),
+        issue_relations: collections.issue_relations.read(cx).revision(),
+        ready: collections.workflows.read(cx).is_ready()
+            && collections.workflow_nodes.read(cx).is_ready(),
+    }
+}
+
 /// EXP-583: a team's synced `automations` rows in the server's own list
 /// order (`sortOrder`, then `createdAt`). The bool is the shape's readiness —
 /// an empty list before it is "still syncing", never "no automations".

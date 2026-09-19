@@ -1527,6 +1527,12 @@ pub enum ServerFrame {
         /// pre-EXP-897 sender.
         #[serde(default)]
         stack: Option<StartStack>,
+        /// EXP-981: the model claude's SUBAGENTS run on. Absent = this
+        /// machine's own launch default; a BLANK string is the deliberate
+        /// "the CLI's own default" pick. No capability gate — a build that
+        /// predates the field simply never reads it.
+        #[serde(default)]
+        subagent_model: Option<String>,
     },
     /// EXP-773: a viewer asked for the transcript of a session that is no
     /// longer live, and the relay routed the ask to THIS device (the ticket
@@ -2829,6 +2835,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
     }
@@ -2976,6 +2983,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
     }
@@ -3011,6 +3019,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
         // Absent (every person-started frame, and every pre-EXP-679 sender)
@@ -3019,6 +3028,38 @@ mod tests {
             ServerFrame::StartSession { started_reason, .. } => assert_eq!(started_reason, None),
             other => panic!("expected StartSession, got {other:?}"),
         }
+    }
+
+    /// EXP-981: the claude-only subagent pin rides the start frame. Absent =
+    /// this machine's own default; a BLANK string is the deliberate "the
+    /// CLI's own default" pick, so it must decode as `Some("")`, not `None`.
+    #[test]
+    fn start_session_deserializes_the_subagent_model() {
+        let picked = ServerFrame::parse(
+            r#"{"t":"start_session","issueId":"issue-9","agent":"claude","subagentModel":"sonnet"}"#,
+        )
+        .unwrap();
+        let ServerFrame::StartSession { subagent_model, .. } = picked else {
+            panic!("expected a start frame");
+        };
+        assert_eq!(subagent_model.as_deref(), Some("sonnet"));
+
+        let cli_default = ServerFrame::parse(
+            r#"{"t":"start_session","issueId":"issue-9","subagentModel":""}"#,
+        )
+        .unwrap();
+        let ServerFrame::StartSession { subagent_model, .. } = cli_default else {
+            panic!("expected a start frame");
+        };
+        assert_eq!(subagent_model.as_deref(), Some(""));
+
+        // A frame from a client that never sends it leaves the machine's own
+        // default alone.
+        let absent = ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap();
+        let ServerFrame::StartSession { subagent_model, .. } = absent else {
+            panic!("expected a start frame");
+        };
+        assert_eq!(subagent_model, None);
     }
 
     #[test]
@@ -3053,6 +3094,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
     }
@@ -3090,6 +3132,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
     }
@@ -3128,6 +3171,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
     }
@@ -3180,6 +3224,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
     }
@@ -3218,6 +3263,7 @@ mod tests {
                 resume_session_id: None,
                 prompt: None,
                 stack: None,
+                subagent_model: None,
             }
         );
     }

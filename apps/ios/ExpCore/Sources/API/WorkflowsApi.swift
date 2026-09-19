@@ -1,0 +1,352 @@
+import Foundation
+
+// Mirrors apps/web/src/lib/trpc/workflows.ts (EXP-981). A workflow is a picked
+// set of backlog issues of ONE repository, planned as a DAG: the `blocks`
+// relations among them are the edges, a parent with its sub-issues is ONE
+// compound node, and the SERVER computes the layout. Rows sync as the 23rd and
+// 24th Electric shapes — this router is the write path (any team member: a
+// workflow is work, not a team setting). Refusals are human sentences; every
+// surface shows them verbatim.
+
+/// One `workflows` row as the router returns it (camelCase, `launch`/`metrics`
+/// as objects). The list surfaces read the synced store instead; this is what a
+/// write echoes back — `create` names the workflow the detail then opens.
+public struct WorkflowDto: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let teamId: String
+    public let repositoryId: String?
+    public let name: String
+    /// contract `wfStatus`.
+    public let status: String
+    public let deviceId: String?
+    public let launch: WorkflowLaunch
+    /// contract `wfGate` / `wfStartOn`.
+    public let gate: String
+    public let startOn: String
+    public let integrationBranch: String
+    public let finalPrUrl: String?
+    public let finalPrNumber: Int?
+    public let finalPrState: String?
+    public let decisions: String
+    public let metrics: WorkflowMetrics
+    public let startedAt: String?
+    public let endedAt: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        repositoryId: String? = nil,
+        name: String,
+        status: String = "draft",
+        deviceId: String? = nil,
+        launch: WorkflowLaunch = WorkflowLaunch(),
+        gate: String = "human",
+        startOn: String = "contract",
+        integrationBranch: String = "",
+        finalPrUrl: String? = nil,
+        finalPrNumber: Int? = nil,
+        finalPrState: String? = nil,
+        decisions: String = "",
+        metrics: WorkflowMetrics = WorkflowMetrics(),
+        startedAt: String? = nil,
+        endedAt: String? = nil,
+        createdAt: String = "",
+        updatedAt: String = ""
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.repositoryId = repositoryId
+        self.name = name
+        self.status = status
+        self.deviceId = deviceId
+        self.launch = launch
+        self.gate = gate
+        self.startOn = startOn
+        self.integrationBranch = integrationBranch
+        self.finalPrUrl = finalPrUrl
+        self.finalPrNumber = finalPrNumber
+        self.finalPrState = finalPrState
+        self.decisions = decisions
+        self.metrics = metrics
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+extension WorkflowDto: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case id, teamId, repositoryId, name, status, deviceId, launch, gate, startOn
+        case integrationBranch, finalPrUrl, finalPrNumber, finalPrState, decisions
+        case metrics, startedAt, endedAt, createdAt, updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "draft"
+        deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
+        // The two jsonb columns: objects over tRPC, pre-stringified from
+        // fixtures — both go through the tolerant parse.
+        launch = WorkflowLaunch.parse(c.decodeWireJsonString(forKey: .launch))
+        gate = (try? c.decodeIfPresent(String.self, forKey: .gate)) ?? "human"
+        startOn = (try? c.decodeIfPresent(String.self, forKey: .startOn)) ?? "contract"
+        integrationBranch =
+            (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""
+        finalPrUrl = try c.decodeIfPresent(String.self, forKey: .finalPrUrl)
+        finalPrNumber = try? c.decodeWireInt(forKey: .finalPrNumber)
+        finalPrState = try c.decodeIfPresent(String.self, forKey: .finalPrState)
+        decisions = (try? c.decodeIfPresent(String.self, forKey: .decisions)) ?? ""
+        metrics = WorkflowMetrics.parse(c.decodeWireJsonString(forKey: .metrics))
+        startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)
+        endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
+        createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
+        updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
+    }
+}
+
+public extension WorkflowDto {
+    /// The synced local row as the DTO every surface renders.
+    init(entity: WorkflowEntity) {
+        self.init(
+            id: entity.id,
+            teamId: entity.teamId,
+            repositoryId: entity.repositoryId,
+            name: entity.name,
+            status: entity.status,
+            deviceId: entity.deviceId,
+            launch: entity.parsedLaunch,
+            gate: entity.gate,
+            startOn: entity.startOn,
+            integrationBranch: entity.integrationBranch,
+            finalPrUrl: entity.finalPrUrl,
+            finalPrNumber: entity.finalPrNumber,
+            finalPrState: entity.finalPrState,
+            decisions: entity.decisions,
+            metrics: entity.parsedMetrics,
+            startedAt: entity.startedAt,
+            endedAt: entity.endedAt,
+            createdAt: entity.createdAt,
+            updatedAt: entity.updatedAt
+        )
+    }
+}
+
+/// `workflows.create` / `.update` return `{ workflow, txId }`.
+public struct WorkflowResult: Decodable, Sendable {
+    public let workflow: WorkflowDto
+}
+
+private struct CreateInput: Encodable {
+    let teamId: String
+    let issueIds: [String]
+    let name: String?
+}
+
+/// A partial `workflows.update`: an OMITTED field keeps what the row has,
+/// while `deviceId` is CLEARABLE — a nested optional, so `.some(nil)` sends an
+/// explicit null ("no runner bound"). `launch` is replaced WHOLE: the server
+/// stores the object it receives, so an omitted key inside it IS unset.
+public struct WorkflowPatch: Sendable, Equatable {
+    public var name: String?
+    public var deviceId: String??
+    public var launch: WorkflowLaunch?
+    public var gate: String?
+    public var startOn: String?
+
+    public init(
+        name: String? = nil,
+        deviceId: String?? = nil,
+        launch: WorkflowLaunch? = nil,
+        gate: String? = nil,
+        startOn: String? = nil
+    ) {
+        self.name = name
+        self.deviceId = deviceId
+        self.launch = launch
+        self.gate = gate
+        self.startOn = startOn
+    }
+}
+
+/// Internal (not private) so the wire-format test can pin the omit-vs-null
+/// encoding per field.
+struct WorkflowUpdateInput: Encodable {
+    let id: String
+    let patch: WorkflowPatch
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, deviceId, launch, gate, startOn
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(patch.name, forKey: .name)
+        // The unwrapped inner optional is encoded even when nil — an explicit
+        // null is what unbinds the runner device server-side.
+        if let deviceId = patch.deviceId {
+            try c.encode(deviceId, forKey: .deviceId)
+        }
+        try c.encodeIfPresent(patch.launch, forKey: .launch)
+        try c.encodeIfPresent(patch.gate, forKey: .gate)
+        try c.encodeIfPresent(patch.startOn, forKey: .startOn)
+    }
+}
+
+private struct SetIssuesInput: Encodable {
+    let id: String
+    let addIssueIds: [String]
+    let removeIssueIds: [String]
+}
+
+/// A partial `workflows.updateNode`, addressed by ISSUE (a member's id
+/// resolves to its compound node). `budget` is clearable like `deviceId`.
+public struct WorkflowNodePatch: Sendable, Equatable {
+    public var kind: String?
+    public var risk: String?
+    public var touches: [String]?
+    public var budget: WorkflowNodeBudget??
+
+    public init(
+        kind: String? = nil,
+        risk: String? = nil,
+        touches: [String]? = nil,
+        budget: WorkflowNodeBudget?? = nil
+    ) {
+        self.kind = kind
+        self.risk = risk
+        self.touches = touches
+        self.budget = budget
+    }
+}
+
+struct WorkflowNodeUpdateInput: Encodable {
+    let workflowId: String
+    let issueId: String
+    let patch: WorkflowNodePatch
+
+    enum CodingKeys: String, CodingKey {
+        case workflowId, issueId, kind, risk, touches, budget
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(workflowId, forKey: .workflowId)
+        try c.encode(issueId, forKey: .issueId)
+        try c.encodeIfPresent(patch.kind, forKey: .kind)
+        try c.encodeIfPresent(patch.risk, forKey: .risk)
+        try c.encodeIfPresent(patch.touches, forKey: .touches)
+        if let budget = patch.budget {
+            try c.encode(budget, forKey: .budget)
+        }
+    }
+}
+
+private struct IdInput: Encodable {
+    let id: String
+}
+
+public final class WorkflowsApi: Sendable {
+    private let trpc: TrpcClient
+
+    public init(trpc: TrpcClient) {
+        self.trpc = trpc
+    }
+
+    /// Member-gated `workflows.create` — the picked issues in display order.
+    /// The server refuses a started issue, an issue on a repo-less board and a
+    /// second repository, each with its own sentence.
+    @discardableResult
+    public func create(
+        accountId: String,
+        teamId: String,
+        issueIds: [String],
+        name: String? = nil
+    ) async throws -> WorkflowDto {
+        let result: WorkflowResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "workflows.create",
+            input: CreateInput(teamId: teamId, issueIds: issueIds, name: name)
+        )
+        return result.workflow
+    }
+
+    /// Member-gated `workflows.update` — the name is a label, everything else
+    /// is the run's configuration and is DRAFT-only server-side. The synced row
+    /// echoes the change back, so success needs no local write.
+    @discardableResult
+    public func update(
+        accountId: String,
+        id: String,
+        patch: WorkflowPatch
+    ) async throws -> WorkflowDto {
+        let result: WorkflowResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "workflows.update",
+            input: WorkflowUpdateInput(id: id, patch: patch)
+        )
+        return result.workflow
+    }
+
+    /// Member-gated `workflows.setIssues` — add or drop issues of a DRAFT; the
+    /// server re-plans and re-lays-out in the same transaction.
+    public func setIssues(
+        accountId: String,
+        id: String,
+        addIssueIds: [String] = [],
+        removeIssueIds: [String] = []
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "workflows.setIssues",
+            input: SetIssuesInput(
+                id: id, addIssueIds: addIssueIds, removeIssueIds: removeIssueIds
+            )
+        )
+    }
+
+    /// Member-gated `workflows.updateNode` — what the plan declares per node.
+    /// Kind and touches shape the PLAN (draft-only); risk and budget stay
+    /// adjustable.
+    public func updateNode(
+        accountId: String,
+        workflowId: String,
+        issueId: String,
+        patch: WorkflowNodePatch
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "workflows.updateNode",
+            input: WorkflowNodeUpdateInput(
+                workflowId: workflowId, issueId: issueId, patch: patch
+            )
+        )
+    }
+
+    /// Member-gated `workflows.replan` — re-derive the compound nodes, the
+    /// layout and the metrics now.
+    public func replan(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "workflows.replan",
+            input: IdInput(id: id)
+        )
+    }
+
+    /// Member-gated `workflows.delete`. A live workflow has to be cancelled
+    /// first (the server says so); the rows leave via Electric.
+    public func delete(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "workflows.delete",
+            input: IdInput(id: id)
+        )
+    }
+}

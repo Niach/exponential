@@ -10,32 +10,32 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle
 
 ```
 apps/
-├── web/        # TanStack Start app (the issue tracker)
+├── web/ # TanStack Start app (the issue tracker)
 ├── push-relay/ # Push relay (Hono/Bun)
 ├── steer-relay/# Remote-start + live-steer WS hub (Bun)
-├── marketing/  # Vite + React; owns the ONE movie, the Remotion ClosedLoop hero (src/movie/)
-├── ios/        # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
-├── android/    # Kotlin / Jetpack Compose
+├── marketing/ # Vite + React; owns the ONE movie, the Remotion ClosedLoop hero (src/movie/)
+├── ios/ # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
+├── android/ # Kotlin / Jetpack Compose
 ├── styleguide/ # Shot gallery + REAL @exp/ui islands
-└── desktop/    # Rust IDE (gpui); crates/cli = headless `exponential` daemon (EXP-403)
+└── desktop/ # Rust IDE (gpui); crates/cli = headless `exponential` daemon (EXP-403)
 packages/
-├── db-schema/         # Drizzle schema + shared zod/domain types
-├── ui/                # @exp/ui: theme + shadcn set + shared primitives + islands
-├── design-tokens/     # OKLCH→sRGB + motion tokens → Compose/SwiftUI/Rust
-├── domain-contract/   # contract.json — canonical enums → per-language constants
-├── icons/             # icons.json — the ONE icon registry → TS/Swift/Kotlin/Rust
+├── db-schema/ # Drizzle schema + shared zod/domain types
+├── ui/ # @exp/ui: theme + shadcn set + shared primitives + islands
+├── design-tokens/ # OKLCH→sRGB + motion tokens → Compose/SwiftUI/Rust
+├── domain-contract/ # contract.json — canonical enums → per-language constants
+├── icons/ # icons.json — the ONE icon registry → TS/Swift/Kotlin/Rust
 ├── electric-protocol/ # Shape wire contract + fixtures
-├── emoji/             # emoji dataset → ONE json ×4
-├── steer-ticket/      # HS256 ticket (web mints, relay verifies)
-├── widget/            # Feedback widget (Preact + snapDOM)
-├── view-catalog/      # views.json — every view × platform, drift-gated
-├── shots/             # capture pipeline → shots/
+├── emoji/ # emoji dataset → ONE json ×4
+├── steer-ticket/ # HS256 ticket (web mints, relay verifies)
+├── widget/ # Feedback widget (Preact + snapDOM)
+├── view-catalog/ # views.json — every view × platform, drift-gated
+├── shots/ # capture pipeline → shots/
 └── tsconfig/
-docs/                  # third-party-licences.md + licences/
-shots/                 # COMMITTED webp store, <view>/<platform>.webp
-docker-compose.yaml    # DEV backend stack (not the self-host one)
-selfhost/              # Pull-an-image compose; INSTALL.md = the runbook
-Dockerfile{,.push-relay,.steer-relay}   # build context = repo root
+docs/ # third-party-licences.md + licences/
+shots/ # COMMITTED webp store, <view>/<platform>.webp
+docker-compose.yaml # DEV backend stack (not the self-host one)
+selfhost/ # Pull-an-image compose; INSTALL.md = the runbook
+Dockerfile{,.push-relay,.steer-relay} # build context = repo root
 ```
 
 Workspace names: `@exp/<dir>`; `apps/desktop` is a Cargo workspace. 
@@ -46,13 +46,13 @@ Workspace names: `@exp/<dir>`; `apps/desktop` is a Cargo workspace.
 
 **Vocabulary (EXP-180):** the product says **team** and **board** EVERYWHERE: copy, URLs (`/t/$teamSlug/boards/$boardSlug/issues/$id`), identifiers, DB, routers, shapes, MCP tools. Boards have no types; `repository_id` NULLABLE; coding gates on repo PRESENCE.
 
-**Client parity:** all four clients sync the same 22 Electric shapes (`routes/api/shapes/` IS the list). `pins` (EXP-778) + `issue_drafts` (EXP-878) = per-user static, never trash-scoped: a row renders only when its target/board resolves; draft attachments (`draft_id`, issue_id NULL) never sync (tRPC `issueDrafts.listAttachments`), upload eagerly to `/api/issue-drafts/{id}/files`, reparent on `issues.create({draftId})`. The `actions` shape EXCLUDES the `body` (tRPC `actions.get`). `devices` + `device_worktrees` (EXP-481) sync `user_id = me OR shared_team_ids && (member teams)` via trigger mirrors; identity rotates only on membership changes; devices rows = SERVER-AUTHORITATIVE (persisted `launch_defaults` the machine converges to; heartbeat ~30s; online = `last_seen_at` within `contract.device.onlineWindowSeconds`). `repositories`, `user_notification_prefs`, `email_deliveries`, `conversion_events`, `device_commands`, `passkeys`, helpdesk and widget tables = **server-only (tRPC), never synced**.
+**Client parity:** all four clients sync the same 24 Electric shapes (`routes/api/shapes/` IS the list). `pins` (EXP-778) + `issue_drafts` (EXP-878) = per-user static, never trash-scoped: a row renders only when its target/board resolves; draft attachments (`draft_id`, issue_id NULL) never sync (tRPC `issueDrafts.listAttachments`), upload eagerly to `/api/issue-drafts/{id}/files`, reparent on `issues.create({draftId})`. The `actions` shape EXCLUDES the `body` (tRPC `actions.get`). `devices` + `device_worktrees` (EXP-481) sync `user_id = me OR shared_team_ids && (member teams)` via trigger mirrors; identity rotates only on membership changes; devices rows = SERVER-AUTHORITATIVE (persisted `launch_defaults` the machine converges to; heartbeat ~30s; online = `last_seen_at` within `contract.device.onlineWindowSeconds`). `repositories`, `user_notification_prefs`, `email_deliveries`, `conversion_events`, `device_commands`, `passkeys`, helpdesk and widget tables = **server-only (tRPC), never synced**.
 
 **Nothing is anonymously readable:** every shape = member-only (anonymous → impossible-match sentinel); no public tRPC; attachment reads need membership. ONLY anonymous endpoints: widget (`/api/widget/*`), helpdesk reporter magic-link (`/api/support/*` + `/support/$token`), invites, auth, `/about` + `/NOTICES.txt`, MCP OAuth CIMD + state-gated callback (`/api/mcp-oauth/{client.json,callback}`, EXP-792), `/api/session-results/$token` (HMAC upload, EXP-879). Board-scoped shapes = TEAM-scoped with a STATIC trash predicate (REV2-5): `team_id IN (member teams) AND board_deleted_at IS NULL`, a trigger-maintained mirror of the board's `deleted_at` on every issue child, so trashing moves rows out incrementally and **shape identities rotate ONLY on membership changes**. Batch `coding_sessions` rows and issue-less notifications keep NULL `board_deleted_at` and always sync; the notifications shape = static per user (`user_id = me AND board_deleted_at IS NULL`; fan-out filters recipients at delivery, delivered rows outlive membership); issue-less `support_reply` rows carry a synced `team_id` for Support routing.
 
 **Permissions are membership-only:** `lib/auth/access.ts` `resolveTeamAccess` = the single authority (capabilities `read`/`comment`/`create_issue`/`mutate_resources`), mirrored by `use-team-permissions.ts` + the natives; every member moderates and handles support, owners own the destructive/settings surface (owner-only controls HIDDEN from non-owners; destructive native actions confirm). Signups get **no** team: first-run = "Create a team" (`teams.create`; creator = owner; cloud cap `FREE_OWNED_TEAMS_CAP`) or "Join a team" (invite link; `teamInvites.accept` stamps `onboardingCompletedAt`; invites may carry a synced `email`). `teams.getDefault` = the NON-CREATING resolver (oldest membership). An owner may delete ANY team incl. the last (cloud: once its subscription is cancelled). **Billing and the admin console are web-only. Coding sessions run only on the desktop app and the headless `exponential` CLI daemon** (EXP-403; device-code login at `/auth/device`), both publishing scrubbed activity to the steer relay; a LIVE session = visible/steerable ONLY by its owner (EXP-312); teammates see the status badge.
 
-The app = **noindex** (`__root.tsx` meta + `X-Robots-Tag`; `/robots.txt` disallows `/api/`); marketing owns the indexed surface (`src/lib/seo.ts` `PAGES`).
+The app = **noindex** (`__root.tsx` meta + `X-Robots-Tag`); marketing owns the indexed surface (`src/lib/seo.ts` `PAGES`).
 
 ## Shared Contracts
 
@@ -68,19 +68,19 @@ From repo root.
 
 ```bash
 bun install
-bun run backend                    # docker compose up -d + dev server (:3000 via Caddy)
-bun run ios / ios:test             # tuist+Xcode / ExpCore+ExpUI suites (Mac-only)
-bun run android                    # productionDebug install + launch
-bun dev                            # web dev server (:5173)
+bun run backend  # docker compose up -d + dev server (:3000 via Caddy)
+bun run ios / ios:test  # tuist+Xcode / ExpCore+ExpUI suites (Mac-only)
+bun run android  # productionDebug install + launch
+bun dev  # web dev server (:5173)
 bun run {dev,build}:marketing / movie:{studio,render,poster,still}
-bun run {dev,start}:push-relay / {dev,start,test}:steer-relay   # :4001 / :4002
-bun run build                      # widget FIRST, then web + marketing
+bun run {dev,start}:push-relay / {dev,start,test}:steer-relay  # :4001 / :4002
+bun run build  # widget FIRST, then web + marketing
 bun run build:web / build:widget / test:widget / dev:widget (watch, /widget/v1/demo.html)
-bun run typecheck / test / test:e2e   # web
+bun run typecheck / test / test:e2e  # web
 bun run migrate / migrate:generate / psql / backend:{up,down,clear} (clear wipes volumes) / storage:init (Garage bootstrap)
-bun run dev:desktop / {build,appimage,macapp,test}:desktop   # gpui IDE vs the local backend
+bun run dev:desktop / {build,appimage,macapp,test}:desktop  # gpui IDE vs the local backend
 bun run --filter @exp/{domain-contract,design-tokens,icons} generate
-cd apps/web && bun run seed:screenshots   # demo data; then `bun run shots` → shots/
+cd apps/web && bun run seed:screenshots  # demo data; then `bun run shots` → shots/
 ```
 
 Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` in `apps/desktop/`. Never `bun run lint` (corrupts `typeof import()`) or `bun run format`.
@@ -139,7 +139,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 - **Auth guard**: `_authenticated.tsx` `beforeLoad` + `throw redirect()`; `fetchSessionOnce()`.
 - **MCP OAuth consent**: `lib/auth/mcp-authorize-guard.ts` pre-flights every `mcp/authorize` (forces `prompt=consent`) → `/auth/consent` team/board multi-select persisted to `mcp_grants` BEFORE the code mints. `lib/mcp/scope.ts` confines OAuth tokens to the grant (no grant row = nothing) and to `/api/mcp`; cookies + `expu_` keys keep full access. Login resumes interrupted authorizes (`lib/auth/oauth-resume.ts`).
 - **Issue UI**: issue detail = a route fed a live Electric `issue` (md+: the board list beside it); title/description save on blur, other fields mutate immediately; `completedAt` = auto-managed.
-- **Issue lists (EXP-980)**: sub-issues nest under the parent, the ROOT decides group + position (`lib/issue-nesting.ts`); ONE blocks badge per row opens THE mini-graph (`lib/issue-graph.ts`; grid web + desktop, wave list phones), shared with the `PrGraphBadge` Issue face + blocked-start dialog; both rules ×4, fixture-locked.
+- **Issue lists (EXP-980)**: sub-issues nest under the parent, the ROOT decides group + position (`lib/issue-nesting.ts`); ONE blocks badge per row opens THE mini-graph (`lib/issue-graph.ts`; grid web + desktop, wave list phones), also the `PrGraphBadge` Issue face, blocked-start dialog and workflow detail; ×4, fixture-locked.
 - **Issue search (EXP-892)**: ONE engine ×4, `lib/issue-search.ts` (mirrored ×3, locked by `domain-contract/fixtures/issue-search.json`), `useIssueSearchResults` in every picker; `lib/issue-search-sql.ts` behind `issues.search` AND MCP `issues_list.search`; desktop search = issues only; lists: top row preselected, ↑/↓, Enter/Tab pick, hover moves selection.
 
 ## Environment Variables
@@ -148,8 +148,8 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 
 - `CLOUD_INSTANCE` = the opt-IN cloud marker (EXP-364): `'true'` = billing, plan limits, in-app widget, conversion tracking; unset = self-hosted, every FEATURE limit unlocked; `INITIAL_ADMIN_EMAILS` auto-promotes global admins.
 - `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup on in dev, OFF in production builds (`selfhost/docker-compose.yaml` re-defaults `true`). Auth posture = BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5), never runtime `NODE_ENV`. EXP-857: `AUTH_EMAIL_OTP_ENABLED` defaults on WITH a mail transport, `AUTH_PASSKEY_ENABLED` WITH an https base (rpID = host; Android origins from `ANDROID_APP_LINK_FINGERPRINTS`); login = ONE "Continue with …" list ×4; `mobile-oauth-start?provider=browser` = the native browser handoff.
-- Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*` for ALL mail, SES wins; neither = no mail.
-- OIDC: `OIDC_PROVIDERS` (JSON array) = primary; single-provider `AUTH_OIDC_ENABLED`/`OIDC_*` = legacy, read only when unset.
+- Mail: SES (`AWS_SES_REGION` + creds) OR `SMTP_*`, SES wins; neither = no mail.
+- OIDC: `OIDC_PROVIDERS` (JSON array) = primary; `AUTH_OIDC_ENABLED`/`OIDC_*` = legacy, read only when unset.
 - GitHub App installs are claimed PER TEAM (`github_installation_links`); `GITHUB_APP_CLIENT_SECRET` unset ⇒ install-page round-trip; `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts.
 - `STEER_RELAY_URL` unset = remote start/steer off; HS256 `STEER_RELAY_SECRET` must match the relay; BOTH relays need `TRUST_PROXY=true` behind a proxy.
 - `CLIENT_MIN_VERSION_{ANDROID,IOS,DESKTOP}` gate with HTTP 426 + a blocking update screen (unset = off); MARKETING versions, never build numbers; `CLIENT_LATEST_VERSION_*` = informational.
@@ -175,9 +175,13 @@ A PR based on another open PR's branch = a **stack**: `issues.pr_base_branch` (s
 
 ### Actions (EXP-253)
 
-`actions` rows (per team, markdown `body` ≤64KB, optional `repository_id` SET NULL + curated `icon`, ≤10 typed PICK inputs `repo|board|pr|icon`; EXP-825: free text = `steer.startSession({prompt})` → an "Additional instructions" section hinted by `actions.prompt_placeholder`, images = steer embeds via `POST /api/teams/$teamId/session-files` bound by `codingSessions.start({attachmentIds})`, cap `start-prompt` gates the Chat/Create builtins): tRPC CRUD (member list/get, owner writes) + 4 MCP tools + the body-less shape. **Automations (EXP-583) = their OWN rows + shape** (`automations`: `action_id` target, `device_id` runner, nullable `agent`/`model`/`effort`, `trigger` jsonb schedule|event, `enabled`), never a field on actions; LOCAL-ONLY (no server scheduler: the bound device picks its enabled rows off Electric and self-starts with `startedReason`+`automationId`); owner-only `automations` router + MCP `exponential_automations_*`; an enabled automation needs every input optional; withdrawing a device share disables its automations; Automations tab ×4. Runs = `coding_sessions` rows (`action_id` + `action_name` snapshot) executed LOCALLY (any agent) in a per-run worktree, a PR branch's worktree (fix-conflicts) or a scratch dir; never server-side secrets; NO per-device trust prompt. Remote start rides the steer rails (`steer.startSession({actionId, deviceId, agent?, model?, effort?})`); `resumeSessionId` + the `resume-run` cap relaunch an ended run. All four clients edit actions in full (EXP-694; mobile fetches `body` via `actions.get`); the builtin creator run authors new ones, not a form (EXP-257).
+`actions` rows (per team, markdown `body` ≤64KB, optional `repository_id` SET NULL + curated `icon`, ≤10 typed PICK inputs `repo|board|pr|icon`; EXP-825: free text = `steer.startSession({prompt})` → an "Additional instructions" section hinted by `actions.prompt_placeholder`, images = steer embeds via `POST /api/teams/$teamId/session-files` bound by `codingSessions.start({attachmentIds})`, cap `start-prompt` gates the Chat/Create builtins): tRPC CRUD (member list/get, owner writes) + 4 MCP tools + the body-less shape. **Automations (EXP-583) = their OWN rows + shape** (`automations`: `action_id` target, `device_id` runner, nullable `agent`/`model`/`effort`, `trigger` jsonb schedule|event, `enabled`), never a field on actions; LOCAL-ONLY (no server scheduler: the bound device picks its enabled rows off Electric and self-starts with `startedReason`+`automationId`); owner-only `automations` router + MCP `exponential_automations_*`; an enabled automation needs every input optional; withdrawing a device share disables its automations; Automations tab ×4. Runs = `coding_sessions` rows (`action_id` + `action_name` snapshot) executed LOCALLY in a per-run worktree, a PR branch's worktree (fix-conflicts) or a scratch dir; never server-side secrets. Remote start rides the steer rails (`steer.startSession({actionId, deviceId, agent?, model?, effort?})`); `resumeSessionId` + the `resume-run` cap relaunch an ended run. All four clients edit actions in full (EXP-694; mobile fetches `body` via `actions.get`); the creator run authors new ones, not a form.
 
-TWO virtual builtins are NOT DB rows: each client CONSTRUCTS them locally with **byte-identical** name/description strings (`lib/builtin-actions.ts`, `api::actions::builtin_*`, `ActionsApi` ×2); MCP's list appends both, tRPC's does not. They pin FIRST by the `builtin` flag, every builtin start carries `teamId`, and `get/update/delete` reject the reserved ids. **"Create action"** (`builtin:create-action`, inputs `[repo?, icon?]`, the request = `prompt`) = the describe-it creator run, scratch cwd; the hidden Chat builtin (`[repo?]`, `prompt` required) = the composer with no subject. **"Fix merge conflicts"** (`builtin:fix-conflicts`) takes a required `pr` input (the representative ISSUE id of an open PR, deduped by prUrl for batch PRs) and runs in that PR branch's WORKTREE (rebase, resolve, force-push, `exponential_pr_merge`); Reviews offers it on a failed merge. Both get per-agent MCP wiring; prompts = shipped constants (`body` empty). Suggestion seeds (`action-suggestions.ts`, ×4) prefill the creator run's `text`.
+Virtual builtins are NOT DB rows: each client CONSTRUCTS them locally with **byte-identical** strings (`lib/builtin-actions.ts`, `api::actions::builtin_*`, `ActionsApi` ×2); MCP's list appends the two listed ones, tRPC's does not. They pin FIRST by the `builtin` flag, every builtin start carries `teamId`, `get/update/delete` reject the reserved ids. **"Create action"** (`builtin:create-action`, inputs `[repo?, icon?]`, the request = `prompt`) = the describe-it creator run, scratch cwd; the hidden Chat builtin (`[repo?]`, `prompt` required) = the composer with no subject. **"Fix merge conflicts"** (`builtin:fix-conflicts`) takes a required `pr` input (the representative ISSUE id of an open PR, deduped by prUrl for batch PRs) and runs in that PR branch's WORKTREE (rebase, resolve, force-push, `exponential_pr_merge`); Reviews offers it on a failed merge. Prompts = shipped constants (`body` empty). Suggestion seeds (`action-suggestions.ts`, ×4) prefill the creator run's `text`.
+
+### Workflows (EXP-978)
+
+A **workflow** (contract `wf*`; `workflowStatus` = the feed's unrelated tool card) = backlog issues of ONE repo run as a DAG: synced `blocks` = the edges (never copied), parent + sub-issues = ONE compound node (`member_issue_ids`). `workflows` + `workflow_nodes` = team-scoped shapes; `wave`/`lane`/`on_cycle`/`metrics` = the SERVER layout (`lib/workflow-layout.ts`, re-derived by `lib/workflows.ts` on every `blocks`/`parent` write): NO client lays out, all draw `lib/workflow-view.ts` (×4, fixture-locked). Member-writable router + 4 MCP tools; hidden builtin `builtin:plan-workflow` (`steer.startSession({workflowId})`, cap `plan-workflow`). `subagentModel` = claude-only launch env.
 
 ### Desktop IDE & mobile
 
@@ -185,19 +189,19 @@ Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or 
 
 ## Billing (per-seat, Creem — cloud only)
 
-Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`; `billing.createSeatCheckout`, Creem `units` = seats), not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): `reference_id` nullable/set-null; account deletion NEVER blocked by billing, it only cancels a SOLO team's subscription it destroys; team deletes REFUSE a live subscription (`PRECONDITION_FAILED`; a period-end cancellation passes), natives point at web. ONE subscription per team: `createSeatCheckout` refuses duplicates; `billing.updateSeats`/`changePlan` mutate the EXISTING subscription with `update_behavior: proration-charge-immediately`. Free = 3 seats, 250MB, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly: 10GB, unlimited widgets, helpdesk (`PlanTier = free|team|unlimited`; comp tiers `team|unlimited`). Unlimited boards/repos/coding sessions on every tier; push + steer never plan-gated; over-seat teams only block invites.
+Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`; `billing.createSeatCheckout`, Creem `units` = seats), not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): `reference_id` nullable/set-null; account deletion NEVER blocked by billing, it only cancels a SOLO team's subscription it destroys; team deletes REFUSE a live subscription (`PRECONDITION_FAILED`; a period-end cancellation passes), natives point at web. ONE subscription per team: `createSeatCheckout` refuses duplicates; `billing.updateSeats`/`changePlan` mutate the EXISTING subscription with `update_behavior: proration-charge-immediately`. Free = 3 seats, 250MB, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly: 10GB, unlimited widgets, helpdesk (`PlanTier = free|team|unlimited`). Boards/repos/coding sessions, push + steer = never plan-gated; over-seat teams only block invites.
 
-**Limits exist only when `CLOUD_INSTANCE=true`**, a product switch, not a licence: Apache-2.0 (EXP-352), no licence gate in code. Enterprise Support: NO published pricing (EXP-218), marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
+**Limits exist only when `CLOUD_INSTANCE=true`** (a product switch; Apache-2.0, no licence gate). Enterprise Support: NO published pricing (EXP-218), marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
 
 ## Feedback widget & helpdesk
 
-`packages/widget` (Preact shadow root + snapdom) builds an async IIFE loader + lazy panel into `apps/web/public/widget/v1/`; API `window.ExponentialWidget` (`init({key})`, `identify`, `setCustomData`, `open`, `close`, `submit`).
+`packages/widget` (Preact shadow root + snapdom) builds an async IIFE loader + lazy panel into `apps/web/public/widget/v1/`; API = `window.ExponentialWidget`.
 
-Server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_submissions`; public CORS routes `/api/widget/{config,submit}` (origin/rate-limit/honeypot in `lib/widget/`). **Modes** `feedback`/`support`/both (`form_config.modes`; absent = feedback-only). `form_config` also carries `labelIds` (≤10 → `issue_labels`) and `theme` dark/light/auto + colors (`setTheme()`); ONE capture button (EXP-488: getDisplayMedia desktop, snapDOM mobile) + an Off/3s/5s hold segment (FEED-18). Feedback files an ordinary issue onto `widget_configs.board_id` (NULLABLE, required iff feedback mode; set-null): issue + screenshot attachment (null `uploader_id`) + submission row in ONE transaction, `creator_id NULL`, `source='widget'`. Support files a STANDALONE ticket (`support_threads` + opening `support_messages` row, NO issue) gated on `teams.helpdesk_enabled` + paid plan (`assertCanUseHelpdesk`), re-checked per submit; reporter auth = emailed magic link (`lib/helpdesk/token.ts`); members use the `helpdesk` router (close/reopen, `escalate` → linked issue); notify via issue-less `support_reply` fan-out. Rate limiting = in-process token buckets; the ONLY cloud upsell = the widget settings' usage bar. Settings entries "Feedback widget" + "Helpdesk" (owner-only) on web AND the IDE (read-only + Manage on web). The in-app widget = HEADLESS behind the sidebar "Report bug" button; key in `lib/runtime-config.ts` (cloud-only; `FEEDBACK_WIDGET_KEY` overrides); self-hosted shows no button.
+Server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_submissions`; public CORS routes `/api/widget/{config,submit}` (origin/rate-limit/honeypot in `lib/widget/`). **Modes** `feedback`/`support`/both (`form_config.modes`; absent = feedback-only). `form_config` also carries `labelIds` (≤10) and `theme` dark/light/auto + colors; ONE capture button (EXP-488: getDisplayMedia desktop, snapDOM mobile) + an Off/3s/5s hold segment. Feedback files an ordinary issue onto `widget_configs.board_id` (NULLABLE, required iff feedback mode): issue + screenshot attachment (null `uploader_id`) + submission row in ONE transaction, `creator_id NULL`, `source='widget'`. Support files a STANDALONE ticket (`support_threads` + opening `support_messages` row, NO issue) gated on `teams.helpdesk_enabled` + paid plan (`assertCanUseHelpdesk`, per submit); reporter auth = emailed magic link (`lib/helpdesk/token.ts`); members use the `helpdesk` router (close/reopen, `escalate` → linked issue); notify = issue-less `support_reply`. Rate limits = in-process token buckets; the ONLY cloud upsell = the widget settings' usage bar. Settings "Feedback widget" + "Helpdesk" = owner-only, web + IDE (read-only there). The in-app widget = HEADLESS behind the sidebar "Report bug" button (cloud-only; key in `lib/runtime-config.ts`, `FEEDBACK_WIDGET_KEY` overrides).
 
 ## Conversion tracking (EXP-362, cloud only)
 
-`lib/conversion/` + `adminConversions` router + `admin/conversions.tsx`, no-ops unless `CLOUD_INSTANCE=true`. COOKIELESS: visitors = daily-rotating salted HMAC of ip+ua (`anonymous.ts`); attribution = URL params only (`ref`/`utm_*`). `events.ts` owns the closed vocabulary (`landing` only on `/`+`/auth/*`; `return_visit` daily; signup→checkout funnel + Creem lifecycle); idempotency = PARTIAL UNIQUE INDEXES + `onConflictDoNothing`.
+`lib/conversion/` + `adminConversions` router + `admin/conversions.tsx`, no-ops unless `CLOUD_INSTANCE=true`. COOKIELESS: visitors = daily-rotating salted HMAC of ip+ua; attribution = URL params only (`ref`/`utm_*`). `events.ts` owns the closed vocabulary (`landing` only on `/`+`/auth/*`; `return_visit` daily; signup→checkout funnel + Creem lifecycle); idempotency = PARTIAL UNIQUE INDEXES + `onConflictDoNothing`.
 
 ## Style Conventions
 

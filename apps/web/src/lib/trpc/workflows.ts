@@ -136,6 +136,7 @@ async function loadPickableIssues(
     .select({
       id: issues.id,
       identifier: issues.identifier,
+      number: issues.number,
       status: issues.status,
       teamId: issues.teamId,
       repositoryId: boards.repositoryId,
@@ -236,9 +237,8 @@ export const workflowsRouter = router({
     .mutation(async ({ ctx, input }) => {
       await assertTeamMember(ctx.session.user.id, input.teamId)
       const picked = await loadPickableIssues(input.issueIds, input.teamId, null)
-      const first = [...picked.rows].sort((a, b) =>
-        a.identifier < b.identifier ? -1 : 1
-      )[0]!
+      // By NUMBER: "APP-10" sorts before "APP-6" as text.
+      const first = [...picked.rows].sort((a, b) => a.number - b.number)[0]!
       const name =
         input.name ??
         (picked.rows.length > 1
@@ -266,8 +266,11 @@ export const workflowsRouter = router({
             issueId: row.id,
           }))
         )
-        await replanWorkflow(tx, id)
-        return { txId, workflow: workflow! }
+        const metrics = await replanWorkflow(tx, id)
+        return {
+          txId,
+          workflow: { ...workflow!, metrics: metrics ?? workflow!.metrics },
+        }
       })
     }),
 

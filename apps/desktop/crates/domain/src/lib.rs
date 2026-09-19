@@ -53,7 +53,10 @@
 //!   `fixtures/diff/tree.json`;
 //! * [`edit_card`] — EXP-916's edited-files card and the ONE rule that decides
 //!   which tool calls form it, byte-locked ×4 by
-//!   `fixtures/feed/edit-cards.json`.
+//!   `fixtures/feed/edit-cards.json`;
+//! * [`workflow_view`] — EXP-981's workflow bands, shape line, node captions
+//!   and node edges (the server owns the `wave`/`lane` geometry), byte-locked
+//!   ×4 by `fixtures/workflow-view.json`.
 //!
 //! gpui-free — headless-testable.
 
@@ -82,6 +85,7 @@ pub mod session_results;
 pub mod session_tree;
 pub mod statuses;
 pub mod tree_guides;
+pub mod workflow_view;
 
 pub use enums::{IssuePriority, IssueStatus};
 pub use rows::member_fallback_label;

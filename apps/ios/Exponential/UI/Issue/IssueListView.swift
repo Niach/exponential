@@ -45,6 +45,8 @@ struct IssueListView: View {
     @State private var bulkSheet: BulkSheet?
     /// The selection bar's Delete confirmation (EXP-698 r5).
     @State private var showBulkDeleteConfirm = false
+    /// EXP-981: a `workflows.create` is in flight (the play menu's third item).
+    @State private var creatingWorkflow = false
     // Inline status/priority editing straight from a row's icon (EXP-247) —
     // non-selection rows only, moderator-gated.
     @State private var inlineEdit: InlineEdit?
@@ -771,14 +773,33 @@ struct IssueListView: View {
                 bulkSheet = .labels
             }
 
-            // Start coding — the bar's raison d'être (EXP-239). Only on
+            // The play menu — the bar's raison d'être (EXP-239). Only on
             // repo-backed boards, and only while the relay isn't known-off.
+            // EXP-981: the single "Start coding" pill became a MENU of three
+            // ways to run the selection (the ×4 rule), labels from
+            // `WorkflowView`.
             if vm.board?.repositoryId != nil, steerEnabled != false {
-                Button {
-                    startCodingTapped()
+                GlassMenu {
+                    GlassMenuItem(WorkflowView.startAsBatchLabel) {
+                        startCodingTapped()
+                    }
+                    // A stack is a chain of single-issue runs (EXP-897): it
+                    // needs exactly ONE picked issue, and that issue has to be
+                    // blocked by something. Disabled rather than hidden — the
+                    // composer's blocked-start dialog is where the stack is
+                    // actually offered.
+                    GlassMenuItem(
+                        WorkflowView.startAsStackLabel,
+                        enabled: canStartAsStack(vm)
+                    ) {
+                        startCodingTapped()
+                    }
+                    GlassMenuItem(WorkflowView.createWorkflowLabel) {
+                        createWorkflowTapped(vm)
+                    }
                 } label: {
                     HStack(spacing: 6) {
-                        if steerDevices == nil {
+                        if steerDevices == nil || creatingWorkflow {
                             ProgressView()
                                 .controlSize(.small)
                                 .tint(DesignTokens.Palette.primaryForeground)
@@ -787,6 +808,7 @@ struct IssueListView: View {
                         }
                         Text("Start coding")
                             .font(.subheadline.weight(.medium))
+                        AppIcon(AppIcons.uiChevronDown, size: 10)
                     }
                     .foregroundStyle(DesignTokens.Palette.primaryForeground)
                     .padding(.horizontal, 12)
@@ -794,8 +816,9 @@ struct IssueListView: View {
                     .background(DesignTokens.Palette.primary, in: Capsule())
                     .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
                 .padding(.leading, 4)
+                .accessibilityLabel("Start coding")
+                .accessibilityIdentifier("bulk-start-menu")
             }
 
             // Delete (EXP-698 r5) — the one destructive control in the bar, and
@@ -1027,6 +1050,39 @@ struct IssueListView: View {
         exitSelection()
         startNotice = nil
         pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: ids)))
+    }
+
+    /// EXP-981: "Start as stack" applies to exactly ONE picked issue that
+    /// something still blocks — the composer's blocked-start dialog is what
+    /// then offers the stacked pull request.
+    private func canStartAsStack(_ vm: IssueListViewModel) -> Bool {
+        guard selectedIds.count == 1, let id = selectedIds.first else { return false }
+        return (vm.blockCounts[id]?.blockedBy ?? 0) > 0
+    }
+
+    /// EXP-981: plan the selection as ONE workflow — `workflows.create` in the
+    /// board's team with the issues in DISPLAY order, then straight into the
+    /// new workflow's detail. A refusal (a started issue, two repositories) is
+    /// the server's own sentence, shown on the bar like a failed start.
+    private func createWorkflowTapped(_ vm: IssueListViewModel) {
+        guard !creatingWorkflow, let teamId = vm.board?.teamId else { return }
+        let ids = (viewModel?.displayOrderedIssues ?? [])
+            .filter { selectedIds.contains($0.id) }.map(\.id)
+        guard !ids.isEmpty else { return }
+        creatingWorkflow = true
+        startNotice = nil
+        Task {
+            defer { creatingWorkflow = false }
+            do {
+                let workflow = try await deps.workflowsApi.create(
+                    accountId: accountId, teamId: teamId, issueIds: ids
+                )
+                exitSelection()
+                pushRoute(.workflow(accountId: accountId, id: workflow.id))
+            } catch {
+                showNotice(error.userFacingMessage, isError: true)
+            }
+        }
     }
 
     private func showNotice(_ message: String, isError: Bool) {

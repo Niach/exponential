@@ -5,6 +5,8 @@ import {
   BUILTIN_CHAT_ID,
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_FIX_CONFLICTS_ID,
+  BUILTIN_PLAN_WORKFLOW_ID,
+  BUILTIN_PLAN_WORKFLOW_NAME,
 } from "@/lib/builtin-actions"
 
 // EXP-825: the composer's model — swap rules, submit labels, the blocked
@@ -754,5 +756,56 @@ describe(`useLaunchComposer blocked start`, () => {
     await act(() => result.current.submit())
     expect(result.current.blockedOpen).toBe(false)
     expect(remote.startIssues).toHaveBeenCalledTimes(1)
+  })
+})
+
+// EXP-981: the hidden plan-workflow builtin — the Plan button seeds it with
+// the workflow it plans, and that id rides the start beside the action.
+describe(`useLaunchComposer plan workflow`, () => {
+  const workflowId = `9f1d6b2a-0000-4000-8000-000000000001`
+
+  it(`resolves the hidden builtin without listing it in the picker`, () => {
+    const { result } = mount({ issueIds: [], actionId: BUILTIN_PLAN_WORKFLOW_ID })
+    expect(result.current.selectedAction?.name).toBe(BUILTIN_PLAN_WORKFLOW_NAME)
+    // Hidden like Chat: never appended to the picker's list.
+    expect(result.current.actions?.map((row) => row.id)).not.toContain(
+      BUILTIN_PLAN_WORKFLOW_ID
+    )
+  })
+
+  it(`sends the seeded workflow id with the run`, async () => {
+    const { result, remote } = mount({
+      issueIds: [],
+      actionId: BUILTIN_PLAN_WORKFLOW_ID,
+      workflowId,
+    })
+    expect(result.current.workflowId).toBe(workflowId)
+    // The free text is optional — the builtin has no required inputs.
+    expect(result.current.blocked).toBe(false)
+    await act(() => result.current.submit())
+    expect(remote.runAction).toHaveBeenCalledWith(
+      device,
+      {
+        id: BUILTIN_PLAN_WORKFLOW_ID,
+        name: BUILTIN_PLAN_WORKFLOW_NAME,
+        teamId: `t1`,
+        workflowId,
+      },
+      expect.objectContaining({ agent: `claude` }),
+      // No inputs: the workflow is named by the start, not by a pick.
+      undefined,
+      undefined
+    )
+    expect(result.current.workflowId).toBeUndefined()
+  })
+
+  it(`drops the workflow id the moment another subject is picked`, () => {
+    const { result } = mount({
+      issueIds: [],
+      actionId: BUILTIN_PLAN_WORKFLOW_ID,
+      workflowId,
+    })
+    act(() => result.current.toggleIssue(`i1`))
+    expect(result.current.workflowId).toBeUndefined()
   })
 })

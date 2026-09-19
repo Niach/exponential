@@ -112,6 +112,9 @@ pub(crate) enum ToolWindow {
     /// there rather than to the Agent page (an unattended run has no row on
     /// the Agent page's lists).
     Automations,
+    /// EXP-981: the Workflows page's list — opening a workflow keeps it in
+    /// the left column, and the detail's Back goes there.
+    Workflows,
 }
 
 impl ToolWindow {
@@ -133,6 +136,7 @@ impl ToolWindow {
             ToolWindow::SourceControl => Screen::SourceControl,
             ToolWindow::Reviews => Screen::Reviews,
             ToolWindow::Automations => Screen::Automations,
+            ToolWindow::Workflows => Screen::Workflows,
         }
     }
 
@@ -148,6 +152,7 @@ impl ToolWindow {
             ToolWindow::SourceControl => "Source Control",
             ToolWindow::Reviews => "Reviews",
             ToolWindow::Automations => "Automations",
+            ToolWindow::Workflows => domain::workflow_view::WORKFLOWS_TITLE,
         }
     }
 }
@@ -410,6 +415,9 @@ pub(crate) fn focused_list(screen: Option<&Screen>) -> (ToolWindow, InboxTab) {
         Some(Screen::SourceControl) => (ToolWindow::SourceControl, InboxTab::Inbox),
         Some(Screen::Reviews) => (ToolWindow::Reviews, InboxTab::Inbox),
         Some(Screen::Automations) => (ToolWindow::Automations, InboxTab::Inbox),
+        Some(Screen::Workflows) | Some(Screen::Workflow { .. }) => {
+            (ToolWindow::Workflows, InboxTab::Inbox)
+        }
         _ => (ToolWindow::BoardIssues, InboxTab::Inbox),
     }
 }
@@ -2212,6 +2220,16 @@ impl Render for RailView {
                             None,
                             cx,
                         ))
+                        // EXP-981: Workflows sits directly after Automations,
+                        // everywhere Automations appears.
+                        .child(self.rail_screen_entry(
+                            "rail-workflows",
+                            Icon::from(icons::registry::NAV_WORKFLOWS),
+                            domain::workflow_view::WORKFLOWS_TITLE,
+                            Screen::Workflows,
+                            None,
+                            cx,
+                        ))
                         .child(self.rail_screen_entry(
                             "rail-reviews",
                             Icon::from(ExpIcon::GitPullRequest),
@@ -2328,6 +2346,16 @@ impl Render for RailView {
                         Icon::from(icons::registry::NAV_AUTOMATIONS),
                         "Automations",
                         Screen::Automations,
+                        None,
+                        cx,
+                    ))
+                    // EXP-981: Workflows sits directly after Automations,
+                    // everywhere Automations appears.
+                    .child(self.rail_screen_entry(
+                        "rail-workflows",
+                        Icon::from(icons::registry::NAV_WORKFLOWS),
+                        domain::workflow_view::WORKFLOWS_TITLE,
+                        Screen::Workflows,
                         None,
                         cx,
                     ))
@@ -2510,6 +2538,9 @@ pub struct ListPanel {
     reviews_data: queries::Memo<queries::ReviewGroupsKey, Vec<queries::ReviewGroup>>,
     automation_facts:
         queries::Memo<queries::AutomatedRunsKey, Vec<crate::run_rows::RunListFacts>>,
+    /// EXP-981: the workflows list's rows — derived when the two workflow
+    /// shapes move, never per repaint.
+    workflows_data: queries::Memo<queries::WorkflowDataKey, Vec<domain::rows::WorkflowRow>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -2641,6 +2672,7 @@ impl ListPanel {
             inbox_data: queries::Memo::default(),
             reviews_data: queries::Memo::default(),
             automation_facts: queries::Memo::default(),
+            workflows_data: queries::Memo::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -4418,6 +4450,115 @@ impl ListPanel {
     }
 
     /// The shared `ListNav` scroll body.
+    /// The Workflows `ListNav` body (EXP-981): this team's workflows in the
+    /// same three bands the page draws, with the open one selected. Opening
+    /// a workflow from the page is the one path that lands here, and its
+    /// Back goes to the Workflows page.
+    fn render_workflows_nav(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        use domain::workflow_view::{workflow_band, workflow_shape_line, WORKFLOW_BANDS};
+
+        let Some(team_id) = active_team_id(&self.nav, cx) else {
+            return self.list_note("No team selected.", cx);
+        };
+        // EXP-915's rule: derived when a collection the rows read moves,
+        // never per repaint (the nav re-renders on every scrolled pixel).
+        let workflows = {
+            let app: &App = cx;
+            let key = queries::workflow_data_key(app, Some(team_id.as_str()), None);
+            self.workflows_data.get_or_insert_with(key, || {
+                queries::team_workflows(app, &team_id).0
+            })
+        };
+        if workflows.is_empty() {
+            return self.list_note("No workflows yet.", cx);
+        }
+        let open_workflow = match resolved_screen(&self.nav, cx) {
+            Some(Screen::Workflow { workflow_id }) => Some(workflow_id),
+            _ => None,
+        };
+        let theme = cx.theme();
+        let (row_hover, row_active, muted, danger) = (
+            theme.list_hover,
+            theme.list_active,
+            theme.muted_foreground,
+            theme.danger,
+        );
+        let mut rows: Vec<gpui::AnyElement> = Vec::with_capacity(workflows.len());
+        for band in WORKFLOW_BANDS {
+            let banded: Vec<&domain::rows::WorkflowRow> = workflows
+                .iter()
+                .filter(|row| workflow_band(row.status_wire()) == band)
+                .collect();
+            // An empty band is hidden, never an empty heading.
+            if banded.is_empty() {
+                continue;
+            }
+            rows.push(
+                crate::surface::glass_section_band(None, band.title(), None, cx).into_any_element(),
+            );
+            for (index, row) in banded.iter().enumerate() {
+                let shape = row.shape();
+                let active = open_workflow.as_deref() == Some(row.id.as_str());
+                let name = SharedString::from(row.name.clone().unwrap_or_default());
+                let line = SharedString::from(workflow_shape_line(&shape));
+                let cycles = !shape.cycles.is_empty();
+                let open_id = row.id.clone();
+                rows.push(
+                    crate::surface::flat_row()
+                        .id((crate::workflows_view::band_row_id(band), index))
+                        .flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py_1p5()
+                        .cursor_pointer()
+                        .when(active, |this| this.bg(row_active))
+                        .hover(move |style| style.bg(row_hover))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            this.open_from_list(
+                                Screen::Workflow {
+                                    workflow_id: open_id.clone(),
+                                },
+                                window,
+                                cx,
+                            );
+                        }))
+                        .child(
+                            div().flex_shrink_0().child(
+                                Icon::from(icons::registry::NAV_WORKFLOWS)
+                                    .xsmall()
+                                    .text_color(muted),
+                            ),
+                        )
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().w_full().min_w_0().truncate().text_sm().child(name))
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_xs()
+                                        .text_color(muted)
+                                        .child(line),
+                                ),
+                        )
+                        .when(cycles, |this| {
+                            this.child(div().flex_shrink_0().child(
+                                Icon::from(icons::registry::UI_WARNING).xsmall().text_color(danger),
+                            ))
+                        })
+                        .into_any_element(),
+                );
+            }
+        }
+        self.nav_scroll("list-nav-workflows-scroll", rows, cx)
+    }
+
     fn nav_scroll(
         &self,
         id: &'static str,
@@ -4454,6 +4595,7 @@ impl ListPanel {
             ToolWindow::Support => self.render_support_tool(cx),
             ToolWindow::Reviews => self.render_reviews_nav(cx),
             ToolWindow::Automations => self.render_automations_nav(cx),
+            ToolWindow::Workflows => self.render_workflows_nav(cx),
             // Files / Source Control are not list ORIGINS (`Screen::list_origin`).
             ToolWindow::Files | ToolWindow::SourceControl => div().into_any_element(),
         }
@@ -4517,6 +4659,7 @@ impl Render for ListPanel {
                         self.inbox_data.clear();
                         self.reviews_data.clear();
                         self.automation_facts.clear();
+                        self.workflows_data.clear();
                     }
                 }
                 // EXP-863: the issue bodies refill these; any other list
@@ -4621,6 +4764,9 @@ mod tests {
         assert_eq!(ToolWindow::Support.list_label(), "Support");
         assert_eq!(ToolWindow::Reviews.list_label(), "Reviews");
         assert_eq!(ToolWindow::Automations.list_label(), "Automations");
+        // EXP-981.
+        assert_eq!(ToolWindow::Workflows.origin_screen(None), Screen::Workflows);
+        assert_eq!(ToolWindow::Workflows.list_label(), "Workflows");
     }
 
     /// EXP-862: which list a row click pins on the detail it opens. The bug
@@ -4706,6 +4852,15 @@ mod tests {
         assert_eq!(
             focused_list(Some(&Screen::Automations)).0,
             ToolWindow::Automations
+        );
+        // EXP-981: the list and its detail share one focused list.
+        assert_eq!(
+            focused_list(Some(&Screen::Workflows)).0,
+            ToolWindow::Workflows
+        );
+        assert_eq!(
+            focused_list(Some(&Screen::Workflow { workflow_id: "wf-1".into() })).0,
+            ToolWindow::Workflows
         );
         // An issue detail, Settings, nothing at all: never the inbox stream.
         for screen in [

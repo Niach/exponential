@@ -11,9 +11,11 @@ import {
   agentEffortValues,
   agentModelValues,
   agentSupportsPlanMode,
+  agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { deviceAgentNotReady, type SteerDevice } from "@/lib/steer-devices"
+import { contract } from "@exp/domain-contract"
 
 // The agent options cluster (EXP-257; the launch dialog's right half until
 // EXP-825 retired that dialog for the Agent page composer, whose inline
@@ -91,6 +93,10 @@ type AgentOptionsFieldsProps = {
   onAgentChange: (agent: string) => void
   model: string
   onModelChange: (model: string) => void
+  /** EXP-981: claude's subagent model, `""` = the CLI's own default. Omit the
+   * pair entirely on a surface that does not edit it (an automation). */
+  subagentModel?: string
+  onSubagentModelChange?: (model: string) => void
   effortValue: string
   onEffortChange: (effort: string) => void
   /**
@@ -116,6 +122,8 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
     onAgentChange,
     model,
     onModelChange,
+    subagentModel,
+    onSubagentModelChange,
     effortValue,
     onEffortChange,
     device,
@@ -185,6 +193,32 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
         options={modelOptions}
         disabled={!pinned}
       />
+      {onSubagentModelChange && agentSupportsSubagentModel(agent) && (
+        /* EXP-981: claude only — the model its SUBAGENTS run on. Blank is the
+           CLI's own default, which is what most machines want. */
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle="Subagent model"
+          value={
+            subagentModel === undefined || subagentModel === ``
+              ? modelSentinel
+              : subagentModel
+          }
+          onChange={(value) => {
+            if (value !== null) {
+              onSubagentModelChange(value === modelSentinel ? `` : value)
+            }
+          }}
+          options={[
+            { value: modelSentinel, label: `Default` },
+            ...contract.codingModel.values.map((value) => ({
+              value,
+              label: modelLabel(value),
+            })),
+          ]}
+        />
+      )}
       <Combobox
         triggerVariant="row"
         searchable={false}

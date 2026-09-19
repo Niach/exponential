@@ -11,6 +11,9 @@ export interface LaunchSeed {
   deviceId?: string
   /** Any issue linked to the PR a `pr` input should open pre-picked. */
   prIssueId?: string
+  /** EXP-981: the draft workflow a `builtin:plan-workflow` run plans. It
+   * rides the start payload, never an action input. */
+  workflowId?: string
   /** Text inserted into an EMPTY draft (a suggestion's description). */
   text?: string
   /** Curated icon name seeding the Create action builtin's `icon` input. */
@@ -22,6 +25,7 @@ export interface AgentSearch {
   issues?: string
   action?: string
   pr?: string
+  workflow?: string
   device?: string
   text?: string
   icon?: string
@@ -43,6 +47,10 @@ export function seedFromSearch(search: AgentSearch): LaunchSeed | null {
     actionId: search.action || undefined,
     deviceId: search.device || undefined,
     prIssueId: search.pr && UUID_RE.test(search.pr) ? search.pr : undefined,
+    workflowId:
+      search.workflow && UUID_RE.test(search.workflow)
+        ? search.workflow
+        : undefined,
     text: search.text || undefined,
     icon: search.icon || undefined,
   }
@@ -51,6 +59,7 @@ export function seedFromSearch(search: AgentSearch): LaunchSeed | null {
     !seed.actionId &&
     !seed.deviceId &&
     !seed.prIssueId &&
+    !seed.workflowId &&
     !seed.text &&
     !seed.icon
   return empty ? null : seed
@@ -63,6 +72,7 @@ export function searchFromSeed(seed: Partial<LaunchSeed>): AgentSearch {
   if (seed.issueIds && seed.issueIds.length > 0) out.issues = seed.issueIds.join(`,`)
   if (seed.actionId) out.action = seed.actionId
   if (seed.prIssueId) out.pr = seed.prIssueId
+  if (seed.workflowId) out.workflow = seed.workflowId
   if (seed.deviceId) out.device = seed.deviceId
   if (seed.text) out.text = seed.text
   if (seed.icon) out.icon = seed.icon

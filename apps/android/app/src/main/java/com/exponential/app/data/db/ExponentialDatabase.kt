@@ -28,6 +28,8 @@ import androidx.room.TypeConverters
         DeviceWorktreeEntity::class,
         PinEntity::class,
         IssueDraftEntity::class,
+        WorkflowEntity::class,
+        WorkflowNodeEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -302,9 +304,16 @@ import androidx.room.TypeConverters
     //      land on the run. New column on the notifications shape allowlist;
     //      destructive fallback wipes + resyncs so every row arrives carrying
     //      it.
+    // v66 (EXP-981): workflows + workflow_nodes — the 23rd/24th Electric
+    //      shapes. A workflow is a picked set of backlog issues of ONE
+    //      repository planned as a DAG: the `blocks` relations among them are
+    //      the edges (never copied), a parent with its sub-issues is one
+    //      compound node, and `wave`/`lane`/`on_cycle` on the nodes are the
+    //      server-computed layout. Two new tables, so the destructive fallback
+    //      wipes + resyncs all 24 shapes on first launch after the update.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 65,
+    version = 66,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -331,5 +340,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
     abstract fun issueDraftDao(): IssueDraftDao
+    abstract fun workflowDao(): WorkflowDao
+    abstract fun workflowNodeDao(): WorkflowNodeDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

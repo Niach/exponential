@@ -92,6 +92,9 @@ export interface RemoteStartAction {
   id: string
   name: string
   teamId: string
+  /** EXP-981: the draft workflow a `builtin:plan-workflow` run plans. The
+   * server writes the prompt's `Workflow: <uuid>` head itself. */
+  workflowId?: string
 }
 
 export interface RemoteStart {
@@ -321,6 +324,7 @@ export function useRemoteStart({
           // teamId is required iff the action is the virtual builtin (no DB
           // row to derive the team from) and forbidden otherwise.
           ...(isBuiltinActionId(action.id) ? { teamId: action.teamId } : {}),
+          ...(action.workflowId ? { workflowId: action.workflowId } : {}),
           ...(inputs ? { inputs } : {}),
           ...(prompt && prompt.trim() ? { prompt } : {}),
           ...rest,

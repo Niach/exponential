@@ -1,0 +1,218 @@
+package com.exponential.app.domain
+
+/**
+ * EXP-981: what every client SAYS about a workflow. The graph's geometry is
+ * the server's (`wave`/`lane` on the synced nodes); this is the rest — bands,
+ * captions, the edges between nodes — mirrored ×4 (web `lib/workflow-view.ts`,
+ * iOS `WorkflowView.swift`, desktop `domain::workflow_view`) and locked by the
+ * contract fixture `domain-contract/fixtures/workflow-view.json`. All strings
+ * byte-identical.
+ *
+ * NOT to be confused with [WorkflowCaption], which reads the agent feed's
+ * Claude Code Workflow TOOL card — an unrelated concept that owns the
+ * contract's `workflowStatus` key. A workflow of THIS kind wears `wf*`.
+ */
+object WorkflowView {
+
+    /** The list's three bands, in order. Flat rows under each, no row buttons. */
+    enum class Band(val key: String, val title: String) {
+        Running("running", "Running"),
+        Draft("draft", "Draft"),
+        Done("done", "Done"),
+    }
+
+    val BANDS: List<Band> = listOf(Band.Running, Band.Draft, Band.Done)
+
+    const val WORKFLOWS_TITLE = "Workflows"
+    const val WORKFLOWS_EMPTY_TITLE = "No workflows yet"
+    const val WORKFLOWS_EMPTY_BODY =
+        "Select backlog issues on a board and choose Create workflow to plan them as one parallel run."
+    const val PLAN_WORKFLOW_LABEL = "Plan"
+    const val DELETE_WORKFLOW_LABEL = "Delete workflow"
+
+    /** The bulk bar's play menu (EXP-981), in order. */
+    const val START_AS_BATCH_LABEL = "Start as batch"
+    const val START_AS_STACK_LABEL = "Start as stack"
+    const val CREATE_WORKFLOW_LABEL = "Create workflow…"
+
+    /**
+     * `paused` is a running workflow someone held; `cancelled` is over. An
+     * unknown status (a newer server) lands in Done rather than vanishing.
+     */
+    fun band(status: String): Band = when (status) {
+        DomainContract.wfStatusRunning, DomainContract.wfStatusPaused -> Band.Running
+        DomainContract.wfStatusDraft -> Band.Draft
+        else -> Band.Done
+    }
+
+    /**
+     * `workflows.metrics`: the plan's shape. [edges] and [cycleEdges] ride
+     * along because the same jsonb carries them; only [nodes], [depth],
+     * [width] and [cycles] are read by the rules below.
+     */
+    data class Shape(
+        val nodes: Int = 0,
+        val edges: Int = 0,
+        val depth: Int = 0,
+        val width: Int = 0,
+        /** One entry per blocking cycle: its issue identifiers. Empty = startable. */
+        val cycles: List<List<String>> = emptyList(),
+        /** `<fromNodeId>\n<toNodeId>` of every edge inside a cycle. */
+        val cycleEdges: List<String> = emptyList(),
+    )
+
+    /** `12 nodes · depth 3 · width 8`; `1 node · depth 1 · width 1`. */
+    fun shapeLine(metrics: Shape): String {
+        val nodes = if (metrics.nodes == 1) "1 node" else "${metrics.nodes} nodes"
+        return "$nodes · depth ${metrics.depth} · width ${metrics.width}"
+    }
+
+    /** Null while the workflow could start; else the cycles spelled out. */
+    fun cycleNote(metrics: Shape): String? {
+        if (metrics.cycles.isEmpty()) return null
+        val spelled = metrics.cycles.joinToString("; ") { it.joinToString(", ") }
+        return "These issues block each other in a cycle: $spelled. Remove one relation to start."
+    }
+
+    private val STATE_LABELS = mapOf(
+        DomainContract.wfNodeStateProposed to "Proposed",
+        DomainContract.wfNodeStateBlocked to "Blocked",
+        DomainContract.wfNodeStateReady to "Ready",
+        DomainContract.wfNodeStateRunning to "Running",
+        DomainContract.wfNodeStateWaiting to "Waiting",
+        DomainContract.wfNodeStateInReview to "In review",
+        DomainContract.wfNodeStateUpdating to "Updating",
+        DomainContract.wfNodeStateLanded to "Landed",
+        DomainContract.wfNodeStateFailed to "Failed",
+        DomainContract.wfNodeStateSkipped to "Skipped",
+        DomainContract.wfNodeStatePaused to "Paused",
+    )
+
+    private val KIND_LABELS = mapOf(
+        DomainContract.wfNodeKindContract to "Contract",
+        DomainContract.wfNodeKindLeaf to "Leaf",
+        DomainContract.wfNodeKindIntegration to "Integration",
+    )
+
+    fun nodeStateLabel(state: String): String = STATE_LABELS[state] ?: state
+
+    fun nodeKindLabel(kind: String): String = KIND_LABELS[kind] ?: kind
+
+    /** The gate's three words, and the start rule's three (EXP-981). */
+    fun gateLabel(gate: String): String = when (gate) {
+        DomainContract.wfGateNone -> "No gate"
+        DomainContract.wfGateAgent -> "Agent review"
+        DomainContract.wfGateHuman -> "Human review"
+        else -> gate
+    }
+
+    fun startOnLabel(startOn: String): String = when (startOn) {
+        DomainContract.wfStartOnContract -> "On contract"
+        DomainContract.wfStartOnPrOpen -> "On PR open"
+        DomainContract.wfStartOnLanded -> "When landed"
+        else -> startOn
+    }
+
+    fun riskLabel(risk: String): String = risk.replaceFirstChar { it.uppercaseChar() }
+
+    /**
+     * The tone a node's state paints in. `waiting` is the ONLY amber one (and
+     * the only one that pushes): amber means "a person is needed".
+     */
+    enum class Tone(val key: String) {
+        Muted("muted"),
+        Active("active"),
+        Amber("amber"),
+        Success("success"),
+        Danger("danger"),
+    }
+
+    fun nodeTone(state: String): Tone = when (state) {
+        DomainContract.wfNodeStateWaiting -> Tone.Amber
+        DomainContract.wfNodeStateFailed -> Tone.Danger
+        DomainContract.wfNodeStateLanded -> Tone.Success
+        DomainContract.wfNodeStateRunning,
+        DomainContract.wfNodeStateUpdating,
+        DomainContract.wfNodeStateInReview,
+        -> Tone.Active
+        else -> Tone.Muted
+    }
+
+    data class CaptionNode(val kind: String, val state: String, val risk: String)
+
+    /**
+     * The ONE caption under a node. A draft has no states worth reading yet, so
+     * it names the plan (`Contract`, `Leaf · high risk`); a started workflow
+     * names the state, prefixed by the kind only for the two special nodes
+     * (`Contract · Running`, `In review`).
+     */
+    fun nodeCaption(node: CaptionNode, workflowStatus: String): String {
+        if (workflowStatus == DomainContract.wfStatusDraft) {
+            val kind = nodeKindLabel(node.kind)
+            return if (node.risk == DomainContract.wfRiskHigh) "$kind · high risk" else kind
+        }
+        val state = nodeStateLabel(node.state)
+        return if (node.kind == DomainContract.wfNodeKindLeaf) {
+            state
+        } else {
+            "${nodeKindLabel(node.kind)} · $state"
+        }
+    }
+
+    /**
+     * `EXP-14 +3` for a compound node (a parent run as one batch with its
+     * sub-issues), the bare identifier otherwise.
+     */
+    fun nodeTitle(identifier: String, memberCount: Int): String =
+        if (memberCount > 0) "$identifier +$memberCount" else identifier
+
+    data class EdgeNode(
+        val id: String,
+        val issueId: String,
+        val memberIssueIds: List<String>,
+    )
+
+    data class EdgeRelation(
+        val type: String,
+        val issueId: String,
+        val relatedIssueId: String,
+    )
+
+    data class Edge(
+        val from: String,
+        val to: String,
+        /** Inside a blocking cycle (`metrics.cycleEdges`): drawn red. */
+        val cycle: Boolean,
+    )
+
+    /**
+     * The edges between a workflow's nodes, from the synced `blocks` relations:
+     * a relation between ANY two covered issues of two different nodes (the
+     * server's `nodeEdges`). One edge per node pair, ordered by (from, to) node
+     * id. [cycleEdges] = the workflow's `metrics.cycleEdges` (`<from>\n<to>`).
+     */
+    fun edges(
+        nodes: List<EdgeNode>,
+        relations: List<EdgeRelation>,
+        cycleEdges: List<String> = emptyList(),
+    ): List<Edge> {
+        val nodeOf = HashMap<String, String>()
+        for (node in nodes) {
+            nodeOf[node.issueId] = node.id
+            for (member in node.memberIssueIds) nodeOf[member] = node.id
+        }
+        val onCycle = cycleEdges.toSet()
+        val seen = HashSet<String>()
+        val edges = ArrayList<Edge>()
+        for (relation in relations) {
+            if (relation.type != DomainContract.issueRelationTypeBlocks) continue
+            val from = nodeOf[relation.issueId] ?: continue
+            val to = nodeOf[relation.relatedIssueId] ?: continue
+            if (from == to) continue
+            val key = "$from\n$to"
+            if (!seen.add(key)) continue
+            edges.add(Edge(from = from, to = to, cycle = key in onCycle))
+        }
+        return edges.sortedWith(compareBy({ it.from }, { it.to }))
+    }
+}

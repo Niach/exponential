@@ -58,7 +58,11 @@ import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
+import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
+import com.exponential.app.ui.components.subagentModelLabel
+import com.exponential.app.ui.components.subagentModelOptions
 import com.exponential.app.ui.components.supportsPlanMode
+import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -425,15 +429,17 @@ private fun OptionMenuPill(
 
 /**
  * EXP-825: the `⋯` sheet — the options that did not earn a pill: Effort
- * (Reasoning / Thinking per agent) and Ultracode (claude only — it IS
- * `--effort ultracode`, so it disables the Effort row). No MCP-server picker:
- * mobile has none. EXP-862: the Account moved OUT of here onto the options row
- * itself — which login a run spends is a decision, not an overflow entry.
+ * (Reasoning / Thinking per agent), the Subagent model (EXP-981, claude only)
+ * and Ultracode (claude only — it IS `--effort ultracode`, so it disables the
+ * Effort row). No MCP-server picker: mobile has none. EXP-862: the Account
+ * moved OUT of here onto the options row itself — which login a run spends is
+ * a decision, not an overflow entry.
  */
 @Composable
 internal fun AgentOptionsSheet(
     launch: LaunchDraft,
     onEffortChange: (String) -> Unit,
+    onSubagentModelChange: (String) -> Unit,
     onUltracodeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -461,6 +467,20 @@ internal fun AgentOptionsSheet(
                     enabled = !(launch.agent == DEFAULT_AGENT && launch.ultracode),
                     onSelect = onEffortChange,
                 )
+                // EXP-981: the model this run's SUBAGENTS spend, right beside
+                // the run's own. claude only — it is the one agent that
+                // spawns them — so it hides like Ultracode does.
+                if (supportsSubagentModel(launch.agent)) {
+                    GroupDivider()
+                    PickerRow(
+                        label = SUBAGENT_MODEL_LABEL,
+                        value = subagentModelLabel(launch.subagentModel),
+                        options = subagentModelOptions(),
+                        selected = launch.subagentModel,
+                        optionLabel = ::subagentModelLabel,
+                        onSelect = onSubagentModelChange,
+                    )
+                }
                 if (launch.agent == DEFAULT_AGENT) {
                     GroupDivider()
                     SwitchRow(

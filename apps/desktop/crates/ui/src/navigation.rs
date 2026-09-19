@@ -90,6 +90,16 @@ pub enum Screen {
     /// The Automations page (EXP-686 — the web `t/$teamSlug/automations`
     /// page: the automation rows plus "Recent automated runs").
     Automations,
+    /// The Workflows page (EXP-981): this team's workflows in three bands
+    /// (Running / Draft / Done). Tab-less full-page mode like Automations,
+    /// opened from the rail's Workflows entry; it IS a list, so the detail a
+    /// row opens keeps it in the left column.
+    Workflows,
+    /// One workflow's detail (EXP-981): the server-laid-out graph of its
+    /// nodes, the picked node's side panel and the "How it runs"
+    /// configuration. A DETAIL like an issue — it gets a tab chip and sits
+    /// beside the Workflows list it was opened from.
+    Workflow { workflow_id: String },
     /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
     /// prompt box over a subtle row of launch pickers). Tab-less full-page
     /// mode like Devices; sending starts a chat run and navigates to its
@@ -181,6 +191,8 @@ impl Screen {
                 | Screen::SupportThread { .. }
                 | Screen::Session { .. }
                 | Screen::Terminal { .. }
+                // EXP-981: one workflow's graph is a detail like an issue.
+                | Screen::Workflow { .. }
         )
     }
 
@@ -232,6 +244,9 @@ impl Screen {
             }
             Screen::Support => ToolWindow::Support,
             Screen::Reviews => ToolWindow::Reviews,
+            // EXP-981: the Workflows page is a list like any other — the
+            // workflow a row opens keeps it in the left column.
+            Screen::Workflows => ToolWindow::Workflows,
             // EXP-862: the Automations page's run log is a list like any
             // other — a run opened from it keeps it in the left column.
             Screen::Automations => ToolWindow::Automations,
@@ -401,6 +416,17 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::Drafts => "Drafts".into(),
         Screen::Actions => "Actions".into(),
         Screen::Automations => "Automations".into(),
+        Screen::Workflows => domain::workflow_view::WORKFLOWS_TITLE.into(),
+        // EXP-981: the synced name, or the generic word while the row has
+        // not landed yet.
+        Screen::Workflow { workflow_id } => Store::global(cx)
+            .collections()
+            .workflows
+            .read(cx)
+            .get(workflow_id)
+            .and_then(|row| row.name.clone())
+            .map(gpui::SharedString::from)
+            .unwrap_or_else(|| "Workflow".into()),
         Screen::Chat => "Chat".into(),
         Screen::Reviews => "Reviews".into(),
         Screen::GettingStarted { .. } => "Getting started".into(),
@@ -476,6 +502,11 @@ pub(crate) struct ChatSeed {
     pub(crate) text: Option<String>,
     /// A curated icon name seeding the Create-action builtin's `icon` pick.
     pub(crate) icon: Option<String>,
+    /// EXP-981: the DRAFT workflow a planner run plans. Set only beside the
+    /// hidden `builtin:plan-workflow` action — the run is meaningless
+    /// without it — and it rides the start as the prompt's first line
+    /// (`Workflow: <uuid>`, web `?workflow=<id>`).
+    pub(crate) workflow_id: Option<String>,
 }
 
 impl ChatSeed {
@@ -497,6 +528,16 @@ impl ChatSeed {
 
     /// The fix-conflicts builtin with its PR preselected (Reviews, the PR
     /// diff, the issue header).
+    /// EXP-981: the workflow detail's Plan button — the hidden planner
+    /// builtin as the composer's subject, plus the workflow it plans.
+    pub(crate) fn plan_workflow(workflow_id: impl Into<String>) -> Self {
+        Self {
+            action_id: Some(api::actions::BUILTIN_PLAN_WORKFLOW_ID.to_string()),
+            workflow_id: Some(workflow_id.into()),
+            ..Default::default()
+        }
+    }
+
     pub(crate) fn fix_conflicts(pr_issue_id: impl Into<String>) -> Self {
         Self {
             action_id: Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
@@ -699,6 +740,8 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "drafts" => Some(Screen::Drafts),
         "actions" => Some(Screen::Actions),
         "automations" => Some(Screen::Automations),
+        // EXP-981: the workflows list; one workflow is `workflow:<uuid>`.
+        "workflows" => Some(Screen::Workflows),
         // EXP-818: Usage folded into Devices (its Accounts section); the old
         // dev value lands there.
         "usage" => Some(Screen::Devices),
@@ -745,6 +788,11 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                     session_id: id.to_string(),
                 });
             }
+            if let Some(id) = spec.strip_prefix("workflow:") {
+                return Some(Screen::Workflow {
+                    workflow_id: id.to_string(),
+                });
+            }
             spec.strip_prefix("support:")
                 .map(|id| Screen::SupportThread {
                     thread_id: id.to_string(),
@@ -783,6 +831,8 @@ fn parse_dev_chat_seed(spec: &str) -> Option<ChatSeed> {
             "device" => seed.device_id = Some(value.to_string()),
             "text" => seed.text = Some(value.to_string()),
             "icon" => seed.icon = Some(value.to_string()),
+            // EXP-981: `chat?action=builtin:plan-workflow&workflow=<uuid>`.
+            "workflow" => seed.workflow_id = Some(value.to_string()),
             _ => {}
         }
     }
@@ -1941,6 +1991,10 @@ mod tests {
             Screen::Session {
                 session_id: "s1".into(),
             },
+            // EXP-981: a workflow's graph is a DETAIL, never a list itself.
+            Screen::Workflow {
+                workflow_id: "wf1".into(),
+            },
         ] {
             assert!(screen.list_origin().is_none(), "{screen:?}");
         }
@@ -2256,6 +2310,7 @@ mod tests {
         assert_eq!(
             full,
             ChatSeed {
+                workflow_id: None,
                 issue_ids: vec!["a".into(), "b".into()],
                 action_id: Some("builtin:fix-conflicts".into()),
                 device_id: Some("dev-1".into()),

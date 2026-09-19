@@ -34,6 +34,10 @@ pub struct AgentDefaultsPatch {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// EXP-981: the model this agent's SUBAGENTS run on; claude-only, so it
+    /// is OMITTED for every other agent (the capability mask below).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ultracode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,6 +106,18 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
                 set_string(slot, effort, &mut changed);
             }
         }
+        if let Some(subagent_model) = &entry.subagent_model {
+            // EXP-981: blank is the valid "the CLI's own default" value.
+            let valid = subagent_model.is_empty()
+                || agent.model_values().contains(&subagent_model.as_str());
+            if valid && agent.supports_subagent_model() {
+                set_string(
+                    &mut settings.claude_subagent_model,
+                    subagent_model,
+                    &mut changed,
+                );
+            }
+        }
         if let Some(ultracode) = entry.ultracode {
             if agent.supports_ultracode() {
                 set_bool(&mut settings.claude_ultracode, ultracode, &mut changed);
@@ -131,6 +147,9 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
             AgentDefaultsPatch {
                 model: Some(settings.model_for(agent).to_string()),
                 effort: Some(settings.effort_for(agent).to_string()),
+                subagent_model: agent
+                    .supports_subagent_model()
+                    .then(|| settings.subagent_model_for(agent).to_string()),
                 ultracode: agent
                     .supports_ultracode()
                     .then_some(settings.claude_ultracode),
@@ -376,12 +395,18 @@ mod tests {
         assert!(!rendered.contains("null"), "no nulls on the wire: {rendered}");
         let codex = &wire["agents"]["codex"];
         assert!(codex.get("ultracode").is_none(), "ultracode is claude-only");
+        // EXP-981: the subagent pin is claude-only too.
+        assert!(
+            codex.get("subagentModel").is_none(),
+            "the subagent model is claude-only"
+        );
         assert!(codex.get("planMode").is_none(), "plan mode is claude-only");
         // EXP-690: the retired key is never advertised on any agent.
         assert!(codex.get("skipPermissions").is_none());
         let claude = &wire["agents"]["claude"];
         assert!(claude.get("skipPermissions").is_none());
         assert!(claude.get("planMode").is_some());
+        assert!(claude.get("subagentModel").is_some());
         // EXP-849: pi is gone from the wire entirely.
         assert!(wire["agents"].get("pi").is_none());
     }

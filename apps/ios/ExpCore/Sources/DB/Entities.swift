@@ -2082,6 +2082,270 @@ extension DeviceWorktreeEntity: Codable {
     }
 }
 
+// MARK: - Workflow (EXP-981)
+
+// A WORKFLOW — a picked set of issues of ONE repository, planned as a DAG (the
+// `blocks` relations among them are the edges, never copied here) and, from the
+// engine on, run node by node on the bound device. Team-scoped like `actions`
+// (the 23rd Electric shape; board trash rules do NOT apply: a workflow spans
+// boards). `creator_id` stays behind the shape's allowlist and never reaches
+// this decoder. Mirrors packages/db-schema workflows.
+public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "workflows"
+
+    public let id: String
+    public let teamId: String
+    /// ONE repository per workflow; NULL once the repo is unlinked (the
+    /// workflow stays readable and can no longer start).
+    public let repositoryId: String?
+    public let name: String
+    /// contract `wfStatus` (documented varchar).
+    public let status: String
+    /// `devices.device_id` of the runner; nil on a draft nobody bound yet.
+    public let deviceId: String?
+    /// The launch jsonb, stored as stringified JSON and tolerant-parsed lazily
+    /// via `WorkflowLaunch.parse` (the `automations.trigger` pattern).
+    public let launch: String?
+    /// contract `wfGate` / `wfStartOn`.
+    public let gate: String
+    public let startOn: String
+    /// `exp/wf-<id8>`, stamped at create.
+    public let integrationBranch: String
+    /// The ONE final PR integration → default branch.
+    public let finalPrUrl: String?
+    public let finalPrNumber: Int?
+    public let finalPrState: String?
+    /// Dated answers, appended; part of every node prompt.
+    public let decisions: String
+    /// The plan's shape jsonb (`WorkflowMetrics.parse`).
+    public let metrics: String?
+    public let startedAt: String?
+    public let endedAt: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        repositoryId: String? = nil,
+        name: String,
+        status: String = "draft",
+        deviceId: String? = nil,
+        launch: String? = nil,
+        gate: String = "human",
+        startOn: String = "contract",
+        integrationBranch: String = "",
+        finalPrUrl: String? = nil,
+        finalPrNumber: Int? = nil,
+        finalPrState: String? = nil,
+        decisions: String = "",
+        metrics: String? = nil,
+        startedAt: String? = nil,
+        endedAt: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.repositoryId = repositoryId
+        self.name = name
+        self.status = status
+        self.deviceId = deviceId
+        self.launch = launch
+        self.gate = gate
+        self.startOn = startOn
+        self.integrationBranch = integrationBranch
+        self.finalPrUrl = finalPrUrl
+        self.finalPrNumber = finalPrNumber
+        self.finalPrState = finalPrState
+        self.decisions = decisions
+        self.metrics = metrics
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, status, launch, gate, decisions, metrics
+        case teamId = "team_id"
+        case repositoryId = "repository_id"
+        case deviceId = "device_id"
+        case startOn = "start_on"
+        case integrationBranch = "integration_branch"
+        case finalPrUrl = "final_pr_url"
+        case finalPrNumber = "final_pr_number"
+        case finalPrState = "final_pr_state"
+        case startedAt = "started_at"
+        case endedAt = "ended_at"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    /// The parsed launch options — every field defaulted when the column is
+    /// absent or malformed.
+    public var parsedLaunch: WorkflowLaunch { WorkflowLaunch.parse(launch) }
+
+    /// The parsed plan shape — zeros when the column is absent or malformed.
+    public var parsedMetrics: WorkflowMetrics { WorkflowMetrics.parse(metrics) }
+}
+
+// Custom decode: the two jsonb columns follow the permissive jsonb pattern
+// (object off the Electric wire, pre-stringified from fixtures, null) and
+// `final_pr_number` goes through the type-aware wire helper. The documented
+// varchars carry their schema defaults so a row written by an older server
+// still renders.
+extension WorkflowEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        repositoryId = try c.decodeIfPresent(String.self, forKey: .repositoryId)
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "draft"
+        deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
+        launch = c.decodeWireJsonString(forKey: .launch)
+        gate = (try? c.decodeIfPresent(String.self, forKey: .gate)) ?? "human"
+        startOn = (try? c.decodeIfPresent(String.self, forKey: .startOn)) ?? "contract"
+        integrationBranch =
+            (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""
+        finalPrUrl = try c.decodeIfPresent(String.self, forKey: .finalPrUrl)
+        finalPrNumber = try? c.decodeWireInt(forKey: .finalPrNumber)
+        finalPrState = try c.decodeIfPresent(String.self, forKey: .finalPrState)
+        decisions = (try? c.decodeIfPresent(String.self, forKey: .decisions)) ?? ""
+        metrics = c.decodeWireJsonString(forKey: .metrics)
+        startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)
+        endedAt = try c.decodeIfPresent(String.self, forKey: .endedAt)
+        createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
+        updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
+    }
+}
+
+// MARK: - WorkflowNode (EXP-981)
+
+// One NODE of a workflow: an issue, or a parent issue with its sub-issues (a
+// compound node, run as ONE batch session on one branch with one PR). The 24th
+// Electric shape, team-scoped through the denormalized `team_id`. `wave` /
+// `lane` / `on_cycle` ARE the server-computed layout — no client lays a graph
+// out. Mirrors packages/db-schema workflow_nodes.
+public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "workflow_nodes"
+
+    public let id: String
+    public let workflowId: String
+    public let teamId: String
+    /// The node's representative issue (a compound node's PARENT).
+    public let issueId: String
+    /// A compound node's sub-issues (`EXP-14 +3`); empty for a plain node.
+    public let memberIssueIds: [String]
+    /// contract `wfNodeKind` / `wfNodeState` / `wfRisk`.
+    public let kind: String
+    public let state: String
+    public let risk: String
+    /// The layout: column = wave, row = lane.
+    public let wave: Int
+    public let lane: Int
+    /// On a blocking cycle: drawn red, and the workflow cannot start.
+    public let onCycle: Bool
+    public let sessionId: String?
+    public let attempt: Int
+    public let baseBranch: String?
+    /// The budget jsonb (`WorkflowNodeBudget.parse`), stored as stringified
+    /// JSON; nil on a node nobody bounded.
+    public let budget: String?
+    /// What the node expects to change (`text[]`).
+    public let touches: [String]
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        workflowId: String,
+        teamId: String,
+        issueId: String,
+        memberIssueIds: [String] = [],
+        kind: String = "leaf",
+        state: String = "blocked",
+        risk: String = "medium",
+        wave: Int = 0,
+        lane: Int = 0,
+        onCycle: Bool = false,
+        sessionId: String? = nil,
+        attempt: Int = 0,
+        baseBranch: String? = nil,
+        budget: String? = nil,
+        touches: [String] = [],
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.workflowId = workflowId
+        self.teamId = teamId
+        self.issueId = issueId
+        self.memberIssueIds = memberIssueIds
+        self.kind = kind
+        self.state = state
+        self.risk = risk
+        self.wave = wave
+        self.lane = lane
+        self.onCycle = onCycle
+        self.sessionId = sessionId
+        self.attempt = attempt
+        self.baseBranch = baseBranch
+        self.budget = budget
+        self.touches = touches
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, state, risk, wave, lane, attempt, budget, touches
+        case workflowId = "workflow_id"
+        case teamId = "team_id"
+        case issueId = "issue_id"
+        case memberIssueIds = "member_issue_ids"
+        case onCycle = "on_cycle"
+        case sessionId = "session_id"
+        case baseBranch = "base_branch"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+
+    /// The parsed budget; nil when the node has neither bound.
+    public var parsedBudget: WorkflowNodeBudget? { WorkflowNodeBudget.parse(budget) }
+
+    /// The issues this node covers — its representative plus its members.
+    public var coveredIssueIds: [String] { [issueId] + memberIssueIds }
+}
+
+// Custom decode: `member_issue_ids` (jsonb string[]) and `touches` (text[])
+// both read through the list helper — a JSON array off the wire, the `{a,b}`
+// literal or the stored JSON text back out of GRDB — the layout integers
+// through the type-aware wire helper, and `on_cycle` as Postgres "t"/"f".
+extension WorkflowNodeEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        workflowId = try c.decode(String.self, forKey: .workflowId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        issueId = try c.decode(String.self, forKey: .issueId)
+        memberIssueIds = c.decodeWireStringList(forKey: .memberIssueIds)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? "leaf"
+        state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? "blocked"
+        risk = (try? c.decodeIfPresent(String.self, forKey: .risk)) ?? "medium"
+        wave = (try? c.decodeWireInt(forKey: .wave)) ?? 0
+        lane = (try? c.decodeWireInt(forKey: .lane)) ?? 0
+        onCycle = c.decodeWireBool(forKey: .onCycle, default: false)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        attempt = (try? c.decodeWireInt(forKey: .attempt)) ?? 0
+        baseBranch = try c.decodeIfPresent(String.self, forKey: .baseBranch)
+        budget = c.decodeWireJsonString(forKey: .budget)
+        touches = c.decodeWireStringList(forKey: .touches)
+        createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
+        updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
+    }
+}
+
 // `issues.description` / `comments.body` are plain GFM markdown text — return
 // them verbatim (mirrors the web helper in packages/db-schema/src/domain.ts;
 // never parse: a body that happens to be a bare JSON object is legit content).

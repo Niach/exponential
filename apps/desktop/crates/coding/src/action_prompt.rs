@@ -356,6 +356,53 @@ rebase instead. {report_rule}"
     crate::prompt::append_additional_instructions(prompt, extra)
 }
 
+/// EXP-981 — the FIRST LINE of a planner run's prompt: the server writes
+/// `Workflow: <uuid>` ahead of whatever the user typed, and the shipped
+/// program tells the agent to read the workflow it names. Byte-identical ×4
+/// (web `PLAN_WORKFLOW_PROMPT_PREFIX`); a local desktop start builds the
+/// same line itself.
+pub const PLAN_WORKFLOW_PROMPT_PREFIX: &str = "Workflow: ";
+
+/// EXP-981 — the shipped program of the hidden "Plan workflow" builtin. It
+/// is a CONSTANT, byte-identical ×4 (web `apps/web/src/lib/workflows.ts`):
+/// the planner reads one draft workflow over the Exponential MCP tools,
+/// shapes its graph (contracts-first fan-out, `blocks` edges, sub-issues as
+/// compound nodes) and writes no code at all.
+pub const PLAN_WORKFLOW_PROGRAM: &str = "You are planning an Exponential WORKFLOW: a set of issues of one repository that will be implemented in parallel by separate coding runs, scheduled as a dependency graph. You write NO code in this run. You only shape the plan through the Exponential MCP tools.
+
+The request below starts with `Workflow: <id>`. Begin with exponential_workflows_get for that id, then read every issue it covers (exponential_issues_get), including comments.
+
+How the graph works:
+- A `blocks` relation between two issues of the workflow is an EDGE: the blocker's work is merged into the blocked issue's branch before it starts. Add one with exponential_issue_relations_add (type blocks).
+- A parent issue with sub-issues is ONE node: a single run on one branch with one pull request, one subagent per sub-issue. Use it for work that is too small or too entangled to review separately. File sub-issues with exponential_issues_create and parentId.
+- Everything else runs in parallel. Depth is wall-clock time: every extra wave makes the whole workflow wait.
+
+Default shape, about three waves whatever the number of issues (contracts-first fan-out):
+1. ONE root contract issue that blocks every leaf: the shared types, interfaces, stubs, contract tests and acceptance tests the leaves build against. File it with exponential_issues_create, add it with exponential_workflows_update addIssueIds, mark it kind contract. It is always reviewed by a person, so keep it small and precise.
+2. The user's original issues as parallel leaf nodes, each blocked only by the contract.
+3. ONE integration issue blocked by every leaf: wiring and end-to-end checks. Mark it kind integration.
+Add a chain between two leaves ONLY where a dependency truly cannot be turned into an interface in the contract.
+
+For every node declare with exponential_workflows_update nodes[]:
+- touches: the path globs the node expects to change. Two parallel nodes whose globs overlap will collide: either move the shared part into the contract or add a blocks edge between them.
+- risk: high for anything that changes a shared contract, data, auth or money; low for isolated leaf work; medium otherwise.
+
+Split an issue into sub-issues when it would take one run more than a few hours. Never change an issue's meaning; put what you decided into the contract issue's description.
+
+Finish by calling exponential_workflows_get again: metrics.cycles must be empty, depth should be 3 unless you can justify more, and width should be close to the number of original issues. Then reply with a short summary of the plan: the waves, the contract's scope, every edge you added beyond the default shape and why.";
+
+/// The planner run's seed prompt (EXP-981): the shipped program, then the
+/// request under a `## Request` heading, then the scratch-dir note the
+/// creator run carries — a planner has no repository checked out and must
+/// never go looking for one.
+///
+/// `request` is the start's `prompt`, whose FIRST LINE is `Workflow: <id>`
+/// (the server writes it; [`crate::launcher::prepare`] refuses a start
+/// without it). Everything the user typed follows it.
+pub fn plan_workflow_prompt(request: &str) -> String {
+    format!("{PLAN_WORKFLOW_PROGRAM}\n\n## Request\n\n{request}\n\n{SCRATCH_CWD_NOTE}")
+}
+
 /// EXP-637 — the RESUME fallback prompt: a run is being resumed but its
 /// agent's native transcript is gone (pruned, another agent, a machine that
 /// never recorded one), so a FRESH session is spawned in the same workspace
@@ -418,6 +465,11 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
         // EXP-615: the chat builtin has no shipped program to preview — its
         // prompt IS whatever the user types, so there is nothing to show.
         domain::contract::BUILTIN_CHAT_ID => None,
+        // EXP-981: the planner's program is shipped, so it previews like the
+        // creator's — with the workflow line the server writes standing in.
+        domain::contract::BUILTIN_PLAN_WORKFLOW_ID => Some(plan_workflow_prompt(
+            "Workflow: <the workflow you press Plan on>",
+        )),
         domain::contract::BUILTIN_FIX_CONFLICTS_ID => Some(fix_pr_conflicts_prompt(
             "<the issue you pick>",
             "<its PR branch>",
@@ -1048,6 +1100,28 @@ why you stopped)."
         assert!(fix.contains("exponential_pr_merge"));
         assert!(fix.contains("<its PR branch>"));
 
+        // EXP-981: the planner's program is shipped too.
+        let plan = builtin_prompt_preview(domain::contract::BUILTIN_PLAN_WORKFLOW_ID)
+            .expect("plan-workflow preview");
+        assert!(plan.contains("exponential_workflows_get"));
+        assert!(plan.contains("Workflow: <the workflow you press Plan on>"));
+
         assert_eq!(builtin_prompt_preview("not-a-builtin"), None);
+    }
+
+    /// EXP-981: the planner prompt is the shipped program verbatim, then the
+    /// request (whose first line names the workflow), then the scratch note —
+    /// a planner has no repository and must never go hunting for one.
+    #[test]
+    fn plan_workflow_prompt_carries_the_program_request_and_scratch_note() {
+        let prompt = plan_workflow_prompt("Workflow: wf-1\n\nKeep iOS out of scope.");
+        assert!(prompt.starts_with(PLAN_WORKFLOW_PROGRAM));
+        assert!(prompt.contains("\n\n## Request\n\nWorkflow: wf-1\n\nKeep iOS out of scope.\n\n"));
+        assert!(prompt.ends_with(SCRATCH_CWD_NOTE));
+        // The program names the tools the run actually plans with.
+        assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_workflows_update"));
+        assert!(PLAN_WORKFLOW_PROGRAM.contains("exponential_issue_relations_add"));
+        // It writes no code — never a branch, a commit or a pull request.
+        assert!(!PLAN_WORKFLOW_PROGRAM.contains("exponential_pr_open"));
     }
 }

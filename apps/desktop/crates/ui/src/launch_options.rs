@@ -40,6 +40,7 @@ use coding::{CodingAgent, LaunchOptions};
 
 use crate::coding_selects::{
     agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
+    SUBAGENT_MODEL_CHOICES,
 };
 use crate::icons::ExpIcon;
 use crate::surface;
@@ -938,6 +939,11 @@ pub(crate) struct LaunchOptionsSection {
     pub(crate) agent: CodingAgent,
     model: ChoiceSelect,
     effort: ChoiceSelect,
+    /// EXP-981: the model claude's SUBAGENTS run on
+    /// (`CLAUDE_CODE_SUBAGENT_MODEL`). Claude-only, blank = the CLI's own
+    /// default, so its picker offers the model list with a "CLI default"
+    /// entry in front.
+    subagent_model: ChoiceSelect,
     /// Dynamic workflows (`--effort ultracode`) — Claude-only, any model.
     pub(crate) ultracode: bool,
     /// Native plan mode (`--permission-mode plan`).
@@ -975,6 +981,12 @@ impl LaunchOptionsSection {
             effort: choice_select(
                 effort_choices_for(agent),
                 settings.effort_for(agent),
+                window,
+                cx,
+            ),
+            subagent_model: choice_select(
+                &SUBAGENT_MODEL_CHOICES,
+                settings.subagent_model_for(agent),
                 window,
                 cx,
             ),
@@ -1100,6 +1112,12 @@ impl LaunchOptionsSection {
             window,
             cx,
         );
+        self.subagent_model = choice_select(
+            &SUBAGENT_MODEL_CHOICES,
+            settings.subagent_model_for(agent),
+            window,
+            cx,
+        );
         (self.ultracode, self.plan_mode) = agent_defaults(settings, agent);
     }
 
@@ -1172,6 +1190,12 @@ impl LaunchOptionsSection {
             // agent that doesn't support it.
             ultracode: self.ultracode && self.agent.supports_ultracode(),
             plan_mode: self.plan_mode && self.agent.supports_plan_mode() && !resume_active,
+            // EXP-981: claude-only, clamped like the toggles above.
+            subagent_model: if self.agent.supports_subagent_model() {
+                selected(&self.subagent_model, cx)
+            } else {
+                String::new()
+            },
             // EXP-792/747 B7: the run's own picks, no longer hardcoded — the
             // launcher resolves the ids against the device's secret store
             // and the account against its profile dirs.
@@ -1270,6 +1294,39 @@ impl LaunchOptionsSection {
         let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-effort")), label, cx);
         choice_menu(trigger, choices, picked, |section| &section.effort, access, cx)
             .into_any_element()
+    }
+
+    /// EXP-981 — the Subagent-model pin (the `⋯` popover); `None` for an
+    /// agent whose subagents take no model pin (everything but claude), the
+    /// `ultracode_toggle` rule. Its blank entry IS the CLI's own default.
+    pub(crate) fn subagent_model_pin<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut LaunchOptionsSection,
+        cx: &mut Context<V>,
+    ) -> Option<AnyElement> {
+        if !self.agent.supports_subagent_model() {
+            return None;
+        }
+        let choices: &'static [(&'static str, &'static str)] = &SUBAGENT_MODEL_CHOICES;
+        let picked = selected(&self.subagent_model, cx);
+        let label = pin_label(choices, Some(picked.as_str()).filter(|v| !v.is_empty()));
+        let trigger = inline_pin_trigger(
+            SharedString::from(format!("{prefix}-subagent-model")),
+            label,
+            cx,
+        );
+        Some(
+            choice_menu(
+                trigger,
+                choices,
+                picked,
+                |section| &section.subagent_model,
+                access,
+                cx,
+            )
+            .into_any_element(),
+        )
     }
 
     /// The Plan switch; `None` for an agent without a plan mode.

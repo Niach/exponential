@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-19-workflows-drafts",
+    date: "2026-09-19",
+    title: "Workflows: plan a set of issues as one parallel run",
+    summary: "Select backlog issues, create a workflow, and see them as a dependency graph your agent can plan; plus a subagent model option for every Claude run.",
+    body: r#"- **Workflows**: a new Workflows entry (on phones: a button on the Agent page) lists your team's workflows in Running, Draft and Done. A workflow is a set of backlog issues of one repository drawn as a graph: what blocks what runs left to right in waves, a parent with its sub-issues is one stacked card, and a loop shows in red with the issues named.
+- **Create workflow**: the Start coding button of a selection is now a menu: Start as batch, Start as stack, or Create workflow.
+- **Plan**: the Plan button lets your agent shape a draft. It files one contract issue everything builds against, keeps your issues as parallel leaves, adds an integration issue at the end, and marks risk and the files each issue will touch.
+- **How it runs**: each draft keeps its runner device, agent, model, effort, account, how many runs may go at once, the review gate and when dependents start. Running a workflow arrives with the next update.
+- **Subagent model**: every Claude run can now pick the model its subagents use, next to Model and Effort, and the choice is remembered per device."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-relations-in-lists",
     date: "2026-09-19",
     title: "Sub-issues and blockers show in every issue list",
@@ -55,24 +69,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **No more cycles**: linking issues as blocking or as parent and sub-issue is refused when it would close a loop of any length, and the message spells the loop out.
 - **Blocked starts**: starting a blocked issue shows the whole chain instead of the direct blockers only, a batch asks too when something outside it is in the way, and when a stacked PR is not possible the button stays visible and says why. Resuming a run never asks.
 - **Rate limit alerts**: when any of your coding runs hits a rate limit you get a push and an inbox row that opens the run. Turn it off under notification settings, Blocked runs."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-19-running-in-the-sidebar",
-    date: "2026-09-19",
-    title: "Running runs live in the sidebar again",
-    summary: "Live runs sit in a Running section of the sidebar with their agent's mark, the Agent page is a clean composer with Recent behind a history button, nested lists draw a connector, and a compacting run no longer swallows a queued message.",
-    body: r#"- **Running in the sidebar**: on the web and the desktop app your live runs list under the boards in a Running section, each with the Claude or Codex mark, a yellow badge when the agent needs input, the issue number and title, and the host device's icon on the right (hover it for the name); the compact rail shows only the marks. A live run no longer opens a top tab: it highlights in the sidebar, an issue tab you already had stays and highlights with it, and a run that ends by merging its PR closes its tab.
-- **A clean Agent page**: the composer stands alone; the history button in the top left slides in the Recent runs as a plain list. On phones the same button sits top right in the header and opens a Recent sheet; Recent is never folded anywhere anymore.
-- **Nested lists**: child runs and stacked pull requests hang off their parent on a connector line on every client, in the sidebar, the Agent page, Reviews and the run's stack overlay.
-- **Plan cards**: a plan the agent wrote to a file shows in full on every client again instead of just "Ready to code?".
-- **Account switch**: after switching a run's account the agent picks its work back up on its own, and iOS and Android stay on the run instead of dropping to the list.
-- **Compaction**: a message sent while the agent compacts its context is delivered once the compaction ends, even when the end never announces itself.
-- **Usage**: a login's usage refreshes once a window has reset, at least every six hours, and a refresh after a reset fetches fresh numbers instead of the pinned reading.
-- **Edits stick**: leaving an issue right after typing its title (desktop) or description (web) and coming straight back shows what you typed, never the old text.
-- **Phones**: the chat and New issue split button shows on every tab, and Android names a stacked run's issues from the same data the stack is built from."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

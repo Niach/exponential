@@ -144,11 +144,19 @@ describe(`device launch defaults`, () => {
   it(`agentSeed validates against the contract and capability-clamps`, () => {
     // The advertised values ride through; blank effort stays blank.
     expect(agentSeed(`claude`, { model: `opus`, effort: ``, planMode: true })).toEqual(
-      { model: `opus`, effort: ``, ultracode: false, planMode: true }
+      {
+        model: `opus`,
+        // EXP-981: blank = the CLI's own subagent model.
+        subagentModel: ``,
+        effort: ``,
+        ultracode: false,
+        planMode: true,
+      }
     )
     // Blank model is valid for codex.
     expect(agentSeed(`codex`, { model: ``, effort: `high` })).toEqual({
       model: ``,
+      subagentModel: ``,
       effort: `high`,
       ultracode: false,
       planMode: false,
@@ -157,6 +165,7 @@ describe(`device launch defaults`, () => {
     // takes a blank model.
     expect(agentSeed(`claude`, { model: ``, effort: `warp9` })).toEqual({
       model: `fable`,
+      subagentModel: ``,
       effort: ``,
       ultracode: false,
       planMode: false,
@@ -167,6 +176,7 @@ describe(`device launch defaults`, () => {
       agentSeed(`claude`, { model: `fable`, planMode: true, ultracode: true })
     ).toEqual({
       model: `fable`,
+      subagentModel: ``,
       effort: ``,
       ultracode: true,
       planMode: true,
@@ -178,10 +188,18 @@ describe(`device launch defaults`, () => {
     // `null` = the static fallback for devices that advertise nothing.
     expect(agentSeed(`claude`, null)).toEqual({
       model: `fable`,
+      subagentModel: ``,
       effort: ``,
       ultracode: false,
       planMode: false,
     })
+    // EXP-981: the subagent model is claude's alone, and only a contract
+    // model value survives the seed.
+    expect(
+      agentSeed(`claude`, { subagentModel: `sonnet` }).subagentModel
+    ).toBe(`sonnet`)
+    expect(agentSeed(`claude`, { subagentModel: `warp9` }).subagentModel).toBe(``)
+    expect(agentSeed(`codex`, { subagentModel: `sonnet` }).subagentModel).toBe(``)
   })
 })
 

@@ -14,6 +14,10 @@ export interface CodingLaunchPrefs {
   /** Coding agent CLI (`claude`/`codex`) — EXP-201. */
   agent: string
   model: string
+  /** EXP-981: claude only — the model the run's SUBAGENTS get (the device
+   * sets it as the CLI's env at launch). `""` = the CLI's own default;
+   * omitted from the payload entirely then. */
+  subagentModel?: string
   /** `""` = "CLI default" (omit the effort flag) — a valid value. */
   effort: string
   ultracode: boolean
@@ -80,6 +84,8 @@ export function saveMcpServerPick(teamId: string, ids: string[]): void {
  * (the desktop skip-serializes false). */
 export interface AgentLaunchDefaults {
   model?: string
+  /** EXP-981: claude only; `""` = the CLI default. */
+  subagentModel?: string
   effort?: string
   ultracode?: boolean
   planMode?: boolean
@@ -122,6 +128,12 @@ export function agentSupportsPlanMode(agent: string): boolean {
   return agent === `claude`
 }
 
+/** EXP-981: the subagent model is a claude CLI env var — nothing else reads
+ * it, so the picker hides for every other agent (the ultracode rule). */
+export function agentSupportsSubagentModel(agent: string): boolean {
+  return agent === `claude`
+}
+
 /** The default model choice for `agent` — first contract value for claude
  * (explicit-always), blank "CLI default" for codex. */
 export function defaultModelFor(agent: string): string {
@@ -155,8 +167,18 @@ export function agentSeed(
     (defaults.effort === `` || efforts.includes(defaults.effort))
       ? defaults.effort
       : ``
+  // EXP-981: claude's subagent model is always one of ITS models (never the
+  // picked agent's), and blank means "let the CLI decide".
+  const subagentModel =
+    agentSupportsSubagentModel(agent) &&
+    typeof defaults?.subagentModel === `string` &&
+    (defaults.subagentModel === `` ||
+      contract.codingModel.values.includes(defaults.subagentModel))
+      ? defaults.subagentModel
+      : ``
   return {
     model,
+    subagentModel,
     effort,
     ultracode: (defaults?.ultracode ?? false) && agentSupportsUltracode(agent),
     planMode: (defaults?.planMode ?? false) && agentSupportsPlanMode(agent),

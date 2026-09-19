@@ -153,6 +153,7 @@ impl EngineSession {
                 effort: String::new(),
                 ultracode: false,
                 plan_mode: false,
+                subagent_model: String::new(),
                 mcp_server_ids: Vec::new(),
                 account: None,
             },

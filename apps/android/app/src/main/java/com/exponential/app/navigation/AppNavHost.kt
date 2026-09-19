@@ -76,6 +76,8 @@ import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.work.WorkScreen
 import com.exponential.app.ui.work.WorkSubject
+import com.exponential.app.ui.workflows.WorkflowDetailScreen
+import com.exponential.app.ui.workflows.WorkflowsScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
@@ -396,6 +398,11 @@ private fun AuthenticatedNav(
             navController.navigateDeepLink(route)
         }
     }
+    // EXP-981: the team's workflows — a pushed list off the Agent page's
+    // `nav-workflows` button (the phone has no sidebar), and the draft detail
+    // the bulk bar's "Create workflow…" lands on.
+    val openWorkflow: (String) -> Unit = { id -> navController.navigate("workflow/$id") }
+
     // The single add-issue affordance. EXP-973: it rides EVERY tab, not just
     // the board ones — a pushed board route still wins (the reader is looking
     // at that board), anything else files onto the team's current board.
@@ -438,6 +445,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
                 onOpenAgent = openAgent,
+                onOpenWorkflow = openWorkflow,
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
@@ -503,6 +511,26 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenWorkflows = {
+                    navController.navigate("workflows") { launchSingleTop = true }
+                },
+            )
+        }
+        composable("workflows") {
+            // EXP-981: the team's workflows — Running / Draft / Done.
+            WorkflowsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenWorkflow = openWorkflow,
+            )
+        }
+        composable("workflow/{workflowId}") {
+            // One workflow: its graph, how it runs, Plan and Delete. The
+            // ViewModel reads workflowId from its SavedStateHandle like the
+            // issue-detail route does.
+            WorkflowDetailScreen(
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenAgent = openAgent,
             )
         }
         composable("personal") {
@@ -633,6 +661,7 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
                 onOpenAgent = openAgent,
+                onOpenWorkflow = openWorkflow,
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
                 onNewIssue = { navController.navigate("board/$boardId/new") },
             )

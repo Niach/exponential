@@ -31,9 +31,23 @@ pub const BUILTIN_FIX_CONFLICTS_ID: &str = domain::contract::BUILTIN_FIX_CONFLIC
 /// dialog's Chat tab constructs [`builtin_chat_action`] directly.
 pub const BUILTIN_CHAT_ID: &str = domain::contract::BUILTIN_CHAT_ID;
 
+/// The hidden "Plan workflow" builtin's id (EXP-981) — the planner run of ONE
+/// draft workflow. Like Chat it is appended to NO list and NO picker: a
+/// workflow's own Plan button constructs [`builtin_plan_workflow_action`],
+/// because the run is meaningless without that workflow's id.
+pub const BUILTIN_PLAN_WORKFLOW_ID: &str = domain::contract::BUILTIN_PLAN_WORKFLOW_ID;
+
+/// EXP-981: the device capability a planner start needs. An older build would
+/// fall through and author an ACTION instead of planning the workflow, so the
+/// server refuses a device without it.
+pub const PLAN_WORKFLOW_CAP: &str = "plan-workflow";
+
 /// Whether `id` is a server-defined virtual builtin action id.
 pub fn is_builtin_action_id(id: &str) -> bool {
-    id == BUILTIN_CREATE_ACTION_ID || id == BUILTIN_FIX_CONFLICTS_ID || id == BUILTIN_CHAT_ID
+    id == BUILTIN_CREATE_ACTION_ID
+        || id == BUILTIN_FIX_CONFLICTS_ID
+        || id == BUILTIN_CHAT_ID
+        || id == BUILTIN_PLAN_WORKFLOW_ID
 }
 
 /// The name each builtin renders under (web `builtinActionName`). `None` =
@@ -44,6 +58,7 @@ pub fn builtin_action_name(id: &str) -> Option<&'static str> {
         BUILTIN_CREATE_ACTION_ID => Some(BUILTIN_CREATE_ACTION_NAME),
         BUILTIN_FIX_CONFLICTS_ID => Some(BUILTIN_FIX_CONFLICTS_NAME),
         BUILTIN_CHAT_ID => Some(BUILTIN_CHAT_NAME),
+        BUILTIN_PLAN_WORKFLOW_ID => Some(BUILTIN_PLAN_WORKFLOW_NAME),
         _ => None,
     }
 }
@@ -56,6 +71,7 @@ pub fn builtin_action_icon(id: &str) -> Option<&'static str> {
         BUILTIN_CREATE_ACTION_ID => Some("sparkles"),
         BUILTIN_FIX_CONFLICTS_ID => Some("git-branch"),
         BUILTIN_CHAT_ID => Some("message-circle"),
+        BUILTIN_PLAN_WORKFLOW_ID => Some("layers"),
         _ => None,
     }
 }
@@ -71,6 +87,11 @@ const BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER: &str =
     "Describe the action — what it should do, and its name if you have one…";
 const BUILTIN_FIX_CONFLICTS_NAME: &str = "Fix merge conflicts";
 const BUILTIN_CHAT_NAME: &str = "Chat";
+const BUILTIN_PLAN_WORKFLOW_NAME: &str = "Plan workflow";
+/// EXP-981: the planner composer's hint — byte-identical to the web factory
+/// (`builtinPlanWorkflowAction.promptPlaceholder`).
+const BUILTIN_PLAN_WORKFLOW_PROMPT_PLACEHOLDER: &str =
+    "Anything the plan should respect (optional)…";
 
 /// One typed run-time input definition on an action (EXP-257 — filled in the
 /// unified launch dialog, resolved server-side for remote starts).
@@ -428,6 +449,36 @@ pub fn builtin_chat_action(team_id: &str) -> Action {
     }
 }
 
+/// The client-constructed hidden "Plan workflow" row (EXP-981): the planner
+/// run of ONE draft workflow — it reads the workflow's issues, sets the
+/// `blocks` relations (contracts-first fan-out by default), splits big
+/// issues, declares `touches` and `risk`, and keeps the graph shallow. It
+/// runs in the agent's scratch dir: it plans over MCP and writes no code.
+/// Deliberately appended to NO list and NO picker — a workflow's own Plan
+/// button builds it, because it is meaningless without that workflow's id.
+/// Mirrors the web's `builtinPlanWorkflowAction`.
+pub fn builtin_plan_workflow_action(team_id: &str) -> Action {
+    Action {
+        id: BUILTIN_PLAN_WORKFLOW_ID.to_string(),
+        team_id: team_id.to_string(),
+        repository_id: None,
+        name: BUILTIN_PLAN_WORKFLOW_NAME.to_string(),
+        description: Some(
+            "Let your agent turn a workflow's issues into a shallow, parallel plan".to_string(),
+        ),
+        icon: Some("layers".to_string()),
+        body: String::new(),
+        builtin: true,
+        // The workflow id rides the start's `prompt` (the server writes the
+        // `Workflow: <uuid>` first line), so there is nothing left to pick.
+        inputs: Vec::new(),
+        prompt_placeholder: Some(BUILTIN_PLAN_WORKFLOW_PROMPT_PLACEHOLDER.to_string()),
+        sort_order: 1e9 + 3.0,
+        created_at: None,
+        updated_at: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -764,6 +815,10 @@ mod tests {
             builtin_action_icon(BUILTIN_CHAT_ID),
             builtin_chat_action("team-1").icon.as_deref()
         );
+        assert_eq!(
+            builtin_action_icon(BUILTIN_PLAN_WORKFLOW_ID),
+            builtin_plan_workflow_action("team-1").icon.as_deref()
+        );
         assert_eq!(builtin_action_icon("act-1"), None);
     }
 
@@ -799,6 +854,41 @@ mod tests {
         // The name snapshot the session row carries.
         assert_eq!(builtin_action_name(BUILTIN_CHAT_ID), Some("Chat"));
         assert!(is_builtin_action_id(BUILTIN_CHAT_ID));
+    }
+
+    /// EXP-981: the hidden planner builtin — byte parity with the web
+    /// factory (`builtinPlanWorkflowAction`), including its INPUT-LESS shape
+    /// (the workflow id rides the start's `prompt`), its composer hint and
+    /// the sortOrder that keeps it behind the other three builtins wherever
+    /// a naive renderer ever sees it.
+    #[test]
+    fn builtin_plan_workflow_action_matches_the_web_factory() {
+        let builtin = builtin_plan_workflow_action("team-1");
+        assert_eq!(builtin.id, BUILTIN_PLAN_WORKFLOW_ID);
+        assert_eq!(builtin.id, "builtin:plan-workflow");
+        assert!(builtin.builtin);
+        // The prompt is generated from shipped constants — never a synced body.
+        assert!(builtin.body.is_empty());
+        assert_eq!(builtin.name, "Plan workflow");
+        assert_eq!(
+            builtin.description.as_deref(),
+            Some("Let your agent turn a workflow's issues into a shallow, parallel plan")
+        );
+        assert_eq!(builtin.icon.as_deref(), Some("layers"));
+        assert!(builtin.inputs.is_empty());
+        assert_eq!(
+            builtin.prompt_placeholder.as_deref(),
+            Some("Anything the plan should respect (optional)…")
+        );
+        assert_eq!(builtin.sort_order, 1e9 + 3.0);
+        // The name snapshot the session row carries.
+        assert_eq!(
+            builtin_action_name(BUILTIN_PLAN_WORKFLOW_ID),
+            Some("Plan workflow")
+        );
+        assert!(is_builtin_action_id(BUILTIN_PLAN_WORKFLOW_ID));
+        // The device capability a planner start needs.
+        assert_eq!(PLAN_WORKFLOW_CAP, "plan-workflow");
     }
 
     #[test]

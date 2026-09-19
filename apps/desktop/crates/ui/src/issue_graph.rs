@@ -10,6 +10,12 @@
 //! `(wave, lane)` pairs into pixels, paints the edges between them (grey, RED
 //! on a cycle) and draws the two notes underneath. The phones render the SAME
 //! graph as a list grouped by wave.
+//!
+//! EXP-981 generalised the pixel half into [`grid_view`]: a NODE-KEYED grid
+//! over `(wave, lane)` positions with a caller-supplied box renderer. The
+//! workflow detail feeds it the server-laid-out `workflow_nodes` (whose
+//! `wave`/`lane` come off the wire rather than from `block_graph`), so both
+//! surfaces draw the same picture with the same edges and the same red.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -18,7 +24,6 @@ use gpui::{
     canvas, div, point, px, App, Bounds, ClickEvent, Hsla, InteractiveElement as _, IntoElement,
     ParentElement, Pixels, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui::prelude::FluentBuilder as _;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::issue_graph::{
@@ -32,6 +37,7 @@ use crate::surface::{glass_pill_button, PillSize};
 
 /// One node's box. Wide enough for an identifier and a clipped title.
 const NODE_W: f32 = 176.;
+/// The issue graph's one-line box.
 const NODE_H: f32 = 24.;
 /// The space an edge crosses between two waves.
 const COL_GAP: f32 = 44.;
@@ -53,8 +59,143 @@ fn node_x(wave: usize) -> f32 {
     wave as f32 * (NODE_W + COL_GAP)
 }
 
-fn node_y(lane: usize) -> f32 {
-    lane as f32 * (NODE_H + LANE_GAP)
+fn node_y(lane: usize, node_h: f32) -> f32 {
+    lane as f32 * (node_h + LANE_GAP)
+}
+
+/// EXP-981 — one placed box of the shared grid, keyed by whatever the host
+/// calls its nodes (an ISSUE id here, a `workflow_nodes` row id there).
+pub(crate) struct GridNode {
+    pub(crate) key: String,
+    /// The column (the rule's / the server's `wave`).
+    pub(crate) wave: usize,
+    /// The row inside the column.
+    pub(crate) lane: usize,
+}
+
+/// EXP-981 — one edge of the shared grid, between two [`GridNode::key`]s.
+pub(crate) struct GridEdge {
+    pub(crate) from: String,
+    pub(crate) to: String,
+    /// Inside a cycle: drawn red, and nothing on it can start.
+    pub(crate) cycle: bool,
+}
+
+/// How a host paints ONE box: its node and whether any of its edges is a
+/// cycle edge (the shared red rule).
+pub(crate) type RenderGridNode<'a> = &'a dyn Fn(&GridNode, bool, &App) -> gpui::AnyElement;
+
+/// EXP-981 — the shared grid: boxes at their `(wave, lane)`, the edges
+/// between them painted in one canvas pass (grey, RED on a cycle), and the
+/// host's notes underneath. Nothing here decides an order or a position.
+pub(crate) fn grid_view(
+    nodes: &[GridNode],
+    edges: &[GridEdge],
+    view_width: f32,
+    node_h: f32,
+    notes: &[SharedString],
+    render_node: RenderGridNode<'_>,
+    cx: &App,
+) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    let danger = theme.danger;
+    let grey = theme::tokens::glass::STROKE_STRONG.to_hsla();
+
+    let waves = nodes.iter().map(|node| node.wave).max().unwrap_or(0);
+    let lanes = nodes.iter().map(|node| node.lane).max().unwrap_or(0);
+    let width = node_x(waves) + NODE_W;
+    let height = node_y(lanes, node_h) + node_h;
+
+    // Where each node sits, so the edges can be painted in one pass.
+    let places: HashMap<&str, (usize, usize)> = nodes
+        .iter()
+        .map(|node| (node.key.as_str(), (node.wave, node.lane)))
+        .collect();
+    // A node is on a cycle when one of its edges is.
+    let mut on_cycle: HashMap<&str, bool> = HashMap::new();
+    let segments: Vec<(f32, f32, f32, f32, bool)> = edges
+        .iter()
+        .filter_map(|edge| {
+            let from = places.get(edge.from.as_str())?;
+            let to = places.get(edge.to.as_str())?;
+            if edge.cycle {
+                on_cycle.insert(edge.from.as_str(), true);
+                on_cycle.insert(edge.to.as_str(), true);
+            }
+            Some((
+                node_x(from.0) + NODE_W,
+                node_y(from.1, node_h) + node_h / 2.,
+                node_x(to.0),
+                node_y(to.1, node_h) + node_h / 2.,
+                edge.cycle,
+            ))
+        })
+        .collect();
+
+    let painted = div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w(px(width))
+        .h(px(height))
+        .child(
+            canvas(|_, _, _| (), move |bounds: Bounds<Pixels>, _, window, _| {
+                let origin = bounds.origin;
+                for &(x1, y1, x2, y2, cycle) in &segments {
+                    let color = if cycle { danger } else { grey };
+                    let start = point(origin.x + px(x1), origin.y + px(y1));
+                    let end = point(origin.x + px(x2), origin.y + px(y2));
+                    let mut path = gpui::PathBuilder::stroke(px(LINE));
+                    path.move_to(start);
+                    if (y1 - y2).abs() < 0.5 {
+                        path.line_to(end);
+                    } else {
+                        // One quarter of the gap either side keeps the curve
+                        // inside the corridor between the two waves.
+                        path.curve_to(end, point(origin.x + px((x1 + x2) / 2.), start.y));
+                    }
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, color);
+                    }
+                }
+            })
+            .size_full(),
+        );
+
+    let mut grid = div().relative().w(px(width)).h(px(height)).child(painted);
+    for node in nodes {
+        let cycled = on_cycle.get(node.key.as_str()).copied().unwrap_or(false);
+        grid = grid.child(
+            div()
+                .absolute()
+                .left(px(node_x(node.wave)))
+                .top(px(node_y(node.lane, node_h)))
+                .w(px(NODE_W))
+                .h(px(node_h))
+                .child(render_node(node, cycled, cx)),
+        );
+    }
+
+    v_flex()
+        .min_w_0()
+        .gap_1p5()
+        .child(
+            div()
+                .id("exp-graph-scroll")
+                .w(px(view_width.min(width)))
+                .h(px(VIEW_H.min(height)))
+                .overflow_scroll()
+                .child(grid),
+        )
+        .children(notes.iter().map(|note| {
+            div()
+                .text_xs()
+                .text_color(muted)
+                .child(note.clone())
+                .into_any_element()
+        }))
+        .into_any_element()
 }
 
 /// The whole synced issue set as the rule reads it, plus the relation rows.
@@ -83,6 +224,37 @@ pub(crate) fn graph_for(subject_ids: &[&str], cx: &App) -> IssueGraph {
         })
         .collect();
     block_graph(subject_ids, &graph_relations, &graph_issues)
+}
+
+/// EXP-981 — one issue's badge numbers, for the bulk bar's "Start as stack"
+/// gate (an issue with nothing blocking it has no stack to cut into).
+pub(crate) fn block_counts_for(issue_id: &str, cx: &App) -> BlockCounts {
+    let Some(store) = sync::Store::try_global(cx) else {
+        return BlockCounts::default();
+    };
+    let collections = store.collections();
+    let issues = collections.issues.read(cx);
+    let relations = collections.issue_relations.read(cx);
+    let graph_issues: Vec<GraphIssue<'_>> = issues
+        .iter()
+        .map(|issue| GraphIssue {
+            id: &issue.id,
+            identifier: &issue.identifier,
+            status: issue.status.as_wire().unwrap_or_default(),
+        })
+        .collect();
+    let graph_relations: Vec<GraphRelation<'_>> = relations
+        .iter()
+        .map(|row| GraphRelation {
+            kind: row.kind.as_deref().unwrap_or_default(),
+            issue_id: &row.issue_id,
+            related_issue_id: &row.related_issue_id,
+        })
+        .collect();
+    domain::issue_graph::block_counts(&graph_relations, &graph_issues)
+        .get(issue_id)
+        .copied()
+        .unwrap_or_default()
 }
 
 /// EXP-980 — the OPEN issues that block any of `picked` from OUTSIDE the set,
@@ -137,124 +309,60 @@ pub(crate) fn graph_in_dialog(
     graph_view(graph, view_width, on_pick, cx)
 }
 
-/// The grid plus its notes. Empty (no nodes) renders nothing at all — the
-/// callers gate on that themselves.
+/// The grid plus its notes, for the EXP-980 `blocks` graph. Empty (no nodes)
+/// renders nothing at all — the callers gate on that themselves. The pixels
+/// are [`grid_view`]'s; this only translates the rule's output into its
+/// node-keyed input and picks the ring each node's role earns.
 pub(crate) fn graph_view(
     graph: &IssueGraph,
     view_width: f32,
     on_pick: OnPickIssue,
     cx: &App,
 ) -> gpui::AnyElement {
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let danger = theme.danger;
-    let grey = theme::tokens::glass::STROKE_STRONG.to_hsla();
-
-    let waves = graph.nodes.iter().map(|node| node.wave).max().unwrap_or(0);
-    let lanes = graph.nodes.iter().map(|node| node.lane).max().unwrap_or(0);
-    let width = node_x(waves) + NODE_W;
-    let height = node_y(lanes) + NODE_H;
-
-    // Where each node sits, so the edges can be painted in one pass.
-    let places: HashMap<&str, (usize, usize)> = graph
+    let ring = cx.theme().ring;
+    let danger = cx.theme().danger;
+    let nodes: Vec<GridNode> = graph
         .nodes
         .iter()
-        .map(|node| (node.id.as_str(), (node.wave, node.lane)))
-        .collect();
-    // An issue is on a cycle when one of its edges is.
-    let mut on_cycle: HashMap<&str, bool> = HashMap::new();
-    let segments: Vec<(f32, f32, f32, f32, bool)> = graph
-        .edges
-        .iter()
-        .filter_map(|edge| {
-            let from = places.get(edge.from.as_str())?;
-            let to = places.get(edge.to.as_str())?;
-            if edge.cycle {
-                on_cycle.insert(edge.from.as_str(), true);
-                on_cycle.insert(edge.to.as_str(), true);
-            }
-            Some((
-                node_x(from.0) + NODE_W,
-                node_y(from.1) + NODE_H / 2.,
-                node_x(to.0),
-                node_y(to.1) + NODE_H / 2.,
-                edge.cycle,
-            ))
+        .map(|node| GridNode {
+            key: node.id.clone(),
+            wave: node.wave,
+            lane: node.lane,
         })
         .collect();
-
-    let edges = div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .w(px(width))
-        .h(px(height))
-        .child(
-            canvas(|_, _, _| (), move |bounds: Bounds<Pixels>, _, window, _| {
-                let origin = bounds.origin;
-                for &(x1, y1, x2, y2, cycle) in &segments {
-                    let color = if cycle { danger } else { grey };
-                    let start = point(origin.x + px(x1), origin.y + px(y1));
-                    let end = point(origin.x + px(x2), origin.y + px(y2));
-                    let mut path = gpui::PathBuilder::stroke(px(LINE));
-                    path.move_to(start);
-                    if (y1 - y2).abs() < 0.5 {
-                        path.line_to(end);
-                    } else {
-                        // One quarter of the gap either side keeps the curve
-                        // inside the corridor between the two waves.
-                        path.curve_to(end, point(origin.x + px((x1 + x2) / 2.), start.y));
-                    }
-                    if let Ok(path) = path.build() {
-                        window.paint_path(path, color);
-                    }
-                }
-            })
-            .size_full(),
-        );
-
-    let mut grid = div().relative().w(px(width)).h(px(height)).child(edges);
-    for node in &graph.nodes {
-        let outline: Option<Hsla> = if on_cycle.get(node.id.as_str()).copied().unwrap_or(false) {
+    let edges: Vec<GridEdge> = graph
+        .edges
+        .iter()
+        .map(|edge| GridEdge {
+            from: edge.from.clone(),
+            to: edge.to.clone(),
+            cycle: edge.cycle,
+        })
+        .collect();
+    let subjects: std::collections::HashSet<&str> = graph
+        .nodes
+        .iter()
+        .filter(|node| node.subject)
+        .map(|node| node.id.as_str())
+        .collect();
+    let mut notes: Vec<SharedString> = Vec::new();
+    if graph.has_cycle {
+        notes.push(SharedString::from(ISSUE_GRAPH_CYCLE_NOTE));
+    }
+    if graph.truncated {
+        notes.push(SharedString::from(ISSUE_GRAPH_TRUNCATED_NOTE));
+    }
+    let render = |node: &GridNode, cycled: bool, cx: &App| {
+        let outline: Option<Hsla> = if cycled {
             Some(danger)
-        } else if node.subject {
-            Some(theme.ring)
+        } else if subjects.contains(node.key.as_str()) {
+            Some(ring)
         } else {
             None
         };
-        grid = grid.child(
-            div()
-                .absolute()
-                .left(px(node_x(node.wave)))
-                .top(px(node_y(node.lane)))
-                .w(px(NODE_W))
-                .h(px(NODE_H))
-                .child(node_chip(&node.id, outline, on_pick.clone(), cx)),
-        );
-    }
-
-    let note = |text: &'static str| {
-        div()
-            .text_xs()
-            .text_color(muted)
-            .child(SharedString::from(text))
+        node_chip(&node.key, outline, on_pick.clone(), cx)
     };
-    v_flex()
-        .min_w_0()
-        .gap_1p5()
-        .child(
-            div()
-                .id("issue-graph-scroll")
-                .w(px(view_width.min(width)))
-                .h(px(VIEW_H.min(height)))
-                .overflow_scroll()
-                .child(grid),
-        )
-        .when(graph.has_cycle, |this| this.child(note(ISSUE_GRAPH_CYCLE_NOTE)))
-        .when(graph.truncated, |this| {
-            this.child(note(ISSUE_GRAPH_TRUNCATED_NOTE))
-        })
-        .into_any_element()
+    grid_view(&nodes, &edges, view_width, NODE_H, &notes, &render, cx)
 }
 
 /// One node: the shared issue chip (status glyph + identifier + as much title
