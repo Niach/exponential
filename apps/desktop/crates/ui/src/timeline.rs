@@ -10,6 +10,15 @@
 //! Edit + Delete gated to author-or-admin (§4.2), via
 //! [`crate::comments::comment_row`].
 //!
+//! EXP-900/EXP-468: the event rows are FOLDED at read time by the shared
+//! [`domain::activity_fold`] rule — a run of same-issue, same-field,
+//! same-actor changes inside the window collapses to its net effect, and a
+//! net of "nothing changed" vanishes. Nothing is deleted server-side: the
+//! header's "Show all" / "Show less" toggle renders the raw rows again. The
+//! toggle copy is byte-identical on all four clients (web
+//! `issue-timeline.tsx`, iOS `IssueTimelineView`, Android `IssueTimeline`) —
+//! change it here and you change it there.
+//!
 //! Mutations (`comments.create` / `comments.update` / `comments.delete`) are
 //! §4.1 un-gated: fire on a background thread, let the Electric echo
 //! re-render. The composer keeps its draft until the mutation SUCCEEDS
@@ -33,6 +42,7 @@ use gpui_component::{
 };
 use sync::Store;
 
+use domain::activity_fold::{fold_activity, ActivityBarrier};
 use domain::rows::{Comment, IssueEvent, Label, Board, User};
 
 use crate::comment_attachments::{self, MAX_COMMENT_ATTACHMENTS};
@@ -56,6 +66,16 @@ impl TimelineItem {
         };
         created.and_then(comments::parse_epoch).unwrap_or(0)
     }
+}
+
+/// The merged list plus what the EXP-900 fold hid, so the header knows
+/// whether to offer "Show all".
+#[derive(Default)]
+struct MergedTimeline {
+    items: Vec<TimelineItem>,
+    /// Event rows BEFORE the fold (`created` rows already excluded — they
+    /// never render). Equal to the rendered event count = nothing folded.
+    raw_events: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -276,6 +296,9 @@ pub struct IssueTimeline {
     /// one popover can be up at a time.
     emoji_picker: Entity<crate::emoji_picker::EmojiPicker>,
     emoji_open: Option<PendingScope>,
+    /// EXP-468: "Show all" — the activity fold (EXP-900) off, every raw
+    /// `issue_events` row rendered. Per-issue local state, like the draft.
+    show_all_activity: bool,
     /// EXP-554: files picked for the NEXT comment, uploaded on send.
     pending_attachments: Vec<PendingCommentAttachment>,
     next_pending_key: u64,
@@ -361,6 +384,7 @@ impl IssueTimeline {
             reply: None,
             emoji_picker,
             emoji_open: None,
+            show_all_activity: false,
             pending_attachments: Vec::new(),
             next_pending_key: 0,
             _subscriptions: subscriptions,
@@ -383,6 +407,8 @@ impl IssueTimeline {
         self.editing = None;
         self.reply = None;
         self.submitting = false;
+        // EXP-468: the fold comes back on for the next issue.
+        self.show_all_activity = false;
         // Pending picks are per-issue local state, like the draft: an upload
         // that never happened must not follow the user to another issue.
         self.pending_attachments.clear();
@@ -1132,28 +1158,63 @@ impl IssueTimeline {
         thread_comments(comments)
     }
 
-    fn merged_items(&self, top_level: Vec<Comment>, cx: &App) -> Vec<TimelineItem> {
+    fn merged_items(&self, top_level: Vec<Comment>, cx: &App) -> MergedTimeline {
         let Some(issue_id) = self.issue_id.as_deref() else {
-            return Vec::new();
+            return MergedTimeline::default();
         };
         let collections = Store::global(cx).collections();
         let mut items: Vec<TimelineItem> =
             top_level.into_iter().map(TimelineItem::Comment).collect();
+
+        // EXP-900: the fold reads the issue's FULL event list, chronological.
+        // `created` rows go in too — they never fold themselves but they sit
+        // inside a run and must not break it — and drop AFTER the fold.
+        let mut events: Vec<IssueEvent> = collections
+            .issue_events
+            .read(cx)
+            .iter()
+            .filter(|event| event.issue_id == issue_id)
+            .cloned()
+            .collect();
+        events.sort_by_key(|event| {
+            (
+                event.created_at.as_deref().and_then(comments::parse_epoch),
+                event.created_at.clone(),
+            )
+        });
+        // Every comment of the issue, replies included, is a barrier: a
+        // reviewer's "no" is usually a comment, and it has to keep the round
+        // trip it answered visible.
+        let barriers: Vec<ActivityBarrier> = collections
+            .comments
+            .read(cx)
+            .iter()
+            .filter(|comment| comment.issue_id == issue_id)
+            .map(|comment| ActivityBarrier {
+                issue_id: comment.issue_id.clone(),
+                actor_user_id: comment.author_id.clone(),
+                created_at: comment.created_at.clone().unwrap_or_default(),
+            })
+            .collect();
+
+        // EXP-530: `created` rows exist for automations but the synthesized
+        // creation line already covers them — drop them here so they don't
+        // inflate the "Activity (N)" count.
+        let is_shown = |event: &IssueEvent| event.kind.as_deref() != Some("created");
+        let raw_events = events.iter().filter(|event| is_shown(event)).count();
+        let folded = if self.show_all_activity {
+            events
+        } else {
+            fold_activity(&events, &barriers)
+        };
         items.extend(
-            collections
-                .issue_events
-                .read(cx)
-                .iter()
-                .filter(|event| event.issue_id == issue_id)
-                // EXP-530: `created` rows exist for automations but the
-                // synthesized creation line already covers them — drop them
-                // here so they don't inflate the "Activity (N)" count.
-                .filter(|event| event.kind.as_deref() != Some("created"))
-                .cloned()
+            folded
+                .into_iter()
+                .filter(is_shown)
                 .map(TimelineItem::Event),
         );
         items.sort_by_key(TimelineItem::at);
-        items
+        MergedTimeline { items, raw_events }
     }
 
     /// One comment's card props — the same for a top-level card and for each
@@ -1304,7 +1365,7 @@ impl Render for IssueTimeline {
             replies_by_parent,
         } = self.threads(cx);
         let reply_count: usize = replies_by_parent.values().map(Vec::len).sum();
-        let items = self.merged_items(top_level, cx);
+        let MergedTimeline { items, raw_events } = self.merged_items(top_level, cx);
         let collections = Store::global(cx).collections();
         let user_map: HashMap<String, User> = collections
             .users
@@ -1336,6 +1397,28 @@ impl Render for IssueTimeline {
         } else {
             format!("Activity ({activity_count})")
         };
+        // EXP-468: the toggle appears only once the fold actually hid
+        // something — and stays up while the raw list is on, to get back.
+        let shown_events = items
+            .iter()
+            .filter(|item| matches!(item, TimelineItem::Event(_)))
+            .count();
+        let show_all = self.show_all_activity;
+        let fold_toggle = (show_all || shown_events < raw_events).then(|| {
+            let foreground = cx.theme().foreground;
+            div()
+                .id("timeline-activity-fold-toggle")
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .cursor_pointer()
+                .hover(move |style| style.text_color(foreground))
+                .on_click(cx.listener(|this, _, _window, cx| {
+                    this.show_all_activity = !this.show_all_activity;
+                    cx.notify();
+                }))
+                // Byte-identical ×4 (web/iOS/Android say the same two words).
+                .child(if show_all { "Show less" } else { "Show all" })
+        });
 
         // Content re-centers to the detail column; the centering must ride
         // `centered_column` — `max_w` + `mx_auto` here made taffy size the
@@ -1348,12 +1431,22 @@ impl Render for IssueTimeline {
             .child(
                 // EXP-417: a real section title (was `text_xs` muted) — the
                 // Linear reference reads it as a heading, not a caption.
-                div()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(cx.theme().foreground)
+                // EXP-468: the "Show all" / "Show less" toggle rides its
+                // right edge.
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
                     .mb_2()
-                    .child(SharedString::from(header_label)),
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(cx.theme().foreground)
+                            .child(SharedString::from(header_label)),
+                    )
+                    .children(fold_toggle),
             );
 
         // EXP-525: status-changed rows resolve their target status against
