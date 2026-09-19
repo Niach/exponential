@@ -72,7 +72,7 @@ export const MAX_DEVICE_MCP_SERVERS = 64
 export const MAX_DEVICE_MCP_SERVER_NAME = 64
 
 /** The web hand-off line: where a row gets added, imported or switched. */
-export const DEVICE_MCP_SETUP_HINT = `Servers each machine connects on its own runs. Import or add them in the desktop app under Settings › MCP servers, or run \`exponential mcp import\` / \`exponential mcp add\`.`
+export const DEVICE_MCP_SETUP_HINT = `Servers each machine connects on its own runs. Import or add them in the desktop app under Settings › MCP servers, or with the CLI: exponential mcp import, exponential mcp add.`
 
 /** `https://mcp.linear.app/mcp` for http, the command line for stdio. */
 export function deviceMcpServerTarget(

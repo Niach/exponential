@@ -56,7 +56,7 @@ export function DeviceMcpServersGroup({
   )
 
   return (
-    <div className="mb-6">
+    <div className="mt-6 mb-6">
       <GlassSectionHeader label="On your devices" count={rows?.length} />
       <p className="mb-3 px-1 text-xs text-muted-foreground">{DEVICE_MCP_SETUP_HINT}</p>
       {error && <p className="px-1 pb-2 text-xs text-destructive">{error}</p>}
