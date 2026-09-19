@@ -9,7 +9,7 @@ import type {
   Board,
   User,
 } from "@/db/schema"
-import { LiveDot } from "@exp/ui"
+import { Button, LiveDot } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   attachmentCollection,
@@ -25,6 +25,7 @@ import {
   writeTabMemory,
 } from "@/lib/work-tab-memory"
 import { EventRow } from "@/components/comment-rows/event"
+import { foldActivity, type ActivityBarrier } from "@/lib/activity/fold"
 import {
   RegularCommentRow,
   type CommentCardProps,
@@ -45,7 +46,10 @@ interface IssueTimelineProps {
 }
 
 // The comment thread + activity events (status/assignee/label/PR), rendered as
-// a Linear-style timeline.
+// a Linear-style timeline. EXP-900: the events are FOLDED at read time
+// (`lib/activity/fold.ts`, mirrored ×4) — a same-actor round trip that changed
+// nothing vanishes, a chain collapses to its net change — and the header's
+// "Show all" toggle brings the raw rows back (EXP-468).
 export function IssueTimeline({
   issue,
   currentUserId,
@@ -136,6 +140,38 @@ export function IssueTimeline({
   // comments are timeline entries; the header count still counts every row.
   const threads = useMemo(() => threadComments(list), [list])
 
+  // EXP-468: the fold is the default view; "Show all" is per issue and, like
+  // the reply state, survives a work-tab switch.
+  const [showAllActivity, setShowAllActivityState] = useState<boolean>(
+    () => readTabMemory<boolean>(memoryOwner, `showAllActivity`) ?? false
+  )
+  const setShowAllActivity = (value: boolean) => {
+    setShowAllActivityState(value)
+    writeTabMemory(memoryOwner, `showAllActivity`, value)
+  }
+
+  // EXP-900: fold the FULL event list (a `created` row by another actor still
+  // breaks a run), with every comment — replies included — as a barrier, so a
+  // reviewer's "no" between two status moves keeps both of them. `created`
+  // rows drop out afterwards (EXP-530: the header already shows creation).
+  const { visibleEvents, hiddenCount } = useMemo(() => {
+    const rawEvents = (events ?? []) as IssueEvent[]
+    const barriers: ActivityBarrier[] = list.map((comment) => ({
+      issueId: comment.issueId,
+      actorUserId: comment.authorId,
+      createdAt: comment.createdAt,
+    }))
+    const folded = showAllActivity
+      ? rawEvents
+      : foldActivity(rawEvents, barriers)
+    const visible = folded.filter((e) => e.type !== `created`)
+    const rawVisible = rawEvents.filter((e) => e.type !== `created`).length
+    return {
+      visibleEvents: visible as IssueEvent[],
+      hiddenCount: rawVisible - visible.length,
+    }
+  }, [events, list, showAllActivity])
+
   type TimelineItem =
     | { kind: `comment`; at: number; comment: Comment }
     | { kind: `event`; at: number; event: IssueEvent }
@@ -146,20 +182,15 @@ export function IssueTimeline({
         at: new Date(c.createdAt).getTime(),
         comment: c,
       })),
-      // `created` rows exist for automations (EXP-530) but the timeline
-      // already synthesizes the creation line — drop them here so they
-      // neither render nor inflate the "(N)" count.
-      ...((events ?? []) as IssueEvent[])
-        .filter((e) => e.type !== `created`)
-        .map((e) => ({
-          kind: `event` as const,
-          at: new Date(e.createdAt).getTime(),
-          event: e,
-        })),
+      ...visibleEvents.map((e) => ({
+        kind: `event` as const,
+        at: new Date(e.createdAt).getTime(),
+        event: e,
+      })),
     ]
     items.sort((a, b) => a.at - b.at)
     return items
-  }, [threads, events])
+  }, [threads, visibleEvents])
   const activityCount =
     merged.length - threads.topLevel.length + countThreadedComments(threads)
 
@@ -250,8 +281,25 @@ export function IssueTimeline({
   // this inside its `max-w-4xl` column; desktop-app parity).
   return (
     <div className="mx-auto max-w-4xl border-t border-border px-4 py-3">
-      <div className="text-sm font-medium text-foreground mb-2">
-        Activity {activityCount > 0 ? `(${activityCount})` : ``}
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-sm font-medium text-foreground">
+          Activity {activityCount > 0 ? `(${activityCount})` : ``}
+        </div>
+        {/* EXP-468: only when the fold actually hid something (or is turned
+            off): the toggle never appears on a timeline that folds to itself.
+            Copy shared ×4. */}
+        {(hiddenCount > 0 || showAllActivity) && (
+          <Button
+            variant="text"
+            size="inline"
+            className="font-medium"
+            data-testid="activity-show-all"
+            aria-pressed={showAllActivity}
+            onClick={() => setShowAllActivity(!showAllActivity)}
+          >
+            {showAllActivity ? `Show less` : `Show all`}
+          </Button>
+        )}
       </div>
       {/* EXP-417: the issue's own creation, synthesized rather than stored —
           natives already show it, and it is what makes an otherwise empty
