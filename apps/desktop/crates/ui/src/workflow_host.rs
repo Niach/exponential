@@ -1,0 +1,1025 @@
+//! EXP-982: the desktop GUI's workflow-engine host — the CLI daemon
+//! worker's twin, per signed-in account and shaped exactly like
+//! [`crate::automation_host`].
+//!
+//! The engine ([`coding::workflows`]) is PURE: this host snapshots its inputs
+//! on the foreground (the workflows bound to THIS device, their nodes, the
+//! `blocks` edges between them, the representative issues' PR states, the
+//! coding sessions, the live engine handles, the clock) and runs
+//! `read_states` → `evaluate` → execute on the background executor, because
+//! every decision is tRPC, git or a channel send.
+//!
+//! SINGLE WRITER: only workflows whose `device_id` equals this app's steer
+//! device id are evaluated. The GUI and the CLI daemon have distinct device
+//! ids, which is the double-run defence — exactly as for automations.
+//!
+//! In-flight bookkeeping is per PROCESS, not persisted: a node the host is
+//! mid-start (or mid-land) on is left alone for the whole pass, and a crash
+//! simply re-decides from the synced rows next launch, which is what
+//! level-triggered means. What DOES persist (`coding::workflows::state`) is
+//! only what must happen at most once across restarts: a nudge already sent
+//! and a branch already deleted.
+
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use gpui::{App, AppContext as _, Global};
+
+use coding::workflows::{
+    self, Decision, IssueFacts, NodeFacts, SessionFacts, Snapshot, WorkflowFacts,
+};
+use coding::{LaunchOptions, LaunchOrigin};
+
+use crate::coding_flow::{self, CodingHub, LocalSessions, SessionSubject};
+use crate::queries;
+
+/// The evaluation cadence — the automations host's beat, and the collection
+/// watches cover every synced change in realtime anyway.
+const BEAT: Duration = Duration::from_secs(workflows::BEAT_SECONDS);
+/// The nudge-poll granularity inside the beat loop (device_sync's TICK).
+const TICK: Duration = Duration::from_secs(1);
+
+/// What a node whose PR no longer merges is told.
+fn conflict_prompt(integration_branch: &str) -> String {
+    format!(
+        "The integration branch moved and your pull request no longer merges. Run git fetch \
+origin, git merge origin/{integration_branch}, resolve the conflicts, push, then end the run \
+again."
+    )
+}
+
+#[derive(Default)]
+struct WorkflowHostState {
+    /// Stop flag per account (sign-out flips it; the loop retires itself).
+    by_account: HashMap<String, Arc<AtomicBool>>,
+    /// The shape watches per account.
+    watch_by_account: HashMap<String, Vec<gpui::Subscription>>,
+    /// A synced-row change asked for an off-cadence evaluation.
+    eval_soon: Arc<AtomicBool>,
+    /// Node ids with a start/land/resume this process has not finished, and
+    /// workflow ids with a final PR in flight. Shared with the background
+    /// pass, which is the only writer.
+    in_flight: Arc<Mutex<HashSet<String>>>,
+    final_pr_in_flight: Arc<Mutex<HashSet<String>>>,
+}
+
+struct WorkflowHostGlobal(gpui::Entity<WorkflowHostState>);
+impl Global for WorkflowHostGlobal {}
+
+fn state(cx: &mut App) -> gpui::Entity<WorkflowHostState> {
+    if let Some(global) = cx.try_global::<WorkflowHostGlobal>() {
+        return global.0.clone();
+    }
+    let entity = cx.new(|_| WorkflowHostState::default());
+    cx.set_global(WorkflowHostGlobal(entity.clone()));
+    entity
+}
+
+/// A guard that frees its in-flight key however the work ends.
+struct InFlight {
+    set: Arc<Mutex<HashSet<String>>>,
+    key: String,
+}
+
+impl InFlight {
+    fn claim(set: &Arc<Mutex<HashSet<String>>>, key: &str) -> Option<InFlight> {
+        let mut guard = set.lock().ok()?;
+        if !guard.insert(key.to_string()) {
+            return None;
+        }
+        Some(InFlight {
+            set: Arc::clone(set),
+            key: key.to_string(),
+        })
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.set.lock() {
+            guard.remove(&self.key);
+        }
+    }
+}
+
+fn snapshot_of(set: &Arc<Mutex<HashSet<String>>>) -> HashSet<String> {
+    set.lock().map(|guard| guard.clone()).unwrap_or_default()
+}
+
+/// Start the host for `account` (from `session::connect_account`, beside
+/// [`crate::automation_host::start_automation_host`]). Restarting for the
+/// same account replaces the old loop.
+pub fn start_workflow_host(account: &api::Account, cx: &mut App) {
+    let state_entity = state(cx);
+    let account_id = account.id.clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let (eval_soon, in_flight, final_pr_in_flight) = state_entity.update(cx, |state, _| {
+        if let Some(previous) = state.by_account.insert(account_id.clone(), stop.clone()) {
+            previous.store(true, Ordering::SeqCst);
+        }
+        (
+            state.eval_soon.clone(),
+            Arc::clone(&state.in_flight),
+            Arc::clone(&state.final_pr_in_flight),
+        )
+    });
+
+    let watches = watch_collections(stop.clone(), eval_soon.clone(), cx);
+    state_entity.update(cx, |state, _| {
+        if watches.is_empty() {
+            state.watch_by_account.remove(&account_id);
+        } else {
+            state.watch_by_account.insert(account_id.clone(), watches);
+        }
+    });
+
+    cx.spawn(async move |cx| {
+        // Evaluate on the first tick: a workflow started while this device
+        // was offline must move as soon as the rows land.
+        let mut ticks_since_beat = u32::MAX / 2;
+        loop {
+            cx.background_executor().timer(TICK).await;
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
+            ticks_since_beat = ticks_since_beat.saturating_add(1);
+            let nudged = eval_soon.swap(false, Ordering::SeqCst);
+            if !nudged && Duration::from_secs(ticks_since_beat as u64) < BEAT {
+                continue;
+            }
+            ticks_since_beat = 0;
+
+            // ONE foreground snapshot — every entity read happens here.
+            let Some(passes) = cx.update(|cx| {
+                snapshot_for(&account_id, &in_flight, &final_pr_in_flight, cx)
+            }) else {
+                // Account switched away — retire; connect_account restarts.
+                return;
+            };
+            if passes.is_empty() {
+                continue;
+            }
+
+            for pass in passes {
+                let in_flight = Arc::clone(&in_flight);
+                let final_pr_in_flight = Arc::clone(&final_pr_in_flight);
+                let starts = cx
+                    .background_executor()
+                    .spawn(async move { run_pass(pass, &in_flight, &final_pr_in_flight) })
+                    .await;
+                // The foreground half of the pass: the resumes it queued go
+                // out whether or not it also started anything.
+                cx.update(|cx| {
+                    drain_resumes(cx);
+                    for start in starts {
+                        launch_node(start, cx);
+                    }
+                });
+            }
+        }
+    })
+    .detach();
+}
+
+/// Stop `account_id`'s host (from the sign-out paths).
+pub fn stop_workflow_host(account_id: &str, cx: &mut App) {
+    let state = state(cx);
+    state.update(cx, |state, _| {
+        if let Some(stop) = state.by_account.remove(account_id) {
+            stop.store(true, Ordering::SeqCst);
+        }
+        state.watch_by_account.remove(account_id);
+    });
+}
+
+/// Watch the collections an evaluation reads. Evaluation is idempotent and
+/// every write is gated by the in-flight sets, so an eager pass costs one
+/// settings read.
+fn watch_collections(
+    stop: Arc<AtomicBool>,
+    eval_soon: Arc<AtomicBool>,
+    cx: &mut App,
+) -> Vec<gpui::Subscription> {
+    let Some(collections) = sync::Store::try_global(cx).map(|store| store.collections().clone())
+    else {
+        return Vec::new(); // headless tests — the beat cadence still runs
+    };
+    vec![
+        watch_flag(&collections.workflows, &stop, &eval_soon, cx),
+        watch_flag(&collections.workflow_nodes, &stop, &eval_soon, cx),
+        watch_flag(&collections.coding_sessions, &stop, &eval_soon, cx),
+        watch_flag(&collections.issue_relations, &stop, &eval_soon, cx),
+    ]
+}
+
+fn watch_flag<T: 'static>(
+    entity: &gpui::Entity<T>,
+    stop: &Arc<AtomicBool>,
+    eval_soon: &Arc<AtomicBool>,
+    cx: &mut App,
+) -> gpui::Subscription {
+    let stop = stop.clone();
+    let eval_soon = eval_soon.clone();
+    cx.observe(entity, move |_, _| {
+        if !stop.load(Ordering::SeqCst) {
+            eval_soon.store(true, Ordering::SeqCst);
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
+// The foreground snapshot
+// ---------------------------------------------------------------------------
+
+/// Everything ONE workflow's pass needs, read on the foreground.
+struct Pass {
+    trpc: Arc<api::TrpcClient>,
+    settings_path: PathBuf,
+    repos_root: PathBuf,
+    device_id: String,
+    /// The workflow's repository and the board its token mint resolves the
+    /// default branch through (the first node's issue's board).
+    repository_id: Option<String>,
+    board_id: Option<String>,
+    /// What the node runs launch with, already layered over this machine's
+    /// defaults.
+    options: LaunchOptions,
+    /// `workflows.decisions` as synced — every node prompt carries it.
+    decisions: String,
+    name: String,
+    snapshot: Snapshot,
+    /// The node's representative issue id, by node id — a start needs it.
+    issue_of_node: HashMap<String, String>,
+    /// A compound node's member issues, by node id.
+    members_of_node: HashMap<String, Vec<String>>,
+    /// Live engine handles by session id: `steer` and `kill` are channel
+    /// sends, so the background pass can drive them directly.
+    engines: HashMap<String, engine::EngineSession>,
+    /// Session ids whose run this process does NOT host (another device, or
+    /// a run this app did not launch) — they can only be reported on.
+    session_is_local: HashSet<String>,
+}
+
+/// One node the pass decided to start — executed on the foreground, where
+/// the window and the launch plumbing live.
+struct StartOrder {
+    workflow_id: String,
+    workflow_name: String,
+    decisions: String,
+    integration_branch: String,
+    node_id: String,
+    issue_id: String,
+    member_issue_ids: Vec<String>,
+    /// Resolved on the background pass for a COMPOUND node only — a batch
+    /// launch names its repository itself (an issue launch resolves it
+    /// inside `prepare`).
+    repo: Option<api::repositories::IssueRepository>,
+    options: LaunchOptions,
+    trpc: Arc<api::TrpcClient>,
+    in_flight: Option<Arc<InFlight>>,
+}
+
+/// One node whose PR would not merge and whose run has ENDED: the resume
+/// happens on the foreground.
+struct ResumeOrder {
+    session_id: String,
+    prompt: String,
+    in_flight: Option<Arc<InFlight>>,
+}
+
+fn snapshot_for(
+    account_id: &str,
+    in_flight: &Arc<Mutex<HashSet<String>>>,
+    final_pr_in_flight: &Arc<Mutex<HashSet<String>>>,
+    cx: &mut App,
+) -> Option<Vec<Pass>> {
+    let account = queries::active_account(cx)?;
+    if account.id != account_id {
+        return None;
+    }
+    let auth = crate::session::AuthContext::global(cx);
+    let device_id = steer::persistent_device_id(&auth.data_dir);
+    let settings_path = coding::Settings::default_path(&auth.data_dir);
+    let trpc = Arc::new(queries::trpc_client(cx)?);
+    let collections = sync::Store::try_global(cx)?.collections().clone();
+    let hub = CodingHub::global(cx);
+    let sessions = LocalSessions::global(cx);
+
+    let settings = hub.read(cx).settings.clone();
+    let repos_root = settings.repos_root_path();
+    let local = sessions.read(cx);
+    let workflows_rows = collections.workflows.read(cx);
+    let node_rows = collections.workflow_nodes.read(cx);
+    let issue_rows = collections.issues.read(cx);
+    let session_rows = collections.coding_sessions.read(cx);
+    let relation_rows = collections.issue_relations.read(cx);
+
+    let now_ms = chrono::Local::now().timestamp_millis();
+    let claimed = snapshot_of(in_flight);
+    let final_claimed = snapshot_of(final_pr_in_flight);
+
+    let mut passes = Vec::new();
+    for workflow in workflows_rows.iter() {
+        // SINGLE WRITER: another machine's (or the daemon's) workflow.
+        if workflow.device_id.as_deref() != Some(device_id.as_str()) {
+            continue;
+        }
+        let status = workflow.status_wire();
+        if !matches!(status, "running" | "paused" | "cancelled") {
+            continue;
+        }
+        let Some(integration_branch) = workflow.integration_branch.clone() else {
+            continue; // a pre-EXP-981 row: nothing to base on
+        };
+        let launch = api::workflows::from_row(workflow).launch;
+        let mut nodes = Vec::new();
+        let mut issue_of_node = HashMap::new();
+        let mut members_of_node = HashMap::new();
+        let mut issues: HashMap<String, IssueFacts> = HashMap::new();
+        let mut sessions_facts: HashMap<String, SessionFacts> = HashMap::new();
+        let mut engines = HashMap::new();
+        let mut session_is_local = HashSet::new();
+        let mut edge_nodes = Vec::new();
+        let mut board_id = None;
+        for node in node_rows.iter() {
+            if node.workflow_id.as_deref() != Some(workflow.id.as_str()) {
+                continue;
+            }
+            let Some(issue_id) = node.issue_id.clone() else {
+                continue;
+            };
+            let members = node.member_ids();
+            if let Some(issue) = issue_rows.get(&issue_id) {
+                board_id.get_or_insert_with(|| issue.board_id.clone());
+                issues.insert(
+                    issue_id.clone(),
+                    IssueFacts {
+                        pr_state: issue.pr_state.clone(),
+                    },
+                );
+            }
+            if let Some(session_id) = node.session_id.as_deref() {
+                if let Some(row) = session_rows.get(session_id) {
+                    sessions_facts.insert(session_id.to_string(), session_facts(row));
+                }
+                if let Some(live) = local.session_for_id(session_id) {
+                    engines.insert(session_id.to_string(), live.host.session.clone());
+                    session_is_local.insert(session_id.to_string());
+                }
+            }
+            edge_nodes.push((node.id.clone(), issue_id.clone(), members.clone()));
+            issue_of_node.insert(node.id.clone(), issue_id.clone());
+            members_of_node.insert(node.id.clone(), members.clone());
+            nodes.push(NodeFacts {
+                id: node.id.clone(),
+                issue_id,
+                member_issue_ids: members,
+                kind: node.kind_wire().to_string(),
+                state: node.state_wire().to_string(),
+                wave: node.wave_index() as i64,
+                lane: node.lane_index() as i64,
+                session_id: node.session_id.clone(),
+                attempt: node.attempt.unwrap_or(0),
+                approved_at: node.approved_at.clone(),
+            });
+        }
+        if nodes.is_empty() {
+            continue;
+        }
+        let edges = workflow_edges(&edge_nodes, relation_rows.iter());
+        let nudged = workflows::read_states(&settings_path, &device_id)
+            .get(&workflow.id)
+            .map(|state| state.nudged.clone())
+            .unwrap_or_default();
+        passes.push(Pass {
+            trpc: Arc::clone(&trpc),
+            settings_path: settings_path.clone(),
+            repos_root: repos_root.clone(),
+            device_id: device_id.clone(),
+            repository_id: workflow.repository_id.clone(),
+            board_id,
+            options: workflows::launch_options(
+                &settings,
+                launch.agent.as_deref(),
+                launch.model.as_deref(),
+                launch.effort.as_deref(),
+                launch.subagent_model.as_deref(),
+                launch.account.as_deref(),
+            ),
+            decisions: workflow.decisions.clone().unwrap_or_default(),
+            name: workflow.name.clone().unwrap_or_default(),
+            snapshot: Snapshot {
+                workflow: WorkflowFacts {
+                    id: workflow.id.clone(),
+                    status: status.to_string(),
+                    gate: workflow.gate.clone().unwrap_or_else(|| "human".to_string()),
+                    integration_branch,
+                    final_pr_url: workflow.final_pr_url.clone(),
+                    max_parallel: workflow.max_parallel(),
+                },
+                nodes,
+                edges,
+                issues,
+                sessions: sessions_facts,
+                // The engine only creates the branch it cannot see; the host
+                // half is idempotent, so "not known yet" is safe to retry.
+                integration_branch_exists: false,
+                in_flight: claimed.clone(),
+                final_pr_in_flight: final_claimed.contains(&workflow.id),
+                nudged,
+                now_ms,
+            },
+            issue_of_node,
+            members_of_node,
+            engines,
+            session_is_local,
+        });
+    }
+    Some(passes)
+}
+
+/// The `blocks` edges between a workflow's nodes — the ONE rule, shared with
+/// every client's graph ([`domain::workflow_view::workflow_edges`]).
+fn workflow_edges<'a>(
+    nodes: &[(String, String, Vec<String>)],
+    relations: impl Iterator<Item = &'a domain::rows::IssueRelation>,
+) -> Vec<(String, String)> {
+    let edge_nodes: Vec<domain::workflow_view::EdgeNode<'_>> = nodes
+        .iter()
+        .map(|(id, issue_id, members)| domain::workflow_view::EdgeNode {
+            id,
+            issue_id,
+            member_issue_ids: members.iter().map(String::as_str).collect(),
+        })
+        .collect();
+    let edge_relations: Vec<domain::workflow_view::EdgeRelation<'_>> = relations
+        .map(|relation| domain::workflow_view::EdgeRelation {
+            kind: relation.kind.as_deref().unwrap_or_default(),
+            issue_id: &relation.issue_id,
+            related_issue_id: &relation.related_issue_id,
+        })
+        .collect();
+    domain::workflow_view::workflow_edges(&edge_nodes, &edge_relations, &[])
+        .into_iter()
+        .map(|edge| (edge.from, edge.to))
+        .collect()
+}
+
+/// One synced `coding_sessions` row as the engine reads it. `blocked`
+/// (EXP-804 jsonb `{kind, agent, window, resetsAt, since}`) is orthogonal to
+/// the status: a walled run still reads `running`.
+fn session_facts(row: &domain::rows::CodingSession) -> SessionFacts {
+    let status = row.status.as_deref().unwrap_or("");
+    let blocked = row.blocked.as_ref().filter(|value| !value.is_null());
+    SessionFacts {
+        live: matches!(status, "running" | "in_review"),
+        needs_input: row.needs_input.unwrap_or(false),
+        blocked: blocked.is_some(),
+        blocked_resets_at_ms: blocked
+            .and_then(|value| value.get("resetsAt"))
+            .and_then(parse_resets_at),
+        agent_busy: row.agent_busy.unwrap_or(false),
+    }
+}
+
+/// The wall's reset stamp as ms epoch — a number already, or the ISO string
+/// the agent reported. Anything else means "we do not know when", and the
+/// engine then simply never nudges.
+fn parse_resets_at(value: &serde_json::Value) -> Option<i64> {
+    if let Some(number) = value.as_i64() {
+        // Seconds vs milliseconds: a plausible epoch in seconds is ~1e9.
+        return Some(if number < 100_000_000_000 { number * 1000 } else { number });
+    }
+    let raw = value.as_str()?;
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|parsed| parsed.timestamp_millis())
+}
+
+// ---------------------------------------------------------------------------
+// The pass (background executor)
+// ---------------------------------------------------------------------------
+
+/// Evaluate ONE workflow and execute everything that is not a launch,
+/// returning the starts the foreground must do.
+fn run_pass(
+    pass: Pass,
+    in_flight: &Arc<Mutex<HashSet<String>>>,
+    final_pr_in_flight: &Arc<Mutex<HashSet<String>>>,
+) -> Vec<StartOrder> {
+    let workflow_id = pass.snapshot.workflow.id.clone();
+    let branch = pass.snapshot.workflow.integration_branch.clone();
+    let mut snapshot = pass.snapshot.clone();
+    // Rule 0's host half is idempotent AND cheap after the first pass (the
+    // branch fetch is a cache hit), so it runs here rather than round-
+    // tripping a decision: everything below then sees a real branch.
+    if snapshot.workflow.status == "running" {
+        match ensure_branch(&pass.trpc, &pass.repos_root, &pass.repository_id, pass.board_id.as_deref(), &branch) {
+            Ok(()) => snapshot.integration_branch_exists = true,
+            Err(err) => {
+                log::warn!("[workflows] {workflow_id}: integration branch {branch} — {err}");
+                return Vec::new();
+            }
+        }
+    }
+
+    let decisions = workflows::evaluate(&snapshot);
+    let mut starts = Vec::new();
+    let mut resumes: Vec<ResumeOrder> = Vec::new();
+    for decision in decisions {
+        match decision {
+            // Already done above — the engine still emits it when the host
+            // could not confirm the branch, and then there is nothing else.
+            Decision::EnsureIntegrationBranch => {}
+            Decision::SetNodeState {
+                node_id,
+                state,
+                note,
+            } => {
+                let mut report = api::workflows::NodeReport::new(&node_id, &state);
+                report.note = match note {
+                    Some(note) => api::patch::Patch::Set(note),
+                    None => api::patch::Patch::Null,
+                };
+                report_node(&pass.trpc, &report);
+            }
+            Decision::StartNode { node_id, attempt } => {
+                let Some(issue_id) = pass.issue_of_node.get(&node_id).cloned() else {
+                    continue;
+                };
+                let members = pass
+                    .members_of_node
+                    .get(&node_id)
+                    .cloned()
+                    .unwrap_or_default();
+                // A COMPOUND node runs as one batch, which needs the
+                // repository's full name the way the launcher resolves it.
+                let repo = if members.is_empty() {
+                    None
+                } else {
+                    match api::repositories::for_issue(&pass.trpc, &issue_id) {
+                        Ok(Some(repo)) => Some(repo),
+                        Ok(None) | Err(_) => {
+                            log::warn!(
+                                "[workflows] {workflow_id}: node {node_id} has no repository"
+                            );
+                            continue;
+                        }
+                    }
+                };
+                let Some(claim) = InFlight::claim(in_flight, &node_id) else {
+                    continue;
+                };
+                // Persist BEFORE the launch (the automations rule): a crash
+                // between here and the spawn leaves a `running` node the
+                // next pass re-decides, never a silent double start.
+                let mut report = api::workflows::NodeReport::new(&node_id, "running");
+                report.attempt = Some(attempt);
+                report.base_branch = api::patch::Patch::Set(branch.clone());
+                report.note = api::patch::Patch::Null;
+                if !report_node(&pass.trpc, &report) {
+                    continue;
+                }
+                starts.push(StartOrder {
+                    workflow_id: workflow_id.clone(),
+                    workflow_name: pass.name.clone(),
+                    decisions: pass.decisions.clone(),
+                    integration_branch: branch.clone(),
+                    node_id,
+                    issue_id,
+                    member_issue_ids: members,
+                    repo,
+                    options: pass.options.clone(),
+                    trpc: Arc::clone(&pass.trpc),
+                    in_flight: Some(Arc::new(claim)),
+                });
+            }
+            Decision::LandNode { node_id } => {
+                let Some(claim) = InFlight::claim(in_flight, &node_id) else {
+                    continue;
+                };
+                land(&pass, &node_id, &branch, claim, &mut resumes);
+            }
+            Decision::Nudge {
+                session_id,
+                key,
+                text,
+            } => {
+                if let Some(engine) = pass.engines.get(&session_id) {
+                    engine.steer(text);
+                    remember_nudge(&pass, &workflow_id, &session_id, &key);
+                }
+            }
+            Decision::OpenFinalPr => {
+                let Some(claim) = InFlight::claim(final_pr_in_flight, &workflow_id) else {
+                    continue;
+                };
+                match api::workflows::open_final_pr(&pass.trpc, &workflow_id) {
+                    Ok(url) => log::info!("[workflows] {workflow_id}: final pull request {url}"),
+                    Err(err) => log::warn!("[workflows] {workflow_id}: final PR — {err}"),
+                }
+                drop(claim);
+            }
+            Decision::KillSession { session_id } => {
+                if let Some(engine) = pass.engines.get(&session_id) {
+                    engine.kill("ended");
+                }
+            }
+            Decision::DeleteIntegrationBranch => {
+                if already_deleted(&pass, &workflow_id) {
+                    continue;
+                }
+                match workflows::delete_integration_branch(
+                    &pass.trpc,
+                    &pass.repos_root,
+                    pass.repository_id.as_deref().unwrap_or_default(),
+                    pass.board_id.as_deref(),
+                    &branch,
+                ) {
+                    Ok(()) => {
+                        log::info!("[workflows] {workflow_id}: deleted {branch}");
+                        remember_branch_deleted(&pass, &workflow_id);
+                    }
+                    Err(err) => log::warn!("[workflows] {workflow_id}: delete {branch} — {err}"),
+                }
+            }
+        }
+    }
+    // A conflicted node whose run ENDED needs the foreground to relaunch it.
+    for resume in resumes {
+        RESUME_QUEUE.with_lock(resume);
+    }
+    starts
+}
+
+fn ensure_branch(
+    trpc: &api::TrpcClient,
+    repos_root: &std::path::Path,
+    repository_id: &Option<String>,
+    board_id: Option<&str>,
+    branch: &str,
+) -> Result<(), String> {
+    let Some(repository_id) = repository_id.as_deref() else {
+        return Err("the workflow's repository is gone".to_string());
+    };
+    workflows::ensure_integration_branch(trpc, repos_root, repository_id, board_id, branch)
+}
+
+fn report_node(trpc: &api::TrpcClient, report: &api::workflows::NodeReport) -> bool {
+    match api::workflows::report_node(trpc, report) {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!(
+                "[workflows] reportNode {} → {} failed: {err}",
+                report.node_id,
+                report.state
+            );
+            false
+        }
+    }
+}
+
+/// The merge train's one step and what a refusal means (see the engine's
+/// module doc): the gate saying "not yet" is nothing to do, anything else is
+/// GitHub refusing the merge — the node has to merge the trunk in.
+fn land(
+    pass: &Pass,
+    node_id: &str,
+    branch: &str,
+    claim: InFlight,
+    resumes: &mut Vec<ResumeOrder>,
+) {
+    let outcome = match api::workflows::land_node(&pass.trpc, node_id) {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            log::warn!("[workflows] landNode {node_id} failed: {err}");
+            return;
+        }
+    };
+    if outcome.merged {
+        log::info!("[workflows] landed {node_id}");
+        return;
+    }
+    if outcome.is_waiting() {
+        return; // the gate, or a workflow that stopped running
+    }
+    let reason = outcome.reason.unwrap_or_else(|| "GitHub refused the merge".to_string());
+    let mut report = api::workflows::NodeReport::new(node_id, "updating");
+    report.note = api::patch::Patch::Set(reason.chars().take(500).collect());
+    report_node(&pass.trpc, &report);
+    let Some(session_id) = pass
+        .snapshot
+        .nodes
+        .iter()
+        .find(|node| node.id == node_id)
+        .and_then(|node| node.session_id.clone())
+    else {
+        return;
+    };
+    let prompt = conflict_prompt(branch);
+    // A LIVE run takes the text where it stands; an ended one has to be
+    // resumed, which only the foreground can do.
+    if let Some(engine) = pass.engines.get(&session_id) {
+        engine.steer(prompt);
+        return;
+    }
+    if !pass.session_is_local.contains(&session_id) {
+        resumes.push(ResumeOrder {
+            session_id,
+            prompt,
+            in_flight: Some(Arc::new(claim)),
+        });
+    }
+}
+
+fn remember_nudge(pass: &Pass, workflow_id: &str, session_id: &str, key: &str) {
+    let Ok(resets_at) = key.parse::<i64>() else {
+        return;
+    };
+    let mut states = workflows::read_states(&pass.settings_path, &pass.device_id);
+    states
+        .entry(workflow_id.to_string())
+        .or_default()
+        .nudged
+        .insert((session_id.to_string(), resets_at));
+    if let Err(err) = workflows::write_states(&pass.settings_path, &pass.device_id, &states) {
+        log::warn!("[workflows] state write failed: {err}");
+    }
+}
+
+fn already_deleted(pass: &Pass, workflow_id: &str) -> bool {
+    workflows::read_states(&pass.settings_path, &pass.device_id)
+        .get(workflow_id)
+        .is_some_and(|state| state.branch_deleted)
+}
+
+fn remember_branch_deleted(pass: &Pass, workflow_id: &str) {
+    let mut states = workflows::read_states(&pass.settings_path, &pass.device_id);
+    states.entry(workflow_id.to_string()).or_default().branch_deleted = true;
+    if let Err(err) = workflows::write_states(&pass.settings_path, &pass.device_id, &states) {
+        log::warn!("[workflows] state write failed: {err}");
+    }
+}
+
+/// The resumes one pass produced, handed to the foreground by the next tick.
+/// A plain mutex rather than a channel: the queue is drained whole, and a
+/// dropped order is simply re-decided next beat.
+struct ResumeQueue(Mutex<Vec<ResumeOrder>>);
+
+impl ResumeQueue {
+    fn with_lock(&self, order: ResumeOrder) {
+        if let Ok(mut queue) = self.0.lock() {
+            queue.push(order);
+        }
+    }
+
+    fn drain(&self) -> Vec<ResumeOrder> {
+        self.0.lock().map(|mut queue| std::mem::take(&mut *queue)).unwrap_or_default()
+    }
+}
+
+static RESUME_QUEUE: std::sync::LazyLock<ResumeQueue> =
+    std::sync::LazyLock::new(|| ResumeQueue(Mutex::new(Vec::new())));
+
+// ---------------------------------------------------------------------------
+// The launch (foreground)
+// ---------------------------------------------------------------------------
+
+/// Re-enter the ended runs the pass decided have to merge the integration
+/// branch in. The in-flight claim rides along until the resume is handed
+/// over, so the next pass does not queue the same node twice.
+fn drain_resumes(cx: &mut App) {
+    for resume in RESUME_QUEUE.drain() {
+        let keep = resume.in_flight;
+        crate::action_run::resume_run_on_account(
+            resume.session_id,
+            None,
+            false,
+            LaunchOrigin::Local,
+            None,
+            Some(resume.prompt),
+            cx,
+        );
+        drop(keep);
+    }
+}
+
+fn launch_node(order: StartOrder, cx: &mut App) {
+    let StartOrder {
+        workflow_id,
+        workflow_name,
+        decisions,
+        integration_branch,
+        node_id,
+        issue_id,
+        member_issue_ids,
+        repo,
+        options,
+        trpc,
+        in_flight,
+    } = order;
+    let run = coding::WorkflowRun {
+        workflow_id: workflow_id.clone(),
+        name: workflow_name,
+        decisions,
+    };
+    // A compound node is ONE batch run over its parent plus its members;
+    // a plain node is an ordinary issue run. Both cut from the integration
+    // branch and both carry the `## Workflow` section.
+    let prepared = match repo {
+        None => build_issue_start(&issue_id, &integration_branch, run, options, cx),
+        Some(repo) => build_batch_start(
+            &issue_id,
+            &member_issue_ids,
+            repo,
+            &integration_branch,
+            run,
+            options,
+            cx,
+        ),
+    };
+    let Some((request, deps, subject)) = prepared else {
+        fail_node(&trpc, &node_id, "The run could not be prepared on this machine");
+        return;
+    };
+    let Some(window) = crate::steer_wiring::find_team_window(cx) else {
+        fail_node(&trpc, &node_id, "No Exponential window is open on the runner");
+        return;
+    };
+    let node = node_id.clone();
+    cx.spawn(async move |cx| {
+        let hold = in_flight;
+        let prepared = cx
+            .background_executor()
+            .spawn(async move { coding::prepare(&request, &deps) })
+            .await;
+        let _ = window.update(cx, |_, window, cx| match prepared {
+            Ok(coding::Prepared::Ready(ready)) => {
+                let session_id = ready.session_id.clone();
+                let subject = match subject {
+                    SessionSubject::Issue(id) => SessionSubject::Issue(id),
+                    other => other,
+                };
+                match coding_flow::spawn_into_window(ready, subject, window, cx) {
+                    Ok(()) => {
+                        let trpc = Arc::clone(&trpc);
+                        let node = node.clone();
+                        cx.background_executor()
+                            .spawn(async move {
+                                let mut report =
+                                    api::workflows::NodeReport::new(&node, "running");
+                                report.session_id = api::patch::Patch::Set(session_id);
+                                report_node(&trpc, &report);
+                            })
+                            .detach();
+                    }
+                    Err(err) => fail_node_async(&trpc, &node, &err, cx),
+                }
+            }
+            Ok(coding::Prepared::Disabled(reason)) => {
+                fail_node_async(&trpc, &node, &reason.message(), cx)
+            }
+            Err(err) => fail_node_async(&trpc, &node, &err.to_string(), cx),
+        });
+        drop(hold);
+    })
+    .detach();
+}
+
+fn build_issue_start(
+    issue_id: &str,
+    integration_branch: &str,
+    run: coding::WorkflowRun,
+    options: LaunchOptions,
+    cx: &mut App,
+) -> Option<(coding::PrepareRequest, coding::CodingDeps, SessionSubject)> {
+    let (mut request, deps) =
+        coding_flow::build_launch(issue_id, LaunchOrigin::Local, options, false, None, None, cx)?;
+    request.base_branch = Some(integration_branch.to_string());
+    request.workflow = Some(run);
+    Some((
+        coding::PrepareRequest::Issue(request),
+        deps,
+        SessionSubject::Issue(issue_id.to_string()),
+    ))
+}
+
+fn build_batch_start(
+    issue_id: &str,
+    member_issue_ids: &[String],
+    repo: api::repositories::IssueRepository,
+    integration_branch: &str,
+    run: coding::WorkflowRun,
+    options: LaunchOptions,
+    cx: &mut App,
+) -> Option<(coding::PrepareRequest, coding::CodingDeps, SessionSubject)> {
+    let collections = sync::Store::try_global(cx)?.collections().clone();
+    let issues = collections.issues.read(cx);
+    let boards = collections.boards.read(cx);
+    let parent = issues.get(issue_id)?.clone();
+    let board = boards.get(&parent.board_id)?;
+    let mut specs = Vec::new();
+    for id in std::iter::once(&issue_id.to_string()).chain(member_issue_ids.iter()) {
+        let Some(issue) = issues.get(id) else {
+            continue;
+        };
+        specs.push(coding::BatchIssueSpec {
+            issue_id: issue.id.clone(),
+            issue_identifier: issue.identifier.clone(),
+            title: issue.title.clone(),
+            description: issue.description.clone(),
+            status: issue.status,
+        });
+    }
+    if specs.len() < 2 {
+        return None; // a member that has not synced — retry next beat
+    }
+    let team_id = board.team_id.clone();
+    let batch_id = coding::new_batch_id();
+    let request = coding::BatchLaunchRequest {
+        batch_id: batch_id.clone(),
+        team_id,
+        board_id: Some(parent.board_id.clone()),
+        repo: coding::RepoGroup {
+            repository_id: repo.repository_id,
+            full_name: repo.full_name,
+            default_branch: repo.default_branch,
+        },
+        issues: specs,
+        device_label: coding::default_device_label(),
+        origin: LaunchOrigin::Local,
+        options,
+        prompt: None,
+        base_branch: Some(integration_branch.to_string()),
+        workflow: Some(run),
+    };
+    let deps = coding_flow::build_batch_deps(cx)?;
+    Some((
+        coding::PrepareRequest::Batch(request),
+        deps,
+        SessionSubject::Batch(batch_id),
+    ))
+}
+
+/// A node whose run never reached the agent: the state says so, in one
+/// sentence, so the node panel can offer Retry or Skip.
+fn fail_node(trpc: &Arc<api::TrpcClient>, node_id: &str, reason: &str) {
+    let mut report = api::workflows::NodeReport::new(node_id, "failed");
+    report.note = api::patch::Patch::Set(one_line(reason));
+    report_node(trpc, &report);
+}
+
+fn fail_node_async(trpc: &Arc<api::TrpcClient>, node_id: &str, reason: &str, cx: &mut App) {
+    let trpc = Arc::clone(trpc);
+    let node_id = node_id.to_string();
+    let reason = reason.to_string();
+    cx.background_executor()
+        .spawn(async move { fail_node(&trpc, &node_id, &reason) })
+        .detach();
+}
+
+/// One line, ≤500 chars — the column's bound.
+fn one_line(text: &str) -> String {
+    let flattened = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    flattened.chars().take(500).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The conflict text a node gets when the integration branch moved
+    /// under its pull request.
+    #[test]
+    fn the_conflict_prompt_names_the_branch_to_merge() {
+        assert_eq!(
+            conflict_prompt("exp/wf-abcdef12"),
+            "The integration branch moved and your pull request no longer merges. Run git fetch \
+origin, git merge origin/exp/wf-abcdef12, resolve the conflicts, push, then end the run again."
+        );
+    }
+
+    /// A note is one line and bounded — the column takes 500 chars.
+    #[test]
+    fn a_note_is_one_bounded_line() {
+        assert_eq!(one_line("  two\n  lines  "), "two lines");
+        assert_eq!(one_line(&"x".repeat(900)).len(), 500);
+    }
+
+    /// The in-flight claim is exclusive and frees itself: a node the host is
+    /// already starting is never started twice, and a finished order never
+    /// leaves the node stuck out of the next pass.
+    #[test]
+    fn an_in_flight_claim_is_exclusive_and_self_freeing() {
+        let set: Arc<Mutex<HashSet<String>>> = Arc::default();
+        let first = InFlight::claim(&set, "node-1").expect("the first claim wins");
+        assert!(InFlight::claim(&set, "node-1").is_none());
+        assert!(InFlight::claim(&set, "node-2").is_some());
+        assert_eq!(snapshot_of(&set), ["node-1".to_string()].into());
+        drop(first);
+        assert!(snapshot_of(&set).is_empty());
+    }
+}

@@ -138,6 +138,7 @@ mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
 mod workflow_card;
+mod workflow_host;
 mod workflow_view;
 mod workflows_view;
 pub mod steer_wiring;

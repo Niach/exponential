@@ -346,3 +346,63 @@ export async function replanWorkflowsForIssues(
     await replanWorkflow(tx, workflowId)
   }
 }
+
+/**
+ * EXP-982: is this issue covered by a node of a workflow that is still
+ * running (or paused)? Such an issue's PR merges into the workflow's
+ * integration branch, so the merge must not move it to the team's PR-merge
+ * status yet — the final PR's merge does.
+ */
+export async function issueLandsInLiveWorkflow(
+  executor: Executor,
+  issueId: string
+): Promise<boolean> {
+  const rows = await executor
+    .select({ id: workflowNodes.id })
+    .from(workflowNodes)
+    .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+    .where(
+      and(
+        inArray(workflows.status, [`running`, `paused`]),
+        or(
+          eq(workflowNodes.issueId, issueId),
+          sql`${workflowNodes.memberIssueIds} ? ${issueId}`
+        )
+      )
+    )
+    .limit(1)
+  return rows.length > 0
+}
+
+/** The live workflow node covering an issue, with what `pr_open` needs to
+ *  derive the base: agents pass nothing new. */
+export async function liveWorkflowBaseForIssue(
+  executor: Executor,
+  issueId: string
+): Promise<{ workflowId: string; nodeId: string; base: string } | null> {
+  const [row] = await executor
+    .select({
+      workflowId: workflows.id,
+      nodeId: workflowNodes.id,
+      baseBranch: workflowNodes.baseBranch,
+      integrationBranch: workflows.integrationBranch,
+    })
+    .from(workflowNodes)
+    .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+    .where(
+      and(
+        inArray(workflows.status, [`running`, `paused`]),
+        or(
+          eq(workflowNodes.issueId, issueId),
+          sql`${workflowNodes.memberIssueIds} ? ${issueId}`
+        )
+      )
+    )
+    .limit(1)
+  if (!row) return null
+  return {
+    workflowId: row.workflowId,
+    nodeId: row.nodeId,
+    base: row.baseBranch ?? row.integrationBranch,
+  }
+}

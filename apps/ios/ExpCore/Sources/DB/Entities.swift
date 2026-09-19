@@ -2255,6 +2255,11 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
     public let budget: String?
     /// What the node expects to change (`text[]`).
     public let touches: [String]
+    /// EXP-982: when a member cleared the node's PR for the merge train; nil
+    /// while it still waits (and on a node no gate asks about).
+    public let approvedAt: String?
+    /// EXP-982: why the node is `failed` / `waiting`, in the engine's words.
+    public let note: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -2275,6 +2280,8 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         baseBranch: String? = nil,
         budget: String? = nil,
         touches: [String] = [],
+        approvedAt: String? = nil,
+        note: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -2294,12 +2301,14 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         self.baseBranch = baseBranch
         self.budget = budget
         self.touches = touches
+        self.approvedAt = approvedAt
+        self.note = note
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, state, risk, wave, lane, attempt, budget, touches
+        case id, kind, state, risk, wave, lane, attempt, budget, touches, note
         case workflowId = "workflow_id"
         case teamId = "team_id"
         case issueId = "issue_id"
@@ -2307,6 +2316,7 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         case onCycle = "on_cycle"
         case sessionId = "session_id"
         case baseBranch = "base_branch"
+        case approvedAt = "approved_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -2341,6 +2351,8 @@ extension WorkflowNodeEntity: Codable {
         baseBranch = try c.decodeIfPresent(String.self, forKey: .baseBranch)
         budget = c.decodeWireJsonString(forKey: .budget)
         touches = c.decodeWireStringList(forKey: .touches)
+        approvedAt = try c.decodeIfPresent(String.self, forKey: .approvedAt)
+        note = try c.decodeIfPresent(String.self, forKey: .note)
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
     }

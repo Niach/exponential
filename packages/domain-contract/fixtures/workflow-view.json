@@ -1,58 +1,561 @@
 {
   "bands": [
-    { "status": "draft", "band": "draft" },
-    { "status": "running", "band": "running" },
-    { "status": "paused", "band": "running" },
-    { "status": "done", "band": "done" },
-    { "status": "cancelled", "band": "done" },
-    { "status": "something-new", "band": "done" }
+    {
+      "status": "draft",
+      "band": "draft"
+    },
+    {
+      "status": "running",
+      "band": "running"
+    },
+    {
+      "status": "paused",
+      "band": "running"
+    },
+    {
+      "status": "done",
+      "band": "done"
+    },
+    {
+      "status": "cancelled",
+      "band": "done"
+    },
+    {
+      "status": "something-new",
+      "band": "done"
+    }
   ],
   "shapeLines": [
-    { "metrics": { "nodes": 12, "depth": 3, "width": 8, "cycles": [] }, "line": "12 nodes · depth 3 · width 8", "cycleNote": null },
-    { "metrics": { "nodes": 1, "depth": 1, "width": 1, "cycles": [] }, "line": "1 node · depth 1 · width 1", "cycleNote": null },
     {
-      "metrics": { "nodes": 4, "depth": 2, "width": 2, "cycles": [["EXP-2", "EXP-3"], ["EXP-7"]] },
+      "metrics": {
+        "nodes": 12,
+        "depth": 3,
+        "width": 8,
+        "cycles": []
+      },
+      "line": "12 nodes · depth 3 · width 8",
+      "cycleNote": null
+    },
+    {
+      "metrics": {
+        "nodes": 1,
+        "depth": 1,
+        "width": 1,
+        "cycles": []
+      },
+      "line": "1 node · depth 1 · width 1",
+      "cycleNote": null
+    },
+    {
+      "metrics": {
+        "nodes": 4,
+        "depth": 2,
+        "width": 2,
+        "cycles": [
+          [
+            "EXP-2",
+            "EXP-3"
+          ],
+          [
+            "EXP-7"
+          ]
+        ]
+      },
       "line": "4 nodes · depth 2 · width 2",
       "cycleNote": "These issues block each other in a cycle: EXP-2, EXP-3; EXP-7. Remove one relation to start."
     }
   ],
   "captions": [
-    { "node": { "kind": "contract", "state": "blocked", "risk": "high" }, "workflowStatus": "draft", "caption": "Contract · high risk", "tone": "muted" },
-    { "node": { "kind": "leaf", "state": "blocked", "risk": "medium" }, "workflowStatus": "draft", "caption": "Leaf", "tone": "muted" },
-    { "node": { "kind": "leaf", "state": "in_review", "risk": "low" }, "workflowStatus": "running", "caption": "In review", "tone": "active" },
-    { "node": { "kind": "contract", "state": "running", "risk": "high" }, "workflowStatus": "running", "caption": "Contract · Running", "tone": "active" },
-    { "node": { "kind": "integration", "state": "waiting", "risk": "medium" }, "workflowStatus": "paused", "caption": "Integration · Waiting", "tone": "amber" },
-    { "node": { "kind": "leaf", "state": "landed", "risk": "medium" }, "workflowStatus": "done", "caption": "Landed", "tone": "success" },
-    { "node": { "kind": "leaf", "state": "failed", "risk": "medium" }, "workflowStatus": "running", "caption": "Failed", "tone": "danger" },
-    { "node": { "kind": "leaf", "state": "brand-new", "risk": "medium" }, "workflowStatus": "running", "caption": "brand-new", "tone": "muted" }
+    {
+      "node": {
+        "kind": "contract",
+        "state": "blocked",
+        "risk": "high"
+      },
+      "workflowStatus": "draft",
+      "caption": "Contract · high risk",
+      "tone": "muted"
+    },
+    {
+      "node": {
+        "kind": "leaf",
+        "state": "blocked",
+        "risk": "medium"
+      },
+      "workflowStatus": "draft",
+      "caption": "Leaf",
+      "tone": "muted"
+    },
+    {
+      "node": {
+        "kind": "leaf",
+        "state": "in_review",
+        "risk": "low"
+      },
+      "workflowStatus": "running",
+      "caption": "In review",
+      "tone": "active"
+    },
+    {
+      "node": {
+        "kind": "contract",
+        "state": "running",
+        "risk": "high"
+      },
+      "workflowStatus": "running",
+      "caption": "Contract · Running",
+      "tone": "active"
+    },
+    {
+      "node": {
+        "kind": "integration",
+        "state": "waiting",
+        "risk": "medium"
+      },
+      "workflowStatus": "paused",
+      "caption": "Integration · Waiting",
+      "tone": "amber"
+    },
+    {
+      "node": {
+        "kind": "leaf",
+        "state": "landed",
+        "risk": "medium"
+      },
+      "workflowStatus": "done",
+      "caption": "Landed",
+      "tone": "success"
+    },
+    {
+      "node": {
+        "kind": "leaf",
+        "state": "failed",
+        "risk": "medium"
+      },
+      "workflowStatus": "running",
+      "caption": "Failed",
+      "tone": "danger"
+    },
+    {
+      "node": {
+        "kind": "leaf",
+        "state": "brand-new",
+        "risk": "medium"
+      },
+      "workflowStatus": "running",
+      "caption": "brand-new",
+      "tone": "muted"
+    }
   ],
   "titles": [
-    { "identifier": "EXP-14", "members": 3, "title": "EXP-14 +3" },
-    { "identifier": "EXP-9", "members": 0, "title": "EXP-9" }
+    {
+      "identifier": "EXP-14",
+      "members": 3,
+      "title": "EXP-14 +3"
+    },
+    {
+      "identifier": "EXP-9",
+      "members": 0,
+      "title": "EXP-9"
+    }
   ],
   "edges": [
     {
       "name": "a relation between members lifts to one edge between their nodes",
       "nodes": [
-        { "id": "n1", "issueId": "p", "memberIssueIds": ["k1", "k2"] },
-        { "id": "n2", "issueId": "x", "memberIssueIds": [] },
-        { "id": "n3", "issueId": "y", "memberIssueIds": [] }
+        {
+          "id": "n1",
+          "issueId": "p",
+          "memberIssueIds": [
+            "k1",
+            "k2"
+          ]
+        },
+        {
+          "id": "n2",
+          "issueId": "x",
+          "memberIssueIds": []
+        },
+        {
+          "id": "n3",
+          "issueId": "y",
+          "memberIssueIds": []
+        }
       ],
       "relations": [
-        { "type": "blocks", "issueId": "k2", "relatedIssueId": "x" },
-        { "type": "blocks", "issueId": "p", "relatedIssueId": "x" },
-        { "type": "blocks", "issueId": "k1", "relatedIssueId": "k2" },
-        { "type": "blocks", "issueId": "x", "relatedIssueId": "outside" },
-        { "type": "parent", "issueId": "p", "relatedIssueId": "y" },
-        { "type": "blocks", "issueId": "y", "relatedIssueId": "x" },
-        { "type": "blocks", "issueId": "x", "relatedIssueId": "y" }
+        {
+          "type": "blocks",
+          "issueId": "k2",
+          "relatedIssueId": "x"
+        },
+        {
+          "type": "blocks",
+          "issueId": "p",
+          "relatedIssueId": "x"
+        },
+        {
+          "type": "blocks",
+          "issueId": "k1",
+          "relatedIssueId": "k2"
+        },
+        {
+          "type": "blocks",
+          "issueId": "x",
+          "relatedIssueId": "outside"
+        },
+        {
+          "type": "parent",
+          "issueId": "p",
+          "relatedIssueId": "y"
+        },
+        {
+          "type": "blocks",
+          "issueId": "y",
+          "relatedIssueId": "x"
+        },
+        {
+          "type": "blocks",
+          "issueId": "x",
+          "relatedIssueId": "y"
+        }
       ],
-      "cycleEdges": ["n2\nn3", "n3\nn2"],
+      "cycleEdges": [
+        "n2\nn3",
+        "n3\nn2"
+      ],
       "expected": [
-        { "from": "n1", "to": "n2", "cycle": false },
-        { "from": "n2", "to": "n3", "cycle": true },
-        { "from": "n3", "to": "n2", "cycle": true }
+        {
+          "from": "n1",
+          "to": "n2",
+          "cycle": false
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "cycle": true
+        },
+        {
+          "from": "n3",
+          "to": "n2",
+          "cycle": true
+        }
       ]
+    }
+  ],
+  "startBlockers": [
+    {
+      "workflow": {
+        "status": "draft",
+        "deviceId": "dev",
+        "repositoryId": "repo",
+        "startOn": "landed"
+      },
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "blocker": null
+    },
+    {
+      "workflow": {
+        "status": "running",
+        "deviceId": "dev",
+        "repositoryId": "repo",
+        "startOn": "landed"
+      },
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "blocker": "The workflow has already started."
+    },
+    {
+      "workflow": {
+        "status": "draft",
+        "deviceId": "dev",
+        "repositoryId": "repo",
+        "startOn": "landed"
+      },
+      "metrics": {
+        "nodes": 0,
+        "depth": 0,
+        "width": 0,
+        "cycles": []
+      },
+      "blocker": "The workflow has no issues."
+    },
+    {
+      "workflow": {
+        "status": "draft",
+        "deviceId": null,
+        "repositoryId": "repo",
+        "startOn": "landed"
+      },
+      "metrics": {
+        "nodes": 2,
+        "depth": 1,
+        "width": 2,
+        "cycles": [
+          [
+            "EXP-1",
+            "EXP-2"
+          ]
+        ]
+      },
+      "blocker": "These issues block each other in a cycle: EXP-1, EXP-2. Remove one relation to start."
+    },
+    {
+      "workflow": {
+        "status": "draft",
+        "deviceId": "dev",
+        "repositoryId": null,
+        "startOn": "landed"
+      },
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "blocker": "The workflow's repository is gone."
+    },
+    {
+      "workflow": {
+        "status": "draft",
+        "deviceId": null,
+        "repositoryId": "repo",
+        "startOn": "landed"
+      },
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "blocker": "Pick the device that runs this workflow first."
+    },
+    {
+      "workflow": {
+        "status": "draft",
+        "deviceId": "dev",
+        "repositoryId": "repo",
+        "startOn": "contract"
+      },
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "blocker": "Only \"When landed\" starts are available yet."
+    }
+  ],
+  "trains": [
+    {
+      "name": "no gate: the contract still needs a person, leaves queue in landing order",
+      "gate": "none",
+      "nodes": [
+        {
+          "id": "l2",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 1,
+          "approvedAt": null
+        },
+        {
+          "id": "c",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "approvedAt": null
+        },
+        {
+          "id": "l1",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "approvedAt": null
+        },
+        {
+          "id": "r",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 1,
+          "lane": 2,
+          "approvedAt": null
+        },
+        {
+          "id": "d",
+          "kind": "leaf",
+          "state": "landed",
+          "wave": 1,
+          "lane": 3,
+          "approvedAt": null
+        }
+      ],
+      "expected": [
+        {
+          "id": "c",
+          "step": "needs-approval"
+        },
+        {
+          "id": "l1",
+          "step": "next"
+        },
+        {
+          "id": "l2",
+          "step": "queued"
+        }
+      ]
+    },
+    {
+      "name": "human gate: only approved nodes are cleared, an updating node says so",
+      "gate": "human",
+      "nodes": [
+        {
+          "id": "a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "approvedAt": null
+        },
+        {
+          "id": "b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "approvedAt": "2026-09-19T00:00:00Z"
+        },
+        {
+          "id": "u",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 2,
+          "approvedAt": "2026-09-19T00:00:00Z"
+        }
+      ],
+      "expected": [
+        {
+          "id": "a",
+          "step": "needs-approval"
+        },
+        {
+          "id": "b",
+          "step": "next"
+        },
+        {
+          "id": "u",
+          "step": "updating"
+        }
+      ]
+    }
+  ],
+  "trainStepLabels": {
+    "next": "Landing next",
+    "queued": "Queued",
+    "needs-approval": "Needs approval",
+    "updating": "Merging the trunk in"
+  },
+  "finalPr": [
+    {
+      "states": [],
+      "finalPrState": null,
+      "finalPrNumber": null,
+      "caption": null
+    },
+    {
+      "states": [
+        "landed",
+        "running"
+      ],
+      "finalPrState": null,
+      "finalPrNumber": null,
+      "caption": null
+    },
+    {
+      "states": [
+        "landed",
+        "skipped"
+      ],
+      "finalPrState": null,
+      "finalPrNumber": null,
+      "caption": "Opening the pull request"
+    },
+    {
+      "states": [
+        "landed"
+      ],
+      "finalPrState": "open",
+      "finalPrNumber": 12,
+      "caption": "#12 · Open"
+    },
+    {
+      "states": [
+        "landed"
+      ],
+      "finalPrState": "merged",
+      "finalPrNumber": 12,
+      "caption": "#12 · Merged"
+    },
+    {
+      "states": [
+        "landed"
+      ],
+      "finalPrState": "closed",
+      "finalPrNumber": 12,
+      "caption": "#12 · Closed"
+    }
+  ],
+  "rowSubtitles": [
+    {
+      "status": "running",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "3 nodes · depth 2 · width 2"
+    },
+    {
+      "status": "paused",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "Paused · 3 nodes · depth 2 · width 2"
+    },
+    {
+      "status": "cancelled",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "Cancelled · 3 nodes · depth 2 · width 2"
+    },
+    {
+      "status": "done",
+      "metrics": {
+        "nodes": 3,
+        "depth": 2,
+        "width": 2,
+        "cycles": []
+      },
+      "subtitle": "3 nodes · depth 2 · width 2"
     }
   ]
 }

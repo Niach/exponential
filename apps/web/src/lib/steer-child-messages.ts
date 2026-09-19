@@ -24,7 +24,7 @@ export const PARENT_LIVE_STATUSES = [`running`, `in_review`] as const
 /** Injected text must land as ONE message: the submit convention is a
  * separate `\r` frame, so a newline inside the text would submit early and
  * fragment a summary into several user messages. */
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   return text.replace(/\s*[\r\n]+\s*/g, ` `).trim()
 }
 

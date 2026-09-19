@@ -19,7 +19,8 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use domain::workflow_view::{
-    workflow_band, workflow_shape_line, WorkflowBand, WORKFLOWS_EMPTY_BODY, WORKFLOWS_EMPTY_TITLE,
+    workflow_band, workflow_row_subtitle, WorkflowBand, WORKFLOWS_EMPTY_BODY,
+    WORKFLOWS_EMPTY_TITLE,
     WORKFLOWS_TITLE, WORKFLOW_BANDS,
 };
 
@@ -72,7 +73,9 @@ impl WorkflowsView {
                 .clone()
                 .unwrap_or_else(|| WORKFLOWS_TITLE.to_string()),
         );
-        let line = SharedString::from(workflow_shape_line(&shape));
+        // EXP-982: the shape line, led by the status word for the two
+        // statuses the band alone does not tell apart.
+        let line = SharedString::from(workflow_row_subtitle(row.status_wire(), &shape));
         let cycles = !shape.cycles.is_empty();
         let open_id = row.id.clone();
         crate::surface::flat_row()

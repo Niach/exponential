@@ -627,6 +627,7 @@ pub(crate) fn end_then_resume_on_account(
             false,
             origin,
             Some(profile_id),
+            None,
             cx,
         );
         return true;
@@ -659,6 +660,7 @@ pub(crate) fn end_then_resume_on_account(
                         false,
                         origin,
                         Some(profile_id.clone()),
+                        None,
                         cx,
                     );
                 });

@@ -1344,7 +1344,7 @@
       "id": "workflow-detail",
       "group": "actions",
       "title": "Workflow detail",
-      "blurb": "One draft workflow (EXP-981): the wave graph of its issues, the selected node's panel, and the How it runs configuration the engine will start from.",
+      "blurb": "One workflow (EXP-981/982): the wave graph of its issues closed by the final-PR node, the selected node's panel, the merge train under it, and the How it runs configuration the engine started from.",
       "order": 7,
       "notes": {
         "web": "EXP-981: the route needs a seeded workflow id, and the screenshot seed files none — the graph would photograph as an empty page.",

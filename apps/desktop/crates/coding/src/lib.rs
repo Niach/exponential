@@ -82,6 +82,7 @@ pub mod token_refresh;
 pub mod token_refresh_host;
 pub mod trunk_state;
 pub mod usage_cache;
+pub mod workflows;
 pub mod worktree_agents;
 
 pub use agent::{claude_model_alias, CodingAgent};
@@ -137,7 +138,8 @@ pub use launcher::{
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
     ResumeRunRequest, ResumeSeed, SessionEndObserver, StackIssue, StackLaunch,
-    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorktreeProvider,
+    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch, WorkflowRun,
+    WorktreeProvider, WORKFLOW_STARTED_REASON,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
 pub use mcp_json::{

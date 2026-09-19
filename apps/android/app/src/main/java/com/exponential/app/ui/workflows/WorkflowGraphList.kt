@@ -24,10 +24,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.WorkflowNodeEntity
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.captionNode
@@ -35,6 +38,7 @@ import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.LiveDot
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -61,6 +65,48 @@ internal fun workflowToneColor(tone: WorkflowView.Tone): Color = when (tone) {
 }
 
 /**
+ * EXP-982: the glyph a node state wears, or null for the states nobody has to
+ * act on (proposed, blocked, ready, skipped, paused) — they read from their
+ * caption alone. `running` is not here: it draws the session lists' live dot,
+ * not an icon.
+ */
+private fun workflowStateIcon(state: String): ImageVector? = when (state) {
+    DomainContract.wfNodeStateWaiting -> ExpIcons.uiWarning
+    DomainContract.wfNodeStateLanded -> ExpIcons.notificationPrMerged
+    DomainContract.wfNodeStateFailed -> ExpIcons.uiError
+    DomainContract.wfNodeStateInReview, DomainContract.wfNodeStateUpdating -> ExpIcons.navReviews
+    else -> null
+}
+
+/** Whether [WorkflowStateGlyph] draws anything — the caller's leading slot. */
+internal fun workflowStateHasGlyph(state: String): Boolean =
+    state == DomainContract.wfNodeStateRunning || workflowStateIcon(state) != null
+
+/**
+ * The node's state by SHAPE as well as by colour (EXP-982) — a caption tone
+ * alone is invisible to a reader who cannot tell amber from green. Existing
+ * icon concepts only.
+ */
+@Composable
+internal fun WorkflowStateGlyph(state: String, modifier: Modifier = Modifier) {
+    // The live dot every session list uses, steady: the node is live, and
+    // EXP-848 keeps the PULSE for a mid-turn agent alone.
+    if (state == DomainContract.wfNodeStateRunning) {
+        Box(modifier = modifier.size(14.dp), contentAlignment = Alignment.Center) {
+            LiveDot(busy = false)
+        }
+        return
+    }
+    val icon = workflowStateIcon(state) ?: return
+    Icon(
+        icon,
+        contentDescription = WorkflowView.nodeStateLabel(state),
+        modifier = modifier.size(14.dp).testTag("workflow-node-glyph"),
+        tint = workflowToneColor(WorkflowView.nodeTone(state)),
+    )
+}
+
+/**
  * The graph: one section per wave, the wave's nodes as rows, and under each
  * row the chips of its direct blockers INSIDE the workflow. A compound node is
  * a STACKED card (a second card edge peeking out behind it); a node on a cycle
@@ -76,6 +122,14 @@ internal fun WorkflowGraphList(
     cycleNote: String?,
     onSelectNode: (WorkflowNodeEntity) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * EXP-982 ([WorkflowView.finalPrCaption]): non-null once the integration
+     * branch is ready to land on the default one. Web and the desktop draw it
+     * as one extra node after the last wave; a phone has no grid, so it is the
+     * list's LAST section.
+     */
+    finalPrCaption: String? = null,
+    finalPrUrl: String? = null,
 ) {
     if (graph.nodes.isEmpty()) return
     val incoming = remember(graph.edges) { graph.edges.groupBy { it.to } }
@@ -96,6 +150,10 @@ internal fun WorkflowGraphList(
                 )
             }
         }
+        finalPrCaption?.let { caption ->
+            SectionHeader(WorkflowView.FINAL_PR_TITLE)
+            FinalPrRow(caption = caption, url = finalPrUrl)
+        }
         cycleNote?.let { note ->
             Text(
                 note,
@@ -104,6 +162,55 @@ internal fun WorkflowGraphList(
                 modifier = Modifier
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .testTag("workflow-cycle-note"),
+            )
+        }
+    }
+}
+
+/**
+ * The integration branch's one pull request onto the default branch: the whole
+ * workflow's result. It opens on GitHub once the engine has actually opened it
+ * — before that the row is the caption alone ("Opening the pull request").
+ */
+@Composable
+private fun FinalPrRow(caption: String, url: String?) {
+    val uriHandler = LocalUriHandler.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .flatRow()
+            .then(if (url != null) Modifier.clickable { uriHandler.openUri(url) } else Modifier)
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
+            .testTag("workflow-final-pr"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            ExpIcons.navReviews,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                WorkflowView.FINAL_PR_TITLE,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                caption,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
+        if (url != null) {
+            Icon(
+                ExpIcons.uiExternalLink,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             )
         }
     }
@@ -181,12 +288,25 @@ private fun WorkflowNodeRow(
                 // CAPTION alone — never a crash, and never a blank row that
                 // reads as a broken node.
             }
-            Text(
-                caption,
-                style = MaterialTheme.typography.labelSmall,
-                color = tone,
-                modifier = Modifier.padding(top = 2.dp).testTag("workflow-node-caption"),
-            )
+            Row(
+                modifier = Modifier.padding(top = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // EXP-982: a draft has no states yet, so its caption names the
+                // plan and there is nothing for a glyph to say.
+                if (workflowStatus != DomainContract.wfStatusDraft &&
+                    workflowStateHasGlyph(node.state)
+                ) {
+                    WorkflowStateGlyph(node.state)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    caption,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tone,
+                    modifier = Modifier.testTag("workflow-node-caption"),
+                )
+            }
             if (blockers.isNotEmpty()) {
                 Text(
                     "Blocked by",

@@ -21,6 +21,10 @@ struct WorkflowGraphView: View {
     let workflowStatus: String
     /// The synced rows the nodes are named from.
     let issues: [String: IssueEntity]
+    /// EXP-982 — `WorkflowView.finalPrCaption`, nil while the final-PR node is
+    /// not drawn (a wave of its own after the last one).
+    let finalPrCaption: String?
+    let finalPrUrl: String?
     let onSelect: (WorkflowNodeEntity) -> Void
 
     private var nodesById: [String: WorkflowNodeEntity] {
@@ -55,9 +59,46 @@ struct WorkflowGraphView: View {
                         nodeRow(node)
                     }
                 }
+                // The final PR is the node after the last wave: the ONE pull
+                // request integration → default branch.
+                if let caption = finalPrCaption {
+                    GlassSectionBand("Wave \((waves.last?.wave ?? 0) + 2)")
+                    finalPrRow(caption)
+                }
             }
         }
         .accessibilityIdentifier("workflow-graph")
+    }
+
+    /// The final-PR node. It links out to the pull request once there is one;
+    /// until then it is the caption alone ("Opening the pull request").
+    @ViewBuilder
+    private func finalPrRow(_ caption: String) -> some View {
+        let row = VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                AppIcon(AppIcons.navReviews, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                Text(WorkflowView.finalPrTitle)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 0)
+            }
+            Text(caption)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .flatRow()
+
+        if let url = finalPrUrl.flatMap(URL.init(string:)) {
+            Link(destination: url) { row.contentShape(Rectangle()) }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("workflow-final-pr-row")
+        } else {
+            row.accessibilityIdentifier("workflow-final-pr-row")
+        }
     }
 
     @ViewBuilder
@@ -69,15 +110,24 @@ struct WorkflowGraphView: View {
             WorkflowView.CaptionNode(kind: node.kind, state: node.state, risk: node.risk),
             workflowStatus: workflowStatus
         )
+        let tone = WorkflowView.nodeTone(node.state)
         Button { onSelect(node) } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     chip(for: node, cycle: node.onCycle)
                     Spacer(minLength: 0)
                 }
-                Text(caption)
-                    .font(.caption2)
-                    .foregroundStyle(Self.color(WorkflowView.nodeTone(node.state)))
+                // EXP-982: the caption painted by its tone PLUS a glyph, so a
+                // state reads by shape as well as by colour.
+                HStack(spacing: 5) {
+                    if let icon = Self.stateIcon(node.state) {
+                        AppIcon(icon, size: AppIcon.Size.small)
+                            .foregroundStyle(Self.color(tone))
+                    }
+                    Text(caption)
+                        .font(.caption2)
+                        .foregroundStyle(Self.color(tone))
+                }
                 if !incoming.isEmpty {
                     HStack(spacing: 6) {
                         Text("Blocked by")
@@ -89,7 +139,7 @@ struct WorkflowGraphView: View {
                             HStack(spacing: 4) {
                                 ForEach(incoming, id: \.from) { edge in
                                     if let blocker = nodesById[edge.from] {
-                                        chip(for: blocker, cycle: edge.cycle)
+                                        chip(for: blocker, cycle: edge.cycle, edge: true)
                                     }
                                 }
                             }
@@ -123,12 +173,16 @@ struct WorkflowGraphView: View {
     }
 
     /// One node, as the shared issue badge: `EXP-14 +3` for a compound node,
-    /// the bare identifier otherwise. `cycle` paints its status glyph red — the
-    /// list's stand-in for the red EDGE the grid clients draw.
+    /// the bare identifier otherwise. A blocker chip (`edge`) stands in for the
+    /// EDGE the grid clients draw, so it takes the edge's own paint: red on a
+    /// cycle, green once the node it comes FROM has landed.
     @ViewBuilder
-    private func chip(for node: WorkflowNodeEntity, cycle: Bool) -> some View {
+    private func chip(
+        for node: WorkflowNodeEntity, cycle: Bool, edge: Bool = false
+    ) -> some View {
         let issue = issues[node.issueId]
         let status = IssueStatus.from(issue?.status)
+        let landed = node.state == DomainContract.wfNodeStateLanded
         IssueChip(
             identifier: WorkflowView.nodeTitle(
                 // A node whose issue has not synced still names itself.
@@ -137,8 +191,25 @@ struct WorkflowGraphView: View {
             ),
             title: issue?.title,
             iconName: status.iconName,
-            statusColor: cycle ? DesignTokens.Semantic.red : status.color
+            statusColor: cycle
+                ? DesignTokens.Semantic.red
+                : (edge && landed ? DesignTokens.Semantic.green : status.color)
         )
+    }
+
+    /// The glyph a state wears beside its caption — existing icon CONCEPTS
+    /// only. The quiet states (blocked / ready / proposed / skipped / paused)
+    /// get none: the caption alone is the whole message.
+    static func stateIcon(_ state: String) -> String? {
+        switch state {
+        case DomainContract.wfNodeStateRunning: AppIcons.codingRunning
+        case DomainContract.wfNodeStateWaiting: AppIcons.uiWarning
+        case DomainContract.wfNodeStateLanded: AppIcons.notificationPrMerged
+        case DomainContract.wfNodeStateFailed: AppIcons.uiError
+        case DomainContract.wfNodeStateInReview, DomainContract.wfNodeStateUpdating:
+            AppIcons.navReviews
+        default: nil
+        }
     }
 
     /// The shared tone in this app's own state vocabulary — the same colours

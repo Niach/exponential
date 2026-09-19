@@ -113,7 +113,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v44_coding_session_agent_title",
              "v45_device_icon",
              "v46_notification_session_id",
-             "v47_workflows"]
+             "v47_workflows",
+             "v48_workflow_node_approval"]
         )
     }
 
@@ -153,7 +154,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v44_coding_session_agent_title",
              "v45_device_icon",
              "v46_notification_session_id",
-             "v47_workflows"]
+             "v47_workflows",
+             "v48_workflow_node_approval"]
         )
     }
 
@@ -221,7 +223,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v44_coding_session_agent_title",
              "v45_device_icon",
              "v46_notification_session_id",
-             "v47_workflows"]
+             "v47_workflows",
+             "v48_workflow_node_approval"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -309,7 +312,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v44_coding_session_agent_title",
              "v45_device_icon",
              "v46_notification_session_id",
-             "v47_workflows"]
+             "v47_workflows",
+             "v48_workflow_node_approval"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1025,13 +1029,14 @@ final class DatabaseMigrationTests: XCTestCase {
              "started_at", "ended_at", "created_at", "updated_at"]
         )
         // `wave` / `lane` / `on_cycle` ARE the server-computed layout: no
-        // client lays a graph out.
+        // client lays a graph out. EXP-982's `approved_at` + `note` arrive as
+        // v48 ALTERs, so they sit at the END of a fresh store's column list.
         XCTAssertEqual(
             try columnNames(pool, "workflow_nodes"),
             ["id", "workflow_id", "team_id", "issue_id", "member_issue_ids",
              "kind", "state", "risk", "wave", "lane", "on_cycle", "session_id",
              "attempt", "base_branch", "budget", "touches", "created_at",
-             "updated_at"]
+             "updated_at", "approved_at", "note"]
         )
         // status_id is NULLABLE: NULL means the team's Backlog builtin.
         let draftStatusId = try pool.read { db in
@@ -1857,6 +1862,48 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(untouched, true)
         // Re-running converges without a duplicate-table throw.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // v48 (EXP-982): a store created before `workflow_nodes.approved_at` and
+    // `.note` existed must gain both (nullable text) and get the workflow-nodes
+    // offset reset, so already-synced nodes re-arrive carrying them.
+    func testWorkflowNodeApprovalColumnsAddedToExistingStore() throws {
+        let pool = try makePool("workflow-node-approval")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v47_workflows")
+        try pool.write { db in
+            for column in ["approved_at", "note"] {
+                let present = try db.columns(in: "workflow_nodes").contains { $0.name == column }
+                if present {
+                    try db.alter(table: "workflow_nodes") { t in t.drop(column: column) }
+                }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('workflow-nodes', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "workflow_nodes").contains("approved_at"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let columns = try pool.read { db in try db.columns(in: "workflow_nodes") }
+        for name in ["approved_at", "note"] {
+            let added = columns.first { $0.name == name }
+            XCTAssertNotNil(added, name)
+            XCTAssertFalse(added?.isNotNull ?? true, name)
+        }
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" "
+                    + "WHERE \"shape\" = 'workflow-nodes'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Re-running converges without a duplicate-column throw.
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

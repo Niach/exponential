@@ -467,6 +467,9 @@ pub(crate) fn batch_request(
         origin: LaunchOrigin::Local,
         options,
         prompt,
+        // A composer batch is never a workflow node (EXP-982).
+        base_branch: None,
+        workflow: None,
     })
 }
 

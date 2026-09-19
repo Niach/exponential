@@ -47,6 +47,9 @@ export interface WaveGraphEdge {
   to: string
   /** Part of a blocking cycle: drawn red. */
   cycle: boolean
+  /** EXP-982: the blocker is done (a landed workflow node): drawn green. A
+   *  cycle wins — a red edge is the one thing to fix. */
+  done?: boolean
 }
 
 /** Per-node chrome the caller owns: the positioned box's classes and its
@@ -137,9 +140,19 @@ export function WaveGraph({
               fill="none"
               strokeWidth={1.25}
               stroke={
-                edge.cycle ? `var(--destructive)` : `var(--glass-stroke-strong)`
+                edge.cycle
+                  ? `var(--destructive)`
+                  : edge.done
+                    ? `var(--color-emerald-500)`
+                    : `var(--glass-stroke-strong)`
               }
-              data-testid={edge.cycle ? `${idPrefix}-cycle-edge` : `${idPrefix}-edge`}
+              data-testid={
+                edge.cycle
+                  ? `${idPrefix}-cycle-edge`
+                  : edge.done
+                    ? `${idPrefix}-done-edge`
+                    : `${idPrefix}-edge`
+              }
             />
           )
         })}

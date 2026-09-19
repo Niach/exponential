@@ -9,8 +9,11 @@
 //! note are that module's too. Nothing here decides an order, a position or
 //! a word.
 //!
-//! P2 ships DRAFT workflows: create, look, configure, plan, delete. There is
-//! no Start button — the engine arrives with the next PR.
+//! EXP-982 adds the RUN: Start/Pause/Resume/Cancel by status, the node
+//! states painted by tone AND glyph, the merge-train strip under the graph
+//! and the final-PR node after the last wave. The engine itself is
+//! `crate::workflow_host`; nothing on this page decides anything — every
+//! button is one `workflows.*` call and the server owns the rule.
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -31,9 +34,14 @@ use gpui_component::{
 use sync::Store;
 
 use domain::workflow_view::{
-    workflow_cycle_note, workflow_node_caption, workflow_node_title, workflow_node_tone,
-    workflow_shape_line, CaptionNode, EdgeNode, EdgeRelation,
-    WorkflowNodeTone, DELETE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL,
+    workflow_cycle_note, workflow_final_pr_caption, workflow_merge_train, workflow_node_caption,
+    workflow_node_needs_approval, workflow_node_title, workflow_node_tone, workflow_shape_line,
+    workflow_start_blocker, workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation,
+    StartableWorkflow, TrainNode, WorkflowNodeTone, APPROVE_NODE_LABEL, CANCEL_WORKFLOW_CONFIRM,
+    CANCEL_WORKFLOW_LABEL, DELETE_WORKFLOW_LABEL, FINAL_PR_TITLE, MERGE_TRAIN_EMPTY,
+    MERGE_TRAIN_TITLE, OPEN_RUN_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL,
+    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, SKIP_NODE_CONFIRM, SKIP_NODE_LABEL,
+    START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
 };
 
 use crate::actions_view::page_scaffold_with;
@@ -48,6 +56,10 @@ const WORKFLOW_COLUMN_W: f32 = 1024.;
 const GRAPH_VIEW_W: f32 = 640.;
 /// A workflow node's box: two lines (the title over its ONE caption).
 const NODE_H: f32 = 42.;
+
+/// The grid key of the final-PR box (EXP-982) — deliberately not a uuid, so
+/// it can never collide with a `workflow_nodes` row id.
+const FINAL_PR_KEY: &str = "workflow-final-pr";
 
 /// The Gate picks, in contract order, with their shipped labels.
 const GATE_CHOICES: [(&str, &str); 3] = [
@@ -216,9 +228,17 @@ impl WorkflowView {
                 related_issue_id: &relation.related_issue_id,
             })
             .collect();
+        // EXP-982: an edge out of a LANDED node is green — the graph then
+        // shows how far the merge train got, not just where the runs are.
+        let landed: std::collections::HashSet<&str> = nodes
+            .iter()
+            .filter(|node| node.state_wire() == "landed")
+            .map(|node| node.id.as_str())
+            .collect();
         domain::workflow_view::workflow_edges(&edge_nodes, &edge_relations, &row.cycle_edges())
             .into_iter()
             .map(|edge| GridEdge {
+                landed: landed.contains(edge.from.as_str()),
                 from: edge.from,
                 to: edge.to,
                 cycle: edge.cycle,
@@ -241,7 +261,7 @@ impl WorkflowView {
                 .into_any_element();
         }
         let edges = self.edges(nodes, row, cx);
-        let grid_nodes: Vec<GridNode> = nodes
+        let mut grid_nodes: Vec<GridNode> = nodes
             .iter()
             .map(|node| GridNode {
                 key: node.id.clone(),
@@ -251,10 +271,42 @@ impl WorkflowView {
             .collect();
         // Everything a box needs, keyed by node id — the render closure gets
         // only a `&App`, so the joins happen here.
-        let facts: HashMap<String, NodeFacts> = nodes
+        let mut facts: HashMap<String, NodeFacts> = nodes
             .iter()
             .map(|node| (node.id.clone(), NodeFacts::derive(node, row, cx)))
             .collect();
+        // EXP-982: the final pull request, ONE extra box after the last wave
+        // once every node is in. It is not a `workflow_nodes` row, so it
+        // carries no edges and cannot be picked.
+        let states: Vec<&str> = nodes.iter().map(|node| node.state_wire()).collect();
+        let final_caption = workflow_final_pr_caption(
+            &states,
+            row.final_pr_state.as_deref(),
+            row.final_pr_number,
+        );
+        let final_url = row.final_pr_url.clone();
+        if let Some(caption) = final_caption {
+            let wave = nodes.iter().map(|node| node.wave_index()).max().unwrap_or(0) + 1;
+            grid_nodes.push(GridNode {
+                key: FINAL_PR_KEY.to_string(),
+                wave,
+                lane: 0,
+            });
+            facts.insert(
+                FINAL_PR_KEY.to_string(),
+                NodeFacts {
+                    title: FINAL_PR_TITLE.to_string(),
+                    caption,
+                    tone: match row.final_pr_state.as_deref() {
+                        Some("merged") => WorkflowNodeTone::Success,
+                        Some("closed") => WorkflowNodeTone::Muted,
+                        _ => WorkflowNodeTone::Active,
+                    },
+                    compound: false,
+                    glyph: Some(registry::NOTIFICATION_PR_MERGED),
+                },
+            );
+        }
         let picked = self.picked.clone();
         let view = cx.entity().downgrade();
         let on_pick: Rc<dyn Fn(&str, &mut App)> = Rc::new(move |node_id: &str, cx: &mut App| {
@@ -262,6 +314,13 @@ impl WorkflowView {
                 return;
             };
             let node_id = node_id.to_string();
+            // The final-PR box is not a node: clicking it opens the PR.
+            if node_id == FINAL_PR_KEY {
+                if let Some(url) = final_url.clone() {
+                    cx.open_url(&url);
+                }
+                return;
+            }
             view.update(cx, |this, cx| {
                 // A second click on the open node closes the panel.
                 this.picked = (this.picked.as_deref() != Some(node_id.as_str())).then_some(node_id);
@@ -392,6 +451,16 @@ impl WorkflowView {
                             .children(touches),
                     )
                 })
+                // EXP-982: why the node is failed or waiting, in the
+                // sentence the engine reported.
+                .when_some(node.note.clone(), |this, note| {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(note)),
+                    )
+                })
                 .child(
                     Button::new("workflow-node-open")
                         .ghost()
@@ -408,6 +477,10 @@ impl WorkflowView {
                             );
                         }),
                 )
+                // EXP-982: the node's run, its pull request, the gate and
+                // the two ways out of a failure.
+                .children(node_run_actions(node, &issue_id, cx))
+                .children(node_gate_actions(node, row))
                 .into_any_element(),
         )
     }
@@ -421,6 +494,10 @@ impl WorkflowView {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let workflow_id = self.workflow_id.clone();
+        // EXP-982: how a workflow runs is fixed the moment it leaves draft —
+        // every row below reads, none of them writes. The server refuses the
+        // same edits with a sentence.
+        let draft = row.status_wire() == domain::contract::WF_STATUS_DRAFT;
         let launch = api::workflows::from_row(row).launch;
         let agent = launch.agent.clone().unwrap_or_default();
         let claude = agent.is_empty() || agent == "claude";
@@ -439,13 +516,13 @@ impl WorkflowView {
 
         let devices = queries::launch_devices(cx);
         let mut rows: Vec<gpui::Div> =
-            vec![device_row(&workflow_id, row.device_id.as_deref(), devices, cx)];
+            vec![device_row(&workflow_id, row.device_id.as_deref(), devices, draft, cx)];
         rows.push(pick_row(
             "workflow-agent",
             "Agent",
             &crate::coding_selects::AGENT_CHOICES,
             &agent,
-            true,
+            draft,
             {
                 let update = update_launch.clone();
                 move |value: &str, cx: &mut App| {
@@ -474,7 +551,7 @@ impl WorkflowView {
             "Model",
             model_choices,
             launch.model.as_deref().unwrap_or_default(),
-            true,
+            draft,
             {
                 let update = update_launch.clone();
                 move |value: &str, cx: &mut App| {
@@ -497,7 +574,7 @@ impl WorkflowView {
                 "Subagent model",
                 &crate::coding_selects::SUBAGENT_MODEL_CHOICES,
                 launch.subagent_model.as_deref().unwrap_or_default(),
-                true,
+                draft,
                 {
                     let update = update_launch.clone();
                     move |value: &str, cx: &mut App| {
@@ -523,7 +600,7 @@ impl WorkflowView {
             "Effort",
             effort_choices,
             launch.effort.as_deref().unwrap_or_default(),
-            true,
+            draft,
             {
                 let update = update_launch.clone();
                 move |value: &str, cx: &mut App| {
@@ -538,7 +615,7 @@ impl WorkflowView {
             },
             cx,
         ));
-        rows.push(parallel_row(row.max_parallel(), {
+        rows.push(parallel_row(row.max_parallel(), draft, {
             let update = update_launch.clone();
             move |value: usize, cx: &mut App| {
                 update(
@@ -552,7 +629,7 @@ impl WorkflowView {
             "Gate",
             &GATE_CHOICES,
             row.gate.as_deref().unwrap_or(domain::contract::WF_GATE_HUMAN),
-            true,
+            draft,
             {
                 let workflow_id = workflow_id.clone();
                 move |value: &str, cx: &mut App| {
@@ -570,7 +647,7 @@ impl WorkflowView {
             row.start_on
                 .as_deref()
                 .unwrap_or(domain::contract::WF_START_ON_CONTRACT),
-            true,
+            draft,
             {
                 let workflow_id = workflow_id.clone();
                 move |value: &str, cx: &mut App| {
@@ -616,6 +693,16 @@ impl Render for WorkflowView {
         let team_id = row.team_id.clone().unwrap_or_default();
         let delete_id = workflow_id.clone();
         let delete_view = cx.entity().downgrade();
+        let status = row.status_wire().to_string();
+        let draft = status == domain::contract::WF_STATUS_DRAFT;
+        let live = matches!(status.as_str(), "running" | "paused");
+        // Only a draft shows the Start blocker; a started workflow's "already
+        // started" sentence would be noise.
+        let start_caption = draft
+            .then(|| start_blocker(&row, &shape))
+            .flatten()
+            // The cycle note already says this one, above and in red.
+            .filter(|note| cycle_note.as_deref() != Some(note.as_str()));
 
         let header = v_flex()
             .min_w_0()
@@ -632,29 +719,37 @@ impl Render for WorkflowView {
                             .min_w_0()
                             .child(crate::controls::glass_input(&self.name_input, _window, cx)),
                     )
+                    // EXP-982: Start/Pause/Resume, by status. A draft that
+                    // cannot start says why in the caption below, and the
+                    // server refuses with the same sentence.
+                    .children(status_actions(&row, &shape, cx))
                     // EXP-981: Plan seeds the Agent composer with the hidden
                     // planner builtin AND this workflow — the run is
-                    // meaningless without the id.
-                    .child(
-                        Button::new("workflow-plan")
-                            .primary()
-                            .small()
-                            .icon(Icon::from(registry::ACTION_RUN))
-                            .label(PLAN_WORKFLOW_LABEL)
-                            .on_click(move |_, window, cx| {
-                                crate::navigation::navigate_to_chat(
-                                    window,
-                                    cx,
-                                    ChatSeed::plan_workflow(&workflow_id),
-                                );
-                            }),
-                    )
+                    // meaningless without the id. Draft only: a started
+                    // workflow's plan is fixed.
+                    .when(draft, |this| {
+                        this.child(
+                            Button::new("workflow-plan")
+                                .primary()
+                                .small()
+                                .icon(Icon::from(registry::ACTION_RUN))
+                                .label(PLAN_WORKFLOW_LABEL)
+                                .on_click(move |_, window, cx| {
+                                    crate::navigation::navigate_to_chat(
+                                        window,
+                                        cx,
+                                        ChatSeed::plan_workflow(&workflow_id),
+                                    );
+                                }),
+                        )
+                    })
                     .child(
                         crate::controls::ghost_icon_button(
                             "workflow-menu",
                             Icon::from(registry::UI_MORE),
                             cx,
                         )
+                        .disabled(live)
                         .dropdown_menu(move |menu, _window, _cx| {
                             let delete_view = delete_view.clone();
                             let delete_id = delete_id.clone();
@@ -690,6 +785,16 @@ impl Render for WorkflowView {
                         .text_color(danger)
                         .child(SharedString::from(note)),
                 )
+            })
+            // EXP-982: why Start is disabled, verbatim. The cycle note IS
+            // one of those reasons, so it is never said twice.
+            .when_some(start_caption, |this, note| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(note)),
+                )
             });
 
         let graph = self.render_graph(&row, &nodes, cx);
@@ -703,15 +808,315 @@ impl Render for WorkflowView {
             .children(panel);
 
         let how = self.render_how_it_runs(&row, cx);
+        let train = (!draft).then(|| render_merge_train(&row, &nodes, cx));
         let _ = team_id;
 
         page_scaffold_with(
             "workflow-screen-scroll",
             &self.scroll,
-            v_flex().gap_6().child(header).child(body).child(how),
+            v_flex()
+                .gap_6()
+                .child(header)
+                .child(body)
+                .children(train)
+                .child(how),
             WORKFLOW_COLUMN_W,
         )
     }
+}
+
+/// The node panel's run + PR affordances: the coding session this node runs
+/// in (opened the way every other run is), and its issue's open pull
+/// request. Both only once they exist.
+fn node_run_actions(
+    node: &domain::rows::WorkflowNodeRow,
+    issue_id: &str,
+    cx: &App,
+) -> Vec<gpui::AnyElement> {
+    let mut actions = Vec::new();
+    if let Some(session_id) = node.session_id.clone() {
+        actions.push(
+            Button::new("workflow-node-run")
+                .ghost()
+                .small()
+                .icon(Icon::from(registry::ACTION_RUN))
+                .label(OPEN_RUN_LABEL)
+                .on_click(move |_, window, cx| {
+                    crate::navigation::navigate(
+                        window,
+                        cx,
+                        Screen::Session {
+                            session_id: session_id.clone(),
+                        },
+                    );
+                })
+                .into_any_element(),
+        );
+    }
+    let pr = Store::try_global(cx)
+        .and_then(|store| store.collections().issues.read(cx).get(issue_id).cloned())
+        .and_then(|issue| issue.pr_url.clone());
+    if let Some(url) = pr {
+        actions.push(
+            Button::new("workflow-node-pr")
+                .ghost()
+                .small()
+                .icon(Icon::from(registry::NAV_REVIEWS))
+                .label("Open pull request")
+                .on_click(move |_, _window, cx| cx.open_url(&url))
+                .into_any_element(),
+        );
+    }
+    actions
+}
+
+/// The human gate and the failure exits: approve (or take it back) while the
+/// PR is up, retry or skip once the node failed. Every rule is the server's;
+/// these buttons only appear where it would say yes.
+fn node_gate_actions(
+    node: &domain::rows::WorkflowNodeRow,
+    row: &domain::rows::WorkflowRow,
+) -> Vec<gpui::AnyElement> {
+    let gate = row.gate.as_deref().unwrap_or(domain::contract::WF_GATE_HUMAN);
+    let state = node.state_wire();
+    let approved = node.approved_at.is_some();
+    let node_id = node.id.clone();
+    let mut actions: Vec<gpui::AnyElement> = Vec::new();
+    if state == "in_review" && workflow_node_needs_approval(gate, node.kind_wire()) && !approved {
+        actions.push(
+            Button::new("workflow-node-approve")
+                .primary()
+                .small()
+                .icon(Icon::from(registry::UI_CHECK))
+                .label(APPROVE_NODE_LABEL)
+                .on_click({
+                    let node_id = node_id.clone();
+                    move |_, _window, cx| spawn_approve(node_id.clone(), true, cx)
+                })
+                .into_any_element(),
+        );
+    }
+    if approved && state != "landed" {
+        actions.push(
+            Button::new("workflow-node-withdraw")
+                .ghost()
+                .small()
+                .label(WITHDRAW_APPROVAL_LABEL)
+                .on_click({
+                    let node_id = node_id.clone();
+                    move |_, _window, cx| spawn_approve(node_id.clone(), false, cx)
+                })
+                .into_any_element(),
+        );
+    }
+    if state == "failed" {
+        actions.push(
+            Button::new("workflow-node-retry")
+                .small()
+                .label(RETRY_NODE_LABEL)
+                .on_click({
+                    let node_id = node_id.clone();
+                    move |_, _window, cx| spawn_resolve(node_id.clone(), "retry", cx)
+                })
+                .into_any_element(),
+        );
+        actions.push(
+            Button::new("workflow-node-skip")
+                .danger()
+                .small()
+                .label(SKIP_NODE_LABEL)
+                .on_click(move |_, window, cx| {
+                    let node_id = node_id.clone();
+                    crate::native_dialog::open_alert(
+                        window,
+                        cx,
+                        crate::native_dialog::AlertSpec::new(
+                            SKIP_NODE_LABEL,
+                            SKIP_NODE_CONFIRM,
+                            SKIP_NODE_LABEL,
+                        )
+                        .ok_variant(ButtonVariant::Danger)
+                        .on_ok(move |_window, cx| {
+                            spawn_resolve(node_id.clone(), "skip", cx);
+                            true
+                        }),
+                    );
+                })
+                .into_any_element(),
+        );
+    }
+    actions
+}
+
+/// Why Start is disabled, or `None` when the draft can go — the ONE rule
+/// ([`workflow_start_blocker`]), which the server refuses with verbatim.
+fn start_blocker(
+    row: &domain::rows::WorkflowRow,
+    shape: &domain::workflow_view::WorkflowShape,
+) -> Option<String> {
+    workflow_start_blocker(
+        StartableWorkflow {
+            status: row.status_wire(),
+            device_id: row.device_id.as_deref(),
+            repository_id: row.repository_id.as_deref(),
+            start_on: row
+                .start_on
+                .as_deref()
+                .unwrap_or(domain::contract::WF_START_ON_LANDED),
+        },
+        shape,
+    )
+}
+
+/// The header's run controls, by status: a draft starts (disabled with the
+/// blocker's sentence under it), a running workflow pauses or is cancelled,
+/// a paused one resumes or is cancelled, a finished one offers neither.
+fn status_actions(
+    row: &domain::rows::WorkflowRow,
+    shape: &domain::workflow_view::WorkflowShape,
+    cx: &App,
+) -> Vec<gpui::AnyElement> {
+    let id = row.id.clone();
+    let name = row.name.clone().unwrap_or_default();
+    match row.status_wire() {
+        domain::contract::WF_STATUS_DRAFT => {
+            let blocked = start_blocker(row, shape).is_some();
+            vec![Button::new("workflow-start")
+                .primary()
+                .small()
+                .icon(Icon::from(registry::ACTION_RUN))
+                .label(START_WORKFLOW_LABEL)
+                .disabled(blocked)
+                .on_click(move |_, _window, cx| spawn_command(Command::Start, id.clone(), cx))
+                .into_any_element()]
+        }
+        "running" => vec![
+            Button::new("workflow-pause")
+                .small()
+                .icon(Icon::from(registry::UI_STOP))
+                .label(PAUSE_WORKFLOW_LABEL)
+                .on_click({
+                    let id = id.clone();
+                    move |_, _window, cx| spawn_command(Command::Pause, id.clone(), cx)
+                })
+                .into_any_element(),
+            cancel_button(id, name, cx),
+        ],
+        "paused" => vec![
+            Button::new("workflow-resume")
+                .primary()
+                .small()
+                .icon(Icon::from(registry::ACTION_RUN))
+                .label(RESUME_WORKFLOW_LABEL)
+                .on_click({
+                    let id = id.clone();
+                    move |_, _window, cx| spawn_command(Command::Resume, id.clone(), cx)
+                })
+                .into_any_element(),
+            cancel_button(id, name, cx),
+        ],
+        // done / cancelled / a newer server's status: nothing to press.
+        _ => Vec::new(),
+    }
+}
+
+/// Cancelling is destructive (live runs end, the branch goes), so it
+/// confirms with the shared sentence.
+fn cancel_button(id: String, name: String, _cx: &App) -> gpui::AnyElement {
+    Button::new("workflow-cancel")
+        .danger()
+        .small()
+        .icon(Icon::from(registry::UI_CLOSE))
+        .label(CANCEL_WORKFLOW_LABEL)
+        .on_click(move |_, window, cx| {
+            let id = id.clone();
+            let title = if name.is_empty() {
+                CANCEL_WORKFLOW_LABEL.to_string()
+            } else {
+                format!("Cancel {name}?")
+            };
+            crate::native_dialog::open_alert(
+                window,
+                cx,
+                crate::native_dialog::AlertSpec::new(
+                    title,
+                    CANCEL_WORKFLOW_CONFIRM,
+                    CANCEL_WORKFLOW_LABEL,
+                )
+                .ok_variant(ButtonVariant::Danger)
+                .on_ok(move |_window, cx| {
+                    spawn_command(Command::Cancel, id.clone(), cx);
+                    true
+                }),
+            );
+        })
+        .into_any_element()
+}
+
+/// EXP-982 — the merge train under the graph: every node whose PR is up, in
+/// landing order, each with where it stands. Hidden on a draft.
+fn render_merge_train(
+    row: &domain::rows::WorkflowRow,
+    nodes: &[domain::rows::WorkflowNodeRow],
+    cx: &App,
+) -> gpui::AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let gate = row.gate.as_deref().unwrap_or(domain::contract::WF_GATE_HUMAN);
+    let train_nodes: Vec<TrainNode<'_>> = nodes
+        .iter()
+        .map(|node| TrainNode {
+            id: &node.id,
+            kind: node.kind_wire(),
+            state: node.state_wire(),
+            wave: node.wave_index() as i64,
+            lane: node.lane_index() as i64,
+            approved: node.approved_at.is_some(),
+        })
+        .collect();
+    let entries = workflow_merge_train(&train_nodes, gate);
+    let title = div()
+        .text_xs()
+        .text_color(muted)
+        .child(SharedString::from(MERGE_TRAIN_TITLE));
+    if entries.is_empty() {
+        return v_flex()
+            .min_w_0()
+            .gap_1()
+            .child(title)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(MERGE_TRAIN_EMPTY)),
+            )
+            .into_any_element();
+    }
+    let cars: Vec<gpui::AnyElement> = entries
+        .iter()
+        .filter_map(|entry| {
+            let node = nodes.iter().find(|node| node.id == entry.id)?;
+            let issue_id = node.issue_id.clone()?;
+            Some(
+                v_flex()
+                    .min_w_0()
+                    .gap_1()
+                    .child(issue_chip_for(&issue_id, cx))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(workflow_train_step_label(entry.step))),
+                    )
+                    .into_any_element(),
+            )
+        })
+        .collect();
+    v_flex()
+        .min_w_0()
+        .gap_2()
+        .child(title)
+        .child(h_flex().min_w_0().flex_wrap().gap_4().children(cars))
+        .into_any_element()
 }
 
 /// The contract's node KIND picks with their shipped labels.
@@ -739,6 +1144,9 @@ struct NodeFacts {
     tone: WorkflowNodeTone,
     /// A compound node draws a second card edge peeking out behind.
     compound: bool,
+    /// EXP-982: the state's GLYPH, so a state reads by shape as well as by
+    /// colour. `None` for the states that are only a word.
+    glyph: Option<crate::icons::ExpIcon>,
 }
 
 impl NodeFacts {
@@ -777,7 +1185,26 @@ impl NodeFacts {
             ),
             tone: workflow_node_tone(node.state_wire()),
             compound: !members.is_empty(),
+            glyph: state_glyph(node.state_wire(), workflow.status_wire()),
         }
+    }
+}
+
+/// The glyph one node STATE earns. Existing concepts only: a run in flight
+/// borrows the session's play mark, a wall the warning triangle, a landed
+/// node the merged-PR mark, a failure the error mark, and anything waiting
+/// on a pull request the reviews mark. A draft has no state worth a glyph.
+fn state_glyph(state: &str, workflow_status: &str) -> Option<crate::icons::ExpIcon> {
+    if workflow_status == domain::contract::WF_STATUS_DRAFT {
+        return None;
+    }
+    match state {
+        "running" => Some(registry::ACTION_RUN),
+        "waiting" => Some(registry::UI_WARNING),
+        "landed" => Some(registry::NOTIFICATION_PR_MERGED),
+        "failed" => Some(registry::UI_ERROR),
+        "in_review" | "updating" => Some(registry::NAV_REVIEWS),
+        _ => None,
     }
 }
 
@@ -809,6 +1236,7 @@ fn render_node_box(
     let title = facts.map(|facts| facts.title.clone()).unwrap_or_default();
     let caption = facts.map(|facts| facts.caption.clone()).unwrap_or_default();
     let compound = facts.is_some_and(|facts| facts.compound);
+    let glyph = facts.and_then(|facts| facts.glyph.clone());
     let target = node_id.to_string();
     let card = div()
         .id(SharedString::from(format!("workflow-node-{node_id}")))
@@ -835,13 +1263,29 @@ fn render_node_box(
             )
         })
         .child(
-            div()
+            h_flex()
                 .w_full()
                 .min_w_0()
-                .truncate()
-                .text_xs()
-                .text_color(caption_color)
-                .child(SharedString::from(caption)),
+                .items_center()
+                .gap_1()
+                // EXP-982: the state reads by SHAPE as well as by colour —
+                // the same tint, so the glyph never says anything new.
+                .when_some(glyph, |this, glyph| {
+                    this.child(
+                        Icon::from(glyph)
+                            .xsmall()
+                            .text_color(caption_color),
+                    )
+                })
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(caption_color)
+                        .child(SharedString::from(caption)),
+                ),
         );
     div()
         .relative()
@@ -928,6 +1372,7 @@ fn pick_row(
 /// The Max-parallel row: 1 to the contract's cap.
 fn parallel_row(
     picked: usize,
+    enabled: bool,
     on_pick: impl Fn(usize, &mut App) + Clone + 'static,
     cx: &App,
 ) -> gpui::Div {
@@ -935,6 +1380,7 @@ fn parallel_row(
         .ghost()
         .small()
         .label(SharedString::from(picked.to_string()))
+        .disabled(!enabled)
         .dropdown_caret(true)
         .dropdown_menu(move |mut menu, _window, _cx| {
             for value in 1..=MAX_PARALLEL_CAP {
@@ -953,7 +1399,13 @@ fn parallel_row(
 
 /// The Runner-device row: this user's own and shared machines, the composer's
 /// own device list.
-fn device_row(workflow_id: &str, picked: Option<&str>, devices: Vec<queries::LaunchDevice>, cx: &App) -> gpui::Div {
+fn device_row(
+    workflow_id: &str,
+    picked: Option<&str>,
+    devices: Vec<queries::LaunchDevice>,
+    enabled: bool,
+    cx: &App,
+) -> gpui::Div {
     let label = picked
         .and_then(|device_id| {
             devices
@@ -969,6 +1421,7 @@ fn device_row(workflow_id: &str, picked: Option<&str>, devices: Vec<queries::Lau
         .small()
         .icon(Icon::from(registry::NAV_DEVICES))
         .label(SharedString::from(label))
+        .disabled(!enabled)
         .dropdown_caret(true)
         .dropdown_menu(move |mut menu, _window, _cx| {
             if devices.is_empty() {
@@ -1012,6 +1465,64 @@ fn prompt_delete(workflow_id: String, window: &mut Window, cx: &mut App) {
             true
         }),
     );
+}
+
+/// EXP-982 — the four status flips, one tRPC call each. The server owns
+/// every precondition and answers a refusal with a sentence, so this only
+/// picks the procedure and lets the notice carry it.
+#[derive(Clone, Copy)]
+enum Command {
+    Start,
+    Pause,
+    Resume,
+    Cancel,
+}
+
+fn spawn_command(command: Command, workflow_id: String, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            let result = match command {
+                Command::Start => api::workflows::start(&trpc, &workflow_id),
+                Command::Pause => api::workflows::pause(&trpc, &workflow_id),
+                Command::Resume => api::workflows::resume(&trpc, &workflow_id),
+                Command::Cancel => api::workflows::cancel(&trpc, &workflow_id),
+            };
+            if let Err(err) = result {
+                log::warn!("workflows: {workflow_id} command failed: {err}");
+            }
+        })
+        .detach();
+}
+
+/// The node-level calls a person makes: the human gate, and unsticking a
+/// failed node.
+fn spawn_approve(node_id: String, approved: bool, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::workflows::approve_node(&trpc, &node_id, approved) {
+                log::warn!("workflows: approveNode {node_id} failed: {err}");
+            }
+        })
+        .detach();
+}
+
+fn spawn_resolve(node_id: String, action: &'static str, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) = api::workflows::resolve_node(&trpc, &node_id, action) {
+                log::warn!("workflows: resolveNode {node_id} failed: {err}");
+            }
+        })
+        .detach();
 }
 
 fn spawn_update(input: api::workflows::WorkflowUpdate, cx: &mut App) {

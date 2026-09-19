@@ -1203,6 +1203,10 @@ pub fn build_launch(
         // EXP-897: the server-resolved stack (`codingSessions.stackPlan`),
         // `None` for an ordinary start.
         stack,
+        // EXP-982: the workflow host fills these in on the request it gets
+        // back; every other caller leaves an ordinary board-based start.
+        base_branch: None,
+        workflow: None,
     };
     let deps = CodingDeps {
         trpc,

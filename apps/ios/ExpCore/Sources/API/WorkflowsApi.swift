@@ -253,6 +253,16 @@ private struct IdInput: Encodable {
     let id: String
 }
 
+private struct ApproveNodeInput: Encodable {
+    let nodeId: String
+    let approved: Bool
+}
+
+private struct ResolveNodeInput: Encodable {
+    let nodeId: String
+    let action: String
+}
+
 public final class WorkflowsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -349,4 +359,75 @@ public final class WorkflowsApi: Sendable {
             input: IdInput(id: id)
         )
     }
+
+    // MARK: - Running a workflow (EXP-982)
+
+    // The server only flips intent; the deterministic ENGINE on the runner
+    // device does the work off the synced rows. Every refusal is a human
+    // sentence the caller shows verbatim.
+
+    /// `workflows.start` — the draft's nodes reset and the row goes `running`.
+    /// `WorkflowView.startBlocker` names every refusal in advance.
+    @discardableResult
+    public func start(accountId: String, id: String) async throws -> WorkflowDto {
+        let result: WorkflowResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "workflows.start",
+            input: IdInput(id: id)
+        )
+        return result.workflow
+    }
+
+    /// `workflows.pause` — the engine starts and lands nothing new; live runs
+    /// finish.
+    public func pause(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "workflows.pause", input: IdInput(id: id)
+        )
+    }
+
+    public func resume(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "workflows.resume", input: IdInput(id: id)
+        )
+    }
+
+    /// `workflows.cancel` — the engine ends the live runs and deletes ONE
+    /// branch. Landed work stays there; nothing reached the default branch.
+    public func cancel(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "workflows.cancel", input: IdInput(id: id)
+        )
+    }
+
+    /// The human gate: `workflows.approveNode` clears a node's open PR for the
+    /// merge train. `approved: false` takes it back while the node has not
+    /// landed.
+    public func approveNode(
+        accountId: String, nodeId: String, approved: Bool = true
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "workflows.approveNode",
+            input: ApproveNodeInput(nodeId: nodeId, approved: approved)
+        )
+    }
+
+    /// `workflows.resolveNode` — a person unsticks a node: `retry` gives it a
+    /// fresh attempt, `skip` takes it out so its dependents go on without it.
+    public func resolveNode(
+        accountId: String, nodeId: String, action: WorkflowNodeResolution
+    ) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "workflows.resolveNode",
+            input: ResolveNodeInput(nodeId: nodeId, action: action.rawValue)
+        )
+    }
+}
+
+/// How a person unsticks a node (`workflows.resolveNode`).
+public enum WorkflowNodeResolution: String, Sendable {
+    case retry
+    case skip
 }

@@ -279,6 +279,191 @@ pub fn workflow_edges(
     edges
 }
 
+// ── Running a workflow (EXP-982) ────────────────────────────────────────────
+
+pub const START_WORKFLOW_LABEL: &str = "Start";
+pub const PAUSE_WORKFLOW_LABEL: &str = "Pause";
+pub const RESUME_WORKFLOW_LABEL: &str = "Resume";
+pub const CANCEL_WORKFLOW_LABEL: &str = "Cancel workflow";
+pub const CANCEL_WORKFLOW_CONFIRM: &str =
+    "Its live runs end and its branch is deleted. Nothing reached the default branch.";
+pub const APPROVE_NODE_LABEL: &str = "Approve and land";
+pub const WITHDRAW_APPROVAL_LABEL: &str = "Withdraw approval";
+pub const MERGE_TRAIN_TITLE: &str = "Merge train";
+pub const MERGE_TRAIN_EMPTY: &str = "Nothing is waiting to land.";
+pub const FINAL_PR_TITLE: &str = "Final pull request";
+pub const RETRY_NODE_LABEL: &str = "Retry";
+pub const SKIP_NODE_LABEL: &str = "Skip";
+pub const SKIP_NODE_CONFIRM: &str =
+    "Its dependents go on without it. The node's work is not part of the final pull request.";
+/// The node panel's run + PR affordances.
+pub const OPEN_RUN_LABEL: &str = "Open run";
+
+/// What the Start blocker rule reads off the workflow row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartableWorkflow<'a> {
+    pub status: &'a str,
+    pub device_id: Option<&'a str>,
+    pub repository_id: Option<&'a str>,
+    pub start_on: &'a str,
+}
+
+/// Why Start is disabled, or `None` when the draft can start. One reason, the
+/// most fundamental first; the server refuses with the same sentences.
+pub fn workflow_start_blocker(
+    workflow: StartableWorkflow<'_>,
+    metrics: &WorkflowShape,
+) -> Option<String> {
+    if workflow.status != "draft" {
+        return Some("The workflow has already started.".to_string());
+    }
+    if metrics.nodes == 0 {
+        return Some("The workflow has no issues.".to_string());
+    }
+    if let Some(cycle) = workflow_cycle_note(metrics) {
+        return Some(cycle);
+    }
+    if workflow.repository_id.is_none() {
+        return Some("The workflow's repository is gone.".to_string());
+    }
+    if workflow.device_id.is_none() {
+        return Some("Pick the device that runs this workflow first.".to_string());
+    }
+    if workflow.start_on != "landed" {
+        return Some("Only \"When landed\" starts are available yet.".to_string());
+    }
+    None
+}
+
+/// A node lands without a person only when the workflow has no gate AND it is
+/// not the contract (always human-gated). Mirrors the server.
+pub fn workflow_node_needs_approval(gate: &str, kind: &str) -> bool {
+    kind == "contract" || gate != "none"
+}
+
+/// What the merge train reads off a node row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrainNode<'a> {
+    pub id: &'a str,
+    pub kind: &'a str,
+    pub state: &'a str,
+    pub wave: i64,
+    pub lane: i64,
+    /// The `approved_at` stamp; only its presence matters.
+    pub approved: bool,
+}
+
+/// Where one node stands in the merge train.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainStep {
+    Next,
+    Queued,
+    NeedsApproval,
+    Updating,
+}
+
+impl TrainStep {
+    /// The fixture's wire word for this step.
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            TrainStep::Next => "next",
+            TrainStep::Queued => "queued",
+            TrainStep::NeedsApproval => "needs-approval",
+            TrainStep::Updating => "updating",
+        }
+    }
+}
+
+pub fn workflow_train_step_label(step: TrainStep) -> &'static str {
+    match step {
+        TrainStep::Next => "Landing next",
+        TrainStep::Queued => "Queued",
+        TrainStep::NeedsApproval => "Needs approval",
+        TrainStep::Updating => "Merging the trunk in",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrainEntry {
+    pub id: String,
+    pub step: TrainStep,
+}
+
+/// The merge train: every node whose PR is up (`in_review`, or `updating`
+/// while it merges the trunk in), in landing order (wave, then lane). The
+/// FIRST node that is cleared to land is `Next`; cleared ones behind it are
+/// `Queued`; one still waiting for a person says so.
+pub fn workflow_merge_train(nodes: &[TrainNode<'_>], gate: &str) -> Vec<TrainEntry> {
+    let mut waiting: Vec<&TrainNode<'_>> = nodes
+        .iter()
+        .filter(|node| node.state == "in_review" || node.state == "updating")
+        .collect();
+    waiting.sort_by(|a, b| {
+        a.wave
+            .cmp(&b.wave)
+            .then_with(|| a.lane.cmp(&b.lane))
+            .then_with(|| a.id.cmp(b.id))
+    });
+    let mut next_taken = false;
+    waiting
+        .into_iter()
+        .map(|node| {
+            let step = if node.state == "updating" {
+                TrainStep::Updating
+            } else if workflow_node_needs_approval(gate, node.kind) && !node.approved {
+                TrainStep::NeedsApproval
+            } else if next_taken {
+                TrainStep::Queued
+            } else {
+                next_taken = true;
+                TrainStep::Next
+            };
+            TrainEntry {
+                id: node.id.to_string(),
+                step,
+            }
+        })
+        .collect()
+}
+
+/// The final-PR node's caption, or `None` while the node is not drawn: it
+/// appears once every node landed (or was skipped), after the last wave.
+pub fn workflow_final_pr_caption(
+    node_states: &[&str],
+    final_pr_state: Option<&str>,
+    final_pr_number: Option<i64>,
+) -> Option<String> {
+    if node_states.is_empty() {
+        return None;
+    }
+    let all_in = node_states
+        .iter()
+        .all(|state| *state == "landed" || *state == "skipped");
+    if !all_in && final_pr_number.is_none() {
+        return None;
+    }
+    let Some(number) = final_pr_number else {
+        return Some("Opening the pull request".to_string());
+    };
+    let label = match final_pr_state {
+        Some("merged") => "Merged",
+        Some("closed") => "Closed",
+        _ => "Open",
+    };
+    Some(format!("#{number} · {label}"))
+}
+
+/// A list row's secondary text: the shape line, led by the status word for
+/// the two statuses a band alone does not tell apart.
+pub fn workflow_row_subtitle(status: &str, metrics: &WorkflowShape) -> String {
+    let shape = workflow_shape_line(metrics);
+    match status {
+        "paused" => format!("Paused · {shape}"),
+        "cancelled" => format!("Cancelled · {shape}"),
+        _ => shape,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,12 +562,89 @@ mod tests {
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
+    struct FixtureStartWorkflow {
+        status: String,
+        device_id: Option<String>,
+        repository_id: Option<String>,
+        start_on: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureStartBlocker {
+        workflow: FixtureStartWorkflow,
+        metrics: FixtureMetrics,
+        blocker: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureTrainNode {
+        id: String,
+        kind: String,
+        state: String,
+        wave: i64,
+        lane: i64,
+        approved_at: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureTrainEntry {
+        id: String,
+        step: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureTrainCase {
+        name: String,
+        gate: String,
+        nodes: Vec<FixtureTrainNode>,
+        expected: Vec<FixtureTrainEntry>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureFinalPr {
+        states: Vec<String>,
+        final_pr_state: Option<String>,
+        final_pr_number: Option<i64>,
+        caption: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureRowSubtitle {
+        status: String,
+        metrics: FixtureMetrics,
+        subtitle: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Fixture {
         bands: Vec<FixtureBand>,
         shape_lines: Vec<FixtureShapeLine>,
         captions: Vec<FixtureCaption>,
         titles: Vec<FixtureTitle>,
         edges: Vec<FixtureEdgeCase>,
+        start_blockers: Vec<FixtureStartBlocker>,
+        trains: Vec<FixtureTrainCase>,
+        train_step_labels: HashMap<String, String>,
+        final_pr: Vec<FixtureFinalPr>,
+        row_subtitles: Vec<FixtureRowSubtitle>,
+    }
+
+    impl FixtureMetrics {
+        fn shape(&self) -> WorkflowShape {
+            WorkflowShape {
+                nodes: self.nodes,
+                depth: self.depth,
+                width: self.width,
+                cycles: self.cycles.clone(),
+            }
+        }
     }
 
     fn fixture() -> Fixture {
@@ -403,12 +665,7 @@ mod tests {
         }
 
         for case in &fixture.shape_lines {
-            let metrics = WorkflowShape {
-                nodes: case.metrics.nodes,
-                depth: case.metrics.depth,
-                width: case.metrics.width,
-                cycles: case.metrics.cycles.clone(),
-            };
+            let metrics = case.metrics.shape();
             assert_eq!(workflow_shape_line(&metrics), case.line);
             assert_eq!(workflow_cycle_note(&metrics), case.cycle_note);
         }
@@ -464,6 +721,125 @@ mod tests {
                 .collect();
             assert_eq!(got, want, "case: {}", case.name);
         }
+
+        // ── EXP-982 ──────────────────────────────────────────────────────
+        for (index, case) in fixture.start_blockers.iter().enumerate() {
+            let workflow = StartableWorkflow {
+                status: &case.workflow.status,
+                device_id: case.workflow.device_id.as_deref(),
+                repository_id: case.workflow.repository_id.as_deref(),
+                start_on: &case.workflow.start_on,
+            };
+            assert_eq!(
+                workflow_start_blocker(workflow, &case.metrics.shape()),
+                case.blocker,
+                "startBlockers[{index}]"
+            );
+        }
+
+        for case in &fixture.trains {
+            let nodes: Vec<TrainNode<'_>> = case
+                .nodes
+                .iter()
+                .map(|node| TrainNode {
+                    id: &node.id,
+                    kind: &node.kind,
+                    state: &node.state,
+                    wave: node.wave,
+                    lane: node.lane,
+                    approved: node.approved_at.is_some(),
+                })
+                .collect();
+            let got = workflow_merge_train(&nodes, &case.gate);
+            let want: Vec<(&str, &str)> = case
+                .expected
+                .iter()
+                .map(|entry| (entry.id.as_str(), entry.step.as_str()))
+                .collect();
+            let seen: Vec<(&str, &str)> = got
+                .iter()
+                .map(|entry| (entry.id.as_str(), entry.step.as_wire()))
+                .collect();
+            assert_eq!(seen, want, "case: {}", case.name);
+        }
+
+        for (step, label) in &fixture.train_step_labels {
+            let parsed = [
+                TrainStep::Next,
+                TrainStep::Queued,
+                TrainStep::NeedsApproval,
+                TrainStep::Updating,
+            ]
+            .into_iter()
+            .find(|candidate| candidate.as_wire() == step)
+            .unwrap_or_else(|| panic!("unknown train step: {step}"));
+            assert_eq!(workflow_train_step_label(parsed), label);
+        }
+
+        for (index, case) in fixture.final_pr.iter().enumerate() {
+            let states: Vec<&str> = case.states.iter().map(String::as_str).collect();
+            assert_eq!(
+                workflow_final_pr_caption(
+                    &states,
+                    case.final_pr_state.as_deref(),
+                    case.final_pr_number
+                ),
+                case.caption,
+                "finalPr[{index}]"
+            );
+        }
+
+        for case in &fixture.row_subtitles {
+            assert_eq!(
+                workflow_row_subtitle(&case.status, &case.metrics.shape()),
+                case.subtitle,
+                "status: {}",
+                case.status
+            );
+        }
+    }
+
+    /// The gate rule the train and the node panel share: the contract always
+    /// needs a person, everything else only under a gate.
+    #[test]
+    fn the_contract_always_needs_a_person() {
+        assert!(workflow_node_needs_approval("none", "contract"));
+        assert!(!workflow_node_needs_approval("none", "leaf"));
+        assert!(!workflow_node_needs_approval("none", "integration"));
+        assert!(workflow_node_needs_approval("human", "leaf"));
+        assert!(workflow_node_needs_approval("agent", "leaf"));
+    }
+
+    /// The train is strict order only among CLEARED nodes: a node waiting for
+    /// a person never blocks a cleared one behind it.
+    #[test]
+    fn an_unapproved_node_never_holds_the_one_behind_it() {
+        let nodes = [
+            TrainNode {
+                id: "c",
+                kind: "contract",
+                state: "in_review",
+                wave: 0,
+                lane: 0,
+                approved: false,
+            },
+            TrainNode {
+                id: "l",
+                kind: "leaf",
+                state: "in_review",
+                wave: 1,
+                lane: 0,
+                approved: false,
+            },
+        ];
+        let train = workflow_merge_train(&nodes, "none");
+        assert_eq!(
+            train
+                .iter()
+                .map(|entry| (entry.id.as_str(), entry.step))
+                .collect::<Vec<_>>(),
+            vec![("c", TrainStep::NeedsApproval), ("l", TrainStep::Next)]
+        );
     }
 
     /// The bands render in the fixture's order under their own titles.

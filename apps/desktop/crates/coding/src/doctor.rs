@@ -128,7 +128,7 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 ///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 8 = 21.
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 9 = 22.
 pub const DEVICE_CAPS: [&str; 13] = [
     "resume",
     "worktrees",
@@ -178,7 +178,7 @@ pub const ACCOUNT_REMOVE_CAP: &str = "account-remove";
 /// older build has no planner kind and would fall through to the
 /// Create-action prompt and author an action instead, so the server refuses
 /// a planner start to a device without it.
-pub const ACTION_CAPS: [&str; 8] = [
+pub const ACTION_CAPS: [&str; 9] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
@@ -187,10 +187,16 @@ pub const ACTION_CAPS: [&str; 8] = [
     RESUME_RUN_CAP,
     START_PROMPT_CAP,
     PLAN_WORKFLOW_CAP,
+    WORKFLOWS_CAP,
 ];
 
 /// EXP-981's planner cap, by name (see [`ACTION_CAPS`]).
 pub const PLAN_WORKFLOW_CAP: &str = api::actions::PLAN_WORKFLOW_CAP;
+
+/// EXP-982's engine cap, by name: this build runs a started workflow's nodes
+/// locally. An ACTION cap — the engine starts runs, so it needs a runnable
+/// agent, and `workflows.start` refuses a device without it.
+pub const WORKFLOWS_CAP: &str = api::workflows::WORKFLOWS_CAP;
 
 /// EXP-825's start-prompt cap, by name (see [`ACTION_CAPS`]).
 pub const START_PROMPT_CAP: &str = "start-prompt";
@@ -1596,6 +1602,20 @@ mod tests {
         assert!(!DEVICE_CAPS.contains(&PLAN_WORKFLOW_CAP));
         assert!(device_caps(&advert(&["claude"])).contains(&"plan-workflow".to_string()));
         assert!(!device_caps(&advert(&[])).contains(&"plan-workflow".to_string()));
+        assert!(device_caps(&advert(&["claude"])).len() <= 24);
+    }
+
+    /// EXP-982: the server gates `workflows.start` on `workflows` — an
+    /// ACTION cap, because the engine STARTS runs (an agent-less machine
+    /// could mirror states but never move a node). The whole list stays
+    /// inside `devices.register`'s 24-cap ceiling.
+    #[test]
+    fn action_caps_advertise_workflows() {
+        assert_eq!(WORKFLOWS_CAP, "workflows");
+        assert!(ACTION_CAPS.contains(&WORKFLOWS_CAP));
+        assert!(!DEVICE_CAPS.contains(&WORKFLOWS_CAP));
+        assert!(device_caps(&advert(&["claude"])).contains(&"workflows".to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&"workflows".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }
 

@@ -597,6 +597,8 @@ export const codingSessionsRouter = router({
             // resume all qualify. Only schedule/event still need a real
             // action row (an automation targets one).
             value.startedReason === `agent` ||
+            // EXP-982: a workflow node is an issue or a batch run.
+            value.startedReason === `workflow` ||
             (Boolean(value.actionId) && !isBuiltinActionId(value.actionId!)),
           {
             message: `startedReason requires a real actionId — only automations automate starts`,
@@ -605,7 +607,9 @@ export const codingSessionsRouter = router({
         .refine(
           (value) =>
             !value.automationId ||
-            (Boolean(value.startedReason) && value.startedReason !== `agent`),
+            (Boolean(value.startedReason) &&
+              value.startedReason !== `agent` &&
+              value.startedReason !== `workflow`),
           {
             // EXP-679: automationId belongs to schedule/event alone — an
             // agent-started run is nobody's automation history.

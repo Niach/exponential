@@ -967,6 +967,9 @@ fn remote_batch_start(
         origin: relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
         options,
         prompt: start.prompt.clone(),
+        // A relay batch start is never a workflow node (EXP-982).
+        base_branch: None,
+        workflow: None,
     };
 
     let Some(deps) = coding_flow::build_batch_deps(cx) else {

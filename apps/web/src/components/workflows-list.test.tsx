@@ -83,6 +83,29 @@ describe(`WorkflowsList`, () => {
     expect(screen.getByTestId(`workflow-row-w2-cycle`)).toBeTruthy()
   })
 
+  // EXP-982: the shape line alone cannot tell a paused workflow from a running
+  // one (both band under Running), nor a cancelled one from a finished one.
+  it(`leads the subtitle with the status a band does not tell apart`, () => {
+    render(
+      <WorkflowsList
+        workflows={[
+          workflow(`w1`, { status: `running` }),
+          workflow(`w2`, { status: `paused` }),
+          workflow(`w3`, { status: `done` }),
+          workflow(`w4`, { status: `cancelled` }),
+        ]}
+        teamSlug="acme"
+      />
+    )
+    const subtitle = (id: string) =>
+      screen.getByTestId(`workflow-row-${id}`).textContent
+    expect(subtitle(`w1`)).toContain(`3 nodes · depth 2 · width 2`)
+    expect(subtitle(`w1`)).not.toContain(`Running ·`)
+    expect(subtitle(`w2`)).toContain(`Paused · 3 nodes · depth 2 · width 2`)
+    expect(subtitle(`w3`)).toContain(`3 nodes · depth 2 · width 2`)
+    expect(subtitle(`w4`)).toContain(`Cancelled · 3 nodes · depth 2 · width 2`)
+  })
+
   it(`rows link to the workflow's detail`, () => {
     render(<WorkflowsList workflows={[workflow(`w1`)]} teamSlug="acme" />)
     const row = screen.getByTestId(`workflow-row-w1`)

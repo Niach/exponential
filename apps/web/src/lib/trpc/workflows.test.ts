@@ -69,7 +69,14 @@ const fakeDb = {
 }
 dbHolder.db = fakeDb
 
-import { workflowsRouter } from "@/lib/trpc/workflows"
+vi.mock(`@/lib/steer`, () => ({ getSteerRelayConfig: () => null, relayPostInput: vi.fn() }))
+vi.mock(`@/lib/steer-child-messages`, () => ({ oneLine: (text: string) => text }))
+
+import {
+  appendDecisionLine,
+  nodeNeedsApproval,
+  workflowsRouter,
+} from "@/lib/trpc/workflows"
 
 const caller = workflowsRouter.createCaller({
   db: fakeDb,
@@ -178,5 +185,109 @@ describe(`workflows.delete`, () => {
     const error = await rejection(caller.delete({ id: WF }))
     expect(error?.code).toBe(`PRECONDITION_FAILED`)
     expect(fakeDb.delete).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-982 — running a workflow.
+describe(`workflows.start`, () => {
+  const ready = { deviceId: `dev-1`, startOn: `landed`, decisions: `` }
+
+  it(`refuses a workflow with no runner, a speculative start, or a cycle`, async () => {
+    selectQueue.push([workflow({ ...ready, deviceId: null })])
+    expect((await rejection(caller.start({ id: WF })))?.message).toContain(`Pick the device`)
+
+    selectQueue.push([workflow({ ...ready, startOn: `contract` })])
+    expect((await rejection(caller.start({ id: WF })))?.message).toContain(`When landed`)
+
+    selectQueue.push([workflow(ready)])
+    h.replanWorkflow.mockResolvedValueOnce({
+      nodes: 2,
+      edges: 2,
+      depth: 1,
+      width: 2,
+      cycles: [[`APP-1`, `APP-2`]],
+    } as never)
+    const cyclic = await rejection(caller.start({ id: WF }))
+    expect(cyclic?.message).toContain(`APP-1, APP-2`)
+  })
+
+  it(`resets every node and flips the workflow to running`, async () => {
+    selectQueue.push([workflow(ready)])
+    await caller.start({ id: WF })
+    expect(h.assertDeviceUsable).toHaveBeenCalled()
+    expect(written.map((w) => w.values)).toEqual([
+      expect.objectContaining({ state: `blocked`, attempt: 0, sessionId: null }),
+      expect.objectContaining({ status: `running` }),
+    ])
+  })
+})
+
+describe(`the engine's write path`, () => {
+  const node = (over: Record<string, unknown> = {}) => ({
+    id: `node-1`,
+    workflowId: WF,
+    issueId: A,
+    kind: `leaf`,
+    state: `in_review`,
+    approvedAt: null,
+    ...over,
+  })
+  const NODE = `55555555-5555-4555-8555-555555555555`
+
+  it(`refuses a caller that does not own the runner device`, async () => {
+    selectQueue.push([node()], [workflow({ status: `running`, deviceId: `dev-1` })], [])
+    const error = await rejection(caller.reportNode({ nodeId: NODE, state: `running` }))
+    expect(error?.code).toBe(`FORBIDDEN`)
+  })
+
+  it(`never lets a report make or unmake a landed node`, async () => {
+    selectQueue.push(
+      [node({ state: `landed` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }]
+    )
+    expect(await caller.reportNode({ nodeId: NODE, state: `failed` })).toEqual({
+      updated: false,
+    })
+  })
+
+  it(`holds an unapproved node at the gate, server-side`, async () => {
+    selectQueue.push(
+      [node()],
+      [workflow({ status: `running`, deviceId: `dev-1`, gate: `human` })],
+      [{ id: `device-row` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: false,
+      reason: `Waiting for a person to approve`,
+    })
+  })
+})
+
+describe(`nodeNeedsApproval`, () => {
+  it(`always gates the contract, and everything under a gate`, () => {
+    expect(nodeNeedsApproval(`none`, `leaf`)).toBe(false)
+    expect(nodeNeedsApproval(`none`, `contract`)).toBe(true)
+    expect(nodeNeedsApproval(`human`, `leaf`)).toBe(true)
+    expect(nodeNeedsApproval(`agent`, `integration`)).toBe(true)
+  })
+})
+
+describe(`appendDecisionLine`, () => {
+  const now = new Date(`2026-09-19T10:00:00Z`)
+
+  it(`appends one dated line`, () => {
+    expect(appendDecisionLine(``, `  use\ncursors `, now)).toBe(`2026-09-19: use cursors`)
+    expect(appendDecisionLine(`2026-09-18: a`, `b`, now)).toBe(
+      `2026-09-18: a\n2026-09-19: b`
+    )
+  })
+
+  it(`drops the OLDEST lines when the log is full`, () => {
+    const full = Array.from({ length: 40 }, (_, i) => `l${i}: ${`x`.repeat(1990)}`).join(`\n`)
+    const next = appendDecisionLine(full, `newest`, now)
+    expect(next.length).toBeLessThanOrEqual(65536)
+    expect(next.endsWith(`2026-09-19: newest`)).toBe(true)
+    expect(next.startsWith(`l0:`)).toBe(false)
   })
 })

@@ -1,0 +1,532 @@
+[
+  {
+    "name": "rule 0: no integration branch, and nothing else this pass",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "blocked", "wave": 0, "lane": 0 }
+      ],
+      "integrationBranchExists": false,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "ensureIntegrationBranch" }]
+  },
+  {
+    "name": "rule 2: a diamond starts its root first, then both middles",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "root", "issueId": "i-root", "kind": "contract", "state": "landed", "wave": 0, "lane": 0 },
+        { "id": "left", "issueId": "i-left", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
+        { "id": "right", "issueId": "i-right", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 1 },
+        { "id": "tail", "issueId": "i-tail", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
+      ],
+      "edges": [
+        ["root", "left"],
+        ["root", "right"],
+        ["left", "tail"],
+        ["right", "tail"]
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "left", "state": "ready" },
+      { "kind": "setNodeState", "nodeId": "right", "state": "ready" },
+      { "kind": "startNode", "nodeId": "left", "attempt": 1 },
+      { "kind": "startNode", "nodeId": "right", "attempt": 1 }
+    ]
+  },
+  {
+    "name": "rule 2: maxParallel clamps the starts in (wave, lane, id) order",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 2
+      },
+      "nodes": [
+        {
+          "id": "live",
+          "issueId": "i-live",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-live",
+          "attempt": 1
+        },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "ready", "wave": 0, "lane": 1 },
+        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "ready", "wave": 0, "lane": 2 }
+      ],
+      "sessions": { "s-live": { "live": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startNode", "nodeId": "b", "attempt": 1 }]
+  },
+  {
+    "name": "rule 2: a retried node starts at its next attempt",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "ready", "wave": 0, "lane": 0, "attempt": 2 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startNode", "nodeId": "a", "attempt": 3 }]
+  },
+  {
+    "name": "rule 3: a reset rate limit nudges the run once",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "waiting",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "sessions": { "s-a": { "live": true, "blocked": true, "blockedResetsAtMs": 500 } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      {
+        "kind": "nudge",
+        "sessionId": "s-a",
+        "key": "500",
+        "text": "The rate limit has reset. Continue where you left off."
+      }
+    ]
+  },
+  {
+    "name": "rule 3: an already nudged window is never nudged again",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "waiting",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "sessions": { "s-a": { "live": true, "blocked": true, "blockedResetsAtMs": 500 } },
+      "nudged": [["s-a", 500]],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 3: a wall that has not lifted yet waits",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "waiting",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "sessions": { "s-a": { "live": true, "blocked": true, "blockedResetsAtMs": 5000 } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 4: the train holds an unapproved contract, a cleared leaf behind it lands",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-c",
+          "attempt": 1
+        },
+        {
+          "id": "l",
+          "issueId": "i-l",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-l",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-c": { "prState": "open" }, "i-l": { "prState": "open" } },
+      "sessions": { "s-c": { "live": false }, "s-l": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "l" }]
+  },
+  {
+    "name": "rule 4: one land per pass, the approved contract goes first",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "contract",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-c",
+          "attempt": 1,
+          "approvedAt": "2026-09-19T00:00:00Z"
+        },
+        {
+          "id": "l",
+          "issueId": "i-l",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 1,
+          "lane": 0,
+          "sessionId": "s-l",
+          "attempt": 1,
+          "approvedAt": "2026-09-19T00:00:00Z"
+        }
+      ],
+      "issues": { "i-c": { "prState": "open" }, "i-l": { "prState": "open" } },
+      "sessions": { "s-c": { "live": false }, "s-l": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "c" }]
+  },
+  {
+    "name": "rule 4: a land already in flight blocks the train",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
+      "sessions": { "s-a": { "live": false }, "s-b": { "live": false } },
+      "inFlight": ["a"],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 4: nothing is cleared under a human gate",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 5: everything in, at least one landed, the final PR opens once",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 1 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "openFinalPr" }]
+  },
+  {
+    "name": "rule 5: every node skipped opens nothing",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 0 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 5: an open final PR is never opened twice",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "finalPrUrl": "https://github.com/acme/web/pull/9",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "paused: the mirror keeps reading true, nothing starts or lands",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "paused",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "blocked", "wave": 0, "lane": 0 },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-b": { "prState": "open" } },
+      "sessions": { "s-b": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "a", "state": "ready" },
+      { "kind": "setNodeState", "nodeId": "b", "state": "in_review" }
+    ]
+  },
+  {
+    "name": "cancelled: every live run ends before the branch goes",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "cancelled",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "attempt": 1
+        }
+      ],
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "killSession", "sessionId": "s-a" }]
+  },
+  {
+    "name": "cancelled and quiet: the integration branch goes",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "cancelled",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "sessions": { "s-a": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "deleteIntegrationBranch" }]
+  },
+  {
+    "name": "cancelled with no branch left: nothing at all",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "cancelled",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }
+      ],
+      "integrationBranchExists": false,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "draft: the engine decides nothing at all",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "draft",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "proposed", "wave": 0, "lane": 0 }
+      ],
+      "integrationBranchExists": false,
+      "nowMs": 1000
+    },
+    "expected": []
+  }
+]

@@ -3,8 +3,9 @@ import ExpUI
 import SwiftUI
 
 /// EXP-981 — one workflow: what it is (the name and the shared shape line), its
-/// GRAPH, how it runs, and the two things a draft can do — plan it with an
-/// agent, or delete it. P2 ships DRAFT workflows: there is no Start button yet.
+/// GRAPH, its merge train, how it runs, and what its status lets it do — a draft
+/// starts (or says why it cannot), gets planned and deleted; a live one pauses,
+/// resumes or is cancelled (EXP-982).
 ///
 /// The graph is the phone form (`WorkflowGraphView`): waves as bands, nodes as
 /// flat rows, blockers as chips. Tapping a node opens its panel — a SHEET here,
@@ -26,6 +27,7 @@ struct WorkflowDetailView: View {
     /// The node whose panel is up (by node id — the sheet reads the live row).
     @State private var selectedNodeId: WorkflowNodeTarget?
     @State private var showDeleteConfirm = false
+    @State private var showCancelConfirm = false
 
     var body: some View {
         ZStack {
@@ -37,6 +39,7 @@ struct WorkflowDetailView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             header(model)
                             graph(model)
+                            mergeTrain(model)
                             howItRuns(model)
                             actions(model)
                         }
@@ -85,12 +88,28 @@ struct WorkflowDetailView: View {
                     node: node,
                     issues: model.issues,
                     enabled: model.isDraft,
+                    gate: model.gate,
+                    busy: model.busy,
                     onUpdate: { patch in
                         model.updateNode(issueId: node.issueId, patch: patch)
+                    },
+                    onApprove: { approved in
+                        model.approveNode(node.id, approved: approved)
+                    },
+                    onResolve: { action in
+                        model.resolveNode(node.id, action: action)
                     },
                     onOpenIssue: { issueId in
                         selectedNodeId = nil
                         pushRoute(.issue(accountId: accountId, id: issueId))
+                    },
+                    onOpenRun: { sessionId in
+                        selectedNodeId = nil
+                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                    },
+                    onOpenChanges: { issueId in
+                        selectedNodeId = nil
+                        pushRoute(.changes(accountId: accountId, issueId: issueId))
                     }
                 )
             }
@@ -106,6 +125,16 @@ struct WorkflowDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes the workflow and its plan. The issues stay where they are.")
+        }
+        .confirmationDialog(
+            WorkflowView.cancelLabel,
+            isPresented: $showCancelConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(WorkflowView.cancelLabel, role: .destructive) { model?.cancel() }
+            Button("Keep running", role: .cancel) {}
+        } message: {
+            Text(WorkflowView.cancelConfirm)
         }
     }
 
@@ -155,10 +184,84 @@ struct WorkflowDetailView: View {
         WorkflowGraphView(
             nodes: model.nodes,
             edges: model.edges,
-            workflowStatus: model.workflow?.status ?? DomainContract.wfStatusDraft,
+            workflowStatus: model.status,
             issues: model.issues,
+            finalPrCaption: model.finalPrCaption,
+            finalPrUrl: model.workflow?.finalPrUrl,
             onSelect: { selectedNodeId = WorkflowNodeTarget(id: $0.id) }
         )
+    }
+
+    // MARK: - Merge train
+
+    /// EXP-982 — what is queued to land on the integration branch, in landing
+    /// order. Web and the IDE draw a horizontal strip; a phone gets the short
+    /// list. Hidden on a draft: nothing can be waiting there.
+    @ViewBuilder
+    private func mergeTrain(_ model: WorkflowDetailModel) -> some View {
+        if !model.isDraft {
+            let train = model.mergeTrain
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(WorkflowView.mergeTrainTitle)
+                    .padding(.top, 12)
+
+                if train.isEmpty {
+                    Text(WorkflowView.mergeTrainEmpty)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .flatRow()
+                } else {
+                    ForEach(train, id: \.id) { entry in
+                        if let node = model.nodes.first(where: { $0.id == entry.id }) {
+                            trainRow(node: node, entry: entry, model: model)
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("workflow-merge-train")
+        }
+    }
+
+    @ViewBuilder
+    private func trainRow(
+        node: WorkflowNodeEntity, entry: WorkflowView.TrainEntry, model: WorkflowDetailModel
+    ) -> some View {
+        Button { selectedNodeId = WorkflowNodeTarget(id: node.id) } label: {
+            HStack(spacing: 8) {
+                Text(WorkflowView.nodeTitle(
+                    identifier: model.issues[node.issueId]?.identifier ?? node.issueId,
+                    memberCount: node.memberIssueIds.count
+                ))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(WorkflowView.trainStepLabel(entry.step))
+                    .font(.caption2)
+                    .foregroundStyle(Self.trainStepColor(entry.step))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .flatRow()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("workflow-train-row")
+    }
+
+    /// The step's paint: amber only where a PERSON is needed, the same rule the
+    /// node tones follow.
+    private static func trainStepColor(_ step: WorkflowView.TrainStep) -> Color {
+        switch step {
+        case .next, .updating: DesignTokens.Semantic.green
+        case .needsApproval: DesignTokens.Semantic.yellow
+        case .queued: .white.opacity(TextOpacity.tertiary)
+        }
     }
 
     // MARK: - How it runs
@@ -360,35 +463,94 @@ struct WorkflowDetailView: View {
 
     // MARK: - Actions
 
-    /// P2: plan it, or delete it. The engine (and the Start button) arrive with
-    /// the next change.
+    /// EXP-982 — what a workflow can do, by status: a draft starts (or says
+    /// why it cannot), gets planned and deleted; a live one pauses or resumes
+    /// and can be cancelled; a finished one is only ever deleted.
     @ViewBuilder
     private func actions(_ model: WorkflowDetailModel) -> some View {
-        HStack(spacing: 10) {
-            GlassPill(
-                WorkflowView.planLabel,
-                icon: ActionIconDisplay.iconName(for: "layers"),
-                size: .md,
-                mode: .action { plan(model) },
-                primary: true,
-                enabled: model.workflow != nil
-            )
-            .accessibilityIdentifier("workflow-plan-button")
+        let blocker = model.startBlocker
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                switch model.status {
+                case DomainContract.wfStatusDraft:
+                    GlassPill(
+                        WorkflowView.startLabel,
+                        icon: AppIcons.codingRunning,
+                        size: .md,
+                        mode: .action { model.start() },
+                        primary: true,
+                        enabled: blocker == nil && !model.busy
+                    )
+                    .accessibilityIdentifier("workflow-start-button")
 
-            Spacer(minLength: 0)
+                    GlassPill(
+                        WorkflowView.planLabel,
+                        icon: ActionIconDisplay.iconName(for: "layers"),
+                        size: .md,
+                        mode: .action { plan(model) },
+                        enabled: model.workflow != nil
+                    )
+                    .accessibilityIdentifier("workflow-plan-button")
+                case DomainContract.wfStatusRunning:
+                    GlassPill(
+                        WorkflowView.pauseLabel,
+                        icon: AppIcons.uiStop,
+                        size: .md,
+                        mode: .action { model.pause() },
+                        enabled: !model.busy
+                    )
+                    .accessibilityIdentifier("workflow-pause-button")
+                case DomainContract.wfStatusPaused:
+                    GlassPill(
+                        WorkflowView.resumeLabel,
+                        icon: AppIcons.codingRunning,
+                        size: .md,
+                        mode: .action { model.resume() },
+                        primary: true,
+                        enabled: !model.busy
+                    )
+                    .accessibilityIdentifier("workflow-resume-button")
+                default:
+                    EmptyView()
+                }
 
-            Button { showDeleteConfirm = true } label: {
-                Text(WorkflowView.deleteLabel)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(DesignTokens.Palette.destructive)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
+                Spacer(minLength: 0)
+
+                // Cancelling is the destructive end of a live run; deleting is
+                // the destructive end of everything else. Never both.
+                if model.status == DomainContract.wfStatusRunning
+                    || model.status == DomainContract.wfStatusPaused {
+                    destructiveButton(WorkflowView.cancelLabel) { showCancelConfirm = true }
+                        .accessibilityIdentifier("workflow-cancel-button")
+                } else {
+                    destructiveButton(WorkflowView.deleteLabel) { showDeleteConfirm = true }
+                        .accessibilityIdentifier("workflow-delete-button")
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("workflow-delete-button")
+
+            // Why Start is disabled, in the server's own sentence.
+            if model.isDraft, let blocker {
+                Text(blocker)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityIdentifier("workflow-start-blocker")
+            }
         }
         .padding(.top, 16)
+    }
+
+    private func destructiveButton(
+        _ label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(DesignTokens.Palette.destructive)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// The planner run: the Agent page composer with the hidden Plan-workflow
@@ -434,8 +596,19 @@ struct WorkflowNodeSheet: View {
     let issues: [String: IssueEntity]
     /// Kind shapes the PLAN, so the server takes it on a draft only.
     let enabled: Bool
+    /// contract `wfGate` — with `nodeNeedsApproval` it decides whether the node
+    /// waits for a person before it lands.
+    let gate: String
+    /// A write is in flight; the run controls go inert rather than double-fire.
+    let busy: Bool
     let onUpdate: (WorkflowNodePatch) -> Void
+    let onApprove: (Bool) -> Void
+    let onResolve: (WorkflowNodeResolution) -> Void
     let onOpenIssue: (String) -> Void
+    let onOpenRun: (String) -> Void
+    let onOpenChanges: (String) -> Void
+
+    @State private var showSkipConfirm = false
 
     var body: some View {
         GlassSheetChrome(
@@ -511,17 +684,120 @@ struct WorkflowNodeSheet: View {
                     .glassRow()
                 }
 
+                runControls
+            }
+            .padding(.horizontal, GlassSheetTokens.headerHPadding)
+            .padding(.bottom, 16)
+        }
+        .accessibilityIdentifier("workflow-node-sheet")
+        .confirmationDialog(
+            WorkflowView.skipNodeLabel,
+            isPresented: $showSkipConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(WorkflowView.skipNodeLabel, role: .destructive) { onResolve(.skip) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(WorkflowView.skipNodeConfirm)
+        }
+    }
+
+    // MARK: - Running it (EXP-982)
+
+    /// The node's own run: why it is stuck, its live session, its pull request,
+    /// the gate, and the two ways out of a failure.
+    @ViewBuilder
+    private var runControls: some View {
+        let issue = issues[node.issueId]
+        VStack(alignment: .leading, spacing: 10) {
+            // The engine's own words for a `failed` / `waiting` node.
+            if let note = node.note, !note.isEmpty {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(Self.color(WorkflowView.nodeTone(node.state)))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("workflow-node-note")
+            }
+
+            if node.state == DomainContract.wfNodeStateFailed {
+                HStack(spacing: 8) {
+                    GlassPill(
+                        WorkflowView.retryNodeLabel,
+                        icon: AppIcons.uiRefresh,
+                        mode: .action { onResolve(.retry) },
+                        enabled: !busy
+                    )
+                    .accessibilityIdentifier("workflow-node-retry")
+                    GlassPill(
+                        WorkflowView.skipNodeLabel,
+                        icon: AppIcons.uiClose,
+                        mode: .action { showSkipConfirm = true },
+                        enabled: !busy
+                    )
+                    .accessibilityIdentifier("workflow-node-skip")
+                }
+            }
+
+            // The gate: a node with its PR up asks for a person, and the answer
+            // can be taken back right up until it lands.
+            if WorkflowView.nodeNeedsApproval(gate: gate, kind: node.kind) {
+                if node.approvedAt != nil {
+                    if node.state != DomainContract.wfNodeStateLanded {
+                        GlassPill(
+                            WorkflowView.withdrawApprovalLabel,
+                            icon: AppIcons.uiClose,
+                            mode: .action { onApprove(false) },
+                            enabled: !busy
+                        )
+                        .accessibilityIdentifier("workflow-node-withdraw")
+                    }
+                } else if node.state == DomainContract.wfNodeStateInReview {
+                    GlassPill(
+                        WorkflowView.approveNodeLabel,
+                        icon: AppIcons.uiCheck,
+                        mode: .action { onApprove(true) },
+                        primary: true,
+                        enabled: !busy
+                    )
+                    .accessibilityIdentifier("workflow-node-approve")
+                }
+            }
+
+            HStack(spacing: 8) {
                 GlassPill(
                     "Open issue",
                     icon: AppIcons.uiExternalLink,
                     mode: .action { onOpenIssue(node.issueId) }
                 )
                 .accessibilityIdentifier("workflow-node-open-issue")
+
+                // The run the engine started for this node.
+                if let sessionId = node.sessionId {
+                    GlassPill(
+                        "Open run",
+                        icon: AppIcons.codingRunning,
+                        mode: .action { onOpenRun(sessionId) }
+                    )
+                    .accessibilityIdentifier("workflow-node-open-run")
+                }
+
+                // The node's pull request, through the issue's own Changes
+                // page — the affordance the issue detail uses.
+                if issue?.prUrl != nil {
+                    GlassPill(
+                        issue?.prNumber.map { "PR #\($0)" } ?? "Pull request",
+                        icon: AppIcons.prOpen,
+                        mode: .action { onOpenChanges(node.issueId) }
+                    )
+                    .accessibilityIdentifier("workflow-node-open-pr")
+                }
             }
-            .padding(.horizontal, GlassSheetTokens.headerHPadding)
-            .padding(.bottom, 16)
         }
-        .accessibilityIdentifier("workflow-node-sheet")
+    }
+
+    /// The node tones in this app's own state vocabulary — the graph's table.
+    private static func color(_ tone: WorkflowView.Tone) -> Color {
+        WorkflowGraphView.color(tone)
     }
 
     /// The node's own issue, with the caption the graph row carries.

@@ -65,6 +65,12 @@ pub struct BatchLaunchRequest {
     /// instructions, appended to the batch prompt as its last section; its
     /// image embeds name the pre-session uploads the row binds.
     pub prompt: Option<String>,
+    /// EXP-982: an EXPLICIT base branch (the workflow's integration branch),
+    /// short-circuiting the board default. `None` on every other batch.
+    pub base_branch: Option<String>,
+    /// EXP-982: the workflow this COMPOUND node belongs to — the
+    /// `## Workflow` prompt section and the `workflow` started reason.
+    pub workflow: Option<crate::launcher::WorkflowRun>,
 }
 
 /// A fresh batch id: the first 8 hex chars of a v4 UUID — `[0-9a-f]{8}` by

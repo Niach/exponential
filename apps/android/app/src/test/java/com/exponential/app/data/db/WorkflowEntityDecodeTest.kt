@@ -146,6 +146,8 @@ class WorkflowEntityDecodeTest {
               "session_id": null,
               "attempt": 0,
               "base_branch": "exp/wf-abcd1234",
+              "approved_at": "2026-09-19 11:00:00+00",
+              "note": "The rebase hit a conflict in apps/web/src/lib/workflows.ts",
               "budget": {"tokens": 120000, "minutes": 30},
               "touches": "{apps/web/**,packages/ui/**}",
               "created_at": "2026-09-19 10:00:00+00",
@@ -165,6 +167,12 @@ class WorkflowEntityDecodeTest {
         assertTrue(node.onCycle)
         // A Postgres text[] arrives as its array literal inside a string.
         assertEquals(listOf("apps/web/**", "packages/ui/**"), node.touches)
+        // EXP-982: the gate stamp and the engine's sentence.
+        assertEquals("2026-09-19 11:00:00+00", node.approvedAt)
+        assertEquals(
+            "The rebase hit a conflict in apps/web/src/lib/workflows.ts",
+            node.note,
+        )
         val budget = workflowNodeBudget(node.budget)
         assertEquals(120000, budget?.tokens)
         assertEquals(30, budget?.minutes)
@@ -177,11 +185,16 @@ class WorkflowEntityDecodeTest {
               "id": "node-2",
               "workflowId": "wf-1",
               "issueId": "issue-9",
+              "approvedAt": "2026-09-19 11:00:00+00",
               "createdAt": "2026-09-19 10:00:00+00",
               "updatedAt": "2026-09-19 10:00:00+00"
             }
         """.trimIndent()
         val node = json.decodeFromString(WorkflowNodeEntity.serializer(), row)
+        // The camelCase tRPC twin of the two EXP-982 columns; an unapproved
+        // node simply says nothing, which is what the gate reads as "waiting".
+        assertEquals("2026-09-19 11:00:00+00", node.approvedAt)
+        assertNull(node.note)
         assertEquals(DomainContract.wfNodeKindLeaf, node.kind)
         assertEquals(DomainContract.wfNodeStateBlocked, node.state)
         assertEquals(DomainContract.wfRiskMedium, node.risk)

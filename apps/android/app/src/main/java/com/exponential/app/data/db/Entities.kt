@@ -551,6 +551,11 @@ data class WorkflowNodeEntity(
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
     @Serializable(with = PgIntSerializer::class) val attempt: Int? = 0,
     @ColumnInfo(name = "base_branch") @SerialName("base_branch") @JsonNames("baseBranch") val baseBranch: String? = null,
+    // EXP-982: the human (or agent) gate's stamp — a node with an open PR only
+    // joins the merge train once this is set. NULL = still waiting on a person.
+    @ColumnInfo(name = "approved_at") @SerialName("approved_at") @JsonNames("approvedAt") val approvedAt: String? = null,
+    // EXP-982: why the node is `failed` / `waiting`, in the engine's own words.
+    val note: String? = null,
     @Serializable(with = JsonAsStringSerializer::class) val budget: String? = null,
     // A Postgres `text[]` of globs: what this node expects to change.
     @Serializable(with = PgUuidArraySerializer::class) val touches: List<String> = emptyList(),

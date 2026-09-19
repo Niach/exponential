@@ -13,6 +13,12 @@ final class WorkflowViewTests: XCTestCase {
         let captions: [CaptionCase]
         let titles: [TitleCase]
         let edges: [EdgeCase]
+        // EXP-982 — running a workflow.
+        let startBlockers: [StartBlockerCase]
+        let trains: [TrainCase]
+        let trainStepLabels: [String: String]
+        let finalPr: [FinalPrCase]
+        let rowSubtitles: [RowSubtitleCase]
     }
 
     private struct BandCase: Decodable {
@@ -69,6 +75,53 @@ final class WorkflowViewTests: XCTestCase {
         let from: String
         let to: String
         let cycle: Bool
+    }
+
+    private struct StartBlockerCase: Decodable {
+        let workflow: FixtureStartable
+        let metrics: WorkflowMetrics
+        let blocker: String?
+    }
+
+    private struct FixtureStartable: Decodable {
+        let status: String
+        let deviceId: String?
+        let repositoryId: String?
+        let startOn: String
+    }
+
+    private struct TrainCase: Decodable {
+        let name: String
+        let gate: String
+        let nodes: [FixtureTrainNode]
+        let expected: [FixtureTrainEntry]
+    }
+
+    private struct FixtureTrainNode: Decodable {
+        let id: String
+        let kind: String
+        let state: String
+        let wave: Int
+        let lane: Int
+        let approvedAt: String?
+    }
+
+    private struct FixtureTrainEntry: Decodable, Equatable {
+        let id: String
+        let step: String
+    }
+
+    private struct FinalPrCase: Decodable {
+        let states: [String]
+        let finalPrState: String?
+        let finalPrNumber: Int?
+        let caption: String?
+    }
+
+    private struct RowSubtitleCase: Decodable {
+        let status: String
+        let metrics: WorkflowMetrics
+        let subtitle: String
     }
 
     /// The committed contract fixture, read through `#filePath` because the
@@ -141,6 +194,137 @@ final class WorkflowViewTests: XCTestCase {
                 testCase.name
             )
         }
+    }
+
+    // MARK: - Running a workflow (EXP-982)
+
+    func testRunningTheWorkflowFixtureCases() throws {
+        let fixture = try fixture()
+
+        XCTAssertFalse(fixture.startBlockers.isEmpty)
+        for testCase in fixture.startBlockers {
+            let workflow = WorkflowView.StartableWorkflow(
+                status: testCase.workflow.status,
+                deviceId: testCase.workflow.deviceId,
+                repositoryId: testCase.workflow.repositoryId,
+                startOn: testCase.workflow.startOn
+            )
+            XCTAssertEqual(
+                WorkflowView.startBlocker(workflow, metrics: testCase.metrics),
+                testCase.blocker,
+                testCase.workflow.status
+            )
+        }
+
+        for testCase in fixture.trains {
+            let actual = WorkflowView.mergeTrain(
+                testCase.nodes.map {
+                    WorkflowView.TrainNode(
+                        id: $0.id, kind: $0.kind, state: $0.state,
+                        wave: $0.wave, lane: $0.lane, approvedAt: $0.approvedAt
+                    )
+                },
+                gate: testCase.gate
+            )
+            XCTAssertEqual(
+                actual.map { FixtureTrainEntry(id: $0.id, step: $0.step.rawValue) },
+                testCase.expected,
+                testCase.name
+            )
+        }
+
+        for (step, label) in fixture.trainStepLabels {
+            let parsed = WorkflowView.TrainStep(rawValue: step)
+            XCTAssertNotNil(parsed, step)
+            XCTAssertEqual(parsed.map(WorkflowView.trainStepLabel), label, step)
+        }
+
+        for testCase in fixture.finalPr {
+            XCTAssertEqual(
+                WorkflowView.finalPrCaption(
+                    states: testCase.states,
+                    finalPrState: testCase.finalPrState,
+                    finalPrNumber: testCase.finalPrNumber
+                ),
+                testCase.caption,
+                testCase.states.joined(separator: ",")
+            )
+        }
+
+        for testCase in fixture.rowSubtitles {
+            XCTAssertEqual(
+                WorkflowView.rowSubtitle(status: testCase.status, metrics: testCase.metrics),
+                testCase.subtitle,
+                testCase.status
+            )
+        }
+    }
+
+    // The run controls' copy, byte for byte — the confirms are the sentences
+    // the destructive dialogs show.
+    func testTheRunControlsCopyIsByteLocked() {
+        XCTAssertEqual(WorkflowView.startLabel, "Start")
+        XCTAssertEqual(WorkflowView.pauseLabel, "Pause")
+        XCTAssertEqual(WorkflowView.resumeLabel, "Resume")
+        XCTAssertEqual(WorkflowView.cancelLabel, "Cancel workflow")
+        XCTAssertEqual(
+            WorkflowView.cancelConfirm,
+            "Its live runs end and its branch is deleted. Nothing reached the default branch."
+        )
+        XCTAssertEqual(WorkflowView.approveNodeLabel, "Approve and land")
+        XCTAssertEqual(WorkflowView.withdrawApprovalLabel, "Withdraw approval")
+        XCTAssertEqual(WorkflowView.mergeTrainTitle, "Merge train")
+        XCTAssertEqual(WorkflowView.mergeTrainEmpty, "Nothing is waiting to land.")
+        XCTAssertEqual(WorkflowView.finalPrTitle, "Final pull request")
+        XCTAssertEqual(WorkflowView.retryNodeLabel, "Retry")
+        XCTAssertEqual(WorkflowView.skipNodeLabel, "Skip")
+        XCTAssertEqual(
+            WorkflowView.skipNodeConfirm,
+            "Its dependents go on without it. The node's work is not part of the final pull request."
+        )
+    }
+
+    // The gate rule the merge train and the node panel share: the contract is
+    // always human-gated, every other node follows the workflow's gate.
+    func testTheContractNodeAlwaysNeedsAPerson() {
+        for gate in DomainContract.wfGateValues {
+            XCTAssertTrue(
+                WorkflowView.nodeNeedsApproval(
+                    gate: gate, kind: DomainContract.wfNodeKindContract
+                ),
+                gate
+            )
+        }
+        XCTAssertFalse(
+            WorkflowView.nodeNeedsApproval(
+                gate: DomainContract.wfGateNone, kind: DomainContract.wfNodeKindLeaf
+            )
+        )
+        XCTAssertTrue(
+            WorkflowView.nodeNeedsApproval(
+                gate: DomainContract.wfGateAgent, kind: DomainContract.wfNodeKindLeaf
+            )
+        )
+    }
+
+    // The two entity overloads the run surfaces actually call.
+    func testTheRunOverloadsReadTheSyncedRows() {
+        let approved = makeWorkflowNode(
+            id: "a", issueId: "i1", approvedAt: "2026-09-19T09:00:00Z"
+        )
+        let waiting = makeWorkflowNode(id: "b", issueId: "i2", lane: 1)
+        let train = WorkflowView.mergeTrain(
+            [waiting, approved], gate: DomainContract.wfGateHuman
+        )
+        XCTAssertEqual(
+            train.map(\.step), [WorkflowView.TrainStep.next, .needsApproval]
+        )
+
+        let workflow = makeWorkflow(status: DomainContract.wfStatusDraft)
+        XCTAssertEqual(
+            WorkflowView.startBlocker(workflow),
+            "Only \"When landed\" starts are available yet."
+        )
     }
 
     // MARK: - Byte-locked copy
@@ -231,11 +415,26 @@ final class WorkflowViewTests: XCTestCase {
 // MARK: - Row builders
 
 private func makeWorkflowNode(
-    id: String, issueId: String, memberIssueIds: [String] = []
+    id: String,
+    issueId: String,
+    memberIssueIds: [String] = [],
+    state: String = "in_review",
+    lane: Int = 0,
+    approvedAt: String? = nil
 ) -> WorkflowNodeEntity {
     WorkflowNodeEntity(
         id: id, workflowId: "wf-1", teamId: "t1", issueId: issueId,
-        memberIssueIds: memberIssueIds,
+        memberIssueIds: memberIssueIds, state: state, lane: lane,
+        approvedAt: approvedAt,
+        createdAt: "2026-09-19T09:00:00Z", updatedAt: "2026-09-19T09:00:00Z"
+    )
+}
+
+private func makeWorkflow(status: String) -> WorkflowEntity {
+    WorkflowEntity(
+        id: "wf-1", teamId: "t1", repositoryId: "repo-1", name: "Ship it",
+        status: status, deviceId: "dev-1",
+        metrics: #"{"nodes":3,"depth":2,"width":2}"#,
         createdAt: "2026-09-19T09:00:00Z", updatedAt: "2026-09-19T09:00:00Z"
     )
 }

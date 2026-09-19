@@ -563,7 +563,7 @@ pub(crate) fn resume_run(
     origin: LaunchOrigin,
     cx: &mut App,
 ) {
-    resume_run_on_account(session_id, target, activate_app, origin, None, cx)
+    resume_run_on_account(session_id, target, activate_app, origin, None, None, cx)
 }
 
 /// [`resume_run`] on a DIFFERENT agent account (EXP-849, `crate::account_switch`).
@@ -574,12 +574,17 @@ pub(crate) fn resume_run(
 /// (`coding_flow::resume_blocker_for`), since the live row it replaces is the
 /// same piece of work, and the launcher refuses what it cannot honor (codex,
 /// a profile this machine does not have).
+///
+/// `prompt` (EXP-982) is the one thing the resumed run is told on arrival —
+/// the workflow engine uses it to send a node back to merge the integration
+/// branch in. Every other resume carries none.
 pub(crate) fn resume_run_on_account(
     session_id: String,
     target: Option<gpui::AnyWindowHandle>,
     activate_app: bool,
     origin: LaunchOrigin,
     account: Option<String>,
+    prompt: Option<String>,
     cx: &mut App,
 ) {
     // The same duplicate-frame claim the action path takes (EXP-505): a
@@ -645,8 +650,9 @@ history setting.",
         model: None,
         effort: None,
         // A resume carries no composer text (the relay never sends one on
-        // a resume frame; the composer resumes issues through its own path).
-        prompt: None,
+        // a resume frame; the composer resumes issues through its own path)
+        // — except the workflow engine's conflict nudge (EXP-982).
+        prompt,
         // EXP-849: `None` keeps the recorded login; a switch names the target.
         account,
     });

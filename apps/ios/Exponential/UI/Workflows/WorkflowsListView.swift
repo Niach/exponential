@@ -80,7 +80,9 @@ struct WorkflowsListView: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
-                    Text(WorkflowView.shapeLine(metrics))
+                    // EXP-982: the shape line, led by the status word for the
+                    // two statuses the band alone does not tell apart.
+                    Text(WorkflowView.rowSubtitle(status: workflow.status, metrics: metrics))
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)

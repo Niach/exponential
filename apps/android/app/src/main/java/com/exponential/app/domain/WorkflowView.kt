@@ -215,4 +215,145 @@ object WorkflowView {
         }
         return edges.sortedWith(compareBy({ it.from }, { it.to }))
     }
+
+    // ── Running a workflow (EXP-982) ────────────────────────────────────────
+
+    const val START_WORKFLOW_LABEL = "Start"
+    const val PAUSE_WORKFLOW_LABEL = "Pause"
+    const val RESUME_WORKFLOW_LABEL = "Resume"
+    const val CANCEL_WORKFLOW_LABEL = "Cancel workflow"
+    const val CANCEL_WORKFLOW_CONFIRM =
+        "Its live runs end and its branch is deleted. Nothing reached the default branch."
+    const val APPROVE_NODE_LABEL = "Approve and land"
+    const val WITHDRAW_APPROVAL_LABEL = "Withdraw approval"
+    const val MERGE_TRAIN_TITLE = "Merge train"
+    const val MERGE_TRAIN_EMPTY = "Nothing is waiting to land."
+    const val FINAL_PR_TITLE = "Final pull request"
+
+    /** The four fields Start is judged on, off the synced workflow row. */
+    data class Startable(
+        val status: String,
+        val deviceId: String?,
+        val repositoryId: String?,
+        val startOn: String,
+    )
+
+    /**
+     * Why Start is disabled, or null when the draft can start. One reason, the
+     * most fundamental first; the server refuses with the same sentences.
+     */
+    fun startBlocker(workflow: Startable, metrics: Shape): String? {
+        if (workflow.status != DomainContract.wfStatusDraft) return "The workflow has already started."
+        if (metrics.nodes == 0) return "The workflow has no issues."
+        cycleNote(metrics)?.let { return it }
+        if (workflow.repositoryId.isNullOrEmpty()) return "The workflow's repository is gone."
+        if (workflow.deviceId.isNullOrEmpty()) return "Pick the device that runs this workflow first."
+        if (workflow.startOn != DomainContract.wfStartOnLanded) {
+            return "Only \"When landed\" starts are available yet."
+        }
+        return null
+    }
+
+    /**
+     * A node lands without a person only when the workflow has no gate AND it
+     * is not the contract (always human-gated). Mirrors the server.
+     */
+    fun nodeNeedsApproval(gate: String, kind: String): Boolean =
+        kind == DomainContract.wfNodeKindContract || gate != DomainContract.wfGateNone
+
+    /** A node as the merge train reads it. [approvedAt] null = not approved. */
+    data class TrainNode(
+        val id: String,
+        val kind: String,
+        val state: String,
+        val wave: Int,
+        val lane: Int,
+        val approvedAt: String?,
+    )
+
+    enum class TrainStep(val key: String) {
+        Next("next"),
+        Queued("queued"),
+        NeedsApproval("needs-approval"),
+        Updating("updating"),
+    }
+
+    data class TrainEntry(val id: String, val step: TrainStep)
+
+    /**
+     * The merge train: every node whose PR is up (`in_review`, or `updating`
+     * while it merges the trunk in), in landing order (wave, then lane). The
+     * FIRST node that is cleared to land is `next`; cleared ones behind it are
+     * `queued`; one still waiting for a person says so.
+     */
+    fun mergeTrain(nodes: List<TrainNode>, gate: String): List<TrainEntry> {
+        val waiting = nodes
+            .filter {
+                it.state == DomainContract.wfNodeStateInReview ||
+                    it.state == DomainContract.wfNodeStateUpdating
+            }
+            .sortedWith(compareBy({ it.wave }, { it.lane }, { it.id }))
+        var nextTaken = false
+        return waiting.map { node ->
+            when {
+                node.state == DomainContract.wfNodeStateUpdating ->
+                    TrainEntry(node.id, TrainStep.Updating)
+                nodeNeedsApproval(gate, node.kind) && node.approvedAt.isNullOrEmpty() ->
+                    TrainEntry(node.id, TrainStep.NeedsApproval)
+                nextTaken -> TrainEntry(node.id, TrainStep.Queued)
+                else -> {
+                    nextTaken = true
+                    TrainEntry(node.id, TrainStep.Next)
+                }
+            }
+        }
+    }
+
+    fun trainStepLabel(step: TrainStep): String = when (step) {
+        TrainStep.Next -> "Landing next"
+        TrainStep.Queued -> "Queued"
+        TrainStep.NeedsApproval -> "Needs approval"
+        TrainStep.Updating -> "Merging the trunk in"
+    }
+
+    /**
+     * The final-PR node's caption, or null while the node is not drawn: it
+     * appears once every node landed (or was skipped), after the last wave.
+     */
+    fun finalPrCaption(
+        nodeStates: List<String>,
+        finalPrState: String?,
+        finalPrNumber: Int?,
+    ): String? {
+        if (nodeStates.isEmpty()) return null
+        val allIn = nodeStates.all {
+            it == DomainContract.wfNodeStateLanded || it == DomainContract.wfNodeStateSkipped
+        }
+        if (!allIn && finalPrNumber == null) return null
+        if (finalPrNumber == null) return "Opening the pull request"
+        val label = when (finalPrState) {
+            DomainContract.prStateMerged -> "Merged"
+            DomainContract.prStateClosed -> "Closed"
+            else -> "Open"
+        }
+        return "#$finalPrNumber · $label"
+    }
+
+    const val RETRY_NODE_LABEL = "Retry"
+    const val SKIP_NODE_LABEL = "Skip"
+    const val SKIP_NODE_CONFIRM =
+        "Its dependents go on without it. The node's work is not part of the final pull request."
+
+    /**
+     * A list row's secondary text: the shape line, led by the status word for
+     * the two statuses a band alone does not tell apart.
+     */
+    fun rowSubtitle(status: String, metrics: Shape): String {
+        val shape = shapeLine(metrics)
+        return when (status) {
+            DomainContract.wfStatusPaused -> "Paused · $shape"
+            DomainContract.wfStatusCancelled -> "Cancelled · $shape"
+            else -> shape
+        }
+    }
 }

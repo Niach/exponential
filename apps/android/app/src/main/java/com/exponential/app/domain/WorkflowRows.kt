@@ -99,6 +99,17 @@ val WorkflowEntity.launchOptions: WorkflowLaunch get() = workflowLaunch(launch)
 val WorkflowNodeEntity.captionNode: WorkflowView.CaptionNode
     get() = WorkflowView.CaptionNode(kind = kind, state = state, risk = risk)
 
+/** A node as the merge train sees it (EXP-982): its landing order + gate stamp. */
+val WorkflowNodeEntity.trainNode: WorkflowView.TrainNode
+    get() = WorkflowView.TrainNode(
+        id = id,
+        kind = kind,
+        state = state,
+        wave = wave ?: 0,
+        lane = lane ?: 0,
+        approvedAt = approvedAt,
+    )
+
 /** A node as the edge rule sees it (its issue plus a compound's members). */
 val WorkflowNodeEntity.edgeNode: WorkflowView.EdgeNode
     get() = WorkflowView.EdgeNode(id = id, issueId = issueId, memberIssueIds = memberIssueIds)

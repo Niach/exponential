@@ -1236,6 +1236,13 @@ pub struct WorkflowNodeRow {
     pub attempt: Option<i64>,
     #[serde(default)]
     pub base_branch: Option<String>,
+    /// EXP-982: when a person cleared this node's PR for the merge train.
+    /// Only its PRESENCE matters (the gate rule); never set by the engine.
+    #[serde(default)]
+    pub approved_at: Option<String>,
+    /// EXP-982: why the node is `failed` / `waiting`, in one sentence.
+    #[serde(default)]
+    pub note: Option<String>,
     /// jsonb `WorkflowNodeBudget` (`tokens`/`minutes`); `None` = unbounded.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub budget: Option<serde_json::Value>,

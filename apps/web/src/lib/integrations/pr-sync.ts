@@ -1,3 +1,4 @@
+import { issueLandsInLiveWorkflow } from "@/lib/workflows"
 import { and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
@@ -629,13 +630,21 @@ export async function applyPrMergeState(opts: {
       // The merged PR moves the issue to the team's PR-merge target
       // (EXP-120: default in_review → done; per-team configurable since
       // EXP-319, including "do nothing").
-      await applyPrLifecycleStatusInTx(tx, {
-        issueId: opts.issueId,
-        teamId: current.teamId,
-        actorUserId: opts.actorUserId ?? null,
-        currentStatus: current.status,
-        event: `merged`,
-      })
+      // EXP-982: a workflow NODE's PR lands on the workflow's integration
+      // branch, not on the default branch — the work is merged but not
+      // shipped. Its issue keeps its status until the workflow's ONE final PR
+      // merges (`completeWorkflowOnFinalMerge` moves every covered issue
+      // then). Everything else about the merge (the event, the ended run)
+      // still happens here.
+      if (!(await issueLandsInLiveWorkflow(tx, opts.issueId))) {
+        await applyPrLifecycleStatusInTx(tx, {
+          issueId: opts.issueId,
+          teamId: current.teamId,
+          actorUserId: opts.actorUserId ?? null,
+          currentStatus: current.status,
+          event: `merged`,
+        })
+      }
 
       // EXP-498 (reversing EXP-358): the merge ENDS the issue's live coding
       // sessions on every path — webhook, poller, and mergePr all funnel
