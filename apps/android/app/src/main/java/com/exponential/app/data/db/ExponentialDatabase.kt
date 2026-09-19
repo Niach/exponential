@@ -311,9 +311,14 @@ import androidx.room.TypeConverters
     //      compound node, and `wave`/`lane`/`on_cycle` on the nodes are the
     //      server-computed layout. Two new tables, so the destructive fallback
     //      wipes + resyncs all 24 shapes on first launch after the update.
+    // v67 (EXP-982): workflow_nodes.approved_at + note — the gate stamp that
+    //      lets a node's PR join the merge train, and the engine's sentence
+    //      for why a node is `failed` / `waiting`. Both nullable, both new on
+    //      the workflow-nodes shape allowlist; destructive fallback wipes +
+    //      resyncs so every node row arrives carrying them.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 66,
+    version = 67,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

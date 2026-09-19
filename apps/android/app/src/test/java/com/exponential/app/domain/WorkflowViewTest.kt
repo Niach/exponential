@@ -1,12 +1,16 @@
 package com.exponential.app.domain
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,6 +24,10 @@ import org.junit.Test
 class WorkflowViewTest {
 
     private val fixture = Json.parseToJsonElement(contractFixtureJson("workflow-view.json")).jsonObject
+
+    /** A fixture value that is either a JSON string or JSON null. */
+    private fun JsonElement.stringOrNull(): String? =
+        (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     private fun shapeOf(metrics: kotlinx.serialization.json.JsonObject) = WorkflowView.Shape(
         nodes = metrics.getValue("nodes").jsonPrimitive.int,
@@ -156,6 +164,149 @@ class WorkflowViewTest {
         assertEquals("Start as batch", WorkflowView.START_AS_BATCH_LABEL)
         assertEquals("Start as stack", WorkflowView.START_AS_STACK_LABEL)
         assertEquals("Create workflow…", WorkflowView.CREATE_WORKFLOW_LABEL)
+    }
+
+    // ── Running a workflow (EXP-982) ────────────────────────────────────────
+
+    @Test
+    fun `every start blocker is the fixture's sentence, in its order`() {
+        val cases = fixture.getValue("startBlockers").jsonArray
+        assertTrue(cases.size >= 7)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val workflow = case.getValue("workflow").jsonObject
+            val startable = WorkflowView.Startable(
+                status = workflow.getValue("status").jsonPrimitive.content,
+                deviceId = workflow.getValue("deviceId").stringOrNull(),
+                repositoryId = workflow.getValue("repositoryId").stringOrNull(),
+                startOn = workflow.getValue("startOn").jsonPrimitive.content,
+            )
+            val shape = shapeOf(case.getValue("metrics").jsonObject)
+            assertEquals(
+                case.getValue("blocker").stringOrNull(),
+                WorkflowView.startBlocker(startable, shape),
+            )
+        }
+    }
+
+    @Test
+    fun `the merge train orders and labels every waiting node`() {
+        val cases = fixture.getValue("trains").jsonArray
+        assertTrue(cases.size >= 2)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val name = case.getValue("name").jsonPrimitive.content
+            val nodes = case.getValue("nodes").jsonArray.map { node ->
+                val obj = node.jsonObject
+                WorkflowView.TrainNode(
+                    id = obj.getValue("id").jsonPrimitive.content,
+                    kind = obj.getValue("kind").jsonPrimitive.content,
+                    state = obj.getValue("state").jsonPrimitive.content,
+                    wave = obj.getValue("wave").jsonPrimitive.int,
+                    lane = obj.getValue("lane").jsonPrimitive.int,
+                    approvedAt = obj.getValue("approvedAt").stringOrNull(),
+                )
+            }
+            val expected = case.getValue("expected").jsonArray.map { entry ->
+                val obj = entry.jsonObject
+                obj.getValue("id").jsonPrimitive.content to
+                    obj.getValue("step").jsonPrimitive.content
+            }
+            val gate = case.getValue("gate").jsonPrimitive.content
+            assertEquals(
+                name,
+                expected,
+                WorkflowView.mergeTrain(nodes, gate).map { it.id to it.step.key },
+            )
+        }
+    }
+
+    @Test
+    fun `each train step wears the fixture's word`() {
+        val labels = fixture.getValue("trainStepLabels").jsonObject
+        assertEquals(labels.size, WorkflowView.TrainStep.entries.size)
+        WorkflowView.TrainStep.entries.forEach { step ->
+            assertEquals(
+                step.key,
+                labels.getValue(step.key).jsonPrimitive.content,
+                WorkflowView.trainStepLabel(step),
+            )
+        }
+    }
+
+    @Test
+    fun `the final pull request appears only once everything is in`() {
+        val cases = fixture.getValue("finalPr").jsonArray
+        assertTrue(cases.size >= 6)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val states = case.getValue("states").jsonArray.map { it.jsonPrimitive.content }
+            val number = case.getValue("finalPrNumber").let { value ->
+                (value as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull
+            }
+            assertEquals(
+                case.getValue("caption").stringOrNull(),
+                WorkflowView.finalPrCaption(
+                    nodeStates = states,
+                    finalPrState = case.getValue("finalPrState").stringOrNull(),
+                    finalPrNumber = number,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `a list row's subtitle names the status a band cannot`() {
+        val cases = fixture.getValue("rowSubtitles").jsonArray
+        assertTrue(cases.size >= 4)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            assertEquals(
+                case.getValue("subtitle").jsonPrimitive.content,
+                WorkflowView.rowSubtitle(
+                    case.getValue("status").jsonPrimitive.content,
+                    shapeOf(case.getValue("metrics").jsonObject),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `the run words are the shared ones`() {
+        assertEquals("Start", WorkflowView.START_WORKFLOW_LABEL)
+        assertEquals("Pause", WorkflowView.PAUSE_WORKFLOW_LABEL)
+        assertEquals("Resume", WorkflowView.RESUME_WORKFLOW_LABEL)
+        assertEquals("Cancel workflow", WorkflowView.CANCEL_WORKFLOW_LABEL)
+        assertEquals(
+            "Its live runs end and its branch is deleted. Nothing reached the default branch.",
+            WorkflowView.CANCEL_WORKFLOW_CONFIRM,
+        )
+        assertEquals("Approve and land", WorkflowView.APPROVE_NODE_LABEL)
+        assertEquals("Withdraw approval", WorkflowView.WITHDRAW_APPROVAL_LABEL)
+        assertEquals("Merge train", WorkflowView.MERGE_TRAIN_TITLE)
+        assertEquals("Nothing is waiting to land.", WorkflowView.MERGE_TRAIN_EMPTY)
+        assertEquals("Final pull request", WorkflowView.FINAL_PR_TITLE)
+        assertEquals("Retry", WorkflowView.RETRY_NODE_LABEL)
+        assertEquals("Skip", WorkflowView.SKIP_NODE_LABEL)
+        assertEquals(
+            "Its dependents go on without it. The node's work is not part of the " +
+                "final pull request.",
+            WorkflowView.SKIP_NODE_CONFIRM,
+        )
+    }
+
+    @Test
+    fun `only the contract escapes an absent gate`() {
+        // The server's rule: a gate means every node waits; without one only
+        // the contract still does.
+        assertTrue(WorkflowView.nodeNeedsApproval("none", "contract"))
+        assertFalse(WorkflowView.nodeNeedsApproval("none", "leaf"))
+        assertFalse(WorkflowView.nodeNeedsApproval("none", "integration"))
+        listOf("agent", "human").forEach { gate ->
+            DomainContract.wfNodeKindValues.forEach { kind ->
+                assertTrue(WorkflowView.nodeNeedsApproval(gate, kind))
+            }
+        }
     }
 
     @Test

@@ -100,9 +100,10 @@ fun WorkflowsScreen(
 }
 
 /**
- * One flat list row: the `nav-workflows` glyph, the name, the shape line as
- * its secondary text, and the warning glyph whenever the plan holds a cycle
- * (the note itself lives on the detail, where it can be acted on).
+ * One flat list row: the `nav-workflows` glyph, the name, its subtitle
+ * ([WorkflowView.rowSubtitle]) as the secondary text, and the warning glyph
+ * whenever the plan holds a cycle (the note itself lives on the detail, where
+ * it can be acted on).
  */
 @Composable
 private fun WorkflowRow(workflow: WorkflowEntity, onClick: () -> Unit) {
@@ -132,7 +133,10 @@ private fun WorkflowRow(workflow: WorkflowEntity, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                WorkflowView.shapeLine(shape),
+                // EXP-982: the shape line, led by the status word for the two
+                // statuses a band alone does not tell apart (paused inside
+                // Running, cancelled inside Done).
+                WorkflowView.rowSubtitle(workflow.status, shape),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 maxLines = 1,

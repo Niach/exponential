@@ -50,6 +50,30 @@ final class WorkflowDetailModel {
     /// inert rather than by bouncing on submit.
     var isDraft: Bool { workflow?.status == DomainContract.wfStatusDraft }
 
+    var status: String { workflow?.status ?? DomainContract.wfStatusDraft }
+    var gate: String { workflow?.gate ?? DomainContract.wfGateHuman }
+
+    /// Why Start is disabled, or nil when the draft can start — the shared
+    /// rule, so the caption says exactly what the server would refuse with.
+    var startBlocker: String? {
+        workflow.flatMap(WorkflowView.startBlocker)
+    }
+
+    /// The merge train: the nodes whose PR is up, in landing order. Empty on a
+    /// draft — the strip is hidden there anyway.
+    var mergeTrain: [WorkflowView.TrainEntry] {
+        WorkflowView.mergeTrain(nodes, gate: gate)
+    }
+
+    /// The final-PR node's caption, or nil while that node is not drawn.
+    var finalPrCaption: String? {
+        WorkflowView.finalPrCaption(
+            states: nodes.map(\.state),
+            finalPrState: workflow?.finalPrState,
+            finalPrNumber: workflow?.finalPrNumber
+        )
+    }
+
     /// The edges between the nodes, from the synced `blocks` relations — the
     /// shared rule, cycle edges included.
     var edges: [WorkflowView.Edge] {
@@ -243,6 +267,63 @@ final class WorkflowDetailModel {
                     issueId: issueId,
                     patch: patch
                 )
+            } catch {
+                self.error = error.userFacingMessage
+            }
+            busy = false
+        }
+    }
+
+    // MARK: - Running it (EXP-982)
+
+    /// Start the run. The server only flips intent: the deterministic engine on
+    /// the bound machine picks the row up off Electric and runs the nodes.
+    func start() {
+        run { accountId, id in
+            _ = try await self.deps.workflowsApi.start(accountId: accountId, id: id)
+        }
+    }
+
+    func pause() {
+        run { try await self.deps.workflowsApi.pause(accountId: $0, id: $1) }
+    }
+
+    func resume() {
+        run { try await self.deps.workflowsApi.resume(accountId: $0, id: $1) }
+    }
+
+    func cancel() {
+        run { try await self.deps.workflowsApi.cancel(accountId: $0, id: $1) }
+    }
+
+    /// The human gate: clear a node's open PR for the merge train, or take the
+    /// approval back while the node has not landed.
+    func approveNode(_ nodeId: String, approved: Bool) {
+        run { accountId, _ in
+            try await self.deps.workflowsApi.approveNode(
+                accountId: accountId, nodeId: nodeId, approved: approved
+            )
+        }
+    }
+
+    /// Unstick a failed node: a fresh attempt, or out of the run entirely.
+    func resolveNode(_ nodeId: String, action: WorkflowNodeResolution) {
+        run { accountId, _ in
+            try await self.deps.workflowsApi.resolveNode(
+                accountId: accountId, nodeId: nodeId, action: action
+            )
+        }
+    }
+
+    /// One member-gated write: the synced row echoes the result back, so
+    /// success needs no local write and a refusal is shown verbatim.
+    private func run(_ body: @escaping (String, String) async throws -> Void) {
+        guard !busy else { return }
+        busy = true
+        error = nil
+        Task {
+            do {
+                try await body(accountId, workflowId)
             } catch {
                 self.error = error.userFacingMessage
             }

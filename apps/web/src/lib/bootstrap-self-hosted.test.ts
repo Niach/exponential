@@ -28,7 +28,7 @@ let capturedSessionWhere: unknown = null
 vi.mock(`@/db/connection`, () => ({
   db: {
     select: () => ({
-      from: () => ({
+      from: (table: Record<symbol, unknown>) => ({
         innerJoin: () => ({
           where: (clause: unknown) => {
             capturedWhere = clause
@@ -36,6 +36,11 @@ vi.mock(`@/db/connection`, () => ({
           },
         }),
         where: (clause: unknown) => {
+          // EXP-982: the THIRD lane (workflows' final PRs) is join-less too;
+          // told apart by the table the select reads. No workflow rows here.
+          if (table[Symbol.for(`drizzle:Name`)] === `workflows`) {
+            return Promise.resolve([])
+          }
           capturedSessionWhere = clause
           return Promise.resolve(mockSessionRows)
         },
@@ -53,6 +58,9 @@ vi.mock(`@/db/connection`, () => ({
 vi.mock(`@/lib/integrations/github-pr`, () => ({
   fetchPullState: vi.fn(),
   resolveRepoToken: vi.fn(async () => `tok`),
+}))
+vi.mock(`@/lib/workflow-final-pr`, () => ({
+  applyWorkflowFinalPrState: vi.fn(),
 }))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
   applyPrMergeState: vi.fn(),

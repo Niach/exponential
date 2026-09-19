@@ -227,4 +227,190 @@ public enum WorkflowView {
             cycleEdges: cycleEdges
         )
     }
+
+    // MARK: - Running a workflow (EXP-982)
+
+    public static let startLabel = "Start"
+    public static let pauseLabel = "Pause"
+    public static let resumeLabel = "Resume"
+    public static let cancelLabel = "Cancel workflow"
+    public static let cancelConfirm =
+        "Its live runs end and its branch is deleted. Nothing reached the default branch."
+    public static let approveNodeLabel = "Approve and land"
+    public static let withdrawApprovalLabel = "Withdraw approval"
+    public static let mergeTrainTitle = "Merge train"
+    public static let mergeTrainEmpty = "Nothing is waiting to land."
+    public static let finalPrTitle = "Final pull request"
+
+    /// What Start reads off the workflow row.
+    public struct StartableWorkflow: Sendable, Equatable {
+        public let status: String
+        public let deviceId: String?
+        public let repositoryId: String?
+        public let startOn: String
+
+        public init(status: String, deviceId: String?, repositoryId: String?, startOn: String) {
+            self.status = status
+            self.deviceId = deviceId
+            self.repositoryId = repositoryId
+            self.startOn = startOn
+        }
+    }
+
+    /// Why Start is disabled, or nil when the draft can start. One reason, the
+    /// most fundamental first; the server refuses with the same sentences.
+    public static func startBlocker(
+        _ workflow: StartableWorkflow, metrics: WorkflowMetrics
+    ) -> String? {
+        if workflow.status != DomainContract.wfStatusDraft {
+            return "The workflow has already started."
+        }
+        if metrics.nodes == 0 { return "The workflow has no issues." }
+        if let cycle = cycleNote(metrics) { return cycle }
+        if workflow.repositoryId == nil { return "The workflow's repository is gone." }
+        if workflow.deviceId == nil { return "Pick the device that runs this workflow first." }
+        if workflow.startOn != DomainContract.wfStartOnLanded {
+            return "Only \"When landed\" starts are available yet."
+        }
+        return nil
+    }
+
+    /// The synced row as the rule reads it.
+    public static func startBlocker(_ workflow: WorkflowEntity) -> String? {
+        startBlocker(
+            StartableWorkflow(
+                status: workflow.status,
+                deviceId: workflow.deviceId,
+                repositoryId: workflow.repositoryId,
+                startOn: workflow.startOn
+            ),
+            metrics: workflow.parsedMetrics
+        )
+    }
+
+    /// A node lands without a person only when the workflow has no gate AND it
+    /// is not the contract (always human-gated). Mirrors the server.
+    public static func nodeNeedsApproval(gate: String, kind: String) -> Bool {
+        kind == DomainContract.wfNodeKindContract || gate != DomainContract.wfGateNone
+    }
+
+    /// One node as the merge train reads it.
+    public struct TrainNode: Sendable, Equatable {
+        public let id: String
+        public let kind: String
+        public let state: String
+        public let wave: Int
+        public let lane: Int
+        /// `approved_at` — nil until a member approved the node's PR.
+        public let approvedAt: String?
+
+        public init(
+            id: String, kind: String, state: String, wave: Int, lane: Int, approvedAt: String?
+        ) {
+            self.id = id
+            self.kind = kind
+            self.state = state
+            self.wave = wave
+            self.lane = lane
+            self.approvedAt = approvedAt
+        }
+    }
+
+    public enum TrainStep: String, Sendable {
+        case next
+        case queued
+        case needsApproval = "needs-approval"
+        case updating
+    }
+
+    public struct TrainEntry: Sendable, Equatable {
+        public let id: String
+        public let step: TrainStep
+
+        public init(id: String, step: TrainStep) {
+            self.id = id
+            self.step = step
+        }
+    }
+
+    /// The merge train: every node whose PR is up (`in_review`, or `updating`
+    /// while it merges the trunk in), in landing order (wave, then lane). The
+    /// FIRST node that is cleared to land is `next`; cleared ones behind it are
+    /// `queued`; one still waiting for a person says so.
+    public static func mergeTrain(_ nodes: [TrainNode], gate: String) -> [TrainEntry] {
+        let waiting = nodes
+            .filter {
+                $0.state == DomainContract.wfNodeStateInReview
+                    || $0.state == DomainContract.wfNodeStateUpdating
+            }
+            .sorted { ($0.wave, $0.lane, $0.id) < ($1.wave, $1.lane, $1.id) }
+        var nextTaken = false
+        return waiting.map { node in
+            if node.state == DomainContract.wfNodeStateUpdating {
+                return TrainEntry(id: node.id, step: .updating)
+            }
+            if nodeNeedsApproval(gate: gate, kind: node.kind), node.approvedAt == nil {
+                return TrainEntry(id: node.id, step: .needsApproval)
+            }
+            if nextTaken { return TrainEntry(id: node.id, step: .queued) }
+            nextTaken = true
+            return TrainEntry(id: node.id, step: .next)
+        }
+    }
+
+    /// The synced rows as the rule reads them.
+    public static func mergeTrain(_ nodes: [WorkflowNodeEntity], gate: String) -> [TrainEntry] {
+        mergeTrain(
+            nodes.map {
+                TrainNode(
+                    id: $0.id, kind: $0.kind, state: $0.state,
+                    wave: $0.wave, lane: $0.lane, approvedAt: $0.approvedAt
+                )
+            },
+            gate: gate
+        )
+    }
+
+    private static let trainStepLabels: [TrainStep: String] = [
+        .next: "Landing next",
+        .queued: "Queued",
+        .needsApproval: "Needs approval",
+        .updating: "Merging the trunk in",
+    ]
+
+    public static func trainStepLabel(_ step: TrainStep) -> String {
+        trainStepLabels[step] ?? step.rawValue
+    }
+
+    /// The final-PR node's caption, or nil while the node is not drawn: it
+    /// appears once every node landed (or was skipped), after the last wave.
+    public static func finalPrCaption(
+        states: [String], finalPrState: String?, finalPrNumber: Int?
+    ) -> String? {
+        if states.isEmpty { return nil }
+        let allIn = states.allSatisfy {
+            $0 == DomainContract.wfNodeStateLanded || $0 == DomainContract.wfNodeStateSkipped
+        }
+        if !allIn, finalPrNumber == nil { return nil }
+        guard let number = finalPrNumber else { return "Opening the pull request" }
+        let label =
+            finalPrState == DomainContract.prStateMerged
+                ? "Merged"
+                : finalPrState == DomainContract.prStateClosed ? "Closed" : "Open"
+        return "#\(number) · \(label)"
+    }
+
+    public static let retryNodeLabel = "Retry"
+    public static let skipNodeLabel = "Skip"
+    public static let skipNodeConfirm =
+        "Its dependents go on without it. The node's work is not part of the final pull request."
+
+    /// A list row's secondary text: the shape line, led by the status word for
+    /// the two statuses a band alone does not tell apart.
+    public static func rowSubtitle(status: String, metrics: WorkflowMetrics) -> String {
+        let shape = shapeLine(metrics)
+        if status == DomainContract.wfStatusPaused { return "Paused · \(shape)" }
+        if status == DomainContract.wfStatusCancelled { return "Cancelled · \(shape)" }
+        return shape
+    }
 }

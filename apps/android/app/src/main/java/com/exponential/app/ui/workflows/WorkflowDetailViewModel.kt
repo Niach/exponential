@@ -20,6 +20,7 @@ import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.edgeNode
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.shape
+import com.exponential.app.domain.trainNode
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -224,6 +225,90 @@ class WorkflowDetailViewModel @Inject constructor(
     fun updateNode(issueId: String, kind: String? = null, risk: String? = null) {
         mutate("The node could not be updated") { accountId ->
             workflowsApi.updateNode(accountId, workflowId, issueId, kind = kind, risk = risk)
+        }
+    }
+
+    // ── Running a workflow (EXP-982) ────────────────────────────────────────
+    // The server flips INTENT only; the bound device's engine does the work off
+    // these same synced rows, so every button below is one mutation and then
+    // Electric.
+
+    /**
+     * Why Start is disabled, or null when the draft can start. A row that has
+     * not synced blocks too — the screen shows "Syncing…" rather than a button
+     * whose refusal nobody can predict.
+     */
+    val startBlocker: StateFlow<String?> = workflow
+        .map { row ->
+            row ?: return@map "The workflow has not synced yet."
+            WorkflowView.startBlocker(
+                WorkflowView.Startable(
+                    status = row.status,
+                    deviceId = row.deviceId,
+                    repositoryId = row.repositoryId,
+                    startOn = row.startOn,
+                ),
+                row.shape,
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** The nodes whose PR is up, in landing order, each with its step. */
+    val mergeTrain: StateFlow<List<WorkflowView.TrainEntry>> = combine(
+        nodes,
+        workflow,
+    ) { nodeRows, row ->
+        WorkflowView.mergeTrain(nodeRows.map { it.trainNode }, row?.gate.orEmpty())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The final-PR node's caption, or null while that node is not drawn. */
+    val finalPrCaption: StateFlow<String?> = combine(nodes, workflow) { nodeRows, row ->
+        if (row == null) {
+            null
+        } else {
+            WorkflowView.finalPrCaption(
+                nodeStates = nodeRows.map { it.state },
+                finalPrState = row.finalPrState,
+                finalPrNumber = row.finalPrNumber,
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun start() {
+        mutate("The workflow could not be started") { accountId ->
+            workflowsApi.start(accountId, workflowId)
+        }
+    }
+
+    fun pause() {
+        mutate("The workflow could not be paused") { accountId ->
+            workflowsApi.pause(accountId, workflowId)
+        }
+    }
+
+    fun resume() {
+        mutate("The workflow could not be resumed") { accountId ->
+            workflowsApi.resume(accountId, workflowId)
+        }
+    }
+
+    fun cancel() {
+        mutate("The workflow could not be cancelled") { accountId ->
+            workflowsApi.cancel(accountId, workflowId)
+        }
+    }
+
+    /** The gate: clear a node's PR for the train, or take the approval back. */
+    fun approveNode(nodeId: String, approved: Boolean) {
+        mutate("The node could not be approved") { accountId ->
+            workflowsApi.approveNode(accountId, nodeId, approved = approved)
+        }
+    }
+
+    /** [WorkflowsApi.NODE_RETRY] or [WorkflowsApi.NODE_SKIP] on a failed node. */
+    fun resolveNode(nodeId: String, action: String) {
+        mutate("The node could not be resolved") { accountId ->
+            workflowsApi.resolveNode(accountId, nodeId, action)
         }
     }
 

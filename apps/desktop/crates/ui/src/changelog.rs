@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-19-workflows-run",
+    date: "2026-09-19",
+    title: "Workflows run: parallel coding runs with a merge train",
+    summary: "Start a planned workflow and your device runs its issues in parallel, lands reviewed pull requests in order and opens one final pull request with the whole diff.",
+    body: r#"- **Start a workflow**: a draft with a runner device and no loop can be started. The device's engine, not an agent, starts every unblocked issue as its own coding run (up to your max parallel), and starts the next ones as their blockers land. Pause, resume and cancel are on the workflow; cancelling ends its runs and deletes its one branch, and nothing reached your default branch.
+- **Merge train**: pull requests land into the workflow's own branch in order. The contract always waits for a person, and with a review gate every node does: open the node and choose Approve and land. A pull request that no longer merges is sent back to its run to merge the branch in, never rebased and never force-pushed.
+- **Final pull request**: once everything landed, one pull request from the workflow's branch to your default branch carries the whole diff, lists every node and names a few at random to audit in full. Your issues move to done when that pull request merges, not before.
+- **When a run needs you**: a node that waits for an answer or hit a rate limit turns amber, the only amber state, and resumes on its own after a reset. A run's question must come with a proposal you can answer with yes or no, the same question is asked once per workflow, and every decision is kept and given to the runs that start later.
+- **Stuck nodes**: a node whose run ended without a pull request is retried once, then marked failed with Retry and Skip."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-workflows-drafts",
     date: "2026-09-19",
     title: "Workflows: plan a set of issues as one parallel run",
@@ -55,20 +69,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Plan**: the Plan button lets your agent shape a draft. It files one contract issue everything builds against, keeps your issues as parallel leaves, adds an integration issue at the end, and marks risk and the files each issue will touch.
 - **How it runs**: each draft keeps its runner device, agent, model, effort, account, how many runs may go at once, the review gate and when dependents start. Running a workflow arrives with the next update.
 - **Subagent model**: every Claude run can now pick the model its subagents use, next to Model and Effort, and the choice is remembered per device."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-19-relations-in-lists",
-    date: "2026-09-19",
-    title: "Sub-issues and blockers show in every issue list",
-    summary: "Sub-issues nest under their parent, a badge counts what blocks an issue and opens the dependency graph, a blocked start shows the whole chain, and a run that hits a rate limit notifies you.",
-    body: r#"- **Sub-issues in lists**: on every client a sub-issue sits under its parent on a connector line, in the board list, My Issues and the list beside an open issue. The parent decides the group and the position, so a finished sub-issue stays with its open parent.
-- **Blockers at a glance**: a row that is blocked, or that blocks other open work, carries one small badge with the counts. Opening it draws the dependency graph: what has to land first on the left, what waits on the right, a cycle in red. The badge on an issue's header shows the same graph.
-- **No more cycles**: linking issues as blocking or as parent and sub-issue is refused when it would close a loop of any length, and the message spells the loop out.
-- **Blocked starts**: starting a blocked issue shows the whole chain instead of the direct blockers only, a batch asks too when something outside it is in the way, and when a stacked PR is not possible the button stays visible and says why. Resuming a run never asks.
-- **Rate limit alerts**: when any of your coding runs hits a rate limit you get a push and an inbox row that opens the run. Turn it off under notification settings, Blocked runs."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

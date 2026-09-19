@@ -146,16 +146,21 @@ fn attribution<'a>(
     }
 }
 
-/// EXP-679 — the run's `coding_sessions.started_reason`: an automation's
-/// trigger reason (`schedule`/`event`) when one fired it, else the reason
-/// the relay frame carried (`agent` — another coding session started this
-/// run). `None` = a person started it, and the run is ATTENDED: it stays
-/// open after the agent finishes (EXP-673), the server registers no
-/// `exponential_sessions_end` tool for it, and its prompt must not name one.
+/// EXP-679 — the run's `coding_sessions.started_reason`: the workflow engine
+/// (EXP-982, `workflow`) when a node run, else an automation's trigger reason
+/// (`schedule`/`event`) when one fired it, else the reason the relay frame
+/// carried (`agent` — another coding session started this run). `None` = a
+/// person started it, and the run is ATTENDED: it stays open after the agent
+/// finishes (EXP-673), the server registers no `exponential_sessions_end`
+/// tool for it, and its prompt must not name one.
 fn started_reason<'a>(
     origin: &'a LaunchOrigin,
     trigger: Option<&'a TriggerNote>,
+    workflow: Option<&'a WorkflowRun>,
 ) -> Option<&'a str> {
+    if workflow.is_some() {
+        return Some(WORKFLOW_STARTED_REASON);
+    }
     if let Some(note) = trigger {
         return Some(note.started_reason());
     }
@@ -319,7 +324,31 @@ pub struct LaunchRequest {
     /// is refused. LAST field — `None` is an ordinary start and leaves every
     /// byte of it unchanged.
     pub stack: Option<StackLaunch>,
+    /// EXP-982: an EXPLICIT base branch, short-circuiting both the stack
+    /// base and the board default. Only the workflow engine sets it (the
+    /// workflow's integration branch); `None` leaves every other launch
+    /// byte-identical.
+    pub base_branch: Option<String>,
+    /// EXP-982: the workflow this run is ONE node of — the `## Workflow`
+    /// prompt section and the `workflow` started reason.
+    pub workflow: Option<WorkflowRun>,
 }
+
+/// EXP-982 — the workflow a node run belongs to, as the engine host knows
+/// it. Present ONLY on an engine-started run: it makes the run unattended
+/// (`started_reason = workflow`) and renders [`crate::prompt::workflow_section`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowRun {
+    pub workflow_id: String,
+    pub name: String,
+    /// `workflows.decisions` as synced — the answers every sibling shares.
+    pub decisions: String,
+}
+
+/// EXP-982: a run the workflow engine started for one node. Unattended like
+/// `agent` (it reports through `exponential_sessions_end`), but it has NO
+/// parent run — its questions go to the person who started the workflow.
+pub const WORKFLOW_STARTED_REASON: &str = "workflow";
 
 /// Which program an action run executes (EXP-257/EXP-259). `Team` is a
 /// user-authored action (fresh body fetched via `actions.get` right before
@@ -580,6 +609,39 @@ impl WorktreeProvider for GitWorktrees {
         let clone = ensure_clone(repos_root, full_name, url)?;
         git_credentials::ensure(&clone, url, expires_at)?;
         fetch_base(&clone, branch, url)
+    }
+}
+
+/// EXP-982 — the base an engine-started node run cuts from: the workflow's
+/// integration branch, which the engine pushed before any node started.
+///
+/// Like [`stack_base_branch`] it NEVER fails — a branch name that cannot
+/// reach git argv, or an origin that cannot be reached, degrades to the
+/// board's base. The node reports `base_branch` to the server either way, so
+/// a degraded cut is visible rather than silent.
+fn explicit_base_branch(
+    requested: &str,
+    deps: &CodingDeps,
+    repos_root: &Path,
+    url: &TokenUrl,
+    expires_at: Option<&str>,
+    default_branch: &str,
+) -> String {
+    if crate::git_worktree::validate_branch_arg(requested, "explicit base").is_err() {
+        log::warn!("workflow node: refusing base branch {requested:?} — using {default_branch}");
+        return default_branch.to_string();
+    }
+    match deps
+        .worktrees
+        .fetch_branch(repos_root, url.full_name(), requested, url, expires_at)
+    {
+        Ok(()) => requested.to_string(),
+        Err(err) => {
+            log::info!(
+                "workflow node: origin/{requested} did not fetch ({err}) — cutting from {default_branch}"
+            );
+            default_branch.to_string()
+        }
     }
 }
 
@@ -1505,14 +1567,35 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
         PrepareRequest::Issue(issue_req) => issue_req.stack.as_ref(),
         _ => None,
     };
-    let base_branch = stack_base_branch(
-        stack,
-        deps,
-        &repos_root,
-        &url,
-        minted.expires_at.as_deref(),
-        &minted.default_branch,
-    );
+    // EXP-982 — an EXPLICIT base wins over both: the workflow engine cuts
+    // every node's branch from the workflow's integration branch, never from
+    // the board default. Validated and fetched exactly like the stack base,
+    // and it degrades to the board default the same way.
+    let explicit_base = match req {
+        PrepareRequest::Issue(issue_req) => issue_req.base_branch.as_deref(),
+        PrepareRequest::Batch(batch_req) => batch_req.base_branch.as_deref(),
+        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
+            unreachable!("dispatched above")
+        }
+    };
+    let base_branch = match explicit_base {
+        Some(requested) => explicit_base_branch(
+            requested,
+            deps,
+            &repos_root,
+            &url,
+            minted.expires_at.as_deref(),
+            &minted.default_branch,
+        ),
+        None => stack_base_branch(
+            stack,
+            deps,
+            &repos_root,
+            &url,
+            minted.expires_at.as_deref(),
+            &minted.default_branch,
+        ),
+    };
     let worktree = deps.worktrees.prepare(
         &repos_root,
         url.full_name(),
@@ -1540,12 +1623,31 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // report through `exponential_sessions_end` — a person's run keeps its
     // session open instead.
     let run_reason = match req {
-        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None),
-        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None),
+        PrepareRequest::Issue(issue_req) => {
+            started_reason(&issue_req.origin, None, issue_req.workflow.as_ref())
+        }
+        PrepareRequest::Batch(batch_req) => {
+            started_reason(&batch_req.origin, None, batch_req.workflow.as_ref())
+        }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
             unreachable!("dispatched above")
         }
     };
+    // EXP-982: the `## Workflow` section, appended after the normal issue or
+    // batch template. Absent on every non-engine start.
+    let workflow_run = match req {
+        PrepareRequest::Issue(issue_req) => issue_req.workflow.as_ref(),
+        PrepareRequest::Batch(batch_req) => batch_req.workflow.as_ref(),
+        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
+            unreachable!("dispatched above")
+        }
+    };
+    let workflow_args = workflow_run.map(|workflow| crate::prompt::WorkflowPromptArgs {
+        workflow_id: &workflow.workflow_id,
+        name: &workflow.name,
+        base_branch: &base_branch,
+        decisions: &workflow.decisions,
+    });
     let rendered = match req {
         PrepareRequest::Issue(issue_req) if issue_req.resume_prompt => {
             let seed = (deps.issue_seed)(&issue_req.issue_id);
@@ -1599,6 +1701,9 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             unreachable!("dispatched above")
         }
     };
+    // LAST, after the requester's own additions — an engine start carries
+    // none of those, and the node must read its workflow's rules last.
+    let rendered = crate::prompt::append_workflow_section(rendered, workflow_args.as_ref());
 
     // Step 6 — the session row, BEFORE spawn (the id keys everything).
     // EXP-825: the composer text's image embeds name pre-session uploads;
@@ -2057,7 +2162,7 @@ fn prepare_action(
     // run unattended — the only shape whose prompt names
     // `exponential_sessions_end` (the only shape the server registers it
     // for). Computed up front because the chat validation below depends on it.
-    let run_reason = started_reason(&req.origin, req.trigger.as_ref());
+    let run_reason = started_reason(&req.origin, req.trigger.as_ref(), None);
     let unattended = run_reason.is_some();
     // EXP-739: a chat run is NOT repo-bound. The chat is a conversation with
     // the tracker over MCP and code is an optional ANCHOR, so a repo-less one
@@ -3081,7 +3186,7 @@ fn prepare_resume_run(
     // EXP-679: a resume is unattended only when the relay frame said so
     // (`agent` — another coding session resumed this run); a person's resume
     // stays open like any other person-started run.
-    let run_reason = started_reason(&req.origin, None);
+    let run_reason = started_reason(&req.origin, None, None);
     // EXP-825: composer text on a resume — verbatim first turn when the
     // native conversation survived, otherwise the additional-instructions
     // section of the degraded resume prompt.
@@ -3795,6 +3900,8 @@ mod tests {
             resume_prompt: false,
             prompt: None,
             stack: None,
+            base_branch: None,
+            workflow: None,
         }
     }
 
@@ -4425,6 +4532,8 @@ mod tests {
             origin: LaunchOrigin::Local,
             options: batch_options(),
             prompt: None,
+            base_branch: None,
+            workflow: None,
         }
     }
 

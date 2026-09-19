@@ -18,9 +18,13 @@ import kotlinx.serialization.json.putJsonObject
 // arrive over the `workflows` + `workflow_nodes` shapes (WorkflowEntity /
 // WorkflowNodeEntity) — this API carries only the mutations: create the draft,
 // rename it or change how it runs, add/drop issues, set a node's plan, replan,
-// delete. Any team MEMBER may call them (a workflow is work, not a team
-// setting), and every refusal is a human sentence the caller shows verbatim.
-// `list`/`get` exist server-side for MCP; sync is the read path here.
+// delete — and, from EXP-982, RUNNING one: start/pause/resume/cancel plus the
+// two node verdicts a person gives (approve, retry/skip). Any team MEMBER may
+// call them (a workflow is work, not a team setting), and every refusal is a
+// human sentence the caller shows verbatim. The engine-only procedures
+// (`reportNode`/`landNode`/`openFinalPr`) belong to the runner DEVICE and are
+// never called from a phone. `list`/`get` exist server-side for MCP; sync is
+// the read path here.
 
 /** `workflows.create`'s / `.update`'s answer (the txId is unused here). */
 @Serializable
@@ -58,7 +62,21 @@ private data class SetIssuesInput(
 )
 
 @Serializable
-private data class WorkflowIdInput(@SerialName("id") val id: String)
+internal data class WorkflowIdInput(@SerialName("id") val id: String)
+
+/** `workflows.approveNode` — the gate, taken back with `approved = false`. */
+@Serializable
+internal data class ApproveNodeInput(
+    @SerialName("nodeId") val nodeId: String,
+    @SerialName("approved") val approved: Boolean,
+)
+
+/** `workflows.resolveNode` — `retry` or `skip`, nothing else. */
+@Serializable
+internal data class ResolveNodeInput(
+    @SerialName("nodeId") val nodeId: String,
+    @SerialName("action") val action: String,
+)
 
 /**
  * `workflows.update`'s patch, hand-built: the router applies a key only when
@@ -238,5 +256,77 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
             input = WorkflowIdInput(id = id),
             inputSerializer = WorkflowIdInput.serializer(),
         )
+    }
+
+    // ── Running a workflow (EXP-982) ────────────────────────────────────────
+    // The server only flips INTENT; the deterministic engine on the runner
+    // device does the work off the synced rows. Every refusal below is a human
+    // sentence ([WorkflowView.startBlocker] says the same ones up front).
+
+    /** `workflows.start` — the draft becomes `running`; the engine takes over. */
+    suspend fun start(accountId: String, id: String): WorkflowDto = trpc.mutation(
+        accountId,
+        path = "workflows.start",
+        input = WorkflowIdInput(id = id),
+        inputSerializer = WorkflowIdInput.serializer(),
+        outputSerializer = WorkflowMutationResult.serializer(),
+    ).workflow
+
+    /** `workflows.pause` — nothing new starts or lands; live runs finish. */
+    suspend fun pause(accountId: String, id: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "workflows.pause",
+            input = WorkflowIdInput(id = id),
+            inputSerializer = WorkflowIdInput.serializer(),
+        )
+    }
+
+    suspend fun resume(accountId: String, id: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "workflows.resume",
+            input = WorkflowIdInput(id = id),
+            inputSerializer = WorkflowIdInput.serializer(),
+        )
+    }
+
+    /** `workflows.cancel` — live runs end and the branch goes. */
+    suspend fun cancel(accountId: String, id: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "workflows.cancel",
+            input = WorkflowIdInput(id = id),
+            inputSerializer = WorkflowIdInput.serializer(),
+        )
+    }
+
+    /** `workflows.approveNode` — clear a node's PR for the merge train. */
+    suspend fun approveNode(accountId: String, nodeId: String, approved: Boolean = true) {
+        trpc.mutationUnit(
+            accountId,
+            path = "workflows.approveNode",
+            input = ApproveNodeInput(nodeId = nodeId, approved = approved),
+            inputSerializer = ApproveNodeInput.serializer(),
+        )
+    }
+
+    /**
+     * `workflows.resolveNode` — a person unsticks a failed node: [NODE_RETRY]
+     * gives it a fresh attempt, [NODE_SKIP] takes it out so its dependents can
+     * go on without it.
+     */
+    suspend fun resolveNode(accountId: String, nodeId: String, action: String) {
+        trpc.mutationUnit(
+            accountId,
+            path = "workflows.resolveNode",
+            input = ResolveNodeInput(nodeId = nodeId, action = action),
+            inputSerializer = ResolveNodeInput.serializer(),
+        )
+    }
+
+    companion object {
+        const val NODE_RETRY = "retry"
+        const val NODE_SKIP = "skip"
     }
 }

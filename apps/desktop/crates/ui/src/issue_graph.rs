@@ -79,6 +79,9 @@ pub(crate) struct GridEdge {
     pub(crate) to: String,
     /// Inside a cycle: drawn red, and nothing on it can start.
     pub(crate) cycle: bool,
+    /// EXP-982: the edge's FROM node landed — drawn green, so a workflow's
+    /// progress reads off the lines as well as the boxes.
+    pub(crate) landed: bool,
 }
 
 /// How a host paints ONE box: its node and whether any of its edges is a
@@ -100,6 +103,7 @@ pub(crate) fn grid_view(
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     let danger = theme.danger;
+    let success = theme.success;
     let grey = theme::tokens::glass::STROKE_STRONG.to_hsla();
 
     let waves = nodes.iter().map(|node| node.wave).max().unwrap_or(0);
@@ -114,7 +118,8 @@ pub(crate) fn grid_view(
         .collect();
     // A node is on a cycle when one of its edges is.
     let mut on_cycle: HashMap<&str, bool> = HashMap::new();
-    let segments: Vec<(f32, f32, f32, f32, bool)> = edges
+    // `(x1, y1, x2, y2, cycle, landed)` — cycle wins over landed.
+    let segments: Vec<(f32, f32, f32, f32, bool, bool)> = edges
         .iter()
         .filter_map(|edge| {
             let from = places.get(edge.from.as_str())?;
@@ -129,6 +134,7 @@ pub(crate) fn grid_view(
                 node_x(to.0),
                 node_y(to.1, node_h) + node_h / 2.,
                 edge.cycle,
+                edge.landed,
             ))
         })
         .collect();
@@ -142,8 +148,14 @@ pub(crate) fn grid_view(
         .child(
             canvas(|_, _, _| (), move |bounds: Bounds<Pixels>, _, window, _| {
                 let origin = bounds.origin;
-                for &(x1, y1, x2, y2, cycle) in &segments {
-                    let color = if cycle { danger } else { grey };
+                for &(x1, y1, x2, y2, cycle, landed) in &segments {
+                    let color = if cycle {
+                        danger
+                    } else if landed {
+                        success
+                    } else {
+                        grey
+                    };
                     let start = point(origin.x + px(x1), origin.y + px(y1));
                     let end = point(origin.x + px(x2), origin.y + px(y2));
                     let mut path = gpui::PathBuilder::stroke(px(LINE));
@@ -337,6 +349,8 @@ pub(crate) fn graph_view(
             from: edge.from.clone(),
             to: edge.to.clone(),
             cycle: edge.cycle,
+            // The blocks mini-graph has no landing to report.
+            landed: false,
         })
         .collect();
     let subjects: std::collections::HashSet<&str> = graph

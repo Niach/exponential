@@ -730,6 +730,10 @@ pub const SHAPES: [ShapeSpec; 24] = [
             "session_id",
             "attempt",
             "base_branch",
+            // EXP-982: the human gate's stamp and the one-sentence reason a
+            // node is failed/waiting.
+            "approved_at",
+            "note",
             "budget",
             "touches",
             "created_at",
@@ -1149,6 +1153,9 @@ mod tests {
             "lane",
             "on_cycle",
             "touches",
+            // EXP-982: the gate stamp and the failure/waiting note.
+            "approved_at",
+            "note",
         ] {
             assert!(spec.columns.contains(&column), "workflow_nodes needs {column}");
         }

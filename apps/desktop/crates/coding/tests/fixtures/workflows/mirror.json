@@ -1,0 +1,339 @@
+[
+  {
+    "name": "rule 1: blockers decide a node that has not started",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "contract", "state": "blocked", "wave": 0, "lane": 0 },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
+        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "ready", "wave": 1, "lane": 1 }
+      ],
+      "edges": [["a", "b"], ["a", "c"]],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "a", "state": "ready" },
+      { "kind": "setNodeState", "nodeId": "c", "state": "blocked" }
+    ]
+  },
+  {
+    "name": "rule 1: a skipped blocker releases its dependents",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 0 },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "landed", "wave": 0, "lane": 1 },
+        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 }
+      ],
+      "edges": [["a", "c"], ["b", "c"]],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "setNodeState", "nodeId": "c", "state": "ready" }]
+  },
+  {
+    "name": "rule 1: a failed node blocks its dependents, an independent branch goes on",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "failed",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 2
+        },
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
+        { "id": "c", "issueId": "i-c", "kind": "leaf", "state": "blocked", "wave": 0, "lane": 1 }
+      ],
+      "edges": [["a", "b"]],
+      "sessions": { "s-a": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "c", "state": "ready" },
+      { "kind": "startNode", "nodeId": "c", "attempt": 1 }
+    ]
+  },
+  {
+    "name": "rule 1: a live session reads running, needs_input and rate limited",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "ready",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "attempt": 1
+        },
+        {
+          "id": "c",
+          "issueId": "i-c",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 2,
+          "sessionId": "s-c",
+          "attempt": 1
+        }
+      ],
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": true, "needsInput": true },
+        "s-c": { "live": true, "blocked": true, "blockedResetsAtMs": 9000 }
+      },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "a", "state": "running" },
+      { "kind": "setNodeState", "nodeId": "b", "state": "waiting", "note": "Needs an answer" },
+      { "kind": "setNodeState", "nodeId": "c", "state": "waiting", "note": "Rate limited" }
+    ]
+  },
+  {
+    "name": "rule 1: an open PR reads in_review whether the run is up or not",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true }, "s-b": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "a", "state": "in_review" },
+      { "kind": "setNodeState", "nodeId": "b", "state": "in_review" }
+    ]
+  },
+  {
+    "name": "rule 1: an updating node stays updating while its agent works",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true, "agentBusy": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  },
+  {
+    "name": "rule 1: an idle updating node falls back to its open PR",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "updating",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true, "agentBusy": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "setNodeState", "nodeId": "a", "state": "in_review" }]
+  },
+  {
+    "name": "rule 1: an ended run with no PR retries once, then fails",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 0
+        },
+        {
+          "id": "b",
+          "issueId": "i-b",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 1,
+          "sessionId": "s-b",
+          "attempt": 1
+        }
+      ],
+      "sessions": { "s-a": { "live": false }, "s-b": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [
+      { "kind": "setNodeState", "nodeId": "a", "state": "ready" },
+      {
+        "kind": "setNodeState",
+        "nodeId": "b",
+        "state": "failed",
+        "note": "The run ended without a pull request"
+      }
+    ]
+  },
+  {
+    "name": "rule 1: a PR that merged behind our back lands the node",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "merged" } },
+      "sessions": { "s-a": { "live": false } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+  },
+  {
+    "name": "rule 1: a session this device has not synced decides nothing",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-unsynced",
+          "attempt": 1
+        }
+      ],
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": []
+  }
+]

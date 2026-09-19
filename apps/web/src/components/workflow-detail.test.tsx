@@ -2,12 +2,29 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
 import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
-import { DELETE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL } from "@/lib/workflow-view"
+import {
+  APPROVE_NODE_LABEL,
+  CANCEL_WORKFLOW_LABEL,
+  DELETE_WORKFLOW_LABEL,
+  MERGE_TRAIN_EMPTY,
+  PAUSE_WORKFLOW_LABEL,
+  PLAN_WORKFLOW_LABEL,
+  RESUME_WORKFLOW_LABEL,
+  RETRY_NODE_LABEL,
+  SKIP_NODE_CONFIRM,
+  SKIP_NODE_LABEL,
+  START_WORKFLOW_LABEL,
+  WITHDRAW_APPROVAL_LABEL,
+} from "@/lib/workflow-view"
 
 // EXP-981: the workflow detail — the graph positioned by the SERVER's
 // wave/lane, a compound node drawn as a stacked card, the cycle note, and the
 // two actions. The layout is never computed here, so the assertions read the
 // grid's `data-wave`/`data-lane` straight back.
+//
+// EXP-982: the same page once the workflow RUNS — the header's actions follow
+// the status, the merge train says what lands next, the final-PR node closes
+// the graph, and the node panel carries approve/withdraw and retry/skip.
 
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
 const graphState = vi.hoisted(() => ({
@@ -20,6 +37,14 @@ const deleteMutate = vi.hoisted(() => vi.fn().mockResolvedValue({ txId: 1 }))
 const updateMutate = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ txId: 1, workflow: {} })
 )
+const runMutates = vi.hoisted(() => ({
+  start: vi.fn().mockResolvedValue({ txId: 1, workflow: {} }),
+  pause: vi.fn().mockResolvedValue({ txId: 1 }),
+  resume: vi.fn().mockResolvedValue({ txId: 1 }),
+  cancel: vi.fn().mockResolvedValue({ txId: 1 }),
+  approveNode: vi.fn().mockResolvedValue({ txId: 1 }),
+  resolveNode: vi.fn().mockResolvedValue({ txId: 1 }),
+}))
 
 vi.mock(`@tanstack/react-router`, () => ({
   Link: ({ children, ...rest }: { children: React.ReactNode }) => (
@@ -59,13 +84,23 @@ vi.mock(`@/lib/trpc-client`, () => ({
       update: { mutate: updateMutate },
       delete: { mutate: deleteMutate },
       updateNode: { mutate: vi.fn().mockResolvedValue({ txId: 1 }) },
+      start: { mutate: runMutates.start },
+      pause: { mutate: runMutates.pause },
+      resume: { mutate: runMutates.resume },
+      cancel: { mutate: runMutates.cancel },
+      approveNode: { mutate: runMutates.approveNode },
+      resolveNode: { mutate: runMutates.resolveNode },
     },
   },
 }))
 
 import { WorkflowDetail } from "@/components/workflow-detail"
 
-const issue = (id: string, identifier: string): Issue =>
+const issue = (
+  id: string,
+  identifier: string,
+  over: Partial<Issue> = {}
+): Issue =>
   ({
     id,
     identifier,
@@ -73,6 +108,9 @@ const issue = (id: string, identifier: string): Issue =>
     status: `backlog`,
     priority: `none`,
     boardId: `b1`,
+    prNumber: null,
+    prState: null,
+    ...over,
   }) as unknown as Issue
 
 const node = (
@@ -92,6 +130,9 @@ const node = (
     lane: 0,
     onCycle: false,
     touches: [],
+    sessionId: null,
+    approvedAt: null,
+    note: null,
     ...over,
   }) as unknown as WorkflowNode
 
@@ -104,10 +145,23 @@ const workflow = (over: Partial<SyncedWorkflow> = {}): SyncedWorkflow =>
     gate: `human`,
     startOn: `contract`,
     deviceId: null,
+    repositoryId: null,
+    finalPrUrl: null,
+    finalPrNumber: null,
+    finalPrState: null,
     launch: {},
     metrics: { nodes: 2, edges: 1, depth: 2, width: 1, cycles: [] },
     ...over,
   }) as unknown as SyncedWorkflow
+
+/** A draft with nothing left in the way of Start (`workflowStartBlocker`). */
+const startable = (over: Partial<SyncedWorkflow> = {}): Partial<SyncedWorkflow> =>
+  ({
+    repositoryId: `r1`,
+    deviceId: `dev-1`,
+    startOn: `landed`,
+    ...over,
+  }) as Partial<SyncedWorkflow>
 
 function mount(over: Partial<SyncedWorkflow> = {}) {
   return render(<WorkflowDetail workflow={workflow(over)} teamSlug="acme" />)
@@ -250,16 +304,335 @@ describe(`WorkflowDetail actions`, () => {
     )
   })
 
-  // P2 ships DRAFT workflows: the engine, and with it a Start button, is next.
-  it(`has no Start control`, () => {
+})
+
+describe(`WorkflowDetail run actions`, () => {
+  const reset = () => {
     nodeRows.rows = []
-    mount()
-    // "Start" exists only as the start-RULE picker row in How it runs.
+    graphState.issues = []
+    graphState.relations = []
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+  }
+
+  it(`disables Start and says why while a draft is not ready`, () => {
+    reset()
+    // Everything else is in place; the runner device is not picked yet.
+    mount(startable({ deviceId: null }))
+    const start = screen.getByTestId(`workflow-start`) as HTMLButtonElement
+    expect(start.textContent).toContain(START_WORKFLOW_LABEL)
+    expect(start.disabled).toBe(true)
+    expect(screen.getByTestId(`workflow-start-blocker`).textContent).toBe(
+      `Pick the device that runs this workflow first.`
+    )
+  })
+
+  it(`starts a ready draft`, async () => {
+    reset()
+    mount(startable())
+    const start = screen.getByTestId(`workflow-start`) as HTMLButtonElement
+    expect(start.disabled).toBe(false)
+    expect(screen.queryByTestId(`workflow-start-blocker`)).toBeNull()
+    fireEvent.click(start)
+    await vi.waitFor(() =>
+      expect(runMutates.start).toHaveBeenCalledWith(
+        { id: `wf` },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`offers Pause and Cancel while running, and nothing destructive else`, async () => {
+    reset()
+    mount({ ...startable(), status: `running` })
+    expect(screen.queryByTestId(`workflow-start`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-plan`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-delete`)).toBeNull()
+    expect(screen.getByTestId(`workflow-pause`).textContent).toContain(
+      PAUSE_WORKFLOW_LABEL
+    )
+    fireEvent.click(screen.getByTestId(`workflow-pause`))
+    await vi.waitFor(() =>
+      expect(runMutates.pause).toHaveBeenCalledWith(
+        { id: `wf` },
+        expect.anything()
+      )
+    )
+    expect(screen.getByTestId(`workflow-cancel`).textContent).toContain(
+      CANCEL_WORKFLOW_LABEL
+    )
+  })
+
+  it(`resumes a paused workflow`, async () => {
+    reset()
+    mount({ ...startable(), status: `paused` })
+    expect(screen.getByTestId(`workflow-resume`).textContent).toContain(
+      RESUME_WORKFLOW_LABEL
+    )
+    fireEvent.click(screen.getByTestId(`workflow-resume`))
+    await vi.waitFor(() =>
+      expect(runMutates.resume).toHaveBeenCalledWith(
+        { id: `wf` },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`cancels only after the confirm`, async () => {
+    reset()
+    mount({ ...startable(), status: `running` })
+    fireEvent.click(screen.getByTestId(`workflow-cancel`))
     expect(
-      screen
-        .getAllByRole(`button`)
-        .map((button) => button.textContent?.trim())
-        .filter((text) => text === `Start` || text === `Start workflow`)
-    ).toEqual([])
+      screen.getByText(
+        `Its live runs end and its branch is deleted. Nothing reached the default branch.`
+      )
+    ).toBeTruthy()
+    expect(runMutates.cancel).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`workflow-cancel-confirm`))
+    await vi.waitFor(() =>
+      expect(runMutates.cancel).toHaveBeenCalledWith(
+        { id: `wf` },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`leaves a finished workflow nothing but Delete`, () => {
+    reset()
+    mount({ ...startable(), status: `done` })
+    expect(screen.queryByTestId(`workflow-start`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-pause`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-cancel`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-plan`)).toBeNull()
+    expect(screen.getByTestId(`workflow-delete`)).toBeTruthy()
+  })
+
+  it(`freezes the configuration once the workflow left draft`, () => {
+    reset()
+    const rows = (): HTMLButtonElement[] => [
+      ...screen
+        .getByTestId(`workflow-how-it-runs`)
+        .querySelectorAll<HTMLButtonElement>(`[data-slot="glass-picker-row"]`),
+    ]
+    const draft = mount(startable())
+    expect(rows().length).toBeGreaterThan(0)
+    expect(rows().every((row) => row.disabled)).toBe(false)
+    draft.unmount()
+    mount({ ...startable(), status: `running` })
+    expect(rows().every((row) => row.disabled)).toBe(true)
+  })
+
+  // EXP-981 leftover: with no model picked the row used to render EMPTY for an
+  // agent that cannot launch blank.
+  it(`reads "Default" on the Model row when no model is picked`, () => {
+    reset()
+    mount()
+    const model = [
+      ...screen
+        .getByTestId(`workflow-how-it-runs`)
+        .querySelectorAll(`[data-slot="glass-picker-row"]`),
+    ].find((row) => row.textContent?.startsWith(`Model`))
+    expect(model?.textContent).toBe(`ModelDefault`)
+  })
+})
+
+describe(`WorkflowDetail running graph`, () => {
+  it(`paints an edge out of a landed node green`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `landed` }),
+      node(`n2`, { wave: 1, lane: 0, state: `running` }),
+    ]
+    graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
+    graphState.relations = [
+      { type: `blocks`, issueId: `i-n1`, relatedIssueId: `i-n2` },
+    ]
+    mount({ ...startable(), status: `running` })
+    expect(screen.getAllByTestId(`workflow-graph-done-edge`)).toHaveLength(1)
+    expect(screen.queryByTestId(`workflow-graph-edge`)).toBeNull()
+    expect(screen.getByTestId(`workflow-node-n2-caption`).textContent).toBe(
+      `Running`
+    )
+  })
+
+  it(`lists the merge train in landing order`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `in_review` }),
+      node(`n2`, { wave: 1, lane: 0, state: `in_review` }),
+      node(`n3`, { wave: 2, lane: 0, state: `in_review`, kind: `contract` }),
+      node(`n4`, { wave: 3, lane: 0, state: `running` }),
+    ]
+    graphState.issues = [
+      issue(`i-n1`, `APP-1`),
+      issue(`i-n2`, `APP-2`),
+      issue(`i-n3`, `APP-3`),
+      issue(`i-n4`, `APP-4`),
+    ]
+    graphState.relations = []
+    // `none` gates nothing but the contract node, which always waits.
+    mount({ ...startable(), status: `running`, gate: `none` })
+    expect(screen.getByTestId(`workflow-train-n1`).textContent).toBe(
+      `APP-1Landing next`
+    )
+    expect(screen.getByTestId(`workflow-train-n2`).textContent).toBe(
+      `APP-2Queued`
+    )
+    expect(screen.getByTestId(`workflow-train-n3`).textContent).toBe(
+      `APP-3Needs approval`
+    )
+    // A node still coding is not up for landing.
+    expect(screen.queryByTestId(`workflow-train-n4`)).toBeNull()
+  })
+
+  it(`says the train is empty, and hides it on a draft`, () => {
+    nodeRows.rows = [node(`n1`, { state: `running` })]
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    graphState.relations = []
+    const running = mount({ ...startable(), status: `running` })
+    expect(screen.getByTestId(`workflow-merge-train`).textContent).toContain(
+      MERGE_TRAIN_EMPTY
+    )
+    running.unmount()
+    mount(startable())
+    expect(screen.queryByTestId(`workflow-merge-train`)).toBeNull()
+  })
+
+  it(`closes the graph with the final pull request once everything is in`, () => {
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `landed` }),
+      node(`n2`, { wave: 1, lane: 0, state: `skipped` }),
+    ]
+    graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
+    graphState.relations = []
+    const opening = mount({ ...startable(), status: `running` })
+    expect(screen.getByTestId(`workflow-final-pr`).textContent).toBe(
+      `Final pull requestOpening the pull request`
+    )
+    opening.unmount()
+    mount({
+      ...startable(),
+      status: `running`,
+      finalPrNumber: 42,
+      finalPrState: `open`,
+      finalPrUrl: `https://github.com/acme/app/pull/42`,
+    })
+    const card = screen.getByTestId(`workflow-final-pr`)
+    expect(card.textContent).toBe(`Final pull request#42 · Open`)
+    expect(card.getAttribute(`href`)).toBe(
+      `https://github.com/acme/app/pull/42`
+    )
+    // It sits one wave past the last node, in lane 0.
+    const box = screen.getByTestId(`workflow-node-final-pr`)
+    expect([box.getAttribute(`data-wave`), box.getAttribute(`data-lane`)]).toEqual(
+      [`2`, `0`]
+    )
+  })
+
+  it(`draws no final-PR node while nodes are still out`, () => {
+    nodeRows.rows = [
+      node(`n1`, { state: `landed` }),
+      node(`n2`, { wave: 1, state: `running` }),
+    ]
+    graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
+    graphState.relations = []
+    mount({ ...startable(), status: `running` })
+    expect(screen.queryByTestId(`workflow-final-pr`)).toBeNull()
+  })
+})
+
+describe(`WorkflowDetail node panel actions`, () => {
+  const open = (
+    over: Partial<WorkflowNode>,
+    workflowOver: Partial<SyncedWorkflow> = {}
+  ) => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    nodeRows.rows = [node(`n1`, over)]
+    graphState.relations = []
+    const view = mount({ ...startable(), status: `running`, ...workflowOver })
+    fireEvent.click(screen.getByTestId(`workflow-node-n1-card`))
+    return view
+  }
+
+  it(`approves a gated node's PR and takes the approval back`, async () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    const gated = open({ state: `in_review` })
+    fireEvent.click(screen.getByTestId(`workflow-node-approve`))
+    expect(screen.getByTestId(`workflow-node-approve`).textContent).toBe(
+      APPROVE_NODE_LABEL
+    )
+    await vi.waitFor(() =>
+      expect(runMutates.approveNode).toHaveBeenCalledWith(
+        { nodeId: `n1`, approved: true },
+        expect.anything()
+      )
+    )
+    expect(screen.queryByTestId(`workflow-node-withdraw`)).toBeNull()
+    gated.unmount()
+
+    open({ state: `in_review`, approvedAt: new Date() })
+    expect(screen.queryByTestId(`workflow-node-approve`)).toBeNull()
+    expect(screen.getByTestId(`workflow-node-withdraw`).textContent).toBe(
+      WITHDRAW_APPROVAL_LABEL
+    )
+    fireEvent.click(screen.getByTestId(`workflow-node-withdraw`))
+    await vi.waitFor(() =>
+      expect(runMutates.approveNode).toHaveBeenCalledWith(
+        { nodeId: `n1`, approved: false },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`asks nobody to approve an ungated leaf`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    open({ state: `in_review` }, { gate: `none` })
+    expect(screen.queryByTestId(`workflow-node-approve`)).toBeNull()
+  })
+
+  it(`retries a failed node, and skips it only after the confirm`, async () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    const failed = open({ state: `failed`, note: `The tests never went green.` })
+    expect(screen.getByTestId(`workflow-node-note`).textContent).toBe(
+      `The tests never went green.`
+    )
+    expect(screen.getByTestId(`workflow-node-retry`).textContent).toBe(
+      RETRY_NODE_LABEL
+    )
+    fireEvent.click(screen.getByTestId(`workflow-node-retry`))
+    await vi.waitFor(() =>
+      expect(runMutates.resolveNode).toHaveBeenCalledWith(
+        { nodeId: `n1`, action: `retry` },
+        expect.anything()
+      )
+    )
+    failed.unmount()
+
+    open({ state: `failed` })
+    fireEvent.click(screen.getByTestId(`workflow-node-skip`))
+    expect(screen.getByText(SKIP_NODE_CONFIRM)).toBeTruthy()
+    expect(runMutates.resolveNode).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByTestId(`workflow-node-skip-confirm`))
+    await vi.waitFor(() =>
+      expect(runMutates.resolveNode).toHaveBeenCalledWith(
+        { nodeId: `n1`, action: `skip` },
+        expect.anything()
+      )
+    )
+    expect(screen.getByTestId(`workflow-node-skip`).textContent).toBe(
+      SKIP_NODE_LABEL
+    )
+  })
+
+  it(`links to the node's run and to its pull request`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`, { prNumber: 7, prState: `open` })]
+    open({ state: `in_review`, sessionId: `s-1` })
+    expect(screen.getByTestId(`workflow-node-run`).textContent).toBe(`Open run`)
+    expect(screen.getByTestId(`workflow-node-pr`).textContent).toBe(`PR #7`)
+  })
+
+  it(`offers no run or PR link on a node that has neither`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    open({ state: `ready` })
+    expect(screen.queryByTestId(`workflow-node-run`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-node-pr`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-node-note`)).toBeNull()
   })
 })

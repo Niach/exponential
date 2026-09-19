@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import { conceptIcon, LiveDot } from "@exp/ui"
 import type { Issue, WorkflowNode } from "@/db/schema"
 import { IssueChip } from "@/components/issue-chip"
 import { WaveGraph } from "@/components/issue-graph"
@@ -7,6 +8,7 @@ import {
   workflowNodeCaption,
   workflowNodeTitle,
   workflowNodeTone,
+  FINAL_PR_TITLE,
   type EdgeRelation,
   type WorkflowNodeTone,
 } from "@/lib/workflow-view"
@@ -22,6 +24,11 @@ import { cn } from "@/lib/utils"
 //
 // Phones keep the grid and scroll it, exactly like the blocks mini-graph —
 // the wave-grouped list is the natives' phone form (`IssueGraphList`).
+//
+// EXP-982: a started workflow's states are real, so a node also wears a state
+// GLYPH (the state reads by shape as well as by colour), an edge out of a
+// LANDED node turns green, and once everything is in, one extra node after the
+// last wave stands for the workflow's single final pull request.
 
 const NODE_W = 208
 const NODE_H = 66
@@ -35,12 +42,36 @@ const TONE_CLASS: Record<WorkflowNodeTone, string> = {
   danger: `text-destructive`,
 }
 
+const WarningIcon = conceptIcon(`ui-warning`)
+const MergedIcon = conceptIcon(`notification-pr-merged`)
+const ErrorIcon = conceptIcon(`ui-error`)
+const ReviewIcon = conceptIcon(`nav-reviews`)
+
+/** The final-PR node's id — never a uuid, so it can never collide with one. */
+const FINAL_PR_NODE_ID = `final-pr`
+
+/** The state's shape, beside the caption that carries its colour. States with
+ *  nothing happening yet (proposed/blocked/ready/paused) and `skipped` stay
+ *  bare: the caption alone says it. `running` borrows the session dot. */
+export function WorkflowStateGlyph({ state }: { state: string }) {
+  const className = `size-3.5 shrink-0`
+  if (state === `running`) return <LiveDot tone="live" ping className="shrink-0" />
+  if (state === `waiting`) return <WarningIcon className={className} />
+  if (state === `landed`) return <MergedIcon className={className} />
+  if (state === `failed`) return <ErrorIcon className={className} />
+  if (state === `in_review` || state === `updating`) {
+    return <ReviewIcon className={className} />
+  }
+  return null
+}
+
 export function WorkflowGraph({
   nodes,
   relations,
   issueById,
   workflowStatus,
   cycleEdges,
+  finalPr,
   selectedNodeId,
   onSelect,
   className,
@@ -54,25 +85,43 @@ export function WorkflowGraph({
   workflowStatus: string
   /** `metrics.cycleEdges` — the edges drawn red. */
   cycleEdges: readonly string[]
+  /** EXP-982: `workflowFinalPrCaption` and the workflow's `finalPrUrl`. A null
+   *  caption draws no final node at all. */
+  finalPr?: { caption: string | null; url: string | null }
   selectedNodeId: string | null
   onSelect: (nodeId: string) => void
   className?: string
 }) {
-  const edges = useMemo(
-    () => workflowEdges(nodes, relations, cycleEdges),
-    [nodes, relations, cycleEdges]
-  )
   const nodeById = useMemo(
     () => new Map(nodes.map((node) => [node.id, node])),
     [nodes]
   )
+  const edges = useMemo(
+    () =>
+      workflowEdges(nodes, relations, cycleEdges).map((edge) => ({
+        ...edge,
+        done: nodeById.get(edge.from)?.state === `landed`,
+      })),
+    [nodes, relations, cycleEdges, nodeById]
+  )
+  // The final PR sits one wave past everything else, in lane 0. No edge runs
+  // into it: it is the whole graph's outcome, not one node's dependent.
+  const finalPrCaption = finalPr?.caption ?? null
+  const gridNodes = useMemo(() => {
+    if (!finalPrCaption) return nodes
+    const lastWave = nodes.reduce((max, node) => Math.max(max, node.wave), 0)
+    return [
+      ...nodes,
+      { id: FINAL_PR_NODE_ID, wave: lastWave + 1, lane: 0 },
+    ]
+  }, [nodes, finalPrCaption])
 
   if (nodes.length === 0) return null
 
   return (
     <div className={cn(`overflow-auto`, className)} data-testid="workflow-graph">
       <WaveGraph
-        nodes={nodes}
+        nodes={gridNodes}
         edges={edges}
         nodeWidth={NODE_W}
         nodeHeight={NODE_H}
@@ -84,6 +133,14 @@ export function WorkflowGraph({
           testId: `workflow-node-${id}`,
         })}
         renderNode={(id) => {
+          if (id === FINAL_PR_NODE_ID) {
+            return (
+              <FinalPrCard
+                caption={finalPrCaption ?? ``}
+                url={finalPr?.url ?? null}
+              />
+            )
+          }
           const node = nodeById.get(id)
           if (!node) return null
           return (
@@ -154,12 +211,51 @@ export function WorkflowNodeCard({
           </span>
         )}
         <span
-          className={cn(`truncate text-xs`, TONE_CLASS[workflowNodeTone(node.state)])}
+          className={cn(
+            `flex min-w-0 items-center gap-1.5 text-xs`,
+            TONE_CLASS[workflowNodeTone(node.state)]
+          )}
           data-testid={`workflow-node-${node.id}-caption`}
         >
-          {caption}
+          {/* A draft's caption names the plan, so no state reads off it. */}
+          {workflowStatus !== `draft` && <WorkflowStateGlyph state={node.state} />}
+          <span className="truncate">{caption}</span>
         </span>
       </button>
     </div>
+  )
+}
+
+/** The ONE final pull request, integration branch → default branch. It is not
+ *  a workflow node: nothing selects it, and it links out to GitHub once the
+ *  engine opened it. */
+function FinalPrCard({ caption, url }: { caption: string; url: string | null }) {
+  const body = (
+    <>
+      <span className="truncate text-sm font-medium">{FINAL_PR_TITLE}</span>
+      <span className="truncate text-xs text-muted-foreground">{caption}</span>
+    </>
+  )
+  const className = `flex h-full w-full flex-col justify-center gap-1 rounded-md border border-dashed border-glass-stroke bg-glass-row px-2 py-1 text-left`
+  if (!url) {
+    return (
+      <div className={className} data-testid="workflow-final-pr">
+        {body}
+      </div>
+    )
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      data-testid="workflow-final-pr"
+      className={cn(
+        className,
+        `outline-none transition-colors duration-fast hover:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50`
+      )}
+    >
+      {body}
+    </a>
   )
 }

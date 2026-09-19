@@ -56,30 +56,55 @@ import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import {
   agentEffortValues,
   agentModelValues,
-  agentAllowsBlankModel,
   agentSupportsSubagentModel,
 } from "@/lib/coding-launch-prefs"
 import { workflowCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
+import { cn } from "@/lib/utils"
 import {
   workflowCycleNote,
+  workflowFinalPrCaption,
+  workflowMergeTrain,
   workflowNodeKindLabel,
+  workflowNodeNeedsApproval,
   workflowShapeLine,
   workflowNodeTitle,
+  workflowStartBlocker,
+  workflowTrainStepLabel,
+  APPROVE_NODE_LABEL,
+  CANCEL_WORKFLOW_CONFIRM,
+  CANCEL_WORKFLOW_LABEL,
   DELETE_WORKFLOW_LABEL,
+  MERGE_TRAIN_EMPTY,
+  MERGE_TRAIN_TITLE,
+  PAUSE_WORKFLOW_LABEL,
   PLAN_WORKFLOW_LABEL,
+  RESUME_WORKFLOW_LABEL,
+  RETRY_NODE_LABEL,
+  SKIP_NODE_CONFIRM,
+  SKIP_NODE_LABEL,
+  START_WORKFLOW_LABEL,
+  WITHDRAW_APPROVAL_LABEL,
 } from "@/lib/workflow-view"
 
-// EXP-981: ONE draft workflow — its name, the shape line, the graph, the node
-// panel beside it and the start configuration under it. P2 has NO Start
-// button: the engine (and with it start/pause/cancel) lands next. Every write
-// is a `workflows.*` mutation whose txId the synced collection echoes back, so
-// the page never keeps a copy of the row.
+// EXP-981: ONE workflow — its name, the shape line, the graph, the node panel
+// beside it and the start configuration under it. Every write is a
+// `workflows.*` mutation whose txId the synced collection echoes back, so the
+// page never keeps a copy of the row.
+//
+// EXP-982: a draft can be STARTED. The header's actions follow the status
+// (Start · Pause · Resume · Cancel workflow), the configuration turns
+// read-only the moment the workflow leaves draft, the merge train under the
+// graph says what lands next, and the node panel carries the two things only a
+// person can do: approve a PR for the train, and unstick a failed node.
 
 const WorkflowIcon = conceptIcon(`nav-workflows`)
 const DeleteIcon = conceptIcon(`ui-delete`)
 const PlanIcon = conceptIcon(`action-run`)
+const StartIcon = conceptIcon(`action-run`)
+const ResumeIcon = conceptIcon(`run-resume`)
+const CancelIcon = conceptIcon(`ui-stop`)
 
 /** The run configuration's labels. Byte-identical ×4 (the brief's words). */
 const GATE_LABELS: Record<string, string> = {
@@ -96,6 +121,15 @@ const RISK_LABELS: Record<string, string> = {
   low: `Low`,
   medium: `Medium`,
   high: `High`,
+}
+
+/** The four status-only mutations, and what to say when one is refused. */
+type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
+const INTENT_ERROR: Record<WorkflowIntent, string> = {
+  start: `The workflow could not be started`,
+  pause: `The workflow could not be paused`,
+  resume: `The workflow could not be resumed`,
+  cancel: `The workflow could not be cancelled`,
 }
 
 /** What one `workflows.update` call may carry. */
@@ -125,6 +159,7 @@ export function WorkflowDetail({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [cancelOpen, setCancelOpen] = useState(false)
   const openComposer = useOpenComposer()
 
   // A node that left the graph (a replan folded it into a compound one) must
@@ -148,6 +183,27 @@ export function WorkflowDetail({
     }
   }
 
+  // The four run intents write nothing but the workflow's status: the engine
+  // on the runner device reads it off Electric and does the rest.
+  const intent = async (which: WorkflowIntent) => {
+    setError(null)
+    const input = { id: workflow.id }
+    const options = { context: { skipErrorToast: true } }
+    try {
+      const { txId } =
+        which === `start`
+          ? await trpc.workflows.start.mutate(input, options)
+          : which === `pause`
+            ? await trpc.workflows.pause.mutate(input, options)
+            : which === `resume`
+              ? await trpc.workflows.resume.mutate(input, options)
+              : await trpc.workflows.cancel.mutate(input, options)
+      await workflowCollection.utils.awaitTxId(txId)
+    } catch (caught) {
+      setError(trpcErrorMessage(caught, INTENT_ERROR[which]))
+    }
+  }
+
   const remove = async () => {
     setDeleteOpen(false)
     setError(null)
@@ -163,12 +219,18 @@ export function WorkflowDetail({
   }
 
   const cycleNote = workflowCycleNote(workflow.metrics)
+  const startBlocker = workflowStartBlocker(workflow, workflow.metrics)
+  // A cycle already has its own line above the buttons; saying it twice only
+  // makes the header longer.
+  const blockerCaption = startBlocker === cycleNote ? null : startBlocker
   const panel = selectedNode ? (
     <WorkflowNodePanel
       workflowId={workflow.id}
       node={selectedNode}
       issueById={issueById}
       teamSlug={teamSlug}
+      gate={workflow.gate}
+      workflowStatus={workflow.status}
       onError={setError}
       onClose={() => setSelectedNodeId(null)}
     />
@@ -192,6 +254,82 @@ export function WorkflowDetail({
             {cycleNote}
           </p>
         )}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          {workflow.status === `draft` && (
+            <Button
+              data-testid="workflow-start"
+              disabled={startBlocker !== null}
+              onClick={() => void intent(`start`)}
+            >
+              <StartIcon className="size-4" />
+              {START_WORKFLOW_LABEL}
+            </Button>
+          )}
+          {workflow.status === `running` && (
+            <Button
+              variant="outline"
+              data-testid="workflow-pause"
+              onClick={() => void intent(`pause`)}
+            >
+              {PAUSE_WORKFLOW_LABEL}
+            </Button>
+          )}
+          {workflow.status === `paused` && (
+            <Button
+              variant="outline"
+              data-testid="workflow-resume"
+              onClick={() => void intent(`resume`)}
+            >
+              <ResumeIcon className="size-4" />
+              {RESUME_WORKFLOW_LABEL}
+            </Button>
+          )}
+          {workflow.status === `draft` && (
+            <Button
+              variant="outline"
+              data-testid="workflow-plan"
+              onClick={() =>
+                openComposer({
+                  actionId: BUILTIN_PLAN_WORKFLOW_ID,
+                  workflowId: workflow.id,
+                })
+              }
+            >
+              <PlanIcon className="size-4" />
+              {PLAN_WORKFLOW_LABEL}
+            </Button>
+          )}
+          {(workflow.status === `running` || workflow.status === `paused`) && (
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              data-testid="workflow-cancel"
+              onClick={() => setCancelOpen(true)}
+            >
+              <CancelIcon className="size-4" />
+              {CANCEL_WORKFLOW_LABEL}
+            </Button>
+          )}
+          {workflow.status !== `running` && workflow.status !== `paused` && (
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              data-testid="workflow-delete"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <DeleteIcon className="size-4" />
+              {DELETE_WORKFLOW_LABEL}
+            </Button>
+          )}
+        </div>
+        {workflow.status === `draft` && blockerCaption && (
+          <p
+            className="px-1 text-xs text-muted-foreground"
+            data-testid="workflow-start-blocker"
+          >
+            {blockerCaption}
+          </p>
+        )}
       </header>
 
       {error && (
@@ -209,6 +347,16 @@ export function WorkflowDetail({
           issueById={issueById}
           workflowStatus={workflow.status}
           cycleEdges={workflow.metrics.cycleEdges ?? []}
+          finalPr={{
+            caption: workflowFinalPrCaption(
+              nodes,
+              // The zod select schema widens a pg enum past its four values;
+              // the view helper only ever reads it as a string.
+              (workflow.finalPrState as string | null) ?? null,
+              workflow.finalPrNumber
+            ),
+            url: workflow.finalPrUrl,
+          }}
           selectedNodeId={selectedNodeId}
           onSelect={setSelectedNodeId}
           className="min-w-0 flex-1"
@@ -233,32 +381,38 @@ export function WorkflowDetail({
         </Sheet>
       )}
 
+      {workflow.status !== `draft` && (
+        <MergeTrainStrip
+          nodes={nodes}
+          gate={workflow.gate}
+          issueById={issueById}
+          stacked={isMobile}
+        />
+      )}
+
       <HowItRunsSection workflow={workflow} onSave={save} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="outline"
-          data-testid="workflow-plan"
-          onClick={() =>
-            openComposer({
-              actionId: BUILTIN_PLAN_WORKFLOW_ID,
-              workflowId: workflow.id,
-            })
-          }
-        >
-          <PlanIcon className="size-4" />
-          {PLAN_WORKFLOW_LABEL}
-        </Button>
-        <Button
-          variant="ghost"
-          className="text-destructive hover:text-destructive"
-          data-testid="workflow-delete"
-          onClick={() => setDeleteOpen(true)}
-        >
-          <DeleteIcon className="size-4" />
-          {DELETE_WORKFLOW_LABEL}
-        </Button>
-      </div>
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{CANCEL_WORKFLOW_LABEL}</DialogTitle>
+            <DialogDescription>{CANCEL_WORKFLOW_CONFIRM}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel>Keep running</DialogCancel>
+            <Button
+              variant="destructive"
+              data-testid="workflow-cancel-confirm"
+              onClick={() => {
+                setCancelOpen(false)
+                void intent(`cancel`)
+              }}
+            >
+              {CANCEL_WORKFLOW_LABEL}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent className="sm:max-w-md">
@@ -323,6 +477,67 @@ function WorkflowNameField({
   )
 }
 
+/** EXP-982: what is waiting to land, in landing order. A node's PR merges into
+ *  the workflow's integration branch, one at a time, so this strip is the
+ *  queue: the first cleared node lands next, anything still wanting a person
+ *  says so. Hidden on a draft (nothing is up yet). */
+function MergeTrainStrip({
+  nodes,
+  gate,
+  issueById,
+  stacked,
+}: {
+  nodes: readonly WorkflowNode[]
+  gate: string
+  issueById: ReadonlyMap<string, Issue>
+  /** Phones read the train as a short list rather than a horizontal strip. */
+  stacked: boolean
+}) {
+  const entries = workflowMergeTrain(nodes, gate)
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  return (
+    <section className="flex flex-col" data-testid="workflow-merge-train">
+      <GlassSectionHeader label={MERGE_TRAIN_TITLE} />
+      {entries.length === 0 ? (
+        <p className="px-1 pt-1 text-xs text-muted-foreground">
+          {MERGE_TRAIN_EMPTY}
+        </p>
+      ) : (
+        <div
+          className={cn(
+            `flex gap-2 pt-1`,
+            stacked ? `flex-col` : `overflow-x-auto`
+          )}
+        >
+          {entries.map((entry) => {
+            const node = nodeById.get(entry.id)
+            const issue = node ? issueById.get(node.issueId) : undefined
+            const title =
+              issue && node
+                ? workflowNodeTitle(issue.identifier, node.memberIssueIds.length)
+                : entry.id.slice(0, 8)
+            return (
+              <div
+                key={entry.id}
+                data-testid={`workflow-train-${entry.id}`}
+                className={cn(
+                  `flex min-w-0 flex-col gap-0.5 rounded-md border border-glass-stroke bg-glass-row px-2 py-1`,
+                  !stacked && `shrink-0`
+                )}
+              >
+                <span className="truncate font-mono text-xs">{title}</span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {workflowTrainStepLabel(entry.step)}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
 /** The start configuration, persisted field by field with `workflows.update`.
  *  Same vocabulary as the Agent composer's options line — device, agent,
  *  model, subagent model (claude), effort, account — plus the workflow's own
@@ -366,6 +581,11 @@ function HowItRunsSection({
     ? device.agents
     : [...contract.codingAgent.values]
 
+  // EXP-982: a started workflow's configuration is history — the engine has
+  // been cutting branches off it. Every row stays readable, none of them
+  // writable.
+  const readOnly = workflow.status !== `draft`
+
   return (
     <section className="flex flex-col" data-testid="workflow-how-it-runs">
       <GlassSectionHeader label="How it runs" />
@@ -374,6 +594,7 @@ function HowItRunsSection({
           triggerVariant="row"
           searchable={false}
           mobileTitle="Runner device"
+          disabled={readOnly}
           value={workflow.deviceId}
           triggerLabel="Select a device"
           options={devices.map((candidate) => ({
@@ -391,6 +612,7 @@ function HowItRunsSection({
           triggerVariant="row"
           searchable={false}
           mobileTitle="Agent"
+          disabled={readOnly}
           value={agent}
           options={agents.map((value) => ({
             value,
@@ -413,11 +635,13 @@ function HowItRunsSection({
           triggerVariant="row"
           searchable={false}
           mobileTitle="Model"
+          disabled={readOnly}
           value={launch.model || CLI_DEFAULT_MODEL}
           options={[
-            ...(agentAllowsBlankModel(agent)
-              ? [{ value: CLI_DEFAULT_MODEL, label: `CLI default` }]
-              : []),
+            // A workflow always offers "no model picked" — an agent that
+            // cannot be launched blank (claude) still runs on ITS default, and
+            // a row with no matching option would simply read empty.
+            { value: CLI_DEFAULT_MODEL, label: `Default` },
             ...agentModelValues(agent).map((value) => ({
               value,
               label: modelLabel(value),
@@ -434,6 +658,7 @@ function HowItRunsSection({
             triggerVariant="row"
             searchable={false}
             mobileTitle="Subagent model"
+            disabled={readOnly}
             value={launch.subagentModel || CLI_DEFAULT_MODEL}
             options={[
               { value: CLI_DEFAULT_MODEL, label: `Default` },
@@ -455,6 +680,7 @@ function HowItRunsSection({
           triggerVariant="row"
           searchable={false}
           mobileTitle={agent === `codex` ? `Reasoning` : `Effort`}
+          disabled={readOnly}
           value={launch.effort || CLI_DEFAULT_EFFORT}
           options={[
             { value: CLI_DEFAULT_EFFORT, label: `CLI default` },
@@ -476,6 +702,7 @@ function HowItRunsSection({
             triggerVariant="row"
             searchable={false}
             mobileTitle="Account"
+            disabled={readOnly}
             value={launch.account ?? null}
             triggerLabel="Machine default"
             options={accountProfiles.map((profile) => ({
@@ -494,6 +721,7 @@ function HowItRunsSection({
           triggerVariant="row"
           searchable={false}
           mobileTitle="Max parallel"
+          disabled={readOnly}
           value={String(launch.maxParallel ?? WORKFLOW_MAX_PARALLEL_DEFAULT)}
           options={Array.from(
             { length: WORKFLOW_MAX_PARALLEL_CAP },
@@ -510,6 +738,7 @@ function HowItRunsSection({
           triggerVariant="row"
           searchable={false}
           mobileTitle="Gate"
+          disabled={readOnly}
           value={workflow.gate}
           options={wfGateValues.map((value) => ({
             value: value as string,
@@ -523,6 +752,7 @@ function HowItRunsSection({
           triggerVariant="row"
           searchable={false}
           mobileTitle="Start"
+          disabled={readOnly}
           value={workflow.startOn}
           options={wfStartOnValues.map((value) => ({
             value: value as string,
@@ -537,13 +767,17 @@ function HowItRunsSection({
   )
 }
 
-/** The selected node: what it is, what it covers, and the two picks the
- *  planner's numbers can be corrected with. */
+/** The selected node: what it is, what it covers, the two picks the planner's
+ *  numbers can be corrected with, and — once the workflow runs — the things
+ *  only a person does: follow its run, approve its PR for the merge train,
+ *  unstick it when it failed. */
 export function WorkflowNodePanel({
   workflowId,
   node,
   issueById,
   teamSlug,
+  gate,
+  workflowStatus,
   onError,
   onClose,
 }: {
@@ -551,10 +785,15 @@ export function WorkflowNodePanel({
   node: WorkflowNode
   issueById: ReadonlyMap<string, Issue>
   teamSlug: string
+  /** The workflow's `gate` — with the node's kind it decides whether landing
+   *  waits for a person (`workflowNodeNeedsApproval`). */
+  gate: string
+  workflowStatus: string
   onError: (message: string | null) => void
   onClose: () => void
 }) {
   const boards = useTeamBoards(node.teamId)
+  const [skipOpen, setSkipOpen] = useState(false)
   const issue = issueById.get(node.issueId)
   const members = node.memberIssueIds
     .map((id) => issueById.get(id))
@@ -574,6 +813,39 @@ export function WorkflowNodePanel({
       onError(trpcErrorMessage(caught, `The node could not be updated`))
     }
   }
+
+  const approve = async (approved: boolean) => {
+    onError(null)
+    try {
+      await trpc.workflows.approveNode.mutate(
+        { nodeId: node.id, approved },
+        { context: { skipErrorToast: true } }
+      )
+    } catch (caught) {
+      onError(trpcErrorMessage(caught, `The node could not be approved`))
+    }
+  }
+
+  const resolve = async (action: `retry` | `skip`) => {
+    onError(null)
+    setSkipOpen(false)
+    try {
+      await trpc.workflows.resolveNode.mutate(
+        { nodeId: node.id, action },
+        { context: { skipErrorToast: true } }
+      )
+    } catch (caught) {
+      onError(trpcErrorMessage(caught, `The node could not be resolved`))
+    }
+  }
+
+  // The gate only ever holds an OPEN pull request; once landed there is
+  // nothing left to approve or take back.
+  const needsApproval =
+    node.state === `in_review` &&
+    workflowNodeNeedsApproval(gate, node.kind) &&
+    !node.approvedAt
+  const canWithdraw = Boolean(node.approvedAt) && node.state !== `landed`
 
   return (
     <div className="flex flex-col gap-3" data-testid="workflow-node-panel">
@@ -597,11 +869,20 @@ export function WorkflowNodePanel({
           ))}
         </div>
       )}
+      {/* Why the node is failed or waiting, in the engine's own words. */}
+      {node.note && (
+        <p className="text-xs text-muted-foreground" data-testid="workflow-node-note">
+          {node.note}
+        </p>
+      )}
       <GlassGroup>
         <Combobox
           triggerVariant="row"
           searchable={false}
           mobileTitle="Kind"
+          // The kind shapes the PLAN: the server refuses it once the workflow
+          // started (`updateNode`). Risk stays adjustable.
+          disabled={workflowStatus !== `draft`}
           value={node.kind}
           options={wfNodeKindValues.map((value) => ({
             value: value as string,
@@ -651,6 +932,98 @@ export function WorkflowNodePanel({
           </Link>
         </Button>
       )}
+      {/* The node's own run, steered on the ONE run URL (EXP-870). */}
+      {node.sessionId && (
+        <Button
+          variant="outline"
+          size="sm"
+          asChild
+          onClick={onClose}
+          data-testid="workflow-node-run"
+        >
+          <Link
+            to="/t/$teamSlug/sessions/$sessionId"
+            params={{ teamSlug, sessionId: node.sessionId }}
+          >
+            Open run
+          </Link>
+        </Button>
+      )}
+      {issue?.prNumber != null && (
+        <Button
+          variant="outline"
+          size="sm"
+          asChild
+          onClick={onClose}
+          data-testid="workflow-node-pr"
+        >
+          <Link
+            to="/t/$teamSlug/reviews/$issueIdentifier"
+            params={{ teamSlug, issueIdentifier: issue.identifier }}
+          >
+            {`PR #${issue.prNumber}`}
+          </Link>
+        </Button>
+      )}
+      {needsApproval && (
+        <Button
+          size="sm"
+          data-testid="workflow-node-approve"
+          onClick={() => void approve(true)}
+        >
+          {APPROVE_NODE_LABEL}
+        </Button>
+      )}
+      {canWithdraw && (
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="workflow-node-withdraw"
+          onClick={() => void approve(false)}
+        >
+          {WITHDRAW_APPROVAL_LABEL}
+        </Button>
+      )}
+      {node.state === `failed` && (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="workflow-node-retry"
+            onClick={() => void resolve(`retry`)}
+          >
+            {RETRY_NODE_LABEL}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            data-testid="workflow-node-skip"
+            onClick={() => setSkipOpen(true)}
+          >
+            {SKIP_NODE_LABEL}
+          </Button>
+        </div>
+      )}
+
+      <Dialog open={skipOpen} onOpenChange={setSkipOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{SKIP_NODE_LABEL}</DialogTitle>
+            <DialogDescription>{SKIP_NODE_CONFIRM}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogCancel>Cancel</DialogCancel>
+            <Button
+              variant="destructive"
+              data-testid="workflow-node-skip-confirm"
+              onClick={() => void resolve(`skip`)}
+            >
+              {SKIP_NODE_LABEL}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

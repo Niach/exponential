@@ -180,6 +180,11 @@ pub struct WorkflowNodeUpdate {
     pub touches: Option<Vec<String>>,
 }
 
+/// The `workflows` cap a device advertises once it can run the engine
+/// (EXP-982) — the ONE place the literal lives, mirrored by the server's
+/// `WORKFLOW_DEVICE_CAP`.
+pub const WORKFLOWS_CAP: &str = "workflows";
+
 impl WorkflowNodeUpdate {
     pub fn new(workflow_id: impl Into<String>, issue_id: impl Into<String>) -> Self {
         Self {
@@ -223,6 +228,180 @@ pub fn delete(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
     struct Ignored {}
     let _: Ignored = trpc.mutation("workflows.delete", &Input { id })?;
     Ok(())
+}
+
+// ── Running a workflow (EXP-982) ────────────────────────────────────────────
+// The server only flips intent; the deterministic ENGINE on the runner device
+// ([`coding::workflows`]) does the work off the synced rows. Everything from
+// `report_node` down is ENGINE-ONLY: the server checks that the caller owns
+// the device row named by `workflows.device_id` and answers a refusal with a
+// human sentence.
+
+/// A member-gated status flip with no payload (`start`/`pause`/`resume`/
+/// `cancel`) — the server owns every precondition.
+fn workflow_command(trpc: &TrpcClient, proc: &str, id: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Ignored {}
+    let _: Ignored = trpc.mutation(proc, &Input { id })?;
+    Ok(())
+}
+
+/// `workflows.start` — draft → running. The server re-plans first and
+/// refuses a cycle, a missing repository/device or an unsupported `startOn`
+/// with the sentence `domain::workflow_view::workflow_start_blocker` shows.
+pub fn start(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    workflow_command(trpc, "workflows.start", id)
+}
+
+/// `workflows.pause` — the engine starts and lands nothing new; live runs
+/// finish.
+pub fn pause(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    workflow_command(trpc, "workflows.pause", id)
+}
+
+pub fn resume(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    workflow_command(trpc, "workflows.resume", id)
+}
+
+/// `workflows.cancel` — the engine then ends the live runs and deletes the
+/// integration branch. Nothing reached the default branch.
+pub fn cancel(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
+    workflow_command(trpc, "workflows.cancel", id)
+}
+
+/// `workflows.approveNode` — the human gate. `approved: false` takes the
+/// approval back while the node has not landed.
+pub fn approve_node(trpc: &TrpcClient, node_id: &str, approved: bool) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        node_id: &'a str,
+        approved: bool,
+    }
+    #[derive(Deserialize)]
+    struct Ignored {}
+    let _: Ignored = trpc.mutation(
+        "workflows.approveNode",
+        &Input { node_id, approved },
+    )?;
+    Ok(())
+}
+
+/// `workflows.resolveNode` — a person unsticks a node: `retry` gives it a
+/// fresh attempt, `skip` takes it out so its dependents go on without it.
+pub fn resolve_node(trpc: &TrpcClient, node_id: &str, action: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        node_id: &'a str,
+        action: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Ignored {}
+    let _: Ignored = trpc.mutation("workflows.resolveNode", &Input { node_id, action })?;
+    Ok(())
+}
+
+/// `workflows.update({ decision })` — a dated line appended to the log every
+/// node prompt carries, at ANY status. The server relays it to every sibling
+/// parked on a question.
+pub fn append_decision(trpc: &TrpcClient, id: &str, decision: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+        decision: &'a str,
+    }
+    let _: WorkflowResponse = trpc.mutation("workflows.update", &Input { id, decision })?;
+    Ok(())
+}
+
+/// ENGINE: `workflows.reportNode` input. Omitted fields stay unchanged; the
+/// server NEVER makes or unmakes `landed`/`skipped` from here.
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeReport {
+    pub node_id: String,
+    /// contract `wfNodeState`.
+    pub state: String,
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub session_id: Patch<String>,
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub base_branch: Patch<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt: Option<i64>,
+    /// Why the node is `failed` / `waiting`, in one sentence.
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub note: Patch<String>,
+}
+
+impl NodeReport {
+    pub fn new(node_id: impl Into<String>, state: impl Into<String>) -> Self {
+        Self {
+            node_id: node_id.into(),
+            state: state.into(),
+            ..Self::default()
+        }
+    }
+}
+
+/// ENGINE: `workflows.reportNode` — a node's state moved.
+pub fn report_node(trpc: &TrpcClient, input: &NodeReport) -> Result<(), ApiError> {
+    #[derive(Deserialize)]
+    struct Ignored {}
+    let _: Ignored = trpc.mutation("workflows.reportNode", input)?;
+    Ok(())
+}
+
+/// What `workflows.landNode` answers. A refusal is an ANSWER, not an error:
+/// `merged: false` with `reason` = GitHub would not merge (a conflict with
+/// what landed before it), or a person still owes an approval.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct LandOutcome {
+    pub merged: bool,
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+impl LandOutcome {
+    /// Whether the refusal is the "wait, nothing is wrong" kind: the gate or
+    /// a workflow that is no longer running. Anything else means the branch
+    /// needs the trunk merged in.
+    pub fn is_waiting(&self) -> bool {
+        matches!(
+            self.reason.as_deref(),
+            Some("Waiting for a person to approve") | Some("The workflow is not running")
+        )
+    }
+}
+
+/// ENGINE: `workflows.landNode` — the merge train's one step. The GATE is
+/// enforced server-side, never trusted from the device.
+pub fn land_node(trpc: &TrpcClient, node_id: &str) -> Result<LandOutcome, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        node_id: &'a str,
+    }
+    trpc.mutation("workflows.landNode", &Input { node_id })
+}
+
+/// ENGINE: `workflows.openFinalPr` — the ONE final pull request, integration
+/// branch → the repository's default branch. Idempotent; returns its url.
+pub fn open_final_pr(trpc: &TrpcClient, id: &str) -> Result<String, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        id: &'a str,
+    }
+    #[derive(Deserialize)]
+    struct Response {
+        url: String,
+    }
+    let response: Response = trpc.mutation("workflows.openFinalPr", &Input { id })?;
+    Ok(response.url)
 }
 
 /// Hydrate the wire shape from a synced `workflows` row — what the detail's

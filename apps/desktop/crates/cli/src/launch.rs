@@ -160,6 +160,10 @@ pub fn issue_launch_request(
         resume_prompt,
         prompt,
         stack,
+        // EXP-982: the workflow engine fills these in itself; every other
+        // start leaves the board base and the plain prompt alone.
+        base_branch: None,
+        workflow: None,
     }
 }
 

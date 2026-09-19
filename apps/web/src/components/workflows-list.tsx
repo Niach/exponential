@@ -3,7 +3,7 @@ import { conceptIcon, EmptyState, GlassSectionHeader, ListRow } from "@exp/ui"
 import type { SyncedWorkflow } from "@/db/schema"
 import {
   workflowBand,
-  workflowShapeLine,
+  workflowRowSubtitle,
   WORKFLOW_BANDS,
   WORKFLOWS_EMPTY_BODY,
   WORKFLOWS_EMPTY_TITLE,
@@ -11,8 +11,9 @@ import {
 
 // EXP-981: the team's workflows — three bands (Running · Draft · Done) of
 // FLAT rows, newest first inside a band, empty bands hidden, no row buttons.
-// A row says what the workflow IS (`workflowShapeLine`) and warns when its
-// graph holds a blocking cycle; everything else lives on the detail.
+// A row says what the workflow IS (`workflowRowSubtitle`: the shape line, led
+// by the status word for the two a band alone does not tell apart) and warns
+// when its graph holds a blocking cycle; everything else lives on the detail.
 
 const WorkflowIcon = conceptIcon(`nav-workflows`)
 const WarningIcon = conceptIcon(`ui-warning`)
@@ -63,7 +64,7 @@ export function WorkflowsList({
                         {workflow.name}
                       </span>
                       <span className="truncate text-xs text-muted-foreground">
-                        {workflowShapeLine(workflow.metrics)}
+                        {workflowRowSubtitle(workflow.status, workflow.metrics)}
                       </span>
                     </span>
                     {workflow.metrics.cycles.length > 0 && (

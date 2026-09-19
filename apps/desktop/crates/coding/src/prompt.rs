@@ -228,6 +228,71 @@ instead of re-planning the stack yourself."
     )
 }
 
+/// EXP-982 — what the `## Workflow` section needs. Borrowed: the launcher
+/// owns the node's launch, the engine host owns the workflow row it came
+/// from.
+#[derive(Clone, Copy, Debug)]
+pub struct WorkflowPromptArgs<'a> {
+    /// `workflows.id` — the id the agent records its decisions against.
+    pub workflow_id: &'a str,
+    pub name: &'a str,
+    /// The integration branch this node's branch was cut from.
+    pub base_branch: &'a str,
+    /// `workflows.decisions` as synced; blank renders "None yet.".
+    pub decisions: &'a str,
+}
+
+/// EXP-982 — the `## Workflow` section every node run of a workflow carries,
+/// appended AFTER the normal issue/batch template: what the node is part of,
+/// how it bases and updates its branch, and the two tools that keep the
+/// siblings from re-asking one question. Ends WITHOUT a trailing blank line,
+/// like [`stack_section`].
+pub fn workflow_section(args: &WorkflowPromptArgs<'_>) -> String {
+    let WorkflowPromptArgs {
+        workflow_id,
+        name,
+        base_branch,
+        decisions,
+    } = *args;
+    let decisions = match decisions.trim() {
+        "" => "None yet.",
+        text => text,
+    };
+    format!(
+        "## Workflow node
+
+This run is ONE node of the workflow \"{name}\". A scheduler started it; other nodes run in \
+parallel on sibling branches and land into the same integration branch.
+
+- Your branch was cut from `{base_branch}`. Open your pull request with exponential_pr_open as \
+usual and pass NO base: it is derived from the workflow.
+- Never rebase and never force-push. When you are told that the integration branch moved, run \
+`git fetch origin` and `git merge origin/{base_branch}`, resolve any conflict in favour of what \
+already landed unless that breaks your issue, and push.
+- Stay inside your issue. Work you discover that is not yours: file it with \
+exponential_issues_create and mention it in your summary.
+- A question only a person can answer: exponential_sessions_ask_parent. It goes to the person \
+who started the workflow and MUST contain a line starting with `Proposal:` that they can answer \
+with yes or no. After the answer arrives, record what was decided with exponential_workflows_update \
+(id `{workflow_id}`, decision) so no sibling asks again.
+- Finish with exponential_sessions_end once your pull request is open.
+
+Decisions so far:
+{decisions}
+"
+    )
+}
+
+/// Append [`workflow_section`] to a finished prompt (one blank line before
+/// the heading), BEFORE the requester's additional instructions. `None`
+/// leaves every non-workflow prompt byte-identical.
+pub fn append_workflow_section(prompt: String, workflow: Option<&WorkflowPromptArgs<'_>>) -> String {
+    match workflow {
+        Some(args) => format!("{prompt}\n{}", workflow_section(args)),
+        None => prompt,
+    }
+}
+
 /// Render the seed prompt: the §7.1 step-5 instruction paragraph, then the
 /// issue context block it tells Claude to read. No plan-gate sentence —
 /// native plan mode owns the approval gate. `unattended` (EXP-679) picks the
@@ -360,6 +425,61 @@ fn issue_body(description: Option<&str>) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn workflow_args<'a>(decisions: &'a str) -> WorkflowPromptArgs<'a> {
+        WorkflowPromptArgs {
+            workflow_id: "wf-1",
+            name: "Login rework",
+            base_branch: "exp/wf-abcdef12",
+            decisions,
+        }
+    }
+
+    /// EXP-982 — the `## Workflow` section, byte for byte: what a node run
+    /// is told about its siblings, its base, and the two tools that keep
+    /// one question from being asked twice.
+    #[test]
+    fn the_workflow_section_reads_exactly() {
+        let rendered = workflow_section(&workflow_args("2026-09-19: ship the API first"));
+        assert_eq!(
+            rendered,
+            "## Workflow node
+
+This run is ONE node of the workflow \"Login rework\". A scheduler started it; other nodes run in \
+parallel on sibling branches and land into the same integration branch.
+
+- Your branch was cut from `exp/wf-abcdef12`. Open your pull request with exponential_pr_open as \
+usual and pass NO base: it is derived from the workflow.
+- Never rebase and never force-push. When you are told that the integration branch moved, run \
+`git fetch origin` and `git merge origin/exp/wf-abcdef12`, resolve any conflict in favour of what \
+already landed unless that breaks your issue, and push.
+- Stay inside your issue. Work you discover that is not yours: file it with \
+exponential_issues_create and mention it in your summary.
+- A question only a person can answer: exponential_sessions_ask_parent. It goes to the person \
+who started the workflow and MUST contain a line starting with `Proposal:` that they can answer \
+with yes or no. After the answer arrives, record what was decided with exponential_workflows_update \
+(id `wf-1`, decision) so no sibling asks again.
+- Finish with exponential_sessions_end once your pull request is open.
+
+Decisions so far:
+2026-09-19: ship the API first
+"
+        );
+        // A fresh workflow says so rather than trailing an empty heading.
+        assert!(workflow_section(&workflow_args("   "))
+            .ends_with("Decisions so far:\nNone yet.\n"));
+    }
+
+    /// The section is appended, never woven in: without a workflow every
+    /// existing prompt is byte-identical.
+    #[test]
+    fn appending_a_workflow_section_leaves_other_prompts_untouched() {
+        let base = render_prompt("EXP-42", "Fix login flicker", None, true, None, None);
+        assert_eq!(append_workflow_section(base.clone(), None), base);
+        let with = append_workflow_section(base.clone(), Some(&workflow_args("")));
+        assert!(with.starts_with(&base));
+        assert!(with[base.len()..].starts_with("\n## Workflow node\n"));
+    }
 
     /// The §7.1 step-5 template — exact bytes for a described issue a PERSON
     /// started (EXP-679: no `exponential_sessions_end`, the tool that run

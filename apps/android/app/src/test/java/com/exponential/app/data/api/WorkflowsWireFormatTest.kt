@@ -143,4 +143,52 @@ class WorkflowsWireFormatTest {
         )
         assertTrue(plan.indexOf("\"touches\"") > plan.indexOf("\"kind\""))
     }
+
+    // ── Running a workflow (EXP-982) ────────────────────────────────────────
+
+    @Test
+    fun `the run verbs carry the workflow id alone`() {
+        // start / pause / resume / cancel share ONE input; the server's whole
+        // judgement is made from the row it loads.
+        assertEquals(
+            """{"id":"wf-1"}""",
+            json.encodeToString(WorkflowIdInput.serializer(), WorkflowIdInput(id = "wf-1")),
+        )
+    }
+
+    @Test
+    fun `approving and withdrawing differ only in the boolean`() {
+        assertEquals(
+            """{"nodeId":"node-1","approved":true}""",
+            json.encodeToString(
+                ApproveNodeInput.serializer(),
+                ApproveNodeInput(nodeId = "node-1", approved = true),
+            ),
+        )
+        assertEquals(
+            """{"nodeId":"node-1","approved":false}""",
+            json.encodeToString(
+                ApproveNodeInput.serializer(),
+                ApproveNodeInput(nodeId = "node-1", approved = false),
+            ),
+        )
+    }
+
+    @Test
+    fun `resolving a node names retry or skip and nothing else`() {
+        assertEquals(
+            """{"nodeId":"node-1","action":"retry"}""",
+            json.encodeToString(
+                ResolveNodeInput.serializer(),
+                ResolveNodeInput(nodeId = "node-1", action = WorkflowsApi.NODE_RETRY),
+            ),
+        )
+        assertEquals(
+            """{"nodeId":"node-1","action":"skip"}""",
+            json.encodeToString(
+                ResolveNodeInput.serializer(),
+                ResolveNodeInput(nodeId = "node-1", action = WorkflowsApi.NODE_SKIP),
+            ),
+        )
+    }
 }

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.workflows
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
@@ -73,24 +75,32 @@ import com.exponential.app.ui.components.subagentModelLabel
 import com.exponential.app.ui.components.subagentModelOptions
 import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.flatRow
 
 /**
- * EXP-981: ONE workflow. P2 ships DRAFTS: look at the graph, configure how it
- * runs, hand it to an agent to plan, or delete it. There is no Start button —
- * the engine arrives with the next PR.
+ * EXP-981/982: ONE workflow. A DRAFT is looked at, configured, planned by an
+ * agent or deleted; from P3 it is also STARTED, and then the bound device's
+ * engine runs every node once, lands the reviewed PRs into the integration
+ * branch in order, and opens the one final pull request.
  *
  * The page reads top to bottom: the name (editable inline) with the shape line
  * and, when the plan holds one, the cycle note in the destructive tone; the
- * GRAPH as this phone's wave-grouped list ([WorkflowGraphList]); "How it runs";
- * then Plan and Delete workflow.
+ * GRAPH as this phone's wave-grouped list ([WorkflowGraphList]), which carries
+ * the final-PR section at its end; the merge train; "How it runs" (read-only
+ * once the workflow left draft); then the status's own actions.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun WorkflowDetailScreen(
     onBack: () -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     onOpenAgent: (AgentComposerSeed) -> Unit,
+    /** The node's coding run, opened the usual way (the Work screen's Run face). */
+    onOpenSession: (sessionId: String) -> Unit,
+    /** The node issue's pull request, on the issue detail's own Changes page. */
+    onOpenChanges: (issueId: String) -> Unit,
     viewModel: WorkflowDetailViewModel = hiltViewModel(),
 ) {
     val workflow by viewModel.workflow.collectAsStateWithLifecycle()
@@ -101,6 +111,9 @@ fun WorkflowDetailScreen(
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val deleted by viewModel.deleted.collectAsStateWithLifecycle()
+    val startBlocker by viewModel.startBlocker.collectAsStateWithLifecycle()
+    val mergeTrain by viewModel.mergeTrain.collectAsStateWithLifecycle()
+    val finalPrCaption by viewModel.finalPrCaption.collectAsStateWithLifecycle()
 
     // A delete pops back to the list; so does a workflow that stopped syncing
     // (someone else deleted it) once its row has actually been seen.
@@ -108,6 +121,7 @@ fun WorkflowDetailScreen(
 
     var selectedNode by remember { mutableStateOf<WorkflowNodeEntity?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var confirmCancel by remember { mutableStateOf(false) }
     // The name field is LOCAL while it is being typed; a blur writes it.
     var nameDraft by remember { mutableStateOf<String?>(null) }
 
@@ -115,6 +129,11 @@ fun WorkflowDetailScreen(
     val shape = remember(row?.metrics) { row?.shape ?: WorkflowView.Shape() }
     val cycleNote = remember(shape) { WorkflowView.cycleNote(shape) }
     val isDraft = row?.status == DomainContract.wfStatusDraft
+    // The node the sheet is showing, kept LIVE: an approval or a retry lands
+    // through Electric, and the sheet has to move with it.
+    val sheetNode = selectedNode?.let { picked ->
+        graph.nodes.firstOrNull { it.id == picked.id } ?: picked
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -212,7 +231,20 @@ fun WorkflowDetailScreen(
                     workflowStatus = row.status,
                     cycleNote = null,
                     onSelectNode = { selectedNode = it },
+                    finalPrCaption = finalPrCaption,
+                    finalPrUrl = row.finalPrUrl,
                 )
+            }
+            // EXP-982: what is queued to land on the integration branch, in
+            // landing order. A draft lands nothing, so it has no train.
+            if (!isDraft) {
+                item(key = "__merge_train__") {
+                    MergeTrainSection(
+                        entries = mergeTrain,
+                        graph = graph,
+                        onSelectNode = { selectedNode = it },
+                    )
+                }
             }
             item(key = "__how_it_runs__") {
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -232,58 +264,134 @@ fun WorkflowDetailScreen(
                 }
             }
             item(key = "__actions__") {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // EXP-981: Plan opens the Agent composer seeded with the
-                    // hidden plan-workflow builtin AND this workflow's id; its
-                    // free text ("Anything the plan should respect") stays
-                    // optional.
-                    GlassPill(
-                        WorkflowView.PLAN_WORKFLOW_LABEL,
-                        primary = true,
-                        icon = ExpIcons.actionRun,
-                        onClick = {
-                            onOpenAgent(
-                                AgentComposerSeed(
-                                    actionId = DomainContract.builtinPlanWorkflowId,
-                                    workflowId = row.id,
-                                    deviceId = row.deviceId,
+                // EXP-982: what a workflow offers is its STATUS. A draft is
+                // started, planned or thrown away; a live one is held or
+                // abandoned; one that is over can only be deleted.
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        when (row.status) {
+                            DomainContract.wfStatusDraft -> {
+                                GlassPill(
+                                    WorkflowView.START_WORKFLOW_LABEL,
+                                    primary = true,
+                                    icon = ExpIcons.actionRun,
+                                    enabled = startBlocker == null && !busy,
+                                    onClick = viewModel::start,
+                                    modifier = Modifier.testTag("workflow-start"),
+                                )
+                                // EXP-981: Plan opens the Agent composer seeded
+                                // with the hidden plan-workflow builtin AND this
+                                // workflow's id; its free text ("Anything the
+                                // plan should respect") stays optional.
+                                GlassPill(
+                                    WorkflowView.PLAN_WORKFLOW_LABEL,
+                                    icon = ExpIcons.uiChecklist,
+                                    onClick = {
+                                        onOpenAgent(
+                                            AgentComposerSeed(
+                                                actionId = DomainContract.builtinPlanWorkflowId,
+                                                workflowId = row.id,
+                                                deviceId = row.deviceId,
+                                            ),
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("workflow-plan"),
+                                )
+                                WorkflowDeletePill(onClick = { confirmDelete = true })
+                            }
+                            DomainContract.wfStatusRunning -> {
+                                GlassPill(
+                                    WorkflowView.PAUSE_WORKFLOW_LABEL,
+                                    icon = ExpIcons.uiStop,
+                                    enabled = !busy,
+                                    onClick = viewModel::pause,
+                                    modifier = Modifier.testTag("workflow-pause"),
+                                )
+                                WorkflowCancelPill(onClick = { confirmCancel = true })
+                            }
+                            DomainContract.wfStatusPaused -> {
+                                GlassPill(
+                                    WorkflowView.RESUME_WORKFLOW_LABEL,
+                                    primary = true,
+                                    icon = ExpIcons.actionRun,
+                                    enabled = !busy,
+                                    onClick = viewModel::resume,
+                                    modifier = Modifier.testTag("workflow-resume"),
+                                )
+                                WorkflowCancelPill(onClick = { confirmCancel = true })
+                            }
+                            else -> WorkflowDeletePill(onClick = { confirmDelete = true })
+                        }
+                    }
+                    // Why Start cannot be pressed, in the server's own words.
+                    if (isDraft) {
+                        startBlocker?.let { blocker ->
+                            Text(
+                                blocker,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Tertiary,
                                 ),
+                                modifier = Modifier
+                                    .padding(top = 6.dp, start = 4.dp)
+                                    .testTag("workflow-start-blocker"),
                             )
-                        },
-                        modifier = Modifier.testTag("workflow-plan"),
-                    )
-                    GlassPill(
-                        WorkflowView.DELETE_WORKFLOW_LABEL,
-                        icon = ExpIcons.uiDelete,
-                        // Destructive, so it takes the error tone rather than
-                        // the page's one primary fill.
-                        tint = MaterialTheme.colorScheme.error,
-                        onClick = { confirmDelete = true },
-                        modifier = Modifier.testTag("workflow-delete"),
-                    )
+                        }
+                    }
                 }
             }
             item(key = "__bottom__") { Spacer(Modifier.height(24.dp)) }
         }
     }
 
-    selectedNode?.let { node ->
+    sheetNode?.let { node ->
         WorkflowNodeSheet(
             node = node,
             graph = graph,
             workflowStatus = row?.status.orEmpty(),
+            gate = row?.gate.orEmpty(),
             editable = isDraft && !busy,
+            busy = busy,
             onKindChange = { viewModel.updateNode(node.issueId, kind = it) },
             onRiskChange = { viewModel.updateNode(node.issueId, risk = it) },
+            onApprove = { approved -> viewModel.approveNode(node.id, approved) },
+            onResolve = { action -> viewModel.resolveNode(node.id, action) },
             onOpenIssue = { issueId ->
                 selectedNode = null
                 onOpenIssue(issueId)
             },
+            onOpenSession = { sessionId ->
+                selectedNode = null
+                onOpenSession(sessionId)
+            },
+            onOpenChanges = { issueId ->
+                selectedNode = null
+                onOpenChanges(issueId)
+            },
             onDismiss = { selectedNode = null },
+        )
+    }
+
+    if (confirmCancel) {
+        AlertDialog(
+            onDismissRequest = { confirmCancel = false },
+            title = { Text(WorkflowView.CANCEL_WORKFLOW_LABEL) },
+            text = { Text(WorkflowView.CANCEL_WORKFLOW_CONFIRM) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmCancel = false
+                    viewModel.cancel()
+                }) {
+                    Text("Cancel workflow", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmCancel = false }) { Text("Keep running") }
+            },
         )
     }
 
@@ -304,6 +412,97 @@ fun WorkflowDetailScreen(
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** Destructive, so it takes the error tone rather than the page's primary fill. */
+@Composable
+private fun WorkflowDeletePill(onClick: () -> Unit) {
+    GlassPill(
+        WorkflowView.DELETE_WORKFLOW_LABEL,
+        icon = ExpIcons.uiDelete,
+        tint = MaterialTheme.colorScheme.error,
+        onClick = onClick,
+        modifier = Modifier.testTag("workflow-delete"),
+    )
+}
+
+/** Abandoning a started workflow — confirmed, like every destructive native
+ *  action. */
+@Composable
+private fun WorkflowCancelPill(onClick: () -> Unit) {
+    GlassPill(
+        WorkflowView.CANCEL_WORKFLOW_LABEL,
+        icon = ExpIcons.uiClose,
+        tint = MaterialTheme.colorScheme.error,
+        onClick = onClick,
+        modifier = Modifier.testTag("workflow-cancel"),
+    )
+}
+
+/**
+ * EXP-982: the merge train — every node whose PR is up, in the order it lands
+ * on the integration branch. Web and the desktop draw a horizontal strip; a
+ * phone draws the same thing as a SHORT list, one row per node with its step.
+ */
+@Composable
+private fun MergeTrainSection(
+    entries: List<WorkflowView.TrainEntry>,
+    graph: WorkflowGraph,
+    onSelectNode: (WorkflowNodeEntity) -> Unit,
+) {
+    val nodesById = remember(graph.nodes) { graph.nodes.associateBy { it.id } }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        SectionHeader(WorkflowView.MERGE_TRAIN_TITLE)
+        if (entries.isEmpty()) {
+            Text(
+                WorkflowView.MERGE_TRAIN_EMPTY,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .testTag("workflow-train-empty"),
+            )
+            return@Column
+        }
+        entries.forEach { entry ->
+            val node = nodesById[entry.id] ?: return@forEach
+            val issue = graph.issuesById[node.issueId]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .flatRow()
+                    .clickable { onSelectNode(node) }
+                    .padding(
+                        horizontal = GlassTokens.RowPaddingH,
+                        vertical = GlassTokens.RowPaddingV,
+                    )
+                    .testTag("workflow-train-row"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                WorkflowStateGlyph(node.state)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    issue?.let { WorkflowView.nodeTitle(it.identifier, node.memberIssueIds.size) }
+                        ?: WorkflowView.nodeKindLabel(node.kind),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    WorkflowView.trainStepLabel(entry.step),
+                    style = MaterialTheme.typography.labelSmall,
+                    // Amber means "a person is needed" here too.
+                    color = if (entry.step == WorkflowView.TrainStep.NeedsApproval) {
+                        workflowToneColor(WorkflowView.Tone.Amber)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -459,7 +658,9 @@ private fun workflowAccountLabel(profiles: List<Pair<String, String>>, id: Strin
 /**
  * One node, opened from the graph: what it is, what it covers, the two picks
  * the plan carries (Kind, Risk), the `touches` globs it declared, and the way
- * out to the issue itself.
+ * out to the issue itself. Once the workflow is running (EXP-982) it is also
+ * where a person gives their verdict: approve the node's PR for the merge
+ * train, or unstick a failed one with Retry / Skip.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -467,12 +668,20 @@ private fun WorkflowNodeSheet(
     node: WorkflowNodeEntity,
     graph: WorkflowGraph,
     workflowStatus: String,
+    /** The workflow's review gate — what [WorkflowView.nodeNeedsApproval] reads. */
+    gate: String,
     editable: Boolean,
+    busy: Boolean,
     onKindChange: (String) -> Unit,
     onRiskChange: (String) -> Unit,
+    onApprove: (Boolean) -> Unit,
+    onResolve: (String) -> Unit,
     onOpenIssue: (String) -> Unit,
+    onOpenSession: (String) -> Unit,
+    onOpenChanges: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var confirmSkip by remember { mutableStateOf(false) }
     val issue = graph.issuesById[node.issueId]
     val caption = remember(node, workflowStatus) {
         WorkflowView.nodeCaption(node.captionNode, workflowStatus)
@@ -509,12 +718,34 @@ private fun WorkflowNodeSheet(
                     )
                 }
             }
-            Text(
-                caption,
-                style = MaterialTheme.typography.labelSmall,
-                color = workflowToneColor(WorkflowView.nodeTone(node.state)),
+            Row(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (workflowStatus != DomainContract.wfStatusDraft &&
+                    workflowStateHasGlyph(node.state)
+                ) {
+                    WorkflowStateGlyph(node.state)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    caption,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = workflowToneColor(WorkflowView.nodeTone(node.state)),
+                )
+            }
+            // EXP-982: why the engine stopped here — its own sentence, shown
+            // verbatim rather than translated into a state word.
+            node.note?.takeIf { it.isNotBlank() }?.let { note ->
+                Text(
+                    note,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .testTag("workflow-node-sheet-note"),
+                )
+            }
             // A compound node names the sub-issues it runs as one batch.
             if (node.memberIssueIds.isNotEmpty()) {
                 FlowRow(
@@ -581,9 +812,74 @@ private fun WorkflowNodeSheet(
                     )
                 }
             }
-            if (issue != null) {
-                Spacer(Modifier.height(12.dp))
-                Row(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Spacer(Modifier.height(12.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // The gate, while this node's PR is up and nobody cleared it.
+                if (node.state == DomainContract.wfNodeStateInReview &&
+                    WorkflowView.nodeNeedsApproval(gate, node.kind) &&
+                    node.approvedAt.isNullOrEmpty()
+                ) {
+                    GlassPill(
+                        WorkflowView.APPROVE_NODE_LABEL,
+                        primary = true,
+                        icon = ExpIcons.uiCheck,
+                        enabled = !busy,
+                        onClick = { onApprove(true) },
+                        modifier = Modifier.testTag("workflow-node-approve"),
+                    )
+                }
+                // Taking it back is possible right up to the moment it lands.
+                if (!node.approvedAt.isNullOrEmpty() &&
+                    node.state != DomainContract.wfNodeStateLanded
+                ) {
+                    GlassPill(
+                        WorkflowView.WITHDRAW_APPROVAL_LABEL,
+                        icon = ExpIcons.uiUndo,
+                        enabled = !busy,
+                        onClick = { onApprove(false) },
+                        modifier = Modifier.testTag("workflow-node-withdraw"),
+                    )
+                }
+                if (node.state == DomainContract.wfNodeStateFailed) {
+                    GlassPill(
+                        WorkflowView.RETRY_NODE_LABEL,
+                        icon = ExpIcons.uiRefresh,
+                        enabled = !busy,
+                        onClick = { onResolve(WorkflowsApi.NODE_RETRY) },
+                        modifier = Modifier.testTag("workflow-node-retry"),
+                    )
+                    GlassPill(
+                        WorkflowView.SKIP_NODE_LABEL,
+                        icon = ExpIcons.uiClose,
+                        tint = MaterialTheme.colorScheme.error,
+                        enabled = !busy,
+                        onClick = { confirmSkip = true },
+                        modifier = Modifier.testTag("workflow-node-skip"),
+                    )
+                }
+                // The node's coding run, opened where every run is steered.
+                node.sessionId?.takeIf { it.isNotBlank() }?.let { sessionId ->
+                    GlassPill(
+                        "Open run",
+                        icon = ExpIcons.navActions,
+                        onClick = { onOpenSession(sessionId) },
+                        modifier = Modifier.testTag("workflow-node-run"),
+                    )
+                }
+                // The node's pull request, on the issue detail's Changes page.
+                if (issue != null && !issue.prUrl.isNullOrBlank()) {
+                    GlassPill(
+                        issue.prNumber?.let { "PR #$it" } ?: "Pull request",
+                        icon = ExpIcons.prOpen,
+                        onClick = { onOpenChanges(issue.id) },
+                        modifier = Modifier.testTag("workflow-node-pr"),
+                    )
+                }
+                if (issue != null) {
                     GlassPill(
                         "Open issue",
                         icon = ExpIcons.navIssues,
@@ -593,5 +889,24 @@ private fun WorkflowNodeSheet(
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    if (confirmSkip) {
+        AlertDialog(
+            onDismissRequest = { confirmSkip = false },
+            title = { Text(WorkflowView.SKIP_NODE_LABEL) },
+            text = { Text(WorkflowView.SKIP_NODE_CONFIRM) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSkip = false
+                    onResolve(WorkflowsApi.NODE_SKIP)
+                }) {
+                    Text(WorkflowView.SKIP_NODE_LABEL, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSkip = false }) { Text("Cancel") }
+            },
+        )
     }
 }

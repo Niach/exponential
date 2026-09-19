@@ -1806,6 +1806,34 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v48 (EXP-982): `workflow_nodes.approved_at` + `.note` ride the
+        // workflow-nodes shape — when a member cleared the node's PR for the
+        // merge train, and why the node is `failed` / `waiting`. Same guarded
+        // additive ALTERs + offset reset as v46's `session_id` (shape key
+        // `workflow-nodes`).
+        migrator.registerMigration("v48_workflow_node_approval") { db in
+            guard try db.tableExists("workflow_nodes") else { return }
+            let existing = Set(try db.columns(in: "workflow_nodes").map(\.name))
+            if !existing.contains("approved_at") {
+                try db.alter(table: "workflow_nodes") { t in
+                    t.add(column: "approved_at", .text)
+                }
+            }
+            if !existing.contains("note") {
+                try db.alter(table: "workflow_nodes") { t in
+                    t.add(column: "note", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the columns.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'workflow-nodes'
+                    """)
+            }
+        }
+
         return migrator
     }
 
