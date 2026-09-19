@@ -1,13 +1,15 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useRouterState } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import {
+  closeMergedRunTabs,
   pruneTabs,
   reconcileLive,
   routePathFromLocation,
   upsertFromRoute,
+  type EndedRun,
   type LiveRun,
   type RouteTab,
 } from "@/lib/work-tabs"
@@ -21,15 +23,17 @@ import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
 //      against the collections (an issue's id, a run's issue), is upserted
 //      (`upsertFromRoute`). The active tab is never stored: the strip derives
 //      it from the same URL.
-//   2. Live runs → tabs: every live run of mine in the team is reconciled in
-//      (`reconcileLive`), on every change and on a 30s clock so a stale
-//      heartbeat drops out. Adding a tab never navigates.
-//   3. Prune: a tab whose issue or run is gone from its (READY) collection is
+//   2. Live runs → tab BINDINGS: every live run of mine in the team is
+//      reconciled against the open tabs (`reconcileLive`), on every change and
+//      on a 30s clock so a stale heartbeat drops out. EXP-923: this no longer
+//      ADDS anything — a live run is a sidebar row, not a chip; the reconcile
+//      only binds a run under a tab that is already open and marks it live.
+//   3. Merge closes (EXP-923): a run that drops out of the live set because
+//      its PR MERGED takes its tab (and any other tab of that issue) with it.
+//      Only the TRANSITION closes, so reopening the issue afterwards works.
+//   4. Prune: a tab whose issue or run is gone from its (READY) collection is
 //      dropped — never while a collection is still syncing, so a cold load
 //      cannot wipe the strip.
-//
-// EXP-877: a live run also carries its AGENT down, which is the group its chip
-// sits in on the strip; the strip owns the folding itself.
 
 export function WorkTabsSync({
   teamId,
@@ -101,12 +105,7 @@ export function WorkTabsSync({
   const viewedRunId = path?.kind === `run` ? path.runId : null
   const { runs, isReady, now } = useMyLiveRuns(teamId, userId, 30_000)
   const live = useMemo<LiveRun[]>(
-    () =>
-      runs.map((run) => ({
-        runId: run.id,
-        issueId: run.issueId,
-        agent: run.agent,
-      })),
+    () => runs.map((run) => ({ runId: run.id, issueId: run.issueId })),
     [runs]
   )
   const liveKey = JSON.stringify(live)
@@ -118,6 +117,33 @@ export function WorkTabsSync({
     // `liveKey` is the runs' value identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, liveKey, isReady, viewedRunId])
+
+  // EXP-923: the merge close. Only a run that WAS live here and is not any
+  // more is looked up — a run already ended when this mounted never closes a
+  // tab you opened afterwards.
+  const wasLiveRef = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!isReady) return
+    const now = new Set(live.map((run) => run.runId))
+    const before = wasLiveRef.current
+    wasLiveRef.current = now
+    if (!before) return
+    const ended: EndedRun[] = []
+    for (const runId of before) {
+      if (now.has(runId)) continue
+      const row = codingSessionCollection.get(runId)
+      if (!row || row.teamId !== teamId) continue
+      ended.push({
+        runId,
+        issueId: row.issueId,
+        endedBy: row.endedBy,
+      })
+    }
+    if (ended.length === 0) return
+    updateWorkTabs(teamId, (state) => closeMergedRunTabs(state, ended))
+    // `liveKey` is the runs' value identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, liveKey, isReady])
 
   // Prune against the collections themselves (not a live query whose deps
   // lag the tab list by a render — that would drop a tab the instant it is

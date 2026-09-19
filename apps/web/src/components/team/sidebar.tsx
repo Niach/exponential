@@ -46,6 +46,8 @@ import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { TeamListNav } from "@/components/team/list-nav"
 import { ReviewFilesNav } from "@/components/team/review-files-nav"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
+import { SidebarRunningSection } from "@/components/team/sidebar-running"
+import { RecentRunsSidebar } from "@/components/team/recent-runs-nav"
 import {
   AgentRunningBadge,
   DraftsCountBadge,
@@ -159,6 +161,8 @@ export function TeamSidebar({
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
   // EXP-916: a review detail's panel is its file tree, not a list.
   const reviewFiles = occupant.kind === `review`
+  // EXP-923: the Agent page's Recent runs panel.
+  const recentRuns = occupant.kind === `recent`
   // EXP-870: a panel is up → the rail compacts to its icon column instead of
   // leaving. Strictly derived, never a toggle.
   const compact = occupant.kind !== `main`
@@ -488,8 +492,12 @@ export function TeamSidebar({
                       </SidebarMenu>
                     </SidebarGroupContent>
                   </SidebarGroup>
-                  {/* EXP-870: no Sessions group — every live run of mine is a
-                      work tab above the content card. */}
+                  {/* EXP-923: the RUNNING group — my live runs, nested, under
+                      the boards. Hidden entirely when nothing runs. */}
+                  <SidebarRunningSection
+                    teamId={team?.id}
+                    currentUserId={session?.user?.id}
+                  />
                 </SidebarContent>
 
                 <SidebarFooter>
@@ -625,6 +633,25 @@ export function TeamSidebar({
                 )}
               >
                 {reviewFiles && <ReviewFilesNav teamSlug={teamSlug} />}
+              </div>
+
+              {/* EXP-923: the Agent page's RECENT runs, behind that page's
+                  history toggle. Same slot and depth as the list nav — the
+                  Agent route never has one, so the two can never collide. */}
+              <div
+                inert={!recentRuns}
+                className={cn(
+                  `absolute inset-y-0 left-0 flex w-[17rem] flex-col transition-transform`,
+                  SLOT_MOTION,
+                  OFFSET_CLASS[panelOffset(`recent`, occupant.kind)]
+                )}
+              >
+                {recentRuns && team && (
+                  <RecentRunsSidebar
+                    teamId={team.id}
+                    currentUserId={session?.user?.id}
+                  />
+                )}
               </div>
             </div>
           </div>

@@ -205,11 +205,15 @@ export function MobileTabBar({
   const onReviews = Boolean(
     matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
   )
-  // The Chat launcher rides every top-level surface (the Agent page holds
-  // the sessions list and the live dot); New issue joins it in one capsule
-  // wherever a board target resolves and nothing replaced it (EXP-827). Same
-  // predicate as iOS / Android `showsCompose`.
-  const showsCompose = boardTarget !== undefined && !onDevices && !onActions
+  // EXP-973: the FAB is the SAME on every tab-bar route — Start chat next to
+  // New issue, one capsule, always. Devices, Actions/Automations, Reviews,
+  // Inbox and Support used to drop the New-issue arm and leave a lone circle,
+  // which made "file this" a two-tap trip back to a board for no reason. The
+  // arm targets the current board when there is one, else the team's
+  // remembered/first board (`resolveBoardTarget`); with NO board at all there
+  // is nothing to file into, so the capsule collapses to the chat circle.
+  // Same predicate as iOS / Android `showsCompose`.
+  const showsCompose = boardTarget !== undefined
   const onSupport = Boolean(
     matchRoute({ to: `/t/$teamSlug/support`, fuzzy: true })
   )

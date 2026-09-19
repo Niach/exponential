@@ -30,6 +30,12 @@ export type DetailOrigin =
    *  list that shows an UNATTENDED run, so a run opened from it returns
    *  there rather than to the Agent page's person-started list. */
   | { kind: `automations` }
+  /** EXP-923: the sidebar's RUNNING section — a live run of mine, opened from
+   *  the main menu itself. It is an origin rather than "no origin" because it
+   *  carries two extra rules: the navigation creates NO work tab
+   *  (`work-tabs.ts` `TABLESS_ORIGIN`), and the sidebar keeps its MAIN menu
+   *  (the section the row lives in IS the list). */
+  | { kind: `running` }
 
 /** The screen a navigation starts FROM. `other` is every full-page screen
  * (Devices, Actions, Automations, Settings…) — the context-free set, desktop
@@ -94,8 +100,11 @@ export function isContextFree(screen: OriginScreen | null): boolean {
  * desktop `derive_origin` parity — a pinned issue's run keeps the rail). */
 export function capturedOrigin(
   screen: OriginScreen | null,
-  carried: DetailOrigin | null = null
+  carriedRaw: DetailOrigin | null = null
 ): DetailOrigin | null {
+  // EXP-923: `running` belongs to the run it opened and travels no further —
+  // an issue opened FROM a live run is ordinary work and gets its own tab.
+  const carried = carriedRaw?.kind === `running` ? null : carriedRaw
   if (screen === null) return carried
   switch (screen.kind) {
     case `inbox`:
@@ -158,6 +167,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return `agent`
     case `automations`:
       return `automations`
+    case `running`:
+      return `running`
   }
 }
 
@@ -175,6 +186,7 @@ export function parseOrigin(
   if (value === `reviews`) return { kind: `reviews` }
   if (value === `agent` || value === `sessions`) return { kind: `agent` }
   if (value === `automations`) return { kind: `automations` }
+  if (value === `running`) return { kind: `running` }
   const board = value.match(/^board:([^:]+)$/)
   if (board) return { kind: `board`, boardSlug: board[1] }
   const issue = value.match(/^issue:([^:]+):([^:]+)$/)
@@ -199,6 +211,8 @@ export function originLabel(
       return `Agent`
     case `automations`:
       return `Automations`
+    case `running`:
+      return `Running`
     case `board`:
       return boardName || `Board`
   }
@@ -247,6 +261,11 @@ export function originListNavigation(
         params: { teamSlug },
         search: {},
       }
+    case `running`:
+      // The sidebar's Running section is not a page — a run opened from it
+      // has no list to go back to, so each caller falls back (a run to the
+      // Agent page, an issue to its board), exactly like no origin at all.
+      return null
   }
 }
 
@@ -259,6 +278,11 @@ export type SidebarOccupant =
    *  (`ReviewFilesNav`), a review's context, whatever list it was opened
    *  from. The desktop's `LeftOccupant::ReviewFiles`. */
   | { kind: `review` }
+  /** EXP-923: the Agent page's RECENT runs, behind that page's history
+   *  toggle. The one occupant that is NOT a function of the URL: it is a
+   *  deliberate disclosure on one route, held in a tiny module store
+   *  (`lib/recent-runs-panel.ts`) and dropped on the way out. */
+  | { kind: `recent` }
 
 /** A DETAIL route below `/t/$teamSlug` — the only routes that can show a list
  * nav. Board/inbox/support/agent/reviews are LIST screens and keep the main
@@ -298,14 +322,24 @@ export function sidebarOccupant(
   }
   if (!isDetailRest(rest)) return { kind: `main` }
   const origin = parseOrigin(from)
-  return origin ? { kind: `list`, origin } : { kind: `main` }
+  return origin && originHasListNav(origin)
+    ? { kind: `list`, origin }
+    : { kind: `main` }
+}
+
+/** EXP-923: which origins still bring a LIST panel along. `agent` lost its
+ * one (the Agent page is the composer alone now, its Recent list a toggled
+ * panel on that page) and `running` never had one — both keep the main menu,
+ * while still naming where Back goes. */
+export function originHasListNav(origin: DetailOrigin): boolean {
+  return origin.kind !== `agent` && origin.kind !== `running`
 }
 
 /** EXP-870: how deep an occupant sits — the main menu 0, a list nav (or a
  * review's file tree) 1, settings 2. The slide reads direction off it. */
 export function occupantDepth(kind: SidebarOccupant[`kind`]): number {
   if (kind === `main`) return 0
-  if (kind === `list` || kind === `review`) return 1
+  if (kind === `list` || kind === `review` || kind === `recent`) return 1
   return 2
 }
 
@@ -318,7 +352,7 @@ export function occupantDepth(kind: SidebarOccupant[`kind`]): number {
  * same.
  */
 export function panelOffset(
-  panel: `list` | `review` | `settings`,
+  panel: `list` | `review` | `recent` | `settings`,
   occupant: SidebarOccupant[`kind`]
 ): -1 | 0 | 1 {
   const depth = occupantDepth(panel)

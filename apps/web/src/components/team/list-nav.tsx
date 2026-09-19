@@ -27,14 +27,16 @@ import {
 import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { SupportThreadList } from "@/components/helpdesk/support-inbox"
-import { SessionsList } from "@/components/agent-shell"
 import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 
 // EXP-851: the sidebar's list panel — the list a detail came from. EXP-870:
 // it sits in the 17rem panel slot beside the compact rail (never replacing
 // it), sharing that slot and its directional slide with the settings nav. It carries the same back row (`SidebarBackRow`, labelled
 // with the list) and the list itself, simplified: a board's issue rows, the
-// inbox stream, the support threads, the Agent page's runs, the review queue.
+// inbox stream, the support threads, the automated runs, the review queue.
+// EXP-923: the AGENT origin lost its panel with the Agent page's own list —
+// a run opened from there keeps the main menu (`originHasListNav`), and the
+// page's Recent list is a toggled panel of its own (`recent-runs-nav.tsx`).
 // Which panel is up is a pure function of the URL (`sidebarOccupant`), so a
 // deep link lands settled and the sidebar can never disagree with the page.
 //
@@ -87,7 +89,6 @@ export function TeamListNav({
         {origin.kind === `reviews` && (
           <ReviewsListNav teamSlug={teamSlug} team={team} />
         )}
-        {origin.kind === `agent` && team && <AgentListNav teamId={team.id} />}
         {origin.kind === `automations` && team && (
           <AutomationsListNav team={team} />
         )}
@@ -258,21 +259,6 @@ function SupportListNav({
       teamSlug={teamSlug}
       activeThreadId={threadId}
       compact
-    />
-  )
-}
-
-function AgentListNav({ teamId }: { teamId: string }) {
-  const { data: session } = useSession()
-  const { sessionId } = useActiveDetail()
-  const currentUserId = session?.user?.id
-  if (!currentUserId) return null
-  return (
-    <SessionsList
-      teamId={teamId}
-      currentUserId={currentUserId}
-      activeSessionId={sessionId}
-      origin={{ kind: `agent` }}
     />
   )
 }

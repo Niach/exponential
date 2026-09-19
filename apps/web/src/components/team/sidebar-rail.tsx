@@ -31,6 +31,7 @@ import {
 } from "@/hooks/use-nav-counts"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
+import { SidebarRunningIcons } from "@/components/team/sidebar-running"
 
 // EXP-870: the rail never leaves. Beside a list nav or the settings nav the
 // main menu MORPHS into this 48px icon column instead of sliding away —
@@ -292,6 +293,7 @@ export function TeamSidebarRail({
   onWhatsNew: () => void
 }) {
   const params = { teamSlug }
+  const { data: session } = useSession()
   // EXP-862: while a pinned action seeds the composer, its pin owns the
   // highlight — the Agent icon must not claim the page too.
   const composerSeeded = useRouterState({
@@ -371,6 +373,24 @@ export function TeamSidebarRail({
             })}
           </>
         )}
+
+        {/* EXP-923: the live runs, under the boards — brand mark plus the
+            amber badge, the expanded row's whole label in the tooltip. */}
+        <SidebarRunningIcons
+          teamId={team?.id}
+          currentUserId={session?.user?.id}
+          separator={<Separator className="my-1 w-6! shrink-0" />}
+          renderItem={(item) => (
+            <RailItem
+              key={item.key}
+              label={item.label}
+              active={item.active}
+              onClick={item.onClick}
+            >
+              {item.icon}
+            </RailItem>
+          )}
+        />
       </div>
 
       <div className="flex shrink-0 flex-col items-center gap-1 py-2">

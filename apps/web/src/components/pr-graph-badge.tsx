@@ -7,6 +7,10 @@ import {
   MobilePopoverContent,
   MobilePopoverTrigger,
   Pill,
+  TREE_BASE,
+  TREE_INDENT,
+  TreeGuides,
+  treeGuides,
   useIsMobile,
 } from "@exp/ui"
 import type { Board, CodingSession, Issue } from "@/db/schema"
@@ -326,7 +330,10 @@ export function PrGraphOverlay({
         )}
         <Section label="Runs">
         <div className="flex flex-col">
-          {graph.tree.map(({ session, depth }) => {
+          {(() => {
+            // EXP-965: the connector, off the visible depths.
+            const guides = treeGuides(graph.tree.map((row) => row.depth))
+            return graph.tree.map(({ session, depth }, index) => {
             const issue = session.issueId
               ? issues.find((row) => row.id === session.issueId)
               : undefined
@@ -337,13 +344,14 @@ export function PrGraphOverlay({
               <button
                 key={session.id}
                 type="button"
-                className="flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-glass-active"
-                style={{ paddingLeft: `${12 + depth * 14}px` }}
+                className="relative flex min-w-0 items-center gap-1.5 rounded-md py-1 text-left text-xs hover:bg-glass-active"
+                style={{ paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
                 onClick={() => {
                   onClose()
                   openSession(session)
                 }}
               >
+                <TreeGuides guide={guides[index]} />
                 <RunningIndicator
                   state={sessionDisplayState(
                     session,
@@ -358,7 +366,8 @@ export function PrGraphOverlay({
                 <span className="min-w-0 truncate">{identity.subject}</span>
               </button>
             )
-          })}
+            })
+          })()}
         </div>
         </Section>
       </div>
@@ -373,17 +382,23 @@ export function PrGraphOverlay({
     <div className="flex flex-col gap-3">
       <Section label="Pull requests">
         <div className="flex flex-col gap-1.5">
-          {(graph.stack.length > 0
-            ? graph.stack
-            : graph.entry
-              ? [{ entry: graph.entry, depth: 0 }]
-              : []
-          ).map(({ entry, depth }) => (
+          {(() => {
+            const rows =
+              graph.stack.length > 0
+                ? graph.stack
+                : graph.entry
+                  ? [{ entry: graph.entry, depth: 0 }]
+                  : []
+            // EXP-965: the stack nests from the container's own edge, so the
+            // gutters start at 0 rather than at a list row's 12px padding.
+            const guides = treeGuides(rows.map((row) => row.depth))
+            return rows.map(({ entry, depth }, index) => (
             <div
               key={entry.key}
-              className="flex flex-col gap-1"
-              style={{ paddingLeft: `${depth * 14}px` }}
+              className="relative flex flex-col gap-1"
+              style={{ paddingLeft: `${depth * TREE_INDENT}px` }}
             >
+              <TreeGuides guide={guides[index]} base={0} />
               <Link
                 to="/t/$teamSlug/reviews/$issueIdentifier"
                 params={{
@@ -409,7 +424,8 @@ export function PrGraphOverlay({
                 </div>
               )}
             </div>
-          ))}
+            ))
+          })()}
         </div>
       </Section>
       {onMergeStack && bottom && top && graph.stack.length > 1 && (

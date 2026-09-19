@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { treeGuides } from "@exp/ui"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import type { SessionDevice } from "@/lib/session-device"
 import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
@@ -79,6 +80,12 @@ export function SessionTreeList({
     () => visibleTreeRows(nested, collapsed),
     [nested, collapsed]
   )
+  // EXP-965: the connector reads off the VISIBLE depths, so a folded subtree
+  // simply is not there and its parent draws nothing below itself.
+  const guides = useMemo(
+    () => treeGuides(tree.map((entry) => entry.depth)),
+    [tree]
+  )
   const toggle = (sessionId: string) =>
     setCollapsed((current) => {
       const next = new Set(current)
@@ -94,7 +101,7 @@ export function SessionTreeList({
 
   return (
     <div className="flex flex-col">
-      {tree.map(({ session, depth, hasChildren }) => {
+      {tree.map(({ session, depth, hasChildren }, index) => {
         const row = byId.get(session.id)
         if (!row) return null
         const active = session.id === activeSessionId
@@ -107,6 +114,7 @@ export function SessionTreeList({
             identifier={row.identifier ?? sessionIdentity(row).identifier}
             byline={pastRunRowByline(row)}
             depth={depth}
+            guide={guides[index]}
             active={active}
             expandable={hasChildren}
             expanded={expanded}
@@ -118,6 +126,7 @@ export function SessionTreeList({
             key={session.id}
             row={{ ...row, paused: row.paused ?? false } as SessionListRow}
             depth={depth}
+            guide={guides[index]}
             active={active}
             expandable={hasChildren}
             expanded={expanded}

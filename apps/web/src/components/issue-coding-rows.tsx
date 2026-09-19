@@ -316,8 +316,9 @@ function AgentRow({
   tone: CodingStartTone
 }) {
   // EXP-877: the tray's coding slot says nothing about a run any more. A
-  // live run of mine is a top TAB (work-tabs-strip.tsx) and a teammate's is
-  // their own business (EXP-312), so `start` always offers Start coding —
+  // live run of mine is a sidebar row (EXP-923, `team/sidebar-running.tsx`)
+  // and a teammate's is their own business (EXP-312), so `start` always
+  // offers Start coding —
   // the "Watch" pill and the teammate coding caption are gone. EXP-893: the
   // phone's `fab` is the same — a play circle, never a Watch glyph; the
   // Work screen's face switcher is how a run of mine is reached.

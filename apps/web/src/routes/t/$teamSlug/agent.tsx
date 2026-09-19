@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import {
+  Button,
+  conceptIcon,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@exp/ui"
 import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { LaunchComposer } from "@/components/launch-composer"
-import { useAgentsData, usePastRuns } from "@/hooks/use-agents-data"
+import { useAgentsData } from "@/hooks/use-agents-data"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
@@ -17,6 +24,15 @@ import {
   type LaunchSeed,
 } from "@/lib/launch-seed"
 import { pageTitle } from "@/lib/page-title"
+import {
+  setRecentRunsPanelOpen,
+  toggleRecentRunsPanel,
+  useRecentRunsPanelOpen,
+} from "@/lib/recent-runs-panel"
+
+// EXP-923: the history glyph — the ONE concept every client names its run
+// history with.
+const RecentRunsIcon = conceptIcon(`settings-sessions`)
 
 const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
@@ -176,12 +192,16 @@ function AgentPage() {
     })
   }, [urlSeed, navigate, teamSlug, search.from])
 
-  // EXP-862: with nothing running and nothing past, the composer is the whole
-  // page — it centres in the column instead of hanging off the top edge (the
-  // desktop's `min_h_full` + centred chat column).
+  // EXP-862: with nothing running, the composer is the whole page — it
+  // centres in the column instead of hanging off the top edge (the desktop's
+  // `min_h_full` + centred chat column). EXP-923: on md+ there is no list at
+  // all, so it centres there unconditionally.
   const { running } = useAgentsData(team?.id, currentUserId)
-  const { past } = usePastRuns(team?.id, currentUserId)
-  const listEmpty = running.length === 0 && past.length === 0
+  const listEmpty = running.length === 0
+  // EXP-923: the Recent panel is a disclosure on THIS page — leaving it (or
+  // switching team) always shuts it again.
+  const recentOpen = useRecentRunsPanelOpen()
+  useEffect(() => () => setRecentRunsPanelOpen(false), [])
 
   if (!team || !currentUserId) {
     return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
@@ -192,10 +212,32 @@ function AgentPage() {
   // lives in the sidebar's list nav now, so the page never nests a second
   // list beside itself (and never a second vertical scrollbar either).
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="agent-page">
+    <div
+      className="relative flex h-full min-h-0 flex-col"
+      data-testid="agent-page"
+    >
+      {/* EXP-923: the page's ONE history control — it slides the sidebar's
+          Recent panel in beside the compact rail (md+; the phone reaches the
+          same list through the topbar's sheet). */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-3 left-3 z-10 hidden size-8 text-muted-foreground hover:text-foreground md:flex"
+            aria-label="Recent runs"
+            aria-pressed={recentOpen}
+            data-testid="recent-runs-toggle"
+            onClick={() => toggleRecentRunsPanel()}
+          >
+            <RecentRunsIcon className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">Recent runs</TooltipContent>
+      </Tooltip>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div
-          className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 ${
+          className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 md:min-h-full md:justify-center ${
             listEmpty ? `min-h-full justify-center` : ``
           } ${TAB_BAR_CLEARANCE}`}
         >
@@ -217,8 +259,10 @@ function AgentPage() {
               Live steering is unavailable on this instance.
             </p>
           )}
-          {/* The same list the sidebar's Agent nav renders — here it is part
-              of the page's ONE scroller, so it never traps a nested one. */}
+          {/* EXP-923: PHONE ONLY. On md+ what is running is a sidebar
+              section, so the page is the composer alone; the phone keeps its
+              Running list under the composer, inside the page's ONE scroller
+              so it never traps a nested one. */}
           <SessionsList
             teamId={team.id}
             currentUserId={currentUserId}
@@ -226,11 +270,11 @@ function AgentPage() {
             origin={{ kind: `agent` }}
             scroll={false}
             // EXP-862: the Agent page ALWAYS draws the Running band, empty or
-            // not; the sidebar's list nav leaves it off.
+            // not.
             showWhenEmpty
             // The page's own container already reserves the tab bar's
             // clearance — the list must not add a second one inside it.
-            className="p-0 max-md:pb-0"
+            className="p-0 max-md:pb-0 md:hidden"
           />
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useRouterState } from "@tanstack/react-router"
 import { sidebarOccupant, type SidebarOccupant } from "@/lib/detail-origin"
 import { useReviewFilesSubjectId } from "@/lib/review-files-slot"
+import { useRecentRunsPanelOpen } from "@/lib/recent-runs-panel"
 
 // EXP-851 / EXP-870: which panel sits beside the rail — derived from the URL
 // alone (pathname + `?from=` + `?view=`), never click state, so every entry point drives
@@ -34,6 +35,12 @@ export function useSidebarOccupant(): SidebarOccupant {
   // from the previous review would otherwise swap the panel in for a frame.
   const subjectId = useReviewFilesSubjectId()
   const sessionId = /\/sessions\/([^/]+)$/.exec(pathname)?.[1] ?? null
+  // EXP-923: the ONE occupant the URL does not decide — the Agent page's
+  // Recent panel, opened by that page's history button and dropped when the
+  // page unmounts (`lib/recent-runs-panel.ts`). It can only be up while that
+  // route is, so a deep link still lands settled.
+  const recentOpen = useRecentRunsPanelOpen()
+  if (recentOpen && /\/agent$/.test(pathname)) return { kind: `recent` }
   return sidebarOccupant(
     pathname,
     fromToken,
