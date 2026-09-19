@@ -3765,12 +3765,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ),
       ios: ok(
         `AccountPickerMenu`,
-        `apps/ios/ExpUI/Sources/AccountPickerMenu.swift`,
+        `apps/ios/ExpUI/Sources/AccountPicker.swift`,
         `touch: the three bars sit inline in the menu row`
       ),
       android: ok(
         `AccountPickerPill`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/agent/AccountPickerPill.kt`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/components/AccountPickerPill.kt`,
         `touch: the three bars sit inline in the menu row`
       ),
     },
@@ -3832,10 +3832,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `apps/ios/ExpUI/Sources/GlassMenu.swift`,
         `AgentOptionsRow (UI/Agent/AgentOptionsRow.swift) is the composer's host`
       ),
-      android: ok(
-        `AgentPickerPill`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt`,
-        `AgentMenuItems in the same file is the shared row set`
+      android: na(
+        `EXP-872 retired AgentPickerPill: the Add-account sheet picks its agent with a PickerRow, and every launch surface picks an account.`
       ),
     },
     island: () => (

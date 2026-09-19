@@ -8,6 +8,7 @@ import com.exponential.app.domain.DomainContract
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -100,6 +101,7 @@ class DeviceSettingsDefaultsTest {
     fun `buildDefaults masks capabilities per agent and carries the default`() {
         val built = buildDefaults(
             defaultAgent = "claude",
+            defaultAccount = "work",
             agents = listOf("claude", "codex", "pi"),
             drafts = mapOf(
                 "claude" to AgentDraft("fable", "", ultracode = true, planMode = true),
@@ -108,6 +110,8 @@ class DeviceSettingsDefaultsTest {
             ),
         )
         assertEquals("claude", built.defaultAgent)
+        // EXP-872: the default ACCOUNT rides beside the agent it belongs to.
+        assertEquals("work", built.defaultAccount)
         assertTrue(built.agents.getValue("claude").ultracode)
         assertTrue(built.agents.getValue("claude").planMode)
         // codex: neither ultracode nor plan mode survives.
@@ -142,11 +146,38 @@ class DeviceSettingsDefaultsTest {
         val echoed = device(
             agents = agents,
             unauthed = emptyList(),
-            defaults = buildDefaults(defaultAgent = "codex", agents = agents, drafts = edited),
+            defaults = buildDefaults(
+                defaultAgent = "codex",
+                defaultAccount = "main",
+                agents = agents,
+                drafts = edited,
+            ),
         )
         assertEquals(agents, editableAgents(echoed))
         assertEquals("codex", seededDefaultAgent(echoed, agents))
+        assertEquals("main", echoed.launchDefaults?.defaultAccount)
         assertEquals(edited, agents.associateWith { agentDraft(echoed, it) })
+    }
+
+    /**
+     * EXP-872: nothing picked writes NO `defaultAccount` key at all — the
+     * agent's ACTIVE login stays the machine's default, which is what every
+     * row written before the rename means.
+     */
+    @Test
+    fun `an unpicked default account writes no key`() {
+        val built = buildDefaults(
+            defaultAgent = "claude",
+            defaultAccount = "",
+            agents = listOf("claude"),
+            drafts = emptyMap(),
+        )
+        assertNull(built.defaultAccount)
+        // The app's own encoder drops nulls (`explicitNulls = false`), so an
+        // unpicked default never reaches `devices.setLaunchDefaults` at all.
+        val encoded = Json { explicitNulls = false; encodeDefaults = true }
+            .encodeToString(DeviceLaunchDefaults.serializer(), built)
+        assertFalse(encoded.contains("defaultAccount"))
     }
 
     /** EXP-773 deleted the "Start in terminal" preference. An older server

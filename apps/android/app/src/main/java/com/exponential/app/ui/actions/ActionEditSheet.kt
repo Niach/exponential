@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
@@ -202,6 +203,9 @@ fun ActionEditSheet(
                     enabled = editable,
                     bordered = false,
                 )
+                // EXP-994: the group's rows are hairline-divided like every
+                // other grouped list.
+                GroupDivider()
                 // EXP-825: what the requester should type beside this action
                 // — shown as the composer field's placeholder while it is
                 // picked (the web dialog's field, same string). Blank clears.

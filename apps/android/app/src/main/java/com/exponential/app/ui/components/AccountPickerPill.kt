@@ -1,0 +1,269 @@
+package com.exponential.app.ui.components
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.exponential.app.data.api.SYSTEM_PROFILE_ID
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.domain.AccountLimits
+import com.exponential.app.domain.AccountOption
+import com.exponential.app.domain.AccountOptions
+import com.exponential.app.domain.AgentHealth
+import com.exponential.app.domain.AgentHealthRules
+import com.exponential.app.domain.AgentUsagePresentation
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.TextEmphasis
+
+// EXP-872: THE account picker of this client (web `AccountPicker`, desktop
+// `coding_selects::account_picker`, iOS `AccountPickerMenu`). It REPLACES the
+// agent picker AND the account pill on every launch surface: the list is every
+// signed-in login the machine reports, across both agents, and picking one
+// IMPLIES its agent (`AccountOptions.flatten` owns the rules; this file only
+// draws them).
+//
+// The chip and the row read the same way: the agent's brand mark + the login's
+// EMAIL. Never the profile name, never the word "default" — the device default
+// is simply the first row. A dead credential rides as a muted badge beside the
+// email.
+//
+// EXP-992: on a TOUCH platform the three tiny bars sit INLINE under the email
+// in every menu row (web hovers them out to the side on a pointer): `5h` /
+// `week` / `<model lowercased>`, off the option's `limits` (fractions 0-1).
+
+/** The bar labels, byte-identical ×4; the model bar wears the window's own
+ *  name, lower-cased (`fable`). */
+private const val LIMIT_LABEL_FIVE_HOUR = "5h"
+private const val LIMIT_LABEL_WEEK = "week"
+
+/** The label column and the block's width in a menu row — a dropdown wraps its
+ *  content, so the bars have to bring a width of their own. */
+private val LimitLabelWidth: Dp = 30.dp
+private val LimitBarsWidth: Dp = 136.dp
+
+/** One drawn bar: what it is called and how full it is (0-1). */
+internal data class AccountLimitBar(val label: String, val used: Double)
+
+/** The bars in order: 5h, week, then the model window when there is one. */
+internal fun accountLimitBars(limits: AccountLimits): List<AccountLimitBar> = buildList {
+    add(AccountLimitBar(LIMIT_LABEL_FIVE_HOUR, limits.fiveHour))
+    add(AccountLimitBar(LIMIT_LABEL_WEEK, limits.week))
+    limits.model?.let { add(AccountLimitBar(it.label.lowercase(), it.used)) }
+}
+
+/**
+ * The compact three-bar block: a tiny label column and [UsageTrack] at its
+ * MINI height per row — the same primitive every other meter in the app draws,
+ * so a percentage can never read in two tones.
+ */
+@Composable
+internal fun AccountLimitBars(
+    limits: AccountLimits,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        accountLimitBars(limits).forEach { bar ->
+            val percent = (bar.used * 100.0).coerceIn(0.0, 100.0)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    bar.label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        lineHeight = 12.sp,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(LimitLabelWidth),
+                )
+                UsageTrack(
+                    percent = percent,
+                    severity = AgentUsagePresentation.severity(percent),
+                    modifier = Modifier.weight(1f),
+                    height = UsageTrackMiniHeight,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The picker itself: the brand mark, the login's email, its health badge when
+ * the credential is dead, and a chevron — a single login is a statement, not a
+ * choice, so it renders as a plain capsule that opens nothing.
+ *
+ * Renders NOTHING when [options] is empty: a machine with no login to pick has
+ * no decision to offer, and the surface's own caption says what cannot start.
+ */
+@Composable
+internal fun AccountPickerPill(
+    options: List<AccountOption>,
+    selectedKey: String?,
+    onSelect: (AccountOption) -> Unit,
+    modifier: Modifier = Modifier,
+    contentDescription: String = "Account",
+) {
+    val current = options.firstOrNull { it.key == selectedKey } ?: options.firstOrNull() ?: return
+    var open by remember { mutableStateOf(false) }
+    val enabled = options.size > 1
+    val badge = AgentHealthRules.badgeLabel(current.health)
+    Box(modifier = modifier) {
+        GlassPill(
+            current.email,
+            onClick = if (enabled) ({ open = true }) else null,
+            leading = {
+                Icon(
+                    agentIconPainter(current.agent),
+                    contentDescription = null,
+                    modifier = Modifier.size(13.dp),
+                    tint = agentIconTint(current.agent),
+                )
+            },
+            trailing = if (badge != null || enabled) {
+                {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (badge != null) {
+                            Text(
+                                badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                                    .copy(alpha = TextEmphasis.Tertiary),
+                                maxLines = 1,
+                            )
+                        }
+                        if (enabled) {
+                            Icon(
+                                ExpIcons.uiChevronDown,
+                                contentDescription = null,
+                                modifier = Modifier.size(10.dp),
+                                tint = MaterialTheme.colorScheme.onSurface
+                                    .copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        }
+                    }
+                }
+            } else {
+                null
+            },
+            contentDescription = contentDescription,
+        )
+        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            AccountMenuItems(
+                options = options,
+                selectedKey = current.key,
+                onSelect = {
+                    open = false
+                    onSelect(it)
+                },
+            )
+        }
+    }
+}
+
+/**
+ * The login rows of a menu a surface already owns: the brand mark, the email
+ * (plus its health badge), the three limit bars under it, and a check on the
+ * current pick.
+ */
+@Composable
+internal fun AccountMenuItems(
+    options: List<AccountOption>,
+    selectedKey: String?,
+    onSelect: (AccountOption) -> Unit,
+) {
+    options.forEach { option ->
+        val badge = AgentHealthRules.badgeLabel(option.health)
+        GlassMenuItem(
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(option.email, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (badge != null) {
+                            Text(
+                                badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                                    .copy(alpha = TextEmphasis.Tertiary),
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    option.limits?.let {
+                        AccountLimitBars(it, modifier = Modifier.width(LimitBarsWidth))
+                    }
+                }
+            },
+            leadingIcon = {
+                Icon(
+                    agentIconPainter(option.agent),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = agentIconTint(option.agent),
+                )
+            },
+            trailingIcon = if (option.key == selectedKey) {
+                { Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp)) }
+            } else {
+                null
+            },
+            onClick = { onSelect(option) },
+        )
+    }
+}
+
+/**
+ * EXP-872 (web `accountOptionsOf`): the machine's flattened logins, or — for a
+ * machine that reports NONE at all (a build before profiles, a heartbeat that
+ * has not landed) — one AMBIENT option per agent in [fallbackAgents], labelled
+ * by the agent's own name, the machine's default agent first. The picker never
+ * goes empty while a run could still start on that machine.
+ */
+internal fun accountOptionsFor(
+    device: SteerDevice?,
+    fallbackAgents: List<String>,
+): List<AccountOption> {
+    if (device == null) return emptyList()
+    val flat = AccountOptions.flatten(device)
+    if (flat.isNotEmpty()) return flat
+    val preferred = device.launchDefaults?.defaultAgent?.takeIf { it in fallbackAgents }
+        ?: fallbackAgents.firstOrNull()
+    return fallbackAgents
+        .map { agent ->
+            AccountOption(
+                id = SYSTEM_PROFILE_ID,
+                agent = agent,
+                email = agentLabel(agent),
+                isDeviceDefault = agent == preferred,
+                health = AgentHealth.Unknown,
+            )
+        }
+        .sortedByDescending { it.isDeviceDefault }
+}
