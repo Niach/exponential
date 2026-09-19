@@ -72,6 +72,45 @@ describe(`AccountPicker`, () => {
     expect(onChange).toHaveBeenCalledWith(`claude:home`)
   })
 
+  // EXP-992: a pointer resting on a row opens the compact preview beside it.
+  it(`previews a login's limits on hover`, async () => {
+    vi.useFakeTimers()
+    try {
+      render(
+        <AccountPicker value="claude:work" options={options} onChange={vi.fn()} />
+      )
+      act(() => {
+        fireEvent.click(screen.getByLabelText(`Account`))
+      })
+      // The trigger says the email too; the ROW is the one inside cmdk.
+      const row = screen
+        .getAllByText(`work@x.test`)
+        .map((node) => node.closest(`[cmdk-item]`))
+        .find(Boolean)!
+        .querySelector(`[data-slot=hover-card-trigger]`)!
+      act(() => {
+        fireEvent.pointerEnter(row, { pointerType: `mouse` })
+      })
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+      const preview = document.querySelector(`[data-slot=account-limits-preview]`)
+      expect(preview).toBeTruthy()
+      expect(preview!.querySelectorAll(`[data-slot=meter]`)).toHaveLength(3)
+      expect(preview!.textContent).toContain(`5h`)
+      expect(preview!.textContent).toContain(`week`)
+      expect(preview!.textContent).toContain(`fable`)
+      // A login without a report has no preview to hover.
+      expect(
+        screen
+          .getAllByText(`home@x.test`)
+          .some((node) => node.closest(`[data-slot=hover-card-trigger]`))
+      ).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it(`the row variant leads with the title and trails with the pick`, () => {
     render(
       <AccountPicker
