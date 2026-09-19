@@ -12,7 +12,8 @@ import SwiftUI
 /// overlay, whose SECTIONS follow the face underneath — the same rows and the
 /// same copy on every face, so it reads as one thing:
 ///
-/// - Issue face → "Blocked by" + "In batch with" (issue chips)
+/// - Issue face → EXP-980: the blocks MINI-GRAPH (the transitive chain, waves
+///   and all — it replaced the flat "Blocked by" chips) + "In batch with"
 /// - Run face → EXP-930: a BATCH run's covered "Issues" first (the pill says
 ///   `3 issues`, so the first thing behind it is those three), then the
 ///   session tree (nested, live dots, tap opens the run)
@@ -81,6 +82,10 @@ struct PrGraphSheet: View {
     /// its own name (an issue run's title, a batch run's `EXP-874 +2`) instead
     /// of the "Untitled issue" every issue-less row used to read.
     var issues: [IssueEntity] = []
+    /// EXP-980: the transitive blocks graph around the subject issue — what
+    /// the Issue face leads with now. Empty (or a lone subject node) means
+    /// nothing blocks it and it blocks nothing.
+    var blockGraph = IssueGraph.Graph(nodes: [], edges: [], hasCycle: false, truncated: false)
     let onOpenIssue: (String) -> Void
     let onOpenRun: (String) -> Void
     let onMergeStack: (String) -> Void
@@ -114,12 +119,11 @@ struct PrGraphSheet: View {
 
     @ViewBuilder
     private var issueSections: some View {
-        if !graph.blockers.isEmpty {
-            section("Blocked by") {
-                ForEach(graph.blockers, id: \.id) { issue in
-                    issueRow(issue)
-                }
-            }
+        // EXP-980: the graph, not a chip list. Its own `Wave n` bands are the
+        // section headings, so there is no band above it; a lone subject node
+        // means nothing is tied to this issue either way.
+        if blockGraph.nodes.count > 1 {
+            IssueGraphView(graph: blockGraph, issues: issues, onOpenIssue: onOpenIssue)
         }
         if let batch = graph.batch {
             section("In batch with") {
@@ -128,7 +132,7 @@ struct PrGraphSheet: View {
                 }
             }
         }
-        if graph.blockers.isEmpty, graph.batch == nil {
+        if blockGraph.nodes.count < 2, graph.batch == nil {
             emptyNote("Nothing else is tied to this issue.")
         }
     }
@@ -394,6 +398,17 @@ final class PrGraphModel {
     /// rows from it, the same pool `graph(...)` builds its answer on.
     var knownIssues: [IssueEntity] { prIssues + blockers + sessionIssues }
 
+    /// EXP-980: the transitive blocks graph around `issue`, over the same
+    /// synced pool the Issue face names its nodes from.
+    func blockGraph(issue: IssueEntity?, pool: [IssueEntity]) -> IssueGraph.Graph {
+        guard let issue else {
+            return IssueGraph.Graph(nodes: [], edges: [], hasCycle: false, truncated: false)
+        }
+        return IssueGraph.blockGraph(
+            subjectIds: [issue.id], relations: relations, issues: pool
+        )
+    }
+
     /// The graph for a subject, ready for the badge and the overlay.
     ///
     /// EXP-876: `batchIssues` are the covered issues of a BATCH run (the Work
@@ -472,19 +487,22 @@ final class PrGraphModel {
         }
     }
 
-    /// The issue's `blocks` counterparts, in ONE join — `StackStart` applies
-    /// the terminal-status and ordering rules on the way out.
+    /// EXP-980: every `blocks` row and the issues at BOTH its ends, in ONE
+    /// join. The Issue face draws the TRANSITIVE chain now, so the direct
+    /// inverse rows this used to read are no longer enough; `StackStart` and
+    /// `IssueGraph` apply the terminal-status and ordering rules on the way
+    /// out, and a wider pool changes neither's answer.
     private func observeBlockers() {
-        guard blockerTask == nil, let issueId else { return }
+        guard blockerTask == nil, issueId != nil else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db -> ([IssueEntity], [IssueRelationEntity]) in
             let relations = try IssueRelationEntity
-                .filter(Column("related_issue_id") == issueId)
                 .filter(Column("type") == IssueRelationType.blocks.rawValue)
                 .fetchAll(db)
-            let issues = try IssueEntity
-                .filter(relations.map(\.issueId).contains(Column("id")))
-                .fetchAll(db)
+            let ids = Array(Set(relations.flatMap { [$0.issueId, $0.relatedIssueId] }))
+            let issues = ids.isEmpty
+                ? []
+                : try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
             return (issues, relations)
         }
         blockerTask = Task { [weak self] in

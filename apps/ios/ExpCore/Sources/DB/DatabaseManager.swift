@@ -1725,6 +1725,29 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v46 (EXP-980): `notifications.session_id` rides the notifications
+        // shape — the run a `session_blocked` row is about, which is what its
+        // inbox row taps into. NULL on every other type (and on a row whose
+        // run has been pruned). Same guarded additive ALTER + offset reset as
+        // v2's `team_id` on the very same shape.
+        migrator.registerMigration("v46_notification_session_id") { db in
+            guard try db.tableExists("notifications") else { return }
+            let existing = Set(try db.columns(in: "notifications").map(\.name))
+            if !existing.contains("session_id") {
+                try db.alter(table: "notifications") { t in
+                    t.add(column: "session_id", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'notifications'
+                    """)
+            }
+        }
+
         return migrator
     }
 

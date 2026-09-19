@@ -1,7 +1,7 @@
 //! Account → Notifications: email-notification prefs (masterplan-v3 §4.2).
 //!
 //! Web parity: `routes/_authenticated/account/notifications.tsx` — a master
-//! email `Switch`, the eight per-type rows (labels + hints verbatim), the
+//! email `Switch`, the nine per-type rows (labels + hints verbatim), the
 //! EXP-801 "messages from teammates' agents" block, the delivery cadence
 //! select and (EXP-369) the daily send-time hour.
 //! **Desktop-only, no web counterpart:** the "Desktop notifications" row
@@ -43,7 +43,8 @@ use domain::contract::{
     NOTIFICATION_TYPE_ISSUE_ASSIGNED, NOTIFICATION_TYPE_ISSUE_COMMENT,
     NOTIFICATION_TYPE_ISSUE_CREATED, NOTIFICATION_TYPE_ISSUE_MENTION,
     NOTIFICATION_TYPE_ISSUE_STATUS_CHANGED, NOTIFICATION_TYPE_PR_MERGED,
-    NOTIFICATION_TYPE_PR_OPENED, NOTIFICATION_TYPE_SUPPORT_REPLY,
+    NOTIFICATION_TYPE_PR_OPENED, NOTIFICATION_TYPE_SESSION_BLOCKED,
+    NOTIFICATION_TYPE_SUPPORT_REPLY,
 };
 
 use crate::coding_flow::CodingHub;
@@ -52,7 +53,7 @@ use crate::queries;
 use super::{error_notice, section, spawn_trpc};
 
 /// Web `TYPE_ROWS` — verbatim labels + hints, contract-locked type values.
-const TYPE_ROWS: [(&str, &str, &str); 8] = [
+const TYPE_ROWS: [(&str, &str, &str); 9] = [
     (
         NOTIFICATION_TYPE_ISSUE_CREATED,
         "New feedback",
@@ -92,6 +93,11 @@ const TYPE_ROWS: [(&str, &str, &str); 8] = [
         NOTIFICATION_TYPE_SUPPORT_REPLY,
         "Support tickets",
         "New helpdesk tickets and reporter replies in your teams.",
+    ),
+    (
+        NOTIFICATION_TYPE_SESSION_BLOCKED,
+        "Blocked runs",
+        "One of your coding runs hits a rate limit.",
     ),
 ];
 

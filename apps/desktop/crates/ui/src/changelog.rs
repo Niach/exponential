@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-19-relations-in-lists",
+    date: "2026-09-19",
+    title: "Sub-issues and blockers show in every issue list",
+    summary: "Sub-issues nest under their parent, a badge counts what blocks an issue and opens the dependency graph, a blocked start shows the whole chain, and a run that hits a rate limit notifies you.",
+    body: r#"- **Sub-issues in lists**: on every client a sub-issue sits under its parent on a connector line, in the board list, My Issues and the list beside an open issue. The parent decides the group and the position, so a finished sub-issue stays with its open parent.
+- **Blockers at a glance**: a row that is blocked, or that blocks other open work, carries one small badge with the counts. Opening it draws the dependency graph: what has to land first on the left, what waits on the right, a cycle in red. The badge on an issue's header shows the same graph.
+- **No more cycles**: linking issues as blocking or as parent and sub-issue is refused when it would close a loop of any length, and the message spells the loop out.
+- **Blocked starts**: starting a blocked issue shows the whole chain instead of the direct blockers only, a batch asks too when something outside it is in the way, and when a stacked PR is not possible the button stays visible and says why. Resuming a run never asks.
+- **Rate limit alerts**: when any of your coding runs hits a rate limit you get a push and an inbox row that opens the run. Turn it off under notification settings, Blocked runs."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-running-in-the-sidebar",
     date: "2026-09-19",
     title: "Running runs live in the sidebar again",
@@ -59,16 +73,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Usage**: a login's usage refreshes once a window has reset, at least every six hours, and a refresh after a reset fetches fresh numbers instead of the pinned reading.
 - **Edits stick**: leaving an issue right after typing its title (desktop) or description (web) and coming straight back shows what you typed, never the old text.
 - **Phones**: the chat and New issue split button shows on every tab, and Android names a stacked run's issues from the same data the stack is built from."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-19-phone-switcher-no-pins",
-    date: "2026-09-19",
-    title: "No Pinned group in the phone board switcher",
-    summary: "The board switcher on iOS and Android lists teams and boards only; pins stay a sidebar feature on the web and the desktop app.",
-    body: r#"- **Board switcher**: the Pinned group at the top of the switcher sheet is gone on iOS and Android. A pin belongs to a sidebar, and the phone has none: pins are made and opened on the web and the desktop app, where the sidebar shows them."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

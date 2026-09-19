@@ -398,6 +398,15 @@ struct MainNavigator: View {
         .onChange(of: deps.deepLinkBus.pendingInbox) { _, pending in
             if pending { openInboxFromPush() }
         }
+        // A session_blocked push tap (EXP-980): open the RUN that hit the
+        // rate limit, under the recipient's account.
+        .onChange(of: deps.deepLinkBus.pendingSessionId) { _, sessionId in
+            if let sessionId {
+                let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
+                path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
+                _ = deps.deepLinkBus.consumeSession()
+            }
+        }
         // EXP-825: a `/t/{team}/agent` universal link.
         .onChange(of: deps.deepLinkBus.pendingAgentTeamSlug) { _, slug in
             if slug != nil { openAgentFromLink() }
@@ -424,6 +433,11 @@ struct MainNavigator: View {
             if let threadId = deps.deepLinkBus.consumeSupportThread() {
                 let accountId = issueAccountId(forUserId: supportUserId)
                 path.append(AppRoute.supportThread(accountId: accountId, threadId: threadId))
+            }
+            let sessionUserId = deps.deepLinkBus.pendingSessionUserId
+            if let sessionId = deps.deepLinkBus.consumeSession() {
+                let accountId = issueAccountId(forUserId: sessionUserId)
+                path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }

@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,13 +71,16 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
+import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
+import com.exponential.app.ui.components.BlocksBadge
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassNotice
 import com.exponential.app.ui.components.GlassPill
@@ -91,11 +94,13 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LabelDot
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
+import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.gettingstarted.GettingStartedCards
@@ -176,6 +181,8 @@ fun IssueListScreen(
     val selectionActive = selectedIds.isNotEmpty()
     // Delete confirmation for the selection bar (EXP-698 r5).
     var confirmBulkDelete by remember { mutableStateOf(false) }
+    // EXP-980: the row whose blocks badge opened the mini-graph (null = none).
+    var graphIssueId by remember { mutableStateOf<String?>(null) }
     // EXP-698 r5 (Mechanism A): the selection bar takes the tab bar's slot, so
     // the tab bar + its FAB slide out while a selection is up. Covers both
     // mounts — the Issues root and a pushed board — and restores on dispose,
@@ -196,9 +203,12 @@ fun IssueListScreen(
     val selectedEntries = remember(state.groups, selectedIds) {
         state.groups.flatMap { it.issues }.filter { it.issue.id in selectedIds }
     }
-    // Each row's resolved status IS its group's — no re-resolution needed.
+    // Each row carries its OWN resolved status (EXP-980: a nested sub-issue
+    // sits in its ROOT's group, so the group's row no longer speaks for it).
     val statusByIssueId = remember(state.groups) {
-        state.groups.flatMap { group -> group.issues.map { it.issue.id to group.status } }.toMap()
+        state.groups
+            .flatMap { group -> group.issues.map { it.issue.id to (it.status ?: group.status) } }
+            .toMap()
     }
     val sharedStatus = remember(statusByIssueId, selectedIds) {
         selectedIds.mapNotNull { statusByIssueId[it] }.distinctBy { it.id }.singleOrNull()
@@ -446,6 +456,7 @@ fun IssueListScreen(
                         // still picking, so Start coding is ready when tapped.
                         if (state.board?.repositoryId != null) viewModel.ensureSteerLoaded()
                     },
+                    onOpenGraph = { id -> graphIssueId = id },
                     gettingStarted = gettingStarted,
                     onGettingStartedAction = onGettingStartedAction,
                     onNewIssue = onNewIssue,
@@ -658,6 +669,20 @@ fun IssueListScreen(
         )
     }
 
+    // EXP-980: the mini-graph a row's blocks pill opens — the transitive chain
+    // around that issue, the same view the blocked-start dialog draws.
+    graphIssueId?.let { subjectId ->
+        val graphIssues by viewModel.allIssues.collectAsStateWithLifecycle()
+        val graphRelations by viewModel.relations.collectAsStateWithLifecycle()
+        IssueGraphSheet(
+            subjectIds = listOf(subjectId),
+            issues = graphIssues,
+            relations = graphRelations,
+            onOpenIssue = onOpenIssue,
+            onDismiss = { graphIssueId = null },
+        )
+    }
+
     if (showTeamSetup) {
         // Both paths already point the team selection at the new team, so the
         // empty state behind the sheet flips on its own — closing is all this
@@ -685,6 +710,8 @@ private fun IssueListContent(
     selectedIds: Set<String>,
     onToggleSelect: (String) -> Unit,
     onEnterSelection: (String) -> Unit,
+    // EXP-980: a row's blocks pill opens the mini-graph for that issue.
+    onOpenGraph: (String) -> Unit,
     // EXP-698 r5: the empty board's own affordances — null on a pushed board,
     // whose empty state is just an empty state.
     gettingStarted: GettingStartedState?,
@@ -794,7 +821,11 @@ private fun IssueListContent(
                         }
                     }
                     if (!isCollapsed) {
-                        items(group.issues, key = { it.issue.id }) { entry ->
+                        // EXP-980/965: sub-issues hang off their parent with
+                        // the shared elbow connector — the SAME rule and
+                        // painter the run lists draw.
+                        val guides = TreeGuides.compute(group.issues.map { it.depth })
+                        itemsIndexed(group.issues, key = { _, it -> it.issue.id }) { index, entry ->
                             // Long-press enters multi-select (EXP-239 — it
                             // replaced this list's per-row action sheet; Mark
                             // done / Move to backlog live in the selection bar
@@ -805,42 +836,12 @@ private fun IssueListContent(
                             // issue (same gate as entering selection).
                             val canMutate = permissions.canMutateIssue(entry.issue.creatorId)
                             val inlineEditable = canMutate && !selectionActive
-                            IssueRow(
-                                issue = entry.issue,
-                                labels = entry.labels,
-                                // The row's status is its group's resolved row.
-                                resolvedStatus = group.status,
-                                // Solo teams hide the assignee avatar (one member).
-                                assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
-                                selected = if (selectionActive) entry.issue.id in selectedIds else null,
-                                onClick = {
-                                    if (selectionActive) {
-                                        onToggleSelect(entry.issue.id)
-                                    } else {
-                                        onOpenIssue(entry.issue.id)
-                                    }
-                                },
-                                onLongClick = if (canMutate) {
-                                    {
-                                        if (selectionActive) {
-                                            onToggleSelect(entry.issue.id)
-                                        } else {
-                                            onEnterSelection(entry.issue.id)
-                                        }
-                                    }
-                                } else {
-                                    null
-                                },
-                                onStatusClick = if (inlineEditable) {
-                                    { onInlineStatus(entry.issue.id) }
-                                } else {
-                                    null
-                                },
-                                onPriorityClick = if (inlineEditable) {
-                                    { onInlinePriority(entry.issue.id) }
-                                } else {
-                                    null
-                                },
+                            TreeGuidesRow(
+                                depth = entry.depth,
+                                guide = guides.getOrNull(index),
+                                // The list spaces its rows; the branch bridges
+                                // that gap instead of breaking at every row.
+                                gap = RowGap,
                                 // EXP-523: a status change moves an issue to
                                 // another group. Without this the row
                                 // teleports; with it it slides to where it
@@ -848,7 +849,50 @@ private fun IssueListContent(
                                 modifier = Modifier
                                     .animateItem()
                                     .padding(horizontal = ListGutter),
-                            )
+                            ) {
+                                IssueRow(
+                                    issue = entry.issue,
+                                    labels = entry.labels,
+                                    // The row's OWN resolved status: nesting
+                                    // can park it in another group's band.
+                                    resolvedStatus = entry.status ?: group.status,
+                                    // Solo teams hide the assignee avatar (one member).
+                                    assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
+                                    selected = if (selectionActive) entry.issue.id in selectedIds else null,
+                                    // EXP-980: what blocks this row, and what
+                                    // it blocks — the pill opens the graph.
+                                    blocks = entry.blocks,
+                                    onBlocksClick = { onOpenGraph(entry.issue.id) },
+                                    onClick = {
+                                        if (selectionActive) {
+                                            onToggleSelect(entry.issue.id)
+                                        } else {
+                                            onOpenIssue(entry.issue.id)
+                                        }
+                                    },
+                                    onLongClick = if (canMutate) {
+                                        {
+                                            if (selectionActive) {
+                                                onToggleSelect(entry.issue.id)
+                                            } else {
+                                                onEnterSelection(entry.issue.id)
+                                            }
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                    onStatusClick = if (inlineEditable) {
+                                        { onInlineStatus(entry.issue.id) }
+                                    } else {
+                                        null
+                                    },
+                                    onPriorityClick = if (inlineEditable) {
+                                        { onInlinePriority(entry.issue.id) }
+                                    } else {
+                                        null
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -951,6 +995,11 @@ internal fun IssueRow(
     // leave it null and get the anchor-enum glyph, which is correct for the
     // builtins and never wrong-team.
     resolvedStatus: ResolvedIssueStatus? = null,
+    // EXP-980: the blocks badge after the title — what blocks this issue and
+    // what it blocks. Null = nothing to say, no pill. [onBlocksClick] opens
+    // the mini-graph; it is the PILL's tap, never the row's.
+    blocks: IssueGraph.Counts? = null,
+    onBlocksClick: (() -> Unit)? = null,
     // EXP-523: lets a LazyColumn caller pass `Modifier.animateItem()` so rows
     // slide when the list reorders. Every call site names its arguments, so
     // this sits at the end without breaking any of them.
@@ -1034,6 +1083,10 @@ internal fun IssueRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (blocks != null) {
+            Spacer(Modifier.width(6.dp))
+            BlocksBadge(blocks, onClick = onBlocksClick)
+        }
         if (labels.isNotEmpty()) {
             Spacer(Modifier.width(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1085,6 +1138,9 @@ internal fun IssueRow(
 // Horizontal gutter every list item carries; the sticky status header band is
 // deliberately NOT inset by it (EXP-614).
 private val ListGutter = 16.dp
+
+/** The list's own row spacing — what a nesting connector has to bridge. */
+private val RowGap = 3.dp
 
 /**
  * Floor for an issue row's content height (excludes the row's own vertical

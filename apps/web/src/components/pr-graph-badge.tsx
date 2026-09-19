@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { Link } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import {
   conceptIcon,
   MobilePopover,
@@ -21,6 +21,9 @@ import {
   issueRelationCollection,
 } from "@/lib/collections"
 import { badgeKind, badgeLabel, prGraph } from "@/lib/pr-graph"
+import { blockGraph, type GraphRelation } from "@/lib/issue-graph"
+import { IssueGraphView } from "@/components/issue-graph"
+import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
 import { MERGE_STACK_LABEL } from "@/lib/pr-stack"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
@@ -49,6 +52,8 @@ const STACK_ROW_GAP = 7
 // clients (`pr_graph.rs`, `PrGraphBadge.swift`, `PrGraphBadge.kt`).
 //
 // Everything it draws is already synced — `lib/pr-graph.ts` is the pure model.
+
+const NO_RELATIONS: readonly GraphRelation[] = []
 
 const StackIcon = conceptIcon(`pr-stack`)
 const BatchIcon = conceptIcon(`pr-batch`)
@@ -86,10 +91,19 @@ export function PrGraphBadge({
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
 
+  // EXP-980: an issue row carries no `team_id` on the client (the issues shape
+  // drops its scoping columns), so `eq(i.teamId, …)` matched NOTHING and the
+  // overlay never resolved a batch partner or a blocker. The team's issues =
+  // the issues of the team's boards.
+  const boardIds = useTeamBoardIds(teamId)
   const { data: issueRows } = useLiveQuery(
     (query) =>
-      query.from({ i: issueCollection }).where(({ i }) => eq(i.teamId, teamId)),
-    [teamId]
+      boardIds.length > 0
+        ? query
+            .from({ i: issueCollection })
+            .where(({ i }) => inArray(i.boardId, boardIds))
+        : undefined,
+    [boardIds.join(`,`)]
   )
   const { data: sessionRows } = useLiveQuery(
     (query) =>
@@ -98,18 +112,16 @@ export function PrGraphBadge({
         .where(({ s }) => eq(s.teamId, teamId)),
     [teamId]
   )
-  // The blocked side only — `issue_id` blocks `related_issue_id` (EXP-736).
-  const subjectId = issue?.id ?? ``
+  // EXP-980: the team's `blocks` rows — the blocked-by section is the
+  // transitive mini-graph now, so the direct rows alone no longer do.
   const { data: relationRows } = useLiveQuery(
     (query) =>
-      subjectId
+      issue
         ? query
             .from({ r: issueRelationCollection })
-            .where(({ r }) =>
-              and(eq(r.relatedIssueId, subjectId), eq(r.type, `blocks`))
-            )
+            .where(({ r }) => and(eq(r.teamId, teamId), eq(r.type, `blocks`)))
         : undefined,
-    [subjectId]
+    [issue?.id, teamId]
   )
 
   // EXP-930: a batch's issue rows are only useful if they OPEN — and an issue
@@ -130,20 +142,13 @@ export function PrGraphBadge({
     () => (sessionRows ?? []) as CodingSession[],
     [sessionRows]
   )
+  const relations = useMemo(
+    () => (relationRows ?? []) as GraphRelation[],
+    [relationRows]
+  )
   const graph = useMemo(
-    () =>
-      prGraph({
-        issue,
-        session,
-        issues,
-        sessions,
-        relations: (relationRows ?? []) as {
-          type: string
-          issueId: string
-          relatedIssueId: string
-        }[],
-      }),
-    [issue, session, issues, sessions, relationRows]
+    () => prGraph({ issue, session, issues, sessions, relations }),
+    [issue, session, issues, sessions, relations]
   )
 
   const kind = badgeKind(graph)
@@ -214,6 +219,7 @@ export function PrGraphBadge({
           face={face}
           graph={graph}
           issues={issues}
+          relations={relations}
           boardSlugById={boardSlugById}
           subjectIssue={issue}
           teamSlug={teamSlug}
@@ -242,6 +248,7 @@ export function PrGraphOverlay({
   face,
   graph,
   issues,
+  relations = NO_RELATIONS,
   boardSlugById,
   subjectIssue,
   teamSlug,
@@ -252,6 +259,8 @@ export function PrGraphOverlay({
   graph: ReturnType<typeof prGraph<Issue, CodingSession>>
   /** The team's synced issues — a tree row's own issue, for its identity. */
   issues: readonly Issue[]
+  /** EXP-980: the team's synced `blocks` rows, for the Issue face's graph. */
+  relations?: readonly GraphRelation[]
   /** EXP-930: board slug per board id — what turns a chip into a real link.
    *  Absent (or missing the issue's board) = an inert chip, as before. */
   boardSlugById?: ReadonlyMap<string, string>
@@ -298,16 +307,25 @@ export function PrGraphOverlay({
     )
     return (
       <div className="flex flex-col gap-3">
-        {graph.blockedBy.length > 0 && (
+        {graph.blockedBy.length > 0 && subjectIssue && (
+          // EXP-980: the transitive chain as THE mini-graph, not the direct
+          // blockers as loose chips.
           <Section label="Blocked by">
-            <div className="flex flex-wrap gap-1.5">
-              {graph.blockedBy.map(chip)}
-            </div>
+            <IssueGraphView
+              graph={blockGraph([subjectIssue.id], relations, issues)}
+              issueById={new Map(issues.map((row) => [row.id, row]))}
+              renderNode={chip}
+            />
           </Section>
         )}
         {inBatch.length > 0 && (
           <Section label="In batch with">
-            <div className="flex flex-wrap gap-1.5">{inBatch.map(chip)}</div>
+            <div
+              className="flex flex-wrap gap-1.5"
+              data-testid="pr-graph-batch-partners"
+            >
+              {inBatch.map(chip)}
+            </div>
           </Section>
         )}
         {graph.blockedBy.length === 0 && inBatch.length === 0 && (

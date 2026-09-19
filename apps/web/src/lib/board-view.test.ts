@@ -5,6 +5,7 @@ import {
   buildIssueLabelMap,
   buildVisibleIssueGroups as buildGroups,
   compareIssuesForGroup,
+  nestIssueGroups,
 } from "@/lib/board-view"
 import {
   buildStatusOptions,
@@ -415,5 +416,34 @@ describe(`board-view custom statuses`, () => {
   it(`keeps optionFor in step with the constructed defaults`, () => {
     expect(optionFor(`in_progress`).icon).toBe(`progress-2-4`)
     expect(optionFor(`backlog`).name).toBe(`Backlog`)
+  })
+})
+
+// EXP-980: the list-level wrapper over `nestIssueRows` (the rule itself is
+// locked by the contract fixture in issue-nesting.test.ts).
+describe(`nestIssueGroups`, () => {
+  const parent = makeIssue({ id: `p`, identifier: `APP-1`, number: 1, status: `in_progress` })
+  const child = makeIssue({ id: `k`, identifier: `APP-2`, number: 2, status: `backlog` })
+  const other = makeIssue({ id: `o`, identifier: `APP-3`, number: 3, status: `in_progress` })
+
+  it(`returns the SAME groups while nothing nests`, () => {
+    const groups = rawGroups([parent, child, other])
+    expect(nestIssueGroups(groups, [])).toBe(groups)
+    expect(
+      nestIssueGroups(groups, [
+        { type: `blocks`, issueId: `p`, relatedIssueId: `k` },
+        { type: `parent`, issueId: `elsewhere`, relatedIssueId: `k` },
+      ])
+    ).toBe(groups)
+  })
+
+  it(`moves a sub-issue under its parent's group, with depths, and drops the emptied group`, () => {
+    const nested = nestIssueGroups(rawGroups([parent, child, other]), [
+      { type: `parent`, issueId: `p`, relatedIssueId: `k` },
+    ])
+    expect(nested).toHaveLength(1)
+    expect(nested[0].status.builtinKey).toBe(`in_progress`)
+    expect(nested[0].issues.map((issue) => issue.id)).toEqual([`p`, `k`, `o`])
+    expect(nested[0].depths).toEqual([0, 1, 0])
   })
 })

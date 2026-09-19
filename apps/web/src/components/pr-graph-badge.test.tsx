@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { CodingSession, Issue } from "@/db/schema"
 
@@ -103,6 +103,7 @@ function overlay(
       face={face}
       graph={graph}
       issues={input.issues}
+      relations={input.relations}
       boardSlugById={new Map([[`b1`, `web`]])}
       subjectIssue={input.issue ?? null}
       teamSlug="acme"
@@ -126,8 +127,20 @@ describe(`PrGraphOverlay`, () => {
     expect(screen.getByTestId(`chip-BLOCKER`)).toBeTruthy()
     expect(screen.getByText(`In batch with`)).toBeTruthy()
     expect(screen.getByTestId(`chip-BATB`)).toBeTruthy()
+    // EXP-980: the blocked-by section is the mini-graph — blocker in wave 0,
+    // the subject behind it in wave 1.
+    expect(
+      screen.getByTestId(`issue-graph-node-BLOCKER`).getAttribute(`data-wave`)
+    ).toBe(`0`)
+    expect(
+      screen.getByTestId(`issue-graph-node-BATA`).getAttribute(`data-wave`)
+    ).toBe(`1`)
     // The subject never lists itself as its own batch partner.
-    expect(screen.queryByTestId(`chip-BATA`)).toBeNull()
+    expect(
+      within(screen.getByTestId(`pr-graph-batch-partners`)).queryByTestId(
+        `chip-BATA`
+      )
+    ).toBeNull()
   })
 
   it(`shows the session tree on the run face`, () => {

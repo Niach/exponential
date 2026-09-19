@@ -42,9 +42,11 @@ use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
+use domain::issue_graph::BlockCounts;
 use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::{Issue, Label, Board, User};
 use domain::statuses::{ResolvedStatus, StatusTint};
+use domain::tree_guides::{guides_for, Guides};
 use domain::IssueStatus;
 
 use crate::controls::WebControl as _;
@@ -57,6 +59,11 @@ use crate::queries::{self, BoardData};
 
 /// Compact row height (§4.4: ~28px vs web's ~40px desktop row).
 const ROW_HEIGHT: f32 = 28.;
+/// The list's base left padding (`px_3`) — EXP-980's tree gutters are
+/// measured off it, exactly like the session rows' `ROW_PAD`.
+const ROW_PAD: f32 = 12.;
+/// The list stacks its rows with no gap, so the connector bridges nothing.
+const ROW_GAP: f32 = 0.;
 /// Group header height (web py-1.5 + text-sm, compacted).
 const HEADER_HEIGHT: f32 = 28.;
 /// The row's hover group (web `group/row`) — reveals the bulk-select
@@ -176,6 +183,7 @@ impl IssueQuery {
                 is_ready: false,
                 groups: Vec::new(),
                 labels_by_issue: HashMap::new(),
+                block_counts: HashMap::new(),
             },
             IssueQuery::Board { board_id } => queries::board_board(cx, board_id),
             IssueQuery::MyIssues { team_id, user_id } => {
@@ -235,6 +243,13 @@ enum ListRow {
     Issue {
         issue: Rc<Issue>,
         labels: Rc<Vec<Label>>,
+        /// EXP-980: the row's tree connector — its depth rides it, so the
+        /// two can never disagree (EXP-965's `guides_for` over the group's
+        /// visible depth sequence).
+        guides: Guides,
+        /// EXP-980: the row's `blocks` badge numbers, off the query's ONE
+        /// pass over the synced relations.
+        counts: BlockCounts,
     },
 }
 
@@ -316,6 +331,9 @@ impl IssueListView {
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             // EXP-314: the group vocabulary itself is synced data now.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
+            // EXP-980: the nesting and the blocks badges are derived from
+            // the relation rows.
+            cx.observe(&collections.issue_relations, |_, _, cx| cx.notify()),
             // EXP-426: the active-row highlight follows navigation.
             cx.observe(&nav, |_, _, cx| cx.notify()),
             // EXP-698 round 5: the empty-board branch renders the
@@ -522,9 +540,14 @@ impl IssueListView {
             } => self
                 .render_group_header(status, *count, *collapsed, cx)
                 .into_any_element(),
-            ListRow::Issue { issue, labels } => {
-                self.render_issue_row(issue, labels, cx).into_any_element()
-            }
+            ListRow::Issue {
+                issue,
+                labels,
+                guides,
+                counts,
+            } => self
+                .render_issue_row(issue, labels, guides, *counts, cx)
+                .into_any_element(),
         }) else {
             return div().into_any_element();
         };
@@ -605,6 +628,8 @@ impl IssueListView {
         &self,
         issue: &Rc<Issue>,
         labels: &[Label],
+        guides: &Guides,
+        counts: BlockCounts,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
@@ -631,6 +656,12 @@ impl IssueListView {
             .h(px(ROW_HEIGHT))
             .w_full()
             .px_3()
+            // EXP-980: a sub-issue indents by one gutter level per depth and
+            // paints EXP-965's elbow in the band its parent's glyph sits in.
+            // The connector layer is absolute, so the row must be relative.
+            .relative()
+            .pl(px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
+            .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
             .flex()
             .items_center()
             // Bounded clip at the extreme-narrow floor — cells carry min
@@ -723,12 +754,21 @@ impl IssueListView {
                     .items_center()
                     .child(
                         div()
+                            .flex_shrink(1.)
                             .text_sm()
                             .whitespace_nowrap()
                             .overflow_hidden()
                             .text_ellipsis()
                             .child(SharedString::from(issue.title.clone())),
-                    ),
+                    )
+                    // EXP-980: the blocks pill, right after the title. Its
+                    // click opens the mini-graph, never the issue.
+                    .children(crate::issue_graph::blocks_badge(
+                        SharedString::from(format!("blocks-{}", issue.id)),
+                        &issue.id,
+                        counts,
+                        cx,
+                    )),
             )
             // auto labels — the web rounded-full chips, collapsed to bare
             // color dots when the panel is narrow (EXP-439: full chips ate
@@ -1533,7 +1573,11 @@ impl Render for IssueListView {
             if collapsed {
                 continue;
             }
-            for issue in &group.issues {
+            // EXP-980: the connector off the group's own depth sequence — a
+            // root and its whole subtree always live in ONE group, so the
+            // tree never spans a header.
+            let guides = guides_for(&group.depths);
+            for (index, issue) in group.issues.iter().enumerate() {
                 let labels = data
                     .labels_by_issue
                     .get(issue.id.as_str())
@@ -1544,6 +1588,12 @@ impl Render for IssueListView {
                     // copies per frame (REV-39).
                     issue: issue.clone(),
                     labels,
+                    guides: guides.get(index).cloned().unwrap_or_default(),
+                    counts: data
+                        .block_counts
+                        .get(issue.id.as_str())
+                        .copied()
+                        .unwrap_or_default(),
                 });
             }
         }

@@ -499,6 +499,11 @@ pub struct Notification {
     /// rows (their team resolves via the issue) and on pre-column rows.
     #[serde(default)]
     pub team_id: Option<String>,
+    /// EXP-980: set on issue-less `session_blocked` rows (the run that hit a
+    /// rate limit) so the inbox row can open it; NULL everywhere else, and on
+    /// a row whose run has since been pruned.
+    #[serde(default)]
+    pub session_id: Option<String>,
     /// `notification_type` wire value — typed enum lands with the Phase-3
     /// inbox (§4.7); Phase 2 carries the raw string.
     #[serde(default, rename = "type")]
@@ -1661,6 +1666,38 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(n.team_id, None);
+        assert_eq!(n.session_id, None);
+    }
+
+    #[test]
+    fn notification_session_id_hydrates_and_degrades_to_none() {
+        // EXP-980: an issue-less session_blocked row names the run it is
+        // about; the team rides along so the inbox can switch to it.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-1",
+            "user_id": "u-1",
+            "issue_id": null,
+            "team_id": "w-1",
+            "session_id": "s-1",
+            "type": "session_blocked",
+            "title": "EXP-12 hit a rate limit",
+            "body": "Rate limited · resets in 2h"
+        }))
+        .unwrap();
+        assert_eq!(n.session_id.as_deref(), Some("s-1"));
+        assert_eq!(n.kind.as_deref(), Some("session_blocked"));
+
+        // A pruned run (or a pre-column row) degrades to None, never a drop.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-2",
+            "user_id": "u-1",
+            "issue_id": null,
+            "team_id": "w-1",
+            "session_id": null,
+            "type": "session_blocked"
+        }))
+        .unwrap();
+        assert_eq!(n.session_id, None);
     }
 
     #[test]

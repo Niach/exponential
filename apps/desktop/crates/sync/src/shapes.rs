@@ -318,6 +318,9 @@ pub const SHAPES: [ShapeSpec; 22] = [
             // ALTERs it onto existing store tables and stamps a refetch so
             // old rows get real values, not NULLs.
             "team_id",
+            // EXP-980: nullable — set on issue-less `session_blocked` rows
+            // (the run that hit a rate limit) so the inbox row can open it.
+            "session_id",
             "type",
             "title",
             "body",
@@ -756,6 +759,14 @@ mod tests {
         // the inbox's only handle on which Support inbox to open.
         let spec = shape_by_name("notifications").unwrap();
         assert!(spec.columns.contains(&"team_id"));
+    }
+
+    #[test]
+    fn notifications_model_session_id_for_blocked_runs() {
+        // EXP-980: issue-less `session_blocked` rows carry the run they are
+        // about — the inbox row's only handle on which run to open.
+        let spec = shape_by_name("notifications").unwrap();
+        assert!(spec.columns.contains(&"session_id"));
     }
 
     #[test]

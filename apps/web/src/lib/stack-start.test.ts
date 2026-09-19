@@ -5,6 +5,11 @@ import {
   BLOCKED_START_TITLE,
   blockedStartBody,
   openBlockers,
+  STACK_CYCLE_NOTE,
+  STACK_NEEDS_UPDATE_NOTE,
+  STACK_SINGLE_ISSUE_NOTE,
+  stackDisabledNote,
+  stackDisabledReason,
   START_ANYWAY_LABEL,
   STACKED_PR_LABEL,
 } from "./stack-start"
@@ -83,5 +88,20 @@ describe(`openBlockers`, () => {
     expect(blockedStartBody([`ABC-12`, `ABC-13`])).toBe(
       `${BLOCKED_START_BODY_PREFIX}#ABC-12, #ABC-13${BLOCKED_START_BODY_SUFFIX}`
     )
+  })
+})
+
+describe(`stackDisabledReason`, () => {
+  it(`names one reason, the most fundamental first`, () => {
+    expect(stackDisabledReason({ pickedCount: 1, canStack: true, hasCycle: false })).toBeNull()
+    expect(stackDisabledReason({ pickedCount: 1, canStack: false, hasCycle: false })).toBe(`cap`)
+    expect(stackDisabledReason({ pickedCount: 2, canStack: false, hasCycle: false })).toBe(`batch`)
+    expect(stackDisabledReason({ pickedCount: 2, canStack: true, hasCycle: true })).toBe(`cycle`)
+  })
+
+  it(`has a note for every reason`, () => {
+    expect(stackDisabledNote(`cap`)).toBe(STACK_NEEDS_UPDATE_NOTE)
+    expect(stackDisabledNote(`batch`)).toBe(STACK_SINGLE_ISSUE_NOTE)
+    expect(stackDisabledNote(`cycle`)).toBe(STACK_CYCLE_NOTE)
   })
 })

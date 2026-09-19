@@ -24,6 +24,49 @@ public enum StackStart {
     public static let bodyPrefix = "This issue is blocked by "
     public static let bodySuffix = ". Start anyway, or start a stacked PR?"
 
+    // EXP-980: the prompt also asks for a BATCH (blockers outside the picked
+    // set, `IssueGraph.openBlockersOfSet`), draws the transitive chain as the
+    // mini-graph, and never hides the stacked button: it is DISABLED with one
+    // of the reason notes below. All byte-identical ×4.
+
+    /// The title when two or more issues were picked.
+    public static let blockedBatchTitle = "Some of these issues are blocked"
+    /// The batch body, above the graph.
+    public static let blockedBatchBody = "Open issues outside this batch block it. Start anyway?"
+    /// Why "Stacked PR" is disabled: the runner device lacks the
+    /// `stacked-start` capability (an older app or daemon).
+    public static let stackNeedsUpdateNote = "Update Exponential on this device to start stacked PRs."
+    /// Why "Stacked PR" is disabled for a batch.
+    public static let stackSingleIssueNote = "A stacked PR starts one issue at a time."
+    /// Why "Stacked PR" is disabled on a blocking cycle.
+    public static let stackCycleNote = "These issues block each other in a cycle. Remove one relation to stack them."
+
+    /// Why the stacked start is off; nil means it is on.
+    public enum StackDisabledReason: String, Sendable {
+        case cycle
+        case batch
+        case cap
+    }
+
+    /// One reason at a time, the most fundamental first: a cycle can never
+    /// stack, a batch never does, a missing capability is fixed by an update.
+    public static func stackDisabledReason(
+        pickedCount: Int, canStack: Bool, hasCycle: Bool
+    ) -> StackDisabledReason? {
+        if hasCycle { return .cycle }
+        if pickedCount > 1 { return .batch }
+        if !canStack { return .cap }
+        return nil
+    }
+
+    public static func stackDisabledNote(_ reason: StackDisabledReason) -> String {
+        switch reason {
+        case .cycle: return stackCycleNote
+        case .batch: return stackSingleIssueNote
+        case .cap: return stackNeedsUpdateNote
+        }
+    }
+
     /// The OPEN blockers of `issueId`: the issues that must land first.
     ///
     /// Exactly the inverse side of the canonical `blocks` row — a row whose

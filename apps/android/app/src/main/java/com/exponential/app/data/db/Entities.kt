@@ -518,8 +518,13 @@ data class NotificationEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
     @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
-    // Set on issue-less support_reply rows (the helpdesk ticket's team); NULL on issue-anchored rows.
+    // Set on issue-less support_reply / agent_message / session_blocked rows (the
+    // team they belong to); NULL on issue-anchored rows.
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String? = null,
+    // EXP-980: the coding run a `session_blocked` row is about — the inbox row
+    // and its push both route to it. NULL on every other type, and on a row
+    // whose run has since been pruned.
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
     val type: String,
     val title: String,
     val body: String? = null,

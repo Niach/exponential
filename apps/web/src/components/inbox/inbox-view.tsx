@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { Bell, CircleCheck } from "lucide-react"
 import { Button, conceptIcon, EmptyState, ListRow, LiveDot } from "@exp/ui"
@@ -94,10 +94,16 @@ type SupportGroup = {
 // EXP-801: an agent's message (`agent_message`, issue-less, team-scoped) is
 // its own entry — one per row, never bundled: each is a distinct thing
 // someone's agent said. Clicking marks it read; there is nowhere to go.
+//
+// EXP-980: a `session_blocked` row (a run of yours hit a rate limit) is the
+// same one-row entry, except that it HAS somewhere to go: the run
+// (`session_id` + the team's slug).
 type MessageGroup = {
   kind: `message`
   teamId: string | null
   teamName: string | null
+  /** Where a click lands, when the row names a run in a synced team. */
+  session: { teamSlug: string; sessionId: string } | null
   items: [Notification]
   unread: number
 }
@@ -191,12 +197,16 @@ export function InboxView({
     const messages: MessageGroup[] = []
     for (const n of (notifications ?? []) as Notification[]) {
       if (!n.issueId) {
-        if (n.type === `agent_message`) {
+        if (n.type === `agent_message` || n.type === `session_blocked`) {
           const team = n.teamId ? teamMap.get(n.teamId) : undefined
           messages.push({
             kind: `message`,
             teamId: team?.id ?? null,
             teamName: team?.name ?? null,
+            session:
+              n.type === `session_blocked` && n.sessionId && team
+                ? { teamSlug: team.slug, sessionId: n.sessionId }
+                : null,
             items: [n],
             unread: n.readAt ? 0 : 1,
           })
@@ -262,6 +272,7 @@ export function InboxView({
   // by-issue/by-team clears also catch rows the client hasn't synced yet.
   // Only the legacy null-team support group (rows from before team_id
   // existed) still clears row-by-row — markReadSupport needs a team.
+  const navigate = useNavigate()
   const markGroupRead = async (g: Group) => {
     if (g.unread === 0) return
     if (g.kind === `issue`) {
@@ -310,7 +321,7 @@ export function InboxView({
           visibleGroups.map((g) => {
             const latest = g.items[0]
             if (g.kind === `message`) {
-              const MessageIcon = typeIcon.agent_message ?? Bell
+              const MessageIcon = typeIcon[latest.type] ?? Bell
               return (
                 <ListRow
                   key={`message:${latest.id}`}
@@ -320,7 +331,16 @@ export function InboxView({
                     !compact && PAGE_READING_ROW,
                     g.unread === 0 && `opacity-60`
                   )}
-                  onClick={() => void markGroupRead(g)}
+                  data-testid={`inbox-row-${latest.type}`}
+                  onClick={() => {
+                    void markGroupRead(g)
+                    if (g.session) {
+                      void navigate({
+                        to: `/t/$teamSlug/sessions/$sessionId`,
+                        params: g.session,
+                      })
+                    }
+                  }}
                 >
                   <RowGlyph icon={MessageIcon} compact={compact} />
                   <div className="min-w-0 flex-1">

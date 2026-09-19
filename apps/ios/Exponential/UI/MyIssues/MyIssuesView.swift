@@ -17,17 +17,33 @@ struct MyIssuesListContent: View {
     // lengths — extra important here where rows span boards with different
     // prefix lengths (EXP-250).
     @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
+    /// EXP-980: the issue whose blocks mini-graph is up (a row badge tap).
+    @State private var blocksTarget: IssueGraphTarget?
 
     var body: some View {
         Group {
             if let vm = viewModel {
-                if vm.issues.isEmpty {
+                if vm.renderGroups.isEmpty {
                     emptyState
                 } else {
                     issueList(vm)
                 }
             } else {
                 Color.clear
+            }
+        }
+        // EXP-980: the row badge's mini-graph — a tap on a node opens that
+        // issue, the same push the rows make.
+        .sheet(item: $blocksTarget) { target in
+            if let vm = viewModel {
+                IssueGraphSheet(
+                    graph: vm.blockGraph(forIssueId: target.id),
+                    issues: vm.relationIssues,
+                    onOpenIssue: { id in
+                        blocksTarget = nil
+                        deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
+                    }
+                )
             }
         }
         .onAppear {
@@ -59,21 +75,26 @@ struct MyIssuesListContent: View {
     @ViewBuilder
     private func issueList(_ vm: MyIssuesViewModel) -> some View {
         List {
-            ForEach(IssueStatus.displayOrder, id: \.self) { status in
-                let statusIssues = vm.issuesForStatus(status)
-                if !statusIssues.isEmpty {
-                    Section {
-                        ForEach(statusIssues, id: \.id) { issue in
-                            issueRow(issue: issue, vm: vm)
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
-                        }
-                    } header: {
-                        statusHeader(status: status, count: statusIssues.count)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+            // EXP-980: nested rows — a sub-issue follows its root, whatever
+            // status it is in itself, so a group the nesting emptied is gone
+            // and the header counts what is DISPLAYED here.
+            ForEach(vm.renderGroups) { group in
+                Section {
+                    // EXP-965: the elbow connectors, off the rows' own depths;
+                    // the list spaces rows 3pt apart, which the branch runs
+                    // through.
+                    let guides = TreeGuides.compute(depths: group.rows.map(\.depth))
+                    ForEach(Array(group.rows.enumerated()), id: \.element.id) { index, row in
+                        issueRow(issue: row.issue, vm: vm)
+                            .treeGuides(guides[index], gap: 3)
                             .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
                     }
+                } header: {
+                    statusHeader(status: group.status, count: group.rows.count)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
+                        .listRowBackground(Color.clear)
                 }
             }
         }
@@ -143,6 +164,15 @@ struct MyIssuesListContent: View {
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
+
+                // EXP-980: the blocks badge, right after the title. Tapping
+                // the pill (not the row) opens this issue's mini-graph.
+                if let counts = vm.blockCounts[issue.id] {
+                    BlocksBadge(counts: counts) {
+                        blocksTarget = IssueGraphTarget(id: issue.id)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                }
 
                 Spacer()
 

@@ -3,6 +3,7 @@ package com.exponential.app.domain
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 // EXP-897 — the blocked-start rule, the same three tests web
@@ -106,5 +107,58 @@ class StackStartTest {
         assertEquals("Stacked PR", StackStart.STACKED_PR_LABEL)
         assertEquals("This issue is blocked by ", StackStart.BODY_PREFIX)
         assertEquals(". Start anyway, or start a stacked PR?", StackStart.BODY_SUFFIX)
+        // EXP-980: the batch half of the same dialog.
+        assertEquals("Some of these issues are blocked", StackStart.BLOCKED_BATCH_TITLE)
+        assertEquals(
+            "Open issues outside this batch block it. Start anyway?",
+            StackStart.BLOCKED_BATCH_BODY,
+        )
+    }
+
+    // EXP-980: the stacked button is never hidden any more — it is disabled
+    // with one reason at a time, the most fundamental first.
+    @Test
+    fun namesOneReasonTheMostFundamentalFirst() {
+        assertNull(StackStart.stackDisabledReason(pickedCount = 1, canStack = true, hasCycle = false))
+        assertEquals(
+            StackStart.StackDisabledReason.Cap,
+            StackStart.stackDisabledReason(pickedCount = 1, canStack = false, hasCycle = false),
+        )
+        assertEquals(
+            StackStart.StackDisabledReason.Batch,
+            StackStart.stackDisabledReason(pickedCount = 2, canStack = false, hasCycle = false),
+        )
+        assertEquals(
+            StackStart.StackDisabledReason.Cycle,
+            StackStart.stackDisabledReason(pickedCount = 2, canStack = true, hasCycle = true),
+        )
+    }
+
+    @Test
+    fun hasANoteForEveryReason() {
+        assertEquals(
+            StackStart.STACK_NEEDS_UPDATE_NOTE,
+            StackStart.stackDisabledNote(StackStart.StackDisabledReason.Cap),
+        )
+        assertEquals(
+            StackStart.STACK_SINGLE_ISSUE_NOTE,
+            StackStart.stackDisabledNote(StackStart.StackDisabledReason.Batch),
+        )
+        assertEquals(
+            StackStart.STACK_CYCLE_NOTE,
+            StackStart.stackDisabledNote(StackStart.StackDisabledReason.Cycle),
+        )
+        assertEquals(
+            "Update Exponential on this device to start stacked PRs.",
+            StackStart.STACK_NEEDS_UPDATE_NOTE,
+        )
+        assertEquals(
+            "A stacked PR starts one issue at a time.",
+            StackStart.STACK_SINGLE_ISSUE_NOTE,
+        )
+        assertEquals(
+            "These issues block each other in a cycle. Remove one relation to stack them.",
+            StackStart.STACK_CYCLE_NOTE,
+        )
     }
 }

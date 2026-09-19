@@ -353,6 +353,11 @@ export const notificationTypeValues = [
   // row carries the sending team's `team_id`. Blocked per recipient by
   // `user_notification_prefs.allow_agent_messages` (own agents always pass).
   `agent_message`,
+  // EXP-980: a coding run hit a wall (`coding_sessions.blocked` went null →
+  // set: a rate limit today). Sent to the run's OWNER for every run; the row
+  // carries `session_id` (+ `team_id`) so the inbox row and the push route to
+  // the run. Issue-less even for an issue run: the run is the subject.
+  `session_blocked`,
 ] as const
 
 // Pull-request state surfaced on issues.pr_state. Mirrors the GitHub PR state

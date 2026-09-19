@@ -51,7 +51,11 @@ vi.mock(`@/lib/metrics/registry`, () => ({
 }))
 
 import { sendToUsers } from "@/lib/integrations/fcm"
-import { deliverableRecipients, sendAgentMessage } from "./notifications"
+import {
+  deliverableRecipients,
+  notifySessionBlocked,
+  sendAgentMessage,
+} from "./notifications"
 
 beforeEach(() => {
   selectResults.length = 0
@@ -154,5 +158,112 @@ describe(`sendAgentMessage — blocked recipients never get a row, self always p
     })
     expect(executeState.calls).toBe(0)
     expect(sendToUsers).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-980: a walled run tells its OWNER — every run, not only a child's
+// parent agent.
+describe(`notifySessionBlocked — the run's owner gets a row and a push that route to the run`, () => {
+  const blocked = {
+    kind: `rate_limit`,
+    agent: `claude`,
+    window: `weekly`,
+    resetsAt: null,
+    since: `2026-09-19T00:00:00Z`,
+  } as const
+
+  it(`names an issue run by its identifier and pushes the session target`, async () => {
+    selectResults.push([
+      {
+        userId: `owner`,
+        teamId: `team-1`,
+        teamSlug: `acme`,
+        issueId: `issue-1`,
+        batchIssueIds: null,
+        actionName: null,
+      },
+    ])
+    selectResults.push([{ identifier: `EXP-12` }])
+    selectResults.push([{ id: `owner` }]) // membership guard
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([]) // push prefs: not muted
+
+    await notifySessionBlocked(`sess-1`, blocked)
+
+    expect(executeState.calls).toBe(1)
+    const [recipients, payload] = vi.mocked(sendToUsers).mock.calls[0]!
+    expect(recipients).toEqual([
+      { userId: `owner`, data: { notificationId: `n-1` } },
+    ])
+    expect(payload).toMatchObject({
+      title: `EXP-12 hit a rate limit`,
+      body: `Rate limited`,
+      data: {
+        type: `session_blocked`,
+        sessionId: `sess-1`,
+        teamId: `team-1`,
+        teamSlug: `acme`,
+      },
+    })
+  })
+
+  it(`names a batch by its first issue and the rest, an action run by its name`, async () => {
+    selectResults.push([
+      {
+        userId: `owner`,
+        teamId: `team-1`,
+        teamSlug: `acme`,
+        issueId: null,
+        batchIssueIds: [`issue-1`, `issue-2`, `issue-3`],
+        actionName: null,
+      },
+    ])
+    selectResults.push([{ identifier: `EXP-12` }])
+    selectResults.push([{ id: `owner` }])
+    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([])
+    await notifySessionBlocked(`sess-1`, blocked)
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(
+      `EXP-12 +2 hit a rate limit`
+    )
+
+    vi.mocked(sendToUsers).mockClear()
+    selectResults.push([
+      {
+        userId: `owner`,
+        teamId: `team-1`,
+        teamSlug: `acme`,
+        issueId: null,
+        batchIssueIds: null,
+        actionName: `Triage inbox`,
+      },
+    ])
+    selectResults.push([{ id: `owner` }])
+    selectResults.push([])
+    await notifySessionBlocked(`sess-2`, blocked)
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(
+      `Triage inbox hit a rate limit`
+    )
+  })
+
+  it(`writes nothing for an owner who left the team, and never throws`, async () => {
+    selectResults.push([
+      {
+        userId: `owner`,
+        teamId: `team-1`,
+        teamSlug: `acme`,
+        issueId: null,
+        batchIssueIds: null,
+        actionName: null,
+      },
+    ])
+    selectResults.push([]) // membership guard: gone
+    await notifySessionBlocked(`sess-1`, blocked)
+    expect(executeState.calls).toBe(0)
+    expect(sendToUsers).not.toHaveBeenCalled()
+
+    // A vanished run row is a no-op too.
+    selectResults.push([])
+    await expect(notifySessionBlocked(`sess-9`, blocked)).resolves.toBeUndefined()
   })
 })

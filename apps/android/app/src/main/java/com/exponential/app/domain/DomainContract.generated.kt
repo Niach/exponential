@@ -20,7 +20,7 @@ object DomainContract {
     val deviceIconValues: List<String> = listOf("monitor", "server", "laptop", "os-apple", "os-windows", "os-linux")
     val commentKindValues: List<String> = listOf("regular")
     val commentSourceValues: List<String> = listOf("user", "mcp")
-    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message")
+    val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message", "session_blocked")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val codingSessionStatusValues: List<String> = listOf("running", "in_review", "ended")
     val codingSessionEndedByValues: List<String> = listOf("agent", "user", "client", "merge", "system", "stale")
@@ -135,6 +135,7 @@ object DomainContract {
     const val notificationTypePrMerged: String = "pr_merged"
     const val notificationTypeSupportReply: String = "support_reply"
     const val notificationTypeAgentMessage: String = "agent_message"
+    const val notificationTypeSessionBlocked: String = "session_blocked"
     const val prStateOpen: String = "open"
     const val prStateClosed: String = "closed"
     const val prStateMerged: String = "merged"

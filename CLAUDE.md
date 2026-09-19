@@ -4,41 +4,41 @@ Real-time issue tracker.
 
 ## Tech Stack
 
-TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle (`snake_case` casing) · ElectricSQL (shape proxy pattern, `@tanstack/electric-db-collection`) · Better Auth (email/password, email OTP, passkeys, Google/Apple, OIDC `genericOAuth`, session-based, `tanstackStartCookies`) · tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync) · shadcn/ui on Tailwind v4 (OKLCH zinc, dark forced via `html.dark`; dates via `react-day-picker` + `date-fns`) · bun. Dev infra (Docker Compose): Postgres:54321, Electric:30000, Garage:3900 (S3), Caddy:3000 (copy `Caddyfile.example`, gitignored), steer-relay:4002 (`--profile steer`).
+TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 17 via Drizzle (`snake_case` casing) · ElectricSQL (shape proxy pattern, `@tanstack/electric-db-collection`) · Better Auth (email/password, email OTP, passkeys, Google/Apple, OIDC `genericOAuth`, session-based, `tanstackStartCookies`) · tRPC v11 (`authedProcedure`, `generateTxId` for Electric sync) · shadcn/ui on Tailwind v4 (OKLCH zinc, dark forced via `html.dark`; dates via `react-day-picker` + `date-fns`) · bun. Dev infra (Docker Compose): Postgres:54321, Electric:30000, Garage:3900 (S3), Caddy:3000 (copy `Caddyfile.example`), steer-relay:4002 (`--profile steer`).
 
 ## Monorepo Layout
 
 ```
 apps/
 ├── web/        # TanStack Start app (the issue tracker)
-├── push-relay/ # Push notification relay (Hono/Bun)
-├── steer-relay/# Remote-start + live-steer WS hub (Bun; in-memory rooms)
-├── marketing/  # Vite + React; owns the Remotion ClosedLoop hero (src/movie/)
+├── push-relay/ # Push relay (Hono/Bun)
+├── steer-relay/# Remote-start + live-steer WS hub (Bun)
+├── marketing/  # Vite + React; owns the ONE movie, the Remotion ClosedLoop hero (src/movie/)
 ├── ios/        # SwiftUI (Tuist + GRDB; ExpCore/ExpUI)
 ├── android/    # Kotlin / Jetpack Compose
-├── styleguide/ # Shot gallery (shots/ + @exp/view-catalog) + REAL @exp/ui islands
+├── styleguide/ # Shot gallery + REAL @exp/ui islands
 └── desktop/    # Rust IDE (gpui); crates/cli = headless `exponential` daemon (EXP-403)
 packages/
 ├── db-schema/         # Drizzle schema + shared zod/domain types
-├── ui/                # @exp/ui: theme styles.css + shadcn set + shared primitives + islands
+├── ui/                # @exp/ui: theme + shadcn set + shared primitives + islands
 ├── design-tokens/     # OKLCH→sRGB + motion tokens → Compose/SwiftUI/Rust
 ├── domain-contract/   # contract.json — canonical enums → per-language constants
 ├── icons/             # icons.json — the ONE icon registry → TS/Swift/Kotlin/Rust
-├── electric-protocol/ # Shape wire contract + cross-platform fixtures
-├── emoji/             # emoji dataset generator → ONE json ×4
-├── steer-ticket/      # HS256 ticket sign/verify (web mints, relay verifies)
-├── widget/            # Feedback widget (Preact + snapDOM) → apps/web/public/widget/v1/
+├── electric-protocol/ # Shape wire contract + fixtures
+├── emoji/             # emoji dataset → ONE json ×4
+├── steer-ticket/      # HS256 ticket (web mints, relay verifies)
+├── widget/            # Feedback widget (Preact + snapDOM)
 ├── view-catalog/      # views.json — every view × platform, drift-gated
-├── shots/             # capture pipeline (sharp diff-skip writer) → shots/
+├── shots/             # capture pipeline → shots/
 └── tsconfig/
 docs/                  # third-party-licences.md + licences/
 shots/                 # COMMITTED webp store, <view>/<platform>.webp
 docker-compose.yaml    # DEV backend stack (not the self-host one)
-selfhost/              # Pull-an-image compose; INSTALL.md = agent-followable runbook
+selfhost/              # Pull-an-image compose; INSTALL.md = the runbook
 Dockerfile{,.push-relay,.steer-relay}   # build context = repo root
 ```
 
-Workspace names: `@exp/<dir>`; `apps/desktop` is a Cargo workspace. The only movie = the ClosedLoop hero in `apps/marketing/src/movie/`.
+Workspace names: `@exp/<dir>`; `apps/desktop` is a Cargo workspace. 
 
 **Dead, never reintroduce:** releases + footage/fixtures (EXP-106), `@exp/video`, workspace/project vocabulary + `/w/`/`/projects/` URLs (EXP-180), board types, `agent_runs` + agent-core + the companion daemon + `isAgent` identity, the `assigned-issues` shape, `run_configs`, `claude_task` (EXP-259), `isProtected` boards + dogfood cases (EXP-364), due-date time-of-day (REV2-49), `SELF_HOSTED` (now `CLOUD_INSTANCE`), `GOOGLE_CALENDAR_ENABLED`/`DOGFOOD_REPO`, the builtin `todo` status (EXP-685), skip-permissions (EXP-690), PTY coding + `start_in_terminal` (EXP-773), the pi agent + external ACP agents (EXP-849/EXP-862), issue filtering (EXP-862).
 
@@ -83,21 +83,21 @@ bun run --filter @exp/{domain-contract,design-tokens,icons} generate
 cd apps/web && bun run seed:screenshots   # demo data; then `bun run shots` → shots/
 ```
 
-Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` in `apps/desktop/`. Never `bun run lint` (--fix corrupts `typeof import()`) or `bun run format`.
+Workspace scripts: `bun --filter @exp/web <script>`; plain `cargo` in `apps/desktop/`. Never `bun run lint` (corrupts `typeof import()`) or `bun run format`.
 
 ## Deploys
 
-Everything runs on Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only**: after a green Actions run, `coolify deploy uuid <uuid>`. `build-web.yml` publishes `ghcr.io/niach/exponential-web` on master pushes + `v*` tags, multi-arch; the SAME image = cloud, staging and self-host (`selfhost/`), so the package stays PUBLIC and self-hosters pin semver. Its runtime `bun install` = `--filter '@exp/web'` (EXP-380); licence/notice rules: `docs/third-party-licences.md` (gated by `lib/third-party-licences.test.ts`). Native releases = tag-triggered (`build-{android,desktop,cli,ios}.yml`): `android-v*` (APK + Play bundle, `make_latest: false`), `desktop-v*` (codegen-drift guard, production + staging × mac/Linux/Windows, `make_latest: true`, self-update `crates/updater`), `cli-v*` (bare `exponential-<target>` binaries, `apps/marketing/public/install.sh`, cloud AND self-host via `EXP_INSTANCE`), `ios-v*` (ASC upload, `ASC_*` secrets).
+Coolify (`coolify.home.straehhuber.com`, Hetzner), **home-LAN-only**: after a green Actions run, `coolify deploy uuid <uuid>`. `build-web.yml` publishes multi-arch `ghcr.io/niach/exponential-web` on master pushes + `v*` tags; the SAME image = cloud, staging and self-host, so the package stays PUBLIC and self-hosters pin semver. Its runtime `bun install` = `--filter '@exp/web'` (EXP-380); licence/notice rules: `docs/third-party-licences.md` (gated by `lib/third-party-licences.test.ts`). Native releases = tag-triggered (`build-{android,desktop,cli,ios}.yml`): `android-v*` (APK + Play bundle, `make_latest: false`), `desktop-v*` (codegen-drift guard, production + staging × 3 OSes, `make_latest: true`, self-update `crates/updater`), `cli-v*` (bare `exponential-<target>` binaries, marketing `install.sh`, self-host via `EXP_INSTANCE`), `ios-v*` (ASC upload).
 
-**The operations runbook (infra uuids, buckets, staging, signing, releases) lives OUTSIDE the repo**; read it first.
+**The operations runbook (infra uuids, buckets, signing, releases) lives OUTSIDE the repo**; read it first.
 
 Every user-facing release PREPENDS a `ChangelogEntry` to `lib/changelog.ts` (gated by `changelog.test.ts`; head id = "What's new" on web + `crates/ui/src/changelog.rs`).
 
-After schema changes: `bun run migrate:generate && bun run migrate`. Custom SQL triggers (`db/out/custom/0001_triggers.sql`) auto-apply at boot (`applyCustomSql`, idempotent).
+After schema changes: `bun run migrate:generate && bun run migrate`. Custom triggers (`db/out/custom/0001_triggers.sql`) auto-apply at boot (`applyCustomSql`, idempotent).
 
 ## Web App Structure (`apps/web/src/`)
 
-The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`IssueChip`, `UserAvatar`, `LiveDot`, `StatusGlyph`, `Pill`, rows) = `@exp/ui` (`packages/ui/src`; `@exp/ui/island` = shadow-root islands for styleguide + marketing); app compositions stay flat in `components/` (`agent-session.tsx` = the steer/activity view). `lib/trpc/` = one file per router (`routes/api/trpc/$.ts` lists them). `lib/auth/`: `membership.ts` = data lookups, `access.ts` = authorization (`resolveTeamAccess`). `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email = a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy opt-in, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). Team routes under `t/$teamSlug/`: inbox `?tab=my-issues` = a TAB, not a route (`?tab=drafts` phone-only; `drafts` route + sidebar entry only while drafts exist; board `?draft=` reopens the create dialog, EXP-878); `reviews/$issueIdentifier` = the cross-board open-PR queue (confirmed squash merge); `agent` = sessions list + the composer (every play button routes here with `?issues=|action=|pr=|device=|text=|icon=`, one-shot; `?from=` = where the session's Back returns), `sessions/$sessionId` steers inside it (EXP-818). Also `auth/consent.tsx`, `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
+The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`IssueChip`, `UserAvatar`, `LiveDot`, `StatusGlyph`, `Pill`, rows) = `@exp/ui` (`packages/ui/src`; `@exp/ui/island` = shadow-root islands for styleguide + marketing); app compositions stay flat in `components/` (`agent-session.tsx` = the steer/activity view). `lib/trpc/` = one file per router (`routes/api/trpc/$.ts` lists them). `lib/auth/`: `membership.ts` = data lookups, `access.ts` = authorization (`resolveTeamAccess`). `lib/notification-email-policy.ts`/`-digest.ts`: push fires on create, email = a DIGEST of still-unread (DAILY at a user-chosen local hour, hourly legacy opt-in, atomic `emailed_at` claim; `server-bun.ts` schedules). EXP-801: MCP `exponential_notifications_send` = issue-less team-scoped `agent_message` row + push to members/self (one inbox row each ×4); prefs `allow_agent_messages=false` BLOCKS other members' agents (own always pass). EXP-980: `setBlocked` null→set sends `session_blocked` to EVERY run's OWNER (issue-less + synced `session_id`; row + push open the run ×4). Team routes under `t/$teamSlug/`: inbox `?tab=my-issues` = a TAB, not a route (`?tab=drafts` phone-only; `drafts` route + sidebar entry only while drafts exist; board `?draft=` reopens the create dialog, EXP-878); `reviews/$issueIdentifier` = the cross-board open-PR queue (confirmed squash merge); `agent` = sessions list + the composer (every play button routes here with `?issues=|action=|pr=|device=|text=|icon=`, one-shot; `?from=` = where the session's Back returns), `sessions/$sessionId` steers inside it (EXP-818). Also `auth/consent.tsx`, `invite/$token`. Entry: `router.tsx`, `start.tsx` (`defaultSsr: false`), `server{,-bun}.ts`.
 
 ## Database
 
@@ -105,11 +105,11 @@ The shadcn set, theme `styles.css`, `cn`, icon registry and shared primitives (`
 
 ### Conventions
 
-Better Auth user IDs = `text`, so all user FKs = `text`; app tables use UUID PKs (`gen_random_uuid()`). All tables carry timezone `created_at`/`updated_at`; sort orders = `doublePrecision` (fractional indexing); rich text = `text` GFM. Due date = `date` only.
+Better Auth user IDs (so all user FKs) = `text`; app tables use UUID PKs (`gen_random_uuid()`) and timezone `created_at`/`updated_at`; sort orders = `doublePrecision` (fractional indexing); rich text = `text` GFM. Due date = `date` only.
 
 ### Non-obvious fields
 
-Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK `issue_statuses` SET NULL, the precise per-team row); `creatorId` NULLABLE (widget issues have none), `source` = `user`/`widget`; comments thread ONE level (`parent_id`, replies re-parent to the root) + `source` user|mcp stamped from `ctx.viaMcp` ("via MCP" ×4, EXP-741); `duplicateOfId` pairs with status `duplicate` and dual-writes an `issue_relations` `duplicate` row (EXP-736: canonical-direction rows `blocks`/`parent`/`duplicate`/`related`, `source` user|reference, member-managed via `relations` + 2 MCP tools, events on both sides); the PR fields mean ONE PR per issue on `exp/<IDENTIFIER>` (batch issues share ONE `prUrl`). `coding_sessions` = issue XOR batch XOR action-scoped (action rows carry `action_id` [set null] + an `action_name` snapshot; batch rows `batch_issue_ids`, the covered set NAMING them `EXP-874 +2` ×4, `lib/batch-run.ts`). Teams carry a server-only `compTier` plus synced `helpdeskEnabled` and PR automation (`prOpened*`/`prMerged*` `StatusId` + `Automation`: nullable FKs SET NULL, NULL = builtin default target, `*Automation=false` = do nothing; member-gated `statuses.setPrAutomation`; UI web + desktop).
+Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK `issue_statuses` SET NULL, the precise per-team row); `creatorId` NULLABLE (widget issues have none), `source` = `user`/`widget`; comments thread ONE level (`parent_id`, replies re-parent to the root) + `source` user|mcp stamped from `ctx.viaMcp` ("via MCP" ×4, EXP-741); `duplicateOfId` pairs with status `duplicate` and dual-writes an `issue_relations` `duplicate` row (EXP-736: canonical-direction rows `blocks`/`parent`/`duplicate`/`related`, `source` user|reference, member-managed via `relations` + 2 MCP tools, events on both sides; EXP-980: `blocks`/`parent` refuse TRANSITIVE cycles, `lib/relation-cycles.ts`); the PR fields mean ONE PR per issue on `exp/<IDENTIFIER>` (batch issues share ONE `prUrl`). `coding_sessions` = issue XOR batch XOR action-scoped (action rows carry `action_id` [set null] + an `action_name` snapshot; batch rows `batch_issue_ids`, the covered set NAMING them `EXP-874 +2` ×4, `lib/batch-run.ts`). Teams carry a server-only `compTier` plus synced `helpdeskEnabled` and PR automation (`prOpened*`/`prMerged*` `StatusId` + `Automation`: nullable FKs SET NULL, NULL = builtin default target, `*Automation=false` = do nothing; member-gated `statuses.setPrAutomation`; UI web + desktop).
 
 ### Enum behavior
 
@@ -117,7 +117,7 @@ Values in `contract.json`. `issue_status`: `pr_open` flips linked issues to the 
 
 ### Custom triggers
 
-`apps/web/src/db/out/custom/0001_triggers.sql` holds 16 commented functions (issue numbers/identifiers; `updated_at`, comments bump the issue; denormalized `team_id`/`board_id` + board-hide mirrors on every issue child and notification; trash/archive fan-outs; the 6 builtin statuses; `status_id` from the anchor; `device_worktrees`/`users` membership mirrors; immutable `creem_subscription_id`); read it before touching triggers.
+`db/out/custom/0001_triggers.sql` holds 16 commented functions (issue numbers/identifiers; `updated_at`, comments bump the issue; denormalized `team_id`/`board_id` + board-hide mirrors on every issue child and notification; trash/archive fan-outs; the 6 builtin statuses; `status_id` from the anchor; `device_worktrees`/`users` membership mirrors; immutable `creem_subscription_id`); read it before touching triggers.
 
 ## Patterns
 
@@ -139,11 +139,12 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 - **Auth guard**: `_authenticated.tsx` `beforeLoad` + `throw redirect()`; `fetchSessionOnce()`.
 - **MCP OAuth consent**: `lib/auth/mcp-authorize-guard.ts` pre-flights every `mcp/authorize` (forces `prompt=consent`) → `/auth/consent` team/board multi-select persisted to `mcp_grants` BEFORE the code mints. `lib/mcp/scope.ts` confines OAuth tokens to the grant (no grant row = nothing) and to `/api/mcp`; cookies + `expu_` keys keep full access. Login resumes interrupted authorizes (`lib/auth/oauth-resume.ts`).
 - **Issue UI**: issue detail = a route fed a live Electric `issue` (md+: the board list beside it); title/description save on blur, other fields mutate immediately; `completedAt` = auto-managed.
+- **Issue lists (EXP-980)**: sub-issues nest under the parent, the ROOT decides group + position (`lib/issue-nesting.ts`); ONE blocks badge per row opens THE mini-graph (`lib/issue-graph.ts`; grid web + desktop, wave list phones), shared with the `PrGraphBadge` Issue face + blocked-start dialog; both rules ×4, fixture-locked.
 - **Issue search (EXP-892)**: ONE engine ×4, `lib/issue-search.ts` (mirrored ×3, locked by `domain-contract/fixtures/issue-search.json`), `useIssueSearchResults` in every picker; `lib/issue-search-sql.ts` behind `issues.search` AND MCP `issues_list.search`; desktop search = issues only; lists: top row preselected, ↑/↓, Enter/Tab pick, hover moves selection.
 
 ## Environment Variables
 
-**`.env.example` at the repo root = the CANONICAL reference** and `selfhost/.env.example` its self-host subset; read them, no list here; relays have their own `apps/*/.env.example`. Not obvious from those:
+**Root `.env.example` = the CANONICAL reference**, `selfhost/.env.example` its self-host subset, relays own `apps/*/.env.example`; read them. Not obvious from those:
 
 - `CLOUD_INSTANCE` = the opt-IN cloud marker (EXP-364): `'true'` = billing, plan limits, in-app widget, conversion tracking; unset = self-hosted, every FEATURE limit unlocked; `INITIAL_ADMIN_EMAILS` auto-promotes global admins.
 - `AUTH_PASSWORD_ENABLED`/`AUTH_SIGNUP_ENABLED`: password login defaults true, public signup on in dev, OFF in production builds (`selfhost/docker-compose.yaml` re-defaults `true`). Auth posture = BUILD-derived (`lib/production-build.ts` `isProductionBuild`, REV-5), never runtime `NODE_ENV`. EXP-857: `AUTH_EMAIL_OTP_ENABLED` defaults on WITH a mail transport, `AUTH_PASSKEY_ENABLED` WITH an https base (rpID = host; Android origins from `ANDROID_APP_LINK_FINGERPRINTS`); login = ONE "Continue with …" list ×4; `mobile-oauth-start?provider=browser` = the native browser handoff.
@@ -152,7 +153,7 @@ Per-TEAM rows in six fixed categories (backlog/unstarted/started/completed/cance
 - GitHub App installs are claimed PER TEAM (`github_installation_links`); `GITHUB_APP_CLIENT_SECRET` unset ⇒ install-page round-trip; `GITHUB_POLLING=true` = outbound merge cron for NAT'd self-hosts.
 - `STEER_RELAY_URL` unset = remote start/steer off; HS256 `STEER_RELAY_SECRET` must match the relay; BOTH relays need `TRUST_PROXY=true` behind a proxy.
 - `CLIENT_MIN_VERSION_{ANDROID,IOS,DESKTOP}` gate with HTTP 426 + a blocking update screen (unset = off); MARKETING versions, never build numbers; `CLIENT_LATEST_VERSION_*` = informational.
-- Widget rate limits: `WIDGET_RATE_LIMIT_PER_{KEY,IP}_HOURLY` + `_{KEY,IP}_BURST` (KEY self-host-only; cloud = per-TEAM plan ceiling, `lib/widget/submit-limit.ts`), `RECIPIENT` bounds support mail, config GET `WIDGET_CONFIG_RATE_LIMIT_{PER_IP_HOURLY,IP_BURST}` (REV-25).
+- Widget rate limits (`WIDGET_RATE_LIMIT_*`, `WIDGET_CONFIG_RATE_LIMIT_*`, REV-25): the per-KEY ones = self-host-only; cloud = per-TEAM plan ceiling (`lib/widget/submit-limit.ts`).
 
 ## Coding sessions & Actions
 
@@ -170,7 +171,7 @@ Multi-issue coding = **batch runs, any agent**. The Agent page composer = the ON
 
 ### Stacked runs (EXP-897, FEED-43)
 
-A PR based on another open PR's branch = a **stack**: `issues.pr_base_branch` (synced; edge `child.pr_base_branch == lower.branch`, nesting client-side, `lib/pr-stack.ts` ×4) + server-only `pr_stack_number` (a REAL GitHub stack, preview API `2026-03-10`, `github-pr.ts` `findStackForPull/createStack/addToStack`; 404 = plain base-branch PR). Members merge ONLY via merge-async + poll (`mergePullRequestSmart`); merging PR k merges all below, GitHub retargets the next (`retargetChildrenOfMergedPr` skips real members); `retargetPr` refuses members by name, appends GitHub's text to other 422s. MCP: `pr_open({stackOnIssueId})` (base = lower's branch, stack created/extended, `blocks` lower→upper written, merged-branch `base` refused), `pr_merge({mergeStack})` (any member, merges the top), `sessions_start({stackOnIssueId, account})`, `sessions_ask_parent({to: parent|root|user})` (`user` = child `needs_input` + `agent_message`), `sessions_list({subtreeOf})` + `depth`. **Third start mode:** a blocked issue's start (composer ×4) offers Cancel · Start anyway · Stacked PR (`steer.startSession({stack:true})`, gated on device cap `stacked-start` ×4; `lib/stack-plan.ts` = transitive open blockers, same repo, cycles refused; `codingSessions.stackPlan` for local starts); the launcher cuts `exp/<IDENT>` from `origin/<lower.branch>` if that PR is open, else the default; the prompt's `## Stacked work` + playbook `## Stacked runs` drive: spawn the lower as a child, verify, rebase, `stackOnIssueId`, escalate. Lists ×4 nest by `parent_session_id` (14/level, fold chevron); Reviews nest members under the lowest (`Merge stack` there; batch rows carry `pr-batch`); ONE stack/batch badge + overlay in the work header (`lib/pr-graph.ts` ×4: Issue face = blocked-by + batch, Run = session tree, Changes = PR stack).
+A PR based on another open PR's branch = a **stack**: `issues.pr_base_branch` (synced; edge `child.pr_base_branch == lower.branch`, nesting client-side, `lib/pr-stack.ts` ×4) + server-only `pr_stack_number` (a REAL GitHub stack, preview API `2026-03-10`, `github-pr.ts` `findStackForPull/createStack/addToStack`; 404 = plain base-branch PR). Members merge ONLY via merge-async + poll (`mergePullRequestSmart`); merging PR k merges all below, GitHub retargets the next (`retargetChildrenOfMergedPr` skips real members); `retargetPr` refuses members by name, appends GitHub's text to other 422s. MCP: `pr_open({stackOnIssueId})` (base = lower's branch, stack created/extended, `blocks` lower→upper written, merged-branch `base` refused), `pr_merge({mergeStack})` (any member, merges the top), `sessions_start({stackOnIssueId, account})`, `sessions_ask_parent({to: parent|root|user})` (`user` = child `needs_input` + `agent_message`), `sessions_list({subtreeOf})` + `depth`. **Third start mode:** a blocked issue's start (composer ×4) offers Cancel · Start anyway · Stacked PR (`steer.startSession({stack:true})`; EXP-980: batches ask too, resumes never, the stack button DISABLED per `stackDisabledReason` cycle|batch|cap `stacked-start` ×4; `lib/stack-plan.ts` = transitive open blockers, same repo, cycles refused; `codingSessions.stackPlan` for local starts); the launcher cuts `exp/<IDENT>` from `origin/<lower.branch>` if that PR is open, else the default; the prompt's `## Stacked work` + playbook `## Stacked runs` drive: spawn the lower as a child, verify, rebase, `stackOnIssueId`, escalate. Lists ×4 nest by `parent_session_id` (14/level, fold chevron); Reviews nest members under the lowest (`Merge stack` there; batch rows carry `pr-batch`); ONE stack/batch badge + overlay in the work header (`lib/pr-graph.ts` ×4: Issue face = blocked-by + batch, Run = session tree, Changes = PR stack).
 
 ### Actions (EXP-253)
 
@@ -180,27 +181,27 @@ TWO virtual builtins are NOT DB rows: each client CONSTRUCTS them locally with *
 
 ### Desktop IDE & mobile
 
-Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; Discard-and-reset escape hatch; `trunk_sync` badge + banner). Mobile first-run wizard (`lib/auth/onboarding.ts`, server-gated): create-or-join team, then a board with optional repo + GitHub App. Lists ×4 = a filled group band over FLAT rows (EXP-818); cards only in settings sections.
+Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; Discard-and-reset; `trunk_sync` badge + banner). Mobile first-run wizard (`lib/auth/onboarding.ts`, server-gated): create-or-join team, then a board with optional repo + GitHub App. Lists ×4 = a filled group band over FLAT rows (EXP-818); cards only in settings sections.
 
 ## Billing (per-seat, Creem — cloud only)
 
 Subscriptions bind to a TEAM (`creem_subscriptions.team_id` + `seats`; `billing.createSeatCheckout`, Creem `units` = seats), not the purchaser (REV2-55, `lib/billing/billing-handover.ts`): `reference_id` nullable/set-null; account deletion NEVER blocked by billing, it only cancels a SOLO team's subscription it destroys; team deletes REFUSE a live subscription (`PRECONDITION_FAILED`; a period-end cancellation passes), natives point at web. ONE subscription per team: `createSeatCheckout` refuses duplicates; `billing.updateSeats`/`changePlan` mutate the EXISTING subscription with `update_behavior: proration-charge-immediately`. Free = 3 seats, 250MB, 1 widget; **Team** = the ONE paid tier, €15/seat/mo or €12 yearly: 10GB, unlimited widgets, helpdesk (`PlanTier = free|team|unlimited`; comp tiers `team|unlimited`). Unlimited boards/repos/coding sessions on every tier; push + steer never plan-gated; over-seat teams only block invites.
 
-**Limits exist only when `CLOUD_INSTANCE=true`**, a product switch, not a licence: Apache-2.0 (EXP-352), no licence gate in code. Enterprise Support has NO published pricing (EXP-218): marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
+**Limits exist only when `CLOUD_INSTANCE=true`**, a product switch, not a licence: Apache-2.0 (EXP-352), no licence gate in code. Enterprise Support: NO published pricing (EXP-218), marketing routes to `/contact/`. Self-host's one limit: no MOBILE push (store apps embed Firebase).
 
 ## Feedback widget & helpdesk
 
-Async `<script>` snippet; `packages/widget` (Preact shadow root + snapdom) builds an IIFE loader + lazy panel into `apps/web/public/widget/v1/`; API `window.ExponentialWidget` (`init({key})`, `identify`, `setCustomData`, `open`, `close`, `submit`).
+`packages/widget` (Preact shadow root + snapdom) builds an async IIFE loader + lazy panel into `apps/web/public/widget/v1/`; API `window.ExponentialWidget` (`init({key})`, `identify`, `setCustomData`, `open`, `close`, `submit`).
 
-Server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_submissions`; public CORS routes `/api/widget/{config,submit}` (origin/rate-limit/honeypot in `lib/widget/`). **Modes** `feedback`/`support`/both (`form_config.modes`; absent = feedback-only). `form_config` also carries `labelIds` (≤10 → `issue_labels`) and `theme` dark/light/auto + colors (`setTheme()`); ONE capture button (EXP-488: getDisplayMedia desktop, snapDOM mobile) + an Off/3s/5s hold segment (FEED-18). Feedback files an ordinary issue onto `widget_configs.board_id` (NULLABLE, required iff feedback mode; set-null): issue + screenshot attachment (null `uploader_id`) + submission row in ONE transaction, `creator_id NULL`, `source='widget'`. Support files a STANDALONE ticket (`support_threads` + opening `support_messages` row, NO issue) gated on `teams.helpdesk_enabled` + paid plan (`assertCanUseHelpdesk`), re-checked per submit; reporter auth = emailed magic link (`lib/helpdesk/token.ts`); members use the `helpdesk` router (close/reopen, `escalate` → linked issue); notify via issue-less `support_reply` fan-out. Rate limiting = in-process token buckets (§Environment Variables); the ONLY cloud upsell = the widget settings' usage bar. Settings entries "Feedback widget" + "Helpdesk" (owner-only) on web AND the IDE (read-only + Manage on web). The in-app widget = HEADLESS behind the sidebar "Report bug" button; key in `lib/runtime-config.ts` (cloud-only; `FEEDBACK_WIDGET_KEY` overrides); self-hosted shows no button.
+Server-only `widget_configs` (public `expw_` key + domain allowlist) + `widget_submissions`; public CORS routes `/api/widget/{config,submit}` (origin/rate-limit/honeypot in `lib/widget/`). **Modes** `feedback`/`support`/both (`form_config.modes`; absent = feedback-only). `form_config` also carries `labelIds` (≤10 → `issue_labels`) and `theme` dark/light/auto + colors (`setTheme()`); ONE capture button (EXP-488: getDisplayMedia desktop, snapDOM mobile) + an Off/3s/5s hold segment (FEED-18). Feedback files an ordinary issue onto `widget_configs.board_id` (NULLABLE, required iff feedback mode; set-null): issue + screenshot attachment (null `uploader_id`) + submission row in ONE transaction, `creator_id NULL`, `source='widget'`. Support files a STANDALONE ticket (`support_threads` + opening `support_messages` row, NO issue) gated on `teams.helpdesk_enabled` + paid plan (`assertCanUseHelpdesk`), re-checked per submit; reporter auth = emailed magic link (`lib/helpdesk/token.ts`); members use the `helpdesk` router (close/reopen, `escalate` → linked issue); notify via issue-less `support_reply` fan-out. Rate limiting = in-process token buckets; the ONLY cloud upsell = the widget settings' usage bar. Settings entries "Feedback widget" + "Helpdesk" (owner-only) on web AND the IDE (read-only + Manage on web). The in-app widget = HEADLESS behind the sidebar "Report bug" button; key in `lib/runtime-config.ts` (cloud-only; `FEEDBACK_WIDGET_KEY` overrides); self-hosted shows no button.
 
 ## Conversion tracking (EXP-362, cloud only)
 
-`lib/conversion/` + `adminConversions` router + `admin/conversions.tsx`, no-ops unless `CLOUD_INSTANCE=true`. COOKIELESS: visitors = daily-rotating salted HMAC of ip+ua (`anonymous.ts`); attribution = URL params only (`ref`/`utm_*`). `events.ts` owns the closed vocabulary (`landing` only on `/`+`/auth/*` entries; `return_visit` daily; the signup→checkout funnel + Creem lifecycle); idempotency = PARTIAL UNIQUE INDEXES + `onConflictDoNothing`.
+`lib/conversion/` + `adminConversions` router + `admin/conversions.tsx`, no-ops unless `CLOUD_INSTANCE=true`. COOKIELESS: visitors = daily-rotating salted HMAC of ip+ua (`anonymous.ts`); attribution = URL params only (`ref`/`utm_*`). `events.ts` owns the closed vocabulary (`landing` only on `/`+`/auth/*`; `return_visit` daily; signup→checkout funnel + Creem lifecycle); idempotency = PARTIAL UNIQUE INDEXES + `onConflictDoNothing`.
 
 ## Style Conventions
 
-- Template literals for strings; functional components only
+- Template literals; functional components only
 - shadcn/ui from `@exp/ui` ALWAYS over raw `<input>`/`<button>`/`<textarea>`/`<label>`; multi-client surfaces use an icon CONCEPT, never a raw lucide import
 
 ## Agent context budget (EXP-353/EXP-637)

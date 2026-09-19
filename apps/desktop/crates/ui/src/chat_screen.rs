@@ -1360,19 +1360,21 @@ impl ChatScreenView {
         let Some(team_id) = self.team_id.clone() else {
             return;
         };
-        // EXP-897: a single issue that is BLOCKED asks first — plain start,
-        // or a stacked PR cut from the blocker's branch. Asked once per
-        // subject; the answer rides `stack_choice` into the second pass.
+        // EXP-897/EXP-980: a pick that something OPEN blocks asks first —
+        // plain start, or a stacked PR cut from the blocker's branch. Asked
+        // once per subject; the answer rides `stack_choice` into the second
+        // pass. A BATCH asks too, about the blockers outside it.
         if self.stack_choice.is_none() {
-            if let Some((identifier, blockers)) = self.open_blockers(cx) {
+            if let Some(blocked) = self.open_blockers(cx) {
                 // A remote machine below the `stacked-start` build has no
                 // `stack` field in its decoder: it would run UNSTACKED while
-                // the server had already recorded a stack. Offer it the plain
-                // start only; this IDE resolves the chain itself.
+                // the server had already recorded a stack. The dialog then
+                // shows "Stacked PR" DISABLED, with the reason underneath;
+                // this IDE resolves the chain itself.
                 let can_stack = self
                     .remote_device()
                     .map_or(true, |device| device.can_stack_start);
-                self.prompt_blocked_start(message, identifier, blockers, can_stack, window, cx);
+                self.prompt_blocked_start(message, blocked, can_stack, window, cx);
                 return;
             }
         }
@@ -1565,100 +1567,73 @@ impl ChatScreenView {
         }
     }
 
-    /// EXP-897 — the ONE checked issue's OPEN blockers, or `None` when the
-    /// blocked-start question does not apply at all: no single issue, a
+    /// EXP-897/EXP-980 — the OPEN issues blocking the pick, or `None` when
+    /// the blocked-start question does not apply at all: no issue subject, a
     /// resume (it re-enters an existing worktree, base included), or nothing
-    /// unfinished blocking it.
+    /// unfinished in the way.
     ///
-    /// "Unfinished" is the ANCHOR status: `done`, `cancelled` and `duplicate`
-    /// blockers are history, everything else still has work to land.
-    fn open_blockers(&self, cx: &App) -> Option<(String, Vec<domain::rows::Issue>)> {
+    /// A BATCH asks about the blockers OUTSIDE the picked set only — a
+    /// blocker picked into the same batch is not in its way. "Unfinished" is
+    /// the ANCHOR status: `done`, `cancelled` and `duplicate` blockers are
+    /// history, everything else still has work to land.
+    fn open_blockers(&self, cx: &App) -> Option<BlockedStart> {
         let Subject::Issues(issues) = &self.subject else {
             return None;
         };
-        if issues.checked.len() != 1 || self.resume_active(cx) {
+        if issues.checked.is_empty() || self.resume_active(cx) {
             return None;
         }
-        let issue_id = issues.checked.iter().next()?.clone();
-        let collections = Store::global(cx).collections();
-        let identifier = collections
-            .issues
-            .read(cx)
-            .get(&issue_id)
-            .map(|issue| issue.identifier.clone())
-            .or_else(|| {
-                issues
-                    .rows
-                    .iter()
-                    .find(|row| row.issue_id == issue_id)
-                    .map(|row| row.identifier.clone())
-            })?;
-        let relations = collections.relations_for_issue(&issue_id, cx);
-        let rows = collections.issues.read(cx);
-        let mut open: Vec<domain::rows::Issue> =
-            chat_launch::blockers_of(&issue_id, &relations, |id| rows.get(id))
-                .into_iter()
-                .filter(|issue| {
-                    !matches!(
-                        issue.status,
-                        domain::IssueStatus::Done
-                            | domain::IssueStatus::Cancelled
-                            | domain::IssueStatus::Duplicate
-                    )
-                })
-                .cloned()
-                .collect();
-        if open.is_empty() {
+        // The picker's order, so the dialog reads like the composer.
+        let picked: Vec<String> = issues
+            .rows
+            .iter()
+            .filter(|row| issues.checked.contains(&row.issue_id))
+            .map(|row| row.issue_id.clone())
+            .collect();
+        if picked.is_empty() {
             return None;
         }
-        open.sort_by(|a, b| a.identifier.cmp(&b.identifier));
-        Some((identifier, open))
+        let refs: Vec<&str> = picked.iter().map(String::as_str).collect();
+        let blockers = crate::issue_graph::open_blockers_outside(&refs, cx);
+        if blockers.is_empty() {
+            return None;
+        }
+        Some(BlockedStart { picked, blockers })
     }
 
-    /// EXP-897 — the blocked-issue alert: Cancel / Start anyway / Stacked PR.
-    /// Either answer records the choice and re-enters [`Self::start`] with
-    /// the same composed message, so the two paths stay one code path. With
-    /// `can_stack` false (a remote machine without `stacked-start`) the
-    /// alert is Cancel / Start anyway: the stack is not on offer.
+    /// EXP-897/EXP-980 — the blocked-start dialog: the sentence, the
+    /// transitive blocks GRAPH underneath it, and Cancel / Start anyway /
+    /// Stacked PR. Either answer records the choice and re-enters
+    /// [`Self::start`] with the same composed message, so the two paths stay
+    /// one code path. "Stacked PR" is never hidden any more — when
+    /// [`chat_launch::stack_disabled_reason`] names a reason it is DISABLED
+    /// and the reason is captioned under the graph.
     fn prompt_blocked_start(
         &mut self,
         message: String,
-        identifier: String,
-        blockers: Vec<domain::rows::Issue>,
+        blocked: BlockedStart,
         can_stack: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let first = blockers
-            .first()
-            .map(|issue| issue.identifier.clone())
-            .unwrap_or_default();
-        let extra = blockers.len().saturating_sub(1);
-        let (blocked_by, cut_from) = if extra == 0 {
-            (
-                format!("#{first}, which isn't done"),
-                format!("#{first}'s branch"),
-            )
+        let refs: Vec<&str> = blocked.picked.iter().map(String::as_str).collect();
+        let graph = crate::issue_graph::graph_for(&refs, cx);
+        let batch = blocked.picked.len() > 1;
+        let title = if batch {
+            chat_launch::blocked_batch_title()
         } else {
-            let issues = if extra == 1 { "issue" } else { "issues" };
-            let isnt = if extra == 1 { "isn't" } else { "aren't" };
-            (
-                format!("#{first} and {extra} more {issues} that {isnt} done"),
-                "the lowest one's branch".to_string(),
-            )
+            chat_launch::blocked_start_title()
         };
-        let description = if can_stack {
-            format!(
-                "{identifier} is blocked by {blocked_by}. A stacked PR cuts your branch from \
-{cut_from} and bases your pull request on it, so your diff shows only your own work, and the \
-run builds #{first} first if nobody has."
-            )
+        let description = if batch {
+            chat_launch::blocked_batch_body().to_string()
         } else {
-            format!(
-                "{identifier} is blocked by {blocked_by}. That machine runs an older Exponential \
-app that cannot start a stacked PR. Update it, or start anyway."
-            )
+            chat_launch::blocked_start_body(&blocked.blockers)
         };
+        let reason =
+            chat_launch::stack_disabled_reason(blocked.picked.len(), can_stack, graph.has_cycle);
+        let note: Option<SharedString> = reason
+            .map(|reason| SharedString::from(chat_launch::stack_disabled_note(reason)));
+
         let entity = cx.entity().downgrade();
         let opener = window.window_handle();
         let resume = {
@@ -1675,31 +1650,38 @@ app that cannot start a stacked PR. Update it, or start anyway."
         };
         let anyway = resume.clone();
         let stacked_message = message.clone();
-        let spec = if can_stack {
-            crate::native_dialog::AlertSpec::new(
-                "Start coding on a blocked issue?",
-                description,
-                chat_launch::stack_label(),
-            )
-            .secondary(chat_launch::start_anyway_label(), move |_, cx| {
-                anyway(StackChoice::Plain, message.clone(), cx);
-                true
-            })
-            .on_ok(move |_, cx| {
-                resume(StackChoice::Stacked, stacked_message.clone(), cx);
-                true
-            })
-        } else {
-            crate::native_dialog::AlertSpec::new(
-                "Start coding on a blocked issue?",
-                description,
-                chat_launch::start_anyway_label(),
-            )
-            .on_ok(move |_, cx| {
-                anyway(StackChoice::Plain, message.clone(), cx);
-                true
-            })
-        };
+        let spec = crate::native_dialog::AlertSpec::new(
+            title,
+            description,
+            chat_launch::stack_label(),
+        )
+        .height(gpui::px(BLOCKED_DIALOG_HEIGHT))
+        .secondary(chat_launch::start_anyway_label(), move |_, cx| {
+            anyway(StackChoice::Plain, message.clone(), cx);
+            true
+        })
+        .ok_disabled(reason.is_some())
+        .on_ok(move |_, cx| {
+            resume(StackChoice::Stacked, stacked_message.clone(), cx);
+            true
+        })
+        .content(move |_, cx| {
+            gpui_component::v_flex()
+                .min_w_0()
+                .gap_2()
+                .child(crate::issue_graph::graph_in_dialog(
+                    &graph,
+                    BLOCKED_DIALOG_GRAPH_W,
+                    cx,
+                ))
+                .children(note.clone().map(|note| {
+                    gpui::div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(note)
+                }))
+                .into_any_element()
+        });
         crate::native_dialog::open_alert(window, cx, spec);
     }
 
@@ -2666,6 +2648,20 @@ enum StackChoice {
     /// "Stacked PR" — cut from the blocker's branch, PR based on it.
     Stacked,
 }
+
+/// EXP-980 — what the blocked-start dialog is about: everything that was
+/// picked (the graph's subjects, and what "Start anyway" starts) plus the
+/// identifiers of the open issues blocking it from outside.
+struct BlockedStart {
+    picked: Vec<String>,
+    blockers: Vec<String>,
+}
+
+/// The blocked-start dialog is taller than a plain alert — it hosts the
+/// graph.
+const BLOCKED_DIALOG_HEIGHT: f32 = 460.;
+/// The graph's viewport inside it (the 416px alert minus its padding).
+const BLOCKED_DIALOG_GRAPH_W: f32 = 380.;
 
 /// [`RemoteSubject`] borrows the ids it names; the issue arms need an owned
 /// carrier so the checked list can be built inside `start` and borrowed

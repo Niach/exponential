@@ -1610,12 +1610,16 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
     public let id: String
     public let userId: String
     public let issueId: String?
-    // Set on issue-less support_reply rows (the ticket's team); NULL on
-    // issue-anchored rows (their team resolves through the issue).
+    // Set on issue-less support_reply / session_blocked rows (the ticket's
+    // resp. the run's team); NULL on issue-anchored rows (their team resolves
+    // through the issue).
     public let teamId: String?
+    /// EXP-980: the run a `session_blocked` row is about — the inbox row's tap
+    /// target. NULL once the run has been pruned (the row still renders).
+    public let sessionId: String?
     // notification_type: issue_assigned|issue_comment|issue_status_changed|
     //                    issue_mention|issue_created|pr_opened|pr_merged|
-    //                    support_reply
+    //                    support_reply|agent_message|session_blocked
     public let type: String
     public let title: String
     public let body: String?
@@ -1629,6 +1633,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         userId: String,
         issueId: String?,
         teamId: String? = nil,
+        sessionId: String? = nil,
         type: String,
         title: String,
         body: String?,
@@ -1641,6 +1646,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         self.userId = userId
         self.issueId = issueId
         self.teamId = teamId
+        self.sessionId = sessionId
         self.type = type
         self.title = title
         self.body = body
@@ -1655,6 +1661,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         case userId = "user_id"
         case issueId = "issue_id"
         case teamId = "team_id"
+        case sessionId = "session_id"
         case readAt = "read_at"
         case pushedAt = "pushed_at"
         case createdAt = "created_at"

@@ -562,6 +562,13 @@ struct WorkScreen: View {
                                 graph: graph,
                                 face: face,
                                 issues: graphIssuePool,
+                                // EXP-980: the Issue face leads with the
+                                // transitive blocks chain, not a chip list.
+                                blockGraph: prGraphModel?.blockGraph(
+                                    issue: issue, pool: graphIssuePool
+                                ) ?? IssueGraph.Graph(
+                                    nodes: [], edges: [], hasCycle: false, truncated: false
+                                ),
                                 onOpenIssue: { id in
                                     prGraphOpen = false
                                     deps.deepLinkBus.navigateToIssue(id, accountId: accountId)

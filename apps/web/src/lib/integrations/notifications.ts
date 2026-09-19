@@ -27,6 +27,8 @@ import {
 } from "@/lib/notification-prefs"
 import { peekAgentIssueActors } from "@/lib/integrations/pr-actor-claims"
 import { recordNotificationFanout } from "@/lib/metrics/registry"
+import { blockedBadgeLabel } from "@/lib/agent-usage"
+import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
@@ -733,6 +735,8 @@ async function deliverToTeam(args: {
   title: string
   body: string | null
   pushData: Record<string, string>
+  /** EXP-980: the run a `session_blocked` row routes to. */
+  sessionId?: string
 }): Promise<TeamDelivery> {
   const recipients = await deliverableRecipients(args.teamId, [
     ...new Set(args.recipientIds),
@@ -746,11 +750,12 @@ async function deliverToTeam(args: {
   const now = new Date()
 
   const inserted = await db.execute(sql`
-    insert into notifications (user_id, issue_id, team_id, type, title, body, pushed_at)
+    insert into notifications (user_id, issue_id, team_id, session_id, type, title, body, pushed_at)
     select
       r.user_id,
       null,
       ${args.teamId}::uuid,
+      ${args.sessionId ?? null}::uuid,
       ${args.type}::notification_type,
       ${args.title},
       ${args.body},
@@ -868,6 +873,79 @@ export async function sendAgentMessage(args: {
     declined,
     notMembers: candidates.filter((id) => !members.has(id)),
     deduped: candidates.filter((id) => members.has(id) && !delivered.has(id)),
+  }
+}
+
+/** `EXP-12`, `EXP-12 +2` for a batch, the action's name, else `Agent run`:
+ *  what a run is called in a sentence. */
+async function sessionRunName(session: {
+  issueId: string | null
+  batchIssueIds: string[] | null
+  actionName: string | null
+}): Promise<string> {
+  const ids = session.issueId ? [session.issueId] : (session.batchIssueIds ?? [])
+  const first = ids[0]
+  if (first) {
+    const [issue] = await db
+      .select({ identifier: issues.identifier })
+      .from(issues)
+      .where(eq(issues.id, first))
+      .limit(1)
+    if (issue) {
+      return ids.length > 1
+        ? `${issue.identifier} +${ids.length - 1}`
+        : issue.identifier
+    }
+  }
+  return session.actionName?.trim() || `Agent run`
+}
+
+/**
+ * EXP-980: a coding run hit a wall (`coding_sessions.blocked` went null →
+ * set). EVERY run tells its OWNER: a walled run still reads `running`, so
+ * without a push nobody notices until they look. One issue-less row carrying
+ * `session_id` + `team_id` (the inbox row and the push both route to the run),
+ * push-first like every fan-out, muted per type by the usual prefs.
+ * Best-effort, never throws: the caller is the device's `setBlocked` write.
+ */
+export async function notifySessionBlocked(
+  sessionId: string,
+  blocked: CodingSessionBlocked
+): Promise<void> {
+  try {
+    const [session] = await db
+      .select({
+        userId: codingSessions.userId,
+        teamId: codingSessions.teamId,
+        teamSlug: teams.slug,
+        issueId: codingSessions.issueId,
+        batchIssueIds: codingSessions.batchIssueIds,
+        actionName: codingSessions.actionName,
+      })
+      .from(codingSessions)
+      .innerJoin(teams, eq(teams.id, codingSessions.teamId))
+      .where(eq(codingSessions.id, sessionId))
+      .limit(1)
+    if (!session) return
+
+    const name = await sessionRunName(session)
+    const rateLimited = (blocked.kind ?? `rate_limit`) === `rate_limit`
+    await deliverToTeam({
+      teamId: session.teamId,
+      recipientIds: [session.userId],
+      type: `session_blocked`,
+      title: rateLimited ? `${name} hit a rate limit` : `${name} is blocked`,
+      // The countdown is as of NOW; the row's own timestamp dates it.
+      body: blockedBadgeLabel(blocked, new Date()),
+      pushData: {
+        sessionId,
+        teamId: session.teamId,
+        teamSlug: session.teamSlug,
+      },
+      sessionId,
+    })
+  } catch (err) {
+    console.error(`[notify] session_blocked failed:`, err)
   }
 }
 

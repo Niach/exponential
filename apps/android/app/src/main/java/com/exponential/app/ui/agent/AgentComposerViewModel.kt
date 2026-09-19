@@ -27,6 +27,7 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.MAX_STEER_IMAGES
@@ -183,35 +184,50 @@ class AgentComposerViewModel @Inject constructor(
     val subject: StateFlow<ComposerSubject?> = _subject
 
     /**
-     * EXP-897: what still BLOCKS the sole picked issue — the open `blocks`
-     * relations, resolved against the synced rows (`StackStart.openBlockers`,
-     * the ×4 rule). Empty for a chat, an action, a batch, and whenever the
-     * issue is blocked by nothing that is still open.
+     * EXP-980: the synced pools the blocked-start question reads — every
+     * relation and every issue. A blocker on another board still blocks, so
+     * neither may be scoped to the picked issues.
      */
-    val openBlockers: StateFlow<List<IssueEntity>> = _subject
-        .map { (it as? ComposerSubject.Issues)?.ids?.singleOrNull() }
-        .distinctUntilChanged()
-        .flatMapLatest { soleId ->
-            if (soleId == null) {
-                flowOf(emptyList())
-            } else {
-                combine(
-                    dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) {
-                        it.issueRelationDao().observeForIssue(soleId)
-                    },
-                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-                ) { relations, issues -> StackStart.openBlockers(soleId, relations, issues) }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val allIssues: StateFlow<List<IssueEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val allRelations: StateFlow<List<IssueRelationEntity>> =
+        dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * The blockers the start dialog is asking about — non-empty while it is
-     * up. A submit on a blocked issue opens it instead of starting; the
-     * answer ([submitStacked] / [submitAnyway]) starts the run it held.
+     * EXP-897/980: what still BLOCKS the picked issues — the open `blocks`
+     * relations, resolved against the synced rows. For a BATCH only blockers
+     * OUTSIDE the picked set count (`IssueGraph.openBlockersOfSet`, the ×4
+     * rule): one picked into the same batch is not in its way. Empty for a
+     * chat, an action, and whenever nothing open is left blocking.
      */
-    private val _blockedPrompt = MutableStateFlow<List<IssueEntity>>(emptyList())
-    val blockedPrompt: StateFlow<List<IssueEntity>> = _blockedPrompt
+    val openBlockers: StateFlow<List<IssueEntity>> = combine(
+        _subject.map { (it as? ComposerSubject.Issues)?.ids.orEmpty() }.distinctUntilChanged(),
+        allRelations,
+        allIssues,
+    ) { ids, relations, issues ->
+        if (ids.isEmpty()) emptyList() else IssueGraph.openBlockersOfSet(ids, relations, issues)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * What the blocked-start dialog is asking about (EXP-980) — the picked
+     * subjects, their blockers and the transitive chain it draws as the
+     * mini-graph. Non-null while the dialog is up: a submit on a blocked
+     * start opens it instead of starting, and the answer ([submitStacked] /
+     * [submitAnyway]) starts the run it held.
+     */
+    data class BlockedStart(
+        val pickedIds: List<String>,
+        val blockers: List<IssueEntity>,
+        val graph: IssueGraph.Graph,
+        /** The pool the graph's nodes resolve against. */
+        val issuesById: Map<String, IssueEntity>,
+    )
+
+    private val _blockedPrompt = MutableStateFlow<BlockedStart?>(null)
+    val blockedPrompt: StateFlow<BlockedStart?> = _blockedPrompt
 
     /** The submit the dialog is holding — its arguments, replayed on answer. */
     private var heldStart: HeldStart? = null
@@ -307,7 +323,7 @@ class AgentComposerViewModel @Inject constructor(
                 flowOf(emptyList())
             } else {
                 combine(
-                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+                    allIssues,
                     dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
                     dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) {
                         it.issueStatusDao().observeByTeam(teamId)
@@ -620,24 +636,42 @@ class AgentComposerViewModel @Inject constructor(
      */
     fun submit(action: ActionDto?, resumeOffered: Boolean) {
         if (_sending.value) return
-        // EXP-897: a blocked single issue asks first — start anyway, or cut
-        // the branch from the blocker and stack the pull request on it.
+        // EXP-897/980: a blocked start asks first — start anyway, or cut the
+        // branch from the blocker and stack the pull request on it. A RESUME
+        // re-enters a run that already has its branch, so there is nothing the
+        // answer could still change (desktop parity).
+        val ids = (_subject.value as? ComposerSubject.Issues)?.ids.orEmpty()
+        val resuming = resumeOffered && _resume.value && ids.size == 1
         val blockers = openBlockers.value
-        if (blockers.isNotEmpty() && _blockedPrompt.value.isEmpty()) {
+        if (!resuming && blockers.isNotEmpty() && _blockedPrompt.value == null) {
+            val issues = allIssues.value
             heldStart = HeldStart(action, resumeOffered)
-            _blockedPrompt.value = blockers
+            _blockedPrompt.value = BlockedStart(
+                pickedIds = ids,
+                blockers = blockers,
+                graph = IssueGraph.blockGraph(ids, allRelations.value, issues),
+                issuesById = issues.associateBy { it.id },
+            )
             return
         }
         dispatch(action, resumeOffered, stack = false)
     }
 
     /**
-     * The dialog's primary: cut from the blocker, base the PR on it. A machine
-     * without `stacked-start` never gets one (the dialog hides the button;
-     * a stale tap keeps the prompt up rather than downgrading the start).
+     * The dialog's primary: cut from the blocker, base the PR on it. Offered
+     * only while [StackStart.stackDisabledReason] finds nothing in the way —
+     * a batch, a cycle or a machine without `stacked-start` leaves the button
+     * disabled, and a stale tap keeps the prompt up rather than downgrading
+     * the start.
      */
     fun submitStacked() {
-        if (device.value?.canStackStart != true) return
+        val prompt = _blockedPrompt.value ?: return
+        val reason = StackStart.stackDisabledReason(
+            pickedCount = prompt.pickedIds.size,
+            canStack = device.value?.canStackStart == true,
+            hasCycle = prompt.graph.hasCycle,
+        )
+        if (reason != null) return
         answerBlockedPrompt(stack = true)
     }
 
@@ -646,13 +680,13 @@ class AgentComposerViewModel @Inject constructor(
 
     /** Cancel: the composer keeps everything, nothing was sent. */
     fun dismissBlockedPrompt() {
-        _blockedPrompt.value = emptyList()
+        _blockedPrompt.value = null
         heldStart = null
     }
 
     private fun answerBlockedPrompt(stack: Boolean) {
         val held = heldStart
-        _blockedPrompt.value = emptyList()
+        _blockedPrompt.value = null
         heldStart = null
         if (held != null) dispatch(held.action, held.resumeOffered, stack)
     }

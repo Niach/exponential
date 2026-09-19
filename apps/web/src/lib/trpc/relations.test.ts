@@ -51,6 +51,7 @@ import { relationsRouter } from "@/lib/trpc/relations"
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const OTHER_ID = `22222222-2222-4222-8222-222222222222`
 const RELATION_ID = `33333333-3333-4333-8333-333333333333`
+const THIRD_ID = `44444444-4444-4444-8444-444444444444`
 
 const selectQueue: unknown[][] = []
 
@@ -187,7 +188,12 @@ describe(`relations.create`, () => {
 
   it(`refuses the reverse of an existing directed row`, async () => {
     selectQueue.push([{ teamId: `ws-1` }])
-    selectQueue.push([{ id: RELATION_ID }]) // B already blocks A
+    // The walk from B: B already blocks A.
+    selectQueue.push([{ from: OTHER_ID, to: ISSUE_ID }])
+    selectQueue.push([
+      { id: ISSUE_ID, identifier: `EXP-1` },
+      { id: OTHER_ID, identifier: `EXP-2` },
+    ])
 
     const error = await rejectionOf(
       caller.create({
@@ -198,7 +204,48 @@ describe(`relations.create`, () => {
     )
 
     expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect((error as TRPCError).message).toBe(
+      `The opposite relation already exists (EXP-1 → EXP-2 → EXP-1)`
+    )
     expect(h.insertRelationInTx).not.toHaveBeenCalled()
+  })
+
+  // EXP-980: the guard is transitive, for BOTH directed types.
+  for (const type of [`blocks`, `parent`] as const) {
+    it(`refuses a ${type} pick that closes a longer cycle and spells it out`, async () => {
+      selectQueue.push([{ teamId: `ws-1` }])
+      selectQueue.push([{ from: OTHER_ID, to: THIRD_ID }]) // B → C
+      selectQueue.push([{ from: THIRD_ID, to: ISSUE_ID }]) // C → A
+      selectQueue.push([
+        { id: ISSUE_ID, identifier: `EXP-1` },
+        { id: OTHER_ID, identifier: `EXP-2` },
+        { id: THIRD_ID, identifier: `EXP-3` },
+      ])
+
+      const error = await rejectionOf(
+        caller.create({ issueId: ISSUE_ID, relatedIssueId: OTHER_ID, type })
+      )
+
+      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+      expect((error as TRPCError).message).toContain(
+        `EXP-1 → EXP-2 → EXP-3 → EXP-1`
+      )
+      expect(h.insertRelationInTx).not.toHaveBeenCalled()
+    })
+  }
+
+  it(`never walks the graph for a related pick`, async () => {
+    selectQueue.push([{ teamId: `ws-1` }])
+
+    await caller.create({
+      issueId: ISSUE_ID,
+      relatedIssueId: OTHER_ID,
+      type: `related`,
+    })
+
+    // One select: the other issue. No cycle walk.
+    expect(fakeDb.select).toHaveBeenCalledTimes(1)
+    expect(h.insertRelationInTx).toHaveBeenCalled()
   })
 
   it(`delegates a duplicate pick to issues.update (dual-write)`, async () => {

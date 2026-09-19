@@ -218,7 +218,8 @@
       "pr_opened",
       "pr_merged",
       "support_reply",
-      "agent_message"
+      "agent_message",
+      "session_blocked"
     ]
   },
   "prState": {

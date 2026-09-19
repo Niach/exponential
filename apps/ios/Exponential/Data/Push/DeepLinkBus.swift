@@ -23,6 +23,11 @@ final class DeepLinkBus: @unchecked Sendable {
     // server user id like the other push kinds.
     var pendingInbox = false
     var pendingInboxUserId: String?
+    // A session_blocked push tap (EXP-980): the run that hit a rate limit.
+    // Carries the recipient's server user id like the other push kinds, so a
+    // multi-account device opens it under the account it was delivered to.
+    var pendingSessionId: String?
+    var pendingSessionUserId: String?
     // EXP-825: a `/t/{team}/agent` universal link — the team's Agent page,
     // under the signed-in account whose host matched the URL.
     var pendingAgentTeamSlug: String?
@@ -59,6 +64,11 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingInbox = true
     }
 
+    func navigateToSession(_ sessionId: String, userId: String? = nil) {
+        pendingSessionUserId = userId
+        pendingSessionId = sessionId
+    }
+
     func navigateToAgent(teamSlug: String, accountId: String) {
         pendingAgentAccountId = accountId
         pendingAgentTeamSlug = teamSlug
@@ -86,6 +96,13 @@ final class DeepLinkBus: @unchecked Sendable {
         let token = pendingInviteToken
         pendingInviteToken = nil
         return token
+    }
+
+    func consumeSession() -> String? {
+        let id = pendingSessionId
+        pendingSessionId = nil
+        pendingSessionUserId = nil
+        return id
     }
 
     func consumeSupportThread() -> String? {

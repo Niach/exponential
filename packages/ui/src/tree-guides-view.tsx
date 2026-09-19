@@ -79,7 +79,9 @@ export function TreeGuides({
         width={width}
         height={gap}
         style={{ top: -gap }}
-        className="pointer-events-none absolute left-0"
+        // The caller's className too: a breakpoint-scoped guide (`md:hidden`)
+        // must hide BOTH layers.
+        className={cn(`pointer-events-none absolute left-0`, className)}
         data-testid="tree-guides-bridge"
       >
         {bridged.map((level) => (

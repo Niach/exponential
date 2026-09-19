@@ -66,6 +66,32 @@ struct InboxListContent: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("notification-row")
+                        case .blockedRun(let entry):
+                            // A blocked run (EXP-980) opens the RUN. A row
+                            // whose session has been pruned has nowhere to go,
+                            // so it only marks itself read.
+                            if let sessionId = entry.sessionId {
+                                NavigationLink(
+                                    value: AppRoute.agentSession(
+                                        accountId: accountId, sessionId: sessionId
+                                    )
+                                ) {
+                                    blockedRunRow(entry)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("notification-row")
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    viewModel.markBlockedRunRead(entry)
+                                })
+                            } else {
+                                Button {
+                                    viewModel.markBlockedRunRead(entry)
+                                } label: {
+                                    blockedRunRow(entry)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("notification-row")
+                            }
                         }
                     }
                 }
@@ -244,6 +270,62 @@ struct InboxListContent: View {
         .opacity(unread ? 1 : 0.6)
     }
 
+    /// One blocked run (EXP-980): the hourglass badge, the sentence
+    /// ("EXP-12 hit a rate limit") as the headline, the team name when the
+    /// user is in more than one team, the body ("Rate limited · resets in 2h")
+    /// underneath. Same anatomy as the agent-message row.
+    private func blockedRunRow(_ entry: InboxViewModel.BlockedRunEntry) -> some View {
+        let unread = entry.unread > 0
+        let n = entry.notification
+        return HStack(alignment: .top, spacing: 10) {
+            AppIcon(AppIcons.notificationSessionBlocked, size: AppIcon.Size.small)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 28, height: 28)
+                .background(Color.white.opacity(0.08), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(n.title)
+                        .font(.subheadline.weight(unread ? .semibold : .regular))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    if let teamName = entry.teamName, viewModel.hasMultipleTeams {
+                        Text(teamName)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                    }
+                }
+                if let body = n.body, !body.isEmpty {
+                    Text(body)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 6) {
+                Text(relativeDate(n.createdAt))
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                if unread {
+                    Circle()
+                        .fill(DesignTokens.Palette.primary)
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .padding(.top, 3)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        // EXP-818: the flat list row — the material card these rows used to
+        // wear is gone (glass is tokens, never a system material).
+        .flatRow()
+        .opacity(unread ? 1 : 0.6)
+    }
+
     /// Locked cross-platform type → shared-registry icon mapping (EXP-273).
     private func typeIcon(_ type: String?) -> String {
         switch type {
@@ -263,6 +345,8 @@ struct InboxListContent: View {
             return AppIcons.notificationPrMerged
         case DomainContract.notificationTypeAgentMessage:
             return AppIcons.notificationAgentMessage
+        case DomainContract.notificationTypeSessionBlocked:
+            return AppIcons.notificationSessionBlocked
         default:
             return AppIcons.navNotifications
         }

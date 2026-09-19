@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
@@ -61,6 +62,8 @@ fun InboxListContent(
     onOpenIssue: (String) -> Unit,
     onOpenSupport: () -> Unit,
     modifier: Modifier = Modifier,
+    // EXP-980: a blocked-run row opens the run it is about.
+    onOpenSession: (String) -> Unit = {},
     viewModel: InboxViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -91,8 +94,24 @@ fun InboxListContent(
                     }
                     // An agent's message (EXP-801) opens nothing — the row IS
                     // the content; tapping marks it read.
-                    is InboxEntry.Message -> MessageInboxRow(entry) {
+                    is InboxEntry.Message -> MessageInboxRow(
+                        icon = ExpIcons.notificationAgentMessage,
+                        notification = entry.notification,
+                        teamName = entry.teamName,
+                        unread = entry.unread,
+                    ) {
                         viewModel.markMessageRead(entry.notification)
+                    }
+                    // A blocked run (EXP-980): marks read and opens the run —
+                    // unless it has been pruned, when the row is all there is.
+                    is InboxEntry.Session -> MessageInboxRow(
+                        icon = ExpIcons.notificationSessionBlocked,
+                        notification = entry.notification,
+                        teamName = entry.teamName,
+                        unread = entry.unread,
+                    ) {
+                        viewModel.markMessageRead(entry.notification)
+                        entry.sessionId?.let(onOpenSession)
                     }
                 }
             }
@@ -204,14 +223,22 @@ private fun SupportInboxRow(group: SupportGroup, onClick: () -> Unit) {
 }
 
 /**
- * One agent message row (EXP-801): the bot badge, the sentence ("Ada's
- * agent: Build finished") as the headline, the team name when known, the
- * body underneath. Same unread styling as the other rows.
+ * One issue-less notification row: an agent message (EXP-801, the bot badge)
+ * or a blocked coding run (EXP-980, the hourglass). The sentence ("Ada's
+ * agent: Build finished", "EXP-12 hit a rate limit") is the headline, the team
+ * name rides beside it when known, the body sits underneath. Same unread
+ * styling as the other rows.
  */
 @Composable
-private fun MessageInboxRow(entry: InboxEntry.Message, onClick: () -> Unit) {
-    val read = entry.unread == 0
-    val n = entry.notification
+private fun MessageInboxRow(
+    icon: ImageVector,
+    notification: NotificationEntity,
+    teamName: String?,
+    unread: Int,
+    onClick: () -> Unit,
+) {
+    val read = unread == 0
+    val n = notification
     Row(
         Modifier
             .fillMaxWidth()
@@ -222,7 +249,7 @@ private fun MessageInboxRow(entry: InboxEntry.Message, onClick: () -> Unit) {
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TypeIconBadge(ExpIcons.notificationAgentMessage)
+        TypeIconBadge(icon)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -235,10 +262,10 @@ private fun MessageInboxRow(entry: InboxEntry.Message, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                if (entry.teamName != null) {
+                if (teamName != null) {
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        entry.teamName,
+                        teamName,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         maxLines = 1,
@@ -258,7 +285,7 @@ private fun MessageInboxRow(entry: InboxEntry.Message, onClick: () -> Unit) {
             }
         }
         Spacer(Modifier.width(8.dp))
-        TrailingTimeAndDot(time = relativeTime(n.createdAt), unread = entry.unread)
+        TrailingTimeAndDot(time = relativeTime(n.createdAt), unread = unread)
     }
 }
 
@@ -326,5 +353,6 @@ private fun notificationTypeIcon(type: String): ImageVector = when (type) {
     DomainContract.notificationTypePrMerged -> ExpIcons.notificationPrMerged
     DomainContract.notificationTypeSupportReply -> ExpIcons.notificationSupportReply
     DomainContract.notificationTypeAgentMessage -> ExpIcons.notificationAgentMessage
+    DomainContract.notificationTypeSessionBlocked -> ExpIcons.notificationSessionBlocked
     else -> ExpIcons.navNotifications
 }

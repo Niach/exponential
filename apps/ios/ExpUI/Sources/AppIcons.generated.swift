@@ -244,6 +244,7 @@ public enum AppIcons {
         "headphones",
         "heart",
         "history",
+        "hourglass",
         "house",
         "image",
         "images",
@@ -547,6 +548,8 @@ public enum AppIcons {
     public static let notificationPrMerged: String = "git-merge"
     /// Concept `notification-pr-opened`.
     public static let notificationPrOpened: String = "git-pull-request"
+    /// Concept `notification-session-blocked`.
+    public static let notificationSessionBlocked: String = "hourglass"
     /// Concept `notification-support-reply`.
     public static let notificationSupportReply: String = "life-buoy"
     /// Concept `pr-batch`.

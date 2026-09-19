@@ -169,28 +169,27 @@ struct AgentPageView: View {
             WorkScreen(subject: .session(id: target.sessionId))
                 .environment(\.accountId, accountId)
         }
-        // EXP-897: starting on a BLOCKED issue asks first — a stacked pull
-        // request, an ordinary run, or nothing. The copy is byte-identical ×4
-        // (`StackStart`); only the chips are identifiers here, because a
-        // UIKit alert cannot host them.
-        .alert(
-            StackStart.blockedStartTitle,
-            isPresented: Binding(
-                get: { composer?.blockedPrompt != nil },
-                set: { if !$0 { composer?.blockedPrompt = nil } }
-            ),
-            presenting: composer?.blockedPrompt
-        ) { _ in
-            // EXP-897: only a machine that reads the `stack` payload is
-            // offered one (`stacked-start`); an older build keeps Cancel and
-            // Start anyway.
-            if composer?.canStackStart == true {
-                Button(StackStart.stackedPrLabel) { composer?.startStacked() }
-            }
-            Button(StackStart.startAnywayLabel) { composer?.startAnyway() }
-            Button("Cancel", role: .cancel) { composer?.blockedPrompt = nil }
-        } message: { prompt in
-            blockedMessage(prompt)
+        // EXP-897/EXP-980: starting on BLOCKED work asks first — a stacked
+        // pull request, an ordinary run, or nothing. A SHEET, not an alert:
+        // it carries the transitive chain under the sentence, and the stacked
+        // button is disabled-with-a-reason rather than hidden.
+        .sheet(
+            item: Binding(
+                get: { composer?.blockedPrompt },
+                set: { if $0 == nil { composer?.blockedPrompt = nil } }
+            )
+        ) { prompt in
+            BlockedStartSheet(
+                prompt: prompt,
+                disabledReason: composer?.stackDisabledReason(prompt),
+                onCancel: { composer?.blockedPrompt = nil },
+                onStartAnyway: { composer?.startAnyway() },
+                onStartStacked: { composer?.startStacked() },
+                onOpenIssue: { id in
+                    composer?.blockedPrompt = nil
+                    deps.deepLinkBus.navigateToIssue(id, accountId: accountId)
+                }
+            )
         }
     }
 
@@ -200,20 +199,6 @@ struct AgentPageView: View {
         guard let sessionId = pendingRecent else { return }
         pendingRecent = nil
         sessionTarget = .init(sessionId: sessionId)
-    }
-
-    /// `This issue is blocked by EXP-11 and EXP-12. Start anyway, or start a
-    /// stacked PR?` — the shared sentence, identifiers monospaced.
-    private func blockedMessage(_ prompt: BlockedStartPrompt) -> Text {
-        let names = prompt.identifiers.filter { !$0.isEmpty }
-        var body = Text(StackStart.bodyPrefix)
-        for (index, name) in names.enumerated() {
-            if index > 0 {
-                body = body + Text(index == names.count - 1 ? " and " : ", ")
-            }
-            body = body + Text(name).font(.body.monospaced())
-        }
-        return body + Text(StackStart.bodySuffix)
     }
 
     /// EXP-825: the subject may sit on a NON-active team (an issue opened

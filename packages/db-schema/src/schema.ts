@@ -1746,6 +1746,12 @@ export const notifications = pgTable(
     teamId: uuid(`team_id`).references(() => teams.id, {
       onDelete: `cascade`,
     }),
+    // EXP-980: the coding run a `session_blocked` row is about. Synced (in
+    // the shape allowlist) so the inbox row routes to the run ×4; SET NULL
+    // keeps the delivered row when the run's row is pruned.
+    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
+      onDelete: `set null`,
+    }),
     type: notificationTypeEnum().notNull(),
     title: varchar({ length: 500 }).notNull(),
     body: text(),
@@ -1780,6 +1786,11 @@ export const notifications = pgTable(
     // created_at alone (EXP-553) — without this each 60s poll seq-scans the
     // largest table.
     index(`idx_notifications_created`).on(table.createdAt),
+    // EXP-980: the session_id SET NULL fires per deleted run; partial, since
+    // only `session_blocked` rows carry one.
+    index(`idx_notifications_session`)
+      .on(table.sessionId)
+      .where(sql`session_id IS NOT NULL`),
   ]
 )
 

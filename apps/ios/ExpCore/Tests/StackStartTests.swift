@@ -97,5 +97,45 @@ final class StackStartTests: XCTestCase {
         XCTAssertEqual(StackStart.stackedPrLabel, "Stacked PR")
         XCTAssertEqual(StackStart.bodyPrefix, "This issue is blocked by ")
         XCTAssertEqual(StackStart.bodySuffix, ". Start anyway, or start a stacked PR?")
+        // EXP-980: the batch prompt's own copy.
+        XCTAssertEqual(StackStart.blockedBatchTitle, "Some of these issues are blocked")
+        XCTAssertEqual(
+            StackStart.blockedBatchBody,
+            "Open issues outside this batch block it. Start anyway?"
+        )
+    }
+
+    // EXP-980: the stacked button is never hidden any more — it is disabled
+    // with ONE reason, the most fundamental first.
+    func testNamesOneReasonTheMostFundamentalFirst() {
+        XCTAssertNil(
+            StackStart.stackDisabledReason(pickedCount: 1, canStack: true, hasCycle: false)
+        )
+        XCTAssertEqual(
+            StackStart.stackDisabledReason(pickedCount: 1, canStack: false, hasCycle: false), .cap
+        )
+        XCTAssertEqual(
+            StackStart.stackDisabledReason(pickedCount: 2, canStack: false, hasCycle: false), .batch
+        )
+        XCTAssertEqual(
+            StackStart.stackDisabledReason(pickedCount: 2, canStack: true, hasCycle: true), .cycle
+        )
+    }
+
+    func testHasANoteForEveryReason() {
+        XCTAssertEqual(StackStart.stackDisabledNote(.cap), StackStart.stackNeedsUpdateNote)
+        XCTAssertEqual(StackStart.stackDisabledNote(.batch), StackStart.stackSingleIssueNote)
+        XCTAssertEqual(StackStart.stackDisabledNote(.cycle), StackStart.stackCycleNote)
+        XCTAssertEqual(
+            StackStart.stackNeedsUpdateNote,
+            "Update Exponential on this device to start stacked PRs."
+        )
+        XCTAssertEqual(
+            StackStart.stackSingleIssueNote, "A stacked PR starts one issue at a time."
+        )
+        XCTAssertEqual(
+            StackStart.stackCycleNote,
+            "These issues block each other in a cycle. Remove one relation to stack them."
+        )
     }
 }

@@ -5,6 +5,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -57,7 +59,6 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ChatSuggestions
-import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.StackStart
 import com.exponential.app.domain.MAX_STEER_IMAGES
@@ -69,6 +70,7 @@ import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
 import com.exponential.app.ui.components.IssueChip
+import com.exponential.app.ui.components.IssueGraphList
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.AutocompleteRows
@@ -131,7 +133,8 @@ fun AgentScreen(
     val deviceRequestNote by viewModel.deviceRequestNote.collectAsStateWithLifecycle()
     val launch by viewModel.launch.collectAsStateWithLifecycle()
     val subject by viewModel.subject.collectAsStateWithLifecycle()
-    // EXP-897: non-empty while the blocked-start dialog is up.
+    // EXP-897/980: non-null while the blocked-start dialog is up — the picked
+    // subjects, their blockers and the chain it draws.
     val blockedPrompt by viewModel.blockedPrompt.collectAsStateWithLifecycle()
     val canStackStart by viewModel.canStackStart.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -676,13 +679,14 @@ fun AgentScreen(
         )
     }
 
-    // EXP-897: the picked issue is still blocked — start it anyway, or stack
-    // its pull request on the blocker's. Same title, body and button words on
-    // all four clients (`StackStart`).
-    if (blockedPrompt.isNotEmpty()) {
+    // EXP-897/980: the picked work is still blocked — start it anyway, or
+    // stack its pull request on the blocker's. Same title, body, graph and
+    // button words on all four clients (`StackStart` / `IssueGraph`).
+    blockedPrompt?.let { prompt ->
         BlockedStartDialog(
-            blockers = blockedPrompt,
+            prompt = prompt,
             canStack = canStackStart,
+            onOpenIssue = onOpenIssue,
             onStacked = viewModel::submitStacked,
             onStartAnyway = viewModel::submitAnyway,
             onDismiss = viewModel::dismissBlockedPrompt,
@@ -720,50 +724,90 @@ private fun ChatSuggestionChips(suggestions: List<String>, onPick: (String) -> U
 }
 
 /**
- * EXP-897: the blocked-issue start dialog — the launcher's third mode. The
- * blockers are chips (the desktop shows the same identifiers in its alert
- * body, iOS in mono text: an alert cannot host chips there), and the three
- * answers are the shared words: `Stacked PR`, `Start anyway`, Cancel.
+ * EXP-897/980: the blocked-start dialog — the launcher's third mode. It asks
+ * for ONE picked issue (the blocker chips in the shared prefix/suffix
+ * sentence) and for a BATCH alike (the batch body, blockers outside the
+ * picked set), and under either the MINI-GRAPH of the transitive chain, so
+ * the reader sees what the chain actually is before answering.
+ *
+ * The three answers are the shared words: `Stacked PR`, `Start anyway`,
+ * Cancel. The stacked one is never hidden any more — when
+ * [StackStart.stackDisabledReason] names a reason it is DISABLED and the
+ * reason's note sits under the graph.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun BlockedStartDialog(
-    blockers: List<IssueEntity>,
-    /** The machine advertises `stacked-start`; false hides the primary. */
+    prompt: AgentComposerViewModel.BlockedStart,
+    /** The machine advertises `stacked-start`. */
     canStack: Boolean,
+    onOpenIssue: (String) -> Unit,
     onStacked: () -> Unit,
     onStartAnyway: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val isBatch = prompt.pickedIds.size > 1
+    val reason = StackStart.stackDisabledReason(
+        pickedCount = prompt.pickedIds.size,
+        canStack = canStack,
+        hasCycle = prompt.graph.hasCycle,
+    )
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(StackStart.BLOCKED_START_TITLE) },
+        title = {
+            Text(if (isBatch) StackStart.BLOCKED_BATCH_TITLE else StackStart.BLOCKED_START_TITLE)
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(StackStart.BODY_PREFIX.trimEnd())
-                FlowRow(
-                    modifier = Modifier.testTag("blocked-start-blockers"),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    blockers.forEach { blocker ->
-                        IssueChip(
-                            identifier = blocker.identifier,
-                            title = blocker.title,
-                            status = null,
-                        )
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (isBatch) {
+                    Text(StackStart.BLOCKED_BATCH_BODY)
+                } else {
+                    Text(StackStart.BODY_PREFIX.trimEnd())
+                    FlowRow(
+                        modifier = Modifier.testTag("blocked-start-blockers"),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        prompt.blockers.forEach { blocker ->
+                            IssueChip(
+                                identifier = blocker.identifier,
+                                title = blocker.title,
+                                status = null,
+                            )
+                        }
                     }
+                    Text(StackStart.BODY_SUFFIX.removePrefix(".").trim())
                 }
-                Text(StackStart.BODY_SUFFIX.removePrefix(".").trim())
+                IssueGraphList(
+                    graph = prompt.graph,
+                    issuesById = prompt.issuesById,
+                    onOpenIssue = { id ->
+                        onDismiss()
+                        onOpenIssue(id)
+                    },
+                )
+                // Why the stacked start is off — the shared note, never a
+                // hidden button (EXP-980).
+                reason?.let { why ->
+                    Text(
+                        StackStart.stackDisabledNote(why),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.testTag("stack-disabled-note"),
+                    )
+                }
             }
         },
         confirmButton = {
-            // EXP-897: an older machine has no `stack` field in its start
-            // decoder; Cancel and Start anyway stay, the stack is not offered.
-            if (canStack) {
-                TextButton(onClick = onStacked, modifier = Modifier.testTag("start-stacked")) {
-                    Text(StackStart.STACKED_PR_LABEL)
-                }
+            TextButton(
+                onClick = onStacked,
+                enabled = reason == null,
+                modifier = Modifier.testTag("start-stacked"),
+            ) {
+                Text(StackStart.STACKED_PR_LABEL)
             }
         },
         dismissButton = {

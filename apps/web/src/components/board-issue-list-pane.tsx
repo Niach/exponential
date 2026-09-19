@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router"
 import type { IssueGroup } from "@/lib/board-view"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { IssueGroupHeader } from "@/components/issue-group-header"
-import { ListRow } from "@exp/ui"
+import { ListRow, TREE_INDENT, TreeGuides, treeGuides } from "@exp/ui"
 
 // EXP-818 (the navigation rule, web): an issue opened with no list context of
 // its own brings its BOARD along — so the issue page is a master-detail on md+,
@@ -18,6 +18,10 @@ import { ListRow } from "@exp/ui"
 //
 // Below md the issue is its own screen, as before — this pane never renders
 // there, so a phone keeps the whole width for the issue.
+
+/** The compact row's own left padding (`px-2`): the first gutter starts here,
+ *  its centre under the parent's status glyph. */
+const PANE_ROW_PAD = 8
 
 export function BoardIssueListPane({
   groups,
@@ -60,6 +64,9 @@ export function BoardIssueListPane({
       )}
       {visible.map((group) => {
         const open = !collapsed.has(group.status.id)
+        // EXP-980: sub-issues sit under their parent here too (the groups
+        // arrive nested from the list data hooks).
+        const guides = group.depths ? treeGuides(group.depths) : null
         return (
           <div key={group.status.id} className="mb-2">
             <IssueGroupHeader
@@ -71,7 +78,7 @@ export function BoardIssueListPane({
             />
             {open && (
               <div className="flex flex-col">
-                {group.issues.map((issue) => (
+                {group.issues.map((issue, index) => (
                   <ListRow
                     key={issue.id}
                     asChild
@@ -79,7 +86,15 @@ export function BoardIssueListPane({
                     active={issue.id === activeIssueId}
                     // EXP-862: the sidebar's compact density — 28px rows,
                     // titles truncating, no second line.
-                    className="h-7 gap-2 px-2 py-0"
+                    className="relative h-7 gap-2 px-2 py-0"
+                    style={
+                      group.depths?.[index]
+                        ? {
+                            paddingLeft:
+                              PANE_ROW_PAD + group.depths[index] * TREE_INDENT,
+                          }
+                        : undefined
+                    }
                   >
                     <Link
                       to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
@@ -90,6 +105,7 @@ export function BoardIssueListPane({
                       }}
                       search={from ? { from } : {}}
                     >
+                      <TreeGuides guide={guides?.[index]} base={PANE_ROW_PAD} />
                       <IssueStatusIcon issue={issue} className="!h-3.5 !w-3.5" />
                       <span className="shrink-0 font-mono text-xs text-muted-foreground">
                         {issue.identifier}

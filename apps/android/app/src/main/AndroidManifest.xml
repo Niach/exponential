@@ -65,6 +65,25 @@
                 <data android:scheme="exponential" android:host="support" />
             </intent-filter>
 
+            <!-- agent_message push taps (EXP-801): the My Work inbox. The
+                 foreground FcmService has always built this ACTION_VIEW
+                 intent; without a filter for it the tap resolved to nothing
+                 (EXP-980 found it while adding the run host below). -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="exponential" android:host="inbox" />
+            </intent-filter>
+
+            <!-- session_blocked push taps (EXP-980): the run that hit the wall. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="exponential" android:host="session" />
+            </intent-filter>
+
             <!-- App Links (EXP-92): verified https links open the app instead of
                  the mobile web. Host is per-flavor (production app.exponential.at,
                  staging next.exponential.at); verification needs the host to serve

@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-19-relations-in-lists`,
+    date: `2026-09-19`,
+    title: `Sub-issues and blockers show in every issue list`,
+    summary: `Sub-issues nest under their parent, a badge counts what blocks an issue and opens the dependency graph, a blocked start shows the whole chain, and a run that hits a rate limit notifies you.`,
+    body: `- **Sub-issues in lists**: on every client a sub-issue sits under its parent on a connector line, in the board list, My Issues and the list beside an open issue. The parent decides the group and the position, so a finished sub-issue stays with its open parent.
+- **Blockers at a glance**: a row that is blocked, or that blocks other open work, carries one small badge with the counts. Opening it draws the dependency graph: what has to land first on the left, what waits on the right, a cycle in red. The badge on an issue's header shows the same graph.
+- **No more cycles**: linking issues as blocking or as parent and sub-issue is refused when it would close a loop of any length, and the message spells the loop out.
+- **Blocked starts**: starting a blocked issue shows the whole chain instead of the direct blockers only, a batch asks too when something outside it is in the way, and when a stacked PR is not possible the button stays visible and says why. Resuming a run never asks.
+- **Rate limit alerts**: when any of your coding runs hits a rate limit you get a push and an inbox row that opens the run. Turn it off under notification settings, Blocked runs.`,
+  },
+  {
     id: `2026-09-19-running-in-the-sidebar`,
     date: `2026-09-19`,
     title: `Running runs live in the sidebar again`,

@@ -1,0 +1,206 @@
+[
+  {
+    "name": "counts open blockers and open blocked issues per row",
+    "issues": [
+      { "id": "a", "identifier": "EXP-1", "status": "in_progress" },
+      { "id": "b", "identifier": "EXP-2", "status": "backlog" },
+      { "id": "c", "identifier": "EXP-3", "status": "backlog" },
+      { "id": "d", "identifier": "EXP-4", "status": "backlog" }
+    ],
+    "relations": [
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "c" },
+      { "type": "blocks", "issueId": "b", "relatedIssueId": "c" },
+      { "type": "related", "issueId": "a", "relatedIssueId": "d" },
+      { "type": "parent", "issueId": "a", "relatedIssueId": "d" }
+    ],
+    "expectedCounts": {
+      "a": { "blockedBy": 0, "blocking": 2 },
+      "b": { "blockedBy": 1, "blocking": 1 },
+      "c": { "blockedBy": 2, "blocking": 0 }
+    }
+  },
+  {
+    "name": "a closed or unsynced end drops the edge from the counts",
+    "issues": [
+      { "id": "a", "identifier": "EXP-1", "status": "done" },
+      { "id": "b", "identifier": "EXP-2", "status": "backlog" },
+      { "id": "c", "identifier": "EXP-3", "status": "cancelled" },
+      { "id": "d", "identifier": "EXP-4", "status": "duplicate" },
+      { "id": "e", "identifier": "EXP-5", "status": "in_review" }
+    ],
+    "relations": [
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "b", "relatedIssueId": "c" },
+      { "type": "blocks", "issueId": "d", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "ghost", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "e", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "e", "relatedIssueId": "b" }
+    ],
+    "expectedCounts": {
+      "b": { "blockedBy": 1, "blocking": 0 },
+      "e": { "blockedBy": 0, "blocking": 1 }
+    }
+  },
+  {
+    "name": "a picked set asks only about blockers outside it",
+    "issues": [
+      { "id": "a", "identifier": "EXP-1", "status": "backlog" },
+      { "id": "b", "identifier": "EXP-2", "status": "backlog" },
+      { "id": "c", "identifier": "EXP-3", "status": "backlog" },
+      { "id": "z", "identifier": "EXP-0", "status": "backlog" },
+      { "id": "y", "identifier": "EXP-9", "status": "done" }
+    ],
+    "relations": [
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "c", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "z", "relatedIssueId": "a" },
+      { "type": "blocks", "issueId": "c", "relatedIssueId": "a" },
+      { "type": "blocks", "issueId": "y", "relatedIssueId": "a" }
+    ],
+    "picked": ["a", "b"],
+    "expectedSetBlockers": ["z", "c"]
+  },
+  {
+    "name": "a chain lays out one wave per link, blockers and blocked side included",
+    "issues": [
+      { "id": "a", "identifier": "EXP-1", "status": "backlog" },
+      { "id": "b", "identifier": "EXP-2", "status": "backlog" },
+      { "id": "c", "identifier": "EXP-3", "status": "backlog" },
+      { "id": "d", "identifier": "EXP-4", "status": "backlog" },
+      { "id": "x", "identifier": "EXP-5", "status": "backlog" }
+    ],
+    "relations": [
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "b", "relatedIssueId": "c" },
+      { "type": "blocks", "issueId": "c", "relatedIssueId": "d" },
+      { "type": "blocks", "issueId": "x", "relatedIssueId": "d" }
+    ],
+    "subjects": ["c"],
+    "expectedGraph": {
+      "nodes": [
+        { "id": "a", "wave": 0, "lane": 0, "subject": false },
+        { "id": "b", "wave": 1, "lane": 0, "subject": false },
+        { "id": "c", "wave": 2, "lane": 0, "subject": true },
+        { "id": "d", "wave": 3, "lane": 0, "subject": false }
+      ],
+      "edges": [
+        { "from": "a", "to": "b", "cycle": false },
+        { "from": "b", "to": "c", "cycle": false },
+        { "from": "c", "to": "d", "cycle": false }
+      ],
+      "hasCycle": false,
+      "truncated": false
+    }
+  },
+  {
+    "name": "a diamond takes the longest path and orders a wave by identifier",
+    "issues": [
+      { "id": "r", "identifier": "EXP-1", "status": "backlog" },
+      { "id": "m2", "identifier": "EXP-12", "status": "backlog" },
+      { "id": "m1", "identifier": "EXP-11", "status": "backlog" },
+      { "id": "t", "identifier": "EXP-20", "status": "backlog" }
+    ],
+    "relations": [
+      { "type": "blocks", "issueId": "r", "relatedIssueId": "m2" },
+      { "type": "blocks", "issueId": "r", "relatedIssueId": "m1" },
+      { "type": "blocks", "issueId": "m1", "relatedIssueId": "t" },
+      { "type": "blocks", "issueId": "m2", "relatedIssueId": "t" },
+      { "type": "blocks", "issueId": "r", "relatedIssueId": "t" }
+    ],
+    "subjects": ["t"],
+    "expectedGraph": {
+      "nodes": [
+        { "id": "r", "wave": 0, "lane": 0, "subject": false },
+        { "id": "m1", "wave": 1, "lane": 0, "subject": false },
+        { "id": "m2", "wave": 1, "lane": 1, "subject": false },
+        { "id": "t", "wave": 2, "lane": 0, "subject": true }
+      ],
+      "edges": [
+        { "from": "r", "to": "m1", "cycle": false },
+        { "from": "r", "to": "m2", "cycle": false },
+        { "from": "r", "to": "t", "cycle": false },
+        { "from": "m1", "to": "t", "cycle": false },
+        { "from": "m2", "to": "t", "cycle": false }
+      ],
+      "hasCycle": false,
+      "truncated": false
+    }
+  },
+  {
+    "name": "a finished blocker ends the chain, a finished subject stays",
+    "issues": [
+      { "id": "a", "identifier": "EXP-1", "status": "backlog" },
+      { "id": "b", "identifier": "EXP-2", "status": "done" },
+      { "id": "c", "identifier": "EXP-3", "status": "done" },
+      { "id": "d", "identifier": "EXP-4", "status": "backlog" }
+    ],
+    "relations": [
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "b", "relatedIssueId": "c" },
+      { "type": "blocks", "issueId": "d", "relatedIssueId": "c" }
+    ],
+    "subjects": ["c"],
+    "expectedGraph": {
+      "nodes": [
+        { "id": "d", "wave": 0, "lane": 0, "subject": false },
+        { "id": "c", "wave": 1, "lane": 0, "subject": true }
+      ],
+      "edges": [{ "from": "d", "to": "c", "cycle": false }],
+      "hasCycle": false,
+      "truncated": false
+    }
+  },
+  {
+    "name": "cycle edges are flagged and left out of the layering",
+    "issues": [
+      { "id": "a", "identifier": "EXP-1", "status": "backlog" },
+      { "id": "b", "identifier": "EXP-2", "status": "backlog" },
+      { "id": "c", "identifier": "EXP-3", "status": "backlog" },
+      { "id": "d", "identifier": "EXP-4", "status": "backlog" }
+    ],
+    "relations": [
+      { "type": "blocks", "issueId": "a", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "b", "relatedIssueId": "c" },
+      { "type": "blocks", "issueId": "c", "relatedIssueId": "b" },
+      { "type": "blocks", "issueId": "c", "relatedIssueId": "d" }
+    ],
+    "subjects": ["d"],
+    "expectedGraph": {
+      "nodes": [
+        { "id": "a", "wave": 0, "lane": 0, "subject": false },
+        { "id": "c", "wave": 0, "lane": 1, "subject": false },
+        { "id": "b", "wave": 1, "lane": 0, "subject": false },
+        { "id": "d", "wave": 1, "lane": 1, "subject": true }
+      ],
+      "edges": [
+        { "from": "a", "to": "b", "cycle": false },
+        { "from": "b", "to": "c", "cycle": true },
+        { "from": "c", "to": "b", "cycle": true },
+        { "from": "c", "to": "d", "cycle": false }
+      ],
+      "hasCycle": true,
+      "truncated": false
+    }
+  },
+  {
+    "name": "several subjects share one graph, an unknown subject is dropped",
+    "issues": [
+      { "id": "a", "identifier": "EXP-1", "status": "backlog" },
+      { "id": "b", "identifier": "EXP-2", "status": "backlog" },
+      { "id": "c", "identifier": "EXP-3", "status": "backlog" }
+    ],
+    "relations": [{ "type": "blocks", "issueId": "a", "relatedIssueId": "b" }],
+    "subjects": ["c", "b", "ghost", "b"],
+    "expectedGraph": {
+      "nodes": [
+        { "id": "a", "wave": 0, "lane": 0, "subject": false },
+        { "id": "c", "wave": 0, "lane": 1, "subject": true },
+        { "id": "b", "wave": 1, "lane": 0, "subject": true }
+      ],
+      "edges": [{ "from": "a", "to": "b", "cycle": false }],
+      "hasCycle": false,
+      "truncated": false
+    }
+  }
+]
