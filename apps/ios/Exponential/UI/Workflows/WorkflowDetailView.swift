@@ -41,6 +41,7 @@ struct WorkflowDetailView: View {
                             graph(model)
                             mergeTrain(model)
                             howItRuns(model)
+                            metrics(model)
                             actions(model)
                         }
                         .padding()
@@ -99,6 +100,9 @@ struct WorkflowDetailView: View {
                     },
                     onResolve: { action in
                         model.resolveNode(node.id, action: action)
+                    },
+                    onAdmit: { admit in
+                        model.admitNode(node.id, admit: admit)
                     },
                     onOpenIssue: { issueId in
                         selectedNodeId = nil
@@ -400,6 +404,25 @@ struct WorkflowDetailView: View {
                 )
             }
 
+            // EXP-984: the model the gate's agent reviews run on — only ever a
+            // question under the agent gate, so the row appears only there.
+            if model.gate == DomainContract.wfGateAgent {
+                optionRow {
+                    GlassPickerRow(
+                        WorkflowView.reviewModelLabel,
+                        selection: launchBinding(
+                            value: model.launch.reviewModel,
+                            set: { model.setReviewModel($0) }
+                        ),
+                        // The same claude list the subagent row offers, blank
+                        // row included: "Default" = the engine picks.
+                        options: LaunchVocabulary.subagentModelValues(),
+                        label: { LaunchVocabulary.subagentModelLabel($0) },
+                        enabled: enabled
+                    )
+                }
+            }
+
             optionRow {
                 GlassPickerRow(
                     "Start",
@@ -412,6 +435,38 @@ struct WorkflowDetailView: View {
                     enabled: enabled
                 )
             }
+        }
+    }
+
+    // MARK: - Metrics
+
+    /// EXP-984 — what the run cost and caught, the LAST section of a started
+    /// workflow's detail. Flat label/value rows; hidden on a draft, which has
+    /// no run to count.
+    @ViewBuilder
+    private func metrics(_ model: WorkflowDetailModel) -> some View {
+        if !model.isDraft {
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(WorkflowView.metricsTitle)
+                    .padding(.top, 12)
+
+                ForEach(model.metricRows, id: \.label) { row in
+                    HStack(spacing: 8) {
+                        Text(row.label)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        Spacer(minLength: 8)
+                        Text(row.value)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .flatRow()
+                }
+            }
+            .accessibilityIdentifier("workflow-metrics")
         }
     }
 
@@ -608,11 +663,26 @@ struct WorkflowNodeSheet: View {
     let onUpdate: (WorkflowNodePatch) -> Void
     let onApprove: (Bool) -> Void
     let onResolve: (WorkflowNodeResolution) -> Void
+    /// EXP-984 — a `proposed` node: admit it into the run, or dismiss it.
+    let onAdmit: (Bool) -> Void
     let onOpenIssue: (String) -> Void
     let onOpenRun: (String) -> Void
     let onOpenChanges: (String) -> Void
 
     @State private var showSkipConfirm = false
+    /// EXP-984 — the two typed budget fields, drafted like the name field: they
+    /// save when the field gives up focus, not on every keystroke.
+    @State private var minutesDraft = ""
+    @State private var tokensDraft = ""
+    @State private var seededBudget = false
+    @FocusState private var budgetFocus: BudgetField?
+    /// The review's findings are folded to a few lines while they are long.
+    @State private var findingsExpanded = false
+
+    private enum BudgetField: Hashable {
+        case minutes
+        case tokens
+    }
 
     var body: some View {
         GlassSheetChrome(
@@ -690,12 +760,31 @@ struct WorkflowNodeSheet: View {
                     .glassRow()
                 }
 
+                budget
+
+                agentReview
+
                 runControls
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding)
             .padding(.bottom, 16)
         }
         .accessibilityIdentifier("workflow-node-sheet")
+        .onAppear {
+            // Seed once, then leave the fields alone: a synced echo must never
+            // stomp what is being typed.
+            guard !seededBudget else { return }
+            seededBudget = true
+            let bounds = node.parsedBudget
+            minutesDraft = bounds?.minutes.map(String.init) ?? ""
+            tokensDraft = bounds?.tokens.map(String.init) ?? ""
+        }
+        .onChange(of: budgetFocus) { _, focus in
+            if focus == nil { saveBudget() }
+        }
+        // Closing the sheet with a field still focused saves it too — the
+        // detail's own name field takes the same way out.
+        .onDisappear { saveBudget() }
         .confirmationDialog(
             WorkflowView.skipNodeLabel,
             isPresented: $showSkipConfirm,
@@ -718,7 +807,7 @@ struct WorkflowNodeSheet: View {
         let after = node.afterNodeIds.compactMap { nodesById[$0] }
         if !after.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Merges in first")
+                Text(WorkflowView.mergesInFirstLabel)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -736,6 +825,138 @@ struct WorkflowNodeSheet: View {
             }
             .accessibilityIdentifier("workflow-node-merges-in-first")
         }
+    }
+
+    // MARK: - Budget and agent review (EXP-984)
+
+    /// Either bound pauses the node and tells the workflow's creator; Retry
+    /// resumes it. Adjustable at any status the node can still spend anything
+    /// at — a landed or skipped node has nothing left to bound.
+    @ViewBuilder
+    private var budget: some View {
+        if node.state != DomainContract.wfNodeStateLanded,
+           node.state != DomainContract.wfNodeStateSkipped {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(WorkflowView.budgetTitle)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                HStack(spacing: 8) {
+                    budgetField(
+                        WorkflowView.budgetMinutesLabel,
+                        text: $minutesDraft,
+                        field: .minutes,
+                        identifier: "workflow-node-budget-minutes"
+                    )
+                    budgetField(
+                        WorkflowView.budgetTokensLabel,
+                        text: $tokensDraft,
+                        field: .tokens,
+                        identifier: "workflow-node-budget-tokens"
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("workflow-node-budget")
+        }
+    }
+
+    @ViewBuilder
+    private func budgetField(
+        _ placeholder: String,
+        text: Binding<String>,
+        field: BudgetField,
+        identifier: String
+    ) -> some View {
+        GlassTextField(
+            placeholder,
+            text: text,
+            accessibilityIdentifier: identifier
+        ) {
+            EmptyView()
+        } trailing: {
+            EmptyView()
+        }
+        .focused($budgetFocus, equals: field)
+        .keyboardType(.numberPad)
+        .onSubmit { saveBudget() }
+    }
+
+    /// Both bounds are positive integers; anything else is "no bound", and two
+    /// blanks clear the budget outright (an explicit null).
+    private func saveBudget() {
+        let minutes = Self.bound(minutesDraft)
+        let tokens = Self.bound(tokensDraft)
+        let next = minutes == nil && tokens == nil
+            ? nil
+            : WorkflowNodeBudget(tokens: tokens, minutes: minutes)
+        guard next != node.parsedBudget else { return }
+        onUpdate(WorkflowNodePatch(budget: .some(next)))
+    }
+
+    private static func bound(_ draft: String) -> Int? {
+        guard let value = Int(draft.trimmingCharacters(in: .whitespaces)), value > 0
+        else { return nil }
+        return value
+    }
+
+    /// The latest verdict an agent reviewer submitted: the one line, its
+    /// findings (folded while they are long), and the check it actually RAN —
+    /// an opinion is advisory, a passing oracle is evidence.
+    @ViewBuilder
+    private var agentReview: some View {
+        if let review = node.parsedReview {
+            let approved = review.verdict == DomainContract.wfReviewVerdictApprove
+            VStack(alignment: .leading, spacing: 6) {
+                Text(WorkflowView.agentReviewTitle)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Text(WorkflowView.reviewLine(review))
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(
+                        approved
+                            ? DesignTokens.Semantic.green
+                            : DesignTokens.Palette.destructive
+                    )
+                    .accessibilityIdentifier("workflow-node-review-line")
+                if !review.findings.isEmpty {
+                    Text(review.findings)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(findingsExpanded ? nil : Self.findingsLines)
+                        .accessibilityIdentifier("workflow-node-review-findings")
+                    if Self.foldable(review.findings) {
+                        Button(findingsExpanded ? "Show less" : "Show more") {
+                            findingsExpanded.toggle()
+                        }
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .buttonStyle(.plain)
+                    }
+                }
+                if let command = review.oracle?.command, !command.isEmpty {
+                    Text(command)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .accessibilityIdentifier("workflow-node-review-oracle")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassRow()
+            .accessibilityIdentifier("workflow-node-review")
+        }
+    }
+
+    /// The fold: a few lines, then "Show more" — the session view's own rule
+    /// for a long body.
+    private static let findingsLines = 4
+    private static let findingsChars = 280
+
+    private static func foldable(_ findings: String) -> Bool {
+        findings.count > findingsChars
+            || findings.filter { $0 == "\n" }.count >= findingsLines
     }
 
     // MARK: - Running it (EXP-982)
@@ -770,7 +991,39 @@ struct WorkflowNodeSheet: View {
                     .accessibilityIdentifier("workflow-node-note")
             }
 
-            if node.state == DomainContract.wfNodeStateFailed {
+            // EXP-984: a follow-up filed mid-run that was not plainly additive
+            // waits for a member. It is not part of the run yet, so none of the
+            // run's own controls apply to it — only Admit and Dismiss.
+            if node.isProposed {
+                Text(WorkflowView.proposedNodeNote)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("workflow-node-proposed-note")
+                HStack(spacing: 8) {
+                    GlassPill(
+                        WorkflowView.admitNodeLabel,
+                        icon: AppIcons.uiCheck,
+                        mode: .action { onAdmit(true) },
+                        primary: true,
+                        enabled: !busy
+                    )
+                    .accessibilityIdentifier("workflow-node-admit")
+                    GlassPill(
+                        WorkflowView.dismissNodeLabel,
+                        icon: AppIcons.uiClose,
+                        mode: .action { onAdmit(false) },
+                        enabled: !busy
+                    )
+                    .accessibilityIdentifier("workflow-node-dismiss")
+                }
+            }
+
+            // EXP-984: a node the engine PAUSED for going over its budget takes
+            // the same two ways out as a failed one — Retry resumes it.
+            if !node.isProposed,
+               node.state == DomainContract.wfNodeStateFailed
+                || node.state == DomainContract.wfNodeStatePaused {
                 HStack(spacing: 8) {
                     GlassPill(
                         WorkflowView.retryNodeLabel,
@@ -791,7 +1044,7 @@ struct WorkflowNodeSheet: View {
 
             // The gate: a node with its PR up asks for a person, and the answer
             // can be taken back right up until it lands.
-            if WorkflowView.nodeNeedsApproval(gate: gate, kind: node.kind) {
+            if !node.isProposed, WorkflowView.nodeNeedsApproval(gate: gate, kind: node.kind) {
                 if node.approvedAt != nil {
                     if node.state != DomainContract.wfNodeStateLanded {
                         GlassPill(

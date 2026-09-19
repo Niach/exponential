@@ -3,15 +3,21 @@ import { describe, expect, it, vi } from "vitest"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
 import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import {
+  ADMIT_NODE_LABEL,
+  AGENT_REVIEW_TITLE,
   APPROVE_NODE_LABEL,
   CANCEL_WORKFLOW_LABEL,
   CONTRACT_PUBLISHED_LABEL,
   DELETE_WORKFLOW_LABEL,
+  DISMISS_NODE_LABEL,
   MERGE_TRAIN_EMPTY,
+  METRICS_TITLE,
   PAUSE_WORKFLOW_LABEL,
   PLAN_WORKFLOW_LABEL,
+  PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
+  REVIEW_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   START_WORKFLOW_LABEL,
@@ -30,6 +36,10 @@ import {
 // EXP-983: an edge is drawn by its STYLE (`workflowEdgeStyle`), a serialization
 // edge dashed on top of it, and the panel says what a speculative start added:
 // the published contract, and the nodes this one merges in first.
+//
+// EXP-984: the reviewer's verdict reads off the node, a `proposed` follow-up is
+// decided on rather than run, the node carries a budget, and the workflow
+// carries its counters.
 
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
 const graphState = vi.hoisted(() => ({
@@ -49,6 +59,8 @@ const runMutates = vi.hoisted(() => ({
   cancel: vi.fn().mockResolvedValue({ txId: 1 }),
   approveNode: vi.fn().mockResolvedValue({ txId: 1 }),
   resolveNode: vi.fn().mockResolvedValue({ txId: 1 }),
+  admitNode: vi.fn().mockResolvedValue({ txId: 1 }),
+  updateNode: vi.fn().mockResolvedValue({ txId: 1 }),
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
@@ -88,7 +100,8 @@ vi.mock(`@/lib/trpc-client`, () => ({
     workflows: {
       update: { mutate: updateMutate },
       delete: { mutate: deleteMutate },
-      updateNode: { mutate: vi.fn().mockResolvedValue({ txId: 1 }) },
+      updateNode: { mutate: runMutates.updateNode },
+      admitNode: { mutate: runMutates.admitNode },
       start: { mutate: runMutates.start },
       pause: { mutate: runMutates.pause },
       resume: { mutate: runMutates.resume },
@@ -140,6 +153,9 @@ const node = (
     checkpointAt: null,
     afterNodeIds: [],
     note: null,
+    reviewRound: 0,
+    review: null,
+    budget: null,
     ...over,
   }) as unknown as WorkflowNode
 
@@ -775,5 +791,268 @@ describe(`WorkflowDetail node panel actions`, () => {
     expect(screen.queryByTestId(`workflow-node-run`)).toBeNull()
     expect(screen.queryByTestId(`workflow-node-pr`)).toBeNull()
     expect(screen.queryByTestId(`workflow-node-note`)).toBeNull()
+  })
+
+  // EXP-984 — the agent reviewer's latest verdict.
+  it(`reads an approval in the success tone, with its findings and check`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    open({
+      state: `in_review`,
+      review: {
+        verdict: `approve`,
+        findings: `The contract is honoured and the edges are covered.`,
+        oracle: { command: `bun run test:contract`, passed: true },
+        model: `opus`,
+        round: 1,
+        at: new Date().toISOString(),
+      },
+    })
+    const block = screen.getByTestId(`workflow-node-review`)
+    expect(block.textContent).toContain(AGENT_REVIEW_TITLE)
+    const line = screen.getByTestId(`workflow-node-review-line`)
+    expect(line.textContent).toBe(`Approved · round 1 · checks passed`)
+    expect(line.className).toContain(`text-emerald-500`)
+    expect(
+      screen.getByTestId(`workflow-node-review-findings`).textContent
+    ).toBe(`The contract is honoured and the edges are covered.`)
+    expect(screen.getByTestId(`workflow-node-review-oracle`).textContent).toBe(
+      `bun run test:contract`
+    )
+    // Short findings need no fold.
+    expect(screen.queryByTestId(`workflow-node-review-more`)).toBeNull()
+  })
+
+  it(`reads requested changes in the destructive tone, and folds long findings`, () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    const findings = `line\n`.repeat(20)
+    const changes = open({
+      state: `updating`,
+      reviewRound: 2,
+      review: {
+        verdict: `request_changes`,
+        findings,
+        oracle: null,
+        model: `opus`,
+        round: 2,
+        at: new Date().toISOString(),
+      },
+    })
+    const line = screen.getByTestId(`workflow-node-review-line`)
+    expect(line.textContent).toBe(`Changes requested · round 2`)
+    expect(line.className).toContain(`text-destructive`)
+    // No oracle ran, so there is no command to show.
+    expect(screen.queryByTestId(`workflow-node-review-oracle`)).toBeNull()
+    const body = screen.getByTestId(`workflow-node-review-findings`)
+    expect(body.className).toContain(`line-clamp-4`)
+    const more = screen.getByTestId(`workflow-node-review-more`)
+    expect(more.textContent).toBe(`Show more`)
+    fireEvent.click(more)
+    expect(
+      screen.getByTestId(`workflow-node-review-findings`).className
+    ).not.toContain(`line-clamp-4`)
+    expect(screen.getByTestId(`workflow-node-review-more`).textContent).toBe(
+      `Show less`
+    )
+    changes.unmount()
+
+    // A node nobody reviewed carries no block at all.
+    open({ state: `in_review` })
+    expect(screen.queryByTestId(`workflow-node-review`)).toBeNull()
+  })
+
+  // EXP-984 — a follow-up filed mid-run is decided on, not run.
+  it(`admits a proposed node, dismisses it, and offers nothing else`, async () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    const admitted = open({
+      state: `proposed`,
+      note: `Filed by APP-1's run: the migration needs a backfill.`,
+    })
+    // Dashed while it is only a proposal.
+    expect(
+      screen.getByTestId(`workflow-node-n1-card`).className
+    ).toContain(`border-dashed`)
+    expect(
+      screen.getByTestId(`workflow-node-proposed-note`).textContent
+    ).toBe(PROPOSED_NODE_NOTE)
+    // The engine's own reason still reads above it.
+    expect(screen.getByTestId(`workflow-node-note`).textContent).toContain(
+      `needs a backfill`
+    )
+    // Nothing about it is approved, retried or skipped yet.
+    expect(screen.queryByTestId(`workflow-node-approve`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-node-retry`)).toBeNull()
+    expect(screen.queryByTestId(`workflow-node-skip`)).toBeNull()
+    expect(screen.getByTestId(`workflow-node-admit`).textContent).toBe(
+      ADMIT_NODE_LABEL
+    )
+    fireEvent.click(screen.getByTestId(`workflow-node-admit`))
+    await vi.waitFor(() =>
+      expect(runMutates.admitNode).toHaveBeenCalledWith(
+        { nodeId: `n1`, admit: true },
+        expect.anything()
+      )
+    )
+    admitted.unmount()
+
+    open({ state: `proposed` })
+    expect(screen.getByTestId(`workflow-node-dismiss`).textContent).toBe(
+      DISMISS_NODE_LABEL
+    )
+    fireEvent.click(screen.getByTestId(`workflow-node-dismiss`))
+    await vi.waitFor(() =>
+      expect(runMutates.admitNode).toHaveBeenCalledWith(
+        { nodeId: `n1`, admit: false },
+        expect.anything()
+      )
+    )
+  })
+
+  it(`keeps a proposed node out of the merge train`, () => {
+    for (const mutate of Object.values(runMutates)) mutate.mockClear()
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `proposed` }),
+      node(`n2`, { wave: 1, lane: 0, state: `in_review` }),
+    ]
+    graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
+    graphState.relations = []
+    const queued = mount({ ...startable(), status: `running`, gate: `none` })
+    expect(screen.queryByTestId(`workflow-train-n1`)).toBeNull()
+    expect(screen.getByTestId(`workflow-train-n2`).textContent).toBe(
+      `APP-2Landing next`
+    )
+    queued.unmount()
+
+    // Nor does it hold the final pull request back: every node that IS part of
+    // the run is in.
+    nodeRows.rows = [
+      node(`n1`, { wave: 0, lane: 0, state: `proposed` }),
+      node(`n2`, { wave: 1, lane: 0, state: `landed` }),
+    ]
+    mount({ ...startable(), status: `running`, gate: `none` })
+    expect(screen.getByTestId(`workflow-final-pr`).textContent).toBe(
+      `Final pull requestOpening the pull request`
+    )
+  })
+
+  // EXP-984 — the node's own ceiling, saved on blur.
+  it(`saves a node budget, clears it, and hides it once the node is in`, async () => {
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    const running = open({ state: `running` })
+    const minutes = screen.getByTestId(
+      `workflow-node-budget-minutes`
+    ) as HTMLInputElement
+    expect(minutes.value).toBe(``)
+    fireEvent.change(minutes, { target: { value: `45` } })
+    fireEvent.blur(minutes)
+    await vi.waitFor(() =>
+      expect(runMutates.updateNode).toHaveBeenCalledWith(
+        {
+          workflowId: `wf`,
+          issueId: `i-n1`,
+          budget: { minutes: 45, tokens: null },
+        },
+        expect.anything()
+      )
+    )
+    running.unmount()
+
+    // Emptying both fields takes the budget away entirely.
+    const budgeted = open({
+      state: `waiting`,
+      budget: { minutes: 45, tokens: 200000 },
+    })
+    const both = [
+      screen.getByTestId(`workflow-node-budget-minutes`),
+      screen.getByTestId(`workflow-node-budget-tokens`),
+    ] as HTMLInputElement[]
+    expect(both.map((field) => field.value)).toEqual([`45`, `200000`])
+    for (const field of both) fireEvent.change(field, { target: { value: `` } })
+    fireEvent.blur(both[1]!)
+    await vi.waitFor(() =>
+      expect(runMutates.updateNode).toHaveBeenCalledWith(
+        { workflowId: `wf`, issueId: `i-n1`, budget: null },
+        expect.anything()
+      )
+    )
+    budgeted.unmount()
+
+    // A landed or skipped node is history: nothing left to bound.
+    const landed = open({ state: `landed` })
+    expect(screen.queryByTestId(`workflow-node-budget-block`)).toBeNull()
+    landed.unmount()
+    open({ state: `skipped` })
+    expect(screen.queryByTestId(`workflow-node-budget-block`)).toBeNull()
+  })
+})
+
+// EXP-984: what the workflow itself gained — the model reviews run on, and the
+// counters the run accumulated.
+describe(`WorkflowDetail review model and metrics`, () => {
+  const rowLabelled = (label: string) =>
+    [
+      ...screen
+        .getByTestId(`workflow-how-it-runs`)
+        .querySelectorAll(`[data-slot="glass-picker-row"]`),
+    ].find((row) => row.textContent?.startsWith(label))
+
+  it(`offers the review model only under the agent gate`, () => {
+    nodeRows.rows = []
+    graphState.issues = []
+    graphState.relations = []
+    const human = mount(startable({ gate: `human` }))
+    expect(rowLabelled(REVIEW_MODEL_LABEL)).toBeUndefined()
+    human.unmount()
+
+    const none = mount(startable({ gate: `none` }))
+    expect(rowLabelled(REVIEW_MODEL_LABEL)).toBeUndefined()
+    none.unmount()
+
+    const blank = mount(startable({ gate: `agent` }))
+    expect(rowLabelled(REVIEW_MODEL_LABEL)?.textContent).toBe(
+      `${REVIEW_MODEL_LABEL}Default`
+    )
+    blank.unmount()
+
+    mount(startable({ gate: `agent`, launch: { reviewModel: `opus` } }))
+    expect(rowLabelled(REVIEW_MODEL_LABEL)?.textContent).toBe(
+      `${REVIEW_MODEL_LABEL}Opus`
+    )
+  })
+
+  it(`counts the run's metrics, and none of them on a draft`, () => {
+    nodeRows.rows = []
+    graphState.issues = []
+    graphState.relations = []
+    const metrics = {
+      nodes: 4,
+      edges: 3,
+      depth: 2,
+      width: 2,
+      cycles: [],
+      landed: 2,
+      reviewRounds: 5,
+      budgetPauses: 1,
+      defectsByOracle: 3,
+      defectsByAgentReview: 1,
+    }
+    const draft = mount(startable({ metrics }))
+    expect(screen.queryByTestId(`workflow-metrics`)).toBeNull()
+    draft.unmount()
+
+    mount({ ...startable(), status: `running`, metrics })
+    expect(screen.getByTestId(`workflow-metrics`).textContent).toContain(
+      METRICS_TITLE
+    )
+    const row = (label: string) =>
+      screen.getByTestId(`workflow-metric-${label}`).textContent
+    expect(row(`Critical path`)).toBe(`Critical path2 waves for 4 nodes`)
+    expect(row(`Landed`)).toBe(`Landed2`)
+    expect(row(`Review rounds`)).toBe(`Review rounds5`)
+    expect(row(`Defects found`)).toBe(
+      `Defects found3 by checks · 1 by agent review`
+    )
+    expect(row(`Budget pauses`)).toBe(`Budget pauses1`)
+    // A counter with nothing to say draws no row.
+    expect(screen.queryByTestId(`workflow-metric-Escalations`)).toBeNull()
   })
 })

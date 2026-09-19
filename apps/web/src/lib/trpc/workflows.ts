@@ -3,6 +3,10 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
 import {
   WORKFLOW_DECISIONS_MAX,
+  WORKFLOW_MAX_REVIEW_ROUNDS,
+  wfReviewVerdictSchema,
+  workflowReviewOracleSchema,
+  type WorkflowNodeReview,
   WORKFLOW_MAX_ISSUES,
   wfNodeStateSchema,
   workflowLaunchSchema,
@@ -235,6 +239,35 @@ export function appendDecisionLine(log: string, text: string, now: Date): string
   return out.slice(-WORKFLOW_DECISIONS_MAX)
 }
 
+/** A budget pause reaches the person who started the workflow (inbox row +
+ *  push). Best-effort. */
+async function notifyNodePaused(
+  workflow: { id: string; teamId: string; name: string },
+  issueId: string,
+  note: string | null
+): Promise<void> {
+  try {
+    const { db } = await import(`@/db/connection`)
+    const [row] = await db
+      .select({ creatorId: workflows.creatorId, identifier: issues.identifier })
+      .from(workflows)
+      .innerJoin(issues, eq(issues.id, issueId))
+      .where(eq(workflows.id, workflow.id))
+      .limit(1)
+    if (!row?.creatorId) return
+    const { sendAgentMessage } = await import(`@/lib/integrations/notifications`)
+    await sendAgentMessage({
+      teamId: workflow.teamId,
+      senderUserId: row.creatorId,
+      recipientIds: [row.creatorId],
+      title: `${row.identifier} paused in ${workflow.name}`,
+      body: note ?? `The node went over its budget.`,
+    })
+  } catch (err) {
+    console.error(`[workflows] pause notice failed:`, err)
+  }
+}
+
 /** A recorded decision reaches every run of the workflow that is parked on a
  *  question (the sibling that asked the same thing included). Best-effort. */
 async function relayDecision(workflowId: string, text: string): Promise<void> {
@@ -263,6 +296,70 @@ async function relayDecision(workflowId: string, text: string): Promise<void> {
   } catch (err) {
     console.error(`[workflows] decision relay failed:`, err)
   }
+}
+
+
+/** EXP-984: bump counters inside `workflows.metrics` (the shape keys the
+ *  layout owns are never touched). */
+export function bumpMetrics(deltas: Record<string, number>) {
+  let expr = sql`${workflows.metrics}`
+  for (const [key, delta] of Object.entries(deltas)) {
+    if (!/^[a-zA-Z]+$/.test(key) || !Number.isFinite(delta)) continue
+    expr = sql`jsonb_set(${expr}, ${`{${key}}`}::text[], (coalesce((${workflows.metrics}->>${key})::numeric, 0) + ${delta})::text::jsonb)`
+  }
+  return expr
+}
+
+/** The counters the engine (or the server) may bump. The layout's shape keys
+ *  (`nodes`, `edges`, `depth`, `width`, `cycles`, `cycleEdges`) are not among
+ *  them. */
+export const WORKFLOW_COUNTERS = [
+  `landed`,
+  `mergeIns`,
+  `contractChanges`,
+  `escalations`,
+  `duplicateEscalations`,
+  `operatorMinutes`,
+  `reviewRounds`,
+  `defectsByOracle`,
+  `defectsByAgentReview`,
+  `admitted`,
+  `budgetPauses`,
+] as const
+
+/**
+ * What one submitted review does to its node. Pure.
+ * - approve + an oracle that PASSED, on a non-contract node → the approval
+ *   stands in for the person (evidence, not opinion).
+ * - approve without a passing oracle → advisory: the node still waits for a
+ *   person, with the reviewer's word on it.
+ * - request_changes → back to the author, up to the round cap; after that the
+ *   node stops bouncing and waits for a person.
+ */
+export function reviewOutcome(args: {
+  verdict: `approve` | `request_changes`
+  oraclePassed: boolean | null
+  kind: string
+  round: number
+}): { approve: boolean; state: `in_review` | `updating` | `waiting`; note: string } {
+  if (args.verdict === `approve`) {
+    const backed = args.oraclePassed === true && args.kind !== `contract`
+    return {
+      approve: backed,
+      state: `in_review`,
+      note: backed
+        ? `Agent review passed, backed by its checks`
+        : `Agent review passed (advisory): needs a person`,
+    }
+  }
+  if (args.round >= WORKFLOW_MAX_REVIEW_ROUNDS) {
+    return {
+      approve: false,
+      state: `waiting`,
+      note: `Review did not converge after ${WORKFLOW_MAX_REVIEW_ROUNDS} rounds`,
+    }
+  }
+  return { approve: false, state: `updating`, note: `Changes requested by the agent review` }
 }
 
 export const workflowsRouter = router({
@@ -670,6 +767,22 @@ export const workflowsRouter = router({
           .update(workflowNodes)
           .set({ approvedAt: input.approved ? new Date() : null })
           .where(eq(workflowNodes.id, input.nodeId))
+        if (input.approved) {
+          // EXP-984 metric: how long the node sat waiting for a person. The
+          // row's `updated_at` is when it last moved (into review).
+          const [row] = await tx
+            .select({ since: workflowNodes.updatedAt })
+            .from(workflowNodes)
+            .where(eq(workflowNodes.id, input.nodeId))
+            .limit(1)
+          const minutes = row
+            ? Math.max(0, Math.round((Date.now() - new Date(row.since).getTime()) / 60_000))
+            : 0
+          await tx
+            .update(workflows)
+            .set({ metrics: bumpMetrics({ operatorMinutes: minutes }) })
+            .where(eq(workflows.id, workflow.id))
+        }
         return { txId }
       })
     }),
@@ -698,6 +811,119 @@ export const workflowsRouter = router({
           .where(eq(workflowNodes.id, input.nodeId))
         return { txId }
       })
+    }),
+
+
+  /** A reviewer RUN's verdict on one node (EXP-984, MCP
+   *  `exponential_workflows_review_submit`). Only the runner's owner may
+   *  submit: the engine started that run. */
+  submitReview: authedProcedure
+    .input(
+      z.object({
+        nodeId: z.string().uuid(),
+        verdict: wfReviewVerdictSchema,
+        findings: z.string().trim().max(8000).default(``),
+        oracle: workflowReviewOracleSchema.nullable().optional(),
+        model: z.string().max(64).nullable().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const node = await loadNode(input.nodeId)
+      const workflow = await loadWorkflow(node.workflowId)
+      await assertEngine(workflow, ctx.session.user.id)
+      if (node.state === `landed` || node.state === `skipped`) {
+        throw bad(`That node is already settled`)
+      }
+      const [row] = await ctx.db
+        .select({ round: workflowNodes.reviewRound })
+        .from(workflowNodes)
+        .where(eq(workflowNodes.id, input.nodeId))
+        .limit(1)
+      const round = (row?.round ?? 0) + 1
+      const oraclePassed = input.oracle ? input.oracle.passed : null
+      const outcome = reviewOutcome({
+        verdict: input.verdict,
+        oraclePassed,
+        kind: node.kind,
+        round,
+      })
+      const review: WorkflowNodeReview = {
+        verdict: input.verdict,
+        findings: input.findings,
+        oracle: input.oracle ?? null,
+        model: input.model ?? null,
+        round,
+        at: new Date().toISOString(),
+      }
+      await ctx.db
+        .update(workflowNodes)
+        .set({
+          review,
+          reviewRound: round,
+          state: outcome.state,
+          note: outcome.note,
+          ...(outcome.approve && { approvedAt: new Date() }),
+        })
+        .where(eq(workflowNodes.id, input.nodeId))
+      await ctx.db
+        .update(workflows)
+        .set({
+          metrics: bumpMetrics({
+            reviewRounds: 1,
+            ...(input.verdict === `request_changes` &&
+              (oraclePassed === false
+                ? { defectsByOracle: 1 }
+                : { defectsByAgentReview: 1 })),
+          }),
+        })
+        .where(eq(workflows.id, workflow.id))
+      return { round, ...outcome }
+    }),
+
+  /** A `proposed` node (a follow-up filed mid-run that was not plainly
+   *  additive): a member admits it into the graph or dismisses it. */
+  admitNode: authedProcedure
+    .input(z.object({ nodeId: z.string().uuid(), admit: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const node = await loadNode(input.nodeId)
+      const workflow = await loadWorkflow(node.workflowId)
+      await assertTeamMember(ctx.session.user.id, workflow.teamId)
+      if (node.state !== `proposed`) throw bad(`That node is not a proposal`)
+      return ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        if (input.admit) {
+          await tx
+            .update(workflowNodes)
+            .set({ state: `blocked`, note: null })
+            .where(eq(workflowNodes.id, input.nodeId))
+          await tx
+            .update(workflows)
+            .set({ metrics: bumpMetrics({ admitted: 1 }) })
+            .where(eq(workflows.id, workflow.id))
+        } else {
+          await tx.delete(workflowNodes).where(eq(workflowNodes.id, input.nodeId))
+        }
+        await replanWorkflow(tx, workflow.id)
+        return { txId }
+      })
+    }),
+
+  /** ENGINE: counters only the device can see (merge-ins, contract changes). */
+  reportMetrics: authedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        deltas: z.record(z.enum(WORKFLOW_COUNTERS), z.number().int().min(0).max(10_000)),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const workflow = await loadWorkflow(input.id)
+      await assertEngine(workflow, ctx.session.user.id)
+      await ctx.db
+        .update(workflows)
+        .set({ metrics: bumpMetrics(input.deltas as Record<string, number>) })
+        .where(eq(workflows.id, input.id))
+      return { ok: true }
     }),
 
   /** ENGINE: a node's state moved. */
@@ -739,6 +965,15 @@ export const workflowsRouter = router({
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
         .where(eq(workflowNodes.id, input.nodeId))
+      // EXP-984: the engine paused the node over its budget. A paused node
+      // does nothing until a person looks, so it says so ONCE, on the edge.
+      if (input.state === `paused` && node.state !== `paused`) {
+        await ctx.db
+          .update(workflows)
+          .set({ metrics: bumpMetrics({ budgetPauses: 1 }) })
+          .where(eq(workflows.id, workflow.id))
+        await notifyNodePaused(workflow, node.issueId, input.note ?? null)
+      }
       return { updated: true }
     }),
 
@@ -801,9 +1036,7 @@ export const workflowsRouter = router({
         .where(eq(workflowNodes.id, input.nodeId))
       await ctx.db
         .update(workflows)
-        .set({
-          metrics: sql`jsonb_set(${workflows.metrics}, '{landed}', (coalesce((${workflows.metrics}->>'landed')::int, 0) + 1)::text::jsonb)`,
-        })
+        .set({ metrics: bumpMetrics({ landed: 1 }) })
         .where(eq(workflows.id, workflow.id))
       // EXP-983: dependents whose last unlanded blocker this was move their
       // PR onto the integration branch; the engine has them merge it in.

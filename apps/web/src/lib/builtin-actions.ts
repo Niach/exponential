@@ -57,12 +57,21 @@ export function planWorkflowPrompt(
   return extra ? `${head}\n\n${extra}` : head
 }
 
+/** Reserved id of the hidden "Review node" builtin (EXP-984): the agent
+ * review of ONE workflow node. Only the workflow ENGINE starts it, locally on
+ * the runner device; no client constructs it, so it has no factory here —
+ * the server only has to accept the id and name the run. */
+export const BUILTIN_REVIEW_NODE_ID = contract.builtinAction.reviewNodeId
+
+export const BUILTIN_REVIEW_NODE_NAME = `Review node`
+
 export function isBuiltinActionId(id: string): boolean {
   return (
     id === BUILTIN_CREATE_ACTION_ID ||
     id === BUILTIN_FIX_CONFLICTS_ID ||
     id === BUILTIN_CHAT_ID ||
-    id === BUILTIN_PLAN_WORKFLOW_ID
+    id === BUILTIN_PLAN_WORKFLOW_ID ||
+    id === BUILTIN_REVIEW_NODE_ID
   )
 }
 
@@ -75,7 +84,9 @@ export function builtinActionName(id: string): string {
       ? BUILTIN_CHAT_NAME
       : id === BUILTIN_PLAN_WORKFLOW_ID
         ? BUILTIN_PLAN_WORKFLOW_NAME
-        : BUILTIN_CREATE_ACTION_NAME
+        : id === BUILTIN_REVIEW_NODE_ID
+          ? BUILTIN_REVIEW_NODE_NAME
+          : BUILTIN_CREATE_ACTION_NAME
 }
 
 // EXP-825: the request itself (what the action should do, and its name if

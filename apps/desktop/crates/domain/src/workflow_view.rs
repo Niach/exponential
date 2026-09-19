@@ -452,15 +452,22 @@ pub fn workflow_merge_train(nodes: &[TrainNode<'_>], gate: &str) -> Vec<TrainEnt
 
 /// The final-PR node's caption, or `None` while the node is not drawn: it
 /// appears once every node landed (or was skipped), after the last wave.
+/// EXP-984: a `proposed` node was never admitted, so it is not part of the
+/// run and nothing waits for it.
 pub fn workflow_final_pr_caption(
     node_states: &[&str],
     final_pr_state: Option<&str>,
     final_pr_number: Option<i64>,
 ) -> Option<String> {
-    if node_states.is_empty() {
+    let real: Vec<&str> = node_states
+        .iter()
+        .copied()
+        .filter(|state| *state != "proposed")
+        .collect();
+    if real.is_empty() {
         return None;
     }
-    let all_in = node_states
+    let all_in = real
         .iter()
         .all(|state| *state == "landed" || *state == "skipped");
     if !all_in && final_pr_number.is_none() {
@@ -537,6 +544,151 @@ pub fn workflow_edge_style(
 pub const CONTRACT_PUBLISHED_LABEL: &str = "Contract published";
 /// The node panel's line over the `after_node_ids` chips.
 pub const MERGES_IN_FIRST_LABEL: &str = "Merges in first";
+
+// ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────────
+
+/// A `proposed` node's two decisions, and the sentence that explains it.
+pub const ADMIT_NODE_LABEL: &str = "Admit";
+pub const DISMISS_NODE_LABEL: &str = "Dismiss";
+pub const PROPOSED_NODE_NOTE: &str =
+    "Filed during the run. Admit it into the workflow or dismiss it.";
+/// The node panel's agent-review block, the launch row that picks its model,
+/// the budget block's title and fields, and the detail's counters section.
+pub const AGENT_REVIEW_TITLE: &str = "Agent review";
+pub const REVIEW_MODEL_LABEL: &str = "Review model";
+pub const BUDGET_TITLE: &str = "Budget";
+pub const BUDGET_MINUTES_LABEL: &str = "Minutes";
+pub const BUDGET_TOKENS_LABEL: &str = "Tokens";
+pub const METRICS_TITLE: &str = "Metrics";
+
+/// What the review line reads off `workflow_nodes.review`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReviewLine<'a> {
+    /// contract `wfReviewVerdict` — `approve` / `request_changes`.
+    pub verdict: &'a str,
+    pub round: i64,
+    /// `Some(passed)` when the reviewer RAN a check; `None` = opinion only.
+    pub oracle: Option<bool>,
+}
+
+/// The node panel's one line about the latest agent review:
+/// `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+/// `Changes requested · round 2 · checks failed`, `Changes requested · round 3`.
+pub fn workflow_review_line(review: ReviewLine<'_>) -> String {
+    let verdict = if review.verdict == "approve" {
+        "Approved"
+    } else {
+        "Changes requested"
+    };
+    let mut parts = vec![verdict.to_string(), format!("round {}", review.round)];
+    match review.oracle {
+        Some(true) => parts.push("checks passed".to_string()),
+        Some(false) => parts.push("checks failed".to_string()),
+        // An approval nobody could back with a command is advisory; a
+        // request for changes needs no such word.
+        None if review.verdict == "approve" => parts.push("advisory".to_string()),
+        None => {}
+    }
+    parts.join(" · ")
+}
+
+/// One label/value row of the detail's Metrics section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricRow {
+    pub label: String,
+    pub value: String,
+}
+
+/// One counter off `workflows.metrics`. Anything that is not a number (an
+/// older server, a garbled blob) reads as zero rather than dropping the row.
+fn metric_count(metrics: &serde_json::Value, key: &str) -> f64 {
+    metrics
+        .get(key)
+        .and_then(serde_json::Value::as_f64)
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.0)
+}
+
+/// A counter as text, the way the other clients' `${n}` renders it: whole
+/// numbers carry no decimal point.
+fn metric_text(value: f64) -> String {
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        format!("{}", value as i64)
+    } else {
+        format!("{value}")
+    }
+}
+
+/// The detail's Metrics section for a STARTED workflow, in this order. A row
+/// appears only when it has something to say, except the critical path, which
+/// always does.
+pub fn workflow_metric_rows(metrics: &serde_json::Value) -> Vec<MetricRow> {
+    let row = |label: &str, value: String| MetricRow {
+        label: label.to_string(),
+        value,
+    };
+    let count = |key: &str| metric_count(metrics, key);
+    let mut rows = vec![row(
+        "Critical path",
+        format!(
+            "{} waves for {} nodes",
+            metric_text(count("depth")),
+            metric_text(count("nodes"))
+        ),
+    )];
+    let landed = count("landed");
+    if landed > 0.0 {
+        rows.push(row("Landed", metric_text(landed)));
+    }
+    let merge_ins = count("mergeIns");
+    let changes = count("contractChanges");
+    if merge_ins > 0.0 {
+        rows.push(if changes > 0.0 {
+            row(
+                "Merge-ins per contract change",
+                format!("{:.1}", merge_ins / changes),
+            )
+        } else {
+            row("Merge-ins", metric_text(merge_ins))
+        });
+    }
+    let escalations = count("escalations");
+    if escalations > 0.0 {
+        rows.push(row(
+            "Escalations",
+            format!(
+                "{} ({} duplicate)",
+                metric_text(escalations),
+                metric_text(count("duplicateEscalations"))
+            ),
+        ));
+    }
+    let minutes = count("operatorMinutes");
+    if minutes > 0.0 {
+        rows.push(row("Operator minutes", metric_text(minutes)));
+    }
+    let rounds = count("reviewRounds");
+    if rounds > 0.0 {
+        rows.push(row("Review rounds", metric_text(rounds)));
+    }
+    let by_oracle = count("defectsByOracle");
+    let by_agent = count("defectsByAgentReview");
+    if by_oracle + by_agent > 0.0 {
+        rows.push(row(
+            "Defects found",
+            format!(
+                "{} by checks · {} by agent review",
+                metric_text(by_oracle),
+                metric_text(by_agent)
+            ),
+        ));
+    }
+    let pauses = count("budgetPauses");
+    if pauses > 0.0 {
+        rows.push(row("Budget pauses", metric_text(pauses)));
+    }
+    rows
+}
 
 /// A list row's secondary text: the shape line, led by the status word for
 /// the two statuses a band alone does not tell apart.
@@ -728,6 +880,42 @@ mod tests {
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
+    struct FixtureOracle {
+        passed: bool,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureReview {
+        verdict: String,
+        round: i64,
+        oracle: Option<FixtureOracle>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureReviewLine {
+        review: FixtureReview,
+        line: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureMetricRow {
+        label: String,
+        value: String,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct FixtureMetricRows {
+        /// The raw `workflows.metrics` blob — counters and garbage alike.
+        metrics: serde_json::Value,
+        rows: Vec<FixtureMetricRow>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Fixture {
         bands: Vec<FixtureBand>,
         shape_lines: Vec<FixtureShapeLine>,
@@ -741,6 +929,9 @@ mod tests {
         row_subtitles: Vec<FixtureRowSubtitle>,
         /// EXP-983.
         edge_styles: Vec<FixtureEdgeStyle>,
+        /// EXP-984.
+        review_lines: Vec<FixtureReviewLine>,
+        metric_rows: Vec<FixtureMetricRows>,
     }
 
     impl FixtureMetrics {
@@ -919,6 +1110,35 @@ mod tests {
                 workflow_edge_style(&edge, &case.from_state, &case.to_state).as_wire(),
                 case.style,
                 "edgeStyles[{index}]"
+            );
+        }
+
+        // ── EXP-984 ──────────────────────────────────────────────────────
+        for (index, case) in fixture.review_lines.iter().enumerate() {
+            assert_eq!(
+                workflow_review_line(ReviewLine {
+                    verdict: &case.review.verdict,
+                    round: case.review.round,
+                    oracle: case.review.oracle.as_ref().map(|oracle| oracle.passed),
+                }),
+                case.line,
+                "reviewLines[{index}]"
+            );
+        }
+
+        for (index, case) in fixture.metric_rows.iter().enumerate() {
+            let want: Vec<MetricRow> = case
+                .rows
+                .iter()
+                .map(|row| MetricRow {
+                    label: row.label.clone(),
+                    value: row.value.clone(),
+                })
+                .collect();
+            assert_eq!(
+                workflow_metric_rows(&case.metrics),
+                want,
+                "metricRows[{index}]"
             );
         }
     }

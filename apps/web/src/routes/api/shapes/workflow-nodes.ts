@@ -27,6 +27,8 @@ export const WORKFLOW_NODE_COLUMNS = [
   `approved_at`,
   `checkpoint_at`,
   `after_node_ids`,
+  `review_round`,
+  `review`,
   `note`,
   `budget`,
   `touches`,

@@ -7,7 +7,7 @@
 //! action). `daemon install|uninstall|status` manage a systemd user unit
 //! (Linux) / launchd agent (macOS).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -2987,6 +2987,10 @@ impl AutomationHost {
         // A base this pass could NOT put up. Nothing may be cut from it: the
         // node waits for the next beat rather than starting on a wrong base.
         let mut unbuilt: HashSet<String> = HashSet::new();
+        // EXP-984: the counters only this device can see, batched into ONE
+        // report at the end of the pass.
+        let mut metrics: BTreeMap<String, u32> = BTreeMap::new();
+        self.tally_workflow_contract_changes(&plan, settings_path, &mut metrics);
         for decision in coding::workflows::evaluate(&plan.snapshot) {
             match decision {
                 // Handled above; the engine still emits it when the host
@@ -3071,11 +3075,96 @@ impl AutomationHost {
                         &base_branch,
                         &sha,
                     );
+                    // EXP-984: a merge-in is counted when it is DELIVERED.
                     if let Some(live) = workflow_session(&self.sessions, &session_id) {
                         live.send_prompt(text);
+                        *metrics
+                            .entry(api::workflows::COUNTER_MERGE_INS.to_string())
+                            .or_default() += 1;
                     } else if let Err(err) = self.resume_workflow_node(&session_id, text) {
                         log::warn!("workflow resume of {session_id} failed: {err}");
+                    } else {
+                        *metrics
+                            .entry(api::workflows::COUNTER_MERGE_INS.to_string())
+                            .or_default() += 1;
                     }
+                }
+                // EXP-984: the agent review of one node — the hidden
+                // `Review node` builtin, in a throwaway worktree of its own.
+                coding::workflows::Decision::StartReview {
+                    node_id,
+                    model,
+                    adversarial,
+                } => {
+                    self.start_workflow_review(
+                        &plan,
+                        &node_id,
+                        model,
+                        adversarial,
+                        settings,
+                        settings_path,
+                    );
+                }
+                // EXP-984: the review asked for changes — its findings go to
+                // the node's AUTHOR verbatim, once per round.
+                coding::workflows::Decision::SendFindings {
+                    node_id,
+                    session_id,
+                } => {
+                    let Some(review) = plan.review_of.get(&node_id) else {
+                        continue;
+                    };
+                    let text =
+                        coding::prompt::review_findings_prompt(review.round, &review.findings);
+                    match session_id {
+                        // The engine only names a session that is LIVE:
+                        // steer it where it stands, or say nothing this pass
+                        // (a live run must never be resumed into a second).
+                        Some(session_id) => {
+                            match workflow_session(&self.sessions, &session_id) {
+                                Some(live) => live.send_prompt(text),
+                                None => continue,
+                            }
+                        }
+                        // Its run ENDED: re-enter it with the findings.
+                        None => {
+                            let Some(session_id) = plan
+                                .nodes
+                                .get(&node_id)
+                                .and_then(|node| node.session_id.clone())
+                            else {
+                                continue;
+                            };
+                            if let Err(err) = self.resume_workflow_node(&session_id, text) {
+                                log::warn!("workflow resume of {session_id} failed: {err}");
+                                continue;
+                            }
+                        }
+                    }
+                    let round = review.round;
+                    update_workflow_state(
+                        settings_path,
+                        &self.device_id,
+                        &workflow_id,
+                        |state| {
+                            state.findings_sent.insert(node_id.clone(), round);
+                        },
+                    );
+                }
+                // EXP-984: over budget — end the run, then park the node for
+                // a person (the server notifies the workflow's creator).
+                coding::workflows::Decision::PauseNode {
+                    node_id,
+                    session_id,
+                    note,
+                } => {
+                    if let Some(live) = workflow_session(&self.sessions, &session_id) {
+                        live.kill();
+                    }
+                    let mut report = api::workflows::NodeReport::new(&node_id, "paused");
+                    report.note = api::patch::Patch::Set(one_line_note(&note));
+                    self.report_node(&report);
+                    log::info!("workflow {workflow_id}: paused {node_id} — {note}");
                 }
                 // EXP-983: the collision the engine decided to serialize.
                 coding::workflows::Decision::SetSerialEdge { node_id, after } => {
@@ -3157,6 +3246,14 @@ impl AutomationHost {
                         }
                     }
                 }
+            }
+        }
+        // EXP-984: one metrics report per beat, never one per decision.
+        if !metrics.is_empty() {
+            if let Err(err) =
+                api::workflows::report_metrics(&self.ctx.trpc, &workflow_id, &metrics)
+            {
+                log::warn!("workflow {workflow_id}: reportMetrics — {err}");
             }
         }
     }
@@ -3404,6 +3501,191 @@ impl AutomationHost {
         Ok(Some(session_id))
     }
 
+    /// EXP-984 — the `contractChanges` counter: a node that ALREADY
+    /// announced its contract moved its branch again, which is what every
+    /// dependent then has to merge in. The first tip seen after a checkpoint
+    /// IS the checkpoint, so it is recorded and not counted.
+    fn tally_workflow_contract_changes(
+        &self,
+        plan: &WorkflowPlan,
+        settings_path: &Path,
+        metrics: &mut BTreeMap<String, u32>,
+    ) {
+        let workflow_id = plan.snapshot.workflow.id.clone();
+        let mut seen =
+            workflow_state(settings_path, &self.device_id, &workflow_id).checkpoint_tips;
+        let mut changed = 0_u32;
+        let mut dirty = false;
+        for node in &plan.snapshot.nodes {
+            if !plan.checkpointed.contains(&node.id) {
+                continue;
+            }
+            let Some(sha) = plan.snapshot.pr_head.get(&node.id) else {
+                continue;
+            };
+            match seen.get(&node.id) {
+                Some(previous) if previous == sha => continue,
+                Some(_) => changed += 1,
+                None => {}
+            }
+            seen.insert(node.id.clone(), sha.clone());
+            dirty = true;
+        }
+        if changed > 0 {
+            *metrics
+                .entry(api::workflows::COUNTER_CONTRACT_CHANGES.to_string())
+                .or_default() += changed;
+        }
+        if dirty {
+            update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
+                state.checkpoint_tips = seen.clone()
+            });
+        }
+    }
+
+    /// EXP-984 — start ONE agent review: the hidden `Review node` builtin,
+    /// in a throwaway worktree cut from the node's pushed branch. A failure
+    /// is not a node failure (the node's own work is fine): it only drops
+    /// the recorded head, so the next beat tries the review again.
+    #[allow(clippy::too_many_arguments)]
+    fn start_workflow_review(
+        &self,
+        plan: &WorkflowPlan,
+        node_id: &str,
+        model: Option<String>,
+        adversarial: bool,
+        settings: &coding::Settings,
+        settings_path: &Path,
+    ) {
+        let workflow_id = plan.snapshot.workflow.id.clone();
+        let Some(node) = plan.nodes.get(node_id) else {
+            return;
+        };
+        let (Some(identifier), Some(node_branch)) = (
+            plan.snapshot.identifier.get(node_id).cloned(),
+            plan.branch_of.get(node_id).cloned(),
+        ) else {
+            return;
+        };
+        let repo = match api::repositories::for_issue(&self.ctx.trpc, &node.issue_id) {
+            Ok(Some(repo)) => repo,
+            Ok(None) => {
+                log::warn!("workflow review of {node_id}: the node has no repository");
+                return;
+            }
+            Err(err) => {
+                log::warn!("workflow review of {node_id}: repository — {err}");
+                return;
+            }
+        };
+        // The head this review runs against is recorded BEFORE the launch:
+        // the next beat must not start a second review of the same push.
+        if let Some(sha) = plan.snapshot.pr_head.get(node_id).cloned() {
+            update_workflow_state(settings_path, &self.device_id, &workflow_id, |state| {
+                state.reviewed_head.insert(node_id.to_string(), sha.clone());
+            });
+        }
+        let round = node.review_round + 1;
+        let mut options = coding::workflows::launch_options(
+            settings,
+            plan.launch.agent.as_deref(),
+            plan.launch.model.as_deref(),
+            plan.launch.effort.as_deref(),
+            plan.launch.subagent_model.as_deref(),
+            plan.launch.account.as_deref(),
+        );
+        // The reviewer's model is the engine's pick; everything else is the
+        // workflow's own launch configuration.
+        if let Some(model) = model {
+            options.model = model;
+        }
+        let request = PrepareRequest::Action(coding::ActionLaunchRequest {
+            action_id: api::actions::BUILTIN_REVIEW_NODE_ID.to_string(),
+            run_id: coding::new_run_id(),
+            action_name: api::actions::BUILTIN_REVIEW_NODE_NAME.to_string(),
+            team_id: plan.team_id.clone(),
+            body: String::new(),
+            repo: Some(coding::RepoGroup {
+                repository_id: repo.repository_id,
+                full_name: repo.full_name,
+                default_branch: repo.default_branch,
+            }),
+            inputs: Vec::new(),
+            kind: coding::ActionRunKind::ReviewNode {
+                node_id: node_id.to_string(),
+                identifier: identifier.clone(),
+                branch: node_branch,
+                base_branch: node
+                    .base_branch
+                    .clone()
+                    .unwrap_or_else(|| plan.snapshot.workflow.integration_branch.clone()),
+                review_branch: coding::workflows::review_branch(
+                    &workflow_id,
+                    &identifier,
+                    round,
+                ),
+                adversarial,
+            },
+            trigger: None,
+            automation_id: None,
+            device_label: coding::default_device_label(),
+            origin: coding::LaunchOrigin::Local,
+            options,
+            prompt: None,
+        });
+        let deps = launch::coding_deps(
+            &self.ctx,
+            HashMap::new(),
+            launch::LaunchHost::Daemon,
+            self.runtime.as_ref(),
+        );
+        let started = (|| -> anyhow::Result<String> {
+            let prepared =
+                coding::prepare(&request, &deps).map_err(|err| anyhow::anyhow!("{err}"))?;
+            if let Prepared::Disabled(reason) = &prepared {
+                anyhow::bail!("{}", reason.message());
+            }
+            let session_id = match &prepared {
+                Prepared::Ready(ready) => ready.session_id.clone(),
+                Prepared::Disabled(_) => unreachable!("refused above"),
+            };
+            spawn_prepared(
+                &self.ctx,
+                self.runtime.as_ref(),
+                &self.sessions,
+                self.personal_key.clone(),
+                prepared,
+                None,
+                false,
+            )?;
+            Ok(session_id)
+        })();
+        match started {
+            Ok(session_id) => update_workflow_state(
+                settings_path,
+                &self.device_id,
+                &workflow_id,
+                |state| {
+                    state
+                        .review_runs
+                        .insert(node_id.to_string(), session_id.clone());
+                },
+            ),
+            Err(err) => {
+                log::warn!("workflow review of {node_id} — {err}");
+                // It reviewed nothing: let the next beat try again.
+                update_workflow_state(
+                    settings_path,
+                    &self.device_id,
+                    &workflow_id,
+                    |state| {
+                        state.reviewed_head.remove(node_id);
+                    },
+                );
+            }
+        }
+    }
+
     /// The merge train's one step. The gate saying "not yet" is nothing to
     /// do; anything else is GitHub refusing the merge, and the node has to
     /// merge the trunk in (steered if it is live, resumed if it ended).
@@ -3506,6 +3788,11 @@ struct WorkflowPlan {
     /// node's head branch.
     candidates: Vec<(String, String)>,
     branch_of: HashMap<String, String>,
+    /// EXP-984: `node id → its latest review` (the findings the author is
+    /// handed verbatim) and the nodes that announced a contract (the
+    /// `contractChanges` metric).
+    review_of: HashMap<String, domain::rows::WorkflowNodeReview>,
+    checkpointed: HashSet<String>,
     name: String,
     team_id: String,
     decisions: String,
@@ -3540,14 +3827,27 @@ fn workflow_plan(
     // branches + globs feed the collision pre-filter.
     let mut identifier: HashMap<String, String> = HashMap::new();
     let mut git_nodes: Vec<coding::workflows::NodeGit> = Vec::new();
+    // EXP-984: the latest verdicts and the nodes that announced a contract.
+    let mut review_of: HashMap<String, domain::rows::WorkflowNodeReview> = HashMap::new();
+    let mut checkpointed: HashSet<String> = HashSet::new();
     // The workflow's team — a batch launch's subject.
     let team_id = workflow.team_id.clone().unwrap_or_default();
     for row in node_rows {
         if row.workflow_id.as_deref() != Some(workflow.id.as_str()) {
             continue;
         }
+        // EXP-984: a node nobody admitted is not part of the run at all.
+        if row.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED {
+            continue;
+        }
         let issue_id = row.issue_id.clone()?;
         let members = row.member_ids();
+        if let Some(review) = row.review_facts() {
+            review_of.insert(row.id.clone(), review);
+        }
+        if row.checkpoint_at.is_some() {
+            checkpointed.insert(row.id.clone());
+        }
         // A plain node's head is its issue's branch; a COMPOUND one runs as
         // a batch, whose branch only the session row knows.
         let mut branch = None;
@@ -3595,6 +3895,7 @@ fn workflow_plan(
             member_issue_ids: members,
             kind: row.kind_wire().to_string(),
             state: row.state_wire().to_string(),
+            risk: row.risk_wire().to_string(),
             wave: row.wave_index() as i64,
             lane: row.lane_index() as i64,
             session_id: row.session_id.clone(),
@@ -3604,6 +3905,14 @@ fn workflow_plan(
             base_branch: row.base_branch.clone(),
             after_node_ids: row.after_ids(),
             branch,
+            // EXP-984: the review gate's counter and verdict, and what the
+            // node may spend.
+            review_round: row.review_count(),
+            review: row.review_facts().map(|review| coding::workflows::ReviewFacts {
+                verdict: review.verdict,
+                round: review.round,
+            }),
+            budget: workflow_node_budget(row),
         };
         by_id.insert(facts.id.clone(), facts.clone());
         nodes.push(facts);
@@ -3635,6 +3944,10 @@ fn workflow_plan(
                     .start_on
                     .clone()
                     .unwrap_or_else(|| coding::workflows::START_ON_LANDED.to_string()),
+                // EXP-984: what a review runs on, and what the AUTHORS run
+                // on (a high-risk node is never reviewed by its own model).
+                review_model: launch.review_model.clone(),
+                author_model: launch.model.clone(),
             },
             nodes,
             edges,
@@ -3651,11 +3964,19 @@ fn workflow_plan(
             synthetic: engine_state.synthetic.clone(),
             conflicts: Default::default(),
             identifier,
+            // EXP-984: the review gate's at-most-once bookkeeping (the heads
+            // themselves are filled with the tips, in the pass).
+            review_in_flight: live_reviews(&engine_state, session_rows),
+            pr_head: HashMap::new(),
+            reviewed_head: engine_state.reviewed_head.clone(),
+            findings_sent: engine_state.findings_sent.clone(),
             now_ms,
         },
         nodes: by_id,
         candidates,
         branch_of,
+        review_of,
+        checkpointed,
         name: workflow.name.clone().unwrap_or_default(),
         team_id,
         decisions: workflow.decisions.clone().unwrap_or_default(),
@@ -3709,7 +4030,49 @@ fn workflow_session_facts(row: &domain::rows::CodingSession) -> coding::workflow
             .and_then(|value| value.get("resetsAt"))
             .and_then(parse_resets_at),
         agent_busy: row.agent_busy.unwrap_or(false),
+        // EXP-984: the minutes budget's clock. `tokens_used` stays None —
+        // the daemon reads no per-session token counter, so only minutes
+        // bound a run here.
+        started_at_ms: row
+            .started_at
+            .as_deref()
+            .or(row.created_at.as_deref())
+            .and_then(|raw| {
+                chrono::DateTime::parse_from_rfc3339(raw)
+                    .ok()
+                    .map(|parsed| parsed.timestamp_millis())
+            }),
+        tokens_used: None,
     }
+}
+
+/// EXP-984: the node's budget as the engine reads it.
+fn workflow_node_budget(row: &domain::rows::WorkflowNodeRow) -> Option<coding::workflows::BudgetFacts> {
+    let (minutes, tokens) = row.budget_limits();
+    (minutes.is_some() || tokens.is_some()).then_some(coding::workflows::BudgetFacts {
+        minutes,
+        tokens: tokens.map(|tokens| tokens as u64),
+    })
+}
+
+/// EXP-984: the nodes whose REVIEWER run is still up — the session this
+/// device recorded when it started that review, read back off the synced
+/// rows. One review per node at a time, whatever its branch does meanwhile.
+fn live_reviews(
+    state: &coding::workflows::WorkflowState,
+    session_rows: &[domain::rows::CodingSession],
+) -> HashSet<String> {
+    state
+        .review_runs
+        .iter()
+        .filter(|(_, session_id)| {
+            session_rows.iter().any(|row| {
+                &&row.id == session_id
+                    && matches!(row.status.as_deref(), Some("running" | "in_review"))
+            })
+        })
+        .map(|(node_id, _)| node_id.clone())
+        .collect()
 }
 
 /// The wall's reset stamp as ms epoch — a number already, or the ISO string

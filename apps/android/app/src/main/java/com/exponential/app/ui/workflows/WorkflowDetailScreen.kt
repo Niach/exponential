@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -37,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -48,9 +50,14 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkflowLaunch
+import com.exponential.app.domain.WorkflowNodeBudget
+import com.exponential.app.domain.WorkflowNodeReview
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.captionNode
+import com.exponential.app.domain.line
 import com.exponential.app.domain.shape
+import com.exponential.app.domain.workflowNodeBudget
+import com.exponential.app.domain.workflowNodeReview
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassNotice
@@ -76,6 +83,7 @@ import com.exponential.app.ui.components.subagentModelOptions
 import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
@@ -115,6 +123,7 @@ fun WorkflowDetailScreen(
     val startBlocker by viewModel.startBlocker.collectAsStateWithLifecycle()
     val mergeTrain by viewModel.mergeTrain.collectAsStateWithLifecycle()
     val finalPrCaption by viewModel.finalPrCaption.collectAsStateWithLifecycle()
+    val metricRows by viewModel.metricRows.collectAsStateWithLifecycle()
 
     // A delete pops back to the list; so does a workflow that stopped syncing
     // (someone else deleted it) once its row has actually been seen.
@@ -264,6 +273,10 @@ fun WorkflowDetailScreen(
                     )
                 }
             }
+            // EXP-984: what the run actually cost, once there IS a run.
+            if (metricRows.isNotEmpty()) {
+                item(key = "__metrics__") { WorkflowMetricsSection(metricRows) }
+            }
             item(key = "__actions__") {
                 // EXP-982: what a workflow offers is its STATUS. A draft is
                 // started, planned or thrown away; a live one is held or
@@ -361,6 +374,10 @@ fun WorkflowDetailScreen(
             onRiskChange = { viewModel.updateNode(node.issueId, risk = it) },
             onApprove = { approved -> viewModel.approveNode(node.id, approved) },
             onResolve = { action -> viewModel.resolveNode(node.id, action) },
+            onAdmit = { admit -> viewModel.admitNode(node.id, admit) },
+            onBudgetChange = { minutes, tokens ->
+                viewModel.setNodeBudget(node.issueId, minutes = minutes, tokens = tokens)
+            },
             onOpenIssue = { issueId ->
                 selectedNode = null
                 onOpenIssue(issueId)
@@ -508,6 +525,184 @@ private fun MergeTrainSection(
 }
 
 /**
+ * EXP-984: the reviewer agent's latest verdict on one node — the shared line
+ * ([WorkflowView.reviewLine]) in the verdict's tone, the findings as plain
+ * text folded behind Show more when they run long, and the oracle command in
+ * mono: the check the reviewer actually RAN is the evidence its prose is not.
+ */
+@Composable
+private fun WorkflowReviewBlock(review: WorkflowNodeReview) {
+    var expanded by remember(review) { mutableStateOf(false) }
+    val findings = review.findings.trim()
+    val folded = findings.length > REVIEW_FINDINGS_CHARS ||
+        findings.count { it == '\n' } >= REVIEW_FINDINGS_LINES
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("workflow-node-review"),
+    ) {
+        Text(
+            WorkflowView.AGENT_REVIEW_TITLE,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        Text(
+            WorkflowView.reviewLine(review.line),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (review.verdict == DomainContract.wfReviewVerdictApprove) {
+                DesignTokens.Semantic.Green
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+            modifier = Modifier.padding(top = 2.dp).testTag("workflow-node-review-line"),
+        )
+        if (findings.isNotEmpty()) {
+            Text(
+                findings,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                maxLines = if (folded && !expanded) REVIEW_FINDINGS_LINES else Int.MAX_VALUE,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            if (folded) {
+                Text(
+                    if (expanded) "Show less" else "Show more",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = TextEmphasis.Tertiary,
+                    ),
+                    modifier = Modifier
+                        .clickable { expanded = !expanded }
+                        .padding(top = 2.dp),
+                )
+            }
+        }
+        review.oracle?.let { oracle ->
+            Text(
+                oracle.command,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                ),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.padding(top = 4.dp).testTag("workflow-node-review-oracle"),
+            )
+        }
+    }
+}
+
+/** The findings fold, the same shape the agent feed's cards use (EXP-698). */
+private const val REVIEW_FINDINGS_CHARS = 600
+private const val REVIEW_FINDINGS_LINES = 6
+
+/**
+ * EXP-984: what one node may spend before the engine pauses it and tells the
+ * workflow's creator. Two optional positive integers, written on blur as ONE
+ * `workflows.updateNode({budget})`; emptying both clears the budget.
+ */
+@Composable
+private fun WorkflowBudgetBlock(
+    budget: WorkflowNodeBudget?,
+    enabled: Boolean,
+    /** Re-keys the drafts so the sheet cannot carry one node's typing to another. */
+    nodeId: String,
+    onSave: (Int?, Int?) -> Unit,
+) {
+    var minutesDraft by remember(nodeId) { mutableStateOf<String?>(null) }
+    var tokensDraft by remember(nodeId) { mutableStateOf<String?>(null) }
+    val minutesText = minutesDraft ?: budget?.minutes?.toString().orEmpty()
+    val tokensText = tokensDraft ?: budget?.tokens?.toString().orEmpty()
+    val commit = {
+        val minutes = minutesText.trim().toIntOrNull()?.takeIf { it > 0 }
+        val tokens = tokensText.trim().toIntOrNull()?.takeIf { it > 0 }
+        if (minutes != budget?.minutes || tokens != budget?.tokens) onSave(minutes, tokens)
+        minutesDraft = null
+        tokensDraft = null
+    }
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+        Text(
+            WorkflowView.BUDGET_TITLE,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            GlassTextField(
+                value = minutesText,
+                onValueChange = { minutesDraft = it.filter(Char::isDigit) },
+                placeholder = WorkflowView.BUDGET_MINUTES_LABEL,
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("workflow-node-budget-minutes")
+                    .onFocusChanged { if (!it.isFocused && minutesDraft != null) commit() },
+            )
+            GlassTextField(
+                value = tokensText,
+                onValueChange = { tokensDraft = it.filter(Char::isDigit) },
+                placeholder = WorkflowView.BUDGET_TOKENS_LABEL,
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("workflow-node-budget-tokens")
+                    .onFocusChanged { if (!it.isFocused && tokensDraft != null) commit() },
+            )
+        }
+    }
+}
+
+/**
+ * EXP-984: the run's counters ([WorkflowView.metricRows]) as flat label/value
+ * rows — the LAST section of a started workflow's detail. A draft has run
+ * nothing, so the caller hands over an empty list and nothing is drawn.
+ */
+@Composable
+private fun WorkflowMetricsSection(rows: List<WorkflowView.MetricRow>) {
+    if (rows.isEmpty()) return
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        SectionHeader(WorkflowView.METRICS_TITLE)
+        rows.forEach { metric ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .flatRow()
+                    .padding(
+                        horizontal = GlassTokens.RowPaddingH,
+                        vertical = GlassTokens.RowPaddingV,
+                    )
+                    .testTag("workflow-metric-row"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    metric.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    metric.value,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                )
+            }
+        }
+    }
+}
+
+/**
  * The start configuration, persisted with `workflows.update` a row at a time.
  * The same launch vocabulary every composer speaks (agent, model, subagent
  * model, effort, account), plus the two rules that belong to a workflow: how
@@ -629,6 +824,20 @@ private fun HowItRunsSection(
             enabled = enabled,
             onSelect = onGateChange,
         )
+        // EXP-984: only an AGENT gate reviews anything, so the model it
+        // reviews on is only a question there. "" = the engine picks one.
+        if (gate == DomainContract.wfGateAgent) {
+            GroupDivider()
+            PickerRow(
+                label = WorkflowView.REVIEW_MODEL_LABEL,
+                value = subagentModelLabel(launch.reviewModel),
+                options = subagentModelOptions(),
+                selected = launch.reviewModel,
+                optionLabel = ::subagentModelLabel,
+                enabled = enabled,
+                onSelect = { next -> onLaunchChange { it.copy(reviewModel = next) } },
+            )
+        }
         GroupDivider()
         PickerRow(
             label = "Start",
@@ -677,6 +886,10 @@ private fun WorkflowNodeSheet(
     onRiskChange: (String) -> Unit,
     onApprove: (Boolean) -> Unit,
     onResolve: (String) -> Unit,
+    /** EXP-984: `workflows.admitNode` — take the proposal, or throw it away. */
+    onAdmit: (Boolean) -> Unit,
+    /** EXP-984: minutes, tokens; both null CLEARS the node's budget. */
+    onBudgetChange: (Int?, Int?) -> Unit,
     onOpenIssue: (String) -> Unit,
     onOpenSession: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
@@ -687,6 +900,10 @@ private fun WorkflowNodeSheet(
     val caption = remember(node, workflowStatus) {
         WorkflowView.nodeCaption(node.captionNode, workflowStatus)
     }
+    // EXP-984: a proposal is not part of the run, so the run's own verdicts
+    // (approve, retry, skip) make no sense on it — Admit / Dismiss do.
+    val isProposed = node.state == DomainContract.wfNodeStateProposed
+    val review = remember(node.review) { workflowNodeReview(node.review) }
     GlassSheet(title = issue?.identifier ?: "Node", onDismiss = onDismiss) {
         Column(
             modifier = Modifier
@@ -733,6 +950,19 @@ private fun WorkflowNodeSheet(
                     caption,
                     style = MaterialTheme.typography.labelSmall,
                     color = workflowToneColor(WorkflowView.nodeTone(node.state)),
+                )
+            }
+            // EXP-984: a follow-up somebody filed DURING the run that was not
+            // plainly additive. It is drawn in the graph but is not part of
+            // the run until a member admits it.
+            if (isProposed) {
+                Text(
+                    WorkflowView.PROPOSED_NODE_NOTE,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .testTag("workflow-node-proposed-note"),
                 )
             }
             // EXP-982: why the engine stopped here — its own sentence, shown
@@ -813,6 +1043,11 @@ private fun WorkflowNodeSheet(
                     }
                 }
             }
+            // EXP-984: the reviewer agent's latest verdict. An approval counts
+            // as THE approval only with a passing oracle (and never on the
+            // contract node); otherwise it is advisory and a person still
+            // approves — which is exactly what the line says.
+            review?.let { WorkflowReviewBlock(it) }
             Spacer(Modifier.height(8.dp))
             OptionGroup {
                 PickerRow(
@@ -836,6 +1071,16 @@ private fun WorkflowNodeSheet(
                     onSelect = onRiskChange,
                 )
             }
+            // EXP-984: what this node may spend before the engine pauses it.
+            WorkflowBudgetBlock(
+                budget = remember(node.budget) { workflowNodeBudget(node.budget) },
+                // Nothing left to spend once the node is done with.
+                enabled = !busy &&
+                    node.state != DomainContract.wfNodeStateLanded &&
+                    node.state != DomainContract.wfNodeStateSkipped,
+                nodeId = node.id,
+                onSave = onBudgetChange,
+            )
             // What the plan says this node changes — read-only, mono, one per
             // line: they are globs, not prose.
             if (node.touches.isNotEmpty()) {
@@ -865,8 +1110,29 @@ private fun WorkflowNodeSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // EXP-984: a proposal's only two verdicts — take it into the
+                // workflow, or throw the node away (never the issue).
+                if (isProposed) {
+                    GlassPill(
+                        WorkflowView.ADMIT_NODE_LABEL,
+                        primary = true,
+                        icon = ExpIcons.uiCheck,
+                        enabled = !busy,
+                        onClick = { onAdmit(true) },
+                        modifier = Modifier.testTag("workflow-node-admit"),
+                    )
+                    GlassPill(
+                        WorkflowView.DISMISS_NODE_LABEL,
+                        icon = ExpIcons.uiClose,
+                        tint = MaterialTheme.colorScheme.error,
+                        enabled = !busy,
+                        onClick = { onAdmit(false) },
+                        modifier = Modifier.testTag("workflow-node-dismiss"),
+                    )
+                }
                 // The gate, while this node's PR is up and nobody cleared it.
-                if (node.state == DomainContract.wfNodeStateInReview &&
+                if (!isProposed &&
+                    node.state == DomainContract.wfNodeStateInReview &&
                     WorkflowView.nodeNeedsApproval(gate, node.kind) &&
                     node.approvedAt.isNullOrEmpty()
                 ) {
@@ -880,7 +1146,8 @@ private fun WorkflowNodeSheet(
                     )
                 }
                 // Taking it back is possible right up to the moment it lands.
-                if (!node.approvedAt.isNullOrEmpty() &&
+                if (!isProposed &&
+                    !node.approvedAt.isNullOrEmpty() &&
                     node.state != DomainContract.wfNodeStateLanded
                 ) {
                     GlassPill(
@@ -891,7 +1158,14 @@ private fun WorkflowNodeSheet(
                         modifier = Modifier.testTag("workflow-node-withdraw"),
                     )
                 }
-                if (node.state == DomainContract.wfNodeStateFailed) {
+                // EXP-984: a node the engine paused over its budget resumes on
+                // the same Retry a failed one takes.
+                if (!isProposed &&
+                    (
+                        node.state == DomainContract.wfNodeStateFailed ||
+                            node.state == DomainContract.wfNodeStatePaused
+                        )
+                ) {
                     GlassPill(
                         WorkflowView.RETRY_NODE_LABEL,
                         icon = ExpIcons.uiRefresh,

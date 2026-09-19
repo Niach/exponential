@@ -7,8 +7,10 @@ import {
   WORKFLOW_MAX_ISSUES,
   wfNodeKindSchema,
   wfRiskSchema,
+  workflowReviewOracleSchema,
   workflowTouchesSchema,
   type WfGate,
+  type WfReviewVerdict,
   type WfStartOn,
   CATEGORY_ANCHOR,
   customizableStatusCategoryValues,
@@ -93,6 +95,7 @@ import {
 } from "@/lib/issue-relations"
 import { findRelationCycle } from "@/lib/relation-cycles"
 import { liveWorkflowBaseForIssue } from "@/lib/workflows"
+import { bumpMetrics } from "@/lib/trpc/workflows"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
@@ -3075,10 +3078,23 @@ export function registerExponentialTools(
             if (!row?.teamId) {
               return err(new Error(`This run has no team to notify in.`))
             }
-            if (
-              workflowNode &&
+            const duplicate =
+              workflowNode !== null &&
               (await siblingAlreadyAsked(workflowNode.workflowId, sessionId, caption))
-            ) {
+            if (workflowNode) {
+              // EXP-984 metrics: escalations per workflow + how many were
+              // duplicates a sibling had already asked.
+              await db
+                .update(workflows)
+                .set({
+                  metrics: bumpMetrics({
+                    escalations: 1,
+                    ...(duplicate && { duplicateEscalations: 1 }),
+                  }),
+                })
+                .where(eq(workflows.id, workflowNode.workflowId))
+            }
+            if (duplicate) {
               return ok({
                 delivered: true,
                 to: `user`,
@@ -4734,6 +4750,34 @@ export function registerExponentialTools(
             ? { delivered: true, note: `Delivered. Go on with what you can; the change arrives as a new upstream push.` }
             : { delivered: false, note: escalate }
         )
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_workflows_review_submit`,
+    {
+      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN. An approval counts as evidence only with a passing oracle; otherwise a person still decides.`,
+      inputSchema: strictInput({
+        nodeId: uuidString,
+        verdict: z.enum(contract.wfReviewVerdict.values as [string, ...string[]]),
+        findings: z.string().max(8000).optional(),
+        oracle: z.record(z.string(), z.unknown()).optional(),
+        model: z.string().max(64).optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        const result = await caller(user, request).workflows.submitReview({
+          nodeId: input.nodeId,
+          verdict: input.verdict as WfReviewVerdict,
+          findings: input.findings ?? ``,
+          oracle: input.oracle ? workflowReviewOracleSchema.parse(input.oracle) : null,
+          model: input.model ?? null,
+        })
+        return ok(result)
       } catch (e) {
         return err(e)
       }

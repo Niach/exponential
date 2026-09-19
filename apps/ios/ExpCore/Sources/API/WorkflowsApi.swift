@@ -263,6 +263,11 @@ private struct ResolveNodeInput: Encodable {
     let action: String
 }
 
+private struct AdmitNodeInput: Encodable {
+    let nodeId: String
+    let admit: Bool
+}
+
 public final class WorkflowsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -422,6 +427,20 @@ public final class WorkflowsApi: Sendable {
             accountId: accountId,
             path: "workflows.resolveNode",
             input: ResolveNodeInput(nodeId: nodeId, action: action.rawValue)
+        )
+    }
+
+    // MARK: - Dynamic graphs (EXP-984)
+
+    /// `workflows.admitNode` — a follow-up filed during the run arrived as a
+    /// `proposed` node because it was not plainly additive. Admitting it makes
+    /// it part of the run (the server re-plans); dismissing it deletes the row.
+    /// Either way the change arrives back over Electric.
+    public func admitNode(accountId: String, nodeId: String, admit: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "workflows.admitNode",
+            input: AdmitNodeInput(nodeId: nodeId, admit: admit)
         )
     }
 }

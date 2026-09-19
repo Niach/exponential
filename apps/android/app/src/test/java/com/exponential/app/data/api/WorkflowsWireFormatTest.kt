@@ -1,6 +1,7 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.domain.WorkflowLaunch
+import com.exponential.app.domain.WorkflowNodeBudget
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -87,6 +88,7 @@ class WorkflowsWireFormatTest {
                     effort = "high",
                     account = "profile-2",
                     maxParallel = 5,
+                    reviewModel = "fable",
                 ),
                 gate = "agent",
                 startOn = "pr_open",
@@ -94,8 +96,8 @@ class WorkflowsWireFormatTest {
         )
         assertEquals(
             """{"id":"wf-1","launch":{"agent":"claude","model":"opus","subagentModel":"fable",""" +
-                """"effort":"high","account":"profile-2","maxParallel":5},"gate":"agent",""" +
-                """"startOn":"pr_open"}""",
+                """"effort":"high","account":"profile-2","maxParallel":5,"reviewModel":"fable"},""" +
+                """"gate":"agent","startOn":"pr_open"}""",
             full,
         )
 
@@ -112,6 +114,9 @@ class WorkflowsWireFormatTest {
         )
         assertEquals("""{"id":"wf-1","launch":{"maxParallel":3}}""", bare)
         assertFalse(bare.contains("subagentModel"))
+        // EXP-984: "" means "the engine picks the review model", which is the
+        // ABSENT key — the server checks it against the model vocabulary.
+        assertFalse(bare.contains("reviewModel"))
     }
 
     @Test
@@ -142,6 +147,85 @@ class WorkflowsWireFormatTest {
             plan,
         )
         assertTrue(plan.indexOf("\"touches\"") > plan.indexOf("\"kind\""))
+    }
+
+    // ── Review gate, dynamic graphs, budgets (EXP-984) ──────────────────────
+
+    @Test
+    fun `a budget patch omits an empty bound and clears with an explicit null`() {
+        val both = encode(
+            updateWorkflowNodeInput(
+                workflowId = "wf-1",
+                issueId = "issue-1",
+                kind = null,
+                risk = null,
+                touches = null,
+                budget = WorkflowNodeBudget(tokens = 120_000, minutes = 30),
+            ),
+        )
+        assertEquals(
+            """{"workflowId":"wf-1","issueId":"issue-1","budget":{"tokens":120000,"minutes":30}}""",
+            both,
+        )
+
+        val minutesOnly = encode(
+            updateWorkflowNodeInput(
+                workflowId = "wf-1",
+                issueId = "issue-1",
+                kind = null,
+                risk = null,
+                touches = null,
+                budget = WorkflowNodeBudget(minutes = 45),
+            ),
+        )
+        assertEquals(
+            """{"workflowId":"wf-1","issueId":"issue-1","budget":{"minutes":45}}""",
+            minutesOnly,
+        )
+
+        // Both fields emptied: `budget` is the ONE key whose explicit null
+        // clears, exactly like `deviceId` unbinds the runner.
+        val cleared = encode(
+            updateWorkflowNodeInput(
+                workflowId = "wf-1",
+                issueId = "issue-1",
+                kind = null,
+                risk = null,
+                touches = null,
+                clearBudget = true,
+            ),
+        )
+        assertEquals("""{"workflowId":"wf-1","issueId":"issue-1","budget":null}""", cleared)
+
+        // Nothing said about the budget leaves it alone.
+        val untouched = encode(
+            updateWorkflowNodeInput(
+                workflowId = "wf-1",
+                issueId = "issue-1",
+                kind = null,
+                risk = "low",
+                touches = null,
+            ),
+        )
+        assertFalse(untouched.contains("budget"))
+    }
+
+    @Test
+    fun `admitting and dismissing a proposal differ only in the boolean`() {
+        assertEquals(
+            """{"nodeId":"node-1","admit":true}""",
+            json.encodeToString(
+                AdmitNodeInput.serializer(),
+                AdmitNodeInput(nodeId = "node-1", admit = true),
+            ),
+        )
+        assertEquals(
+            """{"nodeId":"node-1","admit":false}""",
+            json.encodeToString(
+                AdmitNodeInput.serializer(),
+                AdmitNodeInput(nodeId = "node-1", admit = false),
+            ),
+        )
     }
 
     // ── Running a workflow (EXP-982) ────────────────────────────────────────

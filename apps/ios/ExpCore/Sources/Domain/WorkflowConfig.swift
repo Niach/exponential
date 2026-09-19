@@ -22,6 +22,10 @@ public struct WorkflowLaunch: Sendable, Equatable {
     /// How many nodes may run at once (contract `workflowMaxParallelDefault`
     /// when unset).
     public var maxParallel: Int?
+    /// EXP-984: the model agent reviews run on. Absent = the engine picks one;
+    /// a `risk: high` node is ALWAYS reviewed on a model other than its
+    /// author's.
+    public var reviewModel: String?
 
     public init(
         agent: String? = nil,
@@ -29,7 +33,8 @@ public struct WorkflowLaunch: Sendable, Equatable {
         subagentModel: String? = nil,
         effort: String? = nil,
         account: String? = nil,
-        maxParallel: Int? = nil
+        maxParallel: Int? = nil,
+        reviewModel: String? = nil
     ) {
         self.agent = agent
         self.model = model
@@ -37,12 +42,13 @@ public struct WorkflowLaunch: Sendable, Equatable {
         self.effort = effort
         self.account = account
         self.maxParallel = maxParallel
+        self.reviewModel = reviewModel
     }
 }
 
 extension WorkflowLaunch: Codable {
     enum CodingKeys: String, CodingKey {
-        case agent, model, subagentModel, effort, account, maxParallel
+        case agent, model, subagentModel, effort, account, maxParallel, reviewModel
     }
 
     public init(from decoder: Decoder) throws {
@@ -53,6 +59,7 @@ extension WorkflowLaunch: Codable {
         effort = try c.decodeIfPresent(String.self, forKey: .effort)
         account = try c.decodeIfPresent(String.self, forKey: .account)
         maxParallel = try? c.decodeWireInt(forKey: .maxParallel)
+        reviewModel = try c.decodeIfPresent(String.self, forKey: .reviewModel)
     }
 
     /// Only the set fields ride the wire — the server replaces the whole
@@ -65,6 +72,7 @@ extension WorkflowLaunch: Codable {
         try c.encodeIfPresent(effort, forKey: .effort)
         try c.encodeIfPresent(account, forKey: .account)
         try c.encodeIfPresent(maxParallel, forKey: .maxParallel)
+        try c.encodeIfPresent(reviewModel, forKey: .reviewModel)
     }
 }
 
@@ -85,6 +93,11 @@ public struct WorkflowMetrics: Sendable, Equatable {
     public var width: Int
     public var cycles: [[String]]
     public var cycleEdges: [String]
+    /// EXP-984: the run's COUNTERS, which accumulate inside the same jsonb next
+    /// to the shape keys — every whole-number key of the object, the shape ones
+    /// included. A value that is not a whole number is left out rather than
+    /// read as 0 (the web rule's `Number.isFinite` guard).
+    public var counters: [String: Int]
 
     public init(
         nodes: Int = 0,
@@ -92,7 +105,8 @@ public struct WorkflowMetrics: Sendable, Equatable {
         depth: Int = 0,
         width: Int = 0,
         cycles: [[String]] = [],
-        cycleEdges: [String] = []
+        cycleEdges: [String] = [],
+        counters: [String: Int] = [:]
     ) {
         self.nodes = nodes
         self.edges = edges
@@ -100,12 +114,22 @@ public struct WorkflowMetrics: Sendable, Equatable {
         self.width = width
         self.cycles = cycles
         self.cycleEdges = cycleEdges
+        self.counters = counters
     }
 }
 
 extension WorkflowMetrics: Decodable {
     enum CodingKeys: String, CodingKey {
         case nodes, edges, depth, width, cycles, cycleEdges
+    }
+
+    /// Any key of the metrics object — the counter set is OPEN, so a newer
+    /// server's counter still arrives.
+    private struct CounterKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue _: Int) { nil }
     }
 
     public init(from decoder: Decoder) throws {
@@ -118,6 +142,15 @@ extension WorkflowMetrics: Decodable {
         width = (try? c.decodeWireInt(forKey: .width)) ?? 0
         cycles = (try? c.decodeIfPresent([[String]].self, forKey: .cycles)) ?? []
         cycleEdges = (try? c.decodeIfPresent([String].self, forKey: .cycleEdges)) ?? []
+        var found: [String: Int] = [:]
+        if let open = try? decoder.container(keyedBy: CounterKey.self) {
+            for key in open.allKeys {
+                if let value = try? open.decode(Int.self, forKey: key) {
+                    found[key.stringValue] = value
+                }
+            }
+        }
+        counters = found
     }
 }
 
@@ -156,6 +189,88 @@ public extension WorkflowNodeBudget {
     static func parse(_ json: String?) -> WorkflowNodeBudget? {
         guard let value: WorkflowNodeBudget = decodeJson(json) else { return nil }
         return value.tokens == nil && value.minutes == nil ? nil : value
+    }
+}
+
+/// EXP-984 — `workflow_nodes.review.oracle`: an executable check the reviewer
+/// RAN (the contract tests on the trunk). An agent's opinion is advisory; a
+/// passing oracle is evidence.
+public struct WorkflowReviewOracle: Sendable, Equatable {
+    public var command: String
+    public var passed: Bool
+
+    public init(command: String = "", passed: Bool = false) {
+        self.command = command
+        self.passed = passed
+    }
+}
+
+extension WorkflowReviewOracle: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case command, passed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        command = (try? c.decodeIfPresent(String.self, forKey: .command)) ?? ""
+        passed = c.decodeWireBool(forKey: .passed, default: false)
+    }
+}
+
+/// EXP-984 — `workflow_nodes.review`: the latest verdict an agent reviewer
+/// submitted. An approval counts as THE approval only with a passing oracle and
+/// never on a contract node; otherwise it is advisory and a person still
+/// approves.
+public struct WorkflowNodeReview: Sendable, Equatable {
+    /// contract `wfReviewVerdict`.
+    public var verdict: String
+    public var findings: String
+    public var oracle: WorkflowReviewOracle?
+    /// The model that reviewed (a `risk: high` node: never its author's).
+    public var model: String?
+    public var round: Int
+    public var at: String
+
+    public init(
+        verdict: String,
+        findings: String = "",
+        oracle: WorkflowReviewOracle? = nil,
+        model: String? = nil,
+        round: Int = 0,
+        at: String = ""
+    ) {
+        self.verdict = verdict
+        self.findings = findings
+        self.oracle = oracle
+        self.model = model
+        self.round = round
+        self.at = at
+    }
+}
+
+extension WorkflowNodeReview: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case verdict, findings, oracle, model, round, at
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        verdict = (try? c.decodeIfPresent(String.self, forKey: .verdict)) ?? ""
+        findings = (try? c.decodeIfPresent(String.self, forKey: .findings)) ?? ""
+        oracle = try? c.decodeIfPresent(WorkflowReviewOracle.self, forKey: .oracle)
+        model = try? c.decodeIfPresent(String.self, forKey: .model)
+        round = (try? c.decodeWireInt(forKey: .round)) ?? 0
+        at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? ""
+    }
+}
+
+public extension WorkflowNodeReview {
+    /// Nil until a reviewer submitted one — and on a payload that names no
+    /// verdict, which is the one thing every surface reads.
+    static func parse(_ json: String?) -> WorkflowNodeReview? {
+        guard let value: WorkflowNodeReview = decodeJson(json), !value.verdict.isEmpty
+        else { return nil }
+        return value
     }
 }
 

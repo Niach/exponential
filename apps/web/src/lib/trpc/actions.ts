@@ -14,7 +14,9 @@ import {
   BUILTIN_CREATE_ACTION_ID,
   BUILTIN_CHAT_ID,
   BUILTIN_PLAN_WORKFLOW_ID,
+  BUILTIN_REVIEW_NODE_ID,
   BUILTIN_PLAN_WORKFLOW_NAME,
+  BUILTIN_REVIEW_NODE_NAME,
   BUILTIN_CHAT_NAME,
   BUILTIN_CREATE_ACTION_NAME,
   BUILTIN_FIX_CONFLICTS_ID,
@@ -164,6 +166,7 @@ const actionIdSchema = z
   .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
   .or(z.literal(BUILTIN_CHAT_ID))
   .or(z.literal(BUILTIN_PLAN_WORKFLOW_ID))
+  .or(z.literal(BUILTIN_REVIEW_NODE_ID))
 
 function rejectBuiltin(id: string, verb: string): void {
   if (isBuiltinActionId(id)) {
@@ -186,6 +189,7 @@ function assertNotReservedName(name: string): void {
     // hijack the watch.
     BUILTIN_CHAT_NAME,
     BUILTIN_PLAN_WORKFLOW_NAME,
+    BUILTIN_REVIEW_NODE_NAME,
   ]) {
     if (normalized === reserved.toLowerCase()) {
       throw new TRPCError({

@@ -114,6 +114,28 @@ private fun Modifier.workflowEdgeRing(style: WorkflowView.EdgeStyle): Modifier {
 }
 
 /**
+ * EXP-984: the dashed row border a `proposed` node wears — a follow-up filed
+ * during the run that nobody admitted yet. It is drawn like every other node
+ * (same caption rule), but the dashes say it is not part of the run: no merge
+ * train, and the final pull request does not wait for it.
+ */
+@Composable
+private fun proposedRowBorder(): Modifier {
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val radius = GlassTokens.RowRadius
+    return Modifier.drawBehind {
+        drawRoundRect(
+            color = color,
+            cornerRadius = CornerRadius(radius.toPx()),
+            style = Stroke(
+                width = 1.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
+            ),
+        )
+    }
+}
+
+/**
  * EXP-982: the glyph a node state wears, or null for the states nobody has to
  * act on (proposed, blocked, ready, skipped, paused) — they read from their
  * caption alone. `running` is not here: it draws the session lists' live dot,
@@ -301,10 +323,12 @@ private fun WorkflowNodeRow(
                 // EXP-818: a graph row is a LIST row.
                 .flatRow()
                 .then(
-                    if (node.onCycle) {
-                        Modifier.border(1.dp, MaterialTheme.colorScheme.error, shape)
-                    } else {
-                        Modifier
+                    when {
+                        node.onCycle ->
+                            Modifier.border(1.dp, MaterialTheme.colorScheme.error, shape)
+                        // EXP-984: a proposal, drawn but not yet part of the run.
+                        node.state == DomainContract.wfNodeStateProposed -> proposedRowBorder()
+                        else -> Modifier
                     },
                 )
                 .clickable(onClick = onClick)

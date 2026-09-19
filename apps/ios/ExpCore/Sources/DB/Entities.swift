@@ -2265,7 +2265,15 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
     /// EXP-983: the NODES this one merges in first — serialization edges the
     /// engine wrote after two siblings' work collided.
     public let afterNodeIds: [String]
+    /// EXP-984: how many agent-review rounds the node has been through
+    /// (`workflowMaxReviewRounds`, then it waits for a person).
+    public let reviewRound: Int
+    /// EXP-984: the latest submitted verdict (`WorkflowNodeReview.parse`),
+    /// stored as stringified JSON; nil until an agent reviewed the node.
+    public let review: String?
     /// EXP-982: why the node is `failed` / `waiting`, in the engine's words.
+    /// EXP-984: also why a `proposed` node was not admitted at once, and why a
+    /// node went over its budget.
     public let note: String?
     public let createdAt: String
     public let updatedAt: String
@@ -2290,6 +2298,8 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         approvedAt: String? = nil,
         checkpointAt: String? = nil,
         afterNodeIds: [String] = [],
+        reviewRound: Int = 0,
+        review: String? = nil,
         note: String? = nil,
         createdAt: String,
         updatedAt: String
@@ -2313,13 +2323,15 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         self.approvedAt = approvedAt
         self.checkpointAt = checkpointAt
         self.afterNodeIds = afterNodeIds
+        self.reviewRound = reviewRound
+        self.review = review
         self.note = note
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, state, risk, wave, lane, attempt, budget, touches, note
+        case id, kind, state, risk, wave, lane, attempt, budget, touches, note, review
         case workflowId = "workflow_id"
         case teamId = "team_id"
         case issueId = "issue_id"
@@ -2330,12 +2342,20 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         case approvedAt = "approved_at"
         case checkpointAt = "checkpoint_at"
         case afterNodeIds = "after_node_ids"
+        case reviewRound = "review_round"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
 
     /// The parsed budget; nil when the node has neither bound.
     public var parsedBudget: WorkflowNodeBudget? { WorkflowNodeBudget.parse(budget) }
+
+    /// The parsed review; nil until an agent reviewer submitted a verdict.
+    public var parsedReview: WorkflowNodeReview? { WorkflowNodeReview.parse(review) }
+
+    /// EXP-984: a follow-up filed mid-run that a member has yet to admit. It is
+    /// NOT part of the run — no merge train, no final-PR wait.
+    public var isProposed: Bool { state == DomainContract.wfNodeStateProposed }
 
     /// The issues this node covers — its representative plus its members.
     public var coveredIssueIds: [String] { [issueId] + memberIssueIds }
@@ -2367,6 +2387,8 @@ extension WorkflowNodeEntity: Codable {
         approvedAt = try c.decodeIfPresent(String.self, forKey: .approvedAt)
         checkpointAt = try c.decodeIfPresent(String.self, forKey: .checkpointAt)
         afterNodeIds = c.decodeWireStringList(forKey: .afterNodeIds)
+        reviewRound = (try? c.decodeWireInt(forKey: .reviewRound)) ?? 0
+        review = c.decodeWireJsonString(forKey: .review)
         note = try c.decodeIfPresent(String.self, forKey: .note)
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""

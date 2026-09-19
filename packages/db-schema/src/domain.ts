@@ -1007,6 +1007,10 @@ export interface WorkflowLaunch {
   /** An agent profile id on the runner device. */
   account?: string | null
   maxParallel?: number | null
+  /** EXP-984: the model agent reviews run on. Absent = the engine picks one;
+   *  a `risk: high` node is ALWAYS reviewed on a model other than its
+   *  author's. */
+  reviewModel?: string | null
 }
 
 export const workflowLaunchSchema = z
@@ -1017,6 +1021,7 @@ export const workflowLaunchSchema = z
     effort: z.string().max(32).nullish(),
     account: z.string().max(64).nullish(),
     maxParallel: z.number().int().min(1).max(WORKFLOW_MAX_PARALLEL_CAP).nullish(),
+    reviewModel: z.string().max(64).nullish(),
   })
   .strict()
 
@@ -1050,3 +1055,33 @@ export interface WorkflowMetricsJson {
 /** A `touches` glob: what a node expects to change (pre-serialises obvious
  *  collisions). */
 export const workflowTouchesSchema = z.array(z.string().min(1).max(256)).max(64)
+
+// ── Agent review (EXP-984) ──────────────────────────────────────────────────
+export const wfReviewVerdictValues = [`approve`, `request_changes`] as const
+export type WfReviewVerdict = (typeof wfReviewVerdictValues)[number]
+export const wfReviewVerdictSchema = z.enum(wfReviewVerdictValues)
+
+/** Review rounds before a node stops bouncing and waits for a person. */
+export const WORKFLOW_MAX_REVIEW_ROUNDS = 3
+
+/** An executable check the reviewer RAN (contract tests on the trunk). An
+ *  agent's opinion is advisory; a passing oracle is evidence. */
+export interface WorkflowReviewOracle {
+  command: string
+  passed: boolean
+}
+
+/** `workflow_nodes.review`: the latest submitted verdict. */
+export interface WorkflowNodeReview {
+  verdict: WfReviewVerdict
+  findings: string
+  oracle: WorkflowReviewOracle | null
+  /** The model that reviewed (a `risk: high` node: never its author's). */
+  model: string | null
+  round: number
+  at: string
+}
+
+export const workflowReviewOracleSchema = z
+  .object({ command: z.string().min(1).max(500), passed: z.boolean() })
+  .strict()

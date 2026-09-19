@@ -16,7 +16,7 @@ struct Case {
 
 /// The fixture files, by name — listed rather than globbed so a file added
 /// without a `mod`-level thought does not silently go unread.
-const FIXTURES: [(&str, &str); 3] = [
+const FIXTURES: [(&str, &str); 4] = [
     ("mirror.json", include_str!("fixtures/workflows/mirror.json")),
     ("run.json", include_str!("fixtures/workflows/run.json")),
     // EXP-983 — the speculative half: start modes, bases, propagation,
@@ -25,6 +25,9 @@ const FIXTURES: [(&str, &str); 3] = [
         "speculative.json",
         include_str!("fixtures/workflows/speculative.json"),
     ),
+    // EXP-984 — proposed nodes (absent from the run), the agent review gate
+    // with its adversarial model swap and its findings, and the budgets.
+    ("review.json", include_str!("fixtures/workflows/review.json")),
 ];
 
 #[test]

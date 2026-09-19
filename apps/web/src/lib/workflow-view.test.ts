@@ -7,6 +7,8 @@ import {
   workflowEdgeStyle,
   workflowFinalPrCaption,
   workflowMergeTrain,
+  workflowMetricRows,
+  workflowReviewLine,
   workflowRowSubtitle,
   workflowStartBlocker,
   workflowTrainStepLabel,
@@ -90,6 +92,16 @@ describe(`workflow view (contract fixture)`, () => {
   it(`styles an edge by what it has to say`, () => {
     for (const c of fixture.edgeStyles) {
       expect(workflowEdgeStyle(c.edge, c.fromState, c.toState)).toBe(c.style)
+    }
+  })
+
+  it(`says the latest agent review in one line`, () => {
+    for (const c of fixture.reviewLines) expect(workflowReviewLine(c.review)).toBe(c.line)
+  })
+
+  it(`lists the metrics that have something to say`, () => {
+    for (const c of fixture.metricRows) {
+      expect(workflowMetricRows(c.metrics as Record<string, unknown>)).toEqual(c.rows)
     }
   })
 })

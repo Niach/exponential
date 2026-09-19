@@ -23,6 +23,13 @@
 //! whose work collides get a SERIALIZATION edge, and the train still lands in
 //! topological order.
 //!
+//! EXP-984 closes the loop: under the `agent` gate every node's pushed branch
+//! gets a REVIEWER run (adversarial, and never on the author's own model, for
+//! a `risk: high` node) whose `request_changes` findings go back to the author
+//! at most three rounds; a node that spends more than its budget is paused for
+//! a person; and a follow-up node nobody admitted (`proposed`) is treated as
+//! absent from the run entirely.
+//!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
 //! `{name, snapshot, expected}`, replayed by `tests/workflow_engine.rs`.
@@ -102,6 +109,14 @@ pub struct WorkflowFacts {
     pub final_pr_url: Option<String>,
     /// `launch.maxParallel`, or the contract default.
     pub max_parallel: usize,
+    /// EXP-984: `launch.reviewModel` — what an agent review runs on. Absent
+    /// = the author's own model, unless the node is adversarial.
+    #[serde(default)]
+    pub review_model: Option<String>,
+    /// EXP-984: `launch.model` — what the node's AUTHOR runs on. A high-risk
+    /// node is never reviewed by the same model that wrote it.
+    #[serde(default)]
+    pub author_model: Option<String>,
     /// contract `wfStartOn` (`contract|pr_open|landed`). An absent or unknown
     /// word reads as `landed`: the conservative mode, which never starts a
     /// node on work that is not in yet.
@@ -123,6 +138,8 @@ impl Default for WorkflowFacts {
             final_pr_url: None,
             max_parallel: 0,
             start_on: start_on_landed(),
+            review_model: None,
+            author_model: None,
         }
     }
 }
@@ -147,6 +164,10 @@ pub struct NodeFacts {
     /// contract `wfNodeKind` / `wfNodeState` — raw wire words.
     pub kind: String,
     pub state: String,
+    /// contract `wfRisk` — only `high` decides anything here: it makes the
+    /// node's agent review ADVERSARIAL, on a model other than the author's.
+    #[serde(default)]
+    pub risk: String,
     #[serde(default)]
     pub wave: i64,
     #[serde(default)]
@@ -177,6 +198,38 @@ pub struct NodeFacts {
     /// `None` means nothing may base on this node yet.
     #[serde(default)]
     pub branch: Option<String>,
+    /// EXP-984: how many agent reviews were SUBMITTED (the round cap).
+    #[serde(default)]
+    pub review_round: i64,
+    /// EXP-984: the latest verdict — only the two fields the engine decides
+    /// on (the findings themselves are the host's to deliver).
+    #[serde(default)]
+    pub review: Option<ReviewFacts>,
+    /// EXP-984: what this node may spend before it is paused for a person.
+    #[serde(default)]
+    pub budget: Option<BudgetFacts>,
+}
+
+/// The half of `workflow_nodes.review` the engine reads.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFacts {
+    /// contract `wfReviewVerdict` — `approve` / `request_changes`.
+    pub verdict: String,
+    /// The round it was submitted in; a verdict from an older round than the
+    /// node's counter is history, not a pending instruction.
+    #[serde(default)]
+    pub round: i64,
+}
+
+/// `workflow_nodes.budget` — whole minutes and whole tokens, each optional.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BudgetFacts {
+    #[serde(default)]
+    pub minutes: Option<i64>,
+    #[serde(default)]
+    pub tokens: Option<u64>,
 }
 
 /// What the engine reads off a node's representative issue.
@@ -206,6 +259,14 @@ pub struct SessionFacts {
     /// EXP-848: mid-turn right now.
     #[serde(default)]
     pub agent_busy: bool,
+    /// EXP-984: when the run started, as ms epoch — the minutes budget's
+    /// clock. `None` = unknown, and then minutes bound nothing.
+    #[serde(default)]
+    pub started_at_ms: Option<i64>,
+    /// EXP-984: the tokens the run has spent, when the host can see a
+    /// counter at all. `None` = unknown, and then tokens bound nothing.
+    #[serde(default)]
+    pub tokens_used: Option<u64>,
 }
 
 /// One evaluation pass's inputs — everything, including the clock.
@@ -259,6 +320,22 @@ pub struct Snapshot {
     /// names the node's synthetic base branch.
     #[serde(default)]
     pub identifier: HashMap<String, String>,
+    /// Host fact (EXP-984): node ids whose REVIEWER run is live or starting.
+    /// One review per node at a time, whatever its branch does meanwhile.
+    #[serde(default)]
+    pub review_in_flight: HashSet<String>,
+    /// Host fact (EXP-984): `node id → the tip of its own branch` — what a
+    /// review would be run against.
+    #[serde(default)]
+    pub pr_head: HashMap<String, String>,
+    /// Host fact (EXP-984, persisted): `node id → the head the last review
+    /// ran against`. A review happens once per head, never once per beat.
+    #[serde(default)]
+    pub reviewed_head: HashMap<String, String>,
+    /// Host fact (EXP-984, persisted): `node id → the highest review round
+    /// whose findings were already delivered to its author`.
+    #[serde(default)]
+    pub findings_sent: HashMap<String, i64>,
     pub now_ms: i64,
 }
 
@@ -309,6 +386,34 @@ pub enum Decision {
     /// first. `workflows.reportNode({afterNodeIds})`, a whole-array replace.
     #[serde(rename_all = "camelCase")]
     SetSerialEdge { node_id: String, after: Vec<String> },
+    /// EXP-984: start the hidden `builtin:review-node` run against this
+    /// node's pushed branch. `model` `None` = the device's own default;
+    /// `adversarial` is a `risk: high` node, reviewed by a model that is
+    /// never the author's.
+    #[serde(rename_all = "camelCase")]
+    StartReview {
+        node_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        adversarial: bool,
+    },
+    /// EXP-984: hand the latest review's findings to the node's AUTHOR, once
+    /// per round. `session_id` = the live run to steer; `None` = its run
+    /// ended and the host resumes it with the same text.
+    #[serde(rename_all = "camelCase")]
+    SendFindings {
+        node_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
+    /// EXP-984: the node spent more than its budget — end the run and report
+    /// it `paused`, which notifies the workflow's creator.
+    #[serde(rename_all = "camelCase")]
+    PauseNode {
+        node_id: String,
+        session_id: String,
+        note: String,
+    },
     /// The merge train's one step: `workflows.landNode`.
     #[serde(rename_all = "camelCase")]
     LandNode { node_id: String },
@@ -363,6 +468,14 @@ fn synthetic_base(workflow_id: &str, identifier: &str) -> String {
     format!("{}{identifier}", synthetic_prefix(workflow_id))
 }
 
+/// EXP-984 — the LOCAL, never-pushed branch one agent review works on:
+/// `exp/wf-<id8>-review-<IDENT>-r<round>`. It is cut from the node's own
+/// pushed branch, and it goes with the review's worktree at the end.
+pub fn review_branch(workflow_id: &str, identifier: &str, round: i64) -> String {
+    let id8: String = workflow_id.chars().take(8).collect();
+    format!("exp/wf-{id8}-review-{identifier}-r{round}")
+}
+
 /// Whether a branch is one of this workflow's synthetic bases.
 fn is_synthetic(workflow_id: &str, branch: &str) -> bool {
     branch.starts_with(&synthetic_prefix(workflow_id))
@@ -399,12 +512,40 @@ fn is_unlanded(state: &str) -> bool {
 ///    unlanded blockers dictate (building a synthetic one first);
 /// 3. refresh a synthetic base whose sources moved; 4. tell a run that the
 ///    branch under it moved; 5. serialize two siblings whose work collided;
-/// 6. nudge a run whose rate limit reset; 7. land ONE cleared node in
-///    TOPOLOGICAL order (the merge train); 8. open the final PR once
-///    everything is in; 9. drop a synthetic base nothing builds on any more.
+/// 6. nudge a run whose rate limit reset; 7. the agent review gate — ONE
+///    review start per pass, and a round's findings said exactly once;
+/// 8. pause a node that went over its budget; 9. land ONE cleared node in
+///    TOPOLOGICAL order (the merge train); 10. open the final PR once
+///    everything is in; 11. drop a synthetic base nothing builds on any more.
 /// A `cancelled` workflow ends its runs and drops its branches;
 /// `draft`/`done` decide nothing.
+///
+/// EXP-984: a node in state `proposed` is treated as ABSENT — a follow-up
+/// nobody admitted is not part of the run, so it is never mirrored, started,
+/// landed or waited for, and its edges do not exist.
 pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
+    if snapshot.nodes.iter().any(|node| node.state == STATE_PROPOSED) {
+        return evaluate_admitted(&without_proposed(snapshot));
+    }
+    evaluate_admitted(snapshot)
+}
+
+/// contract `wfNodeState` — a follow-up node awaiting a person's decision.
+const STATE_PROPOSED: &str = "proposed";
+
+/// The snapshot WITHOUT the nodes nobody admitted, and without the edges
+/// that name them. The hosts already drop them; this is the defensive half.
+fn without_proposed(snapshot: &Snapshot) -> Snapshot {
+    let mut admitted = snapshot.clone();
+    admitted.nodes.retain(|node| node.state != STATE_PROPOSED);
+    let known: HashSet<&str> = admitted.nodes.iter().map(|node| node.id.as_str()).collect();
+    admitted
+        .edges
+        .retain(|(from, to)| known.contains(from.as_str()) && known.contains(to.as_str()));
+    admitted
+}
+
+fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     let status = snapshot.workflow.status.as_str();
     if status == "cancelled" {
         return cancel_decisions(snapshot);
@@ -426,7 +567,13 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
     // already resolved, are both left exactly where they are.
     let mut mirrored: Vec<Mirrored<'_>> = Vec::with_capacity(order.len());
     for node in &order {
-        if is_final(&node.state) || snapshot.in_flight.contains(&node.id) {
+        // EXP-984: a node PAUSED over its budget is settled until a person
+        // retries it — the mirror would otherwise read its still-open pull
+        // request and put it straight back into the run.
+        if is_final(&node.state)
+            || node.state == STATE_PAUSED
+            || snapshot.in_flight.contains(&node.id)
+        {
             mirrored.push(Mirrored {
                 node,
                 state: node.state.clone(),
@@ -620,7 +767,15 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
         });
     }
 
-    // (7) The merge train: ONE land per pass, and only while the host is not
+    // (7) EXP-984: the agent review gate — one reviewer run per node whose
+    // pull request is up, and a round's findings handed over exactly once.
+    decisions.extend(review_decisions(snapshot, &mirrored));
+
+    // (8) EXP-984: a node that spent more than it was given stops there and
+    // waits for a person (`resolveNode retry` puts it back in the run).
+    decisions.extend(budget_decisions(snapshot, &mirrored));
+
+    // (9) The merge train: ONE land per pass, and only while the host is not
     // already landing one. The train is strict order among LANDABLE nodes —
     // a node still waiting for a person, for a blocker or for the sibling it
     // has to merge in never blocks a landable one behind it.
@@ -644,7 +799,7 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
         }
     }
 
-    // (8) Everything is in: the ONE final pull request.
+    // (10) Everything is in: the ONE final pull request.
     let all_in = !mirrored.is_empty()
         && mirrored.iter().all(|entry| is_final(&entry.state));
     let any_landed = mirrored.iter().any(|entry| entry.state == "landed");
@@ -656,7 +811,7 @@ pub fn evaluate(snapshot: &Snapshot) -> Vec<Decision> {
         decisions.push(Decision::OpenFinalPr);
     }
 
-    // (9) A synthetic base nothing is building on any more: the branch goes,
+    // (11) A synthetic base nothing is building on any more: the branch goes,
     // so a repository's list stays the issues' branches plus the one
     // integration branch.
     let mut live_bases: HashSet<&str> = HashSet::new();
@@ -904,6 +1059,193 @@ fn order_key<'a>(snapshot: &'a Snapshot, node: &'a NodeFacts) -> (i64, &'a str, 
     )
 }
 
+/// contract `wfNodeState` — a node held over its budget.
+const STATE_PAUSED: &str = "paused";
+/// contract `wfGate` — every node's pull request gets an AGENT review.
+const GATE_AGENT: &str = "agent";
+/// contract `wfReviewVerdict`.
+const VERDICT_REQUEST_CHANGES: &str = "request_changes";
+/// contract `wfRisk` — the risk that makes a review adversarial.
+const RISK_HIGH: &str = "high";
+/// The two contract claude models an adversarial review swaps between.
+const MODEL_OPUS: &str = "opus";
+const MODEL_FABLE: &str = "fable";
+
+/// EXP-984 rule 7 — the agent review gate. ONE review start per pass, in
+/// (wave, lane, id) order, and the findings of a round said exactly once.
+/// Nothing here decides an approval: the SERVER does, and only a passing
+/// oracle on a non-contract node counts.
+fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decision> {
+    if snapshot.workflow.gate != GATE_AGENT {
+        return Vec::new();
+    }
+    let mut decisions = Vec::new();
+    for entry in mirrored {
+        let node = entry.node;
+        if entry.state != "in_review" || node.approved_at.is_some() {
+            continue;
+        }
+        if node.review_round >= domain::contract::WORKFLOW_MAX_REVIEW_ROUNDS as i64 {
+            continue; // it stopped bouncing; a person owns it now
+        }
+        if snapshot.review_in_flight.contains(&node.id) {
+            continue;
+        }
+        // The author has not seen (or not finished with) the last round's
+        // findings: reviewing again now would review the same code twice.
+        if findings_pending(snapshot, node) {
+            continue;
+        }
+        let Some(head) = snapshot.pr_head.get(&node.id) else {
+            continue; // nothing pushed to review
+        };
+        if snapshot.reviewed_head.get(&node.id) == Some(head) {
+            continue;
+        }
+        let adversarial = node.risk == RISK_HIGH;
+        decisions.push(Decision::StartReview {
+            node_id: node.id.clone(),
+            model: review_model(snapshot, adversarial),
+            adversarial,
+        });
+        break;
+    }
+    for entry in mirrored {
+        let node = entry.node;
+        // Deliberately NOT keyed on the node's state: the server sets
+        // `updating`, and this pass's mirror may already have read the still
+        // open pull request and put it back to `in_review`.
+        let Some(review) = node.review.as_ref() else {
+            continue;
+        };
+        if review.verdict != VERDICT_REQUEST_CHANGES || review.round != node.review_round {
+            continue;
+        }
+        if findings_delivered(snapshot, node, review.round) {
+            continue;
+        }
+        let Some(session_id) = node.session_id.as_deref() else {
+            continue;
+        };
+        let live = snapshot
+            .sessions
+            .get(session_id)
+            .is_some_and(|session| session.live);
+        if live
+            && snapshot
+                .sessions
+                .get(session_id)
+                .is_some_and(|session| session.agent_busy)
+        {
+            continue; // mid-turn: the text would land inside its own work
+        }
+        decisions.push(Decision::SendFindings {
+            node_id: node.id.clone(),
+            session_id: live.then(|| session_id.to_string()),
+        });
+    }
+    decisions
+}
+
+/// Whether the node's CURRENT round still owes its author something: the
+/// findings were never delivered, or the run is mid-turn acting on them.
+fn findings_pending(snapshot: &Snapshot, node: &NodeFacts) -> bool {
+    let Some(review) = node.review.as_ref() else {
+        return false;
+    };
+    if review.verdict != VERDICT_REQUEST_CHANGES || review.round != node.review_round {
+        return false;
+    }
+    if !findings_delivered(snapshot, node, review.round) {
+        return true;
+    }
+    node.session_id
+        .as_deref()
+        .and_then(|session_id| snapshot.sessions.get(session_id))
+        .is_some_and(|session| session.live && session.agent_busy)
+}
+
+fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool {
+    snapshot
+        .findings_sent
+        .get(&node.id)
+        .is_some_and(|sent| *sent >= round)
+}
+
+/// The model a review runs on: the workflow's pin, else the author's own.
+/// An ADVERSARIAL review must never be the author's model, so an equal pick
+/// swaps deterministically (`opus` ↔ `fable`; anything else → `opus`).
+fn review_model(snapshot: &Snapshot, adversarial: bool) -> Option<String> {
+    let author = snapshot.workflow.author_model.as_deref();
+    let picked = snapshot.workflow.review_model.as_deref().or(author);
+    if !adversarial || picked != author {
+        return picked.map(str::to_string);
+    }
+    Some(
+        match author {
+            Some(MODEL_OPUS) => MODEL_FABLE,
+            Some(MODEL_FABLE) => MODEL_OPUS,
+            _ => MODEL_OPUS,
+        }
+        .to_string(),
+    )
+}
+
+/// EXP-984 rule 8 — the budget. A live run that spent more minutes (or more
+/// tokens, where the host can count them) than the node was given is ended
+/// and the node parked for a person.
+fn budget_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decision> {
+    let mut decisions = Vec::new();
+    for entry in mirrored {
+        let node = entry.node;
+        if !matches!(entry.state.as_str(), "running" | "updating") {
+            continue;
+        }
+        if snapshot.in_flight.contains(&node.id) {
+            continue;
+        }
+        let Some(budget) = node.budget.as_ref() else {
+            continue;
+        };
+        let Some(session_id) = node.session_id.as_deref() else {
+            continue;
+        };
+        let Some(session) = snapshot.sessions.get(session_id) else {
+            continue;
+        };
+        if !session.live {
+            continue;
+        }
+        let Some(note) = over_budget(budget, session, snapshot.now_ms) else {
+            continue;
+        };
+        decisions.push(Decision::PauseNode {
+            node_id: node.id.clone(),
+            session_id: session_id.to_string(),
+            note,
+        });
+    }
+    decisions
+}
+
+/// The note a run that went over its budget carries, or `None` while it is
+/// still inside it. Minutes are read first: they always apply, while tokens
+/// only do where the host can see a counter at all.
+fn over_budget(budget: &BudgetFacts, session: &SessionFacts, now_ms: i64) -> Option<String> {
+    if let (Some(limit), Some(started_at)) = (budget.minutes, session.started_at_ms) {
+        let minutes = (now_ms - started_at) / 60_000;
+        if limit > 0 && minutes > limit {
+            return Some(format!("Over budget: {minutes} of {limit} minutes"));
+        }
+    }
+    if let (Some(limit), Some(used)) = (budget.tokens, session.tokens_used) {
+        if limit > 0 && used > limit {
+            return Some(format!("Over budget: {used} of {limit} tokens"));
+        }
+    }
+    None
+}
+
 /// EXP-983 rule 6 — the train's topological gate: a node lands only once
 /// every blocker AND every node it has to merge in first is in.
 fn is_landable(
@@ -1099,6 +1441,8 @@ mod tests {
                 final_pr_url: None,
                 max_parallel: 3,
                 start_on: START_ON_LANDED.to_string(),
+                review_model: None,
+                author_model: None,
             },
             nodes,
             integration_branch_exists: true,
@@ -1145,6 +1489,21 @@ mod tests {
         // Both are final, at least one landed: the pass goes straight to the
         // final pull request without touching either row.
         assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    }
+
+    /// EXP-984 — a review branch is this workflow's, names its node's issue
+    /// and its round, and can never collide with the synthetic bases (which
+    /// carry `-base-`).
+    #[test]
+    fn a_review_branch_names_the_workflow_the_issue_and_the_round() {
+        assert_eq!(
+            review_branch("abcdef12-3456-7890-abcd-ef1234567890", "EXP-42", 2),
+            "exp/wf-abcdef12-review-EXP-42-r2"
+        );
+        assert!(!is_synthetic(
+            "abcdef12-3456-7890-abcd-ef1234567890",
+            &review_branch("abcdef12-3456-7890-abcd-ef1234567890", "EXP-42", 2)
+        ));
     }
 
     /// A node the host is mid-start on is untouched for the whole pass, and

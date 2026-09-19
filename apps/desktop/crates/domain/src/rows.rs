@@ -1250,6 +1250,17 @@ pub struct WorkflowNodeRow {
     /// TEXT-stored, re-parsed tolerantly.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub after_node_ids: Option<serde_json::Value>,
+    /// EXP-984: how many agent reviews were SUBMITTED for this node (the
+    /// server column is NOT NULL DEFAULT 0; three rounds and the node stops
+    /// bouncing and waits for a person).
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub review_round: Option<i64>,
+    /// EXP-984: the LATEST verdict — jsonb
+    /// `{verdict, findings, oracle: {command, passed} | null, model, round, at}`,
+    /// TEXT-stored on the wire like every other jsonb column. Read through
+    /// [`WorkflowNodeRow::review_facts`], never raw.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub review: Option<serde_json::Value>,
     /// EXP-982: why the node is `failed` / `waiting`, in one sentence.
     #[serde(default)]
     pub note: Option<String>,
@@ -1304,6 +1315,75 @@ impl WorkflowNodeRow {
     pub fn is_on_cycle(&self) -> bool {
         self.on_cycle.unwrap_or(false)
     }
+
+    /// EXP-984: how many agent reviews were submitted (0 when the column is
+    /// absent or garbled — never a review that did not happen).
+    pub fn review_count(&self) -> i64 {
+        self.review_round.unwrap_or(0).max(0)
+    }
+
+    /// EXP-984: the latest agent review, decoded tolerantly. `None` = no
+    /// review yet, or a blob without the one field that decides anything.
+    pub fn review_facts(&self) -> Option<WorkflowNodeReview> {
+        let review = self.review.as_ref()?;
+        let verdict = review.get("verdict")?.as_str()?.to_string();
+        let oracle = review.get("oracle").filter(|value| value.is_object());
+        Some(WorkflowNodeReview {
+            verdict,
+            findings: review
+                .get("findings")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            oracle_command: oracle
+                .and_then(|oracle| oracle.get("command"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            oracle_passed: oracle
+                .and_then(|oracle| oracle.get("passed"))
+                .and_then(serde_json::Value::as_bool),
+            model: review
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+            // A blob without a round belongs to the rounds counted so far.
+            round: review
+                .get("round")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_else(|| self.review_count()),
+        })
+    }
+
+    /// EXP-984: the node's budget, in whole minutes and tokens. Either half
+    /// may be absent, and a blob that is neither reads as no budget at all.
+    pub fn budget_limits(&self) -> (Option<i64>, Option<i64>) {
+        let budget = match self.budget.as_ref() {
+            Some(budget) if budget.is_object() => budget,
+            _ => return (None, None),
+        };
+        let read = |key: &str| {
+            budget
+                .get(key)
+                .and_then(serde_json::Value::as_i64)
+                .filter(|value| *value > 0)
+        };
+        (read("minutes"), read("tokens"))
+    }
+}
+
+/// EXP-984 — `workflow_nodes.review`, the latest agent verdict on one node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowNodeReview {
+    /// contract `wfReviewVerdict` — a raw wire word.
+    pub verdict: String,
+    /// What has to change, verbatim; empty on a remarkless approval.
+    pub findings: String,
+    /// The check the reviewer RAN, when it could run one.
+    pub oracle_command: Option<String>,
+    pub oracle_passed: Option<bool>,
+    /// The model that reviewed (a `risk: high` node: never its author's).
+    pub model: Option<String>,
+    pub round: i64,
 }
 
 /// A jsonb `string[]` cell as a plain id list; anything else reads empty.

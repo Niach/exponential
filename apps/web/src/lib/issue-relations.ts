@@ -327,7 +327,7 @@ export async function insertRelationInTx(
     kind: `relation_added`,
     actorUserId,
   })
-  await replanForRelation(tx, inserted)
+  await replanForRelation(tx, inserted, true)
   return inserted
 }
 
@@ -382,10 +382,17 @@ export async function deleteRelationInTx(
  *  module sits above this one. */
 async function replanForRelation(
   tx: Tx,
-  row: { type: string; issueId: string; relatedIssueId: string }
+  row: { type: string; issueId: string; relatedIssueId: string },
+  added = false
 ): Promise<void> {
   if (row.type !== `blocks` && row.type !== `parent`) return
-  const { replanWorkflowsForIssues } = await import(`@/lib/workflows`)
+  const { replanWorkflowsForIssues, proposeNodesForRelation } = await import(
+    `@/lib/workflows`
+  )
+  // EXP-984: a follow-up filed mid-run joins the live workflow as a node
+  // (admitted when plainly additive, else proposed) BEFORE the replan lays
+  // it out.
+  if (added && row.type === `blocks`) await proposeNodesForRelation(tx, row)
   await replanWorkflowsForIssues(tx, [row.issueId, row.relatedIssueId])
 }
 

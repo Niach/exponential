@@ -59,7 +59,12 @@ export interface DomainContract {
   wfGate: { values: readonly string[] }
   wfStartOn: { values: readonly string[] }
   wfRisk: { values: readonly string[] }
-  workflow: { maxParallelDefault: number; maxIssues: number }
+  wfReviewVerdict: { values: readonly string[] }
+  workflow: {
+    maxParallelDefault: number
+    maxIssues: number
+    maxReviewRounds: number
+  }
   codingSessionStatus: { values: readonly string[] }
   /**
    * EXP-637: how a run finished in the agent's own words
@@ -212,6 +217,8 @@ export interface DomainContract {
     chatId: string
     /** EXP-981: the planner run of a draft workflow. */
     planWorkflowId: string
+    /** EXP-984: the agent-review run of one workflow node (device-started). */
+    reviewNodeId: string
   }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }

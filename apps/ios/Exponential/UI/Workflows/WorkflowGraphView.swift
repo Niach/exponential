@@ -161,6 +161,12 @@ struct WorkflowGraphView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .flatRow()
+            // EXP-984: a `proposed` node is not part of the run until a member
+            // admits it. Where the grid clients draw the NODE dashed, a phone
+            // row wears the dash as its own border.
+            .overlay {
+                if node.isProposed { ProposedRowBorder() }
+            }
             // A compound node (a parent run as one batch with its sub-issues)
             // is drawn as a STACKED card: a second card edge peeking out
             // behind it, the ×4 rule's shorthand for "this is several issues".
@@ -246,6 +252,20 @@ struct WorkflowGraphView: View {
         case .success: DesignTokens.Semantic.blue
         case .danger: DesignTokens.Semantic.red
         }
+    }
+}
+
+/// EXP-984 — the dashed outline a `proposed` node wears: a follow-up filed
+/// during the run that a member has yet to admit, so it is drawn but is not
+/// part of the run. Web and the IDE dash the node's own outline; a phone row's
+/// outline IS its border.
+struct ProposedRowBorder: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: GlassTokens.rowRadius, style: .continuous)
+            .strokeBorder(
+                Color.white.opacity(TextOpacity.tertiary),
+                style: StrokeStyle(lineWidth: GlassTokens.hairline, dash: [4, 3])
+            )
     }
 }
 

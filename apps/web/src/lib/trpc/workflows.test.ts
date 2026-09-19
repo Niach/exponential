@@ -80,6 +80,7 @@ vi.mock(`@/lib/steer-child-messages`, () => ({ oneLine: (text: string) => text }
 import {
   appendDecisionLine,
   nodeNeedsApproval,
+  reviewOutcome,
   workflowsRouter,
 } from "@/lib/trpc/workflows"
 
@@ -313,5 +314,33 @@ describe(`appendDecisionLine`, () => {
     expect(next.length).toBeLessThanOrEqual(65536)
     expect(next.endsWith(`2026-09-19: newest`)).toBe(true)
     expect(next.startsWith(`l0:`)).toBe(false)
+  })
+})
+
+// EXP-984 — what a submitted review does to its node.
+describe(`reviewOutcome`, () => {
+  it(`lets a passing oracle stand in for the person, never on the contract`, () => {
+    expect(reviewOutcome({ verdict: `approve`, oraclePassed: true, kind: `leaf`, round: 1 })).toMatchObject({
+      approve: true,
+      state: `in_review`,
+    })
+    expect(
+      reviewOutcome({ verdict: `approve`, oraclePassed: true, kind: `contract`, round: 1 }).approve
+    ).toBe(false)
+  })
+
+  it(`keeps an approval without evidence advisory`, () => {
+    const outcome = reviewOutcome({ verdict: `approve`, oraclePassed: null, kind: `leaf`, round: 1 })
+    expect(outcome.approve).toBe(false)
+    expect(outcome.note).toContain(`advisory`)
+  })
+
+  it(`bounces to the author up to the round cap, then waits for a person`, () => {
+    expect(
+      reviewOutcome({ verdict: `request_changes`, oraclePassed: false, kind: `leaf`, round: 2 }).state
+    ).toBe(`updating`)
+    expect(
+      reviewOutcome({ verdict: `request_changes`, oraclePassed: null, kind: `leaf`, round: 3 })
+    ).toMatchObject({ state: `waiting`, note: `Review did not converge after 3 rounds` })
   })
 })

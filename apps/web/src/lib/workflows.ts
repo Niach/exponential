@@ -438,3 +438,100 @@ export async function loadWorkflowEdges(executor: Executor, workflowId: string) 
     : []
   return { nodes, edges: nodeEdges(nodes, blocks) }
 }
+
+/**
+ * EXP-984: dynamic graphs. A `blocks` relation was written between an issue a
+ * LIVE workflow covers and one it does not. If the outsider is a follow-up
+ * filed DURING the run (created after the workflow started), still in the
+ * backlog and in the workflow's repository, it arrives as a node:
+ *
+ * - additive → admitted at once (`blocked`): it sits DOWNSTREAM of the covered
+ *   issue (covered blocks new) and blocks nothing the workflow covers, so no
+ *   running node's base changes and no cycle is possible;
+ * - anything else (it blocks covered work) → `proposed`: the engine ignores it
+ *   until a member admits or dismisses it.
+ *
+ * Returns the workflow ids touched. Pure insert; the caller replans.
+ */
+export async function proposeNodesForRelation(
+  tx: Tx,
+  relation: { issueId: string; relatedIssueId: string }
+): Promise<string[]> {
+  const ends = [relation.issueId, relation.relatedIssueId]
+  const covering = await tx
+    .select({
+      workflowId: workflows.id,
+      teamId: workflows.teamId,
+      repositoryId: workflows.repositoryId,
+      startedAt: workflows.startedAt,
+      issueId: workflowNodes.issueId,
+      members: workflowNodes.memberIssueIds,
+    })
+    .from(workflowNodes)
+    .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+    .where(
+      and(
+        inArray(workflows.status, [`running`, `paused`]),
+        or(
+          inArray(workflowNodes.issueId, ends),
+          sql`${workflowNodes.memberIssueIds} ?| ${sql.param(ends)}::text[]`
+        )
+      )
+    )
+  const touched: string[] = []
+  for (const workflowId of new Set(covering.map((row) => row.workflowId))) {
+    const rows = covering.filter((row) => row.workflowId === workflowId)
+    const workflow = rows[0]!
+    const all = await tx
+      .select({ issueId: workflowNodes.issueId, members: workflowNodes.memberIssueIds })
+      .from(workflowNodes)
+      .where(eq(workflowNodes.workflowId, workflowId))
+    const covered = new Set(all.flatMap((row) => [row.issueId, ...row.members]))
+    const outsiders = ends.filter((id) => !covered.has(id))
+    if (outsiders.length !== 1 || !workflow.startedAt) continue
+    const outsider = outsiders[0]!
+    const [issue] = await tx
+      .select({
+        status: issues.status,
+        createdAt: issues.createdAt,
+        repositoryId: boards.repositoryId,
+      })
+      .from(issues)
+      .innerJoin(boards, eq(boards.id, issues.boardId))
+      .where(and(eq(issues.id, outsider), boardVisible()))
+      .limit(1)
+    if (
+      !issue ||
+      issue.status !== `backlog` ||
+      issue.repositoryId !== workflow.repositoryId ||
+      new Date(issue.createdAt).getTime() < new Date(workflow.startedAt).getTime()
+    ) {
+      continue
+    }
+    // Additive = the outsider is the BLOCKED end and blocks nothing covered.
+    const blocksCovered = await tx
+      .select({ id: issueRelations.id })
+      .from(issueRelations)
+      .where(
+        and(
+          eq(issueRelations.type, `blocks`),
+          eq(issueRelations.issueId, outsider),
+          inArray(issueRelations.relatedIssueId, [...covered])
+        )
+      )
+      .limit(1)
+    const additive = relation.relatedIssueId === outsider && blocksCovered.length === 0
+    await tx
+      .insert(workflowNodes)
+      .values({
+        workflowId,
+        teamId: workflow.teamId,
+        issueId: outsider,
+        state: additive ? `blocked` : `proposed`,
+        note: additive ? null : `Filed during the run; it changes what existing nodes wait for`,
+      })
+      .onConflictDoNothing()
+    touched.push(workflowId)
+  }
+  return touched
+}
