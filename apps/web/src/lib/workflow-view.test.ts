@@ -4,6 +4,7 @@ import {
   workflowBand,
   workflowCycleNote,
   workflowEdges,
+  workflowEdgeStyle,
   workflowFinalPrCaption,
   workflowMergeTrain,
   workflowRowSubtitle,
@@ -83,6 +84,12 @@ describe(`workflow view (contract fixture)`, () => {
   it(`leads a list row with the status word where the band is not enough`, () => {
     for (const c of fixture.rowSubtitles) {
       expect(workflowRowSubtitle(c.status, c.metrics)).toBe(c.subtitle)
+    }
+  })
+
+  it(`styles an edge by what it has to say`, () => {
+    for (const c of fixture.edgeStyles) {
+      expect(workflowEdgeStyle(c.edge, c.fromState, c.toState)).toBe(c.style)
     }
   })
 })

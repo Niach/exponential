@@ -2340,6 +2340,18 @@ export const workflowNodes = pgTable(
     // `human` gate, and ALWAYS for a contract node). The engine lands only
     // approved or ungated nodes.
     approvedAt: timestamp(`approved_at`, { withTimezone: true }),
+    // EXP-983: the node announced its CONTRACT (its first push: the types,
+    // stubs and tests its dependents build against) with
+    // `exponential_workflows_checkpoint`. Under `start_on: contract` its
+    // dependents start as soon as every blocker has one.
+    checkpointAt: timestamp(`checkpoint_at`, { withTimezone: true }),
+    // Engine-written SERIALIZATION edges: nodes this one must merge in first
+    // because their work collided with its own (`git merge-tree`). Drawn
+    // dashed; never a real `blocks` relation.
+    afterNodeIds: jsonb(`after_node_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     // Why the node is `failed` or `waiting`, one line, engine-written.
     note: varchar({ length: 500 }),
     budget: jsonb().$type<WorkflowNodeBudget>(),

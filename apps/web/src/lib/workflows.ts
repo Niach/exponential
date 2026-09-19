@@ -406,3 +406,35 @@ export async function liveWorkflowBaseForIssue(
     base: row.baseBranch ?? row.integrationBranch,
   }
 }
+
+/** A workflow's nodes and the `blocks` edges between them (EXP-983): what the
+ *  merge train's order and the post-landing retarget are decided on. */
+export async function loadWorkflowEdges(executor: Executor, workflowId: string) {
+  const nodes = await executor
+    .select({
+      id: workflowNodes.id,
+      issueId: workflowNodes.issueId,
+      memberIssueIds: workflowNodes.memberIssueIds,
+      state: workflowNodes.state,
+      baseBranch: workflowNodes.baseBranch,
+    })
+    .from(workflowNodes)
+    .where(eq(workflowNodes.workflowId, workflowId))
+  const covered = nodes.flatMap((node) => [node.issueId, ...node.memberIssueIds])
+  const blocks = covered.length
+    ? await executor
+        .select({
+          issueId: issueRelations.issueId,
+          relatedIssueId: issueRelations.relatedIssueId,
+        })
+        .from(issueRelations)
+        .where(
+          and(
+            eq(issueRelations.type, `blocks`),
+            inArray(issueRelations.issueId, covered),
+            inArray(issueRelations.relatedIssueId, covered)
+          )
+        )
+    : []
+  return { nodes, edges: nodeEdges(nodes, blocks) }
+}

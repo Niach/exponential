@@ -11,6 +11,10 @@ import { TRPCError } from "@trpc/server"
 const h = vi.hoisted(() => ({
   assertTeamMember: vi.fn(async (..._args: unknown[]) => ({ role: `member` })),
   assertDeviceUsable: vi.fn(async (..._args: unknown[]) => {}),
+  loadWorkflowEdges: vi.fn(async (..._args: unknown[]) => ({
+    nodes: [] as Array<{ id: string; state: string }>,
+    edges: [] as Array<[string, string]>,
+  })),
   replanWorkflow: vi.fn(async (..._args: unknown[]) => ({
     nodes: 2,
     edges: 0,
@@ -31,6 +35,7 @@ vi.mock(`@/lib/team-membership`, () => ({ assertTeamMember: h.assertTeamMember }
 vi.mock(`@/lib/trpc/automations`, () => ({ assertDeviceUsable: h.assertDeviceUsable }))
 vi.mock(`@/lib/workflows`, () => ({
   nodeEdges: () => [],
+  loadWorkflowEdges: h.loadWorkflowEdges,
   replanWorkflow: h.replanWorkflow,
   workflowIntegrationBranch: (id: string) => `exp/wf-${id.slice(0, 8)}`,
 }))
@@ -192,12 +197,9 @@ describe(`workflows.delete`, () => {
 describe(`workflows.start`, () => {
   const ready = { deviceId: `dev-1`, startOn: `landed`, decisions: `` }
 
-  it(`refuses a workflow with no runner, a speculative start, or a cycle`, async () => {
+  it(`refuses a workflow with no runner or a cycle`, async () => {
     selectQueue.push([workflow({ ...ready, deviceId: null })])
     expect((await rejection(caller.start({ id: WF })))?.message).toContain(`Pick the device`)
-
-    selectQueue.push([workflow({ ...ready, startOn: `contract` })])
-    expect((await rejection(caller.start({ id: WF })))?.message).toContain(`When landed`)
 
     selectQueue.push([workflow(ready)])
     h.replanWorkflow.mockResolvedValueOnce({
@@ -260,6 +262,28 @@ describe(`the engine's write path`, () => {
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
       merged: false,
       reason: `Waiting for a person to approve`,
+      retargeted: [],
+    })
+  })
+
+  // EXP-983: a speculative dependent's PR can be up before its blocker landed.
+  it(`lands in topological order: never before a blocker`, async () => {
+    h.loadWorkflowEdges.mockResolvedValueOnce({
+      nodes: [
+        { id: `node-0`, state: `in_review` },
+        { id: `node-1`, state: `in_review` },
+      ],
+      edges: [[`node-0`, `node-1`]],
+    } as never)
+    selectQueue.push(
+      [node({ approvedAt: new Date() })],
+      [workflow({ status: `running`, deviceId: `dev-1`, gate: `none` })],
+      [{ id: `device-row` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: false,
+      reason: `Waiting for its blockers to land`,
+      retargeted: [],
     })
   })
 })

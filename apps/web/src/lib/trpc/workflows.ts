@@ -31,6 +31,7 @@ import { assertTeamMember } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
 import { assertDeviceUsable } from "@/lib/trpc/automations"
 import {
+  loadWorkflowEdges,
   nodeEdges,
   replanWorkflow,
   workflowIntegrationBranch,
@@ -567,10 +568,6 @@ export const workflowsRouter = router({
       assertDraft(existing.status, `Starting`)
       if (!existing.repositoryId) throw bad(`The workflow's repository is gone`)
       if (!existing.deviceId) throw bad(`Pick the device that runs this workflow first`)
-      if (existing.startOn !== `landed`) {
-        // `contract` / `pr_open` starts arrive with EXP-983.
-        throw bad(`Only "When landed" starts are available yet`)
-      }
       await assertDeviceUsable(
         existing.deviceId,
         existing.teamId,
@@ -591,7 +588,15 @@ export const workflowsRouter = router({
         }
         await tx
           .update(workflowNodes)
-          .set({ state: `blocked`, attempt: 0, sessionId: null, approvedAt: null, note: null })
+          .set({
+            state: `blocked`,
+            attempt: 0,
+            sessionId: null,
+            approvedAt: null,
+            checkpointAt: null,
+            afterNodeIds: [],
+            note: null,
+          })
           .where(eq(workflowNodes.workflowId, input.id))
         const [workflow] = await tx
           .update(workflows)
@@ -705,6 +710,8 @@ export const workflowsRouter = router({
         baseBranch: z.string().max(255).nullable().optional(),
         attempt: z.number().int().min(0).max(99).optional(),
         note: z.string().max(500).nullable().optional(),
+        // EXP-983: the serialization edges a sibling conflict produced.
+        afterNodeIds: z.array(z.string().uuid()).max(WORKFLOW_MAX_ISSUES).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -729,6 +736,7 @@ export const workflowsRouter = router({
           ...(input.baseBranch !== undefined && { baseBranch: input.baseBranch }),
           ...(input.attempt !== undefined && { attempt: input.attempt }),
           ...(input.note !== undefined && { note: input.note }),
+          ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
         .where(eq(workflowNodes.id, input.nodeId))
       return { updated: true }
@@ -744,12 +752,29 @@ export const workflowsRouter = router({
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertEngine(workflow, ctx.session.user.id)
-      if (node.state === `landed`) return { merged: true, reason: null }
+      if (node.state === `landed`) return { merged: true, reason: null, retargeted: [] as string[] }
       if (workflow.status !== `running`) {
-        return { merged: false, reason: `The workflow is not running` }
+        return { merged: false, reason: `The workflow is not running`, retargeted: [] as string[] }
       }
       if (nodeNeedsApproval(workflow.gate, node.kind) && !node.approvedAt) {
-        return { merged: false, reason: `Waiting for a person to approve` }
+        return { merged: false, reason: `Waiting for a person to approve`, retargeted: [] as string[] }
+      }
+      // EXP-983: with speculative starts a dependent's PR can be up before
+      // its blocker landed. The train lands in TOPOLOGICAL order, always.
+      const graph = await loadWorkflowEdges(ctx.db, workflow.id)
+      const stateOf = new Map(graph.nodes.map((row) => [row.id, row.state]))
+      const waitsOn = graph.edges
+        .filter(([, to]) => to === node.id)
+        .some(([from]) => {
+          const state = stateOf.get(from)
+          return state !== `landed` && state !== `skipped`
+        })
+      if (waitsOn) {
+        return {
+          merged: false,
+          reason: `Waiting for its blockers to land`,
+          retargeted: [] as string[],
+        }
       }
       // Merged already (a person pressed Merge on GitHub, or the webhook
       // beat this call): the train's step is done.
@@ -768,7 +793,7 @@ export const workflowsRouter = router({
             .mergePr({ issueId: node.issueId, endSessions: true })
       } catch (err) {
         const reason = err instanceof Error ? err.message : `GitHub refused the merge`
-        return { merged: false, reason: reason.slice(0, 500) }
+        return { merged: false, reason: reason.slice(0, 500), retargeted: [] as string[] }
       }
       await ctx.db
         .update(workflowNodes)
@@ -780,7 +805,16 @@ export const workflowsRouter = router({
           metrics: sql`jsonb_set(${workflows.metrics}, '{landed}', (coalesce((${workflows.metrics}->>'landed')::int, 0) + 1)::text::jsonb)`,
         })
         .where(eq(workflows.id, workflow.id))
-      return { merged: true, reason: null }
+      // EXP-983: dependents whose last unlanded blocker this was move their
+      // PR onto the integration branch; the engine has them merge it in.
+      const { retargetReleasedDependents } = await import(`@/lib/workflow-final-pr`)
+      const retargeted = await retargetReleasedDependents(
+        ctx.db,
+        workflow.id,
+        node.id,
+        ctx.session.user.id
+      )
+      return { merged: true, reason: null, retargeted }
     }),
 
   /** ENGINE: every node landed — open the ONE final PR, integration branch →
