@@ -433,7 +433,6 @@ private fun AuthenticatedNav(
                 mode = IssueListMode.Root,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSettings = { navController.navigate("settings") },
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenAgent = openAgent,
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
@@ -627,7 +626,6 @@ private fun AuthenticatedNav(
                 mode = IssueListMode.Pushed,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenAgent = openAgent,
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
                 onNewIssue = { navController.navigate("board/$boardId/new") },

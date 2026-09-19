@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-19-phone-switcher-no-pins`,
+    date: `2026-09-19`,
+    title: `No Pinned group in the phone board switcher`,
+    summary: `The board switcher on iOS and Android lists teams and boards only; pins stay a sidebar feature on the web and the desktop app.`,
+    body: `- **Board switcher**: the Pinned group at the top of the switcher sheet is gone on iOS and Android. A pin belongs to a sidebar, and the phone has none: pins are made and opened on the web and the desktop app, where the sidebar shows them.`,
+  },
+  {
     id: `2026-09-18-release-train`,
     date: `2026-09-18`,
     title: `Release train 2026-09-18`,
