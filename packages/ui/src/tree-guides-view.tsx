@@ -20,6 +20,17 @@ import {
 // Percentages are what keep the elbow on the row's vertical CENTRE whatever
 // the row's height: the verticals are `<line>`s (percent-aware), and the
 // elbow rides a nested `<svg y="50%">` whose own origin IS that centre.
+//
+// GAP BRIDGING (the ×4 rule): a list that SPACES its rows would otherwise
+// break every line at the gap, because a row can only paint inside itself.
+// So a vertical that starts at the row's TOP edge starts one row-gap ABOVE
+// it instead, while the tee and the pass-throughs still end at the bottom
+// edge — the next row's extension is what covers the space between them.
+// That extension is a SECOND layer rather than an `overflow: visible` on the
+// first: the elbow's arc is placed by a `50%` that resolves against this
+// viewport, so growing the viewport upwards would walk the corner off the
+// row's centre by half the gap. Two layers keep the elbow exact at any row
+// height and any gap.
 
 /** How wide the guide layer is for a guide — out to the right edge of the
  *  deepest gutter it draws in. */
@@ -34,12 +45,17 @@ function guideWidth(guide: TreeGuide, base: number): number {
 export function TreeGuides({
   guide,
   base = TREE_BASE,
+  gap = 0,
   className,
 }: {
   /** This row's geometry (`treeGuides(depths)[index]`). */
   guide: TreeGuide | null | undefined
   /** The row's own left padding at depth 0 — the gutters start there. */
   base?: number
+  /** The list's row spacing in px (its `gap-*`), 0 for a gapless list. Every
+   *  line that starts at the row's top edge is extended this far above it, so
+   *  the connector crosses the space between two rows. */
+  gap?: number
   className?: string
 }) {
   if (treeGuideIsEmpty(guide)) return null
@@ -49,7 +65,36 @@ export function TreeGuides({
   const elbowX = elbowAt === null ? 0 : treeGuideCentre(elbowAt, base)
   // The stub ends at the gutter's right edge — just before the child glyph.
   const stubEnd = elbowAt === null ? 0 : base + TREE_INDENT * (elbowAt + 1)
+  // Every line that starts at the top edge: the elbow's own vertical and each
+  // ancestor's pass-through. The tee's lower half starts at the centre, so it
+  // bridges nothing.
+  const bridged =
+    elbowAt === null ? passThrough : [...passThrough, elbowAt]
   return (
+    <>
+    {gap > 0 && bridged.length > 0 && (
+      <svg
+        aria-hidden
+        focusable="false"
+        width={width}
+        height={gap}
+        style={{ top: -gap }}
+        className="pointer-events-none absolute left-0"
+        data-testid="tree-guides-bridge"
+      >
+        {bridged.map((level) => (
+          <line
+            key={`bridge-${level}`}
+            x1={treeGuideCentre(level, base)}
+            y1="0"
+            x2={treeGuideCentre(level, base)}
+            y2="100%"
+            stroke={stroke}
+            strokeWidth={1}
+          />
+        ))}
+      </svg>
+    )}
     <svg
       aria-hidden
       focusable="false"
@@ -103,5 +148,6 @@ export function TreeGuides({
         </svg>
       )}
     </svg>
+    </>
   )
 }

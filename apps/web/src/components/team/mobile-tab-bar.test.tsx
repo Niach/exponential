@@ -5,8 +5,9 @@ import type { Board, Team } from "@/db/schema"
 // EXP-973: the phone's FAB is the SAME split capsule on EVERY tab-bar route.
 // Devices, Actions/Automations, Reviews, Inbox and Support used to drop the
 // New-issue arm and leave a lone chat circle, which turned "file this" into a
-// trip back to a board. The only thing that still collapses the capsule is
-// having NO board to file into.
+// trip back to a board. Nothing collapses it any more: a team with NO board
+// dims the arm in place (×3 with iOS / Android `composeEnabled`), so the
+// control never moves under the thumb.
 
 const route = vi.hoisted(() => ({ value: `` as string }))
 
@@ -89,11 +90,27 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
     ).toBe(`/t/$teamSlug/boards/$boardSlug`)
   })
 
-  it(`collapses to the chat circle only when there is no board at all`, () => {
+  it(`dims the New issue arm in place when the team has no board`, () => {
     route.value = `/t/$teamSlug/devices`
     renderBar([])
-    expect(screen.queryByTestId(`fab-group`)).toBeNull()
-    expect(screen.queryByTestId(`compose-button`)).toBeNull()
-    expect(screen.getByTestId(`chat-button`)).toBeTruthy()
+    // The capsule and BOTH arms stay — only the target is missing.
+    expect(screen.getByTestId(`fab-group`)).toBeTruthy()
+    expect(screen.getByTestId(`chat-button`).getAttribute(`href`)).toBe(
+      `/t/$teamSlug/agent`
+    )
+    const compose = screen.getByTestId(`compose-button`)
+    expect(compose.getAttribute(`aria-disabled`)).toBe(`true`)
+    expect(compose.getAttribute(`aria-label`)).toBe(`New issue (no board)`)
+    expect(compose.getAttribute(`href`)).toBeNull()
+    expect(compose.className).toContain(`pointer-events-none`)
+    expect(compose.className).toContain(`opacity-50`)
+  })
+
+  it(`leaves the arm live wherever a board resolves`, () => {
+    route.value = `/t/$teamSlug/reviews`
+    renderBar()
+    const compose = screen.getByTestId(`compose-button`)
+    expect(compose.getAttribute(`aria-disabled`)).toBeNull()
+    expect(compose.getAttribute(`aria-label`)).toBe(`New issue`)
   })
 })

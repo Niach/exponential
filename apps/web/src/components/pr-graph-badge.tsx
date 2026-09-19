@@ -31,6 +31,12 @@ import { PrStateBadge } from "@/components/issue-coding-rows"
 import { RunningIndicator } from "@/components/agent-session-row"
 import { cn } from "@/lib/utils"
 
+// EXP-965: the PR stack's rows sit in a `gap-1.5` column — 0.375rem, which is
+// ~7px at the app's md+ root. The connector bridges that space upwards, and
+// rounding UP simply overdraws a hairline into the row above, which is
+// invisible; rounding down would leave a visible break.
+const STACK_ROW_GAP = 7
+
 // EXP-897 Part 4: the ONE stack/batch badge. A piece of work can be related to
 // other work three ways — a PR STACK (`pr_base_branch`), a BATCH (issues
 // sharing one `pr_url`), a session TREE (`parent_session_id`) — and until now
@@ -390,7 +396,9 @@ export function PrGraphOverlay({
                   ? [{ entry: graph.entry, depth: 0 }]
                   : []
             // EXP-965: the stack nests from the container's own edge, so the
-            // gutters start at 0 rather than at a list row's 12px padding.
+            // gutters start at 0 rather than at a list row's 12px padding —
+            // and it is the ONE guide site whose rows are SPACED (`gap-1.5`),
+            // so every line bridges that gap upwards (`STACK_ROW_GAP`).
             const guides = treeGuides(rows.map((row) => row.depth))
             return rows.map(({ entry, depth }, index) => (
             <div
@@ -398,7 +406,11 @@ export function PrGraphOverlay({
               className="relative flex flex-col gap-1"
               style={{ paddingLeft: `${depth * TREE_INDENT}px` }}
             >
-              <TreeGuides guide={guides[index]} base={0} />
+              <TreeGuides
+                guide={guides[index]}
+                base={0}
+                gap={STACK_ROW_GAP}
+              />
               <Link
                 to="/t/$teamSlug/reviews/$issueIdentifier"
                 params={{

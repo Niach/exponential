@@ -81,7 +81,9 @@ export function SessionTreeList({
     [nested, collapsed]
   )
   // EXP-965: the connector reads off the VISIBLE depths, so a folded subtree
-  // simply is not there and its parent draws nothing below itself.
+  // simply is not there and its parent draws nothing below itself. The rows
+  // stack with NO gap (`flex flex-col`, the EXP-818 table rhythm), so no
+  // guide has a space to bridge — `TreeGuides` keeps its `gap={0}` default.
   const guides = useMemo(
     () => treeGuides(tree.map((entry) => entry.depth)),
     [tree]

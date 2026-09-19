@@ -193,6 +193,7 @@ export function SidebarRunningSection({
     <SidebarGroup data-testid="sidebar-running">
       <GlassSectionHeader label="Running" />
       <SidebarGroupContent>
+        {/* Gapless (EXP-965: nothing for a connector to bridge). */}
         <div className="flex flex-col">
           {entries.map((entry) => {
             const session = entry.row.session
