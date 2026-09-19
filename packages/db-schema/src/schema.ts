@@ -2336,6 +2336,12 @@ export const workflowNodes = pgTable(
     }),
     attempt: integer().notNull().default(0),
     baseBranch: varchar(`base_branch`, { length: 255 }),
+    // EXP-982: a person approved this node's PR for the merge train (the
+    // `human` gate, and ALWAYS for a contract node). The engine lands only
+    // approved or ungated nodes.
+    approvedAt: timestamp(`approved_at`, { withTimezone: true }),
+    // Why the node is `failed` or `waiting`, one line, engine-written.
+    note: varchar({ length: 500 }),
     budget: jsonb().$type<WorkflowNodeBudget>(),
     touches: text().array().notNull().default(sql`'{}'::text[]`),
     ...timestamps,

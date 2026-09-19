@@ -392,7 +392,15 @@ export const codingSessionStatusValues = [
 // `exponential_sessions_start` — unattended like an automation, so its
 // close-out (`exponential_sessions_end`) ENDS it; unlike schedule/event it
 // rides every subject (issue, batch, action, builtin, resume).
-export const startedReasonValues = [`schedule`, `event`, `agent`] as const
+// `workflow` (EXP-982) = started by the workflow ENGINE on the runner device
+// for one node (an issue or a batch). Unattended like `agent`, but it has no
+// parent run: its questions go to a person (`sessions_ask_parent` → user).
+export const startedReasonValues = [
+  `schedule`,
+  `event`,
+  `agent`,
+  `workflow`,
+] as const
 
 // Who ended a coding session (coding_sessions.ended_by, documented varchar —
 // EXP-637). `agent` = the run closed itself via `exponential_sessions_end`

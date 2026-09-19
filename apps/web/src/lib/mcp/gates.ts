@@ -121,7 +121,10 @@ async function resolveSessionGates(
   if (row.userId !== userId && row.hostUserId !== userId) return closed
   return {
     sessionsEnd: row.startedReason !== null,
-    askParent: row.startedReason === `agent`,
+    // EXP-982: a workflow node has no parent RUN, but it may ask: the
+    // question goes to a person and must carry a proposal.
+    askParent:
+      row.startedReason === `agent` || row.startedReason === `workflow`,
     sessionResults: true,
   }
 }

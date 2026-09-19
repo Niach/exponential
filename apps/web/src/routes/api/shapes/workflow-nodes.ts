@@ -24,6 +24,8 @@ export const WORKFLOW_NODE_COLUMNS = [
   `session_id`,
   `attempt`,
   `base_branch`,
+  `approved_at`,
+  `note`,
   `budget`,
   `touches`,
   `created_at`,

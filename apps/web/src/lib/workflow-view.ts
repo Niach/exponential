@@ -173,3 +173,119 @@ export function workflowEdges(
     a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0
   )
 }
+
+// ── Running a workflow (EXP-982) ────────────────────────────────────────────
+
+export const START_WORKFLOW_LABEL = `Start`
+export const PAUSE_WORKFLOW_LABEL = `Pause`
+export const RESUME_WORKFLOW_LABEL = `Resume`
+export const CANCEL_WORKFLOW_LABEL = `Cancel workflow`
+export const CANCEL_WORKFLOW_CONFIRM = `Its live runs end and its branch is deleted. Nothing reached the default branch.`
+export const APPROVE_NODE_LABEL = `Approve and land`
+export const WITHDRAW_APPROVAL_LABEL = `Withdraw approval`
+export const MERGE_TRAIN_TITLE = `Merge train`
+export const MERGE_TRAIN_EMPTY = `Nothing is waiting to land.`
+export const FINAL_PR_TITLE = `Final pull request`
+
+export interface StartableWorkflow {
+  status: string
+  deviceId: string | null
+  repositoryId: string | null
+  startOn: string
+}
+
+/**
+ * Why Start is disabled, or null when the draft can start. One reason, the
+ * most fundamental first; the server refuses with the same sentences.
+ */
+export function workflowStartBlocker(
+  workflow: StartableWorkflow,
+  metrics: WorkflowShape
+): string | null {
+  if (workflow.status !== `draft`) return `The workflow has already started.`
+  if (metrics.nodes === 0) return `The workflow has no issues.`
+  const cycle = workflowCycleNote(metrics)
+  if (cycle) return cycle
+  if (!workflow.repositoryId) return `The workflow's repository is gone.`
+  if (!workflow.deviceId) return `Pick the device that runs this workflow first.`
+  if (workflow.startOn !== `landed`) {
+    return `Only "When landed" starts are available yet.`
+  }
+  return null
+}
+
+/** A node lands without a person only when the workflow has no gate AND it is
+ *  not the contract (always human-gated). Mirrors the server. */
+export function workflowNodeNeedsApproval(gate: string, kind: string): boolean {
+  return kind === `contract` || gate !== `none`
+}
+
+export interface TrainNode {
+  id: string
+  kind: string
+  state: string
+  wave: number
+  lane: number
+  approvedAt: string | Date | null
+}
+
+export type TrainStep = `next` | `queued` | `needs-approval` | `updating`
+
+export interface TrainEntry {
+  id: string
+  step: TrainStep
+}
+
+/**
+ * The merge train: every node whose PR is up (`in_review`, or `updating`
+ * while it merges the trunk in), in landing order (wave, then lane). The
+ * FIRST node that is cleared to land is `next`; cleared ones behind it are
+ * `queued`; one still waiting for a person says so.
+ */
+export function workflowMergeTrain(
+  nodes: readonly TrainNode[],
+  gate: string
+): TrainEntry[] {
+  const waiting = nodes
+    .filter((node) => node.state === `in_review` || node.state === `updating`)
+    .sort((a, b) => a.wave - b.wave || a.lane - b.lane || (a.id < b.id ? -1 : 1))
+  let nextTaken = false
+  return waiting.map((node) => {
+    if (node.state === `updating`) return { id: node.id, step: `updating` }
+    if (workflowNodeNeedsApproval(gate, node.kind) && !node.approvedAt) {
+      return { id: node.id, step: `needs-approval` }
+    }
+    if (nextTaken) return { id: node.id, step: `queued` }
+    nextTaken = true
+    return { id: node.id, step: `next` }
+  })
+}
+
+const TRAIN_STEP_LABELS: Record<TrainStep, string> = {
+  next: `Landing next`,
+  queued: `Queued`,
+  "needs-approval": `Needs approval`,
+  updating: `Merging the trunk in`,
+}
+
+export function workflowTrainStepLabel(step: TrainStep): string {
+  return TRAIN_STEP_LABELS[step]
+}
+
+/**
+ * The final-PR node's caption, or null while the node is not drawn: it
+ * appears once every node landed (or was skipped), after the last wave.
+ */
+export function workflowFinalPrCaption(
+  nodes: ReadonlyArray<{ state: string }>,
+  finalPrState: string | null,
+  finalPrNumber: number | null
+): string | null {
+  if (nodes.length === 0) return null
+  const allIn = nodes.every((node) => node.state === `landed` || node.state === `skipped`)
+  if (!allIn && finalPrNumber === null) return null
+  if (finalPrNumber === null) return `Opening the pull request`
+  const label =
+    finalPrState === `merged` ? `Merged` : finalPrState === `closed` ? `Closed` : `Open`
+  return `#${finalPrNumber} · ${label}`
+}

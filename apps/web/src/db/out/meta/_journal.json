@@ -911,6 +911,13 @@
       "when": 1789798607934,
       "tag": "0129_workflows",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1789801683587,
+      "tag": "0130_workflow_node_approval",
+      "breakpoints": true
     }
   ]
 }

@@ -4,6 +4,11 @@ import {
   workflowBand,
   workflowCycleNote,
   workflowEdges,
+  workflowFinalPrCaption,
+  workflowMergeTrain,
+  workflowStartBlocker,
+  workflowTrainStepLabel,
+  type TrainStep,
   workflowNodeCaption,
   workflowNodeTitle,
   workflowNodeTone,
@@ -43,4 +48,34 @@ describe(`workflow view (contract fixture)`, () => {
       expect(workflowEdges(c.nodes, c.relations, c.cycleEdges)).toEqual(c.expected)
     })
   }
+
+  it(`says why a draft cannot start, one reason at a time`, () => {
+    for (const c of fixture.startBlockers) {
+      expect(workflowStartBlocker(c.workflow, c.metrics)).toBe(c.blocker)
+    }
+  })
+
+  for (const c of fixture.trains) {
+    it(c.name, () => {
+      expect(workflowMergeTrain(c.nodes, c.gate)).toEqual(c.expected)
+    })
+  }
+
+  it(`labels every train step`, () => {
+    for (const [step, label] of Object.entries(fixture.trainStepLabels)) {
+      expect(workflowTrainStepLabel(step as TrainStep)).toBe(label)
+    }
+  })
+
+  it(`draws the final pull request node once everything landed`, () => {
+    for (const c of fixture.finalPr) {
+      expect(
+        workflowFinalPrCaption(
+          c.states.map((state) => ({ state })),
+          c.finalPrState,
+          c.finalPrNumber
+        )
+      ).toBe(c.caption)
+    }
+  })
 })

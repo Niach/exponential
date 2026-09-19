@@ -33,6 +33,7 @@ import {
   isNull,
   like,
   lte,
+  ne,
   notInArray,
   or,
   sql,
@@ -43,6 +44,7 @@ import {
   actions,
   attachments,
   automations,
+  workflowNodes,
   workflows,
   codingSessions,
   comments,
@@ -90,6 +92,7 @@ import {
   loadIssueRelations,
 } from "@/lib/issue-relations"
 import { findRelationCycle } from "@/lib/relation-cycles"
+import { liveWorkflowBaseForIssue } from "@/lib/workflows"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
@@ -337,6 +340,42 @@ async function getActionContext(id: string) {
 
 // Automation id → its team, for grant checks on update/toggle/delete
 // (EXP-660; owner-ship itself is enforced in the automations router).
+/** The workflow node a session runs for (EXP-982), or null. */
+async function loadWorkflowNodeForSession(sessionId: string) {
+  const [row] = await db
+    .select({
+      nodeId: workflowNodes.id,
+      workflowId: workflowNodes.workflowId,
+    })
+    .from(workflowNodes)
+    .where(eq(workflowNodes.sessionId, sessionId))
+    .limit(1)
+  return row ?? null
+}
+
+/** Another live run of the same workflow is parked on this very question. */
+async function siblingAlreadyAsked(
+  workflowId: string,
+  sessionId: string,
+  caption: string
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: codingSessions.id })
+    .from(workflowNodes)
+    .innerJoin(codingSessions, eq(codingSessions.id, workflowNodes.sessionId))
+    .where(
+      and(
+        eq(workflowNodes.workflowId, workflowId),
+        ne(codingSessions.id, sessionId),
+        eq(codingSessions.needsInput, true),
+        eq(codingSessions.agentCaption, caption),
+        inArray(codingSessions.status, [`running`, `in_review`])
+      )
+    )
+    .limit(1)
+  return rows.length > 0
+}
+
 async function getWorkflowContext(id: string) {
   const [row] = await db
     .select({ teamId: workflows.teamId })
@@ -2299,7 +2338,14 @@ export function registerExponentialTools(
             }
           }
         }
-        const baseBranch = lower?.branch ?? base ?? repo.defaultBranch
+        // EXP-982: a node of a LIVE workflow bases on its workflow branch
+        // (the node's own base, else the integration branch) — derived from
+        // membership, so the agent passes nothing new. Real GitHub stacks are
+        // linear and are never used by a workflow.
+        const workflowBase =
+          !lower && !base ? await liveWorkflowBaseForIssue(db, ids[0]!) : null
+        const baseBranch =
+          lower?.branch ?? base ?? workflowBase?.base ?? repo.defaultBranch
 
         const resolved = await resolveRepoInstallationTokenInfo(repo.fullName)
         if (!resolved) {
@@ -2962,7 +3008,8 @@ export function registerExponentialTools(
           to: z.enum([`parent`, `root`, `user`]).default(`parent`),
         }),
       },
-      async ({ question, to }) => {
+      async ({ question, to: requestedTo }) => {
+        let to = requestedTo
         const fallback = `Do not wait for an answer: finish your work, then call exponential_sessions_end and include the open question in your summary.`
         try {
           if (!sessionId) {
@@ -2974,12 +3021,30 @@ export function registerExponentialTools(
           }
           // The gate is context hygiene; re-check ownership and the linkage.
           const child = await loadChildParentContext(db, sessionId)
+          // EXP-982: a workflow NODE has no parent run. Its question always
+          // goes to a person, must carry a proposal (answerable yes/no), and
+          // is asked ONCE per workflow: a sibling with the same open question
+          // parks silently and gets the recorded decision relayed.
           if (
             !child ||
-            (child.userId !== user.id && child.hostUserId !== user.id) ||
-            child.startedReason !== `agent` ||
-            !child.parentSessionId
+            (child.userId !== user.id && child.hostUserId !== user.id)
           ) {
+            return err(new Error(`This run has no live starter to ask.`))
+          }
+          const workflowNode =
+            child.startedReason === `workflow`
+              ? await loadWorkflowNodeForSession(sessionId)
+              : null
+          if (workflowNode) {
+            if (!/^proposal:/im.test(question)) {
+              return err(
+                new Error(
+                  `A workflow run's question must carry a proposal the person can answer with yes or no. Add a line starting with "Proposal:" and ask again.`
+                )
+              )
+            }
+            to = `user`
+          } else if (child.startedReason !== `agent` || !child.parentSessionId) {
             return err(new Error(`This run has no live starter to ask.`))
           }
 
@@ -3009,6 +3074,16 @@ export function registerExponentialTools(
             if (!row?.teamId) {
               return err(new Error(`This run has no team to notify in.`))
             }
+            if (
+              workflowNode &&
+              (await siblingAlreadyAsked(workflowNode.workflowId, sessionId, caption))
+            ) {
+              return ok({
+                delivered: true,
+                to: `user`,
+                note: `A sibling run of this workflow already asked exactly this. Stop working NOW and end your turn; the decision arrives as a user message in this session.`,
+              })
+            }
             await sendAgentMessage({
               teamId: row.teamId,
               senderUserId: row.userId,
@@ -3024,9 +3099,12 @@ export function registerExponentialTools(
             })
           }
 
+          if (!child.parentSessionId) {
+            return err(new Error(`This run has no live starter to ask.`))
+          }
           // EXP-897: `root` climbs past the immediate parent to the highest
           // ancestor still alive — the run that owns the plan.
-          let targetSessionId = child.parentSessionId
+          let targetSessionId: string = child.parentSessionId
           let escalationDepth = 1
           if (to === `root`) {
             const chain = await loadSessionChain(db, sessionId)
@@ -4543,10 +4621,43 @@ export function registerExponentialTools(
     }
   )
 
+  for (const verb of [`start`, `pause`, `cancel`] as const) {
+    server.registerTool(
+      `exponential_workflows_${verb}`,
+      {
+        description: {
+          start: `Start a draft workflow: its runner device's engine starts every unblocked node (max parallel at once), lands reviewed PRs into the integration branch in order, then opens ONE final PR. Needs a runner device and no cycle.`,
+          pause: `Pause a running workflow (nothing new starts or lands; live runs finish), or resume a paused one with resume:true.`,
+          cancel: `Cancel a started workflow: its live runs end and its integration branch is deleted. Nothing reached the default branch.`,
+        }[verb],
+        inputSchema: strictInput({
+          id: uuidString,
+          ...(verb === `pause` ? { resume: z.boolean().optional() } : {}),
+        }),
+      },
+      async (raw) => {
+        const input = raw as { id: string; resume?: boolean }
+        try {
+          if (!access.full) {
+            assertTeamFullyGranted(access, (await getWorkflowContext(input.id)).teamId)
+          }
+          const api = caller(user, request).workflows
+          if (verb === `start`) await api.start({ id: input.id })
+          else if (verb === `cancel`) await api.cancel({ id: input.id })
+          else if (input.resume) await api.resume({ id: input.id })
+          else await api.pause({ id: input.id })
+          return ok({ ok: true, id: input.id })
+        } catch (e) {
+          return err(e)
+        }
+      }
+    )
+  }
+
   server.registerTool(
     `exponential_workflows_update`,
     {
-      description: `Update a draft workflow; pass only what changes. addIssueIds/removeIssueIds change its issues; nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}]. Returns the fresh metrics.`,
+      description: `Update a workflow; pass only what changes. Draft only: addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}], gate, startOn. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -4555,6 +4666,7 @@ export function registerExponentialTools(
         addIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         nodes: z.array(z.record(z.string(), z.unknown())).max(WORKFLOW_MAX_ISSUES).optional(),
+        decision: z.string().min(1).max(2000).optional(),
       }),
     },
     async (input) => {
@@ -4565,10 +4677,11 @@ export function registerExponentialTools(
         const api = caller(user, request).workflows
         const resolve = (ids: string[] | undefined) =>
           Promise.all((ids ?? []).map((id) => resolveIssueId(id, user.id, access)))
-        if (input.name || input.gate || input.startOn) {
+        if (input.name || input.gate || input.startOn || input.decision) {
           await api.update({
             id: input.id,
             name: input.name,
+            decision: input.decision,
             gate: input.gate as WfGate | undefined,
             startOn: input.startOn as WfStartOn | undefined,
           })

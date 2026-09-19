@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
+import { applyWorkflowFinalPrState } from "@/lib/workflow-final-pr"
 import {
   githubInstallationLinks,
   githubInstallationRepoGrants,
@@ -427,6 +428,9 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         state: `merged`,
         ...(endSessions !== undefined ? { endSessions } : {}),
       })
+      // EXP-982: or it is a workflow's FINAL PR — its merge completes the
+      // workflow and only now moves the covered issues.
+      await applyWorkflowFinalPrState(db, htmlUrl, `merged`)
       for (const issueId of issueIds) {
         await applyPrMergeState({
           githubActorUserId,
@@ -458,6 +462,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         await applyPrClosedState({ issueId, prUrl: htmlUrl })
       }
       await applySessionPrState({ prUrl: htmlUrl, state: `closed` })
+      await applyWorkflowFinalPrState(db, htmlUrl, `closed`)
       return jsonResponse(200, { ok: true })
     }
 
@@ -478,6 +483,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         })
       }
       await applySessionPrState({ prUrl: htmlUrl, state: `open` })
+      await applyWorkflowFinalPrState(db, htmlUrl, `open`)
       return jsonResponse(200, { ok: true })
     }
 

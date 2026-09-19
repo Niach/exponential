@@ -1,6 +1,7 @@
 import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, boards, codingSessions } from "@/db/schema"
+import { applyWorkflowFinalPrState } from "@/lib/workflow-final-pr"
+import { issues, boards, codingSessions, workflows } from "@/db/schema"
 import type { PullState } from "@/lib/integrations/github-pr"
 import {
   fetchPullState,
@@ -218,6 +219,39 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
         }
       } catch (err) {
         console.error(`[pr-merge-poll] session ${row.sessionId}:`, err)
+      }
+    }
+
+    // EXP-982: a workflow's FINAL PR lives on the workflow row. Its merge
+    // completes the workflow and only then moves the covered issues.
+    const workflowRows = await db
+      .select({
+        id: workflows.id,
+        teamId: workflows.teamId,
+        prUrl: workflows.finalPrUrl,
+        prNumber: workflows.finalPrNumber,
+        prState: workflows.finalPrState,
+      })
+      .from(workflows)
+      .where(
+        and(
+          isNotNull(workflows.finalPrUrl),
+          isNotNull(workflows.finalPrNumber),
+          eq(workflows.finalPrState, `open`)
+        )
+      )
+    for (const row of workflowRows) {
+      if (!row.prUrl || row.prNumber == null) continue
+      try {
+        const repo = parseRepoFromPrUrl(row.prUrl)
+        if (!repo) continue
+        const token = await resolveRepoToken({ teamId: row.teamId, repo })
+        const state = await fetchPullState(repo, row.prNumber, token)
+        const action = decidePrPollAction(row.prState, state)
+        if (action === `merge`) await applyWorkflowFinalPrState(db, row.prUrl, `merged`)
+        if (action === `close`) await applyWorkflowFinalPrState(db, row.prUrl, `closed`)
+      } catch (err) {
+        console.error(`[pr-merge-poll] workflow ${row.id}:`, err)
       }
     }
   } catch (err) {
