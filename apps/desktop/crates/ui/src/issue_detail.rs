@@ -179,7 +179,8 @@ pub(crate) fn remote_echo_blocked(
     focused && (window_active || unsaved_local_edit)
 }
 
-/// EXP-919 — description saves whose Electric echo has not landed yet.
+/// EXP-919/EXP-928 — field saves whose Electric echo has not landed yet (one
+/// instance per field: descriptions and titles both have this bug).
 ///
 /// A save is a tRPC round trip and the synced row only catches up with the
 /// echo. Until then the collection still holds the text the save REPLACED, and
@@ -336,6 +337,36 @@ fn spawn_description_save(
     });
 }
 
+/// A title as every save normalizes it: one logical line (pasted text can
+/// carry newlines — the input is auto-grow multi-line), trimmed. The
+/// [`UnechoedSaves`] bookkeeping and the row it is compared against have to
+/// agree on this derivation, so both go through here.
+fn normalize_title(title: &str) -> String {
+    title.replace(['\r', '\n'], " ").trim().to_string()
+}
+
+/// EXP-928 — [`spawn_description_save`] for the TITLE: record before the
+/// write, retire on failure. Same reason, same shape.
+fn spawn_title_save(
+    saves: &Rc<RefCell<UnechoedSaves>>,
+    issue_id: &str,
+    saved: &str,
+    synced: &str,
+    cx: &mut App,
+) {
+    saves.borrow_mut().record(issue_id, saved, synced);
+    let mut input = api::issues::IssuesUpdateInput::new(issue_id.to_string());
+    input.title = Some(saved.to_string());
+    let saves = saves.clone();
+    let issue_id = issue_id.to_string();
+    let saved = saved.to_string();
+    crate::issue_header::spawn_issue_update_then(cx, input, move |result, _cx| {
+        if result.is_err() {
+            saves.borrow_mut().retire(&issue_id, &saved);
+        }
+    });
+}
+
 /// [`UnechoedSaves::record`] against the issue's current synced row.
 fn record_unechoed_save(
     saves: &Rc<RefCell<UnechoedSaves>>,
@@ -416,6 +447,9 @@ pub struct IssueDetailView {
     /// Last title pushed from sync — guards the echo loop (web's
     /// title-sync effect).
     synced_title: String,
+    /// EXP-928: title saves still waiting for their echo — the title's half
+    /// of [`Self::unechoed_saves`], kept ACROSS issue switches too.
+    unechoed_titles: Rc<RefCell<UnechoedSaves>>,
     /// Seam-built editor (None → read-only fallback).
     editor: Option<Rc<dyn DescriptionEditor>>,
     /// Which issue the editor instance belongs to.
@@ -565,6 +599,7 @@ impl IssueDetailView {
             body_scroll: gpui::ScrollHandle::new(),
             title_input,
             synced_title: String::new(),
+            unechoed_titles: Rc::default(),
             editor: None,
             editor_issue: None,
             last_saved_description: Rc::new(RefCell::new(String::new())),
@@ -770,9 +805,17 @@ impl IssueDetailView {
             .get(&issue_id)
             .cloned()
         {
-            self.synced_title = issue.title.clone();
+            // EXP-928: reopened before its last title save echoed back — the
+            // row still reads what the save REPLACED, and seeding the input
+            // from it is what let the next blur write the old title back.
+            let title = self
+                .unechoed_titles
+                .borrow_mut()
+                .resolve(&issue_id, &normalize_title(&issue.title))
+                .unwrap_or(issue.title);
+            self.synced_title = title.clone();
             self.title_input
-                .update(cx, |input, cx| input.set_value(issue.title, window, cx));
+                .update(cx, |input, cx| input.set_value(title, window, cx));
         } else {
             self.title_input
                 .update(cx, |input, cx| input.set_value("", window, cx));
@@ -868,16 +911,22 @@ impl IssueDetailView {
         // — every open window evaluates this against its OWN focus.
         let window_active = window.is_window_active();
 
-        // Title.
-        if issue.title != self.synced_title {
+        // Title. EXP-928: a row still showing what an in-flight save replaced
+        // is stale — the saved text is what this issue holds (the echo and a
+        // newer remote write both retire the entry).
+        let title = self
+            .unechoed_titles
+            .borrow_mut()
+            .resolve(&issue.id, &normalize_title(&issue.title))
+            .unwrap_or_else(|| issue.title.clone());
+        if title != self.synced_title {
             let input = self.title_input.read(cx);
             let focused = input.focus_handle(cx).is_focused(window);
             // The input still holds something the user typed and no blur has
             // committed it yet — the local draft outranks the echo.
             let unsaved = input.value().trim() != self.synced_title.trim();
             if !remote_echo_blocked(focused, window_active, unsaved) {
-                self.synced_title = issue.title.clone();
-                let title = issue.title.clone();
+                self.synced_title = title.clone();
                 self.title_input
                     .update(cx, |input, cx| input.set_value(title, window, cx));
             }
@@ -1028,22 +1077,21 @@ impl IssueDetailView {
         let Some(issue) = self.issue(cx) else {
             return;
         };
-        // Pasted text can carry newlines (the input is auto-grow
-        // multi-line); a title is one logical line, so collapse them.
-        let trimmed = self
-            .title_input
-            .read(cx)
-            .value()
-            .replace(['\r', '\n'], " ")
-            .trim()
-            .to_string();
-        if trimmed.is_empty() || trimmed == issue.title {
+        let trimmed = normalize_title(&self.title_input.read(cx).value());
+        let synced = normalize_title(&issue.title);
+        // EXP-928: dedupe against the title last SENT, not the row — while a
+        // save is un-echoed the row still reads what it replaced, and
+        // comparing against that re-sent the old title on every blur.
+        let unechoed = self
+            .unechoed_titles
+            .borrow_mut()
+            .resolve(&issue.id, &synced);
+        let current = unechoed.as_deref().unwrap_or(synced.as_str());
+        if trimmed.is_empty() || trimmed == current {
             return;
         }
         self.synced_title = trimmed.clone();
-        let mut input = api::issues::IssuesUpdateInput::new(issue.id);
-        input.title = Some(trimmed);
-        spawn_issue_update(cx, input);
+        spawn_title_save(&self.unechoed_titles, &issue.id, &trimmed, &synced, cx);
     }
 
     /// Web `DuplicateOfBanner`: "Duplicate of #IDENT — title" with Unmark.
@@ -3106,6 +3154,170 @@ mod multi_window_tests {
         cx.cx.update(|cx| seed_issue(cx, "i1", "first", "remote rewrite"));
         cx.run_until_parked();
         assert_eq!(shown(cx), "remote rewrite");
+    }
+
+    /// A view whose title field can hold focus, driven through the real
+    /// paths: the leaked rendered window is the exit-time leak-check escape
+    /// hatch (`an_issue_echo_reseeds_every_window`), the view under test
+    /// lives in a [`HeadlessDetailWindow`] because focusing a LAID-OUT
+    /// `Textarea` asks a test window for an `NSView`.
+    fn title_harness(
+        cx: &mut gpui::TestAppContext,
+    ) -> (
+        gpui::WindowHandle<HeadlessDetailWindow>,
+        &mut gpui::VisualTestContext,
+    ) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            seed_issue(cx, "i1", "first", "body one");
+            seed_issue(cx, "i2", "second", "body two");
+        });
+        let (_docked, cx) = cx.add_window_view(|window, cx| IssueDetailView::new(window, cx));
+        let floating = cx.add_window(|window, cx| HeadlessDetailWindow {
+            detail: cx.new(|cx| IssueDetailView::new(window, cx)),
+        });
+        (floating, cx)
+    }
+
+    fn open_issue(
+        floating: &gpui::WindowHandle<HeadlessDetailWindow>,
+        cx: &mut gpui::VisualTestContext,
+        id: &str,
+    ) {
+        let id = id.to_string();
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                root.detail
+                    .update(cx, |view, cx| view.set_issue(id, window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+    }
+
+    fn shown_title(
+        floating: &gpui::WindowHandle<HeadlessDetailWindow>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> String {
+        floating
+            .update(&mut cx.cx, |root, _window, cx| {
+                root.detail.read(cx).title_input.read(cx).value().to_string()
+            })
+            .unwrap()
+    }
+
+    /// The user clicking into the title field and typing.
+    fn type_title(
+        floating: &gpui::WindowHandle<HeadlessDetailWindow>,
+        cx: &mut gpui::VisualTestContext,
+        title: &str,
+    ) {
+        let title = title.to_string();
+        floating
+            .update(&mut cx.cx, |root, window, cx| {
+                let input = root.detail.read(cx).title_input.clone();
+                let handle = input.read(cx).focus_handle(cx);
+                window.focus(&handle, cx);
+                input.update(cx, |input, cx| input.set_value(title, window, cx));
+            })
+            .unwrap();
+        cx.run_until_parked();
+    }
+
+    /// EXP-928: the TITLE half of EXP-919. Type a title, click a chip to
+    /// another issue (the navigation flush sends it), come straight back
+    /// before the Electric echo: the input must hold the SAVED title, not the
+    /// stale row — and a notify in between must not revert it either. The
+    /// echo and a later remote rename still land.
+    #[gpui::test]
+    async fn a_flushed_title_survives_leaving_and_returning_before_its_echo(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (floating, cx) = title_harness(cx);
+        open_issue(&floating, cx, "i1");
+        assert_eq!(shown_title(&floating, cx), "first");
+        type_title(&floating, cx, "typed title");
+
+        // The chip: re-point at B (the flush), then straight back to A.
+        open_issue(&floating, cx, "i2");
+        assert_eq!(shown_title(&floating, cx), "second");
+        open_issue(&floating, cx, "i1");
+        assert_eq!(
+            shown_title(&floating, cx),
+            "typed title",
+            "A reopens with the flushed title, not the stale row"
+        );
+
+        // Any issues notify while the echo is still in flight (here: another
+        // row) must not revert the input to the stale synced title.
+        cx.cx
+            .update(|cx| seed_issue(cx, "i2", "second", "body two, edited"));
+        cx.run_until_parked();
+        assert_eq!(
+            shown_title(&floating, cx),
+            "typed title",
+            "a stale-row notify must not revert the title"
+        );
+
+        // The echo lands: nothing changes.
+        cx.cx
+            .update(|cx| seed_issue(cx, "i1", "typed title", "body one"));
+        cx.run_until_parked();
+        assert_eq!(shown_title(&floating, cx), "typed title");
+
+        // A later remote rename still applies.
+        cx.cx
+            .update(|cx| seed_issue(cx, "i1", "remote rename", "body one"));
+        cx.run_until_parked();
+        assert_eq!(shown_title(&floating, cx), "remote rename");
+    }
+
+    /// EXP-928: typing into a title that came back before its echo and
+    /// blurring must save what the input SHOWS. The bug reseeded the input
+    /// from the stale row, so the second blur wrote "old title + keystrokes"
+    /// over the first save.
+    #[gpui::test]
+    async fn a_title_typed_before_its_echo_saves_what_the_input_shows(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (floating, cx) = title_harness(cx);
+        open_issue(&floating, cx, "i1");
+        type_title(&floating, cx, "typed title");
+        open_issue(&floating, cx, "i2");
+        open_issue(&floating, cx, "i1");
+
+        // Back on A before the echo: type more, then blur — the save
+        // trigger. A headless window never draws, so gpui's focus-out
+        // listener (what makes a real field emit this) cannot run here; the
+        // subscription under test takes the event either way.
+        type_title(&floating, cx, "typed title again");
+        floating
+            .update(&mut cx.cx, |root, _window, cx| {
+                let input = root.detail.read(cx).title_input.clone();
+                input.update(cx, |_, cx| cx.emit(InputEvent::Blur));
+            })
+            .unwrap();
+        cx.run_until_parked();
+
+        assert_eq!(shown_title(&floating, cx), "typed title again");
+        // What the blur SENT: the record made just before the write, read
+        // against the row the save replaced (still "first" until the echo).
+        let sent = floating
+            .update(&mut cx.cx, |root, _window, cx| {
+                root.detail
+                    .read(cx)
+                    .unechoed_titles
+                    .borrow_mut()
+                    .resolve("i1", "first")
+            })
+            .unwrap();
+        assert_eq!(
+            sent.as_deref(),
+            Some("typed title again"),
+            "the blur must save the title the input shows, not the stale row plus the keystrokes"
+        );
     }
 
     /// EXP-919: the in-flight bookkeeping on its own — queued echoes, the
