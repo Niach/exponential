@@ -78,7 +78,9 @@ data class IssueEntity(
     @Serializable(with = JsonAsStringSerializer::class) override val description: String? = null,
     // The dual-written builtin ANCHOR (EXP-314): still one of the 7 enum wire
     // values on every row, so enum-only writers and old clients keep working.
-    val status: String,
+    // EXP-922: it is also `IssueSearch.Row.status` — undone issues rank above
+    // done ones in every search.
+    override val status: String,
     // The issue's team status ROW (EXP-314). Nullable: pre-backfill rows and
     // enum-only writes rely on the server trigger deriving it, and clients
     // resolve status_id → anchor → constructed default (IssueStatusResolver).

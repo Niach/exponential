@@ -14,7 +14,9 @@ data class IssueOption(
     override val identifier: String,
     override val title: String,
     val repositoryId: String?,
-    val status: String?,
+    // EXP-922: also `IssueSearch.Row.status` — undone issues rank above done
+    // ones in the composer's picker, like every other search.
+    override val status: String?,
     val priority: String?,
     // EXP-892: the shared IssueSearch ranking fields. Same no-defaults rule —
     // a producer that forgets them silently ranks every row as the oldest.
