@@ -80,6 +80,18 @@ export const ISSUE_SEARCH_CLOSED_STATUSES = [
   `duplicate`,
 ] as const
 
+/**
+ * EXP-922: the ONE copy set every search surface renders — the web sheet, the
+ * desktop ⌘K palette, the iOS Search tab and the Android Search screen. Same
+ * words everywhere, so the four surfaces read as one feature; drift-gated by
+ * `issue-search-surfaces.test.ts`, which greps the three native files for these
+ * exact strings.
+ */
+export const ISSUE_SEARCH_PLACEHOLDER = `Search issues`
+export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across all your boards.`
+export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles, and full text.`
+export const ISSUE_SEARCH_NO_RESULTS = `No issues match`
+
 /** Whether a row counts as UNDONE for ranking. An absent or unrecognized
  *  status is open: a server hit that never synced carries none, and a client
  *  that meets a status it does not know must not bury the row. */

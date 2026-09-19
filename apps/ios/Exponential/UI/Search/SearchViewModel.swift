@@ -10,14 +10,19 @@ import GRDB
 /// augments it with issues the local ranking missed.
 @MainActor @Observable
 final class SearchViewModel {
-    struct ResultGroup: Identifiable {
-        let board: BoardEntity
-        let issues: [IssueEntity]
-        var id: String { board.id }
+    /// EXP-922: ONE flat ranked row — the web sheet's and the desktop
+    /// palette's shape. The board rides ALONG the issue (it draws the row's
+    /// sub-line) instead of banding the list into per-board sections, so the
+    /// four surfaces list the same rows in the same single relevance order.
+    struct Result: Identifiable {
+        let issue: IssueEntity
+        let board: BoardEntity?
+        var id: String { issue.id }
     }
 
-    /// How many ranked issues the tab renders at once, local + server hits.
-    private static let resultLimit = 50
+    /// How many ranked issues the tab renders at once, local + server hits —
+    /// EXP-922: the ONE limit every search surface on every client uses.
+    private static let resultLimit = IssueSearch.defaultLimit
 
     var issues: [IssueEntity] = []
     var boards: [BoardEntity] = []
@@ -113,7 +118,12 @@ final class SearchViewModel {
             let hits = await withTaskGroup(of: (String, [SearchIssueHit])?.self) { group in
                 for teamId in teamIds {
                     group.addTask {
-                        guard let hits = try? await api.search(accountId: accountId, teamId: teamId, query: trimmed) else {
+                        guard let hits = try? await api.search(
+                            accountId: accountId,
+                            teamId: teamId,
+                            query: trimmed,
+                            limit: Self.resultLimit
+                        ) else {
                             return nil
                         }
                         return (teamId, hits)
@@ -136,14 +146,17 @@ final class SearchViewModel {
     }
 
     /// EXP-892: the shared `IssueSearch` engine ranks the synced rows (the ONE
-    /// algorithm every client runs — identifier before title before
-    /// description, recency breaking ties), capped at `resultLimit` and grouped
-    /// under board headers, groups ordered by their first appearance in the
-    /// ranked list. Server full-text hits the local ranking missed are appended
-    /// after the local matches (deduped by id, relevance order): a hit whose id
-    /// is in the local store renders the local row, otherwise a slim row built
-    /// from the returned fields.
-    func results(for query: String) -> [ResultGroup] {
+    /// algorithm every client runs — an exact identifier hit, then undone
+    /// before done (EXP-922), then identifier before title before description,
+    /// recency breaking ties), capped at `resultLimit`. Server full-text hits
+    /// the local ranking missed are appended after the local matches (deduped
+    /// by id, relevance order): a hit whose id is in the local store renders
+    /// the local row, otherwise a slim row built from the returned fields.
+    ///
+    /// EXP-922: ONE flat list, no board bands — the ranking already decides
+    /// the order, and grouping fought it (a board's band jumped to wherever
+    /// its best hit landed and dragged its weaker hits up with it).
+    func results(for query: String) -> [Result] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -172,21 +185,8 @@ final class SearchViewModel {
             ranked = local
         }
 
-        var order: [String] = []
-        var byBoard: [String: [IssueEntity]] = [:]
-        for issue in ranked {
-            if byBoard[issue.boardId] == nil {
-                order.append(issue.boardId)
-                byBoard[issue.boardId] = []
-            }
-            byBoard[issue.boardId]?.append(issue)
-        }
-
         let boardsById = Dictionary(boards.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        return order.compactMap { boardId in
-            guard let board = boardsById[boardId], let issues = byBoard[boardId] else { return nil }
-            return ResultGroup(board: board, issues: issues)
-        }
+        return ranked.map { Result(issue: $0, board: boardsById[$0.boardId]) }
     }
 
     /// A display-only stand-in for a server hit that has no local GRDB row

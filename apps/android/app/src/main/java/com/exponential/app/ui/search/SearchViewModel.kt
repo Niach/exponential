@@ -39,23 +39,29 @@ import kotlinx.coroutines.flow.transformLatest
 //     per team of the account, and appends whatever the local filter
 //     missed. Server errors degrade silently to local-only — typing is never
 //     blocked on the network.
+// EXP-922: one flat relevance-ordered list (undone issues first), the same
+// limit and the same copy as the other three clients.
 // The empty-query state shows a search hint (assigned issues live on the
 // "My Work" tab since EXP-58).
 
 /**
- * Results under one board header. EXP-892: a board's band appears where its
- * best-ranked match does, and its rows keep the ranked order.
+ * EXP-922: ONE flat ranked row — the web sheet's and the desktop palette's
+ * shape. The board rides ALONG the issue (it draws the row's sub-line) instead
+ * of banding the list into per-board sections, so the four surfaces list the
+ * same rows in the same single relevance order. [board] is null only while a
+ * server hit's board has not synced.
  */
-data class SearchResultGroup(val board: BoardEntity, val issues: List<IssueEntity>)
+data class SearchResult(val issue: IssueEntity, val board: BoardEntity?)
 
 data class SearchState(
-    // The debounced query the current groups were computed for; blank means
+    // The debounced query the current results were computed for; blank means
     // "show the idle search hint".
     val query: String = "",
-    val groups: List<SearchResultGroup> = emptyList(),
+    val results: List<SearchResult> = emptyList(),
 )
 
-private const val MAX_RESULTS = 50
+/** EXP-922: the ONE limit every search surface on every client uses. */
+private const val MAX_RESULTS = IssueSearch.DEFAULT_LIMIT
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -107,7 +113,7 @@ class SearchViewModel @Inject constructor(
                 teamIds.map { teamId ->
                     async {
                         try {
-                            issuesApi.search(accountId, teamId, query)
+                            issuesApi.search(accountId, teamId, query, limit = MAX_RESULTS)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (_: Exception) {
@@ -165,17 +171,13 @@ class SearchViewModel @Inject constructor(
                 localMatches
             }
 
-            // Group by board; a board's band appears where its first ranked
-            // match does, and its rows keep the ranked order.
-            val groups = LinkedHashMap<String, MutableList<IssueEntity>>()
-            for (issue in matches) {
-                groups.getOrPut(issue.boardId) { mutableListOf() }.add(issue)
-            }
+            // EXP-922: ONE flat list in the ranked order — no board bands.
+            // Banding fought the ranking (a board's header jumped to wherever
+            // its best hit landed and pulled its weaker hits up with it), so
+            // the same query read differently here than on every other client.
             SearchState(
                 query = trimmed,
-                groups = groups.map { (boardId, list) ->
-                    SearchResultGroup(boardsById.getValue(boardId), list)
-                },
+                results = matches.map { SearchResult(it, boardsById[it.boardId]) },
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchState())
