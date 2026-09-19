@@ -779,5 +779,107 @@
       "nowMs": 1000000000
     },
     "expected": []
+  },
+  {
+    "name": "rule 7: an approval of an older head is stale, the current head is reviewed instead of landed",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "approvedAt": "2026-09-19T10:00:00.000Z",
+          "reviewRound": 1,
+          "review": { "verdict": "approve", "round": 1, "head": "sha-a1" }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a2" },
+      "reviewedHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }]
+  },
+  {
+    "name": "rule 7: an approval of the current head clears the node for the train",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "approvedAt": "2026-09-19T10:00:00.000Z",
+          "reviewRound": 1,
+          "review": { "verdict": "approve", "round": 1, "head": "sha-a1" }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "reviewedHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+  },
+  {
+    "name": "rule 7: a verdict's own head counts as reviewed, whatever the host stamped",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "authorModel": "opus"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "reviewRound": 1,
+          "review": { "verdict": "request_changes", "round": 1, "head": "sha-a2" }
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a2" },
+      "reviewedHead": { "a": "sha-a1" },
+      "findingsSent": { "a": 1 },
+      "nowMs": 1000
+    },
+    "expected": []
   }
 ]

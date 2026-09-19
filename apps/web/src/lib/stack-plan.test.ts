@@ -190,6 +190,7 @@ describe(`resolveStackChain`, () => {
     // nothing yet, and the pick's row is never re-read.
     h.selectQueue.push([]) // blockers of [EXP-12, EXP-11]
     h.selectQueue.push([REPO]) // EXP-11's board repo
+    h.selectQueue.push([]) // findRelationCycle: nothing reachable from EXP-12
 
     const plan = await resolveStackChain(db, `issue-EXP-12`, {
       stackOnIssueId: `issue-EXP-11`,
@@ -227,6 +228,37 @@ describe(`resolveStackChain`, () => {
         actorUserId: `actor`,
       })
     ).rejects.toThrow(StackCycleError)
+    expect(h.insertRelationInTx).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a stackOnIssueId whose cycle runs through a CLOSED issue, writing nothing`, async () => {
+    // EXP-12 blocks EXP-11 (done), EXP-11 blocks EXP-10. The plan walk drops
+    // the settled EXP-11 with its blockers, so it sees no cycle — yet picking
+    // EXP-10 as EXP-12's foundation writes `EXP-10 blocks EXP-12` and closes
+    // EXP-10 → EXP-12 → EXP-11 → EXP-10 in the relation graph itself.
+    h.selectQueue.push([issueRow(`EXP-12`)]) // target
+    h.selectQueue.push([issueRow(`EXP-10`)]) // the pick
+    h.selectQueue.push([REPO])
+    h.selectQueue.push([
+      { issueId: `issue-EXP-11`, relatedIssueId: `issue-EXP-10` },
+    ]) // blockers of [EXP-12, EXP-10]
+    h.selectQueue.push([issueRow(`EXP-11`, { status: `done` })])
+    h.selectQueue.push([
+      { issueId: `issue-EXP-12`, relatedIssueId: `issue-EXP-11` },
+    ]) // blockers of [EXP-11]
+    h.selectQueue.push([REPO]) // EXP-10's board repo
+    // findRelationCycle walks forward from EXP-12 over the REAL rows.
+    h.selectQueue.push([{ from: `issue-EXP-12`, to: `issue-EXP-11` }])
+    h.selectQueue.push([{ from: `issue-EXP-11`, to: `issue-EXP-10` }])
+
+    await expect(
+      resolveStackChain(db, `issue-EXP-12`, {
+        stackOnIssueId: `issue-EXP-10`,
+        actorUserId: `actor`,
+      })
+    ).rejects.toThrow(
+      `Blocking cycle: EXP-10 → EXP-12 → EXP-11 → EXP-10. Fix the relations before stacking.`
+    )
     expect(h.insertRelationInTx).not.toHaveBeenCalled()
   })
 

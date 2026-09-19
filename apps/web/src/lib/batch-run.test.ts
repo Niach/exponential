@@ -18,7 +18,6 @@ function session(over: Partial<BatchRunSession> = {}): BatchRunSession {
     issueId: null,
     actionName: null,
     batchIssueIds: null,
-    branch: null,
     ...over,
   }
 }
@@ -27,8 +26,6 @@ function issue(over: Partial<BatchRunIssue> & { id: string }): BatchRunIssue {
   return {
     identifier: `EXP-1`,
     title: `An issue`,
-    branch: null,
-    createdAt: `2026-09-01T10:00:00Z`,
     ...over,
   }
 }
@@ -37,22 +34,16 @@ const first = issue({
   id: `i-1`,
   identifier: `EXP-874`,
   title: `Session list fixes`,
-  branch: `exp/batch-1a2b3c4d`,
-  createdAt: `2026-09-01T10:00:00Z`,
 })
 const second = issue({
   id: `i-2`,
   identifier: `EXP-876`,
   title: `Batch run names`,
-  branch: `exp/batch-1a2b3c4d`,
-  createdAt: `2026-09-02T10:00:00Z`,
 })
 const third = issue({
   id: `i-3`,
   identifier: `EXP-889`,
   title: `Diff on the issue page`,
-  branch: `exp/batch-1a2b3c4d`,
-  createdAt: `2026-09-03T10:00:00Z`,
 })
 const pool = [third, first, second]
 
@@ -81,19 +72,11 @@ describe(`batchRunIssues`, () => {
     ).toEqual([first])
   })
 
-  it(`falls back to the branch, oldest first`, () => {
-    expect(
-      batchRunIssues(session({ branch: `exp/batch-1a2b3c4d` }), pool)
-    ).toEqual([first, second, third])
-  })
-
-  it(`never matches a branch that is not a batch's`, () => {
-    // A chat or action branch is not a batch branch, and an issue branch
-    // belongs to exactly one issue.
-    expect(
-      batchRunIssues(session({ branch: `exp/chat-1a2b3c4d` }), pool)
-    ).toEqual([])
-    expect(batchRunIssues(session({ branch: `exp/EXP-874` }), pool)).toEqual([])
+  it(`is empty without stored ids`, () => {
+    // EXP-972: NULL = nothing to name the batch by. The branch-mates fallback
+    // is gone — every row from before the column was backfilled once.
+    expect(batchRunIssues(session(), pool)).toEqual([])
+    expect(batchRunIssues(session({ batchIssueIds: [] }), pool)).toEqual([])
   })
 
   it(`is empty for every other subject`, () => {
@@ -105,7 +88,7 @@ describe(`batchRunIssues`, () => {
     ).toEqual([])
     expect(
       batchRunIssues(
-        session({ actionName: `Chat`, branch: `exp/batch-1a2b3c4d` }),
+        session({ actionName: `Chat`, batchIssueIds: [`i-1`] }),
         pool
       )
     ).toEqual([])
@@ -137,16 +120,8 @@ describe(`batchRunName`, () => {
     ).toEqual({ identifier: `EXP-874 +2`, subject: `Session list fixes` })
   })
 
-  it(`falls back to the branch`, () => {
-    // A run started before the column existed: its issues are the ones
-    // `pr_open` put on its branch.
-    expect(batchRunName(session({ branch: `exp/batch-1a2b3c4d` }), pool)).toEqual(
-      { identifier: `EXP-874 +2`, subject: `Session list fixes` }
-    )
-  })
-
   it(`falls back to Batch run`, () => {
-    // Nothing stored and no PR yet — the old label, unchanged.
+    // Nothing stored — the old label, unchanged.
     expect(batchRunName(session(), pool)).toEqual({
       identifier: null,
       subject: BATCH_RUN_FALLBACK,

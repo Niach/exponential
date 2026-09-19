@@ -714,7 +714,7 @@ mod tests {
             "review_round": "2",
             "review": r#"{"verdict":"request_changes","findings":"src/a.rs:4 off by one",
                 "oracle":{"command":"cargo test -p coding","passed":false},
-                "model":"fable","round":2,"at":"2026-09-19T11:00:00.000Z"}"#,
+                "model":"fable","round":2,"head":"0123abc","at":"2026-09-19T11:00:00.000Z"}"#,
             "budget": r#"{"minutes":45,"tokens":0}"#,
         }))
         .unwrap();
@@ -725,6 +725,9 @@ mod tests {
         assert_eq!(review.oracle_passed, Some(false));
         assert_eq!(review.oracle_command.as_deref(), Some("cargo test -p coding"));
         assert_eq!(review.model.as_deref(), Some("fable"));
+        // The commit the verdict is tied to; a row from before the field
+        // simply carries none.
+        assert_eq!(review.head.as_deref(), Some("0123abc"));
         // A zero token budget is no budget at all (the server's schema is
         // positive-only), so only the minutes survive.
         assert_eq!(row.budget_limits(), (Some(45), None));

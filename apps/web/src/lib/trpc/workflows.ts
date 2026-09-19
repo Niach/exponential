@@ -5,6 +5,7 @@ import {
   WORKFLOW_DECISIONS_MAX,
   WORKFLOW_MAX_REVIEW_ROUNDS,
   wfReviewVerdictSchema,
+  workflowReviewHeadSchema,
   workflowReviewOracleSchema,
   type WorkflowNodeReview,
   WORKFLOW_MAX_ISSUES,
@@ -33,6 +34,7 @@ import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import { oneLine } from "@/lib/steer-child-messages"
 import { assertTeamMember } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
+import { BUILTIN_REVIEW_NODE_NAME } from "@/lib/builtin-actions"
 import { assertDeviceUsable } from "@/lib/trpc/automations"
 import {
   loadWorkflowEdges,
@@ -177,14 +179,17 @@ async function loadPickableIssues(
 /**
  * EXP-982: the ENGINE's write path. The engine runs on ONE device
  * (`workflows.device_id`, the single writer); a device row's id is only
- * unique per user, so "the caller is the engine" = the caller owns a device
- * row with that id.
+ * unique per user, so "the caller is the engine" = a MEMBER of the
+ * workflow's team who owns a device row with that id. Device ids are client
+ * strings, so ownership alone would let a stranger's device of the same id
+ * report for the workflow.
  */
 async function assertEngine(
-  workflow: { deviceId: string | null; status: string },
+  workflow: { deviceId: string | null; status: string; teamId: string },
   userId: string
 ): Promise<void> {
   const { db } = await import(`@/db/connection`)
+  await assertTeamMember(userId, workflow.teamId)
   if (!workflow.deviceId) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `This workflow has no runner` })
   }
@@ -211,6 +216,7 @@ async function loadNode(nodeId: string) {
       kind: workflowNodes.kind,
       state: workflowNodes.state,
       approvedAt: workflowNodes.approvedAt,
+      sessionId: workflowNodes.sessionId,
     })
     .from(workflowNodes)
     .where(eq(workflowNodes.id, nodeId))
@@ -553,10 +559,27 @@ export const workflowsRouter = router({
         .where(eq(workflowNodes.workflowId, input.id))
       const covered = new Set(current.flatMap((row) => [row.issueId, ...row.members]))
       const adding = input.addIssueIds.filter((issueId) => !covered.has(issueId))
+      // A MEMBER (a sub-issue folded into its parent's node) has no node row
+      // to delete, and the replan would re-adopt it from the `parent`
+      // relation anyway: the link is what makes it part of the workflow.
+      const nodeOf = new Map(current.map((row) => [row.issueId, row]))
+      const member = input.removeIssueIds.find(
+        (issueId) => !nodeOf.has(issueId) && covered.has(issueId)
+      )
+      if (member) {
+        throw bad(
+          `That issue is a sub-issue folded into its parent's node; remove the parent relation (or the parent) instead`
+        )
+      }
       const picked = adding.length
         ? await loadPickableIssues(adding, existing.teamId, existing.repositoryId)
         : null
-      if (current.length - input.removeIssueIds.length + adding.length > WORKFLOW_MAX_ISSUES) {
+      // The cap counts ISSUES, members included, not nodes.
+      const removing = input.removeIssueIds.reduce(
+        (sum, issueId) => sum + (nodeOf.has(issueId) ? 1 + nodeOf.get(issueId)!.members.length : 0),
+        0
+      )
+      if (covered.size - removing + adding.length > WORKFLOW_MAX_ISSUES) {
         throw bad(`A workflow holds at most ${WORKFLOW_MAX_ISSUES} issues`)
       }
       return ctx.db.transaction(async (tx) => {
@@ -572,13 +595,16 @@ export const workflowsRouter = router({
             )
         }
         if (picked) {
-          await tx.insert(workflowNodes).values(
-            picked.rows.map((row) => ({
-              workflowId: input.id,
-              teamId: existing.teamId,
-              issueId: row.id,
-            }))
-          )
+          await tx
+            .insert(workflowNodes)
+            .values(
+              picked.rows.map((row) => ({
+                workflowId: input.id,
+                teamId: existing.teamId,
+                issueId: row.id,
+              }))
+            )
+            .onConflictDoNothing()
           if (!existing.repositoryId && picked.repositoryId) {
             await tx
               .update(workflows)
@@ -799,32 +825,55 @@ export const workflowsRouter = router({
       if (workflow.status !== `running` && workflow.status !== `paused`) {
         throw bad(`The workflow is not running`)
       }
-      return ctx.db.transaction(async (tx) => {
+      const result = await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx
           .update(workflowNodes)
           .set(
             input.action === `skip`
               ? { state: `skipped`, note: null }
-              : { state: `blocked`, attempt: 0, sessionId: null, note: null }
+              : // A fresh attempt opens a fresh PR: the old approval and the
+                // old review were about the old one.
+                {
+                  state: `blocked`,
+                  attempt: 0,
+                  sessionId: null,
+                  note: null,
+                  approvedAt: null,
+                  review: null,
+                  reviewRound: 0,
+                }
           )
           .where(eq(workflowNodes.id, input.nodeId))
         return { txId }
       })
+      // A skip releases its dependents exactly like a landing does: the ones
+      // with no unlanded blocker left move onto the integration branch.
+      if (input.action === `skip`) {
+        const { retargetReleasedDependents } = await import(`@/lib/workflow-final-pr`)
+        await retargetReleasedDependents(ctx.db, workflow.id, node.id, ctx.session.user.id)
+      }
+      return result
     }),
 
 
   /** A reviewer RUN's verdict on one node (EXP-984, MCP
    *  `exponential_workflows_review_submit`). Only the runner's owner may
-   *  submit: the engine started that run. */
+   *  submit, and only FROM the reviewer run the engine started for the node
+   *  (`sessionId` = the calling run): the author's own run, or any other,
+   *  cannot approve the node. */
   submitReview: authedProcedure
     .input(
       z.object({
         nodeId: z.string().uuid(),
+        sessionId: z.string().uuid(),
         verdict: wfReviewVerdictSchema,
         findings: z.string().trim().max(8000).default(``),
         oracle: workflowReviewOracleSchema.nullable().optional(),
         model: z.string().max(64).nullable().optional(),
+        // The PR head the reviewer read; the engine lands only while the PR
+        // still points at it.
+        head: workflowReviewHeadSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -834,50 +883,89 @@ export const workflowsRouter = router({
       if (node.state === `landed` || node.state === `skipped`) {
         throw bad(`That node is already settled`)
       }
-      const [row] = await ctx.db
-        .select({ round: workflowNodes.reviewRound })
-        .from(workflowNodes)
-        .where(eq(workflowNodes.id, input.nodeId))
+      const [reviewer] = await ctx.db
+        .select({
+          id: codingSessions.id,
+          actionName: codingSessions.actionName,
+          startedReason: codingSessions.startedReason,
+        })
+        .from(codingSessions)
+        .where(eq(codingSessions.id, input.sessionId))
         .limit(1)
-      const round = (row?.round ?? 0) + 1
-      const oraclePassed = input.oracle ? input.oracle.passed : null
-      const outcome = reviewOutcome({
-        verdict: input.verdict,
-        oraclePassed,
-        kind: node.kind,
-        round,
-      })
-      const review: WorkflowNodeReview = {
-        verdict: input.verdict,
-        findings: input.findings,
-        oracle: input.oracle ?? null,
-        model: input.model ?? null,
-        round,
-        at: new Date().toISOString(),
+      if (
+        !reviewer ||
+        reviewer.actionName !== BUILTIN_REVIEW_NODE_NAME ||
+        reviewer.startedReason !== `workflow` ||
+        reviewer.id === node.sessionId
+      ) {
+        throw new TRPCError({
+          code: `FORBIDDEN`,
+          message: `Only the review run the workflow started for this node may submit its verdict; the node's own run cannot review itself`,
+        })
       }
-      await ctx.db
-        .update(workflowNodes)
-        .set({
-          review,
-          reviewRound: round,
-          state: outcome.state,
-          note: outcome.note,
-          ...(outcome.approve && { approvedAt: new Date() }),
+      const oraclePassed = input.oracle ? input.oracle.passed : null
+      return ctx.db.transaction(async (tx) => {
+        // The round is claimed IN the update (concurrent verdicts cannot share
+        // one), and only a node that is under review or being updated moves:
+        // a paused or waiting node keeps what a person decided.
+        const [claimed] = await tx
+          .update(workflowNodes)
+          .set({ reviewRound: sql`${workflowNodes.reviewRound} + 1` })
+          .where(
+            and(
+              eq(workflowNodes.id, input.nodeId),
+              inArray(workflowNodes.state, [`in_review`, `updating`])
+            )
+          )
+          .returning({ round: workflowNodes.reviewRound })
+        if (!claimed) throw bad(`That node is not under review`)
+        const round = claimed.round
+        if (round > WORKFLOW_MAX_REVIEW_ROUNDS) {
+          throw bad(
+            `Review rounds are used up after ${WORKFLOW_MAX_REVIEW_ROUNDS}; a person decides this node now`
+          )
+        }
+        const outcome = reviewOutcome({
+          verdict: input.verdict,
+          oraclePassed,
+          kind: node.kind,
+          round,
         })
-        .where(eq(workflowNodes.id, input.nodeId))
-      await ctx.db
-        .update(workflows)
-        .set({
-          metrics: bumpMetrics({
-            reviewRounds: 1,
-            ...(input.verdict === `request_changes` &&
-              (oraclePassed === false
-                ? { defectsByOracle: 1 }
-                : { defectsByAgentReview: 1 })),
-          }),
-        })
-        .where(eq(workflows.id, workflow.id))
-      return { round, ...outcome }
+        const review: WorkflowNodeReview = {
+          verdict: input.verdict,
+          findings: input.findings,
+          oracle: input.oracle ?? null,
+          model: input.model ?? null,
+          round,
+          at: new Date().toISOString(),
+          ...(input.head && { head: input.head }),
+        }
+        await tx
+          .update(workflowNodes)
+          .set({
+            review,
+            state: outcome.state,
+            note: outcome.note,
+            // A verdict at a newer head supersedes any earlier approval: an
+            // approve stamps it, a request_changes withdraws it (a person can
+            // approve again after reading the findings).
+            approvedAt: outcome.approve ? new Date() : null,
+          })
+          .where(eq(workflowNodes.id, input.nodeId))
+        await tx
+          .update(workflows)
+          .set({
+            metrics: bumpMetrics({
+              reviewRounds: 1,
+              ...(input.verdict === `request_changes` &&
+                (oraclePassed === false
+                  ? { defectsByOracle: 1 }
+                  : { defectsByAgentReview: 1 })),
+            }),
+          })
+          .where(eq(workflows.id, workflow.id))
+        return { round, ...outcome }
+      })
     }),
 
   /** A `proposed` node (a follow-up filed mid-run that was not plainly
@@ -913,7 +1001,12 @@ export const workflowsRouter = router({
     .input(
       z.object({
         id: z.string().uuid(),
-        deltas: z.record(z.enum(WORKFLOW_COUNTERS), z.number().int().min(0).max(10_000)),
+        // `partialRecord`: zod 4's `record` over an enum key is EXHAUSTIVE,
+        // and the engine sends one or two counters at a time.
+        deltas: z.partialRecord(
+          z.enum(WORKFLOW_COUNTERS),
+          z.number().int().min(0).max(10_000)
+        ),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1019,13 +1112,28 @@ export const workflowsRouter = router({
         .where(eq(issues.id, node.issueId))
         .limit(1)
       const { issuesRouter } = await import(`@/lib/trpc/issues`)
+      const { ensureNodePrOnIntegrationBranch } = await import(`@/lib/workflow-final-pr`)
       try {
         if (issue?.prState === `merged`) {
           // fall through to the landed write below
-        } else
+        } else {
+          // The PR must be based on the integration branch, or the squash
+          // lands wherever it points (the default branch, after the stack
+          // heal or a person moved it) and bypasses the workflow's final PR.
+          const base = await ensureNodePrOnIntegrationBranch(ctx.db, {
+            issueId: node.issueId,
+            repositoryId: workflow.repositoryId,
+            teamId: workflow.teamId,
+            integrationBranch: workflow.integrationBranch,
+            actorUserId: ctx.session.user.id,
+          })
+          if (!base.ok) {
+            return { merged: false, reason: base.reason, retargeted: [] as string[] }
+          }
           await issuesRouter
             .createCaller(ctx)
             .mergePr({ issueId: node.issueId, endSessions: true })
+        }
       } catch (err) {
         const reason = err instanceof Error ? err.message : `GitHub refused the merge`
         return { merged: false, reason: reason.slice(0, 500), retargeted: [] as string[] }

@@ -1,23 +1,22 @@
+- Workflows: planifica un conjunto de issues del backlog de un repositorio como un grafo de qué bloquea a qué, y deja que una máquina las ejecute en paralelo; Workflows está tras un botón de la página Agent
+- Un workflow remata su propio trabajo: los nodos arrancan según aterrizan sus bloqueos, los pull requests se funden en orden de dependencia en la rama del workflow, y un pull request final lleva todo el diff
+- Los workflows se revisan solos: una ejecución aparte revisa cada pull request, una issue de seguimiento puede sumarse sobre la marcha, y un nodo que pasa su presupuesto se pausa y te espera
+- Subissues y bloqueos en cada lista: una subissue va bajo su padre en una línea de conexión, y una insignia cuenta qué bloquea la fila y abre el grafo de dependencias
+- Arrancar una issue bloqueada muestra toda la cadena y ofrece Cancel, Start anyway o un pull request apilado, y dice por qué no cabe un stack
+- Una ejecución que llega a su límite te manda un push y una fila en la bandeja que la abre; se apaga en los ajustes de notificaciones, Blocked runs
+- En la página Agent las ejecuciones pasadas están tras un botón de historial, y los botones de chat y New issue están en la barra de pestañas en todas
+- El selector de boards solo lista equipos y boards, y una ejecución abierta desde una issue ya no muestra una pantalla vacía hasta que la arrastras
 - Iconos de dispositivo: da a cada máquina su icono en los ajustes, un monitor, un servidor, un portátil o la marca de Apple, Windows o Linux, y elige entre 96 iconos para boards y acciones
 - La cara Run abre con la lista de tareas del agente, una ejecución de fondo conserva su pestaña, y pestañas y barras se alinean con el registro
-- Los dispositivos se pliegan a una fila, muestran cuándo se reinicia una ventana de uso y una cuenta puede quitarse de la máquina; el menú de la pantalla Work está solo en la cara Issue, el selector de caras cuenta los archivos cambiados y se recoge en el campo desplegado, y las issues de un batch se abren en una hoja
-- Las llamadas a Exponential se leen como su propio grupo, Read 3 issues en vez de una ejecución de herramienta genérica, y un turno sin archivos cambiados ya no muestra una tarjeta vacía
-- Stop en una sesión en marcha es ahora un botón normal de la barra, de la misma altura que el botón de volver, no una píldora con el contorno roto
-- Las filas del registro de una ejecución ya no se solapan, y el chat se desplaza libre de la tarjeta sobre el campo de escritura
-- Una ejecución de chat toma el nombre de aquello en lo que trabaja el agente, en vez de leer «Chat» en todas partes
 - Un solo diff en todas partes: los archivos de un diff van en un árbol por el que saltas, y los cambios de un turno se reúnen en una tarjeta «Edited files», con números de línea, líneas sin cambios desplegables y archivos renombrados o binarios nombrados
 - El uso en un solo sitio: un panel muestra la cuenta de la ejecución, sus ventanas de límite y la ventana de contexto, más las demás cuentas de la máquina
 - Los dispositivos llevan las cuentas: cada máquina enumera sus cuentas de agente con plan, estado y uso, y la rueda de un dispositivo guarda Update y Remove
 - Una sola búsqueda de issues: el mismo orden rige cada lista, cada selector y cada menú #, con el primer resultado ya elegido
-- Un comando en marcha muestra solo sus últimas líneas, y una ejecución que se queda callada se marca terminada y sigue en la lista
 - Una pantalla Work: una issue, su ejecución y los cambios son caras de una pantalla, se cambia desde la barra inferior, y Stop o Resume están arriba a la derecha
 - Pull requests apilados: arranca una issue encima de la que la bloquea, une la cadena con Merge stack, lee la insignia de stack o batch en el trabajo, y responde a la pregunta de una ejecución anidada
 - Resultados de una ejecución: la que sube capturas gana una cara Results, agrupada por tema, un recuadro por plataforma
-- Ejecuciones batch con nombre: una ejecución sobre varias issues lee EXP-874 +2 junto al título de la primera en lugar de «Batch run»
 - Mensajes que llegan al instante: un mensaje escrito mientras el agente trabaja le llega ya y figura como enviado hasta que lo lee, uno en espera aparece en una barra sobre el campo de escritura, y Stop te devuelve el texto
 - GitHub en orden: conectar GitHub, añadir un repositorio y fijar el repositorio de un tablero funcionan como en el escritorio, y los errores se ven donde estás
-- Botones más discretos y selectores más claros: solo la acción principal mantiene un círculo relleno, el selector de agente lleva la marca de Claude Code o Codex, y los menús de dispositivos llevan icono de portátil o servidor
-- La página Agent sostiene tus ejecuciones: las pasadas se pliegan tras un contador que puedes abrir, y sin nada en marcha el campo de escritura queda en el centro
 - Los filtros de issues ya no están: la búsqueda cubre lo que hacían, y la agrupación y las bandas de estado se quedan
 - Continuar con el correo o con una clave de acceso: entra con un código de 6 dígitos enviado por correo, o con Face ID o Touch ID; todas las opciones están en una lista Continue
 - Cambiar de cuenta a mitad de ejecución y volver a donde estabas: una ejecución Claude en su límite puede seguir con otra cuenta, y salir de una sesión te devuelve al issue o tablero desde donde la abriste

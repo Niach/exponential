@@ -11,12 +11,10 @@
 //! open-issue circle off every session row on every client, and it was exactly
 //! the control a multi-issue run could never answer.
 //!
-//! The covered set has two sources, in this order:
-//!   1. `coding_sessions.batch_issue_ids` — written at start, so the name is
-//!      right from the run's first second (the composer's order, preserved).
-//!   2. the issues sharing the row's `branch` — what `pr_open` stamped on both
-//!      sides (EXP-545), which names batches started before the column existed
-//!      or by a client too old to send it, from the moment their PR opens.
+//! The covered set has ONE source: `coding_sessions.batch_issue_ids`, written
+//! at start (the composer's order, preserved) and backfilled by the server for
+//! every batch that predates the column (EXP-972), so a NULL really means
+//! "not a batch" and no client guesses off the row's `branch` any more.
 //!
 //! The twin of web `lib/batch-run.ts`, iOS `BatchRun` and Android
 //! `BatchRun.kt`: same order, same `+N`, same fallback string, same test
@@ -28,10 +26,6 @@ use crate::rows::{CodingSession, Issue};
 
 /// The one string a batch with no knowable issues shows. Byte-identical ×4.
 pub const BATCH_RUN_FALLBACK: &str = "Batch run";
-
-/// The launcher's batch branch marker (`exp/batch-<id8>`), deliberately
-/// lowercase so it can never parse as an issue branch.
-pub const BATCH_BRANCH_PREFIX: &str = "exp/batch-";
 
 /// Read `coding_sessions.batch_issue_ids`. Same tolerance as every other
 /// jsonb column here (`session_results`): the store hands it over as TEXT, the
@@ -103,10 +97,9 @@ pub fn action_run_subject(session: &CodingSession) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The issues a batch run covers, in NAMING order: the stored order when the
-/// row recorded it, else the branch-mates oldest first (a deterministic order
-/// every client reaches the same way — `created_at` is on every issue row,
-/// identifiers break the tie).
+/// The issues a batch run covers, in NAMING order: the stored order, with
+/// the ids that have not synced skipped. A row with no stored ids covers
+/// nothing (the server backfills the column; there is no branch guess).
 pub fn batch_run_issues<'a, I>(session: &CodingSession, issues: I) -> Vec<&'a Issue>
 where
     I: IntoIterator<Item = &'a Issue>,
@@ -115,32 +108,13 @@ where
         return Vec::new();
     }
     let ids = parse_batch_issue_ids(session.batch_issue_ids.as_ref());
-    let issues: Vec<&Issue> = issues.into_iter().collect();
-    if !ids.is_empty() {
-        return ids
-            .iter()
-            .filter_map(|id| issues.iter().copied().find(|issue| &issue.id == id))
-            .collect();
-    }
-    let Some(branch) = session
-        .branch
-        .as_deref()
-        .filter(|branch| branch.starts_with(BATCH_BRANCH_PREFIX))
-    else {
+    if ids.is_empty() {
         return Vec::new();
-    };
-    let mut covered: Vec<&Issue> = issues
-        .into_iter()
-        .filter(|issue| issue.branch.as_deref() == Some(branch))
-        .collect();
-    covered.sort_by(|a, b| {
-        a.created_at
-            .as_deref()
-            .unwrap_or_default()
-            .cmp(b.created_at.as_deref().unwrap_or_default())
-            .then_with(|| a.identifier.cmp(&b.identifier))
-    });
-    covered
+    }
+    let issues: Vec<&Issue> = issues.into_iter().collect();
+    ids.iter()
+        .filter_map(|id| issues.iter().copied().find(|issue| &issue.id == id))
+        .collect()
 }
 
 /// What a batch row shows: `EXP-874 +2` beside the first issue's title.
@@ -153,8 +127,8 @@ pub struct BatchRunName {
 
 /// Name a batch run. `issues` is whatever the caller has synced; only the
 /// covered ones are read. A batch whose issues are all unknown (no stored ids,
-/// no PR yet — or a row whose issues left the viewer's teams) keeps the old
-/// generic label rather than inventing one.
+/// or a row whose issues left the viewer's teams) keeps the old generic label
+/// rather than inventing one.
 pub fn batch_run_name<'a, I>(session: &CodingSession, issues: I) -> BatchRunName
 where
     I: IntoIterator<Item = &'a Issue>,
@@ -290,24 +264,18 @@ mod tests {
         );
     }
 
+    /// EXP-972: the branch-mates fallback is gone — the server backfills
+    /// `batch_issue_ids`, so a row without them covers nothing even when
+    /// synced issues share its batch branch.
     #[test]
-    fn batch_run_issues_fall_back_to_the_branch_oldest_first() {
-        let row = session(json!({"branch": "exp/batch-1a2b3c4d"}));
+    fn batch_run_issues_never_guess_off_the_branch() {
         let issues = pool();
-        let covered = batch_run_issues(&row, issues.iter());
-        assert_eq!(
-            covered.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
-            vec!["i-1", "i-2", "i-3"]
-        );
-    }
-
-    #[test]
-    fn batch_run_issues_never_match_a_branch_that_is_not_a_batchs() {
-        let issues = pool();
-        for branch in ["exp/chat-1a2b3c4d", "exp/EXP-874"] {
+        for branch in ["exp/batch-1a2b3c4d", "exp/chat-1a2b3c4d", "exp/EXP-874"] {
             let row = session(json!({"branch": branch}));
-            assert!(batch_run_issues(&row, issues.iter()).is_empty());
+            assert!(batch_run_issues(&row, issues.iter()).is_empty(), "{branch}");
         }
+        let null_ids = session(json!({"branch": "exp/batch-1a2b3c4d", "batch_issue_ids": null}));
+        assert!(batch_run_issues(&null_ids, issues.iter()).is_empty());
     }
 
     #[test]
@@ -347,19 +315,6 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_the_branch() {
-        let issues = pool();
-        let row = session(json!({"branch": "exp/batch-1a2b3c4d"}));
-        assert_eq!(
-            batch_run_name(&row, issues.iter()),
-            BatchRunName {
-                identifier: Some("EXP-874 +2".into()),
-                subject: "Session list fixes".into(),
-            }
-        );
-    }
-
-    #[test]
     fn falls_back_to_batch_run() {
         let issues = pool();
         assert_eq!(
@@ -368,6 +323,12 @@ mod tests {
                 identifier: None,
                 subject: "Batch run".into(),
             }
+        );
+        // A batch branch alone names nothing (EXP-972: no branch guess).
+        let branch_only = session(json!({"branch": "exp/batch-1a2b3c4d"}));
+        assert_eq!(
+            batch_run_name(&branch_only, issues.iter()).subject,
+            BATCH_RUN_FALLBACK
         );
         let unknown = session(json!({"batch_issue_ids": ["gone"]}));
         assert_eq!(batch_run_name(&unknown, issues.iter()).identifier, None);

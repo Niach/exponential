@@ -28,6 +28,7 @@ import {
 import { peekAgentIssueActors } from "@/lib/integrations/pr-actor-claims"
 import { recordNotificationFanout } from "@/lib/metrics/registry"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
+import { batchRunName, isBatchRun } from "@/lib/batch-run"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
 
@@ -877,25 +878,28 @@ export async function sendAgentMessage(args: {
 }
 
 /** `EXP-12`, `EXP-12 +2` for a batch, the action's name, else `Agent run`:
- *  what a run is called in a sentence. */
+ *  what a run is called in a sentence. A batch is named by the SAME rule
+ *  every client's list row uses (`batchRunName`, lib/batch-run.ts), so the
+ *  push and the row it opens agree on the lead issue and the count. */
 async function sessionRunName(session: {
   issueId: string | null
   batchIssueIds: string[] | null
   actionName: string | null
 }): Promise<string> {
-  const ids = session.issueId ? [session.issueId] : (session.batchIssueIds ?? [])
-  const first = ids[0]
-  if (first) {
+  if (session.issueId) {
     const [issue] = await db
       .select({ identifier: issues.identifier })
       .from(issues)
-      .where(eq(issues.id, first))
+      .where(eq(issues.id, session.issueId))
       .limit(1)
-    if (issue) {
-      return ids.length > 1
-        ? `${issue.identifier} +${ids.length - 1}`
-        : issue.identifier
-    }
+    if (issue) return issue.identifier
+  } else if (isBatchRun(session) && session.batchIssueIds?.length) {
+    const covered = await db
+      .select({ id: issues.id, identifier: issues.identifier, title: issues.title })
+      .from(issues)
+      .where(inArray(issues.id, session.batchIssueIds))
+    const name = batchRunName(session, covered).identifier
+    if (name) return name
   }
   return session.actionName?.trim() || `Agent run`
 }

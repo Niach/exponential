@@ -22,6 +22,14 @@ const h = vi.hoisted(() => ({
     width: 2,
     cycles: [],
   })),
+  ensureNodePrOnIntegrationBranch: vi.fn(
+    async (..._args: unknown[]): Promise<{ ok: boolean; reason?: string; retargeted?: boolean }> => ({
+      ok: true,
+      retargeted: false,
+    })
+  ),
+  retargetReleasedDependents: vi.fn(async (..._args: unknown[]) => [] as string[]),
+  mergePr: vi.fn(async (..._args: unknown[]) => ({ merged: true })),
 }))
 
 const dbHolder = vi.hoisted(() => ({ db: {} as Record<string, unknown> }))
@@ -39,6 +47,13 @@ vi.mock(`@/lib/workflows`, () => ({
   replanWorkflow: h.replanWorkflow,
   workflowIntegrationBranch: (id: string) => `exp/wf-${id.slice(0, 8)}`,
 }))
+vi.mock(`@/lib/workflow-final-pr`, () => ({
+  ensureNodePrOnIntegrationBranch: h.ensureNodePrOnIntegrationBranch,
+  retargetReleasedDependents: h.retargetReleasedDependents,
+}))
+vi.mock(`@/lib/trpc/issues`, () => ({
+  issuesRouter: { createCaller: () => ({ mergePr: h.mergePr }) },
+}))
 
 const selectQueue: unknown[][] = []
 type Chain = Promise<unknown[]> & Record<string, (arg?: unknown) => unknown>
@@ -50,6 +65,8 @@ function chain(result: unknown[]): Chain {
   return p
 }
 const written: Array<{ op: string; values?: unknown }> = []
+// What the next UPDATE ... RETURNING resolves with (FIFO; default = one row).
+const updateQueue: unknown[][] = []
 const fakeDb = {
   select: vi.fn(() => chain(selectQueue.shift() ?? [])),
   insert: vi.fn(() => {
@@ -61,7 +78,7 @@ const fakeDb = {
     return p
   }),
   update: vi.fn(() => {
-    const p = chain([{ id: `wf-1` }])
+    const p = chain(updateQueue.shift() ?? [{ id: `wf-1` }])
     p.set = (values: unknown) => {
       written.push({ op: `update`, values })
       return p
@@ -115,8 +132,13 @@ const rejection = async (p: Promise<unknown>) => p.then(() => null, (e: unknown)
 
 beforeEach(() => {
   selectQueue.length = 0
+  updateQueue.length = 0
   written.length = 0
   vi.clearAllMocks()
+  h.assertTeamMember.mockResolvedValue({ role: `member` })
+  h.ensureNodePrOnIntegrationBranch.mockResolvedValue({ ok: true, retargeted: false })
+  h.retargetReleasedDependents.mockResolvedValue([])
+  h.loadWorkflowEdges.mockResolvedValue({ nodes: [], edges: [] })
 })
 
 describe(`workflows.create`, () => {
@@ -182,6 +204,26 @@ describe(`workflows.update`, () => {
       `claude`,
       expect.objectContaining({ cap: `workflows` })
     )
+  })
+})
+
+describe(`workflows.setIssues`, () => {
+  it(`refuses to remove a MEMBER issue (folded into its parent's node)`, async () => {
+    selectQueue.push(
+      [workflow()],
+      [{ issueId: A, members: [B] }]
+    )
+    const error = await rejection(caller.setIssues({ id: WF, removeIssueIds: [B] }))
+    expect(error?.code).toBe(`BAD_REQUEST`)
+    expect(error?.message).toContain(`remove the parent relation`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  it(`counts covered ISSUES, members included, against the cap`, async () => {
+    const members = Array.from({ length: 49 }, (_, i) => `member-${i}`)
+    selectQueue.push([workflow()], [{ issueId: A, members }], [issue(B)])
+    const error = await rejection(caller.setIssues({ id: WF, addIssueIds: [B] }))
+    expect(error?.message).toContain(`at most 50 issues`)
   })
 })
 
@@ -267,6 +309,34 @@ describe(`the engine's write path`, () => {
     })
   })
 
+  it(`requires the engine's owner to be a MEMBER of the workflow's team`, async () => {
+    h.assertTeamMember.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Not a member` })
+    )
+    selectQueue.push([node()], [workflow({ status: `running`, deviceId: `dev-1` })])
+    const error = await rejection(caller.reportNode({ nodeId: NODE, state: `running` }))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
+    expect(fakeDb.update).not.toHaveBeenCalled()
+  })
+
+  // Zod 4's `record` over an enum key is exhaustive; the daemon sends one or
+  // two counters per call.
+  it(`reportMetrics accepts a partial set of counters`, async () => {
+    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
+    expect(await caller.reportMetrics({ id: WF, deltas: { mergeIns: 1 } })).toEqual({ ok: true })
+    expect(written).toHaveLength(1)
+    expect(written[0]!.op).toBe(`update`)
+  })
+
+  it(`reportMetrics still refuses an unknown counter`, async () => {
+    selectQueue.push([workflow({ status: `running`, deviceId: `dev-1` })], [{ id: `device-row` }])
+    const error = await rejection(
+      caller.reportMetrics({ id: WF, deltas: { nodes: 1 } as never })
+    )
+    expect(error?.code).toBe(`BAD_REQUEST`)
+  })
+
   // EXP-983: a speculative dependent's PR can be up before its blocker landed.
   it(`lands in topological order: never before a blocker`, async () => {
     h.loadWorkflowEdges.mockResolvedValueOnce({
@@ -286,6 +356,166 @@ describe(`the engine's write path`, () => {
       reason: `Waiting for its blockers to land`,
       retargeted: [],
     })
+  })
+
+  // The stack heal or a person can move a node's PR off the integration
+  // branch; merging it there would bypass the workflow's final PR.
+  it(`never merges a node whose PR is not based on the integration branch`, async () => {
+    h.ensureNodePrOnIntegrationBranch.mockResolvedValueOnce({
+      ok: false,
+      reason: `Its pull request is not based on the workflow branch yet`,
+    })
+    selectQueue.push(
+      [node({ approvedAt: new Date() })],
+      [workflow({ status: `running`, deviceId: `dev-1`, gate: `none`, integrationBranch: `exp/wf-22222222` })],
+      [{ id: `device-row` }],
+      [{ prState: `open` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: false,
+      reason: `Its pull request is not based on the workflow branch yet`,
+      retargeted: [],
+    })
+    expect(h.ensureNodePrOnIntegrationBranch).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({ issueId: A, integrationBranch: `exp/wf-22222222` })
+    )
+    expect(h.mergePr).not.toHaveBeenCalled()
+    expect(written).toEqual([])
+  })
+
+  it(`merges once the base is right, lands the node and releases its dependents`, async () => {
+    h.retargetReleasedDependents.mockResolvedValueOnce([`node-9`])
+    selectQueue.push(
+      [node({ approvedAt: new Date() })],
+      [workflow({ status: `running`, deviceId: `dev-1`, gate: `none`, integrationBranch: `exp/wf-22222222` })],
+      [{ id: `device-row` }],
+      [{ prState: `open` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: true,
+      reason: null,
+      retargeted: [`node-9`],
+    })
+    expect(h.mergePr).toHaveBeenCalledWith({ issueId: A, endSessions: true })
+    expect(written[0]!.values).toEqual({ state: `landed`, note: null })
+  })
+
+  it(`a retry forgets the old approval and review with the old attempt`, async () => {
+    selectQueue.push([node({ state: `failed` })], [workflow({ status: `running` })])
+    await caller.resolveNode({ nodeId: NODE, action: `retry` })
+    expect(written[0]!.values).toEqual({
+      state: `blocked`,
+      attempt: 0,
+      sessionId: null,
+      note: null,
+      approvedAt: null,
+      review: null,
+      reviewRound: 0,
+    })
+    expect(h.retargetReleasedDependents).not.toHaveBeenCalled()
+  })
+
+  it(`a skip releases the dependents like a landing does`, async () => {
+    selectQueue.push([node({ state: `failed` })], [workflow({ status: `running` })])
+    await caller.resolveNode({ nodeId: NODE, action: `skip` })
+    expect(written[0]!.values).toEqual({ state: `skipped`, note: null })
+    expect(h.retargetReleasedDependents).toHaveBeenCalledWith(fakeDb, WF, `node-1`, `user-1`)
+  })
+})
+
+// EXP-984: the agent review gate is bound to the reviewer RUN.
+describe(`workflows.submitReview`, () => {
+  const NODE = `55555555-5555-4555-8555-555555555555`
+  const AUTHOR_RUN = `66666666-6666-4666-8666-666666666666`
+  const REVIEW_RUN = `77777777-7777-4777-8777-777777777777`
+  const node = (over: Record<string, unknown> = {}) => ({
+    id: `node-1`,
+    workflowId: WF,
+    issueId: A,
+    kind: `leaf`,
+    state: `in_review`,
+    approvedAt: null,
+    sessionId: AUTHOR_RUN,
+    ...over,
+  })
+  const reviewer = (over: Record<string, unknown> = {}) => ({
+    id: REVIEW_RUN,
+    actionName: `Review node`,
+    startedReason: `workflow`,
+    ...over,
+  })
+  const running = () => workflow({ status: `running`, deviceId: `dev-1` })
+  const submit = (sessionId: string, over: Record<string, unknown> = {}) =>
+    caller.submitReview({
+      nodeId: NODE,
+      sessionId,
+      verdict: `approve`,
+      oracle: { command: `bun test`, passed: true },
+      ...over,
+    } as never)
+
+  it(`refuses the node's own (author) run`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer({ id: AUTHOR_RUN })])
+    const error = await rejection(submit(AUTHOR_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(error?.message).toContain(`cannot review itself`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [`a run that is not the review builtin`, reviewer({ actionName: `Fix merge conflicts` })],
+    [`a review run a person started`, reviewer({ startedReason: null })],
+    [`an unknown run`, null],
+  ])(`refuses %s`, async (_name, row) => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], row ? [row] : [])
+    const error = await rejection(submit(REVIEW_RUN))
+    expect(error?.code).toBe(`FORBIDDEN`)
+    expect(fakeDb.transaction).not.toHaveBeenCalled()
+  })
+
+  it(`claims the round in SQL, stores the reviewed head and approves on evidence`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()])
+    updateQueue.push([{ round: 1 }])
+    const result = await submit(REVIEW_RUN, { head: `abc1234def` })
+    expect(result).toMatchObject({ round: 1, approve: true, state: `in_review` })
+    // 1st update = the round claim (a SQL increment, not a literal).
+    expect(written[0]!.op).toBe(`update`)
+    const claim = (written[0]!.values as { reviewRound: unknown }).reviewRound
+    expect(typeof claim).toBe(`object`)
+    expect(claim).not.toBe(1)
+    expect(written[1]!.values).toMatchObject({
+      state: `in_review`,
+      approvedAt: expect.any(Date),
+      review: expect.objectContaining({
+        verdict: `approve`,
+        round: 1,
+        head: `abc1234def`,
+        oracle: { command: `bun test`, passed: true },
+      }),
+    })
+  })
+
+  it(`rejects a malformed head`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()])
+    const error = await rejection(submit(REVIEW_RUN, { head: `not-a-sha` }))
+    expect(error?.code).toBe(`BAD_REQUEST`)
+  })
+
+  it(`leaves a paused or waiting node alone`, async () => {
+    selectQueue.push([node({ state: `paused` })], [running()], [{ id: `device-row` }], [reviewer()])
+    updateQueue.push([])
+    const error = await rejection(submit(REVIEW_RUN))
+    expect(error?.message).toContain(`not under review`)
+    expect(written).toHaveLength(1)
+  })
+
+  it(`refuses an approval past the round cap`, async () => {
+    selectQueue.push([node()], [running()], [{ id: `device-row` }], [reviewer()])
+    updateQueue.push([{ round: 4 }])
+    const error = await rejection(submit(REVIEW_RUN))
+    expect(error?.message).toContain(`used up`)
+    expect(written).toHaveLength(1)
   })
 })
 

@@ -279,6 +279,10 @@ struct Pass {
     /// EXP-984: `node id → whether its run announced a contract`, the input
     /// to the `contractChanges` metric.
     checkpointed: HashSet<String>,
+    /// EXP-984: `reviewer session id → live` off the synced rows, for every
+    /// reviewer run this device recorded; a row that has not synced is
+    /// absent. What settles a review that ended without a verdict.
+    review_session_live: HashMap<String, bool>,
 }
 
 /// One node the pass decided to start — executed on the foreground, where
@@ -334,6 +338,9 @@ struct ReviewOrder {
     base_branch: String,
     /// The local, never-pushed branch this review works on.
     review_branch: String,
+    /// The node's review round when this review was decided: a run that
+    /// ends with the round still there submitted no verdict.
+    round_at_launch: i64,
     adversarial: bool,
     options: LaunchOptions,
     settings_path: PathBuf,
@@ -390,7 +397,7 @@ fn snapshot_for(
             continue;
         }
         let Some(integration_branch) = workflow.integration_branch.clone() else {
-            continue; // a pre-EXP-981 row: nothing to base on
+            continue; // no branch to land on: nothing to evaluate
         };
         let launch = api::workflows::from_row(workflow).launch;
         let engine_state = workflows::read_states(&settings_path, &device_id)
@@ -419,10 +426,13 @@ fn snapshot_for(
             .iter()
             .filter_map(|key| key.strip_prefix(REVIEW_CLAIM_PREFIX).map(str::to_string))
             .collect();
+        let mut review_session_live: HashMap<String, bool> = HashMap::new();
         for (node_id, session_id) in &engine_state.review_runs {
-            let live = session_rows
-                .get(session_id.as_str())
-                .is_some_and(|row| matches!(row.status.as_deref(), Some("running" | "in_review")));
+            let Some(row) = session_rows.get(session_id.as_str()) else {
+                continue; // not synced yet: neither live nor ended
+            };
+            let live = matches!(row.status.as_deref(), Some("running" | "in_review"));
+            review_session_live.insert(session_id.clone(), live);
             if live {
                 review_in_flight.insert(node_id.clone());
             }
@@ -514,8 +524,13 @@ fn snapshot_for(
                 review: node.review_facts().map(|review| workflows::ReviewFacts {
                     verdict: review.verdict,
                     round: review.round,
+                    head: review.head,
                 }),
                 budget: node_budget(node),
+                updated_at_ms: node
+                    .updated_at
+                    .as_deref()
+                    .and_then(workflows::parse_wire_timestamp_ms),
             });
         }
         if nodes.is_empty() {
@@ -585,6 +600,7 @@ fn snapshot_for(
                 pr_head: HashMap::new(),
                 reviewed_head: engine_state.reviewed_head.clone(),
                 findings_sent: engine_state.findings_sent.clone(),
+                land_refused: engine_state.land_refused.clone(),
                 now_ms,
             },
             issue_of_node,
@@ -596,6 +612,7 @@ fn snapshot_for(
             team_id: workflow.team_id.clone().unwrap_or_default(),
             review_of,
             checkpointed,
+            review_session_live,
         });
     }
     Some(passes)
@@ -652,7 +669,7 @@ fn session_facts(row: &domain::rows::CodingSession) -> SessionFacts {
             .started_at
             .as_deref()
             .or(row.created_at.as_deref())
-            .and_then(parse_timestamp_ms),
+            .and_then(workflows::parse_wire_timestamp_ms),
         tokens_used: None,
     }
 }
@@ -664,13 +681,6 @@ fn node_budget(node: &domain::rows::WorkflowNodeRow) -> Option<workflows::Budget
         minutes,
         tokens: tokens.map(|tokens| tokens as u64),
     })
-}
-
-/// An ISO stamp off a synced row as ms epoch.
-fn parse_timestamp_ms(raw: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(raw)
-        .ok()
-        .map(|parsed| parsed.timestamp_millis())
 }
 
 /// The wall's reset stamp as ms epoch — a number already, or the ISO string
@@ -716,28 +726,68 @@ fn run_pass(
     // EXP-983: what moved and what collides — one ls-remote per repository
     // per beat, plus the merge-tree tests a quiet beat does not need.
     let repo = engine_repo(&pass);
+    let mut state = read_state(&pass, &workflow_id);
     if let Some(repo) = repo.as_ref() {
         snapshot.tips = git_tips(repo);
-        let mut cache = read_state(&pass, &workflow_id).conflicts;
         snapshot.conflicts = workflows::detect_conflicts(
             &repo.clone_path,
             &pass.candidates,
             &pass.branch_of,
             &snapshot.tips,
-            &mut cache,
+            &mut state.conflicts,
             Some(&repo.url),
         );
         workflows::prune_conflict_cache(
-            &mut cache,
+            &mut state.conflicts,
             &pass.candidates,
             &pass.branch_of,
             &snapshot.tips,
         );
-        update_state(&pass, &workflow_id, |state| state.conflicts = cache.clone());
     }
     // Unconditional: a beat that could not read the remote has no branches
     // to speculate on at all, which leaves those nodes blocked.
     workflows::confine_branches_to_tips(&mut snapshot);
+    // The host bookkeeping the engine reads, settled against this beat's
+    // rows and tips: a reviewer run that ended without a verdict releases
+    // its head (bounded), a session this host is resuming reads live, and a
+    // land refusal is forgotten once the head moved.
+    let review_round_of: HashMap<String, i64> = snapshot
+        .nodes
+        .iter()
+        .map(|node| (node.id.clone(), node.review_round))
+        .collect();
+    for outcome in workflows::settle_review_runs(&mut state, &review_round_of, |session_id| {
+        pass.review_session_live.get(session_id).copied()
+    }) {
+        match outcome {
+            workflows::ReviewRunEnd::Verdict { .. } => {}
+            workflows::ReviewRunEnd::Retry { node_id, failures } => log::warn!(
+                "[workflows] {workflow_id}: the review of {node_id} ended without a verdict ({failures}); trying again"
+            ),
+            workflows::ReviewRunEnd::GaveUp { node_id, note } => {
+                log::warn!("[workflows] {workflow_id}: {node_id} — {note}");
+                let mut report = api::workflows::NodeReport::new(&node_id, "in_review");
+                report.note = api::patch::Patch::Set(one_line(&note));
+                report_node(&pass.trpc, &report);
+            }
+        }
+    }
+    snapshot.reviewed_head = state.reviewed_head.clone();
+    workflows::apply_resuming(&mut snapshot, &mut state.resuming);
+    workflows::prune_land_refused(&mut state.land_refused, &snapshot.pr_head);
+    snapshot.land_refused = state.land_refused.clone();
+    {
+        let settled = state.clone();
+        update_state(&pass, &workflow_id, move |persisted| {
+            persisted.conflicts = settled.conflicts;
+            persisted.reviewed_head = settled.reviewed_head;
+            persisted.review_runs = settled.review_runs;
+            persisted.review_rounds = settled.review_rounds;
+            persisted.review_failures = settled.review_failures;
+            persisted.resuming = settled.resuming;
+            persisted.land_refused = settled.land_refused;
+        });
+    }
 
     // EXP-984: the counters only this device can see, batched into ONE
     // report at the end of the pass.
@@ -852,7 +902,7 @@ fn run_pass(
                 let Some(claim) = InFlight::claim(in_flight, &node_id) else {
                     continue;
                 };
-                land(&pass, &node_id, &branch, claim, &mut resumes);
+                land(&pass, &snapshot, &node_id, &branch, claim, &mut resumes);
             }
             // EXP-983: the branch under a run moved. A live run takes the
             // text where it stands; an ended one is resumed with it.
@@ -884,6 +934,7 @@ fn run_pass(
                     continue; // a live run this app hosts but cannot reach
                 }
                 delivered();
+                remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
                 resumes.push(ResumeOrder {
                     session_id,
                     prompt: text,
@@ -942,6 +993,7 @@ fn run_pass(
                         else {
                             continue;
                         };
+                        remember_resuming(&pass, &workflow_id, &session_id, snapshot.now_ms);
                         resumes.push(ResumeOrder {
                             session_id,
                             prompt: text,
@@ -971,13 +1023,11 @@ fn run_pass(
             }
             // EXP-983: the collision the engine decided to serialize. The
             // state rides along unchanged — `reportNode` always takes one.
-            Decision::SetSerialEdge { node_id, after } => {
-                let state = snapshot
-                    .nodes
-                    .iter()
-                    .find(|node| node.id == node_id)
-                    .map(|node| node.state.clone())
-                    .unwrap_or_else(|| "running".to_string());
+            Decision::SetSerialEdge {
+                node_id,
+                state,
+                after,
+            } => {
                 let mut report = api::workflows::NodeReport::new(&node_id, state);
                 report.after_node_ids = Some(after);
                 report_node(&pass.trpc, &report);
@@ -1148,6 +1198,7 @@ fn review_order(
             .clone()
             .unwrap_or_else(|| snapshot.workflow.integration_branch.clone()),
         review_branch: workflows::review_branch(&snapshot.workflow.id, &identifier, round),
+        round_at_launch: node.review_round,
         adversarial,
         options,
         settings_path: pass.settings_path.clone(),
@@ -1241,7 +1292,14 @@ fn build_base(
             false
         }
         Err(err) => {
+            // Visible on the node, like a conflict: a `ready` node whose
+            // base never comes up would otherwise sit there without a word.
             log::warn!("[workflows] {workflow_id}: base {base_branch} — {err}");
+            let mut report = api::workflows::NodeReport::new(node_id, "waiting");
+            report.note = api::patch::Patch::Set(one_line(&format!(
+                "Its base {base_branch} could not be built: {err}"
+            )));
+            report_node(&pass.trpc, &report);
             false
         }
     }
@@ -1356,6 +1414,7 @@ fn report_node(trpc: &api::TrpcClient, report: &api::workflows::NodeReport) -> b
 /// GitHub refusing the merge — the node has to merge the trunk in.
 fn land(
     pass: &Pass,
+    snapshot: &Snapshot,
     node_id: &str,
     branch: &str,
     claim: InFlight,
@@ -1389,8 +1448,16 @@ fn land(
     let mut report = api::workflows::NodeReport::new(node_id, "updating");
     report.note = api::patch::Patch::Set(reason.chars().take(500).collect());
     report_node(&pass.trpc, &report);
-    let Some(session_id) = pass
-        .snapshot
+    // The head GitHub refused: the engine holds the node `updating` until
+    // it moves, instead of asking GitHub again every beat.
+    let workflow_id = snapshot.workflow.id.clone();
+    if let Some(head) = snapshot.pr_head.get(node_id).cloned() {
+        let node = node_id.to_string();
+        update_state(pass, &workflow_id, move |state| {
+            state.land_refused.insert(node, head);
+        });
+    }
+    let Some(session_id) = snapshot
         .nodes
         .iter()
         .find(|node| node.id == node_id)
@@ -1406,12 +1473,23 @@ fn land(
         return;
     }
     if !pass.session_is_local.contains(&session_id) {
+        remember_resuming(pass, &workflow_id, &session_id, snapshot.now_ms);
         resumes.push(ResumeOrder {
             session_id,
             prompt,
             in_flight: Some(Arc::new(claim)),
         });
     }
+}
+
+/// The run this host is about to RESUME reads as live to the engine until
+/// the node names the new run (or the grace passes), so its ended row is
+/// neither resumed twice nor told anything meanwhile.
+fn remember_resuming(pass: &Pass, workflow_id: &str, session_id: &str, now_ms: i64) {
+    let session_id = session_id.to_string();
+    update_state(pass, workflow_id, move |state| {
+        state.resuming.insert(session_id, now_ms);
+    });
 }
 
 fn remember_nudge(pass: &Pass, workflow_id: &str, session_id: &str, key: &str) {
@@ -1525,16 +1603,16 @@ fn launch_node(order: StartOrder, cx: &mut App) {
         ),
     };
     let Some((request, deps, subject)) = prepared else {
-        fail_node(&trpc, &node_id, "The run could not be prepared on this machine");
+        fail_node_async(&trpc, &node_id, "The run could not be prepared on this machine", cx);
         return;
     };
     let Some(window) = crate::steer_wiring::find_team_window(cx) else {
-        fail_node(&trpc, &node_id, "No Exponential window is open on the runner");
+        fail_node_async(&trpc, &node_id, "No Exponential window is open on the runner", cx);
         return;
     };
     let node = node_id.clone();
     cx.spawn(async move |cx| {
-        let hold = in_flight;
+        let mut hold = in_flight;
         let prepared = cx
             .background_executor()
             .spawn(async move { coding::prepare(&request, &deps) })
@@ -1550,12 +1628,17 @@ fn launch_node(order: StartOrder, cx: &mut App) {
                     Ok(()) => {
                         let trpc = Arc::clone(&trpc);
                         let node = node.clone();
+                        // The in-flight claim rides along until the node
+                        // names its session: a pass in between would read a
+                        // `running` node with no session and start it again.
+                        let hold = hold.take();
                         cx.background_executor()
                             .spawn(async move {
                                 let mut report =
                                     api::workflows::NodeReport::new(&node, "running");
                                 report.session_id = api::patch::Patch::Set(session_id);
                                 report_node(&trpc, &report);
+                                drop(hold);
                             })
                             .detach();
                     }
@@ -1594,6 +1677,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
         node_branch,
         base_branch,
         review_branch,
+        round_at_launch,
         adversarial,
         options,
         settings_path,
@@ -1652,6 +1736,7 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
                         &workflow_id,
                         &node_id,
                         &session_id,
+                        round_at_launch,
                     ),
                     Err(err) => {
                         log::warn!("[workflows] review of {node_id} — {err}");
@@ -1688,18 +1773,24 @@ fn launch_review(order: ReviewOrder, cx: &mut App) {
     .detach();
 }
 
-/// Remember which run reviews a node, so a live review is never doubled.
+/// Remember which run reviews a node (so a live review is never doubled)
+/// and the node's round when it was launched (so a run that ends with the
+/// round unchanged is known to have submitted nothing).
 fn remember_review_run(
     settings_path: &std::path::Path,
     device_id: &str,
     workflow_id: &str,
     node_id: &str,
     session_id: &str,
+    round_at_launch: i64,
 ) {
     edit_states(settings_path, device_id, workflow_id, |state| {
         state
             .review_runs
             .insert(node_id.to_string(), session_id.to_string());
+        state
+            .review_rounds
+            .insert(node_id.to_string(), round_at_launch);
     });
 }
 

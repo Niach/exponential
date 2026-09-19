@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-19-release-train`,
+    date: `2026-09-19`,
+    title: `Release train 2026-09-19`,
+    summary: `Workflows ship on every client, the phone tab bar keeps its Agents and New issue buttons, and a round of fixes from the release review.`,
+    body: `- **Workflows**: plan a set of backlog issues as one dependency graph, let a device run them in parallel with a merge train and a review gate, and follow it from the web, the desktop app, iOS and Android.
+- **Phones**: the tab bar shows the Agents and New issue buttons on every tab, the Agent page keeps past runs behind a history button, and the board switcher lists teams and boards only.
+- **Review fixes**: a workflow dependent can no longer be merged into your default branch behind the final pull request, a node's approval is bound to the reviewer run and the commit it reviewed, the metrics beat is recorded again, a skipped node's issue no longer moves to done with the final pull request, and a stacked start refuses a blocking cycle that runs through a closed issue.
+- **Cleanup**: batch runs are named from their stored issue list on every client (older runs were backfilled), the staleness sweep only deletes runs whose machine is gone, and retired external-agent run records are dropped when the desktop app or CLI loads them.`,
+  },
+  {
     id: `2026-09-19-workflows-review-gate`,
     date: `2026-09-19`,
     title: `Workflows review themselves, grow while they run, and keep to a budget`,

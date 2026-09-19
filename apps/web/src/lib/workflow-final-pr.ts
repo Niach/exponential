@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { asc, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray } from "drizzle-orm"
 import type { db as database } from "@/db/connection"
 import {
   issues,
@@ -9,6 +9,7 @@ import {
 } from "@/db/schema"
 import {
   createPullRequest,
+  getPullRequest,
   resolveRepoToken,
   retargetPullRequest,
 } from "@/lib/integrations/github-pr"
@@ -207,13 +208,17 @@ export async function applyWorkflowFinalPrState(
         .where(eq(workflows.id, workflow.id))
       if (state !== `merged`) return
 
+      // Only what LANDED shipped with this PR: a skipped node's work never
+      // reached the branch, a proposed one was never part of the workflow.
       const nodes = await tx
         .select({
           issueId: workflowNodes.issueId,
           members: workflowNodes.memberIssueIds,
         })
         .from(workflowNodes)
-        .where(eq(workflowNodes.workflowId, workflow.id))
+        .where(
+          and(eq(workflowNodes.workflowId, workflow.id), eq(workflowNodes.state, `landed`))
+        )
       const covered = [
         ...new Set(nodes.flatMap((node) => [node.issueId, ...node.members])),
       ]
@@ -292,7 +297,12 @@ export async function retargetReleasedDependents(
       repo: repo.fullName,
     })
     const prs = await db
-      .select({ id: issues.id, prNumber: issues.prNumber, prState: issues.prState })
+      .select({
+        id: issues.id,
+        prNumber: issues.prNumber,
+        prState: issues.prState,
+        prBaseBranch: issues.prBaseBranch,
+      })
       .from(issues)
       .where(
         inArray(
@@ -304,11 +314,23 @@ export async function retargetReleasedDependents(
     const done: string[] = []
     for (const node of released) {
       const pr = prOf.get(node.issueId)
-      if (token && pr?.prNumber != null && pr.prState === `open`) {
+      const prOpen = pr?.prNumber != null && pr.prState === `open`
+      // The node's recorded base follows the PR, never the other way round:
+      // an open PR still on the old base keeps the node there too, so the
+      // next `landNode` sees the mismatch and refuses (the train stays
+      // honest). No PR yet = nothing to move on GitHub; the node's base is
+      // what `pr_open` will use.
+      if (prOpen && pr.prBaseBranch !== workflow.integrationBranch) {
+        if (!token) {
+          console.error(
+            `[workflows] retarget of node ${node.id} skipped: no GitHub App token for ${repo.fullName}`
+          )
+          continue
+        }
         try {
           await retargetPullRequest({
             repo: repo.fullName,
-            prNumber: pr.prNumber,
+            prNumber: pr.prNumber!,
             base: workflow.integrationBranch,
             token,
           })
@@ -331,5 +353,89 @@ export async function retargetReleasedDependents(
   } catch (err) {
     console.error(`[workflows] retarget after landing failed:`, err)
     return []
+  }
+}
+
+export type NodePrBaseCheck =
+  | { ok: true; retargeted: boolean }
+  | { ok: false; reason: string }
+
+/** The one sentence `landNode` answers with while a node's PR is off-branch. */
+export const NODE_PR_OFF_BRANCH_REASON = `Its pull request is not based on the workflow branch yet`
+
+/**
+ * The merge train's base assertion: a node's PR must be based on the
+ * workflow's integration branch BEFORE `landNode` squash-merges it, or the
+ * merge lands on whatever the PR points at (the default branch, when the
+ * stack heal of `retargetChildrenOfMergedPr` or a person moved it) and the
+ * work bypasses the workflow's ONE final PR. The recorded `issues.pr_base_branch`
+ * is asked first; when it is unknown, GitHub is (with a token). A PR still
+ * on another base is retargeted here when a token allows it; otherwise the
+ * caller gets the waiting outcome. Never throws.
+ */
+export async function ensureNodePrOnIntegrationBranch(
+  db: Db,
+  args: {
+    issueId: string
+    repositoryId: string | null
+    teamId: string
+    integrationBranch: string
+    actorUserId: string
+  }
+): Promise<NodePrBaseCheck> {
+  try {
+    const [pr] = await db
+      .select({
+        prNumber: issues.prNumber,
+        prState: issues.prState,
+        prBaseBranch: issues.prBaseBranch,
+      })
+      .from(issues)
+      .where(eq(issues.id, args.issueId))
+      .limit(1)
+    if (!pr || pr.prNumber == null || pr.prState !== `open`) {
+      return { ok: false, reason: `It has no open pull request` }
+    }
+    if (pr.prBaseBranch === args.integrationBranch) return { ok: true, retargeted: false }
+    if (!args.repositoryId) return { ok: false, reason: NODE_PR_OFF_BRANCH_REASON }
+    const [repo] = await db
+      .select({ fullName: repositories.fullName })
+      .from(repositories)
+      .where(eq(repositories.id, args.repositoryId))
+      .limit(1)
+    if (!repo) return { ok: false, reason: NODE_PR_OFF_BRANCH_REASON }
+    const token = await resolveRepoToken({
+      actorUserId: args.actorUserId,
+      teamId: args.teamId,
+      repo: repo.fullName,
+    })
+    if (!token) return { ok: false, reason: NODE_PR_OFF_BRANCH_REASON }
+    let base = pr.prBaseBranch
+    if (base === null) {
+      // Unknown locally (a PR opened outside `pr_open`, or before the column
+      // existed): GitHub knows.
+      base = (await getPullRequest(repo.fullName, pr.prNumber, token)).baseRef || null
+      if (base === args.integrationBranch) {
+        await db
+          .update(issues)
+          .set({ prBaseBranch: base })
+          .where(eq(issues.id, args.issueId))
+        return { ok: true, retargeted: false }
+      }
+    }
+    await retargetPullRequest({
+      repo: repo.fullName,
+      prNumber: pr.prNumber,
+      base: args.integrationBranch,
+      token,
+    })
+    await db
+      .update(issues)
+      .set({ prBaseBranch: args.integrationBranch })
+      .where(eq(issues.id, args.issueId))
+    return { ok: true, retargeted: true }
+  } catch (err) {
+    console.error(`[workflows] node PR base check failed:`, err)
+    return { ok: false, reason: NODE_PR_OFF_BRANCH_REASON }
   }
 }

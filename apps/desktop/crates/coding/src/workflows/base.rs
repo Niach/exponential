@@ -30,6 +30,13 @@ pub fn engine_worktree(clone: &Path, workflow_id: &str) -> PathBuf {
     crate::git_worktree::worktrees_dir(clone).join(format!(".exp-wf-{id8}"))
 }
 
+/// The identity the engine's merge commits carry, as `git -c` config. The
+/// engine runs on headless daemons with no global `user.name`/`user.email`,
+/// where a merge commit would otherwise refuse to be made at all; `-c` sets
+/// both author and committer for that one command and touches no config.
+pub const ENGINE_IDENTITY_NAME: &str = "user.name=Exponential workflow";
+pub const ENGINE_IDENTITY_EMAIL: &str = "user.email=workflow@exponential.at";
+
 /// What a build attempt produced.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BaseOutcome {
@@ -100,7 +107,18 @@ pub fn build_base(
         }
         run_git(
             Some(&workspace),
-            &["merge", "--no-ff", "--no-edit", &theirs],
+            &[
+                "-c",
+                ENGINE_IDENTITY_NAME,
+                "-c",
+                ENGINE_IDENTITY_EMAIL,
+                "-c",
+                "commit.gpgsign=false",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                &theirs,
+            ],
             url,
             &format!("git merge origin/{source}"),
         )?;
@@ -419,6 +437,23 @@ mod tests {
         assert_eq!(
             origin_file(&origin, "exp/wf-abcdef12-base-EXP-3", "two.txt").as_deref(),
             Some("two\n")
+        );
+        // The merge commits carry the ENGINE's identity, whatever the clone
+        // (or the machine) has configured: a headless daemon without a
+        // global user.name/user.email builds the same base.
+        git(&clone, &["fetch", "origin"]);
+        let author = git(
+            &clone,
+            &[
+                "log",
+                "-1",
+                "--format=%an <%ae> %cn <%ce>",
+                "origin/exp/wf-abcdef12-base-EXP-3",
+            ],
+        );
+        assert_eq!(
+            author,
+            "Exponential workflow <workflow@exponential.at> Exponential workflow <workflow@exponential.at>"
         );
         drop(dir);
     }

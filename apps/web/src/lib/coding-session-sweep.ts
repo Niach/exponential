@@ -15,17 +15,21 @@
 // heartbeat of a run that turns out to be alive REVIVES the row
 // (codingSessions.heartbeat), restoring badge + steerability.
 //
-// Old desktop/CLI builds read ANY running→ended flip as a remote kill, so the
-// flip is gated on the hosting device advertising the `stale-end` cap; a row
-// whose device lacks it (an older build, a device-less legacy row) is still
-// DELETED as before — a vanished row never fires their kill-switch, and their
-// heartbeat re-creates it. Staleness is measured from updated_at, which the
-// heartbeat advances, so a heartbeating session never goes stale.
+// The flip is gated on the hosting device advertising the `stale-end` cap
+// (every build past the version floor does; the cap stays as the contract
+// the device signs). A stale row whose device row still exists is only ever
+// FLIPPED through that path — never deleted: a delete would drop the run
+// from every list and orphan its journal. The DELETE is confined to stale
+// rows with NO devices row to consult at all — device-less legacy rows and
+// orphans left by `devices.remove` (it drops the devices row without
+// touching sessions) — which nothing could ever flip or revive (EXP-972).
+// Staleness is measured from updated_at, which the heartbeat advances, so a
+// heartbeating session never goes stale.
 //
 // Mirrors board-trash.ts's in-process scheduler shell; started once from
 // server-bun.ts. Multi-instance safe by construction: both statements are
-// status-conditioned atomic claims (the flip runs first, so the delete never
-// sees a row it just ended), and the desktop's own end tolerates either.
+// status-conditioned atomic claims over DISJOINT rows (a devices row exists
+// or it does not), and the desktop's own end tolerates either.
 
 import { and, inArray, lte, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -68,12 +72,18 @@ export async function runCodingSessionSweep(
       and ${devices.deviceId} = ${codingSessions.deviceId}
       and ${devices.caps} ? ${STALE_END_CAP}
   )`
+  // No devices row at all for the run's host + device: a legacy row that
+  // never named a device, or one whose device was removed (EXP-972).
+  const hostDeviceGone = sql`not exists (
+    select 1 from ${devices}
+    where ${devices.userId} = coalesce(${codingSessions.hostUserId}, ${codingSessions.userId})
+      and ${devices.deviceId} = ${codingSessions.deviceId}
+  )`
 
-  // The flip is the OPTIONAL half: every row it misses is still swept by the
-  // legacy delete below, which is the behaviour older builds have always had.
-  // So a failure here (a lock timeout, the `caps ?` operator on a drifted
-  // devices row) degrades to that instead of aborting the whole pass and
-  // leaving phantom "coding now" badges up until the next interval.
+  // A failure here (a lock timeout, the `caps ?` operator on a drifted
+  // devices row) must not abort the whole pass: the orphan delete below still
+  // runs, and the rows this flip missed simply wait for the next pass — they
+  // are never deleted in its place.
   let ended: { id: string; parentSessionId: string | null }[] = []
   try {
     ended = await db
@@ -94,14 +104,14 @@ export async function runCodingSessionSweep(
       })
   } catch (err) {
     console.error(
-      `[coding-session-sweep] stale-end flip failed, falling back to delete:`,
+      `[coding-session-sweep] stale-end flip failed, retrying next pass:`,
       err
     )
   }
 
   const deleted = await db
     .delete(codingSessions)
-    .where(stale)
+    .where(and(stale, hostDeviceGone))
     .returning({ id: codingSessions.id })
 
   // EXP-700: a swept row may be an agent-started CHILD whose parent is blocked

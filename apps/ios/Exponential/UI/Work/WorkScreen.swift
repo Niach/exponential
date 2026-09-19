@@ -757,6 +757,13 @@ struct WorkScreen: View {
             .onChange(of: shownEnded) { _, ended in
                 endedChanged(ended)
             }
+            // The hold lifting is an edge too: a run that ended WHILE a
+            // continuation was pending, whose successor then never landed
+            // (`sent` past its deadline, or `failed`), must still pop — Android
+            // keys `continuationPending` into the same effect.
+            .onChange(of: continuation.isPending) { _, pending in
+                if !pending { endedChanged(shownEnded) }
+            }
             // The desktop picked the resume / switch up — swap the
             // continuation in, on whichever face the reader is on.
             .onChange(of: continuation.watcher.startedSession) { _, started in

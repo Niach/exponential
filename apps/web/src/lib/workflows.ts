@@ -167,6 +167,7 @@ export async function replanWorkflow(
       id: workflows.id,
       teamId: workflows.teamId,
       status: workflows.status,
+      repositoryId: workflows.repositoryId,
     })
     .from(workflows)
     .where(eq(workflows.id, workflowId))
@@ -193,13 +194,27 @@ export async function replanWorkflow(
     const candidates = [...new Set([...parentOf.keys(), ...parentOf.values()])]
     const open = candidates.length
       ? await tx
-          .select({ id: issues.id, status: issues.status })
+          .select({
+            id: issues.id,
+            status: issues.status,
+            repositoryId: boards.repositoryId,
+          })
           .from(issues)
           .innerJoin(boards, eq(boards.id, issues.boardId))
           .where(and(inArray(issues.id, candidates), boardVisible()))
       : []
+    // Adoption follows the rule every pick obeys (`loadPickableIssues`): a
+    // workflow covers ONE repository, so an open sub-issue on a board of
+    // another repository (or of none) stays outside.
     const openIds = new Set(
-      open.filter((row) => !CLOSED_ANCHORS.has(row.status)).map((row) => row.id)
+      open
+        .filter(
+          (row) =>
+            !CLOSED_ANCHORS.has(row.status) &&
+            row.repositoryId !== null &&
+            row.repositoryId === workflow.repositoryId
+        )
+        .map((row) => row.id)
     )
     const folded = foldCompoundNodes(picked, parentOf, openIds)
     const keep = new Map(folded.map((node) => [node.issueId, node]))
@@ -244,31 +259,44 @@ export async function replanWorkflow(
     }
   }
 
-  const covered = [
+  let covered = [
     ...new Set(nodes.flatMap((node) => [node.issueId, ...node.memberIssueIds])),
   ]
-  const [blocks, identifiers] = covered.length
-    ? await Promise.all([
-        tx
-          .select({
-            issueId: issueRelations.issueId,
-            relatedIssueId: issueRelations.relatedIssueId,
-          })
-          .from(issueRelations)
-          .where(
-            and(
-              eq(issueRelations.type, `blocks`),
-              inArray(issueRelations.issueId, covered),
-              inArray(issueRelations.relatedIssueId, covered)
-            )
-          ),
-        tx
-          .select({ id: issues.id, identifier: issues.identifier })
-          .from(issues)
-          .where(inArray(issues.id, covered)),
-      ])
-    : [[], []]
+  const identifiers = covered.length
+    ? await tx
+        .select({ id: issues.id, identifier: issues.identifier })
+        .from(issues)
+        .where(inArray(issues.id, covered))
+    : []
   const identifierOf = new Map(identifiers.map((row) => [row.id, row.identifier]))
+  // A deleted MEMBER issue leaves no FK behind (`member_issue_ids` is json):
+  // drop it from its node at every status, or the graph keeps counting it.
+  // (A deleted node issue takes its node with it: FK cascade.)
+  for (const node of nodes) {
+    const kept = node.memberIssueIds.filter((id) => identifierOf.has(id))
+    if (kept.length === node.memberIssueIds.length) continue
+    await tx
+      .update(workflowNodes)
+      .set({ memberIssueIds: kept })
+      .where(eq(workflowNodes.id, node.id))
+    node.memberIssueIds = kept
+  }
+  covered = covered.filter((id) => identifierOf.has(id))
+  const blocks = covered.length
+    ? await tx
+        .select({
+          issueId: issueRelations.issueId,
+          relatedIssueId: issueRelations.relatedIssueId,
+        })
+        .from(issueRelations)
+        .where(
+          and(
+            eq(issueRelations.type, `blocks`),
+            inArray(issueRelations.issueId, covered),
+            inArray(issueRelations.relatedIssueId, covered)
+          )
+        )
+    : []
 
   const layout = layoutWorkflow(
     nodes.map((node) => ({
@@ -327,9 +355,25 @@ export async function replanWorkflowsForIssues(
   tx: Tx,
   issueIds: readonly string[]
 ): Promise<void> {
+  for (const workflowId of await workflowIdsCoveringIssues(tx, issueIds)) {
+    await replanWorkflow(tx, workflowId)
+  }
+}
+
+/**
+ * The live (draft/running/paused) workflows covering any of these issues, as
+ * node issue or compound member. Read it BEFORE deleting an issue: the FK
+ * cascade takes the node with the issue, so afterwards nothing points back at
+ * the workflow that has to re-lay out (`replanWorkflow` each id after the
+ * delete).
+ */
+export async function workflowIdsCoveringIssues(
+  executor: Executor,
+  issueIds: readonly string[]
+): Promise<string[]> {
   const ids = [...new Set(issueIds)]
-  if (ids.length === 0) return
-  const rows = await tx
+  if (ids.length === 0) return []
+  const rows = await executor
     .select({ workflowId: workflowNodes.workflowId })
     .from(workflowNodes)
     .innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
@@ -342,9 +386,7 @@ export async function replanWorkflowsForIssues(
         )
       )
     )
-  for (const workflowId of new Set(rows.map((row) => row.workflowId))) {
-    await replanWorkflow(tx, workflowId)
-  }
+  return [...new Set(rows.map((row) => row.workflowId))]
 }
 
 /**
@@ -408,18 +450,23 @@ export async function liveWorkflowBaseForIssue(
 }
 
 /** A workflow's nodes and the `blocks` edges between them (EXP-983): what the
- *  merge train's order and the post-landing retarget are decided on. */
+ *  merge train's order and the post-landing retarget are decided on. A
+ *  `proposed` node was never admitted, so it is ABSENT here, edges included:
+ *  the engine drops it the same way, and a covered node must never wait on
+ *  an outsider a member has not let in. */
 export async function loadWorkflowEdges(executor: Executor, workflowId: string) {
-  const nodes = await executor
-    .select({
-      id: workflowNodes.id,
-      issueId: workflowNodes.issueId,
-      memberIssueIds: workflowNodes.memberIssueIds,
-      state: workflowNodes.state,
-      baseBranch: workflowNodes.baseBranch,
-    })
-    .from(workflowNodes)
-    .where(eq(workflowNodes.workflowId, workflowId))
+  const nodes = (
+    await executor
+      .select({
+        id: workflowNodes.id,
+        issueId: workflowNodes.issueId,
+        memberIssueIds: workflowNodes.memberIssueIds,
+        state: workflowNodes.state,
+        baseBranch: workflowNodes.baseBranch,
+      })
+      .from(workflowNodes)
+      .where(eq(workflowNodes.workflowId, workflowId))
+  ).filter((node) => node.state !== `proposed`)
   const covered = nodes.flatMap((node) => [node.issueId, ...node.memberIssueIds])
   const blocks = covered.length
     ? await executor

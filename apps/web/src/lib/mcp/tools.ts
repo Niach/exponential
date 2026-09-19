@@ -7,6 +7,7 @@ import {
   WORKFLOW_MAX_ISSUES,
   wfNodeKindSchema,
   wfRiskSchema,
+  workflowReviewHeadSchema,
   workflowReviewOracleSchema,
   workflowTouchesSchema,
   type WfGate,
@@ -95,7 +96,7 @@ import {
 } from "@/lib/issue-relations"
 import { findRelationCycle } from "@/lib/relation-cycles"
 import { liveWorkflowBaseForIssue } from "@/lib/workflows"
-import { bumpMetrics } from "@/lib/trpc/workflows"
+import { appendDecisionLine, bumpMetrics } from "@/lib/trpc/workflows"
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import {
   issueWireColumns,
@@ -350,8 +351,10 @@ async function loadWorkflowNodeForSession(sessionId: string) {
     .select({
       nodeId: workflowNodes.id,
       workflowId: workflowNodes.workflowId,
+      identifier: issues.identifier,
     })
     .from(workflowNodes)
+    .innerJoin(issues, eq(issues.id, workflowNodes.issueId))
     .where(eq(workflowNodes.sessionId, sessionId))
     .limit(1)
   return row ?? null
@@ -2495,7 +2498,16 @@ export function registerExponentialTools(
                 issueId: lower.issueId,
                 relatedIssueId: id,
                 type: `blocks`,
-              }).catch(() => [id])
+              }).catch((err: unknown) => {
+                // A failed probe skips the edge like a cycle would (the PR is
+                // open either way), but says so: a silent skip hides a DB
+                // fault behind "there was a cycle".
+                console.warn(
+                  `[mcp] pr_open: blocks cycle check failed for ${lower.issueId} -> ${id}; skipping the stack relation`,
+                  err
+                )
+                return [id]
+              })
               if (cycle) continue
               await insertRelationInTx(tx, {
                 ...canonicalizeRelation(lower.issueId, id, `blocks`),
@@ -4684,10 +4696,33 @@ export function registerExponentialTools(
       try {
         const node = sessionId ? await loadWorkflowNodeForSession(sessionId) : null
         if (!node) return err(new Error(`This run is not a workflow node.`))
-        await db
-          .update(workflowNodes)
-          .set({ checkpointAt: new Date(), ...(summary ? { note: summary.slice(0, 500) } : {}) })
-          .where(and(eq(workflowNodes.id, node.nodeId), isNull(workflowNodes.checkpointAt)))
+        await db.transaction(async (tx) => {
+          const stamped = await tx
+            .update(workflowNodes)
+            .set({ checkpointAt: new Date() })
+            .where(and(eq(workflowNodes.id, node.nodeId), isNull(workflowNodes.checkpointAt)))
+            .returning({ id: workflowNodes.id })
+          // The summary is what dependents build against, so it joins the
+          // log every node prompt carries. `note` stays the engine's (its
+          // failure and waiting reasons). Once: a repeat call stamps nothing.
+          if (stamped.length === 0 || !summary?.trim()) return
+          const [workflow] = await tx
+            .select({ decisions: workflows.decisions })
+            .from(workflows)
+            .where(eq(workflows.id, node.workflowId))
+            .limit(1)
+          if (!workflow) return
+          await tx
+            .update(workflows)
+            .set({
+              decisions: appendDecisionLine(
+                workflow.decisions,
+                `${node.identifier} contract: ${summary}`,
+                new Date()
+              ),
+            })
+            .where(eq(workflows.id, node.workflowId))
+        })
         return ok({ ok: true })
       } catch (e) {
         return err(e)
@@ -4759,23 +4794,33 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_review_submit`,
     {
-      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN. An approval counts as evidence only with a passing oracle; otherwise a person still decides.`,
+      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN; head = the PR head commit sha you reviewed (a later push needs a new review). An approval counts as evidence only with a passing oracle; otherwise a person still decides.`,
       inputSchema: strictInput({
         nodeId: uuidString,
         verdict: z.enum(contract.wfReviewVerdict.values as [string, ...string[]]),
         findings: z.string().max(8000).optional(),
         oracle: z.record(z.string(), z.unknown()).optional(),
         model: z.string().max(64).optional(),
+        head: workflowReviewHeadSchema.optional(),
       }),
     },
     async (input) => {
       try {
+        // The verdict is bound to the calling RUN: the router checks it is the
+        // review run the engine started for this node, not the author's.
+        if (!sessionId) {
+          return err(
+            new Error(`Only a workflow review run may submit a verdict (no session header).`)
+          )
+        }
         const result = await caller(user, request).workflows.submitReview({
           nodeId: input.nodeId,
+          sessionId,
           verdict: input.verdict as WfReviewVerdict,
           findings: input.findings ?? ``,
           oracle: input.oracle ? workflowReviewOracleSchema.parse(input.oracle) : null,
           model: input.model ?? null,
+          head: input.head,
         })
         return ok(result)
       } catch (e) {

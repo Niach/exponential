@@ -81,21 +81,19 @@ final class PastRunsTests: XCTestCase {
     }
 
     /// The batch fixture every EXP-876 case reads: two covered issues, filed
-    /// in identifier order, both on the run's branch.
+    /// in identifier order.
     private var covered: [IssueEntity] {
         [
             issue(
                 id: "i-1",
                 title: "Session list fixes",
                 identifier: "EXP-874",
-                branch: "exp/batch-1a2b3c4d",
                 createdAt: "2026-09-01T10:00:00Z"
             ),
             issue(
                 id: "i-2",
                 title: "Batch run names",
                 identifier: "EXP-876",
-                branch: "exp/batch-1a2b3c4d",
                 createdAt: "2026-09-02T10:00:00Z"
             ),
         ]
@@ -386,15 +384,14 @@ final class PastRunsTests: XCTestCase {
             ),
             "EXP-874 +2"
         )
-        // A run started before the column existed: its issues are the ones
-        // `pr_open` put on its branch.
-        XCTAssertEqual(
+        // EXP-972: a batch branch alone names nothing — the server backfills
+        // `batch_issue_ids`, so no stored ids means no knowable issues.
+        XCTAssertNil(
             PastRuns.identifier(
                 session(id: "d", issueId: nil, branch: "exp/batch-1a2b3c4d"),
                 issue: nil,
                 batchIssues: covered
-            ),
-            "EXP-874 +1"
+            )
         )
         // Nothing to name it by — the generic label, and no lead-in.
         XCTAssertNil(PastRuns.identifier(session(id: "e", issueId: nil), issue: nil))
@@ -420,8 +417,8 @@ final class PastRunsTests: XCTestCase {
         // An id whose issue has not synced is skipped, never a blank row.
         let partial = session(id: "b", issueId: nil, batchIssueIds: #"["gone","i-1"]"#)
         XCTAssertEqual(BatchRun.issues(partial, issues: covered).map(\.id), ["i-1"])
-        // A branch that is not a batch's matches nothing.
-        for branch in ["exp/chat-1a2b3c4d", "exp/EXP-874"] {
+        // No branch names a batch — stored ids or nothing (EXP-972).
+        for branch in ["exp/batch-1a2b3c4d", "exp/chat-1a2b3c4d", "exp/EXP-874"] {
             XCTAssertTrue(
                 BatchRun.issues(
                     session(id: "c", issueId: nil, branch: branch), issues: covered

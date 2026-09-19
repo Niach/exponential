@@ -868,11 +868,6 @@ pub enum DisabledReason {
     /// conversation lives in the login's own rollout store), a missing target
     /// profile, or a switch asked for while the agent is mid-turn.
     AccountSwitchRefused { message: String },
-    /// EXP-862: the recorded run used an external ACP agent, which this build
-    /// no longer runs. Its `agent` field names the settings default and means
-    /// nothing, so resuming would hand the conversation to a CLI that never
-    /// saw it.
-    ExternalAgentRetired,
 }
 
 impl DisabledReason {
@@ -891,11 +886,6 @@ impl DisabledReason {
             DisabledReason::SessionLimit { message } => message.clone(),
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
-            DisabledReason::ExternalAgentRetired => {
-                "That run used an external agent this version no longer supports. \
-Start a new run instead."
-                    .to_string()
-            }
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
@@ -2989,13 +2979,6 @@ fn prepare_resume_run(
     deps: &CodingDeps,
 ) -> Result<Prepared, CodingError> {
     let record = &req.record;
-    // EXP-862: a run an older build put on an external ACP agent names no
-    // agent this build can start — `record.agent` is the settings default it
-    // was recorded beside. Refuse by name instead of handing the recorded ACP
-    // session id to a CLI that never saw the conversation.
-    if record.is_retired_external_agent() {
-        return Ok(Prepared::Disabled(DisabledReason::ExternalAgentRetired));
-    }
     let agent = record.agent;
     // EXP-849: what account this resume runs on. `Some(None)` is an explicit
     // ask for the AMBIENT login (switching back), which is why this is a
@@ -4294,35 +4277,6 @@ mod tests {
         let acp = &prepared.acp;
         assert_eq!(acp.resume, None);
         assert!(acp.prompt.as_deref().unwrap().contains("Code review"));
-    }
-
-    /// EXP-862: external ACP agents are gone, so a run an older build
-    /// recorded on one refuses to resume by name. Its `agent` field carries
-    /// the settings default and means nothing, so relaunching it would hand
-    /// the recorded ACP session id to a CLI that never saw the conversation.
-    #[test]
-    fn a_retired_external_agent_run_refuses_to_resume() {
-        let dir = temp_dir("resume-external-retired");
-        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut record = resume_record(&dir.0, "sess-old");
-        record.transport = Some("acp".to_string());
-        record.acp_session_id = Some("acp-9".to_string());
-        record.extra.insert(
-            crate::run_registry::EXTERNAL_AGENT_KEY.to_string(),
-            serde_json::json!({"id": "acme", "command": "acme"}),
-        );
-
-        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::ExternalAgentRetired) => {}
-            other => panic!("expected ExternalAgentRetired, got {other:?}"),
-        }
-        // Nothing server-side was created for a resume that cannot run.
-        assert!(crate::run_registry::get(&dir.0, "sess-a").is_none());
     }
 
     /// EXP-773 (was EXP-758 #11): a run whose agent lost its ACP readiness

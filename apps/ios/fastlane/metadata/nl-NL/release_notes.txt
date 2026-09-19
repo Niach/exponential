@@ -1,23 +1,22 @@
+- Workflows: plan een set issues uit de backlog van één repository als een graaf van wat wat blokkeert, en laat een machine ze parallel draaien; Workflows zit achter een knop op de Agent-pagina
+- Een workflow maakt zijn werk zelf af: knopen starten zodra hun blokkers landen, pull requests worden in volgorde van afhankelijkheid samengevoegd in de tak van de workflow, en één laatste pull request draagt de hele diff
+- Workflows controleren zichzelf: een aparte run leest elke pull request na, een vervolgissue kan onderweg meedoen, en een knoop over zijn budget pauzeert en wacht op jou
+- Subissues en blokkers in elke lijst: een subissue staat onder zijn ouder op een verbindingslijn, en één merk telt wat de regel blokkeert en opent de afhankelijkheidsgraaf
+- Een geblokkeerde issue starten toont de hele keten en biedt Cancel, Start anyway of een gestapelde pull request, en zegt waarom een stack niet kan
+- Een run die tegen een limiet loopt stuurt je een push en een regel in je postvak die hem opent; uit te zetten bij notificatie-instellingen, Blocked runs
+- Op de Agent-pagina staan eerdere runs achter een geschiedenisknop, en de knoppen voor chat en New issue staan op elke tab in de tabbalk
+- De boardwisselaar toont alleen teams en boards, en een run geopend vanuit een issue toont geen leeg scherm meer tot je eraan trekt
 - Apparaatpictogrammen: geef elke machine in haar instellingen een eigen icoon, een monitor, server of laptop of het merk van Apple, Windows of Linux, en kies voor boards en acties uit 96 iconen
 - De Run-kant begint met de takenlijst van de agent, een run op de achtergrond houdt zijn tab, en de tabs en balken lopen gelijk met het verslag
-- Apparaten vouwen tot één regel, tonen wanneer een verbruiksvenster wordt teruggezet, en een login kun je van een machine verwijderen; het menu van het Work-scherm staat alleen op de Issue-kant, de kantwisselaar telt de gewijzigde bestanden en schuift in het uitgeklapte invoerveld, en de issues van een batch-run openen in een blad
-- Aanroepen naar Exponential staan als eigen groep, Read 3 issues in plaats van een algemene tool-run, en een beurt die geen bestand wijzigde toont geen lege kaart meer
-- Stop in een lopende sessie is nu een gewone knop in de balk, even hoog als de terugknop, in plaats van een pil met een gebroken rand
-- Regels in het verslag van een run overlappen elkaar niet meer, en de chat scrolt vrij langs de kaart boven het invoerveld
-- Een chat-run krijgt de naam van waar de agent aan werkt, in plaats van overal „Chat” te heten
 - Eén diff overal: de bestanden van een diff staan in een boom waarin je springt, en de wijzigingen van één beurt komen samen op één kaart „Edited files”, met regelnummers, verborgen ongewijzigde regels die je opent, en hernoemde of binaire bestanden met naam
 - Verbruik op één plek: een venster toont het account van de run, zijn limietvensters en het contextvenster, plus de andere logins op die machine
 - Apparaten dragen de logins: elke machine toont haar agent-logins met abonnement, gezondheid en verbruik, en het tandwiel van een apparaat bevat Update en Remove
 - Eén issue-zoekopdracht: dezelfde rangschikking draagt elke issuelijst, elke kiezer en elk #-menu, met de bovenste treffer al gekozen
-- Een draaiend commando toont alleen zijn laatste regels, en een run die stilvalt wordt als beëindigd gemarkeerd en blijft in de lijst
 - Eén Work-scherm: een issue, zijn run en de wijzigingen zijn kanten van hetzelfde scherm, je wisselt ertussen met de balk onderin, en Stop of Resume staat rechtsboven
 - Gestapelde pull requests: start een issue boven op de issue die hem blokkeert, voeg de keten samen met Merge stack, lees het stack- of batch-merk op het werk, en beantwoord de vraag die een geneste run je stuurt
 - Resultaten van een run: een run die schermafbeeldingen publiceert krijgt een Results-kant, gegroepeerd per onderwerp, één tegel per platform
-- Batch-runs met een naam: een run over meerdere issues leest EXP-874 +2 naast de titel van de eerste issue in plaats van „Batch run”
 - Berichten die meteen aankomen: een bericht dat je tikt terwijl de agent werkt, bereikt hem direct en staat als verzonden tot het gelezen is, een wachtend bericht staat in een balk boven het invoerveld, en Stop geeft de tekst terug aan het invoerveld
 - GitHub op orde: GitHub koppelen, een repository toevoegen en de repository van een board instellen werken net als op de computer, en fouten verschijnen waar je bent
-- Rustigere knoppen en duidelijkere kiezers: alleen de hoofdactie houdt een gevulde cirkel, de agentkiezer draagt het merk van Claude Code of Codex, en apparaatmenu's beginnen met een laptop- of servericoon
-- De Agent-pagina houdt je runs vast: eerdere vouwen achter een teller die je kunt openen, en draait er niets, dan staat het invoerveld midden op de pagina
 - Issue-filters zijn weg: zoeken dekt waar ze voor waren, en groeperen en de statusbanden blijven
 - Doorgaan met e-mail of met een passkey: log in met een 6-cijferige code die je gemaild krijgt, of met Face ID of Touch ID; alle opties staan in één Continue-lijst
 - Wisselen van account tijdens een run, en terug waar je vandaan kwam: een Claude-run op zijn limiet kan verder op een ander account, en een sessie verlaten brengt je terug naar de issue of het board waar je hem opende

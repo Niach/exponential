@@ -15,7 +15,11 @@
 //!       "reviewedHead": { "<nodeId>": "<sha>" },
 //!       "findingsSent": { "<nodeId>": 2 },
 //!       "reviewRuns": { "<nodeId>": "<sessionId>" },
-//!       "checkpointTips": { "<nodeId>": "<sha>" }
+//!       "checkpointTips": { "<nodeId>": "<sha>" },
+//!       "landRefused": { "<nodeId>": "<sha>" },
+//!       "resuming": { "<sessionId>": 1726000000000 },
+//!       "reviewRounds": { "<nodeId>": 1 },
+//!       "reviewFailures": { "<nodeId>": 1 }
 //!     }
 //!   }
 //! }
@@ -77,6 +81,18 @@ pub struct WorkflowState {
     /// EXP-984: `node id → the branch tip last counted as a contract
     /// change`, the input to the `contractChanges` metric.
     pub checkpoint_tips: HashMap<String, String>,
+    /// `node id → the head of its pull request when GitHub last refused to
+    /// merge it`; the node holds `updating` until that head moves.
+    pub land_refused: HashMap<String, String>,
+    /// `session id → ms epoch` of the runs this host is RESUMING: they read
+    /// as live until the node names the new run, or the grace passes.
+    pub resuming: HashMap<String, i64>,
+    /// EXP-984: `node id → the node's review round when its reviewer run was
+    /// launched` — a run that ends with the round unchanged had no verdict.
+    pub review_rounds: HashMap<String, i64>,
+    /// EXP-984: `node id → reviewer runs that ended without a verdict`, the
+    /// bound on re-launching them.
+    pub review_failures: HashMap<String, i64>,
 }
 
 /// The conflict cache's key: the pair and the tips it was decided at, both
@@ -147,6 +163,10 @@ pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, Wor
                     findings_sent: read_round_map(entry.get("findingsSent")),
                     review_runs: read_string_map(entry.get("reviewRuns")),
                     checkpoint_tips: read_string_map(entry.get("checkpointTips")),
+                    land_refused: read_string_map(entry.get("landRefused")),
+                    resuming: read_round_map(entry.get("resuming")),
+                    review_rounds: read_round_map(entry.get("reviewRounds")),
+                    review_failures: read_round_map(entry.get("reviewFailures")),
                 },
             )
         })
@@ -192,7 +212,8 @@ fn read_string_map(value: Option<&Value>) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
-/// EXP-984: `node id → round`.
+/// A flat `key → integer` map (`findingsSent`, `reviewRounds`,
+/// `reviewFailures`, `resuming`).
 fn read_round_map(value: Option<&Value>) -> HashMap<String, i64> {
     value
         .and_then(Value::as_object)
@@ -268,6 +289,10 @@ pub fn write_states(
                 "findingsSent": state.findings_sent,
                 "reviewRuns": state.review_runs,
                 "checkpointTips": state.checkpoint_tips,
+                "landRefused": state.land_refused,
+                "resuming": state.resuming,
+                "reviewRounds": state.review_rounds,
+                "reviewFailures": state.review_failures,
             }),
         );
     }
@@ -410,6 +435,12 @@ mod tests {
             .insert("node-1".to_string(), "sess-r1".to_string());
         mine.checkpoint_tips
             .insert("node-1".to_string(), "sha-a2".to_string());
+        // The refusal hold, the resume grace and the verdict-less run count.
+        mine.land_refused
+            .insert("node-1".to_string(), "sha-a2".to_string());
+        mine.resuming.insert("sess-1".to_string(), 1_726_000_000_000);
+        mine.review_rounds.insert("node-1".to_string(), 1);
+        mine.review_failures.insert("node-1".to_string(), 2);
         let states: HashMap<String, WorkflowState> = [("wf-1".to_string(), mine.clone())].into();
         write_states(&path, "d", &states).unwrap();
         assert_eq!(read_states(&path, "d")["wf-1"], mine);

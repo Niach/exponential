@@ -54,7 +54,7 @@ vi.mock(`@/lib/steer-child-messages`, () => ({
 }))
 
 import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
-import { codingSessions, sessionAttachments } from "@/db/schema"
+import { codingSessions, sessionAttachments, workflowNodes } from "@/db/schema"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
@@ -439,7 +439,7 @@ describe(`codingSessions.start — batch path`, () => {
 
     await caller.start({ teamId: TEAM_ID, batchIssueIds: [ISSUE_ID] })
 
-    // NULL, not `[]`: the row then names itself off its branch instead.
+    // NULL, not `[]`: "nothing to name this batch by" (it reads `Batch run`).
     expect(inserts[0]!.values.batchIssueIds).toBeNull()
   })
 
@@ -2059,6 +2059,43 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
     expect(
       updates.some((update) => update.values.parentSessionId === SESSION_ID)
     ).toBe(true)
+  })
+
+  // EXP-978/EXP-972: a workflow node names the run working it; a resume
+  // mints a new row, so the node must follow or the engine keeps evaluating
+  // the ENDED predecessor and re-emits land/resume actions against a run
+  // that is live under another id.
+  it(`re-points workflow nodes from the predecessor to the successor, on every subject`, async () => {
+    for (const subject of [
+      { issueId: ISSUE_ID },
+      { teamId: TEAM_ID },
+      { actionId: ACTION_ID },
+      { actionId: `builtin:chat`, teamId: TEAM_ID },
+    ]) {
+      inserts.length = 0
+      updates.length = 0
+      updateWheres.length = 0
+      selectResults.length = 0
+      selectResults.push([{ id: RESUMED_FROM, userId: `actor` }])
+      if (subject.actionId === ACTION_ID) {
+        selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Refresh` }])
+      }
+
+      await caller.start({ ...subject, resumedFromId: RESUMED_FROM })
+
+      const repoint = updates.find((update) => update.table === workflowNodes)
+      expect(repoint, JSON.stringify(subject)).toBeDefined()
+      expect(repoint!.values).toEqual({ sessionId: SESSION_ID })
+      expect(whereShape(updateWheres[updates.indexOf(repoint!)])).toEqual([
+        `col:session_id`,
+        RESUMED_FROM,
+      ])
+    }
+  })
+
+  it(`re-points no node on a plain start`, async () => {
+    await caller.start({ issueId: ISSUE_ID })
+    expect(updates.some((update) => update.table === workflowNodes)).toBe(false)
   })
 
   it(`re-stamps children inside the successor's team only, on every subject`, async () => {

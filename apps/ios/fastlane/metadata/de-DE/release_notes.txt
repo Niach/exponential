@@ -1,23 +1,22 @@
+- Workflows: plane eine Menge Backlog-Issues eines Repositorys als Graph dessen, was was blockiert, und lass eine Maschine sie parallel laufen; Workflows liegt hinter einem Button auf der Agent-Seite
+- Ein Workflow bringt seine Arbeit selbst nach Hause: Knoten starten, sobald ihre Blocker gelandet sind, Pull Requests laufen in Abhängigkeitsreihenfolge in den Zweig des Workflows, und ein letzter Pull Request trägt den ganzen Diff
+- Workflows prüfen sich selbst: ein eigener Lauf begutachtet jeden Pull Request, ein Folge-Issue kann noch während des Laufs dazukommen, und ein Knoten über seinem Budget pausiert und wartet auf dich
+- Unter-Issues und Blocker in jeder Liste: ein Unter-Issue sitzt an einer Verbindungslinie unter seinem Elternteil, und ein Abzeichen zählt, was die Zeile blockiert, und öffnet den Abhängigkeitsgraphen
+- Ein blockiertes Issue zu starten zeigt die ganze Kette und bietet Cancel, Start anyway oder einen gestapelten Pull Request, und sagt, warum ein Stack nicht geht
+- Ein Lauf, der an ein Limit stößt, schickt dir eine Push-Nachricht und eine Zeile im Posteingang, die ihn öffnet; abschaltbar in den Benachrichtigungen unter Blocked runs
+- Auf der Agent-Seite liegen vergangene Läufe hinter einem Verlaufs-Button, und die Buttons für Chat und New issue stehen in der Tableiste auf jedem Tab
+- Die Board-Auswahl listet nur Teams und Boards, und ein aus einem Issue geöffneter Lauf zeigt keinen leeren Bildschirm mehr, bis du ihn ziehst
 - Gerätesymbole: gib jeder Maschine ein eigenes Symbol in ihren Einstellungen, Monitor, Server, Laptop oder das Zeichen von Apple, Windows oder Linux; Boards und Aktionen wählen aus 96 Symbolen
 - Die Run-Seite beginnt mit der Aufgabenliste des Agenten, ein Lauf im Hintergrund behält seinen Tab, und Tabs und Leisten fluchten mit dem Protokoll
-- Geräte klappen auf je eine Zeile und zeigen, wann ein Limit-Fenster zurückgesetzt wird; ein Login lässt sich entfernen, das Menü des Work-Bildschirms sitzt nur auf der Issue-Seite, der Seitenumschalter zählt die geänderten Dateien und rückt ins geöffnete Eingabefeld, und die Issues eines Batch-Laufs öffnen sich in einem Blatt
-- Aufrufe an Exponential stehen als eigene Gruppe, Read 3 issues statt eines allgemeinen Werkzeuglaufs, und ein Zug ohne geänderte Datei zeigt keine leere Karte mehr
-- Stop in einer laufenden Session ist jetzt ein schlichter Button in der Leiste, so hoch wie der Zurück-Button, statt einer Pille mit gebrochenem Rand
-- Die Zeilen im Protokoll eines Laufs überlappen sich nicht mehr, und der Chat scrollt frei an der Karte über dem Feld vorbei
-- Ein Chat-Lauf trägt jetzt den Namen dessen, woran der Agent arbeitet, statt überall „Chat“ zu heißen
 - Ein Diff überall: die Dateien stehen in einem Baum, durch den du springst, und die Änderungen eines Zuges sammeln sich in einer Karte „Edited files“, mit Zeilennummern, aufklappbaren unveränderten Zeilen und benannten umbenannten oder binären Dateien
 - Verbrauch an einem Ort: eine Übersicht zeigt das Konto des Laufs, seine Limit-Fenster und das Kontextfenster, dazu die anderen Logins der Maschine
 - Geräte tragen die Logins: jede Maschine listet ihre Agenten-Logins mit Tarif, Zustand und Verbrauch, und das Zahnrad eines Geräts hält Update und Remove
 - Eine Issue-Suche: dieselbe Reihung trägt jede Issue-Liste, jedes Auswahlfeld und jedes #-Menü, das oberste Ergebnis ist schon gewählt
-- Ein laufender Befehl zeigt nur seine letzten Zeilen, und ein Lauf, der verstummt, gilt als beendet und bleibt in der Liste
 - Ein Work-Bildschirm: ein Issue, sein Lauf und die Änderungen sind Seiten eines Bildschirms, umgeschaltet über die Leiste unten, mit Stop oder Resume oben rechts
 - Gestapelte Pull Requests: starte ein Issue auf dem, das es blockiert, führe die Kette mit Merge stack zusammen, lies das Stack- oder Batch-Abzeichen an der Arbeit und beantworte die Frage eines verschachtelten Laufs
 - Ergebnisse eines Laufs: ein Lauf, der Screenshots hochlädt, bekommt eine Results-Seite, nach Thema gruppiert, eine Kachel je Plattform
-- Batch-Läufe mit Namen: ein Lauf über mehrere Issues liest EXP-874 +2 neben dem Titel des ersten Issues statt „Batch run“
 - Nachrichten kommen sofort an: was du während der Arbeit des Agenten schreibst, erreicht ihn sofort und gilt als gesendet, bis es gelesen ist, eine wartende Nachricht steht in einer Leiste über dem Feld, und Stop gibt den Text zurück
 - GitHub in Ordnung: GitHub verbinden, ein Repository hinzufügen und das Repository eines Boards setzen verhalten sich wie am Desktop, und Fehler erscheinen dort, wo du bist
-- Ruhigere Buttons und klarere Auswahlfelder: nur die Hauptaktion behält einen gefüllten Kreis, die Agentenauswahl trägt das Zeichen von Claude Code oder Codex, und Gerätemenüs führen ein Laptop- oder Server-Symbol
-- Die Agent-Seite hält deine Läufe: vergangene klappen hinter einer Zahl zusammen, die du öffnen kannst, und wenn nichts läuft, sitzt das Eingabefeld mitten auf der Seite
 - Issue-Filter sind weg: die Suche deckt ab, wofür sie da waren, und Gruppierung und Statusbänder bleiben
 - Weiter mit E-Mail oder mit einem Passkey: melde dich mit einem 6-stelligen Code aus der Mail an oder mit Face ID oder Touch ID; alle Wege stehen in einer einzigen Continue-Liste
 - Konto mitten im Lauf wechseln und zurück, wo du herkamst: ein Claude-Lauf am Limit kann mit einem anderen Konto weiterlaufen, und verlässt du eine Session, landest du wieder beim Issue oder Board, aus dem du kamst

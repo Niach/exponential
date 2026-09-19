@@ -388,11 +388,19 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
     // EXP-964: a window that RESET since these numbers were read answers for
     // nothing any more — and the schedule that holds the entry is usually the
     // very pin that reset invalidated (a login stuck at 100 % "as of 10h
-    // ago"). So the reset overrides `next_poll_at_secs`, while the two floors
+    // ago"). So the reset overrides `next_poll_at_secs`, while the floors
     // that are not ours to override stand: the 429 the endpoint asked for,
-    // and the machine-wide TTL (stamped on every ATTEMPT, so a failing fetch
-    // cannot turn this into a retry storm).
+    // the machine-wide TTL (stamped on every ATTEMPT, so a failing fetch
+    // cannot turn this into a retry storm), and the backoff a FAILED attempt
+    // earned. The last one matters because `reset_due` reads the report's
+    // own stamp, which a failure never advances: without it a login whose
+    // reset passed and whose endpoint then errors would be retried every
+    // `SHARED_TTL_SECS` instead of `FAILED_BACKOFF_SECS` until a fetch
+    // succeeds. `usage.stale` is exactly "an attempt failed since this
+    // report" (`apply_outcome` is its only writer).
+    let last_attempt_failed = entry.usage.as_ref().is_some_and(|usage| usage.stale);
     let reset_passed = reset_due(entry, now)
+        && !last_attempt_failed
         && !entry
             .rate_limited_until_secs
             .is_some_and(|until| now < until);
@@ -1706,6 +1714,65 @@ mod tests {
         assert!(!poll_due(&behind, read_at + 1));
         // …and the shared TTL still spaces the ordinary cadence.
         assert!(!poll_due(&entry, reset.max(read_at + SHARED_TTL_SECS - 1) - SHARED_TTL_SECS));
+    }
+
+    /// A passed reset overrides the schedule only while the last attempt
+    /// SUCCEEDED. A failure keeps the report's stamp (so `reset_due` stays
+    /// true) but earns [`FAILED_BACKOFF_SECS`]; that backoff must hold, or
+    /// the login is retried every [`SHARED_TTL_SECS`] until a fetch succeeds.
+    #[test]
+    fn a_failed_attempt_after_a_passed_reset_keeps_its_backoff() {
+        let read_at = 1_756_000_000;
+        let reset = read_at + 3_600;
+        let mut entry = AgentCacheEntry::default();
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window(
+                "session",
+                100,
+                crate::agent_accounts::iso_from_unix_secs(reset as i64).as_deref(),
+            )]),
+            read_at,
+            &crate::agent_accounts::iso_from_unix_secs(read_at as i64).expect("a stamp"),
+        );
+        // The reset passes; the pinned entry is due and the fetch fails.
+        let failed_at = reset + RESET_MARGIN_SECS + 1;
+        assert!(poll_due(&entry, failed_at));
+        apply_outcome(&mut entry, PollOutcome::Failed, None, failed_at, "s");
+        assert!(reset_due(&entry, failed_at), "the report's stamp still predates the reset");
+        assert_eq!(entry.next_poll_at_secs, failed_at + FAILED_BACKOFF_SECS);
+
+        // Past the shared TTL but inside the failure's backoff: not due.
+        assert!(!poll_due(&entry, failed_at + SHARED_TTL_SECS));
+        assert!(!poll_due(&entry, failed_at + FAILED_BACKOFF_SECS - 1));
+        // The backoff lifts the schedule like any other.
+        assert!(poll_due(&entry, failed_at + FAILED_BACKOFF_SECS));
+
+        // A 401 backs off longer still, and the reset overrides none of it.
+        apply_outcome(&mut entry, PollOutcome::Unauthorized, None, failed_at + FAILED_BACKOFF_SECS, "s");
+        assert!(!poll_due(&entry, failed_at + FAILED_BACKOFF_SECS + UNAUTHORIZED_BACKOFF_SECS - 1));
+        assert!(poll_due(&entry, failed_at + FAILED_BACKOFF_SECS + UNAUTHORIZED_BACKOFF_SECS));
+
+        // A success re-arms the override: a report read after the reset that
+        // quotes a stamp it already passed is not news, but one whose window
+        // rolls over again is.
+        let refetched_at = failed_at + FAILED_BACKOFF_SECS + UNAUTHORIZED_BACKOFF_SECS;
+        let next_reset = refetched_at + 3_600;
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![window(
+                "session",
+                100,
+                crate::agent_accounts::iso_from_unix_secs(next_reset as i64).as_deref(),
+            )]),
+            refetched_at,
+            &crate::agent_accounts::iso_from_unix_secs(refetched_at as i64).expect("a stamp"),
+        );
+        assert!(!entry.usage.as_ref().unwrap().stale);
+        assert!(!poll_due(&entry, next_reset - 60));
+        assert!(poll_due(&entry, next_reset + 1));
     }
 
     /// EXP-964 — however far out a reset claims to be, the entry is re-read

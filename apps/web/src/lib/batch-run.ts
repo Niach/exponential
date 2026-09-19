@@ -9,32 +9,26 @@
 // open-issue circle off every session row on every client, and it was exactly
 // the control a multi-issue run could never answer.
 //
-// The covered set has two sources, in this order:
-//   1. `coding_sessions.batch_issue_ids` — written at start, so the name is
-//      right from the run's first second (the composer's order, preserved).
-//   2. the issues sharing the row's `branch` — what `pr_open` stamped on both
-//      sides (EXP-545), which names batches started before the column existed
-//      or by a client too old to send it, from the moment their PR opens.
+// The covered set is `coding_sessions.batch_issue_ids`, written at start
+// (the composer's order, preserved), so the name is right from the run's
+// first second. NULL = "not a batch" (or nothing to name it by); rows from
+// before the column existed were backfilled once from their branch's issues
+// (migration 0133, EXP-972), so no client reads the branch any more.
 //
 // Pure, no React, no queries: the caller hands whatever issues it has synced.
 // ×4 lockstep — desktop `run_rows::batch_run_name`, iOS `BatchRun.name`,
 // Android `batchRunName`: same order, same `+N`, same fallback string, same
-// test names (`names a batch after its covered issues`, `falls back to the
-// branch`, `falls back to Batch run`).
+// test names (`names a batch after its covered issues`, `falls back to Batch
+// run`).
 
 /** The one string a batch with no knowable issues shows. Byte-identical ×4. */
 export const BATCH_RUN_FALLBACK = `Batch run`
-
-/** The launcher's batch branch marker (`exp/batch-<id8>`), deliberately
- *  lowercase so it can never parse as an issue branch. */
-export const BATCH_BRANCH_PREFIX = `exp/batch-`
 
 /** The session columns the rule reads. */
 export interface BatchRunSession {
   issueId: string | null
   actionName: string | null
   batchIssueIds: string[] | null
-  branch: string | null
 }
 
 /** The issue columns the rule reads. */
@@ -42,8 +36,6 @@ export interface BatchRunIssue {
   id: string
   identifier: string
   title: string
-  branch: string | null
-  createdAt: Date | string
 }
 
 /** An issue-less, action-less run — the batch. (A chat run carries the
@@ -52,17 +44,9 @@ export function isBatchRun(session: Pick<BatchRunSession, `issueId` | `actionNam
   return session.issueId == null && session.actionName == null
 }
 
-function stamp(value: Date | string): number {
-  const at = typeof value === `string` ? new Date(value) : value
-  const ms = at.getTime()
-  return Number.isNaN(ms) ? 0 : ms
-}
-
 /**
- * The issues a batch run covers, in NAMING order: the stored order when the
- * row recorded it, else the branch-mates oldest first (a deterministic order
- * every client reaches the same way — `created_at` is on every issue row,
- * identifiers break the tie).
+ * The issues a batch run covers, in NAMING order: the order the row stored.
+ * An id whose issue the caller has not synced is skipped, never invented.
  */
 export function batchRunIssues<I extends BatchRunIssue>(
   session: BatchRunSession,
@@ -70,21 +54,11 @@ export function batchRunIssues<I extends BatchRunIssue>(
 ): I[] {
   if (!isBatchRun(session)) return []
   const ids = session.batchIssueIds ?? []
-  if (ids.length > 0) {
-    const byId = new Map(issues.map((issue) => [issue.id, issue]))
-    return ids
-      .map((id) => byId.get(id))
-      .filter((issue): issue is I => issue !== undefined)
-  }
-  const branch = session.branch
-  if (!branch || !branch.startsWith(BATCH_BRANCH_PREFIX)) return []
-  return issues
-    .filter((issue) => issue.branch === branch)
-    .sort(
-      (a, b) =>
-        stamp(a.createdAt) - stamp(b.createdAt) ||
-        a.identifier.localeCompare(b.identifier)
-    )
+  if (ids.length === 0) return []
+  const byId = new Map(issues.map((issue) => [issue.id, issue]))
+  return ids
+    .map((id) => byId.get(id))
+    .filter((issue): issue is I => issue !== undefined)
 }
 
 /** What a batch row shows: `EXP-874 +2` beside the first issue's title. */
@@ -97,8 +71,8 @@ export interface BatchRunName {
 /**
  * Name a batch run. `issues` is whatever the caller has synced; only the
  * covered ones are read. A batch whose issues are all unknown (no stored ids,
- * no PR yet — or a row whose issues left the viewer's teams) keeps the old
- * generic label rather than inventing one.
+ * or a row whose issues left the viewer's teams) keeps the old generic label
+ * rather than inventing one.
  */
 export function batchRunName<I extends BatchRunIssue>(
   session: BatchRunSession,

@@ -546,6 +546,7 @@ export async function applyPrMergeState(opts: {
       headBranch?: string | null
       endedSessionIds?: string[]
       stackNumber?: number | null
+      inLiveWorkflow?: boolean
     }> => {
       const txId = await generateTxId(tx)
       void txId
@@ -636,7 +637,8 @@ export async function applyPrMergeState(opts: {
       // merges (`completeWorkflowOnFinalMerge` moves every covered issue
       // then). Everything else about the merge (the event, the ended run)
       // still happens here.
-      if (!(await issueLandsInLiveWorkflow(tx, opts.issueId))) {
+      const inLiveWorkflow = await issueLandsInLiveWorkflow(tx, opts.issueId)
+      if (!inLiveWorkflow) {
         await applyPrLifecycleStatusInTx(tx, {
           issueId: opts.issueId,
           teamId: current.teamId,
@@ -665,6 +667,7 @@ export async function applyPrMergeState(opts: {
         headBranch: current.branch ?? opts.headBranch ?? null,
         endedSessionIds,
         stackNumber: current.prStackNumber,
+        inLiveWorkflow,
       }
     }
   )
@@ -691,7 +694,11 @@ export async function applyPrMergeState(opts: {
     // base branch is DELETED; we squash-merge and leave it, so the children
     // would keep pointing at a dead branch (the EXP-320 incident).
     // Fire-and-forget: never blocks the webhook response or the caller.
-    if (result.prUrl && result.headBranch) {
+    // EXP-983: a workflow NODE's PR merged into the integration branch; its
+    // dependents' bases belong to the merge train (`retargetReleasedDependents`
+    // moves them onto the integration branch once every blocker landed), not
+    // to a heal that would point them at the default branch.
+    if (result.prUrl && result.headBranch && !result.inLiveWorkflow) {
       void retargetChildrenOfMergedPr({
         prUrl: result.prUrl,
         headBranch: result.headBranch,
@@ -1017,24 +1024,37 @@ export async function retargetChildrenOfMergedPr(opts: {
   if (children.length === 0) return
   // EXP-897: a child that is a REAL stack member is retargeted by GitHub
   // itself; PATCHing its base is a 422. One query, by the child PR urls.
+  // EXP-983: a child that is a live WORKFLOW node's PR is the merge train's:
+  // its base moves to the workflow's integration branch when its blockers
+  // landed (`retargetReleasedDependents`), never to the default branch; a
+  // heal that won that race would have `landNode` merge it past the
+  // workflow's final PR.
+  const linkedChildren = await db
+    .select({
+      id: issues.id,
+      prUrl: issues.prUrl,
+      prStackNumber: issues.prStackNumber,
+    })
+    .from(issues)
+    .where(
+      inArray(
+        issues.prUrl,
+        children.map((child) => child.url)
+      )
+    )
   const stacked = new Set(
-    (
-      await db
-        .select({ prUrl: issues.prUrl })
-        .from(issues)
-        .where(
-          and(
-            inArray(
-              issues.prUrl,
-              children.map((child) => child.url)
-            ),
-            sql`${issues.prStackNumber} is not null`
-          )
-        )
-    ).map((row) => row.prUrl)
+    linkedChildren
+      .filter((row) => row.prStackNumber != null)
+      .map((row) => row.prUrl)
   )
+  const inWorkflow = new Set<string | null>()
+  for (const row of linkedChildren) {
+    if (row.prUrl && !stacked.has(row.prUrl) && (await issueLandsInLiveWorkflow(db, row.id))) {
+      inWorkflow.add(row.prUrl)
+    }
+  }
   for (const child of children) {
-    if (stacked.has(child.url)) continue
+    if (stacked.has(child.url) || inWorkflow.has(child.url)) continue
     try {
       await retargetPullRequest({
         repo,
