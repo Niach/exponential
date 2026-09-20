@@ -110,6 +110,33 @@ describe(`CommentAttachments`, () => {
     ).toBeNull()
   })
 
+  it(`previews a markdown chip in the app instead of opening the byte route`, () => {
+    // EXP-955: the byte route only downloads text/markdown, so the chip's
+    // Open link becomes a Preview button; Download stays.
+    const { container } = render(
+      <TooltipProvider>
+        <CommentAttachments
+          attachments={[
+            attachment({
+              filename: `notes.md`,
+              contentType: `text/markdown`,
+              sizeBytes: 22_345,
+            }),
+          ]}
+          canModify={false}
+        />
+      </TooltipProvider>
+    )
+    expect(within(container).queryByLabelText(`Open notes.md`)).toBeNull()
+    expect(
+      within(container).queryByLabelText(`Preview notes.md`)
+    ).not.toBeNull()
+    expect(
+      within(container).queryByLabelText(`Download notes.md`)
+    ).not.toBeNull()
+    expect(within(container).getByText(`22 KB`)).toBeTruthy()
+  })
+
   it(`renders nothing without attachments`, () => {
     const { container } = render(
       <CommentAttachments attachments={[]} canModify />

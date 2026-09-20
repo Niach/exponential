@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Download, ExternalLink } from "lucide-react"
+import { Download, ExternalLink, Eye } from "lucide-react"
 import type { Attachment } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { attachmentCollection } from "@/lib/collections"
@@ -10,6 +10,7 @@ import {
   isFileAttachment,
   isInlineImageAttachment,
   isInlineMediaAttachment,
+  isMarkdownAttachment,
 } from "@/lib/attachment-files"
 import {
   buildAttachmentPosterUrl,
@@ -32,6 +33,7 @@ import {
   AlertDialogTitle,
 } from "@exp/ui"
 import { AttachmentMediaPlayer } from "@/components/attachment-media-player"
+import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdown-preview"
 
 interface CommentAttachmentsProps {
   attachments: Attachment[]
@@ -57,6 +59,10 @@ export function CommentAttachments({
   canModify,
 }: CommentAttachmentsProps) {
   const [preview, setPreview] = useState<Attachment | null>(null)
+  // EXP-955: a `.md` chip previews through the markdown renderer.
+  const [markdownPreview, setMarkdownPreview] = useState<Attachment | null>(
+    null
+  )
   const [pendingDelete, setPendingDelete] = useState<Attachment | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -151,23 +157,37 @@ export function CommentAttachments({
             <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
               {formatAttachmentSize(row.sizeBytes)}
             </span>
-            <IconTooltip label="Open">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-muted-foreground"
-                asChild
-              >
-                <a
-                  href={row.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={`Open ${row.filename}`}
+            {isMarkdownAttachment(row.contentType, row.filename) ? (
+              <IconTooltip label="Preview">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  aria-label={`Preview ${row.filename}`}
+                  onClick={() => setMarkdownPreview(row)}
                 >
-                  <ExternalLink />
-                </a>
-              </Button>
-            </IconTooltip>
+                  <Eye />
+                </Button>
+              </IconTooltip>
+            ) : (
+              <IconTooltip label="Open">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  asChild
+                >
+                  <a
+                    href={row.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Open ${row.filename}`}
+                  >
+                    <ExternalLink />
+                  </a>
+                </Button>
+              </IconTooltip>
+            )}
             <IconTooltip label="Download">
               <Button
                 variant="ghost"
@@ -190,6 +210,14 @@ export function CommentAttachments({
       })}
       </div>
       )}
+
+      <AttachmentMarkdownPreviewDialog
+        attachment={markdownPreview}
+        open={markdownPreview !== null}
+        onOpenChange={(open) => {
+          if (!open) setMarkdownPreview(null)
+        }}
+      />
 
       <ImagePreviewDialog
         open={preview !== null}
