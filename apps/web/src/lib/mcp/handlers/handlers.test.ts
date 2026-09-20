@@ -4,10 +4,6 @@ import {
   finalizeSignedAttachmentUpload,
   mintSignedAttachmentUpload,
 } from "./attachments-upload"
-import {
-  requestSessionCompaction,
-  sessionsCompactRefusals,
-} from "./sessions-compact"
 
 // EXP-988: the contract's handler stubs. Each leaf REPLACES the matching
 // assertion here with its own tests when it fills the file; until then the
@@ -32,15 +28,6 @@ describe(`MCP handler stubs (EXP-988)`, () => {
     ).rejects.toBeInstanceOf(NotImplementedError)
   })
 
-  it(`sessions_compact throws not-implemented (EXP-936) and names its refusals`, async () => {
-    await expect(
-      requestSessionCompaction({ sessionId: `s`, userId: `u`, reason: `r` })
-    ).rejects.toBeInstanceOf(NotImplementedError)
-    expect([...sessionsCompactRefusals]).toEqual([
-      `too_early`,
-      `cooldown`,
-      `not_own_session`,
-      `unsupported_agent`,
-    ])
-  })
+  // EXP-936 filled `sessions-compact.ts`: its tests live beside it
+  // (`sessions-compact.test.ts`).
 })

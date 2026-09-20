@@ -651,6 +651,31 @@ export const activityResetFrame = z.object({
   t: z.literal(`activity_reset`),
 })
 
+// EXP-936, publisher → relay: the host's answer to a `compact_request`. The
+// DEVICE holds the facts the verdict needs (context occupancy, turns since
+// the last compaction, whether a fold is already open), so it decides and
+// the relay only carries the answer back to the web server's awaiting
+// `POST /sessions/:id/compact` — the agent reads it off its tool result;
+// viewers never see it (nothing enters the room's log). One ask is in flight
+// per room at a time, so the frame needs no request id: `sessionId` names
+// the room the way `compact_request` did. `refusedBecause` is one of the
+// handler's four codes (`sessionsCompactRefusals`, lib/mcp/handlers/
+// sessions-compact.ts); absent when accepted.
+export const COMPACT_REFUSALS = [
+  `too_early`,
+  `cooldown`,
+  `not_own_session`,
+  `unsupported_agent`,
+] as const
+export type CompactRefusal = (typeof COMPACT_REFUSALS)[number]
+
+export const compactVerdictFrame = z.object({
+  t: z.literal(`compact_verdict`),
+  sessionId: z.string().min(1).max(128),
+  accepted: z.boolean(),
+  refusedBecause: z.enum(COMPACT_REFUSALS).optional(),
+})
+
 export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
   helloFrame,
@@ -667,6 +692,7 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   activityResetFrame,
   historyPageFrame,
   historyChunkFrame,
+  compactVerdictFrame,
 ])
 
 export type ClientFrame = z.infer<typeof clientFrame>

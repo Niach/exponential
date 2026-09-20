@@ -300,6 +300,7 @@ fn recording_hooks_with(
         config: None,
         interrupt: None,
         unqueue: None,
+        compact: None,
     }
 }
 

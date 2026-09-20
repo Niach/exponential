@@ -323,6 +323,16 @@ impl EngineSession {
         self.send(EngineCommand::Unqueue(id.to_string()));
     }
 
+    /// EXP-936: the run's own `exponential_sessions_compact`, as the host
+    /// decides it — the verdict the relay hands back to the web server. A
+    /// remote ask arrives through the publisher's hook and takes the same
+    /// path; this entry is for the process hosting the run (tests, a local
+    /// composer). An acceptance sends the agent's `/compact <keep>` at the
+    /// next turn boundary and a continuation prompt after the compaction.
+    pub fn request_compaction(&self, keep: Option<String>) -> steer::CompactVerdict {
+        self.0.ctx.request_compaction(keep)
+    }
+
     pub fn turn_signal(&self) -> Arc<steer::TurnSignal> {
         self.0.ctx.turn_signal.clone()
     }
@@ -581,6 +591,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         prompt_queue: Mutex::new(std::collections::VecDeque::new()),
         queue_commands: OnceLock::new(),
         drain_wanted: AtomicBool::new(false),
+        compaction: Arc::new(Mutex::new(crate::compaction::CompactionPolicy::default())),
         last_activity: Mutex::new(std::time::Instant::now()),
         failure: Mutex::new(None),
         exit: ExitState::default(),

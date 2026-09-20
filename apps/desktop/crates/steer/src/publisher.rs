@@ -37,7 +37,8 @@ use crate::activity::{
 };
 use crate::commands::parse_command;
 use crate::frames::{
-    ActivityEvent, ClientFrame, ServerFrame, CLOSE_REPLACED, CLOSE_UNAUTHORIZED,
+    ActivityEvent, ClientFrame, CompactRefusal, CompactVerdict, ServerFrame, CLOSE_REPLACED,
+    CLOSE_UNAUTHORIZED,
 };
 use crate::history::JournalWriter;
 use crate::journal::ActivityJournal;
@@ -173,7 +174,20 @@ pub struct PublisherHooks {
     /// engine drops it and republishes the `queue` slot. `None` (tests) is a
     /// documented no-op.
     pub unqueue: Option<Arc<dyn Fn(String) + Send + Sync>>,
+    /// EXP-936: the run's OWN `exponential_sessions_compact`, relayed as a
+    /// `compact_request`. The hook DECIDES (it holds the context meter, the
+    /// turns since the last compaction and the open-fold state) and, when it
+    /// accepts, arranges the agent's `/compact <keep>` at the next turn
+    /// boundary; the publisher only answers the relay with the verdict, which
+    /// is the web server's awaiting tool result. Synchronous and cheap by
+    /// contract: the relay times the ask out after 4s. `None` (tests, a run
+    /// with no engine) refuses as `unsupported_agent` rather than leaving the
+    /// relay to time out.
+    pub compact: Option<CompactHook>,
 }
+
+/// EXP-936: `keep` (what the summary must preserve) → the host's verdict.
+pub type CompactHook = Arc<dyn Fn(Option<String>) -> CompactVerdict + Send + Sync>;
 
 /// [`PublisherHooks::attachments`] over an account's tRPC client (EXP-511):
 /// downloads into `dest_dir` — `<worktree>/.exp-steer-images`, which the
@@ -1140,10 +1154,27 @@ async fn pump_connection(
                                 return LoopEnd::Dropped;
                             }
                         }
-                        // EXP-988: declared by the workflow contract, acted
-                        // on by EXP-936 (compact at the next turn boundary).
-                        Some(ServerFrame::CompactRequest { .. }) => {
-                            log::debug!("steer publisher: compact_request not handled yet");
+                        // EXP-936: the run asked its host to compact. The
+                        // hook decides off in-memory state; the verdict goes
+                        // straight back down THIS socket (the relay holds the
+                        // web server's HTTP call on it) — never through
+                        // `input_tx`, whose choreography sleeps. A frame that
+                        // names another room is answered for ITS room so the
+                        // relay's ask never dangles (the relay drops a verdict
+                        // whose id does not match anyway).
+                        Some(ServerFrame::CompactRequest { session_id, keep }) => {
+                            let verdict = match &hooks.compact {
+                                Some(compact) if session_id == spec.session_id => compact(keep),
+                                Some(_) => CompactVerdict::Refused(CompactRefusal::NotOwnSession),
+                                None => CompactVerdict::Refused(CompactRefusal::UnsupportedAgent),
+                            };
+                            log::info!(
+                                "steer publisher: compact_request for {session_id} → {verdict:?}"
+                            );
+                            let frame = verdict.frame(&session_id).to_json();
+                            if ws.send(Message::Text(frame)).await.is_err() {
+                                return LoopEnd::Dropped;
+                            }
                         }
                         Some(ServerFrame::StartSession { .. })
                         | Some(ServerFrame::CheckIn)
@@ -1461,6 +1492,7 @@ mod tests {
             config: None,
             interrupt: None,
             unqueue: None,
+            compact: None,
         }
     }
 
@@ -1745,6 +1777,133 @@ mod tests {
         assert!(
             recorded.inputs.lock().unwrap().is_empty(),
             "live config never reaches the PTY"
+        );
+        handle.shutdown(None);
+    }
+
+    /// EXP-936: a `compact_request` is answered on THIS socket with the
+    /// hook's verdict — the relay holds the web server's HTTP call on it —
+    /// and the `keep` text reaches the hook verbatim. A request naming
+    /// another room, and a publisher with no hook, still answer (a refusal),
+    /// so the relay's ask never runs into its timeout.
+    #[test]
+    fn a_compact_request_is_answered_with_the_hooks_verdict() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let asked: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut hooks = recording_hooks(recorded.clone());
+        let asked_in_hook = asked.clone();
+        hooks.compact = Some(Arc::new(move |keep: Option<String>| {
+            let verdict = match keep.as_deref() {
+                Some("open threads") => CompactVerdict::Accepted,
+                _ => CompactVerdict::Refused(CompactRefusal::TooEarly),
+            };
+            asked_in_hook.lock().unwrap().push(keep);
+            verdict
+        }));
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-compact".to_string(),
+                issue_id: None,
+                journal_dir: None,
+                embeds: ImageEmbeds::default(),
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            hooks,
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+
+        let next_verdict = || {
+            loop {
+                let text = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                if text.contains(r#""t":"compact_verdict""#) {
+                    return text;
+                }
+            }
+        };
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"compact_request","sessionId":"sess-compact","keep":"open threads"}"#
+                    .to_string(),
+            ))
+            .unwrap();
+        assert_eq!(
+            next_verdict(),
+            r#"{"t":"compact_verdict","sessionId":"sess-compact","accepted":true}"#
+        );
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"compact_request","sessionId":"sess-compact"}"#.to_string(),
+            ))
+            .unwrap();
+        assert_eq!(
+            next_verdict(),
+            r#"{"t":"compact_verdict","sessionId":"sess-compact","accepted":false,"refusedBecause":"too_early"}"#
+        );
+        // Another room's ask is not this run's to decide: refused without
+        // consulting the hook.
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"compact_request","sessionId":"sess-other","keep":"open threads"}"#
+                    .to_string(),
+            ))
+            .unwrap();
+        assert_eq!(
+            next_verdict(),
+            r#"{"t":"compact_verdict","sessionId":"sess-other","accepted":false,"refusedBecause":"not_own_session"}"#
+        );
+        assert_eq!(
+            asked.lock().unwrap().clone(),
+            vec![Some("open threads".to_string()), None]
+        );
+        assert!(
+            recorded.inputs.lock().unwrap().is_empty(),
+            "a compaction ask never reaches the input path"
+        );
+        handle.shutdown(None);
+    }
+
+    /// EXP-936: no hook (a run with no engine behind it) still answers, as
+    /// `unsupported_agent`, instead of leaving the relay to time out.
+    #[test]
+    fn a_compact_request_without_a_hook_is_refused_as_unsupported() {
+        let runtime = SteerRuntime::new().unwrap();
+        let (port, seen_rx, inject_tx) = fake_relay(&runtime);
+        let recorded = Arc::new(Recorded::default());
+        let handle = publish(
+            &runtime,
+            PublishSpec {
+                session_id: "sess-nohook".to_string(),
+                issue_id: None,
+                journal_dir: None,
+                embeds: ImageEmbeds::default(),
+            },
+            Arc::new(FakeTickets {
+                url: format!("ws://127.0.0.1:{port}/ws?ticket=fake.fake"),
+            }),
+            recording_hooks(recorded),
+        );
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // hello
+        seen_rx.recv_timeout(Duration::from_secs(5)).unwrap(); // activity_reset
+        inject_tx
+            .send(Message::Text(
+                r#"{"t":"compact_request","sessionId":"sess-nohook"}"#.to_string(),
+            ))
+            .unwrap();
+        let verdict = loop {
+            let text = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            if text.contains(r#""t":"compact_verdict""#) {
+                break text;
+            }
+        };
+        assert_eq!(
+            verdict,
+            r#"{"t":"compact_verdict","sessionId":"sess-nohook","accepted":false,"refusedBecause":"unsupported_agent"}"#
         );
         handle.shutdown(None);
     }

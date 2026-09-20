@@ -4,6 +4,7 @@ import {
   buildSteerTicketClaims,
   getSteerRelayConfig,
   mintSteerTicket,
+  relayPostCompact,
   relayPostInput,
   relayPostKill,
   relayPostNudge,
@@ -623,6 +624,113 @@ describe(`relay admin HTTP`, () => {
       relayPostInput(CONFIG, `session-1`, `hello`, downFetch)
     ).resolves.toEqual({ delivered: false })
   })
+
+  // EXP-936: the compaction ask — awaited by the relay until the host
+  // answers, so the outcome carries a verdict (or a named delivery failure)
+  // and never throws.
+  it(`compact posts keep, reads the host's verdict and never throws`, async () => {
+    const accepted = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(
+        fakeResponse(200, { ok: true, delivered: true, accepted: true })
+      )
+    await expect(
+      relayPostCompact(CONFIG, `session-1`, `open threads`, accepted)
+    ).resolves.toEqual({ delivered: true, accepted: true })
+    expect(accepted).toHaveBeenCalledWith(
+      `https://steer.example.com/sessions/session-1/compact`,
+      {
+        method: `POST`,
+        headers: {
+          "content-type": `application/json`,
+          "x-relay-secret": `test-secret`,
+        },
+        body: JSON.stringify({ keep: `open threads` }),
+        signal: expect.any(AbortSignal),
+      }
+    )
+
+    // No keep → an empty body, never `keep: undefined` on the wire.
+    const refused = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(
+        fakeResponse(200, {
+          ok: true,
+          delivered: true,
+          accepted: false,
+          refusedBecause: `too_early`,
+        })
+      )
+    await expect(
+      relayPostCompact(CONFIG, `session-1`, undefined, refused)
+    ).resolves.toEqual({
+      delivered: true,
+      accepted: false,
+      refusedBecause: `too_early`,
+    })
+    expect(refused.mock.calls[0]?.[1]?.body).toBe(`{}`)
+
+    // The relay's delivery failures keep their reason; anything else (an
+    // old relay's 404, a dead relay, an unknown code) is `relay_error`.
+    for (const reason of [`no_publisher`, `no_verdict`, `busy`] as const) {
+      const undelivered = vi
+        .fn<RelayFetch>()
+        .mockResolvedValue(
+          fakeResponse(200, { ok: true, delivered: false, reason })
+        )
+      await expect(
+        relayPostCompact(CONFIG, `session-1`, `k`, undelivered)
+      ).resolves.toEqual({ delivered: false, reason })
+    }
+    const oldRelayFetch = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(fakeResponse(404, { error: `Not found` }))
+    await expect(
+      relayPostCompact(CONFIG, `session-1`, `k`, oldRelayFetch)
+    ).resolves.toEqual({ delivered: false, reason: `relay_error` })
+    const downFetch = vi
+      .fn<RelayFetch>()
+      .mockRejectedValue(new Error(`ECONNREFUSED`))
+    await expect(
+      relayPostCompact(CONFIG, `session-1`, `k`, downFetch)
+    ).resolves.toEqual({ delivered: false, reason: `relay_error` })
+    const strangeCode = vi
+      .fn<RelayFetch>()
+      .mockResolvedValue(
+        fakeResponse(200, {
+          ok: true,
+          delivered: true,
+          accepted: false,
+          refusedBecause: `because`,
+        })
+      )
+    await expect(
+      relayPostCompact(CONFIG, `session-1`, `k`, strangeCode)
+    ).resolves.toEqual({
+      delivered: true,
+      accepted: false,
+      refusedBecause: `cooldown`,
+    })
+  })
+
+  it(`compact bounds a hung relay with an armed timeout signal`, async () => {
+    const hungFetch = vi.fn<RelayFetch>().mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(`abort`, () =>
+            reject(new DOMException(`The operation timed out.`, `TimeoutError`))
+          )
+        })
+    )
+    const call = relayPostCompact(CONFIG, `session-1`, `k`, hungFetch)
+    const signal = hungFetch.mock.calls[0]?.[1]?.signal
+    expect(signal).toBeInstanceOf(AbortSignal)
+    // The armed timeout is 6s (above the relay's own 4s verdict wait).
+    await expect(call).resolves.toEqual({
+      delivered: false,
+      reason: `relay_error`,
+    })
+  }, 10_000)
 
   it(`input bounds a hung relay with an armed timeout signal`, async () => {
     const hungFetch = vi.fn<RelayFetch>().mockImplementation(

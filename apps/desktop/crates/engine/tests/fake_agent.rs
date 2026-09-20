@@ -38,7 +38,8 @@ use agent_client_protocol::schema::v1::{
     SessionMode, SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
     SetSessionModeResponse, StopReason, StringPropertySchema, Terminal, TerminalOutputRequest,
-    TextContent, ToolCall, ToolCallContent, ToolCallId, ToolKind, WaitForTerminalExitRequest,
+    TextContent, ToolCall, ToolCallContent, ToolCallId, ToolKind, UsageUpdate,
+    WaitForTerminalExitRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{
@@ -402,6 +403,43 @@ async fn run_turn(
             while Instant::now() < deadline && !state.released.load(Ordering::SeqCst) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
+            StopReason::EndTurn
+        }
+        // EXP-936: a turn that fills most of the window — the meter the
+        // compaction policy reads — and then holds until released, the way
+        // the run's own tool call keeps its turn open.
+        "usage-high" => {
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::UsageUpdate(UsageUpdate::new(150_000, 200_000)),
+            ));
+            let deadline = Instant::now() + BUDGET;
+            while Instant::now() < deadline && !state.released.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            StopReason::EndTurn
+        }
+        // EXP-936: the agent's own `/compact <keep>` as the host sends it —
+        // a fold that opens and closes within the turn, like claude's.
+        text if text.starts_with("/compact") => {
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                    CompactionId::new("c-own"),
+                    CompactionStatus::InProgress,
+                )),
+            ));
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::CompactionUpdate(CompactionUpdate::new(
+                    CompactionId::new("c-own"),
+                    CompactionStatus::Completed,
+                )),
+            ));
+            let _ = cx.send_notification(SessionNotification::new(
+                session_id.clone(),
+                SessionUpdate::UsageUpdate(UsageUpdate::new(12_000, 200_000)),
+            ));
             StopReason::EndTurn
         }
         // EXP-969: the same fold, but its `completed` edge NEVER comes — a
@@ -1126,6 +1164,69 @@ fn a_held_message_drains_when_a_silent_compaction_turn_ends() {
         "the turn end closed the strip too"
     );
     assert_eq!(last_queue(&harness.sink).map(|m| m.len()), Some(0));
+    harness.session.kill("killed");
+}
+
+/// EXP-936: the run's own compaction ask. Refused `too_early` while the
+/// meter is low; accepted once it is high — and then the host sends the
+/// agent's `/compact <keep>` ONLY after the running turn ends, follows the
+/// compaction with the continuation prompt, and refuses a second ask as
+/// `cooldown` throughout.
+#[test]
+fn a_compaction_ask_runs_compact_then_continue_at_the_turn_boundaries() {
+    let harness = start_fake("compact-ask");
+    let signal = harness.session.turn_signal();
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
+    until("the session to be live", || signal.is_idle());
+
+    // No meter yet: nothing to show for the claim.
+    assert_eq!(
+        harness.session.request_compaction(Some("open threads".to_string())),
+        steer::CompactVerdict::Refused(steer::CompactRefusal::TooEarly)
+    );
+
+    harness.session.send_prompt("usage-high".to_string());
+    until("the meter", || {
+        events_of(&harness.sink, "usage")
+            .last()
+            .is_some_and(|event| event["contextUsed"] == 150_000)
+    });
+    // Mid-turn: accepted, but nothing goes to the agent until the turn ends.
+    assert_eq!(
+        harness.session.request_compaction(Some("open threads".to_string())),
+        steer::CompactVerdict::Accepted
+    );
+    assert_eq!(
+        harness.session.request_compaction(None),
+        steer::CompactVerdict::Refused(steer::CompactRefusal::Cooldown)
+    );
+    std::thread::sleep(Duration::from_millis(150));
+    assert_eq!(prompts(), vec!["usage-high"], "the `/compact` waits for the turn boundary");
+
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("the /compact and the continuation", || prompts().len() >= 3);
+    assert_eq!(
+        prompts(),
+        vec![
+            "usage-high".to_string(),
+            "/compact open threads".to_string(),
+            engine::COMPACT_CONTINUE_PROMPT.to_string(),
+        ]
+    );
+    until("the idle edge", || signal.is_idle());
+    assert!(
+        events_of(&harness.sink, "compaction")
+            .iter()
+            .any(|event| event["phase"] == "ended"),
+        "the fold opened and closed on the feed"
+    );
+    assert!(has_user_row(&harness.sink, "/compact open threads"));
+    assert!(has_user_row(&harness.sink, engine::COMPACT_CONTINUE_PROMPT));
+    // Right after: the meter is low again AND the cooldown holds.
+    assert!(matches!(
+        harness.session.request_compaction(None),
+        steer::CompactVerdict::Refused(_)
+    ));
     harness.session.kill("killed");
 }
 

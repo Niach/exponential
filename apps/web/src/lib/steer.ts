@@ -433,6 +433,83 @@ export async function relayPostInput(
   }
 }
 
+/**
+ * EXP-936: the relay awaits the HOST's verdict before answering (its own
+ * `COMPACT_VERDICT_TIMEOUT_MS` is 4s), so this sits above it: a structured
+ * `no_verdict` from the relay beats an aborted fetch that says nothing.
+ */
+const RELAY_COMPACT_TIMEOUT_MS = 6_000
+
+/** EXP-936: what the relay answers `POST /sessions/:id/compact` with, as the
+ * handler consumes it. `delivered: false` = the run has no live publisher,
+ * the host never answered (older than the frame), or another ask is still
+ * waiting — a tool ERROR on the web side, never a verdict; the four refusal
+ * codes are the handler's own (`sessionsCompactRefusals`). */
+export type RelayCompactOutcome =
+  | { delivered: false; reason: `no_publisher` | `no_verdict` | `busy` | `relay_error` }
+  | {
+      delivered: true
+      accepted: boolean
+      refusedBecause?: `too_early` | `cooldown` | `not_own_session` | `unsupported_agent`
+    }
+
+/**
+ * POST /sessions/:id/compact — relay the run's own `exponential_sessions_compact`
+ * to its publisher and wait for the host's verdict (EXP-936). Never throws;
+ * an old relay's 404 and a hung one both read as not-delivered with a
+ * reason the handler can name.
+ */
+export async function relayPostCompact(
+  config: SteerRelayConfig,
+  sessionId: string,
+  keep: string | undefined,
+  fetchImpl: RelayFetch = globalThis.fetch
+): Promise<RelayCompactOutcome> {
+  try {
+    const res = await fetchImpl(
+      `${steerServerHttpBase(config)}/sessions/${encodeURIComponent(sessionId)}/compact`,
+      {
+        method: `POST`,
+        headers: {
+          "content-type": `application/json`,
+          "x-relay-secret": config.secret,
+        },
+        body: JSON.stringify(keep === undefined ? {} : { keep }),
+        signal: AbortSignal.timeout(RELAY_COMPACT_TIMEOUT_MS),
+      }
+    )
+    if (!res.ok) return { delivered: false, reason: `relay_error` }
+    const json = (await res.json().catch(() => null)) as
+      | (Partial<RelayCompactOutcome> & { ok?: boolean })
+      | null
+    if (json?.delivered !== true) {
+      const reason = json?.delivered === false ? json.reason : undefined
+      return {
+        delivered: false,
+        reason:
+          reason === `no_publisher` || reason === `no_verdict` || reason === `busy`
+            ? reason
+            : `relay_error`,
+      }
+    }
+    if (json.accepted === true) return { delivered: true, accepted: true }
+    const code = json.refusedBecause
+    return {
+      delivered: true,
+      accepted: false,
+      refusedBecause:
+        code === `too_early` ||
+        code === `cooldown` ||
+        code === `not_own_session` ||
+        code === `unsupported_agent`
+          ? code
+          : `cooldown`,
+    }
+  } catch {
+    return { delivered: false, reason: `relay_error` }
+  }
+}
+
 const RELAY_NUDGE_TIMEOUT_MS = 3_000
 
 /**

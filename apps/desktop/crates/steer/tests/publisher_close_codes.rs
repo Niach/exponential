@@ -139,6 +139,7 @@ fn idle_close_4001_reconnects_and_never_fires_the_kill_hook() {
             config: None,
             interrupt: None,
             unqueue: None,
+            compact: None,
         },
     );
 
