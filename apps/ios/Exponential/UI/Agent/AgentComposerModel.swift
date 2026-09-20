@@ -156,10 +156,13 @@ final class AgentComposerModel {
         observeBlockers()
         guard let teamId else { return }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
-        // EXP-615: one repository pre-picks for a chat (web parity); the
-        // picker still offers "No repository".
-        if chatRepoId.isEmpty, repos.count == 1 {
-            chatRepoId = repos[0].id
+        // EXP-993: a phone never picks a chat's repository — the pill is gone,
+        // so the team's FIRST repository is the anchor (a team with none still
+        // runs in the agent's scratch dir). It used to pre-pick only when the
+        // team had exactly one, which left every other team's chat repo-less
+        // with no way to say otherwise.
+        if chatRepoId.isEmpty, let first = repos.first {
+            chatRepoId = first.id
         }
         await loadMentionMembers(teamId: teamId)
     }
@@ -502,6 +505,13 @@ final class AgentComposerModel {
     func selectAgent(_ value: String) {
         touched = true
         launch.selectAgent(value, device: device)
+    }
+
+    /// EXP-872: ONE pick for agent + login — the options line has no separate
+    /// agent control any more, the account carries its agent.
+    func selectAccount(_ option: AccountOption) {
+        touched = true
+        launch.selectAccount(option, device: device)
     }
 
     /// EXP-773: the picked agent is outside the picked machine's reported

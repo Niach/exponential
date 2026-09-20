@@ -5,8 +5,10 @@ import {
   issueSearchFtsQuery,
   issueSearchIdentifierExactSql,
   issueSearchMatchIds,
+  issueSearchOpenSql,
   issueSearchRankSql,
 } from "./issue-search-sql"
+import { ISSUE_SEARCH_CLOSED_STATUSES } from "./issue-search"
 
 // EXP-892: the ONE server predicate behind tRPC `issues.search` and MCP
 // `exponential_issues_list({search})`. Rendered through the pg dialect so
@@ -104,5 +106,17 @@ describe(`issueSearchIdentifierExactSql`, () => {
 
   it(`escapes LIKE metacharacters so they stay literal`, () => {
     expect(render(`a%b_c\\d`).params).toEqual([`a\\%b\\_c\\\\d`])
+  })
+})
+
+// EXP-922: undone work sorts above finished work in `issues.search`, so the
+// server hits spliced in behind the client ranking keep its order.
+describe(`issueSearchOpenSql`, () => {
+  it(`reads the builtin anchor and names exactly the three closed ones`, () => {
+    const { sql, params } = new PgDialect().sqlToQuery(issueSearchOpenSql())
+    expect(sql).toBe(`case when i.status in ($1, $2, $3) then 0 else 1 end`)
+    // The client engine's list, in the same order (lib/issue-search.ts).
+    expect(params).toEqual([...ISSUE_SEARCH_CLOSED_STATUSES])
+    expect(params).toEqual([`done`, `cancelled`, `duplicate`])
   })
 })

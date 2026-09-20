@@ -53,6 +53,12 @@ pub struct AgentDefaultsPatch {
 pub struct DefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
+    /// EXP-872: the profile id of `default_agent`'s logins the machine
+    /// launches as by default — "default agent" became "default account", so
+    /// the pair travels together. Absent = the ambient login; an explicitly
+    /// BLANK value clears a stored pick.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_account: Option<String>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
 }
 
@@ -79,6 +85,16 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
     if let Some(agent) = patch.default_agent.as_deref().and_then(CodingAgent::parse) {
         if settings.default_agent != agent {
             settings.default_agent = agent;
+            changed = true;
+        }
+    }
+    // EXP-872: a PRESENT blank clears the pinned account (back to the
+    // agent's ambient login); an absent one leaves it alone, like every
+    // other field of a patch.
+    if let Some(account) = patch.default_account.as_deref() {
+        let next = (!account.trim().is_empty()).then(|| account.trim().to_string());
+        if settings.default_account != next {
+            settings.default_account = next;
             changed = true;
         }
     }
@@ -161,6 +177,7 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
     }
     DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
+        default_account: settings.default_account.clone(),
         agents,
     }
 }

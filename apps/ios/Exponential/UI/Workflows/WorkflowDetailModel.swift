@@ -104,10 +104,41 @@ final class WorkflowDetailModel {
         launch.agent ?? availableAgents.first ?? "claude"
     }
 
-    /// The login profiles the bound machine reports for the picked agent — the
-    /// Account row renders only with two or more, exactly like the composer's.
-    var accountProfiles: [AgentAccountProfile] {
-        boundDevice?.agentAccounts?[agent]?.profiles ?? []
+    /// EXP-872: the ONE account list — every signed-in login the RUNNER
+    /// machine reports, across agents, its default first
+    /// (`AccountOptions.flatten`). Picking one picks the agent too: the
+    /// separate Agent row is gone.
+    ///
+    /// A machine that reports no login (and a draft with no runner bound yet)
+    /// still offers a row per available agent, named by the agent — the pick
+    /// has to be possible before the machine is.
+    var accountOptions: [AccountOption] {
+        let options = AccountOptions.flatten(
+            accounts: boundDevice?.agentAccounts,
+            usage: boundDevice?.agentUsage,
+            launchDefaults: boundDevice?.launchDefaults
+        )
+        if !options.isEmpty { return options }
+        let agents = availableAgents
+        return agents.map { value in
+            AccountOption(
+                id: AgentAccountsRows.systemProfileId,
+                agent: value,
+                email: LaunchVocabulary.agentLabel(value),
+                isDeviceDefault: value == agents.first
+            )
+        }
+    }
+
+    /// Which option the row reads back as: the stored (agent, account) pair,
+    /// else that agent's first login (a stored profile the machine no longer
+    /// reports), else the first row.
+    var selectedAccount: AccountOption? {
+        let options = accountOptions
+        let id = launch.account ?? AgentAccountsRows.systemProfileId
+        return options.first { $0.agent == agent && $0.id == id }
+            ?? options.first { $0.agent == agent }
+            ?? options.first
     }
 
     var maxParallel: Int {
@@ -208,13 +239,6 @@ final class WorkflowDetailModel {
     /// Switching agent RESETS the per-agent vocabulary (model, subagent model,
     /// effort) and the login profile: they are per agent and per machine, and a
     /// stale value would hit a server refusal.
-    func setAgent(_ value: String) {
-        guard value != agent else { return }
-        update(WorkflowPatch(launch: WorkflowLaunch(
-            agent: value, maxParallel: launch.maxParallel
-        )))
-    }
-
     func setModel(_ value: String?) {
         var next = launch
         next.agent = agent
@@ -236,10 +260,21 @@ final class WorkflowDetailModel {
         update(WorkflowPatch(launch: next))
     }
 
-    func setAccount(_ value: String?) {
+    /// EXP-872: ONE pick for the agent AND its login (`system` = the machine's
+    /// ambient login, which a launch never names). A DIFFERENT agent has a
+    /// different model/effort vocabulary, so those clear — a stale value would
+    /// only be refused by the router. Web `workflow-detail.tsx`'s account row,
+    /// rule for rule.
+    func selectAccount(_ option: AccountOption) {
         var next = launch
-        next.agent = agent
-        next.account = value
+        let switched = option.agent != agent
+        next.agent = option.agent
+        next.account = option.id == AgentAccountsRows.systemProfileId ? nil : option.id
+        if switched {
+            next.model = nil
+            next.effort = nil
+            next.subagentModel = nil
+        }
         update(WorkflowPatch(launch: next))
     }
 

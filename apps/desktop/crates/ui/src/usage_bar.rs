@@ -589,6 +589,79 @@ pub(crate) fn render_usage_mini(
     Some(row.into_any_element())
 }
 
+// ---------------------------------------------------------------------------
+// EXP-992 — the account picker's three-bar limits preview
+// ---------------------------------------------------------------------------
+
+/// The `5h` bar's label. Byte-identical ×4 (`ACCOUNT_LIMIT_LABELS`).
+pub(crate) const ACCOUNT_LIMIT_FIVE_HOUR: &str = "5h";
+/// The `week` bar's label. Byte-identical ×4.
+pub(crate) const ACCOUNT_LIMIT_WEEK: &str = "week";
+
+/// The preview's width — three short bars, nothing else; narrow enough to
+/// sit beside a menu row rather than over it.
+const ACCOUNT_LIMITS_W: f32 = 140.;
+
+/// EXP-992 — the bars ONE account option draws, in order: `5h`, `week`, then
+/// the per-model window when the login reports one, labelled by the window's
+/// OWN name LOWER-CASED (`fable`). `used` is the fraction the option already
+/// carries. Mirrored ×4 (web `accountLimitBars`).
+pub(crate) fn account_limit_bars(limits: &coding::AccountLimits) -> Vec<(String, f32)> {
+    let mut bars = vec![
+        (ACCOUNT_LIMIT_FIVE_HOUR.to_string(), limits.five_hour),
+        (ACCOUNT_LIMIT_WEEK.to_string(), limits.week),
+    ];
+    if let Some(model) = &limits.model {
+        bars.push((model.label.to_lowercase(), model.used));
+    }
+    bars
+}
+
+/// [`severity`] against a FRACTION rather than a percent — the account
+/// option's own 0..1 numbers, with the same two thresholds (web `limitTone`).
+pub(crate) fn limit_severity(used: f32) -> Severity {
+    if used >= DANGER_PERCENT as f32 / 100. {
+        Severity::Danger
+    } else if used >= WARNING_PERCENT as f32 / 100. {
+        Severity::Warning
+    } else {
+        Severity::Normal
+    }
+}
+
+/// EXP-992 — the account picker's hover preview: three tiny rows, a 10px
+/// muted label left of a [`MINI_TRACK_H`] meter. Display-only, and small
+/// enough to hang off a menu row without covering the list.
+pub(crate) fn render_account_limits(limits: &coding::AccountLimits, cx: &App) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let mut column = v_flex().w(px(ACCOUNT_LIMITS_W)).gap_1();
+    for (label, used) in account_limit_bars(limits) {
+        let percent = (used.clamp(0., 1.) * 100.).round() as u8;
+        column = column.child(
+            gpui_component::h_flex()
+                .w_full()
+                .items_center()
+                .gap_1p5()
+                .child(
+                    div()
+                        .w(px(28.))
+                        .flex_shrink_0()
+                        .truncate()
+                        .text_size(px(10.))
+                        .text_color(muted)
+                        .child(SharedString::from(label)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(meter(percent, limit_severity(used), MINI_TRACK_H, cx)),
+                ),
+        );
+    }
+    column.into_any_element()
+}
+
 /// EXP-944 — the reset line under ONE mini bar, or `None` for a bar that
 /// carries none. Only the two WINDOWS say it: the per-model bar (`model:…`,
 /// "Fable") rides the weekly window's reset, so repeating it would print the
@@ -1379,6 +1452,42 @@ mod tests {
     }
 
     /// EXP-944 (×4 `windowReset`): only the two WINDOWS caption their bar with
+    /// EXP-992 — the account picker's preview bars: `5h`, `week`, then the
+    /// per-model window LOWER-CASED, and the same two tone thresholds the
+    /// percent form uses. Byte-identical ×4 (`accountLimitBars`/`limitTone`).
+    #[test]
+    fn account_limit_bars_read_five_hour_week_then_the_lowercased_model() {
+        let bars = account_limit_bars(&coding::AccountLimits {
+            five_hour: 0.4,
+            week: 0.85,
+            model: Some(coding::AccountModelLimit {
+                label: "Fable".into(),
+                used: 0.1,
+            }),
+        });
+        assert_eq!(
+            bars,
+            vec![
+                ("5h".to_string(), 0.4),
+                ("week".to_string(), 0.85),
+                ("fable".to_string(), 0.1),
+            ]
+        );
+        // A login with no per-model window draws two bars, never an empty one.
+        let two = account_limit_bars(&coding::AccountLimits {
+            five_hour: 0.05,
+            week: 0.5,
+            model: None,
+        });
+        assert_eq!(two.len(), 2);
+
+        assert_eq!(limit_severity(0.74), Severity::Normal);
+        assert_eq!(limit_severity(0.75), Severity::Warning);
+        assert_eq!(limit_severity(0.94), Severity::Warning);
+        assert_eq!(limit_severity(0.95), Severity::Danger);
+        assert_eq!(limit_severity(1.), Severity::Danger);
+    }
+
     /// a reset. The per-model bar rides the weekly window's reset, so saying it
     /// again would print the same time twice; a window with no `resetsAt`, and
     /// every caller that passed no clock, say nothing at all.

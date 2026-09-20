@@ -3,13 +3,16 @@ import ExpUI
 import SwiftUI
 
 /// EXP-825: the launch options as ONE muted inline line under the composer
-/// card (Danny's variant B): Device, Agent, Account (EXP-862: only where the
-/// machine holds more than one login for the agent), Model, a Plan switch, the
-/// Resume switch inline while a worktree makes it offerable (EXP-481), the
-/// Repository pick only while there is no subject (a chat's optional anchor,
-/// EXP-739), and a `⋯` pill for the rest (`AgentOptionsSheet`: Effort,
-/// Ultracode). Every pill is a menu or a toggle — no disabled controls, the
-/// footer under the row explains what cannot start.
+/// card (Danny's variant B): Device, Account, Model, a Plan switch, the Resume
+/// switch inline while a worktree makes it offerable (EXP-481), and a `⋯` pill
+/// for the rest (`AgentOptionsSheet`: Effort, Subagent model, Ultracode).
+/// Every pill is a menu or a toggle — no disabled controls, the footer under
+/// the row explains what cannot start.
+///
+/// EXP-872 folded the Agent pill INTO the Account one: the list is every login
+/// the picked machine reports across agents, and picking one implies its agent.
+/// EXP-993 dropped the Repository pill: a phone never picks a chat's repo — the
+/// team's first repository is the anchor.
 struct AgentOptionsRow: View {
     let model: AgentComposerModel
 
@@ -21,12 +24,10 @@ struct AgentOptionsRow: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 devicePill
-                agentPill
                 accountPill
                 modelPill
                 planPill
                 resumePill
-                repositoryPill
                 morePill
             }
             .padding(.horizontal, 2)
@@ -77,63 +78,24 @@ struct AgentOptionsRow: View {
         }
     }
 
-    /// The agent — the SHARED picker (EXP-862 `AgentPickerMenu`, ×4): an
-    /// icon-only trigger (brand mark + chevron) whose menu rows carry that same
-    /// mark beside the agent's name. EXP-642: the store slide's pop-out rect
-    /// used to be measured off the segmented strip this replaced, so the
-    /// identifier stays on this control.
-    @ViewBuilder
-    private var agentPill: some View {
-        if model.availableAgents.count > 1 {
-            AgentPickerMenu(
-                agents: model.availableAgents,
-                selection: launch.agent,
-                label: { LaunchVocabulary.agentLabel($0) },
-                mark: { AgentBrandMark.image($0) },
-                onSelect: { model.selectAgent($0) }
-            )
-            .accessibilityIdentifier("start-coding-agent-picker")
-        } else {
-            AgentPickerTriggerLabel(mark: AgentBrandMark.image(launch.agent))
-                .accessibilityLabel(LaunchVocabulary.agentLabel(launch.agent))
-                .accessibilityIdentifier("start-coding-agent-picker")
-        }
-    }
-
-    /// EXP-862: the ACCOUNT the run launches under, promoted out of the `⋯`
-    /// sheet into the row — but only where it is a choice: the picked machine
-    /// has to report two or more logins for the picked agent (×4 rule). The
-    /// label is the login itself (email, else its profile label).
-    @ViewBuilder
+    /// EXP-872: the ONE account picker — the agent pill folded into it. Every
+    /// signed-in login the picked machine reports, across agents, brand mark +
+    /// email, the machine's default first; picking one picks its agent too.
+    /// EXP-849: a login the agent REFUSED stays on offer wearing its badge, or
+    /// a run starts and dies on an expired credential.
+    ///
+    /// EXP-642: the store slide's pop-out rect is measured off the agent
+    /// control, so the identifier stays on this one.
     private var accountPill: some View {
-        let profiles = launch.accountProfiles(on: model.device)
-        if profiles.count >= 2 {
-            @Bindable var launch = model.launch
-            GlassMenu {
-                GlassMenuItem("Active login") { launch.account = "" }
-                ForEach(profiles, id: \.id) { profile in
-                    GlassMenuItem(accountLabel(profile)) { launch.account = profile.id }
-                }
-            } label: {
-                OptionPillLabel(
-                    icon: AppIcons.navAccount,
-                    text: profiles.first { $0.id == launch.account }
-                        .map(accountLabel) ?? "Active login"
-                )
-            }
-            .accessibilityLabel("Account")
-            .accessibilityIdentifier("agent-account-pill")
-        }
-    }
-
-    /// One login's name. EXP-849: a login the agent REFUSED is still a login
-    /// the machine holds, so it stays on offer — but it has to say so, or the
-    /// run starts and dies on an expired credential.
-    private func accountLabel(_ profile: AgentAccountProfile) -> String {
-        let name = profile.email ?? profile.label ?? profile.id
-        let health = AgentAccountHealth.of(profile)
-        guard let badge = health.badgeLabel else { return name }
-        return "\(name) · \(badge.lowercased())"
+        let options = launch.accountOptions(on: model.device)
+        return AccountPickerMenu(
+            options: options,
+            selection: launch.selectedAccount(in: options),
+            mark: { AgentBrandMark.image($0) },
+            onSelect: { model.selectAccount($0) }
+        )
+        .accessibilityLabel("Account")
+        .accessibilityIdentifier("start-coding-agent-picker")
     }
 
     private var modelPill: some View {
@@ -181,32 +143,6 @@ struct AgentOptionsRow: View {
                 mode: .select(isSelected: launch.resume) { launch.resume.toggle() }
             )
             .accessibilityLabel("Resume previous session")
-        }
-    }
-
-    /// The chat's OPTIONAL repository (EXP-615/739): with one the run gets
-    /// its own `exp/chat-<id8>` worktree, without one it runs in the agent's
-    /// scratch dir. Only while there is no subject — an issue brings its
-    /// board's repo, an action its own.
-    @ViewBuilder
-    private var repositoryPill: some View {
-        if model.subject == .none {
-            if model.repos.isEmpty {
-                OptionPillLabel(icon: AppIcons.actionRepository, text: "No repository", chevron: false)
-            } else {
-                GlassMenu {
-                    GlassMenuItem("No repository") { model.chatRepoId = "" }
-                    ForEach(model.repos) { repo in
-                        GlassMenuItem(repo.fullName) { model.chatRepoId = repo.id }
-                    }
-                } label: {
-                    OptionPillLabel(
-                        icon: AppIcons.actionRepository,
-                        text: model.repos.first { $0.id == model.chatRepoId }?.fullName ?? "No repository"
-                    )
-                }
-                .accessibilityLabel("Repository")
-            }
         }
     }
 
@@ -265,15 +201,19 @@ struct OptionPillLabel: View {
 /// No MCP-server picker: mobile has none.
 ///
 /// The Subagent model sits here rather than on the pill row: the row already
-/// carries eight pills on a phone, and this is the same place its sibling
+/// carries the pills a phone can hold, and this is the same place its sibling
 /// Effort lives.
+///
+/// EXP-994: ONE grouped card, rows separated by `GlassDivider` hairlines —
+/// the Settings idiom. It used to be a 2pt-gapped stack of individually
+/// bordered rows, the shape every grouped list on this client stopped using.
 struct AgentOptionsSheet: View {
     let model: AgentComposerModel
 
     var body: some View {
         @Bindable var launch = model.launch
         GlassSheetChrome(title: "Options") {
-            VStack(spacing: 2) {
+            VStack(spacing: 0) {
                 GlassPickerRow(
                     LaunchVocabulary.effortTitle(for: launch.agent),
                     selection: $launch.effort,
@@ -287,11 +227,11 @@ struct AgentOptionsSheet: View {
                 )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 12)
-                .glassRow()
 
                 // EXP-981: the model this run's SUBAGENTS get. Claude-only,
                 // hidden for every other agent exactly like Ultracode.
                 if LaunchVocabulary.supportsSubagentModel(launch.agent) {
+                    GlassDivider()
                     GlassPickerRow(
                         "Subagent model",
                         selection: $launch.subagentModel,
@@ -300,19 +240,18 @@ struct AgentOptionsSheet: View {
                     )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
-                    .glassRow()
                     .accessibilityIdentifier("agent-subagent-model-row")
                 }
 
                 if launch.agent == "claude" {
+                    GlassDivider()
                     Toggle("Ultracode", isOn: $launch.ultracode)
                         .tint(DesignTokens.Palette.primary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
-                        .glassRow()
                 }
-
             }
+            .glassSection()
             .padding(.horizontal, GlassSheetTokens.headerHPadding)
             .padding(.bottom, 16)
         }

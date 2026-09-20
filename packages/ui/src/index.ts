@@ -6,6 +6,7 @@
 // Adding a component: `shadcn add` into src/, rewrite its `@/…` imports to
 // relative ones, then add a line here (see README.md).
 export * from "./agent-brand-mark"
+export * from "./account-picker"
 export * from "./agent-picker"
 export * from "./alert"
 export * from "./alert-dialog"

@@ -40,6 +40,11 @@ data class IssueRefTarget(
     override val description: String? = null,
     override val createdAt: String? = null,
     override val updatedAt: String? = null,
+    /**
+     * EXP-922: the builtin status ANCHOR, so the `#` menu lists undone work
+     * above finished work like every other search. Null = ranks as open.
+     */
+    override val status: String? = null,
 ) : IssueSearch.Row {
     /** [IssueSearch.Row]'s id — this type has called it [issueId] since §5e. */
     override val id: String get() = issueId
@@ -122,6 +127,7 @@ fun issueRefTarget(issue: IssueEntity, statuses: List<ResolvedIssueStatus>): Iss
         description = issue.description,
         createdAt = issue.createdAt,
         updatedAt = issue.updatedAt,
+        status = issue.status,
     )
 
 /**
@@ -141,6 +147,7 @@ fun issueRefTarget(hit: SearchIssueHit): IssueRefTarget = IssueRefTarget(
         anchor = hit.status,
         team = IssueStatusResolver.builtinDefaults,
     ),
+    status = hit.status,
 )
 
 /**

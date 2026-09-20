@@ -28,7 +28,7 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
-  AgentPicker,
+  AccountPicker,
   AlertDialogHeader,
   AlertDialogTitle,
   Dialog,
@@ -66,6 +66,9 @@ import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,
 } from "@/components/launch-dialog/launch-options-pane"
+import { accountOptionKey, flattenAccounts, type AccountOption } from "@/lib/accounts/account-option"
+import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { agentLabel } from "@exp/ui"
 
 const BranchIcon = conceptIcon(`ui-branch`)
 const WarningIcon = conceptIcon(`ui-warning`)
@@ -183,6 +186,12 @@ export function DeviceSettingsDialog({
   const [defaultAgentDraft, setDefaultAgentDraft] = useState<string>(
     contract.codingAgent.values[0]
   )
+  // EXP-872: "default agent" is "default account" now — the profile id of
+  // the default agent's login the machine starts on; undefined = its
+  // active login.
+  const [defaultAccountDraft, setDefaultAccountDraft] = useState<
+    string | undefined
+  >(undefined)
   const [drafts, setDrafts] = useState<Record<string, AgentDraft>>({})
 
   // ── Autosave state (EXP-490 — no Save buttons) ───────────────────────────
@@ -215,6 +224,39 @@ export function DeviceSettingsDialog({
     row?.agentUsage,
   ])
 
+  // EXP-872: the default-account rows — the machine's flattened logins, or
+  // one ambient option per editable agent while it reports none (an offline
+  // machine's defaults stay editable either way).
+  const defaultAccountOptions = useMemo(() => {
+    const flat: AccountOption[] = row ? flattenAccounts(row) : []
+    const options: AccountOption[] =
+      flat.length > 0
+        ? flat
+        : editorAgents.map((agent) => ({
+            id: SYSTEM_PROFILE_ID,
+            agent: agent as AccountOption[`agent`],
+            email: agentLabel(agent),
+            isDeviceDefault: false,
+            health: `unknown` as const,
+          }))
+    return options.map((option) => ({
+      key: accountOptionKey(option),
+      id: option.id,
+      agent: option.agent,
+      email: option.email,
+      hint: healthBadgeLabel(option.health) ?? undefined,
+      limits: option.limits,
+    }))
+  }, [row, editorAgents])
+  const defaultAccountKey =
+    defaultAccountOptions.find(
+      (option) =>
+        option.agent === defaultAgentDraft &&
+        (defaultAccountDraft
+          ? option.id === defaultAccountDraft
+          : true)
+    )?.key ?? null
+
   // The value we last wrote, so our OWN write doesn't reseed the drafts back
   // to the pre-write row in the window before it syncs home.
   const sentNameRef = useRef<string | null>(null)
@@ -236,6 +278,11 @@ export function DeviceSettingsDialog({
         ? configuredDefault
         : (agents[0] ?? contract.codingAgent.values[0])
     setDefaultAgentDraft(defaultAgent)
+    setDefaultAccountDraft(
+      configuredDefault === defaultAgent
+        ? (source.launchDefaults?.defaultAccount ?? undefined)
+        : undefined
+    )
     return defaultAgent
   }
 
@@ -367,6 +414,7 @@ export function DeviceSettingsDialog({
     nameDraft,
     drafts,
     defaultAgentDraft,
+    defaultAccountDraft,
     namePending,
     defaultsPending,
   })
@@ -376,6 +424,7 @@ export function DeviceSettingsDialog({
     nameDraft,
     drafts,
     defaultAgentDraft,
+    defaultAccountDraft,
     namePending,
     defaultsPending,
   }
@@ -451,6 +500,10 @@ export function DeviceSettingsDialog({
         deviceId: snapshot.deviceId,
         launchDefaults: {
           defaultAgent: snapshot.defaultAgentDraft,
+          ...(snapshot.defaultAccountDraft &&
+          snapshot.defaultAccountDraft !== SYSTEM_PROFILE_ID
+            ? { defaultAccount: snapshot.defaultAccountDraft }
+            : {}),
           agents,
         },
       })
@@ -826,22 +879,26 @@ export function DeviceSettingsDialog({
                 )}
               </div>
             )}
-            {/* EXP-862: the ONE agent picker — same trigger as the composer's
-                and the launch pane's, in the row rhythm the group draws. */}
+            {/* EXP-872: the ONE account picker — "Default agent" is "Default
+                account": the machine's logins by email, both agents, and a
+                pick names the agent too. */}
             <GlassGroup>
-              <div className="flex items-center gap-3 px-4 py-3">
-                <span className="text-sm text-foreground">Default agent</span>
-                <span className="ml-auto">
-                  <AgentPicker
-                    value={defaultAgentDraft}
-                    agents={editorAgents}
-                    onChange={(value) => {
-                      setDefaultAgentDraft(value)
-                      scheduleDefaults()
-                    }}
-                  />
-                </span>
-              </div>
+              <AccountPicker
+                variant="row"
+                mobileTitle="Default account"
+                value={defaultAccountKey}
+                options={defaultAccountOptions}
+                onChange={(key) => {
+                  const option = defaultAccountOptions.find(
+                    (candidate) => candidate.key === key
+                  )
+                  if (!option) return
+                  setDefaultAgentDraft(option.agent)
+                  setDefaultAccountDraft(option.id)
+                  scheduleDefaults()
+                }}
+                data-testid="device-settings-default-account"
+              />
             </GlassGroup>
             <AgentOptionsFields
               idPrefix="device-settings"

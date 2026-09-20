@@ -19,10 +19,22 @@
 //   description word prefix                                  20
 //   description substring                                    15
 //
-// Ties order by `updatedAt` desc, then `createdAt` desc, then identifier
-// number desc. An EMPTY query lists the newest CREATED first (the `#` menu's
-// "recent work" list). Queries and tokens drop one leading `#` so `#87` and
-// `fix #87` both find EXP-87.
+// EXP-922: the ordering is THREE keys above the score, in this order:
+//
+//   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
+//      finds EXP-42 first whatever state it is in, which is the whole point
+//      of typing an identifier;
+//   2. UNDONE before done — a closed issue never sits above open work
+//      (`ISSUE_SEARCH_CLOSED_STATUSES`: the `done`/`cancelled`/`duplicate`
+//      anchors every custom status dual-writes, so customs sort right too;
+//      a row with no status at all — an unsynced server hit — counts as
+//      open, since a stand-in never outranks a row we actually know);
+//   3. the score.
+//
+// Ties then order by `updatedAt` desc, then `createdAt` desc, then identifier
+// number desc. An EMPTY query lists open work first, newest CREATED first
+// inside each half (the `#` menu's "recent work" list). Queries and tokens
+// drop one leading `#` so `#87` and `fix #87` both find EXP-87.
 
 export interface IssueSearchRow {
   id: string
@@ -31,6 +43,9 @@ export interface IssueSearchRow {
   description?: string | null
   createdAt?: string | Date | null
   updatedAt?: string | Date | null
+  /** EXP-922: the builtin status ANCHOR (`issues.status`) the row dual-writes.
+   *  Absent/unknown = treated as open. */
+  status?: string | null
 }
 
 export interface IssueSearchOptions {
@@ -46,8 +61,44 @@ const SCORE_TITLE_CONTAINS = 40
 const SCORE_DESCRIPTION_WORD_PREFIX = 20
 const SCORE_DESCRIPTION_CONTAINS = 15
 
-/** The `limit` every consumer gets without asking. */
+/** The `limit` every consumer gets without asking — and, since EXP-922, the
+ *  one every SEARCH SURFACE uses on all four clients, so the same query
+ *  returns the same rows whichever one you type it into. */
 export const ISSUE_SEARCH_DEFAULT_LIMIT = 30
+
+/**
+ * EXP-922: the builtin status anchors that mean "this issue is finished" —
+ * the `completed`/`cancelled`/`duplicate` categories' anchors
+ * (`CATEGORY_ANCHOR`), so a team's CUSTOM statuses sort correctly too: they
+ * dual-write one of these into `issues.status`. Kept as plain strings rather
+ * than importing the schema enum, because the same list is hand-mirrored in
+ * three other languages and a search row may carry any wire value.
+ */
+export const ISSUE_SEARCH_CLOSED_STATUSES = [
+  `done`,
+  `cancelled`,
+  `duplicate`,
+] as const
+
+/**
+ * EXP-922: the ONE copy set every search surface renders — the web sheet, the
+ * desktop ⌘K palette, the iOS Search tab and the Android Search screen. Same
+ * words everywhere, so the four surfaces read as one feature; drift-gated by
+ * `issue-search-surfaces.test.ts`, which greps the three native files for these
+ * exact strings.
+ */
+export const ISSUE_SEARCH_PLACEHOLDER = `Search issues`
+export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across all your boards.`
+export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles, and full text.`
+export const ISSUE_SEARCH_NO_RESULTS = `No issues match`
+
+/** Whether a row counts as UNDONE for ranking. An absent or unrecognized
+ *  status is open: a server hit that never synced carries none, and a client
+ *  that meets a status it does not know must not bury the row. */
+export function isIssueSearchOpen(status?: string | null): boolean {
+  if (status == null) return true
+  return !(ISSUE_SEARCH_CLOSED_STATUSES as readonly string[]).includes(status)
+}
 
 /** Trim, drop ONE leading `#`, lowercase. Empty = "recent work". */
 export function normalizeIssueSearchQuery(query: string): string {
@@ -150,16 +201,28 @@ function tokenScore(row: Prepared, token: string): number | null {
   return null
 }
 
-/** The row's total score for `tokens`, or null when any token misses. */
-export function issueSearchScore(row: IssueSearchRow, tokens: string[]): number | null {
-  const prepared = prepare(row)
+/** A matched row's two ranking facts: the summed score, and whether any token
+ *  hit the identifier EXACTLY (the pin that keeps a typed `EXP-42` on top). */
+interface Scored {
+  total: number
+  exact: boolean
+}
+
+function scoreRow(prepared: Prepared, tokens: string[]): Scored | null {
   let total = 0
+  let exact = false
   for (const token of tokens) {
     const score = tokenScore(prepared, token)
     if (score === null) return null
+    if (score === SCORE_IDENTIFIER_EXACT) exact = true
     total += score
   }
-  return total
+  return { total, exact }
+}
+
+/** The row's total score for `tokens`, or null when any token misses. */
+export function issueSearchScore(row: IssueSearchRow, tokens: string[]): number | null {
+  return scoreRow(prepare(row), tokens)?.total ?? null
 }
 
 function timeOf(value: string | Date | null | undefined): number {
@@ -185,6 +248,11 @@ function compareCreated(a: IssueSearchRow, b: IssueSearchRow): number {
   )
 }
 
+/** EXP-922: undone before done, as a comparator term (open = 1, closed = 0). */
+function compareOpen(a: IssueSearchRow, b: IssueSearchRow): number {
+  return Number(isIssueSearchOpen(b.status)) - Number(isIssueSearchOpen(a.status))
+}
+
 /**
  * Rank the locally synced `rows` for `query`: the scored, ordered, capped
  * list described at the top of this file. Stable for equal keys.
@@ -199,14 +267,22 @@ export function rankIssueSearch<T extends IssueSearchRow>(
   const tokens = issueSearchTokens(query)
   const pool = rows.filter((row) => !exclude.has(row.id))
   if (tokens.length === 0) {
-    return [...pool].sort(compareCreated).slice(0, limit)
+    return [...pool]
+      .sort((a, b) => compareOpen(a, b) || compareCreated(a, b))
+      .slice(0, limit)
   }
-  const scored: Array<{ row: T; score: number }> = []
+  const scored: Array<{ row: T; score: number; exact: boolean }> = []
   for (const row of pool) {
-    const score = issueSearchScore(row, tokens)
-    if (score !== null) scored.push({ row, score })
+    const score = scoreRow(prepare(row), tokens)
+    if (score !== null) scored.push({ row, score: score.total, exact: score.exact })
   }
-  scored.sort((a, b) => b.score - a.score || compareRecency(a.row, b.row))
+  scored.sort(
+    (a, b) =>
+      Number(b.exact) - Number(a.exact) ||
+      compareOpen(a.row, b.row) ||
+      b.score - a.score ||
+      compareRecency(a.row, b.row)
+  )
   return scored.slice(0, limit).map((entry) => entry.row)
 }
 

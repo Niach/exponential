@@ -93,8 +93,9 @@ pub(crate) struct FaceToggle {
     pub results: bool,
     pub active: Face,
     /// EXP-886 / EXP-950: the issue's runs of mine
-    /// ([`crate::run_rows::issue_run_entries`]; empty for an issue-less run).
-    /// With MORE THAN ONE the Run item reads "Runs" ([`run_face_label`]) and
+    /// ([`crate::run_rows::issue_run_entries`]); EXP-974: for an issue-less
+    /// run, its resume chain ([`crate::run_rows::chain_run_entries`]). With
+    /// MORE THAN ONE the Run item reads "Runs" ([`run_face_label`]) and
     /// carries a caret: the label still opens the tab's run, the caret's
     /// menu picks between them — and the toggle shows for that caret alone.
     pub runs: Vec<RunEntry>,
@@ -583,11 +584,12 @@ pub(crate) fn coding_action_button(
     }
 }
 
-/// EXP-916 — the ONE way out to GitHub, on the issue face, the run face and
-/// the review header alike: a ghost glyph in the right cluster, present
-/// exactly while the subject HAS a pull request. `None` otherwise — an empty
-/// link is worse than no link. Callers name the element so two clusters can
-/// carry it at once.
+/// EXP-916 — the ONE way out to GitHub: a ghost glyph in the right cluster,
+/// present exactly while the subject HAS a pull request. `None` otherwise —
+/// an empty link is worse than no link. EXP-949: it rides the CHANGES face
+/// alone (the detail's PR pane, a run's diff face, the review header), never
+/// Issue, Run or Results — the callers gate it. Callers name the element so
+/// two clusters can carry it at once.
 pub(crate) fn github_button(
     id: impl Into<gpui::ElementId>,
     pr_url: Option<&str>,
@@ -1552,6 +1554,39 @@ mod tests {
         spec.run = Some("run-1".to_string());
         spec.runs.clear();
         assert!(spec.is_shown());
+    }
+
+    /// EXP-974: an ISSUE-LESS run's menu is its resume chain — with a
+    /// predecessor (or a successor) in it the lone Run item wears the plural
+    /// and the caret, exactly as an issue's several runs do; a run nothing
+    /// resumed and that resumed nothing keeps the bare word and no control.
+    #[test]
+    fn an_issue_less_run_with_a_resume_chain_carries_the_caret() {
+        let entry = |id: &str| RunEntry {
+            id: id.to_string(),
+            label: format!("macbook · {id}"),
+            live: false,
+        };
+        let mut spec = FaceToggle {
+            issue: false,
+            run: Some("resume-1".to_string()),
+            diff: Some((3, 1)),
+            pr_changes: false,
+            results: false,
+            active: Face::Run,
+            runs: vec![entry("resume-1")],
+            checked_run: Some("resume-1".to_string()),
+        };
+        assert!(!spec.multiple_runs());
+        assert_eq!(run_face_label(spec.multiple_runs()), "Run");
+        // The row it continues joins the menu (newest first, the viewed
+        // one checked).
+        spec.runs.push(entry("original"));
+        assert!(spec.multiple_runs());
+        assert_eq!(run_face_label(spec.multiple_runs()), "Runs");
+        assert!(spec.is_shown());
+        assert_eq!(spec.items(), vec![Face::Run, Face::Diff]);
+        assert_eq!(spec.checked_run.as_deref(), Some("resume-1"));
     }
 
     #[test]

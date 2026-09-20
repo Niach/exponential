@@ -25,6 +25,7 @@ import {
   PAST_RUN_CAP,
 } from "@/lib/past-runs"
 import { batchRunIssues, isBatchRun } from "@/lib/batch-run"
+import { runChain } from "@/lib/sessions/run-chain"
 
 /** EXP-734: what a run's Merge control acts on. An issue-scoped run merges
  * through its issue; a batch run through the representative issue of its ONE
@@ -575,6 +576,45 @@ export function useIssueRuns(
     [sessionRows, currentUserId, issueId]
   )
   const { rows, isLoading } = usePastRunRows(teamId, currentUserId, runs, isReady)
+  return { runs: rows, isLoading }
+}
+
+/**
+ * EXP-974: a run's RESUME CHAIN — the rows `resumed_from_id` links into one
+ * succession (`runChain`, oldest-first), served NEWEST FIRST like the run
+ * menu's other source. An issue-bound run's menu reads `useIssueRuns` (the
+ * issue's own runs already include its resumes); an ISSUE-LESS run (chat,
+ * action, batch) has no issue to list runs under, so its predecessor and
+ * successor come from here — the "Continues an earlier run" band that used
+ * to be the only link between them is gone. Same joins as Recent's rows.
+ */
+export function useRunChain(
+  sessionId: string | undefined,
+  teamId: string | undefined,
+  currentUserId: string | undefined
+) {
+  const { data: sessionRows, isReady } = useLiveQuery(
+    (query) =>
+      sessionId && teamId && currentUserId
+        ? query
+            .from({ sessions: codingSessionCollection })
+            .where(({ sessions }) =>
+              and(
+                eq(sessions.teamId, teamId),
+                eq(sessions.userId, currentUserId)
+              )
+            )
+        : undefined,
+    [sessionId, teamId, currentUserId]
+  )
+  const chain = useMemo(
+    () =>
+      sessionId
+        ? runChain((sessionRows ?? []) as CodingSession[], sessionId).reverse()
+        : [],
+    [sessionRows, sessionId]
+  )
+  const { rows, isLoading } = usePastRunRows(teamId, currentUserId, chain, isReady)
   return { runs: rows, isLoading }
 }
 

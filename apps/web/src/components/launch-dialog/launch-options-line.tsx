@@ -1,5 +1,5 @@
 import {
-  AgentPicker,
+  AccountPicker,
   Button,
   Combobox,
   GlassGroup,
@@ -32,7 +32,7 @@ import {
 } from "@/lib/coding-launch-prefs"
 import { contract } from "@exp/domain-contract"
 import { healthBadgeLabel } from "@/lib/agent-usage"
-import { NO_REPO } from "@/lib/chat-repo"
+import { accountOptionKey } from "@/lib/accounts/account-option"
 
 // EXP-825 (variant B, decided with Danny 2026-09-10): ONE muted line under the
 // composer card — Device, Agent, Model as inline pickers, the Plan switch,
@@ -42,10 +42,14 @@ import { NO_REPO } from "@/lib/chat-repo"
 // (EXP-792). The notes the dialog's option pane used to carry (not ready /
 // no desktop / waiting / the batch guards) live on the same line.
 //
-// EXP-862: the Agent pick is THE shared picker (@exp/ui `agent-picker`,
-// icon-only), the Device menu rows carry the machine's kind glyph like its
-// trigger, and the Account left the overflow for the line itself as soon as
-// the machine reports two logins for the picked agent.
+// EXP-872: the Agent pick and the Account pick MERGED into THE account picker
+// (@exp/ui `account-picker`): one flattened list of the machine's logins,
+// brand mark + email, the device default first — picking a login implies
+// its agent. The Device menu rows carry the machine's kind glyph like its
+// trigger. The repository picker renders only while the team has SEVERAL
+// repos (one repo is not a choice; there is no repo-less option any more),
+// and the `⋯` overlay is the divided-rows shell with no card inside the
+// popover's card (EXP-993/994).
 //
 // EXP-958: every word of the line is a `Combobox` in its `inline` variant —
 // the primitive collapses a picker to plain text on its own once there is at
@@ -88,7 +92,15 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
       label: effortLabel(value),
     })),
   ]
-  const showAccount = launch.accountProfiles.length >= 2
+  const accountOptions = launch.accountOptions.map((option) => ({
+    key: accountOptionKey(option),
+    agent: option.agent,
+    email: option.email,
+    // EXP-849: health beats everything else in the row — an expired
+    // credential is the one thing worth knowing BEFORE the run starts on it.
+    hint: healthBadgeLabel(option.health) ?? undefined,
+    limits: option.limits,
+  }))
   const showMcp = model.mcpServers !== null && model.mcpServers.length > 0
 
   return (
@@ -115,14 +127,14 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           }}
           width="sm"
         />
-        {/* EXP-862: THE agent picker (@exp/ui `agent-picker`) — the brand
-            mark and a chevron, the name only in the menu and the tooltip. */}
-        <AgentPicker
-          size="sm"
-          value={agent}
-          agents={launch.availableAgents}
-          onChange={launch.switchAgent}
-          className="-my-0.5"
+        {/* EXP-872: THE account picker — brand mark + email, the agent
+            implied by the pick; one login collapses to plain text. */}
+        <AccountPicker
+          variant="inline"
+          value={launch.accountKey ?? null}
+          options={accountOptions}
+          onChange={launch.setAccountKey}
+          data-testid="agent-composer-account"
         />
         <Combobox
           triggerVariant="inline"
@@ -137,41 +149,18 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           }}
           width="sm"
         />
-        {subject === null && model.repoOptions.length > 0 && (
+        {subject === null && model.repoOptions.length > 1 && (
+          /* EXP-993: a choice only when there IS one — several repos. One
+             repo is the chat's anchor without a word said, and repo-less is
+             not on offer. */
           <Combobox
             triggerVariant="inline"
             searchable={false}
             mobileTitle="Repository"
-            value={model.repoId || NO_REPO}
+            value={model.repoId || null}
             options={model.repoOptions}
             onChange={(value) => {
-              if (value !== null) {
-                model.setRepoId(value === NO_REPO ? `` : value)
-              }
-            }}
-            width="sm"
-          />
-        )}
-        {showAccount && (
-          /* EXP-862: the account is a first-class pick, not an overflow row —
-             a machine with two logins for this agent says which one the run
-             lands on right here (EXP-849: a dead credential says so too). */
-          <Combobox
-            triggerVariant="inline"
-            searchable={false}
-            mobileTitle="Account"
-            value={launch.account ?? null}
-            options={launch.accountProfiles.map((profile) => ({
-              value: profile.id,
-              // EXP-849: health beats "active" in the label — an expired
-              // credential is the one thing worth knowing BEFORE the run
-              // starts on it.
-              label: healthBadgeLabel(profile.health)
-                ? `${profile.label} — ${healthBadgeLabel(profile.health)}`
-                : profile.label,
-            }))}
-            onChange={(value) => {
-              if (value !== null) launch.setAccount(value)
+              if (value !== null) model.setRepoId(value)
             }}
             width="sm"
           />
@@ -219,12 +208,14 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             </Button>
           </MobilePopoverTrigger>
           <MobilePopoverContent
-            className="w-[20rem] p-2"
+            className="w-[20rem] p-0"
             align="start"
             mobileTitle="Options"
           >
+            {/* EXP-994: the overlay IS the surface — the rows keep their
+                hairlines and nothing draws a second card inside it. */}
             <div data-testid="agent-options-sheet">
-              <GlassGroup>
+              <GlassGroup bare>
                 <Combobox
                   triggerVariant="row"
                   searchable={false}

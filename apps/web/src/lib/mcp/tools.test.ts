@@ -1280,9 +1280,15 @@ describe(`exponential_attachments_list (EXP-988/EXP-979)`, () => {
       limit: 50,
       offset: 0,
     })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not implemented`)
+    expect(result.isError).toBeFalsy()
+    expect(JSON.parse(result.content[0].text ?? `null`)).toEqual({
+      attachments: [],
+      total: 0,
+    })
+    expect(membership.getIssueTeamContext).toHaveBeenCalledWith(UUID)
     expect(membership.resolveTeamAccess).toHaveBeenCalledWith(USER.id, `ws-1`)
+    // The query is scoped to the resolved issue.
+    expect(renderWhere().sql).toContain(`"attachments"."issue_id" = $1`)
   })
 
   it(`denies a non-member`, async () => {

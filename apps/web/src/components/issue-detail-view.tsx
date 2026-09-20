@@ -10,7 +10,6 @@ import {
   MOBILE_WORK_BAR_CLEARANCE,
   WORK_COLUMN_CLASS,
   WorkHeader,
-  PrGithubButton,
 } from "@exp/ui"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Issue, User, Board } from "@/db/schema"
@@ -745,9 +744,9 @@ export function IssueDetailView({
               issue={issue}
             />
             {faceToggle}
-            {/* EXP-916: the Changes face has no bar of its own any more, so
-                the PR reaches GitHub from the header. */}
-            {issue.prUrl && <PrGithubButton prUrl={issue.prUrl} />}
+            {/* EXP-949: no GitHub here — the way out to the PR belongs to the
+                Changes face (the run's diff, the Reviews page), never beside
+                the issue itself. */}
             {pinToggle}
             <IssueActionsMenu
               issue={issue}

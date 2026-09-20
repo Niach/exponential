@@ -46,6 +46,7 @@ import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
 import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
+import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
 import {
   captureLanding,
   captureReturnVisit,
@@ -89,6 +90,11 @@ startCodingSessionSweepScheduler()
 // grace window — unreachable bytes that would otherwise count against the
 // team's storage budget forever, with no delete UI.
 startSessionAttachmentSweepScheduler()
+
+// Attachment sizes (EXP-955): periodic pass finalizing rows still at
+// `size_bytes = 0` (legacy rows, signed uploads that never finalized) against
+// their stored object, through the one finalize function.
+startAttachmentSizeBackfillScheduler()
 
 // FCM tokens: periodic sweep deleting token rows not re-registered within the
 // staleness window — the server-side backstop for sign-outs whose best-effort

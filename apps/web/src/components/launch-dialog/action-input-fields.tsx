@@ -83,7 +83,7 @@ export function ActionInputFields({
         }
         if (def.type === `pr`) {
           return (
-            <div key={def.key} className="space-y-2">
+            <div key={def.key} className="min-w-0 space-y-2">
               <Label>{label}</Label>
               <PrInputField
                 teamId={teamId}

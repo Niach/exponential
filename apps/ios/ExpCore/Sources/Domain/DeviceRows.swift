@@ -153,10 +153,15 @@ public extension SteerDevice {
         guard let json,
               let decoded = try? JSONDecoder().decode(DeviceLaunchDefaults.self, from: Data(json.utf8))
         else { return nil }
+        let defaultAgent = decoded.defaultAgent.flatMap {
+            AgentUsagePresentation.isContractAgent($0) ? $0 : nil
+        }
         return DeviceLaunchDefaults(
-            defaultAgent: decoded.defaultAgent.flatMap {
-                AgentUsagePresentation.isContractAgent($0) ? $0 : nil
-            },
+            defaultAgent: defaultAgent,
+            // EXP-872: the stored default ACCOUNT is a profile of that agent,
+            // so it goes wherever the agent went — a default account naming a
+            // retired agent's login must not outlive its agent.
+            defaultAccount: defaultAgent == nil ? nil : decoded.defaultAccount,
             agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) }
         )
     }

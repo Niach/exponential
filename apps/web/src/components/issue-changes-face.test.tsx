@@ -3,15 +3,15 @@ import { describe, expect, it, vi } from "vitest"
 import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
 import type { Board, Issue } from "@/db/schema"
 import { IssueChangesFace } from "@/components/issue-changes-face"
+import type { ReviewFilesState } from "@/hooks/use-review-files"
 
-const filesState = vi.hoisted(() => ({
-  value: { kind: `files`, files: [] as DiffFile[] },
-}))
+// EXP-952: the route fetches the files and hands the state down; the test
+// plays the route.
+const filesState = {
+  value: { kind: `files`, files: [] as DiffFile[] } as ReviewFilesState,
+}
 
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
-vi.mock(`@/hooks/use-review-files`, () => ({
-  useReviewFiles: () => ({ state: filesState.value, reload: vi.fn() }),
-}))
 // The face reads the steer config off the session view; importing that module
 // would drag the whole steering surface into this test.
 vi.mock(`@/components/agent-session`, () => ({
@@ -65,6 +65,7 @@ function renderFace() {
       teamSlug="acme"
       teamId="t1"
       readOnly={false}
+      filesState={filesState.value}
       switcher={<div data-testid="switcher" />}
     />
   )
@@ -123,7 +124,7 @@ describe(`IssueChangesFace`, () => {
   })
 
   it(`nothing pushed = the empty note, no sheet, no merge`, () => {
-    filesState.value = { kind: `none`, files: [] }
+    filesState.value = { kind: `none` }
     renderFace()
     expect(
       screen.getByText(`No changes yet — nothing has been pushed for this issue.`)

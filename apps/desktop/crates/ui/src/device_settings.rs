@@ -340,6 +340,11 @@ pub struct DeviceSettingsView {
     codex_effort_select: ChoiceSelect,
     claude_ultracode: bool,
     claude_plan_mode: bool,
+    /// EXP-872: the machine's DEFAULT ACCOUNT — the profile id of
+    /// `default_agent`'s logins it launches as. It rides beside the agent
+    /// select (a pick writes both) rather than in one, because an account is
+    /// per-machine data and the agent list is a closed set.
+    default_account: Option<String>,
     agent_tab: CodingAgent,
     editor_agents: Vec<CodingAgent>,
     /// The current baseline as a Settings value (drafts overlay it): the
@@ -537,6 +542,7 @@ impl DeviceSettingsView {
             codex_effort_select,
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
+            default_account: seeded.default_account.clone(),
             agent_tab: seeded.default_agent,
             editor_agents,
             seeded_label: row.label.clone().unwrap_or_default(),
@@ -717,6 +723,7 @@ impl DeviceSettingsView {
         }
         self.claude_ultracode = baseline.claude_ultracode;
         self.claude_plan_mode = baseline.claude_plan_mode;
+        self.default_account = baseline.default_account.clone();
         if !self.editor_agents.contains(&self.agent_tab) {
             self.agent_tab = baseline.default_agent;
         }
@@ -736,6 +743,7 @@ impl DeviceSettingsView {
         drafted.codex_effort = selected(&self.codex_effort_select, cx);
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
+        drafted.default_account = self.default_account.clone();
         drafted
     }
 
@@ -1003,6 +1011,7 @@ impl DeviceSettingsView {
             // saved everywhere EXCEPT on this machine's own row.
             settings.claude_ultracode = drafted.claude_ultracode;
             settings.claude_plan_mode = drafted.claude_plan_mode;
+            settings.default_account = drafted.default_account.clone();
             self.set_error(
                 "defaults",
                 CodingHub::save_settings(&hub, settings, cx)
@@ -1421,21 +1430,83 @@ impl DeviceSettingsView {
         )
     }
 
-    /// EXP-862: "Default agent" is the SHARED agent picker
-    /// ([`crate::coding_selects::agent_picker`]) — the same brand-marked
-    /// trigger the composer and Settings → Agents wear. The pick writes
-    /// through the `agent_select` state, so the EXP-694 autosave (an observer
-    /// on that select) still owns the save.
-    fn render_agent_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let current = CodingAgent::parse(&selected(&self.agent_select, cx))
+    /// EXP-872: "Default account" is the SHARED account picker
+    /// ([`crate::coding_selects::account_picker`]) over the logins THIS
+    /// machine reports — "default agent" became "default account", and the
+    /// agent derives from the pick. It writes BOTH: the agent through the
+    /// `agent_select` state (whose observer owns the EXP-694 autosave) and
+    /// the profile id into [`Self::default_account`], then commits, because
+    /// picking a second login of the SAME agent moves no select at all.
+    ///
+    /// A machine that reports no login falls back to one row per editor
+    /// agent, named by the agent ([`machine_account_options`]) — the row
+    /// still has to be pickable on a machine that has not beaten yet.
+    fn render_account_picker(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let agent = CodingAgent::parse(&selected(&self.agent_select, cx))
             .unwrap_or(self.seeded.default_agent);
-        let select = self.agent_select.clone();
-        crate::coding_selects::agent_picker(
-            "device-default-agent",
+        let mut settings = self.seeded.clone();
+        settings.default_agent = agent;
+        settings.default_account = self.default_account.clone();
+        let (accounts, usage) = self.reported_agent_status(cx);
+        let options = crate::launch_options::machine_account_options(
+            &accounts,
+            &usage,
+            &settings,
             &self.editor_agents,
-            current,
-            move |agent, window, cx| write_choice(&select, agent.id(), window, cx),
+        );
+        let current = crate::launch_options::account_key(agent, self.default_account.as_deref());
+        let select = self.agent_select.clone();
+        let view = cx.entity().downgrade();
+        crate::coding_selects::account_picker(
+            "device-default-account",
+            &options,
+            Some(current.as_str()),
+            crate::coding_selects::AccountTrigger::Row,
+            move |option, window, cx| {
+                write_choice(&select, option.agent.id(), window, cx);
+                if let Some(view) = view.upgrade() {
+                    let account = option.wire_account();
+                    view.update(cx, |this, cx| {
+                        this.default_account = account;
+                        this.save_defaults(cx);
+                        cx.notify();
+                    });
+                }
+            },
             cx,
+        )
+    }
+
+    /// The logins THIS dialog's machine reports: the live local probe for our
+    /// own row, the synced `agent_accounts`/`agent_usage` columns for anyone
+    /// else's.
+    fn reported_agent_status(
+        &self,
+        cx: &mut App,
+    ) -> (
+        coding::agent_accounts::AgentAccounts,
+        coding::agent_usage::AgentUsageMap,
+    ) {
+        if self.own {
+            if let Some(demo) = dev_agent_status() {
+                return (demo.accounts, demo.usage);
+            }
+            let hub = CodingHub::global(cx);
+            let status = hub.read(cx).agent_status.clone();
+            if let Some(status) = status {
+                return (status.accounts, status.usage);
+            }
+        }
+        let Some(store) = sync::Store::try_global(cx) else {
+            return Default::default();
+        };
+        let devices = store.collections().devices.read(cx);
+        let Some(row) = devices.iter().find(|row| row.id == self.device_row_id) else {
+            return Default::default();
+        };
+        (
+            parse_agent_map::<coding::agent_accounts::AgentAccount>(row.agent_accounts.as_ref()),
+            parse_agent_map::<coding::agent_usage::AgentUsage>(row.agent_usage.as_ref()),
         )
     }
 
@@ -1516,15 +1587,15 @@ impl DeviceSettingsView {
                     },
                 ));
         }
-        // EXP-686: no section title — the "Default agent" row already names
-        // what the block is.
+        // EXP-686: no section title — the "Default account" row already
+        // names what the block is.
         let mut body = v_flex()
             .w_full()
             .gap_2()
             .child(surface::glass_group_rows(vec![surface::glass_picker_row(
-                "Default agent",
+                "Default account",
                 None,
-                self.render_agent_picker(cx),
+                self.render_account_picker(cx),
                 cx,
             )]))
             .child(group.render(cx));
@@ -2079,12 +2150,14 @@ mod tests {
         }
     }
 
-    /// EXP-862: "Default agent" is the shared agent picker now, so the pick
-    /// reaches the select PROGRAMMATICALLY — and `set_selected_value` alone
-    /// never notifies, which silently dropped the new default. The write has to
-    /// carry the autosave with it.
+    /// EXP-872: "Default account" is the shared account picker now, and its
+    /// pick still reaches the agent select PROGRAMMATICALLY — and
+    /// `set_selected_value` alone never notifies, which silently dropped the
+    /// new default. The write has to carry the autosave with it. (The profile
+    /// half of the pick commits directly, since picking a second login of the
+    /// SAME agent moves no select at all.)
     #[gpui::test]
-    async fn picking_a_default_agent_reaches_the_autosave(cx: &mut gpui::TestAppContext) {
+    async fn picking_a_default_account_reaches_the_autosave(cx: &mut gpui::TestAppContext) {
         let (saver, cx) = cx.add_window_view(|_, _| Saver { saves: 0 });
         let select = saver.update_in(cx, |_, window, cx| {
             let select = choice_select(&AGENT_CHOICES, CodingAgent::Claude.id(), window, cx);

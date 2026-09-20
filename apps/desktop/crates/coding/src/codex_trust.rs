@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 
 /// An explicit home (EXP-792: a profile's `CODEX_HOME`), else
 /// `$CODEX_HOME|~/.codex` (mirrors `codex_sessions::codex_sessions_root`).
-fn codex_home(home: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn codex_home(home: Option<&Path>) -> Option<PathBuf> {
     if let Some(home) = home {
         return Some(home.to_path_buf());
     }

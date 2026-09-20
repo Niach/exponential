@@ -15,15 +15,42 @@
 //  3. return the finished row.
 //
 // EXP-955 also BACKFILLS existing rows with `sizeBytes = 0` through the same
-// function, so there is exactly one place that decides what a stored size is.
-// Idempotent: finalizing a finalized row re-reads the object and rewrites the
-// same numbers.
+// function (attachment-size-backfill.ts), so there is exactly one place that
+// decides what a stored size is. Idempotent: finalizing a finalized row
+// re-reads the object and rewrites the same numbers.
+//
+// The logic lives in finalize-core.ts with the object store injected; this
+// module binds it to the aws-sdk client for the request graph. Default mode
+// is `upload` (caps + team budget enforced, a refusal deletes object and
+// row); the backfill passes `{ mode: "backfill" }`.
 import type { Attachment } from "@/db/schema"
+import { deleteObject, getObject, headObject } from "@/lib/storage"
+import {
+  finalizeAttachmentUploadWith,
+  type AttachmentObjectProbe,
+  type FinalizeAttachmentOptions,
+} from "@/lib/attachments/finalize-core"
+
+export type {
+  AttachmentObjectProbe,
+  FinalizeAttachmentMode,
+  FinalizeAttachmentOptions,
+} from "@/lib/attachments/finalize-core"
+
+const storageProbe: AttachmentObjectProbe = {
+  head: headObject,
+  read: async (key) => {
+    const object = await getObject(key)
+    const body = object?.Body
+    if (!body) return null
+    return new Uint8Array(await body.transformToByteArray())
+  },
+  remove: deleteObject,
+}
 
 export async function finalizeAttachmentUpload(
-  _attachmentId: string
+  attachmentId: string,
+  options?: FinalizeAttachmentOptions
 ): Promise<Attachment> {
-  throw new Error(
-    `finalizeAttachmentUpload is not implemented yet (EXP-955 owns it)`
-  )
+  return finalizeAttachmentUploadWith(attachmentId, storageProbe, options)
 }

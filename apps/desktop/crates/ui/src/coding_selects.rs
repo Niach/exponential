@@ -200,6 +200,194 @@ pub(crate) fn agent_menu_items(
     menu
 }
 
+// ---------------------------------------------------------------------------
+// EXP-872 — THE account picker
+// ---------------------------------------------------------------------------
+
+/// Where an [`account_picker`] is drawn, which is the only thing that varies
+/// between its two homes. Both are BARE ghost triggers: an account pick is
+/// already inside a card (the composer's options line, a `glass_picker_row`),
+/// and a bordered pill inside a row would be a second edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AccountTrigger {
+    /// The Agent page composer's muted options line (`text_xs`, muted).
+    Inline,
+    /// A settings `glass_picker_row`'s trailing control (`text_sm`, the
+    /// normal foreground — the value of the row, not a caption).
+    Row,
+}
+
+/// EXP-872 — THE account picker, one component per client (web
+/// `@exp/ui` `AccountPicker`, iOS `AccountPickerMenu`, Android
+/// `AccountPickerPill`). It REPLACES the agent picker + the account picker on
+/// every launch surface: the list is every signed-in login the target machine
+/// reports ACROSS agents ([`coding::flatten_accounts`]), and picking one
+/// IMPLIES its agent.
+///
+/// The trigger and every row read the same way: the agent's brand mark + the
+/// login's EMAIL, never the profile name and never the word "default" — the
+/// device default is simply the first row. A dead credential rides as a muted
+/// health badge beside the email.
+///
+/// With exactly ONE option there is nothing to pick, so the trigger collapses
+/// to plain text without a chevron (the mark and the email still say which
+/// login the run spends). An EMPTY list renders nothing at all — a caller
+/// with no login to offer builds its own fallback rows.
+pub(crate) fn account_picker(
+    id: impl Into<gpui::ElementId>,
+    options: &[coding::AccountOption],
+    current_key: Option<&str>,
+    variant: AccountTrigger,
+    on_pick: impl Fn(&coding::AccountOption, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> gpui::AnyElement {
+    use gpui::{IntoElement as _, ParentElement as _, Styled as _};
+    use gpui_component::button::ButtonVariants as _;
+    use gpui_component::menu::DropdownMenu as _;
+
+    let Some(current) = options
+        .iter()
+        .find(|option| Some(option.account_option_key().as_str()) == current_key)
+        .or_else(|| coding::default_account_option(options))
+    else {
+        return gpui::div().into_any_element();
+    };
+    let muted = cx.theme().muted_foreground;
+    // Web parity (`AccountOptionLabel`'s `title`): the brand name the mark
+    // stands for, and the login it is.
+    let tooltip: SharedString =
+        format!("{} \u{b7} {}", current.agent.label(), current.email).into();
+    let label = account_label_row(current, variant, cx);
+    if options.len() < 2 {
+        // Nothing to pick: the same line, without the affordance.
+        return gpui::div()
+            .flex()
+            .items_center()
+            .px_1()
+            .child(label)
+            .into_any_element();
+    }
+    let current_key = current.account_option_key();
+    let options: Vec<coding::AccountOption> = options.to_vec();
+    let on_pick = std::rc::Rc::new(on_pick);
+    gpui_component::button::Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .h_auto()
+        .px_1()
+        .py_0()
+        .tooltip(tooltip)
+        .child(label)
+        .child(
+            Icon::from(crate::icons::registry::UI_CHEVRON_DOWN)
+                .size(gpui::px(12.))
+                .text_color(muted),
+        )
+        .dropdown_menu(move |menu, _window, _cx| {
+            let on_pick = on_pick.clone();
+            account_menu_items(
+                menu,
+                &options,
+                Some(current_key.as_str()),
+                move |option, window, cx| on_pick(option, window, cx),
+            )
+        })
+        .into_any_element()
+}
+
+/// How wide an email may grow before it ellipsises.
+const ACCOUNT_EMAIL_MAX_W: f32 = 200.;
+
+/// The trigger's (and a row's) one line: brand mark + email + the muted
+/// health badge, `Row`-sized or `Inline`-sized.
+fn account_label_row(
+    option: &coding::AccountOption,
+    variant: AccountTrigger,
+    cx: &App,
+) -> impl gpui::IntoElement {
+    use gpui::prelude::FluentBuilder as _;
+    use gpui::{ParentElement as _, Styled as _};
+    let muted = cx.theme().muted_foreground;
+    let inline = variant == AccountTrigger::Inline;
+    gpui_component::h_flex()
+        .min_w_0()
+        .items_center()
+        .gap_1p5()
+        .when(inline, |row| row.text_xs().text_color(muted))
+        .when(!inline, |row| row.text_sm())
+        .child(agent_mark(option.agent).size(gpui::px(12.)))
+        .child(
+            gpui::div()
+                .min_w_0()
+                // A login is an ADDRESS — capped so one long one can never
+                // push the composer's options line past the card.
+                .max_w(gpui::px(ACCOUNT_EMAIL_MAX_W))
+                .truncate()
+                .child(SharedString::from(option.email.clone())),
+        )
+        .children(option.health.badge_label().map(|badge| {
+            gpui::div()
+                .flex_shrink_0()
+                .text_xs()
+                .text_color(muted)
+                .child(badge)
+        }))
+}
+
+/// The rows of [`account_picker`]'s menu, on their own so any menu that
+/// offers accounts shows the SAME rows: brand mark + email (+ health badge),
+/// the current pick checked.
+///
+/// EXP-992: a row whose login reports usage carries a very small preview —
+/// `5h` / `week` / `<model>` over [`crate::usage_bar::meter`] bars. It rides
+/// a TOOLTIP rather than an anchored card of its own: a menu row is already
+/// inside a deferred overlay (an absolute child would clip against the popup's
+/// bounds), and a tooltip is display-only, so hovering one can never swallow
+/// the click that picks it.
+pub(crate) fn account_menu_items(
+    menu: gpui_component::menu::PopupMenu,
+    options: &[coding::AccountOption],
+    current_key: Option<&str>,
+    on_pick: impl Fn(&coding::AccountOption, &mut Window, &mut App) + 'static,
+) -> gpui_component::menu::PopupMenu {
+    use gpui::prelude::FluentBuilder as _;
+    use gpui::{InteractiveElement as _, ParentElement as _, StatefulInteractiveElement as _, Styled as _};
+    use gpui_component::menu::PopupMenuItem;
+
+    let on_pick = std::rc::Rc::new(on_pick);
+    let mut menu = menu;
+    for (index, option) in options.iter().enumerate() {
+        let checked = current_key == Some(option.account_option_key().as_str());
+        let row = option.clone();
+        let picked = option.clone();
+        let on_pick = on_pick.clone();
+        menu = menu.item(
+            PopupMenuItem::element(move |_window, cx| {
+                let row = row.clone();
+                let limits = row.limits.clone();
+                gpui::div()
+                    .id(("account-option", index))
+                    .flex()
+                    .min_w_0()
+                    .items_center()
+                    .child(account_label_row(&row, AccountTrigger::Row, cx))
+                    .when_some(limits, |this, limits| {
+                        this.tooltip(move |window, cx| {
+                            let limits = limits.clone();
+                            gpui_component::tooltip::Tooltip::element(move |_, cx| {
+                                crate::usage_bar::render_account_limits(&limits, cx)
+                            })
+                            .build(window, cx)
+                        })
+                    })
+            })
+            .checked(checked)
+            .on_click(move |_, window, cx| on_pick(&picked, window, cx)),
+        );
+    }
+    menu
+}
+
 /// Build a select over `choices`, preselecting `initial` by VALUE (falling
 /// back to the first row — every choice set puts its default first, and the
 /// persisted settings values are load-normalized into these sets anyway).

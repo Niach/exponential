@@ -42,7 +42,7 @@ import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
-import com.exponential.app.ui.agent.AgentPickerPill
+import com.exponential.app.ui.components.AccountPickerPill
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassPill
@@ -57,6 +57,7 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SwitchRow
+import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.defaultModelFor
 import com.exponential.app.ui.components.deviceIconName
 import com.exponential.app.ui.components.effortValuesFor
@@ -138,6 +139,12 @@ fun DeviceSettingsSheet(
     var iconPick by remember(device.rowId) { mutableStateOf<String?>(null) }
     var editableAgents by remember { mutableStateOf(editableAgents(device)) }
     var defaultAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
+    // EXP-872: "default agent" became "default ACCOUNT" — the row stores a
+    // login's profile id and the agent is derived from it. "" = nothing stored
+    // yet, and the picker then sits on the machine's own first login.
+    var defaultAccount by remember {
+        mutableStateOf(device.launchDefaults?.defaultAccount.orEmpty())
+    }
     var agentTab by remember { mutableStateOf(defaultAgent) }
     var drafts by remember {
         mutableStateOf(editableAgents.associateWith { agentDraft(device, it) })
@@ -162,6 +169,7 @@ fun DeviceSettingsSheet(
         if (!viewModel.hasPendingDefaults()) {
             editableAgents = editableAgents(device)
             defaultAgent = seededDefaultAgent(device, editableAgents)
+            defaultAccount = device.launchDefaults?.defaultAccount.orEmpty()
             drafts = editableAgents.associateWith { agentDraft(device, it) }
             if (agentTab !in editableAgents) agentTab = editableAgents.first()
         }
@@ -178,7 +186,7 @@ fun DeviceSettingsSheet(
         drafts = next
         viewModel.queueDefaults(
             device.deviceId,
-            buildDefaults(defaultAgent, editableAgents, next),
+            buildDefaults(defaultAgent, defaultAccount, editableAgents, next),
         )
     }
 
@@ -292,7 +300,11 @@ fun DeviceSettingsSheet(
             if (device.isServer) {
                 SectionHeader("Sharing", modifier = Modifier.padding(horizontal = 16.dp))
                 OptionGroup {
-                    teams.forEach { team ->
+                    // EXP-994: a grouped list of rows carries a hairline
+                    // between them — a stack of bare switches read as one
+                    // control with several thumbs.
+                    teams.forEachIndexed { index, team ->
+                        if (index > 0) GroupDivider()
                         SwitchRow(
                             title = team.name,
                             checked = device.sharedTeamIds.contains(team.id),
@@ -323,9 +335,12 @@ fun DeviceSettingsSheet(
                     modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                 )
             }
-            // EXP-862: the SHARED agent picker — the same icon-only trigger
-            // the composer's options row wears, so "which agent" looks the
-            // same wherever it is asked.
+            // EXP-872: the SHARED account picker — the same trigger the
+            // composer's options row wears, so "which login" looks the same
+            // wherever it is asked. The machine's default AGENT rides the
+            // picked login; a machine that reports none offers one ambient
+            // option per editable agent so the setting stays editable offline.
+            val accountOptions = accountOptionsFor(device, editableAgents)
             OptionGroup {
                 Row(
                     modifier = Modifier
@@ -334,19 +349,27 @@ fun DeviceSettingsSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Default agent",
+                        "Default account",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.weight(1f))
-                    AgentPickerPill(
-                        agent = defaultAgent,
-                        agents = editableAgents,
-                        onSelect = {
-                            defaultAgent = it
+                    AccountPickerPill(
+                        options = accountOptions,
+                        selectedKey = defaultAccount
+                            .takeIf { it.isNotEmpty() }
+                            ?.let { "$defaultAgent:$it" },
+                        onSelect = { option ->
+                            defaultAgent = option.agent
+                            defaultAccount = option.id
                             viewModel.queueDefaults(
                                 device.deviceId,
-                                buildDefaults(it, editableAgents, drafts),
+                                buildDefaults(
+                                    option.agent,
+                                    option.id,
+                                    editableAgents,
+                                    drafts,
+                                ),
                             )
                         },
                     )
@@ -787,10 +810,17 @@ internal fun agentDraft(device: SteerDevice, agent: String): AgentDraft {
  */
 internal fun buildDefaults(
     defaultAgent: String,
+    /**
+     * EXP-872: the profile id of [defaultAgent]'s login the machine should
+     * start on; "" (nothing picked yet) writes no key at all, and the agent's
+     * ACTIVE login stays the default.
+     */
+    defaultAccount: String,
     agents: List<String>,
     drafts: Map<String, AgentDraft>,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
     defaultAgent = defaultAgent,
+    defaultAccount = defaultAccount.takeIf { it.isNotEmpty() },
     agents = agents.associateWith { agent ->
         val draft = drafts[agent]
             ?: AgentDraft(

@@ -68,7 +68,15 @@ struct WorkScreen: View {
     /// EXP-932: the counts the switcher's Changes row prints — `Diff.totals`
     /// over the files the Changes face itself draws, re-derived on the diff
     /// EDGE (never per frame), so the menu and the face can never disagree.
+    /// Source A: the shown run's live diff (`shownDiff`).
     @State private var changesTotals: Diff.Totals?
+    /// EXP-952: source B — the issue's PR / pushed-branch files, read only
+    /// when there is no live diff to draw. The model lives HERE, not inside
+    /// the Changes face (Android's `WorkScreen` owns its `ChangesViewModel`
+    /// the same way), because the switcher has to count the very files that
+    /// face draws — and it has to count them BEFORE the face was ever opened.
+    /// Handed into `PrChangesFace`; the Reviews page keeps creating its own.
+    @State private var prChangesModel: ChangesViewModel?
     /// EXP-917: a refused stack merge from the overlay. The sheet is gone by
     /// the time the server answers, so the refusal is an alert — it used to be
     /// swallowed (`try?`), the one merge on this screen that reported nothing.
@@ -164,8 +172,19 @@ struct WorkScreen: View {
         )
     }
 
+    /// EXP-974: the run menu's rows. An issue-bound subject lists the issue's
+    /// own runs (`PastRuns.issueRuns`, whose rows already include its
+    /// resumes); an issue-LESS one (a chat, action or batch run) lists the
+    /// shown run's resume chain (`RunChain.chain`, newest first) — a resumed
+    /// run and its successor share ONE toggle, and this menu is where the
+    /// reader picks between them.
+    private var menuRuns: [WorkSubjectModel.IssueRun] {
+        guard let subjectModel else { return [] }
+        return issueId != nil ? subjectModel.issueRuns : subjectModel.chainRuns
+    }
+
     private var runIds: [String] {
-        subjectModel?.issueRuns.map(\.id) ?? []
+        menuRuns.map(\.id)
     }
 
     /// The shown run is mine and its row still lives.
@@ -248,6 +267,28 @@ struct WorkScreen: View {
 
     private var switcherBadge: WorkFaces.SwitcherBadge? {
         WorkFaces.switcherBadge(shown: face, sessionTone: dotTone, hasChanges: hasChanges)
+    }
+
+    /// EXP-952: whether the issue's PR files are the Changes face's source —
+    /// an issue with changes and NO live diff on the shown run (Android's
+    /// `hasChanges && latestDiff == null && issueId != null`). The key the
+    /// screen-owned `ChangesViewModel` lives by.
+    private var wantsPrChangesModel: Bool {
+        issueId != nil && issueHasChanges && shownDiff == nil
+    }
+
+    /// EXP-952: the PR files' totals, off the screen-owned model's loaded
+    /// files — the same list `PrChangesFace` draws. nil while the fetch is
+    /// out, failed, or when the live diff is the source.
+    private var prChangesTotals: Diff.Totals? {
+        guard let model = prChangesModel, case let .loaded(files) = model.load else { return nil }
+        return Diff.totals(files)
+    }
+
+    /// The switcher's `+A −D`: the live diff's totals when there is a live
+    /// diff (source A, on the diff edge), else the PR files' (source B).
+    private var switcherTotals: Diff.Totals? {
+        changesTotals ?? prChangesTotals
     }
 
     /// The identifier for an issue subject, the session's own title for an
@@ -363,11 +404,14 @@ struct WorkScreen: View {
     }
 
     /// The issue's PR files — the Changes face when the run has no live diff
-    /// (`faceBody` routes a live diff to the session view).
+    /// (`faceBody` routes a live diff to the session view). EXP-952: drawn
+    /// off the screen's own model, the one the switcher counts.
     @ViewBuilder
     private var changesFace: some View {
         if let issueId, issueHasChanges {
-            PrChangesFace(issueId: issueId, reviewMode: false) { switcherView }
+            PrChangesFace(issueId: issueId, reviewMode: false, model: prChangesModel) {
+                switcherView
+            }
         } else {
             ProgressView().tint(.white)
         }
@@ -670,10 +714,11 @@ struct WorkScreen: View {
     }
 
     /// `+A −D` beside the Changes row — BOTH halves, off the very files the
-    /// Changes face draws (`changesTotals`).
+    /// Changes face draws (`switcherTotals`: the live diff's, else the PR
+    /// files').
     @ViewBuilder
     private var diffCounts: some View {
-        if let totals = changesTotals, totals.files > 0 {
+        if let totals = switcherTotals, totals.files > 0 {
             DiffCountsLabel(additions: totals.additions, deletions: totals.deletions)
                 .padding(.trailing, GlassMenuTokens.itemHPadding)
                 .allowsHitTesting(false)
@@ -685,7 +730,7 @@ struct WorkScreen: View {
     /// running glyph.
     @ViewBuilder
     private func runMenuRow(id: String) -> some View {
-        if let run = subjectModel?.issueRuns.first(where: { $0.id == id }) {
+        if let run = menuRuns.first(where: { $0.id == id }) {
             let onShow = id == shownSessionId
             let live = PastRuns.isLiveRunStatus(run.session.status)
             GlassMenuItem(
@@ -735,6 +780,13 @@ struct WorkScreen: View {
             // files the Changes face draws; nothing is parsed a second time.
             .onChange(of: shownDiff, initial: true) { _, diff in
                 changesTotals = diff == nil ? nil : shownModel.map { Diff.totals($0.parsedDiff.files) }
+            }
+            // EXP-952: the PR-files model follows its key — created and
+            // started once the issue has changes and no live diff outranks
+            // them, stopped and dropped once a live diff takes over (the
+            // session view draws that one) or the changes go away.
+            .onChange(of: wantsPrChangesModel, initial: true) { _, wanted in
+                prChangesModelWanted(wanted)
             }
             // EXP-934: the `…` is the Issue face's, so its overlay leaves with
             // the face — whichever path moved it (a tap, a vanished face, a
@@ -813,6 +865,28 @@ struct WorkScreen: View {
         ensureIssueViewModel()
         issueVM?.startObserving()
         ensurePrGraphModel()
+        // EXP-952: re-arm the PR-files observation like every other one here.
+        prChangesModel?.startObserving()
+    }
+
+    /// EXP-952: keep the screen-owned PR-files model in step with its key.
+    private func prChangesModelWanted(_ wanted: Bool) {
+        if wanted {
+            guard prChangesModel == nil, let issueId else { return }
+            let model = ChangesViewModel(
+                accountId: accountId,
+                issueId: issueId,
+                db: deps.db,
+                issuesApi: deps.issuesApi,
+                repositoriesApi: deps.repositoriesApi,
+                auth: deps.auth
+            )
+            prChangesModel = model
+            model.startObserving()
+        } else if let model = prChangesModel {
+            model.stopObserving()
+            prChangesModel = nil
+        }
     }
 
     /// The graph's rows, re-armed on every appear like every other observation
@@ -830,6 +904,7 @@ struct WorkScreen: View {
         UIApplication.endEditing()
         subjectModel?.stop()
         prGraphModel?.stop()
+        prChangesModel?.stopObserving()
         continuation.stop()
         if let vm = issueVM {
             // Stop synchronously: deferring it behind the async saves

@@ -17,7 +17,14 @@ import {
 } from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
 import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
-import type { IssueSearchRow } from "@/lib/issue-search"
+import {
+  ISSUE_SEARCH_DEFAULT_LIMIT,
+  ISSUE_SEARCH_EMPTY_DETAIL,
+  ISSUE_SEARCH_EMPTY_HINT,
+  ISSUE_SEARCH_NO_RESULTS,
+  ISSUE_SEARCH_PLACEHOLDER,
+  type IssueSearchRow,
+} from "@/lib/issue-search"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import type { Board } from "@/db/schema"
@@ -106,7 +113,9 @@ export function IssueSearchSheet({
     teamId,
     query,
     rows,
-    limit: 30,
+    // EXP-922: the ONE limit every search surface uses (web, desktop, iOS,
+    // Android) — the same query returns the same rows on every client.
+    limit: ISSUE_SEARCH_DEFAULT_LIMIT,
     // Prefer the local Electric row when the id is synced locally so rows
     // render identically; otherwise render from the server fields.
     resolveHit: (hit) =>
@@ -170,15 +179,18 @@ export function IssueSearchSheet({
     return () => cancelAnimationFrame(frame)
   }, [open])
 
+  // EXP-922: the empty states read the same on all four clients — one copy
+  // set in `lib/issue-search.ts`, drift-gated by issue-search-surfaces.test.ts.
   const emptyState =
     query.trim() === `` ? (
-      <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
+      <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground">
         <SearchGlyph className="size-8 mb-3 opacity-50" />
-        <p className="text-sm">Type to search issues</p>
+        <p className="text-sm">{ISSUE_SEARCH_EMPTY_HINT}</p>
+        <p className="text-xs mt-1 opacity-70">{ISSUE_SEARCH_EMPTY_DETAIL}</p>
       </div>
     ) : (
       <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-        <p className="text-sm">No issues match "{query}"</p>
+        <p className="text-sm">{ISSUE_SEARCH_NO_RESULTS}</p>
       </div>
     )
 
@@ -226,7 +238,7 @@ export function IssueSearchSheet({
       inputVariant={inputVariant}
       query={query}
       onQueryChange={setQuery}
-      placeholder="Search issues..."
+      placeholder={ISSUE_SEARCH_PLACEHOLDER}
       emptyText={emptyState}
       renderOption={renderOption}
       className={className}

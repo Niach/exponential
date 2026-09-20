@@ -1,4 +1,4 @@
-// EXP-988 contract for `exponential_attachments_list` (owner: EXP-979).
+// `exponential_attachments_list` (EXP-979, contract EXP-988).
 //
 // The registry resolves the issue, checks the OAuth grant and the caller's
 // membership (the SAME rule `exponential_attachments_get` applies), then calls
@@ -7,7 +7,9 @@
 // so they never appear), newest first, paged by `limit`/`offset`, plus the
 // unpaged `total`. No signed URLs here: a row's bytes are one
 // `exponential_attachments_get` call away.
-import { NotImplementedError } from "./not-implemented"
+import { count, desc, eq } from "drizzle-orm"
+import { attachments } from "@exp/db-schema"
+import { db } from "@/db/connection"
 
 export interface AttachmentListEntry {
   id: string
@@ -35,13 +37,50 @@ export interface AttachmentListInput {
 }
 
 export async function listIssueAttachments(
-  _input: AttachmentListInput
+  input: AttachmentListInput
 ): Promise<AttachmentListResult> {
-  throw new NotImplementedError(`exponential_attachments_list`, `EXP-979`)
+  const { issueId, limit, offset } = input
+  const [rows, total] = await Promise.all([
+    db
+      .select({
+        id: attachments.id,
+        filename: attachments.filename,
+        contentType: attachments.contentType,
+        sizeBytes: attachments.sizeBytes,
+        createdAt: attachments.createdAt,
+        commentId: attachments.commentId,
+      })
+      .from(attachments)
+      .where(eq(attachments.issueId, issueId))
+      // Newest first; the id breaks ties so paging never repeats or skips a
+      // row when two uploads share a timestamp.
+      .orderBy(desc(attachments.createdAt), desc(attachments.id))
+      .limit(limit)
+      .offset(offset),
+    countIssueAttachments(issueId),
+  ])
+  return {
+    attachments: rows.map((row) => {
+      const entry: AttachmentListEntry = {
+        id: row.id,
+        filename: row.filename,
+        contentType: row.contentType,
+        sizeBytes: row.sizeBytes,
+        createdAt: new Date(row.createdAt).toISOString(),
+      }
+      if (row.commentId) entry.commentId = row.commentId
+      return entry
+    }),
+    total,
+  }
 }
 
 /** `exponential_issues_get`'s `attachmentCount`: how many attachments rows the
- * issue carries. The contract returns 0; EXP-979 fills it with the count. */
-export async function countIssueAttachments(_issueId: string): Promise<number> {
-  return 0
+ * issue carries (embedded or not, issue body or comment). */
+export async function countIssueAttachments(issueId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(attachments)
+    .where(eq(attachments.issueId, issueId))
+  return row?.total ?? 0
 }

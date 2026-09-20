@@ -1257,17 +1257,26 @@ impl Render for StatusesPane {
                         .child("No statuses yet."),
                 );
             }
+            // EXP-994: the category's rows are ONE table — a hairline
+            // between them, no gap and no card around them.
+            let mut list = v_flex().w_full().min_w_0();
             for (index, (row, resolved)) in rows.iter().enumerate() {
-                group = group.child(self.render_status_row(
-                    row,
-                    resolved,
-                    counts.get(&resolved.group_key).copied().unwrap_or(0),
-                    index == 0,
-                    index + 1 == rows.len(),
-                    &statuses,
-                    window,
-                    cx,
+                list = list.child(crate::surface::list_row(
+                    self.render_status_row(
+                        row,
+                        resolved,
+                        counts.get(&resolved.group_key).copied().unwrap_or(0),
+                        index == 0,
+                        index + 1 == rows.len(),
+                        &statuses,
+                        window,
+                        cx,
+                    ),
+                    index,
                 ));
+            }
+            if !rows.is_empty() {
+                group = group.child(list);
             }
 
             // The Duplicate category is fixed at exactly one status — no "+".

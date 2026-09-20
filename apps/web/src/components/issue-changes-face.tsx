@@ -11,7 +11,7 @@ import {
   PrGithubButton,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
-import { useReviewFiles } from "@/hooks/use-review-files"
+import type { ReviewFilesState } from "@/hooks/use-review-files"
 import { useSteerConfig } from "@/components/agent-session"
 import { ChangesView } from "@/components/changes-view"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
@@ -22,7 +22,9 @@ import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 
 // EXP-893: the Changes FACE of an issue subject with NO shown run — the
 // issue has an open PR (or a pushed branch), so its files are the face
-// (`useReviewFiles`, the review route's own loader). Same header as the
+// (`useReviewFiles`, the review route's own loader — EXP-952: called by the
+// ISSUE ROUTE, which hands the state down, so the face switcher counts the
+// same files before this face was ever opened). Same header as the
 // Issue face, the diff in the column, and the bar: the file SHEET on the left
 // (EXP-895 — GitHub moved up into the header's action slot, where a phone
 // header has room for it), the Merge PR capsule in the centre while the PR is
@@ -67,6 +69,7 @@ export function IssueChangesFace({
   teamId,
   readOnly,
   origin,
+  filesState: state,
   switcher,
   dot,
 }: {
@@ -76,11 +79,13 @@ export function IssueChangesFace({
   teamId: string
   readOnly: boolean
   origin?: string
+  /** EXP-952: the issue's PR / branch files, fetched by the route
+   *  (`useReviewFiles`) — the switcher's `+N −M` reads the same list. */
+  filesState: ReviewFilesState
   /** The face switcher circle. */
   switcher: ReactNode
   dot?: { tone: SessionDotTone; connecting?: boolean } | null
 }) {
-  const { state } = useReviewFiles(issue)
   const [selected, setSelected] = useState<string | null>(null)
   // The `…` menu's Move to board / Unmark duplicate, the same handlers the
   // issue face binds (`use-issue-property-handlers.ts`).

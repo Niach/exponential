@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.db.WorkflowNodeEntity
@@ -58,6 +59,7 @@ import com.exponential.app.domain.line
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.workflowNodeBudget
 import com.exponential.app.domain.workflowNodeReview
+import com.exponential.app.ui.components.AccountPickerPill
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassNotice
@@ -72,7 +74,8 @@ import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.agentLabel
+import com.exponential.app.ui.components.accountOptionsFor
+import com.exponential.app.ui.components.ambientAccountOptions
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
@@ -743,15 +746,56 @@ private fun HowItRunsSection(
             onSelect = onDeviceChange,
         )
         GroupDivider()
-        PickerRow(
-            label = "Agent",
-            value = agentLabel(agent),
-            options = DomainContract.codingAgentValues,
-            selected = agent,
-            optionLabel = ::agentLabel,
-            enabled = enabled,
-            onSelect = { next -> onLaunchChange { it.copy(agent = next, model = "", effort = "") } },
-        )
+        // EXP-872: ONE account row, not an Agent row plus an Account row — the
+        // agent RIDES the picked login, so a workflow configures which login
+        // its nodes spend and the agent follows. A machine with no login
+        // reported (and the state before a runner is even picked) still offers
+        // the ambient one per agent, so the block stays editable in draft.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Account",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary,
+                ),
+            )
+            Spacer(Modifier.weight(1f))
+            AccountPickerPill(
+                options = if (device == null) {
+                    ambientAccountOptions(DomainContract.codingAgentValues, agent)
+                } else {
+                    accountOptionsFor(device, DomainContract.codingAgentValues)
+                },
+                selectedKey = "$agent:${launch.account.ifEmpty { SYSTEM_PROFILE_ID }}",
+                // Locked once the workflow leaves draft, like every row here:
+                // the server refuses the write, so the pill states the pick
+                // instead of bouncing it.
+                enabled = enabled,
+                onSelect = { option ->
+                    onLaunchChange { current ->
+                        // Only an AGENT change invalidates the vocabularies
+                        // below it; another login of the same agent leaves
+                        // model, subagent model and effort exactly as picked.
+                        val agentChanged =
+                            option.agent != current.agent.ifEmpty { DEFAULT_AGENT }
+                        current.copy(
+                            agent = option.agent,
+                            // "" is the machine's ACTIVE login, never an id on
+                            // the wire (`workflows.update` omits the key).
+                            account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+                            model = if (agentChanged) "" else current.model,
+                            subagentModel = if (agentChanged) "" else current.subagentModel,
+                            effort = if (agentChanged) "" else current.effort,
+                        )
+                    }
+                },
+            )
+        }
         GroupDivider()
         PickerRow(
             label = "Model",
@@ -784,24 +828,6 @@ private fun HowItRunsSection(
             enabled = enabled,
             onSelect = { next -> onLaunchChange { it.copy(effort = next) } },
         )
-        // The composer offers accounts only when the bound machine reports two
-        // or more logins for the picked agent; a workflow follows that rule.
-        val profiles = device?.agentAccounts?.get(agent)?.profiles.orEmpty()
-        if (profiles.size >= 2) {
-            GroupDivider()
-            PickerRow(
-                label = "Account",
-                value = workflowAccountLabel(profiles.map { it.id to accountName(it) }, launch.account),
-                // "" is the machine's ACTIVE login, never an id on the wire.
-                options = listOf("") + profiles.map { it.id },
-                selected = launch.account,
-                optionLabel = { id ->
-                    workflowAccountLabel(profiles.map { it.id to accountName(it) }, id)
-                },
-                enabled = enabled,
-                onSelect = { next -> onLaunchChange { it.copy(account = next) } },
-            )
-        }
         GroupDivider()
         PickerRow(
             label = "Max parallel",
@@ -853,17 +879,6 @@ private fun HowItRunsSection(
 
 /** 1 to 8 — the server's `WORKFLOW_MAX_PARALLEL_CAP`, default 3. */
 private val MAX_PARALLEL_OPTIONS: List<String> = (1..8).map { it.toString() }
-
-private fun accountName(profile: com.exponential.app.data.api.AgentAccountProfile): String =
-    profile.email ?: profile.label?.trim()?.takeIf { it.isNotEmpty() } ?: profile.id
-
-/** The active login reads as itself, never as an id (composer parity). */
-private fun workflowAccountLabel(profiles: List<Pair<String, String>>, id: String): String =
-    if (id.isEmpty()) {
-        "Active login"
-    } else {
-        profiles.firstOrNull { it.first == id }?.second ?: id
-    }
 
 /**
  * One node, opened from the graph: what it is, what it covers, the two picks

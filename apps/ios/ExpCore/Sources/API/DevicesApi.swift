@@ -88,13 +88,19 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 /// server-side: unconditional last-write-wins between humans).
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let defaultAgent: String?
+    /// EXP-872: the default ACCOUNT — a login profile id of `defaultAgent`
+    /// (`system` = its ambient login). Omitted when nil (the synthesized
+    /// `encodeIfPresent`), which is what an unset default account means.
+    public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaultsInput]?
 
     public init(
         defaultAgent: String? = nil,
+        defaultAccount: String? = nil,
         agents: [String: AgentLaunchDefaultsInput]? = nil
     ) {
         self.defaultAgent = defaultAgent
+        self.defaultAccount = defaultAccount
         self.agents = agents
     }
 }

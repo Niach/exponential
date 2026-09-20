@@ -21,10 +21,20 @@
 //!   description word prefix                                  20
 //!   description substring                                    15
 //!
-//! Ties order by `updated_at` desc, then `created_at` desc, then identifier
-//! number desc, then identifier string desc. An EMPTY query lists the newest
-//! CREATED first (the `#` menu's "recent work" list). Queries and tokens drop
-//! one leading `#` so `#87` and `fix #87` both find EXP-87.
+//! EXP-922: the ordering is THREE keys above the score, in this order:
+//!
+//!   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
+//!      finds EXP-42 first whatever state it is in;
+//!   2. UNDONE before done ([`CLOSED_STATUSES`]: the `done`/`cancelled`/
+//!      `duplicate` anchors every custom status dual-writes; an absent or
+//!      unknown status counts as open);
+//!   3. the score.
+//!
+//! Ties then order by `updated_at` desc, then `created_at` desc, then
+//! identifier number desc, then identifier string desc. An EMPTY query lists
+//! open work first, newest CREATED first inside each half (the `#` menu's
+//! "recent work" list). Queries and tokens drop one leading `#` so `#87` and
+//! `fix #87` both find EXP-87.
 //!
 //! gpui-free, like the rest of `domain`.
 
@@ -40,8 +50,25 @@ const SCORE_DESCRIPTION_WORD_PREFIX: i32 = 20;
 const SCORE_DESCRIPTION_CONTAINS: i32 = 15;
 
 /// The `limit` every consumer gets without asking (web
-/// `ISSUE_SEARCH_DEFAULT_LIMIT`).
+/// `ISSUE_SEARCH_DEFAULT_LIMIT`) — and, since EXP-922, the one every SEARCH
+/// SURFACE uses on all four clients.
 pub const DEFAULT_LIMIT: usize = 30;
+
+/// EXP-922: the builtin status anchors that mean "this issue is finished" —
+/// the `completed`/`cancelled`/`duplicate` categories' anchors, so a team's
+/// CUSTOM statuses sort correctly too (they dual-write one of these into
+/// `issues.status`). Web `ISSUE_SEARCH_CLOSED_STATUSES`.
+pub const CLOSED_STATUSES: [&str; 3] = ["done", "cancelled", "duplicate"];
+
+/// Whether a row counts as UNDONE for ranking. An absent or unrecognized
+/// status is open: a server hit that never synced carries none, and a client
+/// that meets a status it does not know must not bury the row.
+pub fn is_open(status: Option<&str>) -> bool {
+    match status {
+        None => true,
+        Some(status) => !CLOSED_STATUSES.contains(&status),
+    }
+}
 
 /// A BORROWED view of one searchable row — the engine never owns or clones a
 /// row, so every consumer keeps its own snapshot type (`Issue`, the composer's
@@ -56,6 +83,9 @@ pub struct SearchRow<'a> {
     /// ISO-8601 / Electric timestamptz text; unparseable or missing = oldest.
     pub created_at: Option<&'a str>,
     pub updated_at: Option<&'a str>,
+    /// EXP-922: the builtin status ANCHOR (`issues.status`) the row
+    /// dual-writes. Absent/unknown = treated as open.
+    pub status: Option<&'a str>,
 }
 
 impl<'a> SearchRow<'a> {
@@ -69,6 +99,7 @@ impl<'a> SearchRow<'a> {
             description: None,
             created_at: None,
             updated_at: None,
+            status: None,
         }
     }
 
@@ -80,6 +111,12 @@ impl<'a> SearchRow<'a> {
     pub fn with_times(mut self, created_at: Option<&'a str>, updated_at: Option<&'a str>) -> Self {
         self.created_at = created_at;
         self.updated_at = updated_at;
+        self
+    }
+
+    /// EXP-922: the builtin status anchor, so undone rows rank above done ones.
+    pub fn with_status(mut self, status: Option<&'a str>) -> Self {
+        self.status = status;
         self
     }
 }
@@ -96,6 +133,7 @@ impl<'a> From<&'a crate::rows::Issue> for SearchRow<'a> {
             description: issue.description.as_deref(),
             created_at: issue.created_at.as_deref(),
             updated_at: issue.updated_at.as_deref(),
+            status: issue.status.as_wire(),
         }
     }
 }
@@ -216,14 +254,29 @@ fn token_score(row: &Prepared<'_>, token: &str) -> Option<i32> {
     None
 }
 
+/// A matched row's two ranking facts: the summed score, and whether any token
+/// hit the identifier EXACTLY (the pin that keeps a typed `EXP-42` on top).
+struct Scored {
+    total: i32,
+    exact: bool,
+}
+
+fn score_row(prepared: &Prepared<'_>, query_tokens: &[String]) -> Option<Scored> {
+    let mut total = 0;
+    let mut exact = false;
+    for token in query_tokens {
+        let score = token_score(prepared, token)?;
+        if score == SCORE_IDENTIFIER_EXACT {
+            exact = true;
+        }
+        total += score;
+    }
+    Some(Scored { total, exact })
+}
+
 /// The row's total score for `query_tokens`, or `None` when any token misses.
 pub fn score(row: &SearchRow<'_>, query_tokens: &[String]) -> Option<i32> {
-    let prepared = prepare(row);
-    let mut total = 0;
-    for token in query_tokens {
-        total += token_score(&prepared, token)?;
-    }
-    Some(total)
+    score_row(&prepare(row), query_tokens).map(|scored| scored.total)
 }
 
 /// Rank the locally synced `rows` for `query` and return their INDICES into
@@ -243,16 +296,19 @@ pub fn rank(
         .filter(|(_, row)| !exclude.contains(row.id));
     if query_tokens.is_empty() {
         let mut ordered: Vec<(usize, &SearchRow<'_>)> = pool.collect();
-        ordered.sort_by(|(_, a), (_, b)| compare_created(a, b));
+        ordered.sort_by(|(_, a), (_, b)| compare_open(a, b).then_with(|| compare_created(a, b)));
         ordered.truncate(limit);
         return ordered.into_iter().map(|(ix, _)| ix).collect();
     }
-    let mut scored: Vec<(usize, &SearchRow<'_>, i32)> = pool
-        .filter_map(|(ix, row)| score(row, &query_tokens).map(|score| (ix, row, score)))
+    let mut scored: Vec<(usize, &SearchRow<'_>, Scored)> = pool
+        .filter_map(|(ix, row)| score_row(&prepare(row), &query_tokens).map(|s| (ix, row, s)))
         .collect();
     scored.sort_by(|(_, a, a_score), (_, b, b_score)| {
         b_score
-            .cmp(a_score)
+            .exact
+            .cmp(&a_score.exact)
+            .then_with(|| compare_open(a, b))
+            .then_with(|| b_score.total.cmp(&a_score.total))
             .then_with(|| compare_recency(a, b))
     });
     scored.truncate(limit);
@@ -315,6 +371,11 @@ fn compare_recency(a: &SearchRow<'_>, b: &SearchRow<'_>) -> std::cmp::Ordering {
         .then_with(|| instant_of(b.created_at).cmp(&instant_of(a.created_at)))
         .then_with(|| identifier_number(b.identifier).cmp(&identifier_number(a.identifier)))
         .then_with(|| b.identifier.cmp(a.identifier))
+}
+
+/// EXP-922: undone before done.
+fn compare_open(a: &SearchRow<'_>, b: &SearchRow<'_>) -> std::cmp::Ordering {
+    is_open(b.status).cmp(&is_open(a.status))
 }
 
 fn compare_created(a: &SearchRow<'_>, b: &SearchRow<'_>) -> std::cmp::Ordering {
@@ -432,6 +493,8 @@ mod tests {
         created_at: Option<String>,
         #[serde(default)]
         updated_at: Option<String>,
+        #[serde(default)]
+        status: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -467,6 +530,7 @@ mod tests {
             description: row.description.as_deref(),
             created_at: row.created_at.as_deref(),
             updated_at: row.updated_at.as_deref(),
+            status: row.status.as_deref(),
         }
     }
 
@@ -508,6 +572,7 @@ mod tests {
                                     description: None,
                                     created_at: None,
                                     updated_at: None,
+                                    status: None,
                                 })
                             })
                     },

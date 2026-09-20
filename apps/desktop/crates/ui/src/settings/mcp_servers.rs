@@ -49,6 +49,7 @@ use gpui_component::{
 };
 
 use api::mcp_servers::{McpReadinessReport, McpServerConfig, McpServerListEntry};
+use coding::device_mcp_servers::{self, Detected, LocalServer};
 use coding::mcp_servers::LocalLogin;
 
 use crate::controls::{glass_input, WebControl as _};
@@ -259,6 +260,11 @@ struct Loaded {
     /// the 0600 store ([`coding::mcp_servers::readiness`]), never the
     /// server's (possibly a heartbeat stale) copy of it.
     local: Vec<McpReadinessReport>,
+    /// EXP-891: this machine's OWN servers (the local store, name order).
+    device_rows: Vec<LocalServer>,
+    /// EXP-891: what the local claude/codex configs list that the store
+    /// does not hold yet — the "Import N detected" offer.
+    importable: Vec<Detected>,
 }
 
 impl Loaded {
@@ -300,6 +306,9 @@ pub struct McpServersPane {
     value_input: Entity<InputState>,
     /// The "Paste redirect URL" dialog's field, same deal.
     paste_input: Entity<InputState>,
+    /// EXP-891: the "Add server on this machine" dialog's two fields.
+    local_name_input: Entity<InputState>,
+    local_target_input: Entity<InputState>,
     /// EXP-862: the built-in Exponential tools group is COLLAPSED until it is
     /// asked for — 77 rows are a reference list, not the page.
     builtins_expanded: bool,
@@ -318,6 +327,10 @@ impl McpServersPane {
         let paste_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("http://127.0.0.1:1/callback?code=…")
         });
+        let local_name_input = cx.new(|cx| InputState::new(window, cx).placeholder("linear"));
+        let local_target_input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("https://mcp.linear.app/mcp  or  npx -y @acme/mcp")
+        });
         Self {
             nav,
             load: Load::Idle,
@@ -327,6 +340,8 @@ impl McpServersPane {
             pending_paste: None,
             value_input,
             paste_input,
+            local_name_input,
+            local_target_input,
             builtins_expanded: false,
             _subscriptions: subscriptions,
         }
@@ -386,7 +401,20 @@ impl McpServersPane {
                         &device.data_dir,
                         &device.account_id,
                     )?;
-                    Ok(Loaded { servers, local })
+                    // EXP-891: the machine's own set + what its agent
+                    // configs list beyond it — file reads, same executor.
+                    let device_rows = device_mcp_servers::load(&device.data_dir);
+                    let detected = device_mcp_servers::detect(&device.data_dir);
+                    let importable = device_mcp_servers::importable(&detected, &device_rows)
+                        .into_iter()
+                        .cloned()
+                        .collect();
+                    Ok(Loaded {
+                        servers,
+                        local,
+                        device_rows,
+                        importable,
+                    })
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -864,6 +892,325 @@ impl McpServersPane {
         open_alert(window, cx, spec);
     }
 
+    // -- EXP-891: this machine's own servers ----------------------------------
+
+    /// Push the machine's set to the server (the web's per-device view
+    /// follows at once instead of on the next sweep). Best-effort like
+    /// `report_now`: the local store is already the truth.
+    fn sync_local(&self, cx: &mut gpui::Context<Self>) {
+        let (Some(trpc), Some(device)) = (queries::trpc_client(cx), device_ctx(cx)) else {
+            return;
+        };
+        cx.background_executor()
+            .spawn(async move {
+                if let Err(err) =
+                    device_mcp_servers::sync_now(&device.data_dir, &trpc, &device.device_id)
+                {
+                    log::debug!("[ui] deviceMcpServers.sync after a local change: {err}");
+                }
+            })
+            .detach();
+    }
+
+    /// Take every importable entry the local claude/codex configs list.
+    fn import_detected(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(device) = device_ctx(cx) else {
+            return;
+        };
+        match device_mcp_servers::import(&device.data_dir) {
+            Ok(added) => {
+                let names: Vec<String> = added.iter().map(|row| row.name.clone()).collect();
+                let note = if names.is_empty() {
+                    "Nothing new to import.".to_string()
+                } else {
+                    format!("Imported {}. They connect on every run started here.", names.join(", "))
+                };
+                window.push_notification(Notification::info(SharedString::from(note)), cx);
+                self.sync_local(cx);
+                self.refetch(cx);
+            }
+            Err(err) => self.fail(format!("Could not import: {err}"), window, cx),
+        }
+    }
+
+    fn set_local_enabled(
+        &mut self,
+        name: &str,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(device) = device_ctx(cx) else {
+            return;
+        };
+        match device_mcp_servers::set_enabled(&device.data_dir, name, enabled) {
+            Ok(_) => {
+                self.sync_local(cx);
+                self.refetch(cx);
+            }
+            Err(err) => self.fail(format!("Could not update {name}: {err}"), window, cx),
+        }
+    }
+
+    /// The one-field add: a name and either an https URL or a command line
+    /// ([`device_mcp_servers::parse_target`]).
+    fn open_local_add_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.local_name_input.update(cx, |state, cx| state.set_value("", window, cx));
+        self.local_target_input.update(cx, |state, cx| state.set_value("", window, cx));
+        let pane = cx.entity().downgrade();
+        let handle = window.window_handle();
+        let name_input = self.local_name_input.clone();
+        let target_input = self.local_target_input.clone();
+        let (ok_name, ok_target) = (name_input.clone(), target_input.clone());
+        let spec = AlertSpec::new(
+            "Add server on this machine",
+            "Connected on every run started here, beside the team's servers. \
+             Nothing but the address is stored: an https:// URL, or a command \
+             line such as `npx -y @acme/mcp`. Credentials stay with the agent.",
+            "Add server",
+        )
+        .height(gpui::px(380.))
+        .content(move |window, cx| {
+            let muted = cx.theme().muted_foreground;
+            v_flex()
+                .gap_1()
+                .mt_2()
+                .child(div().text_xs().text_color(muted).child("Name"))
+                .child(glass_input(&name_input, window, cx).web_input_sm())
+                .child(div().text_xs().text_color(muted).mt_2().child("URL or command"))
+                .child(glass_input(&target_input, window, cx).web_input_sm())
+                .into_any_element()
+        })
+        .on_ok(move |_, cx| {
+            let name = ok_name.read(cx).value().trim().to_string();
+            let target = ok_target.read(cx).value().trim().to_string();
+            if name.is_empty() || target.is_empty() {
+                return false;
+            }
+            let Some(pane) = pane.upgrade() else {
+                return true;
+            };
+            let Some(device) = device_ctx(cx) else {
+                return true;
+            };
+            let server = device_mcp_servers::parse_target(&name, &target);
+            match device_mcp_servers::add(&device.data_dir, server) {
+                Ok(_) => {
+                    pane.update(cx, |this, cx| {
+                        this.sync_local(cx);
+                        this.refetch(cx);
+                    });
+                    true
+                }
+                Err(err) => {
+                    let note = Notification::error(SharedString::from(err));
+                    let _ = handle.update(cx, |_, window, cx| {
+                        window.push_notification(note, cx);
+                    });
+                    // Keep the dialog open: the typed values are still there.
+                    false
+                }
+            }
+        });
+        open_alert(window, cx, spec);
+    }
+
+    /// Forget a row on this machine. The agent's own config entry stays: this
+    /// only stops the launcher from adding it to runs.
+    fn confirm_forget_local(
+        &mut self,
+        row: &LocalServer,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let pane = cx.entity().downgrade();
+        let name = row.name.clone();
+        let identity: SharedString = name.clone().into();
+        let description = if row.source == device_mcp_servers::SOURCE_DETECTED {
+            "Runs started here stop connecting it. The entry in the agent's own \
+             config is untouched, so it shows up as detected again."
+        } else {
+            "Runs started here stop connecting it. Other machines keep their own."
+        };
+        let spec = AlertSpec::new("Forget on this machine", description, "Forget")
+            .height(gpui::px(250.))
+            .content(move |_, _| {
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(identity.clone())
+                    .into_any_element()
+            })
+            .ok_variant(ButtonVariant::Danger)
+            .on_ok(move |_, cx| {
+                let Some(pane) = pane.upgrade() else {
+                    return true;
+                };
+                let Some(device) = device_ctx(cx) else {
+                    return true;
+                };
+                if let Err(err) = device_mcp_servers::remove(&device.data_dir, &name) {
+                    log::warn!("[ui] forget device MCP server {name}: {err}");
+                }
+                pane.update(cx, |this, cx| {
+                    this.sync_local(cx);
+                    this.refetch(cx);
+                });
+                true
+            });
+        open_alert(window, cx, spec);
+    }
+
+    /// The "On this machine" group: the band (Import N detected · Add
+    /// server) over one flat row per local server, each with its On/Off and
+    /// Forget pills. Web `DeviceMcpServersGroup` twin, the writable side.
+    fn render_device_group(
+        &self,
+        rows: &[LocalServer],
+        importable: &[Detected],
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Div {
+        let muted = cx.theme().muted_foreground;
+        let mut trailing = h_flex().gap_1().items_center();
+        if !importable.is_empty() {
+            let count = importable.len();
+            trailing = trailing.child(
+                glass_pill_button("device-mcp-import", PillSize::Sm, cx)
+                    .label(format!(
+                        "Import {count} detected"
+                    ))
+                    .disabled(self.busy)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.import_detected(window, cx);
+                    })),
+            );
+        }
+        trailing = trailing.child(
+            glass_pill_button("device-mcp-add", PillSize::Sm, cx)
+                .label("Add server")
+                .disabled(self.busy)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.open_local_add_dialog(window, cx);
+                })),
+        );
+        let mut group = v_flex()
+            .w_full()
+            .min_w_0()
+            .mt_4()
+            .child(crate::surface::glass_section_band(
+                None,
+                "On this machine",
+                Some(trailing.into_any_element()),
+                cx,
+            ))
+            .child(section_description(
+                "Connected on every run started here, beside the team's servers. \
+                 Imported from this machine's claude / codex config, or typed here; \
+                 credentials stay with the agent.",
+                cx,
+            ));
+        if rows.is_empty() {
+            group = group.child(div().text_sm().text_color(muted).child(
+                if importable.is_empty() {
+                    "Nothing yet. `claude mcp add …` on this machine, then import it here."
+                } else {
+                    "Nothing imported yet. This machine's agent configs list servers you can import."
+                },
+            ));
+        }
+        for row in rows {
+            let mut chips = h_flex().gap_1().items_center().flex_wrap();
+            chips = chips.child(self.chip(
+                format!("device-mcp-transport-{}", row.id),
+                transport_label(&row.transport).to_string(),
+                cx,
+            ));
+            chips = chips.child(self.chip(
+                format!("device-mcp-source-{}", row.id),
+                row.source_label().to_string(),
+                cx,
+            ));
+            if !row.enabled {
+                chips = chips.child(self.chip(
+                    format!("device-mcp-off-{}", row.id),
+                    "Off".to_string(),
+                    cx,
+                ));
+            }
+            let toggle_name = row.name.clone();
+            let toggle_to = !row.enabled;
+            let forget = row.clone();
+            let actions = h_flex()
+                .gap_2()
+                .items_center()
+                .child(
+                    glass_pill_button(
+                        SharedString::from(format!("device-mcp-toggle-{}", row.id)),
+                        PillSize::Sm,
+                        cx,
+                    )
+                    .label(if row.enabled { "Turn off" } else { "Turn on" })
+                    .disabled(self.busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.set_local_enabled(&toggle_name, toggle_to, window, cx);
+                    })),
+                )
+                .child(
+                    glass_pill_button(
+                        SharedString::from(format!("device-mcp-forget-{}", row.id)),
+                        PillSize::Sm,
+                        cx,
+                    )
+                    .label("Forget")
+                    .disabled(self.busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.confirm_forget_local(&forget, window, cx);
+                    })),
+                );
+            let endpoint = row.target();
+            group = group.child(
+                crate::surface::flat_row()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .min_w_0()
+                    .gap_1p5()
+                    .px_3()
+                    .py_2()
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .when(!row.enabled, |this| this.text_color(muted))
+                                    .child(SharedString::from(row.name.clone())),
+                            )
+                            .child(chips)
+                            .child(div().flex_1())
+                            .child(actions),
+                    )
+                    .when(!endpoint.trim().is_empty(), |this| {
+                        this.child(
+                            div()
+                                .min_w_0()
+                                .text_xs()
+                                .text_color(muted)
+                                .font_family(theme::terminal::FONT_FAMILY)
+                                .truncate()
+                                .child(SharedString::from(endpoint.clone())),
+                        )
+                    }),
+            );
+        }
+        group
+    }
+
     /// Open the add/edit form (EXP-810). `config` = the row being edited;
     /// `None` adds one. `team_id` comes from the caller so an edit and an add
     /// name the same team even mid team switch.
@@ -1285,6 +1632,13 @@ impl Render for McpServersPane {
                 }
                 body = body.child(list);
             }
+        }
+
+        // EXP-891: this machine's own servers, under the team registry.
+        if let Load::Ready(Ok(loaded)) = &self.load {
+            let rows = loaded.device_rows.clone();
+            let importable = loaded.importable.clone();
+            body = body.child(self.render_device_group(&rows, &importable, cx));
         }
 
         body = body.child(self.render_builtin_tools(cx));

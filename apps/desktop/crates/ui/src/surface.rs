@@ -250,11 +250,58 @@ pub(crate) fn glass_group_rows(rows: Vec<Div>) -> Div {
         })
 }
 
+/// EXP-994 — the same hairline-divided ladder with NO group of its own: no
+/// fill, no radius, no clip. For rows that already sit ON a surface (a
+/// popover, a sheet), where a [`glass_group`] would draw a card inside a
+/// card — the surface IS the edge, the hairlines are all the structure the
+/// rows need.
+pub(crate) fn glass_group_rows_bare(rows: Vec<Div>) -> Div {
+    rows.into_iter()
+        .enumerate()
+        .fold(v_flex().w_full(), |group, (ix, row)| {
+            group.child(if ix == 0 { row } else { glass_row_divider(row) })
+        })
+}
+
+/// The row rhythm of a [`glass_group_rows_bare`] ladder: tighter than
+/// [`glass_row_shell`] because a popover is not a settings pane — leading
+/// label, trailing control, one line.
+pub(crate) fn bare_row_shell() -> Div {
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .px_2()
+        .py_1p5()
+}
+
 /// The hairline a [`glass_group`] row draws above itself — for the rare caller
 /// that assembles a group by hand instead of through [`glass_group_rows`].
 pub(crate) fn glass_row_divider<T: Styled>(row: T) -> T {
     row.border_t_1()
         .border_color(t::glass::STROKE_ROW.to_hsla())
+}
+
+/// EXP-994 — the same hairline for a LIST whose rows are built one by one
+/// (the settings ladders, the machines list): every row but the FIRST draws
+/// it, so a grouped list reads as one table instead of a stack of
+/// free-floating rows — and nothing draws an outer card border around them.
+/// A caller that already knows its index passes it; `ix == 0` is a no-op.
+pub(crate) fn list_row_divider<T: Styled>(row: T, ix: usize) -> T {
+    if ix == 0 {
+        row
+    } else {
+        glass_row_divider(row)
+    }
+}
+
+/// [`list_row_divider`] for a row the caller hands over as an opaque element
+/// (most list rows return `impl IntoElement`): the hairline rides a
+/// full-width wrapper instead of the row itself.
+pub(crate) fn list_row(row: impl gpui::IntoElement, ix: usize) -> Div {
+    list_row_divider(div().w_full().min_w_0(), ix).child(row)
 }
 
 /// The row RHYTHM of a [`glass_group`]: 16 horizontal / 12 vertical padding,

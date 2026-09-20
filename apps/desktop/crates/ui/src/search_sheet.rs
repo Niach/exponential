@@ -57,8 +57,9 @@ use crate::icons::registry;
 use crate::issue_list::parse_hex_color;
 use crate::navigation::{active_team_id, nav_for_window, navigate, Screen};
 
-/// Web `.slice(0, 30)` — cap the result list.
-const MAX_RESULTS: usize = 30;
+/// EXP-922: the ONE limit every search surface uses (web, desktop, iOS,
+/// Android) — the same query returns the same rows on every client.
+const MAX_RESULTS: usize = domain::issue_search::DEFAULT_LIMIT;
 
 /// EXP-3: how long a keystroke must rest before the server full-text pass
 /// fires. The List replaces its search task per keystroke (dropping — i.e.
@@ -66,7 +67,9 @@ const MAX_RESULTS: usize = 30;
 const SERVER_SEARCH_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// EXP-3: server `issues.search` page size (server default 20, max 50).
-const SERVER_SEARCH_LIMIT: u32 = 20;
+/// EXP-922: the same page every client asks for, so the spliced-in half is
+/// the same set everywhere too.
+const SERVER_SEARCH_LIMIT: u32 = MAX_RESULTS as u32;
 
 /// Web `sm:max-w-lg` (32rem).
 const DIALOG_WIDTH: f32 = 512.;
@@ -82,6 +85,14 @@ const INPUT_ROW_HEIGHT: f32 = 52.;
 /// block so the palette's opening size is deterministic and the two empty
 /// variants never resize the window against each other.
 const EMPTY_HEIGHT: f32 = 132.;
+
+/// EXP-922: the ONE copy set every search surface renders — web
+/// `lib/issue-search.ts`, iOS `SearchView`, Android `SearchScreen`. Same words
+/// everywhere; the web `issue-search-surfaces.test.ts` greps THIS file for them.
+const SEARCH_PLACEHOLDER: &str = "Search issues";
+const SEARCH_EMPTY_HINT: &str = "Search issues across all your boards.";
+const SEARCH_EMPTY_DETAIL: &str = "Matches identifiers, titles, and full text.";
+const SEARCH_NO_RESULTS: &str = "No issues match";
 
 /// Web `sm:top-[15%]`: the palette's top edge as a fraction of the opener's
 /// height. With the 60vh cap the window bottoms out at 75% of the opener.
@@ -146,7 +157,7 @@ pub fn open_search(window: &mut Window, cx: &mut App) {
         // the component's baked-in query strip can render. The view owns the
         // input and drives the list through `set_query`.
         let list = cx.new(|cx| ListState::new(SearchDelegate::new(team_id), window, cx));
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search issues…"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(SEARCH_PLACEHOLDER));
         // Focus the query input so typing starts immediately (web autoFocus).
         input.update(cx, |state, cx| state.focus(window, cx));
         // DEV-ONLY (§11.4 headless verification, the EXP_DEV_* family):
@@ -684,9 +695,9 @@ impl ListDelegate for SearchDelegate {
         native_dialog::close_dialog_window(window, cx);
     }
 
-    /// Web: the pre-query hint (empty query) or `No issues match "{query}"`.
-    /// Both live here — the view owns the query input (EXP-525), so the
-    /// component's searchable-only `render_initial` never runs.
+    /// The pre-query hint (empty query) or the no-results line — the ×4 copy
+    /// set (EXP-922). Both live here: the view owns the query input (EXP-525),
+    /// so the component's searchable-only `render_initial` never runs.
     fn render_empty(
         &mut self,
         _window: &mut Window,
@@ -702,17 +713,21 @@ impl ListDelegate for SearchDelegate {
             .text_color(cx.theme().muted_foreground);
         if self.query.is_empty() {
             empty
+                .gap_1()
                 .child(
                     Icon::new(registry::NAV_SEARCH)
                         .size(px(32.))
                         .text_color(cx.theme().muted_foreground.opacity(0.5)),
                 )
-                .child(div().text_sm().child("Type to search issues"))
+                .child(div().text_sm().child(SEARCH_EMPTY_HINT))
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground.opacity(0.7))
+                        .child(SEARCH_EMPTY_DETAIL),
+                )
         } else {
-            empty.child(div().text_sm().child(SharedString::from(format!(
-                "No issues match \"{}\"",
-                self.query
-            ))))
+            empty.child(div().text_sm().child(SEARCH_NO_RESULTS))
         }
     }
 }
