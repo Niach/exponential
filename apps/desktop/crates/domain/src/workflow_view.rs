@@ -321,8 +321,6 @@ pub const RETRY_NODE_LABEL: &str = "Retry";
 pub const SKIP_NODE_LABEL: &str = "Skip";
 pub const SKIP_NODE_CONFIRM: &str =
     "Its dependents go on without it. The node's work is not part of the final pull request.";
-/// The node panel's run + PR affordances.
-pub const OPEN_RUN_LABEL: &str = "Open run";
 /// The strip over the graph that lists the runs that are up, one tap away.
 pub const RUNNING_NOW_LABEL: &str = "Running now";
 

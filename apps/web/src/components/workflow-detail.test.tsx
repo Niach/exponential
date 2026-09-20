@@ -28,6 +28,11 @@ import {
   START_WORKFLOW_LABEL,
   WITHDRAW_APPROVAL_LABEL,
 } from "@/lib/workflow-view"
+import {
+  CHANGES_FACE_LABEL,
+  ISSUE_FACE_LABEL,
+  RUN_FACE_LABEL,
+} from "@/lib/work-faces"
 
 // EXP-981: the workflow detail — the graph positioned by the SERVER's
 // wave/lane, a compound node drawn as a stacked card, the cycle note, and the
@@ -753,11 +758,22 @@ describe(`WorkflowDetail node panel actions`, () => {
     )
   })
 
-  it(`links to the node's run and to its pull request`, () => {
+  // EXP-1002: the node's surfaces are the app's own faces, in `availableFaces`
+  // order, and only the ones this node HAS.
+  it(`offers Issue, Run and Changes as the app's face strip`, () => {
     graphState.issues = [issue(`i-n1`, `APP-1`, { prNumber: 7, prState: `open` })]
-    open({ state: `in_review`, sessionId: `s-1` })
-    expect(screen.getByTestId(`workflow-node-run`).textContent).toBe(`Open run`)
-    expect(screen.getByTestId(`workflow-node-pr`).textContent).toBe(`PR #7`)
+    const both = open({ state: `in_review`, sessionId: `s-1` })
+    expect(screen.getByTestId(`workflow-node-faces`).textContent).toBe(
+      `${ISSUE_FACE_LABEL}${RUN_FACE_LABEL}${CHANGES_FACE_LABEL}`
+    )
+    both.unmount()
+
+    // No run and no pull request: the issue is the only way out.
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    open({ state: `blocked` })
+    expect(screen.getByTestId(`workflow-node-faces`).textContent).toBe(
+      ISSUE_FACE_LABEL
+    )
   })
 
   it(`marks a node whose run is up and lists it one tap from its session`, () => {

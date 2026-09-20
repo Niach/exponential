@@ -16,6 +16,7 @@ import {
   GlassGroup,
   GlassSectionHeader,
   Input,
+  SegmentedControl,
   Sheet,
   SheetContent,
   SheetHeader,
@@ -37,6 +38,11 @@ import {
   type WorkflowLaunch,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import {
+  availableFaces,
+  faceLabel,
+  type WorkFaceKind,
+} from "@/lib/work-faces"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
 import { IssueChip } from "@/components/issue-chip"
 import { RunningIndicator } from "@/components/agent-session-row"
@@ -1172,38 +1178,19 @@ export function WorkflowNodePanel({
           ))}
         </div>
       )}
-      {/* The node's own run, steered on the ONE run URL (EXP-870). */}
-      {node.sessionId && (
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-          onClick={onClose}
-          data-testid="workflow-node-run"
-        >
-          <Link
-            to="/t/$teamSlug/sessions/$sessionId"
-            params={{ teamSlug, sessionId: node.sessionId }}
-          >
-            Open run
-          </Link>
-        </Button>
-      )}
-      {issue?.prNumber != null && (
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-          onClick={onClose}
-          data-testid="workflow-node-pr"
-        >
-          <Link
-            to="/t/$teamSlug/reviews/$issueIdentifier"
-            params={{ teamSlug, issueIdentifier: issue.identifier }}
-          >
-            {`PR #${issue.prNumber}`}
-          </Link>
-        </Button>
+      {/* EXP-1002: the node's surfaces read as the app's OWN face switcher —
+          same labels, same order, same `availableFaces` rule as the Work
+          screen — rather than a stack of differently-shaped buttons. Nothing
+          is selected: the reader is on the graph, not on a face, so every
+          segment is a way OUT of it. */}
+      {issue && (
+        <NodeFaceStrip
+          teamSlug={teamSlug}
+          boardSlug={boardSlug}
+          issue={issue}
+          sessionId={node.sessionId}
+          onNavigate={onClose}
+        />
       )}
       {needsApproval && (
         <Button
@@ -1322,6 +1309,90 @@ function readNodeReview(value: unknown): PanelReview | null {
         ? row.round
         : 0,
   }
+}
+
+// ── The node's faces (EXP-1002) ─────────────────────────────────────────────
+
+/** The face glyphs the phone switcher already uses, so one node reads the same
+ *  wherever it is opened from. */
+const FACE_ICON: Record<WorkFaceKind, ReturnType<typeof conceptIcon>> = {
+  issue: conceptIcon(`ui-issue`),
+  run: conceptIcon(`nav-devices`),
+  changes: conceptIcon(`coding-diff`),
+  results: conceptIcon(`work-results`),
+}
+
+/**
+ * Issue · Run · Changes for the picked node, as the app's own segmented
+ * control. Which segments exist is `availableFaces` — the SAME rule the Work
+ * screen applies — so a node with no run shows no Run, and one with no pull
+ * request shows no Changes. `results` never appears: the panel has no run
+ * feed to publish from.
+ *
+ * Nothing is selected on purpose. The reader is on the graph, so the strip is
+ * a way out of it rather than a picture of where they are; a value no segment
+ * carries leaves them all inactive, which is exactly that.
+ */
+function NodeFaceStrip({
+  teamSlug,
+  boardSlug,
+  issue,
+  sessionId,
+  onNavigate,
+}: {
+  teamSlug: string
+  boardSlug: string | undefined
+  issue: Issue
+  sessionId: string | null
+  onNavigate: () => void
+}) {
+  const navigate = useNavigate()
+  const faces = availableFaces({
+    hasIssue: Boolean(boardSlug),
+    hasRun: Boolean(sessionId),
+    hasChanges: issue.prNumber != null,
+    hasResults: false,
+  })
+  if (faces.length === 0) return null
+
+  const go = (face: WorkFaceKind) => {
+    onNavigate()
+    if (face === `run` && sessionId) {
+      void navigate({
+        to: `/t/$teamSlug/sessions/$sessionId`,
+        params: { teamSlug, sessionId },
+      })
+      return
+    }
+    if (face === `changes`) {
+      void navigate({
+        to: `/t/$teamSlug/reviews/$issueIdentifier`,
+        params: { teamSlug, issueIdentifier: issue.identifier },
+      })
+      return
+    }
+    if (boardSlug) {
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+        params: { teamSlug, boardSlug, issueIdentifier: issue.identifier },
+      })
+    }
+  }
+
+  return (
+    <div data-testid="workflow-node-faces">
+      <SegmentedControl
+        fill
+        value=""
+        onValueChange={(face) => go(face as WorkFaceKind)}
+        options={faces.map((face) => ({
+          value: face,
+          label: faceLabel(face),
+          icon: FACE_ICON[face],
+        }))}
+      />
+    </div>
+  )
 }
 
 /** Long findings fold behind "Show more" — the agent-session rule, on the

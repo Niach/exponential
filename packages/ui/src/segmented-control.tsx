@@ -32,6 +32,10 @@ interface SegmentedControlProps<TValue extends string> {
   options: readonly SegmentedOption<TValue>[]
   /** Draw as a glass group's first row instead of a floating capsule. */
   embedded?: boolean
+  /** Span the container instead of the capsule's natural `w-fit`, so the
+   *  segments (already `flex-1`) share it equally. For narrow slots — a side
+   *  panel — where the natural width overflows and clips the last label. */
+  fill?: boolean
   /** Disables every segment. */
   disabled?: boolean
   /** Extra classes on the strip (the `TabsList` / the embedded row). */
@@ -43,6 +47,7 @@ function SegmentedControl<TValue extends string>({
   onValueChange,
   options,
   embedded = false,
+  fill = false,
   disabled = false,
   className,
 }: SegmentedControlProps<TValue>) {
@@ -79,7 +84,7 @@ function SegmentedControl<TValue extends string>({
       value={value}
       onValueChange={(next) => onValueChange(next as TValue)}
     >
-      <TabsList className={cn(className)}>{triggers}</TabsList>
+      <TabsList className={cn(fill && `w-full`, className)}>{triggers}</TabsList>
     </Tabs>
   )
 }

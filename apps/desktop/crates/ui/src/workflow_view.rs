@@ -43,7 +43,7 @@ use domain::workflow_view::{
     CANCEL_WORKFLOW_LABEL, CONTRACT_MODEL_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL,
     DISMISS_NODE_LABEL, FINAL_PR_TITLE, INTEGRATION_MODEL_LABEL, MERGES_IN_FIRST_LABEL,
     MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
-    OPEN_RUN_LABEL, RUNNING_NOW_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
+    RUNNING_NOW_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
     RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, RISK_MODEL_LABEL,
     SAME_AS_MODEL_LABEL, SKIP_NODE_CONFIRM, SKIP_NODE_LABEL, START_WORKFLOW_LABEL,
     WITHDRAW_APPROVAL_LABEL,
@@ -643,7 +643,7 @@ impl WorkflowView {
                 // EXP-982: the node's run, its pull request, the gate and
                 // the two ways out of a failure. EXP-984: a proposal has
                 // none of them — it is admitted or dismissed, nothing else.
-                .children((!proposed).then(|| node_run_actions(&node, &issue_id, cx)).unwrap_or_default())
+                .children((!proposed).then(|| node_face_strip(&node, &issue_id, cx)).flatten())
                 .children((!proposed).then(|| node_gate_actions(&node, row)).unwrap_or_default())
                 .into_any_element(),
         )
@@ -1186,49 +1186,102 @@ impl Render for WorkflowView {
     }
 }
 
-/// The node panel's run + PR affordances: the coding session this node runs
-/// in (opened the way every other run is), and its issue's open pull
-/// request. Both only once they exist.
-fn node_run_actions(
+/// EXP-1002 — the node's FACES, as the app's own segmented capsule: Issue ·
+/// Run · Changes, the web's `availableFaces` rule verbatim, so a node with no
+/// run shows no Run and one with no pull request shows no Changes. Nothing is
+/// active: the reader is on the graph, so every segment is a way out of it.
+fn node_face_strip(
     node: &domain::rows::WorkflowNodeRow,
     issue_id: &str,
     cx: &App,
-) -> Vec<gpui::AnyElement> {
-    let mut actions = Vec::new();
-    if let Some(session_id) = node.session_id.clone() {
-        actions.push(
-            Button::new("workflow-node-run")
-                .ghost()
-                .small()
-                .icon(Icon::from(registry::ACTION_RUN))
-                .label(OPEN_RUN_LABEL)
-                .on_click(move |_, window, cx| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        Screen::Session {
-                            session_id: session_id.clone(),
-                        },
-                    );
-                })
-                .into_any_element(),
-        );
-    }
-    let pr = Store::try_global(cx)
+) -> Option<gpui::AnyElement> {
+    let has_pr = Store::try_global(cx)
         .and_then(|store| store.collections().issues.read(cx).get(issue_id).cloned())
-        .and_then(|issue| issue.pr_url.clone());
-    if let Some(url) = pr {
-        actions.push(
-            Button::new("workflow-node-pr")
-                .ghost()
-                .small()
-                .icon(Icon::from(registry::NAV_REVIEWS))
-                .label("Open pull request")
-                .on_click(move |_, _window, cx| cx.open_url(&url))
-                .into_any_element(),
+        .is_some_and(|issue| issue.pr_url.is_some());
+
+    let mut segments: Vec<gpui::AnyElement> = Vec::new();
+    let issue_target = issue_id.to_string();
+    segments.push(
+        face_segment(
+            "workflow-node-face-issue",
+            registry::UI_ISSUE,
+            crate::work_header::ISSUE_FACE_LABEL,
+            cx,
+        )
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    Screen::IssueDetail {
+                        issue_id: issue_target.clone(),
+                    },
+                );
+            })
+            .into_any_element(),
+    );
+    if let Some(session_id) = node.session_id.clone() {
+        segments.push(
+            face_segment(
+                "workflow-node-face-run",
+                registry::NAV_DEVICES,
+                crate::work_header::RUN_FACE_LABEL,
+                cx,
+            )
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    Screen::Session {
+                        session_id: session_id.clone(),
+                    },
+                );
+            })
+            .into_any_element(),
         );
     }
-    actions
+    if has_pr {
+        let issue_target = issue_id.to_string();
+        segments.push(
+            face_segment(
+                "workflow-node-face-changes",
+                registry::CODING_DIFF,
+                crate::work_header::CHANGES_FACE_LABEL,
+                cx,
+            )
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    Screen::PrDiff {
+                        issue_id: issue_target.clone(),
+                    },
+                );
+            })
+            .into_any_element(),
+        );
+    }
+    // One lone segment is a button wearing a capsule: the strip earns its
+    // chrome only once there is a choice in it.
+    (segments.len() > 1).then(|| {
+        crate::controls::segmented(cx)
+            .id("workflow-node-faces")
+            .children(segments)
+            .into_any_element()
+    })
+}
+
+/// One segment of [`node_face_strip`] — never active, since the panel is not
+/// one of the faces it points at.
+fn face_segment(
+    id: &'static str,
+    icon: crate::icons::ExpIcon,
+    label: &'static str,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    crate::controls::segmented_item(false, cx)
+        .id(id)
+        .child(Icon::from(icon).size_4())
+        .child(SharedString::from(label))
 }
 
 /// The human gate and the failure exits: approve (or take it back) while the
