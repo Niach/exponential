@@ -30,6 +30,7 @@ import {
   wfNodeKindValues,
   wfRiskValues,
   wfStartOnValues,
+  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT,
   type WfGate,
   type WfNodeKind,
   type WfRisk,
@@ -721,17 +722,20 @@ function HowItRunsSection({
             label: agentLabel(value),
           }))}
           onChange={(value) => {
-            // A different agent has a different model/effort vocabulary —
-            // stale values would only be refused by the router.
+            // A different agent has a different model vocabulary, so every
+            // model pin is re-seeded from THAT agent's shipped split rather
+            // than blanked (stale values would only be refused by the
+            // router). Effort is cleared: it has no shipped default.
             if (value !== null) {
               patchLaunch({
-                agent: value,
                 model: null,
                 contractModel: null,
                 integrationModel: null,
                 riskModel: null,
-                effort: null,
                 subagentModel: null,
+                ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[value],
+                agent: value,
+                effort: null,
               })
             }
           }}

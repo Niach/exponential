@@ -34,7 +34,7 @@ use gpui_component::{
 use sync::Store;
 
 use domain::workflow_view::{
-    workflow_cycle_note, workflow_edge_style, workflow_final_pr_caption, workflow_merge_train,
+    workflow_cycle_note, workflow_default_models, workflow_edge_style, workflow_final_pr_caption, workflow_merge_train,
     workflow_metric_rows, workflow_node_caption, workflow_node_needs_approval, workflow_node_title,
     workflow_node_tone, workflow_review_line, workflow_shape_line, workflow_start_blocker,
     workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation, ReviewLine, StartableWorkflow,
@@ -908,18 +908,22 @@ impl WorkflowView {
                     let value = value.to_string();
                     update(
                         Box::new(move |launch| {
+                            // A model belongs to ONE agent's closed set, so
+                            // every pin is RE-SEEDED from that agent's
+                            // shipped split (EXP-1002) rather than blanked.
+                            // Effort and the review model have no shipped
+                            // default of their own, so those clear.
+                            let seed = workflow_default_models(&value);
                             launch.agent = Some(value);
-                            // A model belongs to ONE agent's closed set.
-                            launch.model = None;
                             launch.effort = None;
-                            launch.subagent_model = None;
-                            // EXP-1002: so does a per-phase model.
-                            launch.contract_model = None;
-                            launch.integration_model = None;
-                            launch.risk_model = None;
-                            // EXP-984: a review model belongs to that same
-                            // closed set.
                             launch.review_model = None;
+                            launch.model = seed.map(|s| s.model.to_string());
+                            let cheap = seed.map(|s| s.cheap.to_string());
+                            launch.contract_model = cheap.clone();
+                            launch.integration_model = cheap.clone();
+                            launch.risk_model = cheap;
+                            launch.subagent_model =
+                                seed.and_then(|s| s.subagent).map(str::to_string);
                         }),
                         cx,
                     );

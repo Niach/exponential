@@ -1023,24 +1023,43 @@ export interface WorkflowLaunch {
 }
 
 /**
- * EXP-1002: what a NEW workflow starts configured as. Explicit on every field
- * a run reads, so a person opening the panel sees the launch rather than four
- * rows reading "Default": the phases that scaffold and merge are cheap
- * (`fable`), the LEAVES that implement and the subagents they spawn are not
- * (`opus`). A `risk: high` node goes back to `fable` whatever phase it sits
- * in — the hard ones are written cheaply and then REVIEWED on the model the
- * adversarial gate swaps to (`opus`), rather than written expensively once.
- * Pinned to claude because these are claude's model names — picking another
- * agent clears all five (the panel's own rule).
+ * EXP-1002: what a NEW workflow starts configured as, PER AGENT. Explicit on
+ * every field a run reads, so a person opening the panel sees the launch
+ * rather than five rows reading "Default".
+ *
+ * The same shape in both vocabularies: the LEAVES that implement (and, on
+ * claude, the subagents they spawn) get the capable model, while the phases
+ * that scaffold and merge get the cheap one. A `risk: high` node joins the
+ * cheap side whatever phase it sits in — the hard ones are written cheaply
+ * and then REVIEWED on the model the adversarial gate swaps to, rather than
+ * written expensively once.
+ *
+ * Model names belong to ONE agent's closed set, so switching the agent row
+ * re-seeds every pin from that agent's entry rather than blanking them.
  */
-export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunch = {
-  agent: `claude`,
-  model: `opus`,
-  contractModel: `fable`,
-  integrationModel: `fable`,
-  riskModel: `fable`,
-  subagentModel: `opus`,
+export const WORKFLOW_DEFAULT_LAUNCH_BY_AGENT: Record<string, WorkflowLaunch> = {
+  claude: {
+    agent: `claude`,
+    model: `opus`,
+    contractModel: `fable`,
+    integrationModel: `fable`,
+    riskModel: `fable`,
+    subagentModel: `opus`,
+  },
+  // Codex has no subagent model to pin (claude-only), so its entry is the
+  // four that a node run actually reads.
+  codex: {
+    agent: `codex`,
+    model: `gpt-5.6-sol`,
+    contractModel: `gpt-5.6-luna`,
+    integrationModel: `gpt-5.6-luna`,
+    riskModel: `gpt-5.6-luna`,
+  },
 }
+
+/** The launch a new workflow is created with: the default agent's entry. */
+export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunch =
+  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT.claude!
 
 export const workflowLaunchSchema = z
   .object({

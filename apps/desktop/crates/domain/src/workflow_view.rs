@@ -572,6 +572,37 @@ pub const INTEGRATION_MODEL_LABEL: &str = "Integration model";
 pub const RISK_MODEL_LABEL: &str = "High-risk model";
 pub const SAME_AS_MODEL_LABEL: &str = "Same as Model";
 
+/// EXP-1002: the shipped split for one agent — hand-mirrored with
+/// `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT` (`db-schema/src/domain.ts`), which is
+/// what the server writes at create. Switching the agent row re-seeds every
+/// model pin from here rather than blanking them, so a codex-only machine
+/// gets a configured workflow in one tap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkflowDefaultModels {
+    /// The leaves that implement.
+    pub model: &'static str,
+    /// The contract / integration phases, and any `risk: high` node.
+    pub cheap: &'static str,
+    /// Claude only: the model its subagents run on.
+    pub subagent: Option<&'static str>,
+}
+
+pub fn workflow_default_models(agent: &str) -> Option<WorkflowDefaultModels> {
+    match agent {
+        "" | "claude" => Some(WorkflowDefaultModels {
+            model: "opus",
+            cheap: "fable",
+            subagent: Some("opus"),
+        }),
+        "codex" => Some(WorkflowDefaultModels {
+            model: "gpt-5.6-sol",
+            cheap: "gpt-5.6-luna",
+            subagent: None,
+        }),
+        _ => None,
+    }
+}
+
 /// What the review line reads off `workflow_nodes.review`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReviewLine<'a> {
@@ -1213,5 +1244,28 @@ mod tests {
         assert_eq!(workflow_node_state_label("brand-new"), "brand-new");
         assert_eq!(workflow_node_kind_label("brand-new"), "brand-new");
         assert_eq!(workflow_node_tone("brand-new"), WorkflowNodeTone::Muted);
+    }
+
+    /// EXP-1002: the shipped split, byte-for-byte with
+    /// `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT` in `db-schema/src/domain.ts` — the
+    /// server writes those values at create and this re-seeds the rows, so a
+    /// drift here is a workflow whose panel disagrees with its own run.
+    #[test]
+    fn the_shipped_split_matches_the_server_constant() {
+        let claude = workflow_default_models("claude").expect("claude");
+        assert_eq!(claude.model, "opus");
+        assert_eq!(claude.cheap, "fable");
+        assert_eq!(claude.subagent, Some("opus"));
+        // A blank agent row IS claude (the contract's first value).
+        assert_eq!(workflow_default_models(""), Some(claude));
+
+        let codex = workflow_default_models("codex").expect("codex");
+        assert_eq!(codex.model, "gpt-5.6-sol");
+        assert_eq!(codex.cheap, "gpt-5.6-luna");
+        assert_eq!(codex.subagent, None, "the subagent pin is claude-only");
+
+        // An agent this build does not know seeds nothing rather than
+        // seeding claude's models into it.
+        assert_eq!(workflow_default_models("brand-new"), None);
     }
 }
