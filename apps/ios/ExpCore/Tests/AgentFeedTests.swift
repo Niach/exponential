@@ -1613,6 +1613,67 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(AgentFeed.toolPreview(["count": 0])?.count, 0)
     }
 
+    // MARK: - EXP-920: entity refs on the preview
+
+    func testToolPreviewCarriesItsEntityRefs() {
+        let preview = AgentFeed.toolPreview([
+            "count": 2,
+            "refs": [
+                ["kind": "list", "id": "issue", "title": "issues", "count": 2],
+                ["kind": "issue", "id": "i-1", "identifier": "EXP-1", "title": "One"],
+                ["kind": "thing", "id": "x-1", "title": "a newer publisher's kind"],
+                ["kind": "issue", "id": "   "],
+                "not a ref",
+                ["kind": "issue", "id": "i-2", "identifier": "EXP-2"],
+            ],
+        ])
+        XCTAssertEqual(preview?.count, 2)
+        XCTAssertEqual(preview?.refs, [
+            EntityRef(kind: "list", id: "issue", title: "issues", count: 2),
+            EntityRef(kind: "issue", id: "i-1", identifier: "EXP-1", title: "One"),
+            EntityRef(kind: "issue", id: "i-2", identifier: "EXP-2"),
+        ])
+        // Refs alone make a preview — the chips are the result.
+        let refsOnly = AgentFeed.toolPreview(["refs": [["kind": "board", "id": "b-1", "title": "Web"]]])
+        XCTAssertEqual(refsOnly?.refs.count, 1)
+        XCTAssertFalse(refsOnly?.isEmpty ?? true)
+        // A `refs` that yields nothing is no preview, same as every other blank field.
+        XCTAssertNil(AgentFeed.toolPreview(["refs": [["kind": "thing", "id": "x"]]]))
+        XCTAssertNil(AgentFeed.toolPreview(["refs": "EXP-1"]))
+        XCTAssertEqual(AgentFeed.toolPreview(["title": "Drop pi"])?.refs, [])
+    }
+
+    func testToolPreviewCutsTheRefsAtTheContractMax() {
+        let many = (0..<20).map { ["kind": "issue", "id": "i-\($0)", "identifier": "EXP-\($0)"] as [String: Any] }
+        let preview = AgentFeed.toolPreview(["refs": many])
+        XCTAssertEqual(preview?.refs.count, DomainContract.expToolPreviewMaxRefs)
+        XCTAssertEqual(preview?.refs.first?.identifier, "EXP-0")
+        XCTAssertEqual(DomainContract.expToolPreviewMaxRefs, 8)
+    }
+
+    func testToolUpdateFoldsTheRefsOntoTheRow() {
+        let feed: [AgentFeedItem] = [
+            .tool(
+                id: 1, name: "exponential_issues_list", detail: nil, subagentId: nil,
+                callId: "tc-1", toolKind: "other"
+            ),
+        ]
+        let previewed = AgentFeed.applyToolUpdate(feed: feed, event: [
+            "id": "tc-1",
+            "status": "completed",
+            "preview": [
+                "count": 1,
+                "refs": [["kind": "issue", "id": "i-1", "identifier": "EXP-1", "title": "One"]],
+            ],
+        ])
+        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview, _)? = previewed?[0] else {
+            return XCTFail("not a tool row")
+        }
+        XCTAssertTrue(settled)
+        XCTAssertEqual(preview?.refs.map(\.identifier), ["EXP-1"])
+        XCTAssertEqual(EntityPreview.groupRefs(preview?.refs ?? []).count, 1)
+    }
+
     // MARK: - EXP-850 §9: the pending card sits at the bottom
 
     func testAPendingQuestionMovesAfterEveryLaterRow() {

@@ -241,6 +241,10 @@ interface CommentDao {
     @Query("SELECT * FROM comments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<CommentEntity>>
 
+    /** EXP-920: the one row an entity preview names. */
+    @Query("SELECT * FROM comments WHERE id = :id")
+    fun observeById(id: String): Flow<CommentEntity?>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: CommentEntity)
 
@@ -429,6 +433,10 @@ interface IssueDraftDao {
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")
     fun observeByIssue(issueId: String): Flow<List<AttachmentEntity>>
+
+    /** EXP-920: the one row an entity preview names. */
+    @Query("SELECT * FROM attachments WHERE id = :id")
+    fun observeById(id: String): Flow<AttachmentEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: AttachmentEntity)

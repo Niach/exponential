@@ -92,6 +92,10 @@ import {
   GlassTabsRow,
   GlassToggleRow,
   EmptyState,
+  EntityChip,
+  EntityPreviewCard,
+  CHIP_GLYPH_CLASS,
+  entityChipGlyph,
   ICON_DISC_TONES,
   IconDisc,
   DEVICE_ICON_OPTIONS,
@@ -1662,6 +1666,93 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           identifier="EXP-423"
           title="The chip is a rounded rect on every client, and a long title truncates"
           status={DONE_GLYPH}
+        />
+      </div>
+    ),
+  },
+  {
+    id: `entity-chip`,
+    title: `Entity chip`,
+    kind: `Buttons & chips`,
+    blurb: `The issue chip's box, opened to every kind an Exponential MCP answer can name (EXP-920): a settled tool row in a run transcript draws ONE chip per entity it touched — board, action, comment, run, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (\`entityRefIcon\`) and its name; a LIST answer folds into one chip that counts its members in the product noun (\`3 issues\`, \`1 run\`) and never navigates — its card lists them. Label, detail and grouping are the contract's (\`@exp/domain-contract/entity-preview\`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.`,
+    status: {
+      web: ok(`EntityChip`, `packages/ui/src/entity-chip.tsx`, `The app's components/entity-preview/ resolves the row, the target and the hover card per kind.`),
+      desktop: ok(`entity_chip`, `apps/desktop/crates/ui/src/entity_chip.rs`),
+      ios: ok(`EntityChip`, `apps/ios/ExpUI/Sources/EntityChip.swift`),
+      android: ok(`EntityChip`, `${ANDROID_COMPONENTS}/EntityChip.kt`),
+    },
+    island: () => (
+      <div className="flex flex-wrap items-center gap-2.5">
+        <EntityChip
+          icon={<StatusGlyph {...BACKLOG_GLYPH} className={CHIP_GLYPH_CLASS} />}
+          label="EXP-920"
+          detail="Refine MCP custom UI"
+          onClick={noop}
+        />
+        <EntityChip
+          icon={entityChipGlyph({ kind: `board`, id: `b-1` })}
+          label="Web"
+          onClick={noop}
+        />
+        <EntityChip
+          icon={entityChipGlyph({ kind: `comment`, id: `c-1` })}
+          label="Reviewed the flicker fix: the debounce is fine…"
+          onClick={noop}
+        />
+        <EntityChip
+          icon={entityChipGlyph({ kind: `list`, id: `issue` })}
+          label="3 issues"
+        />
+        <EntityChip
+          icon={entityChipGlyph({ kind: `session`, id: `s-1` })}
+          label="Fix the flicker"
+          muted
+        />
+      </div>
+    ),
+  },
+  {
+    id: `entity-preview-card`,
+    title: `Entity preview card`,
+    kind: `Surfaces`,
+    blurb: `What an entity chip shows on hover (pointer) or tap (a bottom sheet on phones): the issue preview's chrome, opened to every kind (EXP-920). One ladder — glyph and EYEBROW (the kind noun or an identifier), the title, a subtitle, an optional multi-line body that folds behind "Show more", a wrapping row of fact pills, then ROWS (a board's open issues, a list chip's members, each a target) and a muted "+N more" when the answer carried more than the card lists. Everything arrives already resolved from the client's own synced rows — a preview never asks the server — and a row the viewer cannot see renders no card at all.`,
+    status: {
+      web: ok(`EntityPreviewCard`, `packages/ui/src/entity-preview-card.tsx`, `The app's components/entity-preview/entity-preview-card.tsx picks the content per kind.`),
+      desktop: ok(`entity_preview::card`, `apps/desktop/crates/ui/src/entity_preview.rs`),
+      ios: ok(`EntityPreviewCard`, `apps/ios/ExpUI/Sources/EntityPreviewCard.swift`),
+      android: ok(`EntityPreviewCard`, `${ANDROID_COMPONENTS}/EntityPreviewCard.kt`),
+    },
+    island: () => (
+      <div className={cn(MENU_SURFACE_CLASS, `w-80 p-3`)}>
+        <EntityPreviewCard
+          icon={entityChipGlyph({ kind: `board`, id: `b-1` }, `!h-3.5 !w-3.5`)}
+          eyebrow="Board · EXP"
+          title="Web"
+          subtitle="5 open issues"
+          rows={[
+            {
+              key: `i-1`,
+              icon: <StatusGlyph {...BACKLOG_GLYPH} />,
+              identifier: `EXP-920`,
+              primary: `Refine MCP custom UI`,
+              onClick: noop,
+            },
+            {
+              key: `i-2`,
+              icon: <StatusGlyph {...BACKLOG_GLYPH} />,
+              identifier: `EXP-967`,
+              primary: `The formatting rail's link field never takes focus`,
+              onClick: noop,
+            },
+            {
+              key: `i-3`,
+              icon: <StatusGlyph {...DONE_GLYPH} />,
+              identifier: `EXP-955`,
+              primary: `Uploaded file shows zero bytes`,
+              onClick: noop,
+            },
+          ]}
+          more="+2 more"
         />
       </div>
     ),

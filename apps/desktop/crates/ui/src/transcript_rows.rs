@@ -111,6 +111,7 @@ pub(crate) fn row_fingerprint(
                 settled,
                 failed,
                 diff,
+                preview,
                 ..
             } => {
                 name.len().hash(&mut hasher);
@@ -124,6 +125,9 @@ pub(crate) fn row_fingerprint(
                 settled.hash(&mut hasher);
                 failed.hash(&mut hasher);
                 diff.as_ref().map(String::len).hash(&mut hasher);
+                // EXP-920: an Exponential tool's settle lands its entity
+                // chips (a wrapping row of unknown height) under the row.
+                preview.as_ref().map(|preview| preview.refs.len()).hash(&mut hasher);
             }
             FeedKind::Permission { tool, detail } => {
                 tool.len().hash(&mut hasher);

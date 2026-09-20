@@ -21,6 +21,7 @@ import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
@@ -156,6 +157,10 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    /** EXP-920: the account DB the transcript's entity-preview sheets resolve
+     *  their refs against ([EntityRefResolver]); scoped like every query here. */
+    val accountDb: Flow<ExponentialDatabase?> get() = dbFlow
 
     /** The live connection for this session — shared with every other screen
      *  that has it open, and released in [onCleared]. */

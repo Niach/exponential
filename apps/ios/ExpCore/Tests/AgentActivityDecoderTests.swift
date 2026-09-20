@@ -87,11 +87,33 @@ final class AgentActivityDecoderTests: XCTestCase {
         XCTAssertEqual(update.diff, "@@ -1 +1 @@")
         XCTAssertEqual(update.preview?.identifier, "EXP-849")
         XCTAssertEqual(update.preview?.count, 3)
+        XCTAssertEqual(update.preview?.refs, [])
         // A diff-only update never settles the call.
         let open = try decode(#"{"kind":"tool_update","id":"toolu_2","diff":"@@"}"#)
         guard case let .toolUpdate(second) = try XCTUnwrap(open)
         else { return XCTFail("not a tool_update") }
         XCTAssertFalse(second.settles)
+    }
+
+    /// EXP-920: the refs ride the preview — parsed, unknown kinds dropped,
+    /// order kept.
+    func testToolUpdateCarriesThePreviewsEntityRefs() throws {
+        let event = try decode(#"""
+        {"kind":"tool_update","id":"toolu_3","status":"completed",
+         "preview":{"count":2,"refs":[
+           {"kind":"list","id":"issue","title":"issues","count":2},
+           {"kind":"issue","id":"i-1","identifier":"EXP-1","title":"One"},
+           {"kind":"mystery","id":"m-1"},
+           {"kind":"issue","id":"i-2","identifier":"EXP-2","count":1.4}]}}
+        """#)
+        guard case let .toolUpdate(update) = try XCTUnwrap(event)
+        else { return XCTFail("not a tool_update") }
+        XCTAssertEqual(update.preview?.count, 2)
+        XCTAssertEqual(update.preview?.refs, [
+            EntityRef(kind: "list", id: "issue", title: "issues", count: 2),
+            EntityRef(kind: "issue", id: "i-1", identifier: "EXP-1", title: "One"),
+            EntityRef(kind: "issue", id: "i-2", identifier: "EXP-2", count: 1),
+        ])
     }
 
     func testDiffAndUserMessageAndPermission() throws {

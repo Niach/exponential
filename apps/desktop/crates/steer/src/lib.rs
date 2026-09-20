@@ -123,7 +123,7 @@ pub use frames::{
     StartRepoGroup, StartStack, StartStackIssue, SteerRole, SubagentStatus, ToolKind, ToolPreview,
     TaskListEntry, TaskListStatus, ToolUpdateStatus, TurnState,
     ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, TASK_LIST_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
-    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
+    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX, EntityRef, TOOL_PREVIEW_MAX_REFS,
 };
 pub use workflow::{
     workflow_caption, WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowState,

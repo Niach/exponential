@@ -1,6 +1,11 @@
-import type { MouseEvent, ReactElement, ReactNode } from "react"
-import { conceptIcon } from "./icons.generated"
+import type { ReactElement, ReactNode } from "react"
 import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
+import {
+  CHIP_GLYPH_CLASS,
+  ChipBox,
+  type ChipHostProps,
+  type EntityChipLinkProps,
+} from "./entity-chip"
 import { cn } from "./cn"
 
 // EXP-885 — THE issue chip, presentational half. ONE box for every surface
@@ -22,53 +27,14 @@ import { cn } from "./cn"
 // status is passed IN (already resolved against the team's rows) so this file
 // stays free of live queries; the app's `components/issue-chip.tsx` is the
 // binding that resolves it and adds the hover preview.
-
-const UiCloseIcon = conceptIcon(`ui-close`)
-
-/** 0.875em of the chip's own 0.75rem — the exact glyph box the editor
- *  decoration paints with its ::before mask. */
-const CHIP_GLYPH_CLASS = `!h-[0.875em] !w-[0.875em] shrink-0`
-
-/** The open affordance's box — the same whether it is a button or a link. */
-const CHIP_OPEN_CLASS = `flex min-w-0 cursor-pointer items-center gap-1 rounded-[4px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`
-
-export function ChipRemoveButton({
-  label,
-  disabled,
-  testId,
-  onRemove,
-}: {
-  /** The ✕'s accessible name — also its hover title. */
-  label: string
-  disabled?: boolean
-  testId?: string
-  onRemove: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      data-testid={testId}
-      disabled={disabled}
-      onClick={(event: MouseEvent) => {
-        event.stopPropagation()
-        onRemove()
-      }}
-      className="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-[4px] text-muted-foreground outline-none hover:bg-glass-active hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
-    >
-      <UiCloseIcon className="size-3" />
-    </button>
-  )
-}
+//
+// EXP-920: the box, the open affordance and the ✕ live in `ChipBox`
+// (./entity-chip.tsx), shared with the entity chip every other kind draws in
+// a tool row — so an issue chip and a board chip cannot drift apart.
 
 /** What the chip hands a caller-supplied link element (EXP-887): the body's
  *  layout classes, the accessible name and the three parts as children. */
-export interface IssueChipLinkProps {
-  className: string
-  "aria-label": string
-  children: ReactNode
-}
+export type IssueChipLinkProps = EntityChipLinkProps
 
 export function IssueChip({
   identifier,
@@ -82,6 +48,7 @@ export function IssueChip({
   className,
   testId,
   removeTestId,
+  ...host
 }: {
   identifier: string
   title: string
@@ -102,8 +69,7 @@ export function IssueChip({
   className?: string
   testId?: string
   removeTestId?: string
-}): ReactNode {
-  const tooltip = `${identifier} · ${title}`
+} & ChipHostProps): ReactNode {
   const body = (
     <>
       <StatusGlyph
@@ -120,45 +86,20 @@ export function IssueChip({
   )
 
   return (
-    <span
-      data-slot="issue-chip"
-      data-testid={testId}
-      data-removable={onRemove ? `true` : undefined}
-      title={tooltip}
-      // `issue-chip` is the shared box (styles.css); everything here is
-      // LAYOUT. `align-middle`: the chip flows inline in prose, and an
-      // inline-flex box would otherwise sit on the text baseline.
-      className={cn(
-        `issue-chip inline-flex max-w-[18rem] items-center gap-1 align-middle text-xs`,
-        className
-      )}
-    >
-      {link ? (
-        link({
-          className: CHIP_OPEN_CLASS,
-          "aria-label": `Open ${identifier}`,
-          children: body,
-        })
-      ) : onClick ? (
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={`Open ${identifier}`}
-          className={CHIP_OPEN_CLASS}
-        >
-          {body}
-        </button>
-      ) : (
-        body
-      )}
-      {onRemove && (
-        <ChipRemoveButton
-          label={removeLabel ?? `Remove ${identifier}`}
-          disabled={removeDisabled}
-          testId={removeTestId}
-          onRemove={onRemove}
-        />
-      )}
-    </span>
+    <ChipBox
+      slot="issue-chip"
+      body={body}
+      openLabel={`Open ${identifier}`}
+      tooltip={`${identifier} · ${title}`}
+      onClick={onClick}
+      link={link}
+      onRemove={onRemove}
+      removeLabel={removeLabel ?? `Remove ${identifier}`}
+      removeDisabled={removeDisabled}
+      className={className}
+      testId={testId}
+      removeTestId={removeTestId}
+      {...host}
+    />
   )
 }

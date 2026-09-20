@@ -371,6 +371,12 @@ fun RunFace(
     // not stacked at all).
     val stackPosition by viewModel.stackPosition.collectAsStateWithLifecycle()
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
+    // EXP-920: the transcript's entity-preview sheets read the run's team
+    // rows off the account DB (the viewer id scopes notifications).
+    val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    val entityRefResolver = remember(viewModel, session?.teamId, currentUserId) {
+        EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId)
+    }
     val issueRefHandler = remember(issueRefCandidates) {
         IssueRefHandler(
             issueRefCandidates,
@@ -800,6 +806,9 @@ fun RunFace(
                         // `#IDENTIFIER` contract.
                         LocalIssueRefs provides issueRefHandler,
                         LocalIssueRefBare provides true,
+                        // EXP-920: what a tool row's entity chips resolve
+                        // their preview sheets against — the run's team.
+                        LocalEntityRefResolver provides entityRefResolver,
                         // EXP-698: inline `code` is TINTED in a chat feed —
                         // narration, the user's own bubbles, plan and ask
                         // cards, everything under this provider. Issue
@@ -4214,6 +4223,16 @@ private const val EXP_TOOL_SUBJECT_MAX = 48
 @Composable
 private fun ExpToolPreview(display: ExpToolRow, preview: ToolResultPreview?) {
     val result = preview ?: return
+    // EXP-920: an answer that named its entities renders them as chips — one
+    // per group, each opening a preview sheet. A pre-EXP-920 publisher sends
+    // no refs and the single-subject rendering below stays exactly as it was.
+    if (result.refs.isNotEmpty()) {
+        EntityRefChips(
+            refs = result.refs,
+            modifier = Modifier.padding(start = EXP_TOOL_PREVIEW_INSET, top = 4.dp),
+        )
+        return
+    }
     when (display.result) {
         ExpToolDisplay.RESULT_ISSUE -> ExpToolIssuePreview(result)
         ExpToolDisplay.RESULT_PR -> {

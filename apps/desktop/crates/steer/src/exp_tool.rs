@@ -61,6 +61,19 @@ pub fn exp_tool_subject_key(name: &str) -> Option<&'static str> {
     (!key.is_empty()).then_some(key)
 }
 
+/// EXP-920: the contract's PREVIEW spec for a tool name — the whitespace-
+/// separated `kind@path` terms (`expToolPreview.tools[].refs`) naming what
+/// its answer points at. `None` for every tool that is not ours; `Some("")`
+/// for one of ours whose answer previews nothing. The engine's
+/// `exp_tool_refs` parses it.
+pub fn exp_tool_preview_spec(name: &str) -> Option<&'static str> {
+    let index = exp_tool_index(name)?;
+    domain::contract::EXP_TOOL_PREVIEW_NAMES
+        .iter()
+        .position(|row| *row == domain::contract::EXP_TOOL_NAMES[index])
+        .map(|row| domain::contract::EXP_TOOL_PREVIEW_REFS[row])
+}
+
 /// How a call to `name` renders right now: `settled` picks the done caption
 /// over the progressive one. `None` for every tool that is not ours.
 pub fn exp_tool_display(name: &str, settled: bool) -> Option<ExpToolDisplay> {
@@ -185,6 +198,32 @@ mod tests {
                 "{kind} is not a contract result kind"
             );
         }
+        // EXP-920: the preview table covers every tool, in its own order.
+        assert_eq!(domain::contract::EXP_TOOL_PREVIEW_NAMES.len(), rows);
+        assert_eq!(domain::contract::EXP_TOOL_PREVIEW_REFS.len(), rows);
+        for name in domain::contract::EXP_TOOL_NAMES {
+            assert!(
+                domain::contract::EXP_TOOL_PREVIEW_NAMES.contains(name),
+                "{name} has no preview spec"
+            );
+        }
+    }
+
+    /// EXP-920: the preview spec resolves through the same namespaces; a tool
+    /// with nothing to preview answers the empty spec, a stranger none.
+    #[test]
+    fn the_preview_spec_is_the_contract_row() {
+        assert_eq!(
+            exp_tool_preview_spec("mcp__exponential__exponential_issues_create"),
+            Some("issue@")
+        );
+        assert_eq!(
+            exp_tool_preview_spec("exponential_pr_open"),
+            Some("issue@$issueId issue@$issueIds[]")
+        );
+        assert_eq!(exp_tool_preview_spec("exponential_actions_delete"), Some(""));
+        assert_eq!(exp_tool_preview_spec("mcp__other__issues_create"), None);
+        assert_eq!(exp_tool_preview_spec("Bash"), None);
     }
 
     /// EXP-862 — the settings list: every built-in tool, its wire name whole

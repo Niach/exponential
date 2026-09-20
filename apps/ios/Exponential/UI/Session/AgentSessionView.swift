@@ -3221,6 +3221,10 @@ private struct ToolRow: View {
 ///   session/board/action/automation → a name chip
 ///   none                          → the caption alone
 ///
+/// EXP-920: a preview that carries `refs` (what the answer touched, one
+/// entity each) draws `EntityRefChips` instead — one chip per ref, a tap
+/// opens its preview sheet — and the kinds above only serve older publishers.
+///
 /// Nothing is forced: a call that reported no preview is the mark plus its
 /// caption, which is already the whole story for a delete or an update.
 /// Hand-mirrored ×4 (web `agent-feed` rows, desktop `steer` feed, Android
@@ -3270,6 +3274,18 @@ private struct ExpToolRow: View {
 
     @ViewBuilder
     private func previewRow(_ preview: AgentToolPreview) -> some View {
+        // EXP-920: a publisher that named what the answer touched gets one
+        // chip per entity (a tap opens its preview); a pre-EXP-920 preview
+        // keeps the single-subject rendering below, untouched.
+        if !preview.refs.isEmpty {
+            EntityRefChips(refs: preview.refs, context: refs)
+        } else {
+            legacyPreviewRow(preview)
+        }
+    }
+
+    @ViewBuilder
+    private func legacyPreviewRow(_ preview: AgentToolPreview) -> some View {
         switch display.result {
         case .issue:
             ExpToolIssuePreview(

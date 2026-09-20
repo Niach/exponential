@@ -468,10 +468,15 @@ data class ToolResultPreview(
     val url: String? = null,
     val count: Int? = null,
     val status: String? = null,
+    /** EXP-920: every entity the answer named, in publisher order, at most
+     *  `expToolPreview.maxRefs`; unknown kinds already dropped. A pre-EXP-920
+     *  publisher sends none and the row keeps its single-subject preview. */
+    val refs: List<EntityRef> = emptyList(),
 ) {
     /** What this preview adds to a tool row's [feedItemBytes] estimate. */
     fun weight(): Int = (id?.length ?: 0) + (identifier?.length ?: 0) +
-        (title?.length ?: 0) + (url?.length ?: 0) + (status?.length ?: 0)
+        (title?.length ?: 0) + (url?.length ?: 0) + (status?.length ?: 0) +
+        refs.sumOf { it.weight() }
 }
 
 // ── EXP-848: the agent's turn, as a latest-wins slot ────────────────────────
@@ -2007,6 +2012,13 @@ private fun toolPreview(raw: JsonElement?): ToolResultPreview? {
         url = obj.str("url")?.takeIf { it.isNotBlank() },
         count = obj.int("count")?.takeIf { it >= 0 },
         status = obj.str("status")?.takeIf { it.isNotBlank() },
+        // EXP-920: web `parseToolPreview` — each ref through `EntityRef.parse`
+        // (a malformed or unknown-kind entry drops, never the array), capped
+        // at the contract's `maxRefs`.
+        refs = (obj["refs"] as? JsonArray)
+            ?.mapNotNull(EntityRef.Companion::parse)
+            ?.take(DomainContract.expToolPreviewMaxRefs)
+            .orEmpty(),
     )
     return preview.takeIf { it != ToolResultPreview() }
 }
