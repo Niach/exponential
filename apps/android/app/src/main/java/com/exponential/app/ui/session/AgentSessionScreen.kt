@@ -673,44 +673,6 @@ fun RunFace(
             // EXP-893: nothing floats over its tail any more — the diff is the
             // Changes face, Merge lives there too, and the bar below is in
             // the flow, so the feed simply ends above it.
-            // EXP-849 phase 3: this run CONTINUES another one (an account
-            // switch, or a plain Resume) — the chain is the synced
-            // `resumed_from_id`, so say so once at the top instead of letting a
-            // transcript that starts mid-conversation look like a lost run. The
-            // cost of that pick-up is named here and nowhere else.
-            if (session?.resumedFromId != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassRow()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .testTag("session-continuation-note"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        ExpIcons.runResume,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            SessionAccountSwitch.CONTINUATION_NOTE,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            SessionAccountSwitch.CONTINUATION_COST_NOTE,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Tertiary,
-                            ),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-            }
             // EXP-897: this run's pull request is STACKED on another issue's —
             // say where it sits and what it is built on, in the same words the
             // Reviews list and the other three clients use.

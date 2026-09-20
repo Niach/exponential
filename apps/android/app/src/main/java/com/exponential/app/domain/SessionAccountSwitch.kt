@@ -68,17 +68,6 @@ object SessionAccountSwitch {
     const val COST_NOTE =
         "The run continues under the other account. Re-reading the transcript once costs tokens."
 
-    /** The continuation byline a resumed run's screen carries. */
-    const val CONTINUATION_NOTE = "Continues an earlier run"
-
-    /**
-     * What that continuation cost, said ONCE on the new run: re-entering the
-     * recorded run re-reads its transcript, which is a single extra context
-     * read — not a per-message surcharge.
-     */
-    const val CONTINUATION_COST_NOTE =
-        "The agent re-read the transcript once to pick it up — a one-time cost."
-
     // ── Refusals ────────────────────────────────────────────────────────────
     // One sentence each, and the reason is always about the thing the person
     // can change. Shown on the DISABLED control rather than hiding it, so the

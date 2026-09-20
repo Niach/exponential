@@ -135,6 +135,14 @@ fun WorkScreen(
         .collectAsStateWithLifecycle()
     val issueRuns by (issueVm?.issueRuns ?: remember { MutableStateFlow(emptyList()) })
         .collectAsStateWithLifecycle()
+    // EXP-974: the shown run's resume chain, newest first — the switcher's
+    // run rows for an ISSUE-LESS subject (a chat, action or batch run), so a
+    // resumed run and its successor share one toggle and its menu picks
+    // between them. An issue-bound subject keeps the issue's own runs, which
+    // already include its resumes.
+    val chainRuns by (sessionVm?.chainRuns ?: remember { MutableStateFlow(emptyList()) })
+        .collectAsStateWithLifecycle()
+    val menuRuns = if (issueId != null) issueRuns else chainRuns
     // The minute clock every liveness cut is taken on (`CodingSessionLiveness`)
     // — the screen's own, so an issue-less run's Stop retires on time too.
     val liveClock by remember { CodingSessionLiveness.minuteTicker() }
@@ -283,7 +291,7 @@ fun WorkScreen(
     val targets = switcherTargets(
         faces = faces,
         shown = face,
-        runIds = issueRuns.map { it.session.id },
+        runIds = menuRuns.map { it.session.id },
         shownRunId = shownSessionId,
         offerStart = offerStart,
     )
@@ -307,7 +315,7 @@ fun WorkScreen(
                 mode = mode,
                 badge = badge,
                 badgeBusy = shownSession?.agentBusy == true,
-                runs = issueRuns,
+                runs = menuRuns,
                 shownRunId = shownSessionId,
                 diffStats = diffStats,
                 onPick = pickTarget,
@@ -332,7 +340,7 @@ fun WorkScreen(
                     mode = mode,
                     badge = badge,
                     badgeBusy = shownSession?.agentBusy == true,
-                    runs = issueRuns,
+                    runs = menuRuns,
                     shownRunId = shownSessionId,
                     diffStats = diffStats,
                     onPick = pickTarget,
