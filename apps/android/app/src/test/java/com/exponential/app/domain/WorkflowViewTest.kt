@@ -421,10 +421,11 @@ class WorkflowViewTest {
         )
         assertEquals("Agent review", WorkflowView.AGENT_REVIEW_TITLE)
         assertEquals("Review model", WorkflowView.REVIEW_MODEL_LABEL)
-        assertEquals("Budget", WorkflowView.BUDGET_TITLE)
-        assertEquals("Minutes", WorkflowView.BUDGET_MINUTES_LABEL)
-        assertEquals("Tokens", WorkflowView.BUDGET_TOKENS_LABEL)
         assertEquals("Metrics", WorkflowView.METRICS_TITLE)
+        assertEquals("Contract model", WorkflowView.CONTRACT_MODEL_LABEL)
+        assertEquals("Integration model", WorkflowView.INTEGRATION_MODEL_LABEL)
+        assertEquals("High-risk model", WorkflowView.RISK_MODEL_LABEL)
+        assertEquals("Same as Model", WorkflowView.SAME_AS_MODEL_LABEL)
     }
 
     @Test

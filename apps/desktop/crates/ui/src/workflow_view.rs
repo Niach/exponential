@@ -34,17 +34,19 @@ use gpui_component::{
 use sync::Store;
 
 use domain::workflow_view::{
-    workflow_cycle_note, workflow_edge_style, workflow_final_pr_caption, workflow_merge_train,
+    workflow_cycle_note, workflow_default_models, workflow_edge_style, workflow_final_pr_caption, workflow_merge_train,
     workflow_metric_rows, workflow_node_caption, workflow_node_needs_approval, workflow_node_title,
     workflow_node_tone, workflow_review_line, workflow_shape_line, workflow_start_blocker,
     workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation, ReviewLine, StartableWorkflow,
     TrainNode, WorkflowNodeTone, ADMIT_NODE_LABEL, AGENT_REVIEW_TITLE, APPROVE_NODE_LABEL,
-    BUDGET_MINUTES_LABEL, BUDGET_TITLE, BUDGET_TOKENS_LABEL, CANCEL_WORKFLOW_CONFIRM,
-    CANCEL_WORKFLOW_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL, DISMISS_NODE_LABEL,
-    FINAL_PR_TITLE, MERGES_IN_FIRST_LABEL, MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
-    OPEN_RUN_LABEL, RUNNING_NOW_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
-    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, SKIP_NODE_CONFIRM,
-    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
+    CANCEL_WORKFLOW_CONFIRM,
+    CANCEL_WORKFLOW_LABEL, CONTRACT_MODEL_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL,
+    DISMISS_NODE_LABEL, FINAL_PR_TITLE, INTEGRATION_MODEL_LABEL, MERGES_IN_FIRST_LABEL,
+    MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
+    RUNNING_NOW_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
+    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, RISK_MODEL_LABEL,
+    SAME_AS_MODEL_LABEL, SKIP_NODE_CONFIRM, SKIP_NODE_LABEL, START_WORKFLOW_LABEL,
+    WITHDRAW_APPROVAL_LABEL,
 };
 
 use crate::actions_view::page_scaffold_with;
@@ -111,6 +113,26 @@ const REVIEW_MODEL_CHOICES: [(&str, &str); 4] = [
     ("Sonnet", "sonnet"),
 ];
 
+/// EXP-1002: what a PHASE row offers — the agent's own models, with the blank
+/// "Same as Model" in front. That blank is the workflow's Model row, NOT the
+/// CLI default, so these are never [`crate::coding_selects::MODEL_CHOICES`]
+/// with a "CLI default" head. Both are sliced off the model picks themselves,
+/// so a new model reaches every row at once.
+const PHASE_MODEL_CHOICES: [(&str, &str); 4] = [
+    (SAME_AS_MODEL_LABEL, ""),
+    crate::coding_selects::MODEL_CHOICES[0],
+    crate::coding_selects::MODEL_CHOICES[1],
+    crate::coding_selects::MODEL_CHOICES[2],
+];
+const CODEX_PHASE_MODEL_CHOICES: [(&str, &str); 4] = [
+    (SAME_AS_MODEL_LABEL, ""),
+    // Index 0 is codex's own blank "CLI default" — the phase rows have their
+    // own blank and must not offer a second one.
+    crate::coding_selects::CODEX_MODEL_CHOICES[1],
+    crate::coding_selects::CODEX_MODEL_CHOICES[2],
+    crate::coding_selects::CODEX_MODEL_CHOICES[3],
+];
+
 /// EXP-984: how many lines of a review's findings show before the fold.
 const FINDINGS_PREVIEW_LINES: usize = 4;
 
@@ -125,12 +147,6 @@ pub struct WorkflowView {
     /// The name last pushed into the input, so a remote rename repaints it
     /// while a local edit in flight does not bounce.
     name_seeded: String,
-    /// EXP-984: the picked node's budget, saved on blur like the name.
-    budget_minutes: Entity<InputState>,
-    budget_tokens: Entity<InputState>,
-    /// The node the two budget fields currently hold, so picking another one
-    /// reseeds them (and a save can never write onto the wrong node).
-    budget_node: Option<String>,
     /// EXP-984: whether the agent review's findings are unfolded.
     findings_expanded: bool,
     scroll: ScrollHandle,
@@ -151,23 +167,6 @@ impl WorkflowView {
                 }
             },
         )];
-        // EXP-984: the node budget's two fields. Both save on blur (and on
-        // Enter), exactly like the workflow name above.
-        let budget_minutes =
-            cx.new(|cx| InputState::new(window, cx).placeholder(BUDGET_MINUTES_LABEL));
-        let budget_tokens =
-            cx.new(|cx| InputState::new(window, cx).placeholder(BUDGET_TOKENS_LABEL));
-        for field in [&budget_minutes, &budget_tokens] {
-            subscriptions.push(cx.subscribe_in(
-                field,
-                window,
-                |this, _, event: &InputEvent, _window, cx| {
-                    if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
-                        this.save_budget(cx);
-                    }
-                },
-            ));
-        }
         let nav = nav_for_window(window, cx);
         subscriptions.push(cx.observe(&nav, |_, _, cx| cx.notify()));
         if let Some(store) = Store::try_global(cx) {
@@ -193,9 +192,6 @@ impl WorkflowView {
             picked: None,
             name_input,
             name_seeded: String::new(),
-            budget_minutes,
-            budget_tokens,
-            budget_node: None,
             findings_expanded: false,
             scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -214,9 +210,6 @@ impl WorkflowView {
         }
         self.workflow_id = workflow_id.to_string();
         self.picked = None;
-        // The budget fields belong to a node of the OLD workflow: forget
-        // them, or the next blur would save onto it.
-        self.budget_node = None;
         self.findings_expanded = false;
         // Swap the name UNCONDITIONALLY on a workflow switch, or the next
         // blur would write the previous workflow's name onto this one.
@@ -258,34 +251,6 @@ impl WorkflowView {
         let mut input = api::workflows::WorkflowUpdate::new(self.workflow_id.clone());
         input.name = Some(name);
         spawn_update(input, cx);
-    }
-
-    /// EXP-984 — save the picked node's budget. Both fields empty (or
-    /// unreadable) is a budget of NOTHING, which clears the column; anything
-    /// else sends the positive whole numbers the server's schema takes.
-    fn save_budget(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(node_id) = self.budget_node.clone() else {
-            return;
-        };
-        let Some(issue_id) = self
-            .nodes(cx)
-            .into_iter()
-            .find(|node| node.id == node_id)
-            .and_then(|node| node.issue_id)
-        else {
-            return;
-        };
-        let minutes = budget_field(&self.budget_minutes, cx);
-        let tokens = budget_field(&self.budget_tokens, cx);
-        let mut input =
-            api::workflows::WorkflowNodeUpdate::new(self.workflow_id.clone(), issue_id);
-        input.budget = match (minutes, tokens) {
-            (None, None) => api::Patch::Null,
-            (minutes, tokens) => {
-                api::Patch::Set(api::workflows::NodeBudget { minutes, tokens })
-            }
-        };
-        spawn_update_node(input, cx);
     }
 
     /// The nodes in the server's layout order, with the issue each one
@@ -489,21 +454,17 @@ impl WorkflowView {
         &mut self,
         row: &domain::rows::WorkflowRow,
         nodes: &[domain::rows::WorkflowNodeRow],
-        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let picked = self.picked.clone()?;
         let node = nodes.iter().find(|node| node.id == picked)?.clone();
         let issue_id = node.issue_id.clone()?;
-        // EXP-984: the budget fields follow the picked node.
-        self.seed_budget(&node, window, cx);
         let facts = NodeFacts::derive(&node, row, cx);
         let muted = cx.theme().muted_foreground;
         let workflow_id = self.workflow_id.clone();
         let draft = row.status_wire() == domain::contract::WF_STATUS_DRAFT;
         // EXP-984: a node nobody admitted yet is decided on, not run.
         let proposed = node.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED;
-        let settled = matches!(node.state_wire(), "landed" | "skipped");
 
         let members: Vec<gpui::AnyElement> = node
             .member_ids()
@@ -669,11 +630,6 @@ impl WorkflowView {
                 // tone it earned, the findings themselves, and the command
                 // the reviewer actually ran.
                 .children(self.render_agent_review(&node, cx))
-                // EXP-984: what this node may spend. A settled node has
-                // spent it; a proposal has not started.
-                .when(!proposed && !settled, |this| {
-                    this.child(self.render_budget(window, cx))
-                })
                 // EXP-982: why the node is failed or waiting, in the
                 // sentence the engine reported.
                 .when_some(node.note.clone(), |this, note| {
@@ -687,68 +643,10 @@ impl WorkflowView {
                 // EXP-982: the node's run, its pull request, the gate and
                 // the two ways out of a failure. EXP-984: a proposal has
                 // none of them — it is admitted or dismissed, nothing else.
-                .children((!proposed).then(|| node_run_actions(&node, &issue_id, cx)).unwrap_or_default())
+                .children((!proposed).then(|| node_face_strip(&node, &issue_id, cx)).flatten())
                 .children((!proposed).then(|| node_gate_actions(&node, row)).unwrap_or_default())
                 .into_any_element(),
         )
-    }
-
-    /// EXP-984 — the picked node's budget fields, reseeded whenever the
-    /// picked node changes (never while the same node is being edited, or a
-    /// synced echo would eat what is being typed).
-    fn seed_budget(
-        &mut self,
-        node: &domain::rows::WorkflowNodeRow,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.budget_node.as_deref() == Some(node.id.as_str()) {
-            return;
-        }
-        self.budget_node = Some(node.id.clone());
-        let (minutes, tokens) = node.budget_limits();
-        let text = |value: Option<i64>| {
-            value.map(|value| value.to_string()).unwrap_or_default()
-        };
-        self.budget_minutes
-            .update(cx, |input, cx| input.set_value(text(minutes), window, cx));
-        self.budget_tokens
-            .update(cx, |input, cx| input.set_value(text(tokens), window, cx));
-    }
-
-    /// EXP-984 — the `Budget` block: two optional whole numbers, saved on
-    /// blur. Both empty clears the budget.
-    fn render_budget(
-        &self,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let field = |state: &Entity<InputState>| {
-            crate::surface::glass_row_input(crate::controls::glass_input(state, window, cx))
-                .into_any_element()
-        };
-        v_flex()
-            .min_w_0()
-            .gap_1()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(BUDGET_TITLE)),
-            )
-            .child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_input_row(
-                    BUDGET_MINUTES_LABEL,
-                    field(&self.budget_minutes),
-                    cx,
-                ),
-                crate::surface::glass_input_row(
-                    BUDGET_TOKENS_LABEL,
-                    field(&self.budget_tokens),
-                    cx,
-                ),
-            ]))
-            .into_any_element()
     }
 
     /// EXP-984 — the `Agent review` block, or nothing while no review was
@@ -886,14 +784,22 @@ impl WorkflowView {
                     let value = value.to_string();
                     update(
                         Box::new(move |launch| {
+                            // A model belongs to ONE agent's closed set, so
+                            // every pin is RE-SEEDED from that agent's
+                            // shipped split (EXP-1002) rather than blanked.
+                            // Effort and the review model have no shipped
+                            // default of their own, so those clear.
+                            let seed = workflow_default_models(&value);
                             launch.agent = Some(value);
-                            // A model belongs to ONE agent's closed set.
-                            launch.model = None;
                             launch.effort = None;
-                            launch.subagent_model = None;
-                            // EXP-984: a review model belongs to that same
-                            // closed set.
                             launch.review_model = None;
+                            launch.model = seed.map(|s| s.model.to_string());
+                            let cheap = seed.map(|s| s.cheap.to_string());
+                            launch.contract_model = cheap.clone();
+                            launch.integration_model = cheap.clone();
+                            launch.risk_model = cheap;
+                            launch.subagent_model =
+                                seed.and_then(|s| s.subagent).map(str::to_string);
                         }),
                         cx,
                     );
@@ -919,6 +825,74 @@ impl WorkflowView {
                     update(
                         Box::new(move |launch| {
                             launch.model = (!value.is_empty()).then_some(value);
+                        }),
+                        cx,
+                    );
+                }
+            },
+            cx,
+        ));
+        // EXP-1002: the two phases that may opt OUT of the model above. Both
+        // rows exist whatever the agent — a phase pin is not claude's.
+        let phase_choices = if claude {
+            &PHASE_MODEL_CHOICES[..]
+        } else {
+            &CODEX_PHASE_MODEL_CHOICES[..]
+        };
+        rows.push(pick_row(
+            "workflow-contract-model",
+            CONTRACT_MODEL_LABEL,
+            phase_choices,
+            launch.contract_model.as_deref().unwrap_or_default(),
+            draft,
+            {
+                let update = update_launch.clone();
+                move |value: &str, cx: &mut App| {
+                    let value = value.to_string();
+                    update(
+                        Box::new(move |launch| {
+                            launch.contract_model = (!value.is_empty()).then_some(value);
+                        }),
+                        cx,
+                    );
+                }
+            },
+            cx,
+        ));
+        rows.push(pick_row(
+            "workflow-integration-model",
+            INTEGRATION_MODEL_LABEL,
+            phase_choices,
+            launch.integration_model.as_deref().unwrap_or_default(),
+            draft,
+            {
+                let update = update_launch.clone();
+                move |value: &str, cx: &mut App| {
+                    let value = value.to_string();
+                    update(
+                        Box::new(move |launch| {
+                            launch.integration_model = (!value.is_empty()).then_some(value);
+                        }),
+                        cx,
+                    );
+                }
+            },
+            cx,
+        ));
+        // EXP-1002: the risk pin outranks both phases on a `risk: high` node.
+        rows.push(pick_row(
+            "workflow-risk-model",
+            RISK_MODEL_LABEL,
+            phase_choices,
+            launch.risk_model.as_deref().unwrap_or_default(),
+            draft,
+            {
+                let update = update_launch.clone();
+                move |value: &str, cx: &mut App| {
+                    let value = value.to_string();
+                    update(
+                        Box::new(move |launch| {
+                            launch.risk_model = (!value.is_empty()).then_some(value);
                         }),
                         cx,
                     );
@@ -1182,7 +1156,7 @@ impl Render for WorkflowView {
             });
 
         let graph = self.render_graph(&row, &nodes, cx);
-        let panel = self.render_node_panel(&row, &nodes, _window, cx);
+        let panel = self.render_node_panel(&row, &nodes, cx);
         let body = h_flex()
             .w_full()
             .min_w_0()
@@ -1212,49 +1186,102 @@ impl Render for WorkflowView {
     }
 }
 
-/// The node panel's run + PR affordances: the coding session this node runs
-/// in (opened the way every other run is), and its issue's open pull
-/// request. Both only once they exist.
-fn node_run_actions(
+/// EXP-1002 — the node's FACES, as the app's own segmented capsule: Issue ·
+/// Run · Changes, the web's `availableFaces` rule verbatim, so a node with no
+/// run shows no Run and one with no pull request shows no Changes. Nothing is
+/// active: the reader is on the graph, so every segment is a way out of it.
+fn node_face_strip(
     node: &domain::rows::WorkflowNodeRow,
     issue_id: &str,
     cx: &App,
-) -> Vec<gpui::AnyElement> {
-    let mut actions = Vec::new();
-    if let Some(session_id) = node.session_id.clone() {
-        actions.push(
-            Button::new("workflow-node-run")
-                .ghost()
-                .small()
-                .icon(Icon::from(registry::ACTION_RUN))
-                .label(OPEN_RUN_LABEL)
-                .on_click(move |_, window, cx| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        Screen::Session {
-                            session_id: session_id.clone(),
-                        },
-                    );
-                })
-                .into_any_element(),
-        );
-    }
-    let pr = Store::try_global(cx)
+) -> Option<gpui::AnyElement> {
+    let has_pr = Store::try_global(cx)
         .and_then(|store| store.collections().issues.read(cx).get(issue_id).cloned())
-        .and_then(|issue| issue.pr_url.clone());
-    if let Some(url) = pr {
-        actions.push(
-            Button::new("workflow-node-pr")
-                .ghost()
-                .small()
-                .icon(Icon::from(registry::NAV_REVIEWS))
-                .label("Open pull request")
-                .on_click(move |_, _window, cx| cx.open_url(&url))
-                .into_any_element(),
+        .is_some_and(|issue| issue.pr_url.is_some());
+
+    let mut segments: Vec<gpui::AnyElement> = Vec::new();
+    let issue_target = issue_id.to_string();
+    segments.push(
+        face_segment(
+            "workflow-node-face-issue",
+            registry::UI_ISSUE,
+            crate::work_header::ISSUE_FACE_LABEL,
+            cx,
+        )
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    Screen::IssueDetail {
+                        issue_id: issue_target.clone(),
+                    },
+                );
+            })
+            .into_any_element(),
+    );
+    if let Some(session_id) = node.session_id.clone() {
+        segments.push(
+            face_segment(
+                "workflow-node-face-run",
+                registry::NAV_DEVICES,
+                crate::work_header::RUN_FACE_LABEL,
+                cx,
+            )
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    Screen::Session {
+                        session_id: session_id.clone(),
+                    },
+                );
+            })
+            .into_any_element(),
         );
     }
-    actions
+    if has_pr {
+        let issue_target = issue_id.to_string();
+        segments.push(
+            face_segment(
+                "workflow-node-face-changes",
+                registry::CODING_DIFF,
+                crate::work_header::CHANGES_FACE_LABEL,
+                cx,
+            )
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    Screen::PrDiff {
+                        issue_id: issue_target.clone(),
+                    },
+                );
+            })
+            .into_any_element(),
+        );
+    }
+    // One lone segment is a button wearing a capsule: the strip earns its
+    // chrome only once there is a choice in it.
+    (segments.len() > 1).then(|| {
+        crate::controls::segmented(cx)
+            .id("workflow-node-faces")
+            .children(segments)
+            .into_any_element()
+    })
+}
+
+/// One segment of [`node_face_strip`] — never active, since the panel is not
+/// one of the faces it points at.
+fn face_segment(
+    id: &'static str,
+    icon: crate::icons::ExpIcon,
+    label: &'static str,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
+    crate::controls::segmented_item(false, cx)
+        .id(id)
+        .child(Icon::from(icon).size_4())
+        .child(SharedString::from(label))
 }
 
 /// The human gate and the failure exits: approve (or take it back) while the
@@ -1550,18 +1577,6 @@ fn render_metrics(row: &domain::rows::WorkflowRow, cx: &App) -> Option<gpui::Any
             .child(crate::surface::glass_group_rows(value_rows))
             .into_any_element(),
     )
-}
-
-/// EXP-984 — one budget field as a positive whole number, or `None` when it
-/// is empty (or not one), which is what clears that half of the budget.
-fn budget_field(state: &Entity<InputState>, cx: &App) -> Option<u32> {
-    state
-        .read(cx)
-        .value()
-        .trim()
-        .parse::<u32>()
-        .ok()
-        .filter(|value| *value > 0)
 }
 
 /// The contract's node KIND picks with their shipped labels.

@@ -1798,7 +1798,6 @@ public final class DatabaseManager: @unchecked Sendable {
                 t.column("session_id", .text)
                 t.column("attempt", .integer).notNull().defaults(to: 0)
                 t.column("base_branch", .text)
-                t.column("budget", .text)
                 // text[] of the globs the node expects to change.
                 t.column("touches", .text)
                 t.column("created_at", .text).notNull().defaults(to: "")
@@ -1866,7 +1865,7 @@ public final class DatabaseManager: @unchecked Sendable {
         // v50 (EXP-984 agent review gate): `workflow_nodes.review_round` +
         // `.review` ride the same shape — how many review rounds the node has
         // been through and the latest submitted verdict (a jsonb payload stored
-        // as text like `budget`). Same guarded additive ALTERs + offset reset
+        // as text). Same guarded additive ALTERs + offset reset
         // as v49.
         migrator.registerMigration("v50_workflow_node_review") { db in
             guard try db.tableExists("workflow_nodes") else { return }

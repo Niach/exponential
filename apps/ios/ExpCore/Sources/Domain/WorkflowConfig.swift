@@ -2,12 +2,12 @@ import Foundation
 
 // EXP-981: the jsonb payloads a workflow and its nodes carry — `launch` (how
 // the run starts), `metrics` (the plan's shape, written by the server layout)
-// and a node's `budget`. Electric delivers them as JSON values which the
+// and a node's review. Electric delivers them as JSON values which the
 // entities store as stringified JSON (the `automations.trigger` pattern), so
 // every one of these parses TOLERANTLY: unknown keys are ignored and a missing
 // one falls back to its default rather than dropping the row.
 // Mirrors packages/db-schema domain.ts (`WorkflowLaunch`,
-// `WorkflowMetricsJson`, `WorkflowNodeBudget`).
+// `WorkflowMetricsJson`).
 
 /// `workflows.launch` — the launch options the engine starts every node with.
 /// Every field is optional: absent = the runner device's own defaults.
@@ -157,38 +157,6 @@ extension WorkflowMetrics: Decodable {
 public extension WorkflowMetrics {
     static func parse(_ json: String?) -> WorkflowMetrics {
         decodeJson(json) ?? WorkflowMetrics()
-    }
-}
-
-/// `workflow_nodes.budget` — crossing either bound pauses the node and
-/// notifies. Absent entirely on a node nobody bounded.
-public struct WorkflowNodeBudget: Sendable, Equatable {
-    public var tokens: Int?
-    public var minutes: Int?
-
-    public init(tokens: Int? = nil, minutes: Int? = nil) {
-        self.tokens = tokens
-        self.minutes = minutes
-    }
-}
-
-extension WorkflowNodeBudget: Codable {
-    enum CodingKeys: String, CodingKey {
-        case tokens, minutes
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        tokens = try? c.decodeWireInt(forKey: .tokens)
-        minutes = try? c.decodeWireInt(forKey: .minutes)
-    }
-}
-
-public extension WorkflowNodeBudget {
-    /// Nil when the stored jsonb is absent or names neither bound.
-    static func parse(_ json: String?) -> WorkflowNodeBudget? {
-        guard let value: WorkflowNodeBudget = decodeJson(json) else { return nil }
-        return value.tokens == nil && value.minutes == nil ? nil : value
     }
 }
 

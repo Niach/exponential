@@ -20,7 +20,6 @@ import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkflowLaunch
-import com.exponential.app.domain.WorkflowNodeBudget
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.edgeNode
@@ -290,26 +289,6 @@ class WorkflowDetailViewModel @Inject constructor(
     fun updateNode(issueId: String, kind: String? = null, risk: String? = null) {
         mutate("The node could not be updated") { accountId ->
             workflowsApi.updateNode(accountId, workflowId, issueId, kind = kind, risk = risk)
-        }
-    }
-
-    /**
-     * EXP-984: the node's budget — crossing either bound pauses the run and
-     * notifies the workflow's creator. Both fields empty CLEARS it (the
-     * explicit null the router reads as "no budget"), and it stays editable at
-     * any status.
-     */
-    fun setNodeBudget(issueId: String, minutes: Int?, tokens: Int?) {
-        val budget = WorkflowNodeBudget(tokens = tokens, minutes = minutes)
-        val empty = budget.tokens == null && budget.minutes == null
-        mutate("The budget could not be saved") { accountId ->
-            workflowsApi.updateNode(
-                accountId,
-                workflowId,
-                issueId,
-                budget = budget.takeUnless { empty },
-                clearBudget = empty,
-            )
         }
     }
 

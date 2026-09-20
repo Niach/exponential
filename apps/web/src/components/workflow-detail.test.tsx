@@ -17,13 +17,22 @@ import {
   PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
+  CONTRACT_MODEL_LABEL,
+  INTEGRATION_MODEL_LABEL,
   REVIEW_MODEL_LABEL,
+  RISK_MODEL_LABEL,
+  SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   RUNNING_NOW_LABEL,
   START_WORKFLOW_LABEL,
   WITHDRAW_APPROVAL_LABEL,
 } from "@/lib/workflow-view"
+import {
+  CHANGES_FACE_LABEL,
+  ISSUE_FACE_LABEL,
+  RUN_FACE_LABEL,
+} from "@/lib/work-faces"
 
 // EXP-981: the workflow detail — the graph positioned by the SERVER's
 // wave/lane, a compound node drawn as a stacked card, the cycle note, and the
@@ -39,7 +48,7 @@ import {
 // the published contract, and the nodes this one merges in first.
 //
 // EXP-984: the reviewer's verdict reads off the node, a `proposed` follow-up is
-// decided on rather than run, the node carries a budget, and the workflow
+// decided on rather than run, and the workflow
 // carries its counters.
 
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
@@ -173,7 +182,6 @@ const node = (
     note: null,
     reviewRound: 0,
     review: null,
-    budget: null,
     ...over,
   }) as unknown as WorkflowNode
 
@@ -750,11 +758,22 @@ describe(`WorkflowDetail node panel actions`, () => {
     )
   })
 
-  it(`links to the node's run and to its pull request`, () => {
+  // EXP-1002: the node's surfaces are the app's own faces, in `availableFaces`
+  // order, and only the ones this node HAS.
+  it(`offers Issue, Run and Changes as the app's face strip`, () => {
     graphState.issues = [issue(`i-n1`, `APP-1`, { prNumber: 7, prState: `open` })]
-    open({ state: `in_review`, sessionId: `s-1` })
-    expect(screen.getByTestId(`workflow-node-run`).textContent).toBe(`Open run`)
-    expect(screen.getByTestId(`workflow-node-pr`).textContent).toBe(`PR #7`)
+    const both = open({ state: `in_review`, sessionId: `s-1` })
+    expect(screen.getByTestId(`workflow-node-faces`).textContent).toBe(
+      `${ISSUE_FACE_LABEL}${RUN_FACE_LABEL}${CHANGES_FACE_LABEL}`
+    )
+    both.unmount()
+
+    // No run and no pull request: the issue is the only way out.
+    graphState.issues = [issue(`i-n1`, `APP-1`)]
+    open({ state: `blocked` })
+    expect(screen.getByTestId(`workflow-node-faces`).textContent).toBe(
+      ISSUE_FACE_LABEL
+    )
   })
 
   it(`marks a node whose run is up and lists it one tap from its session`, () => {
@@ -986,55 +1005,6 @@ describe(`WorkflowDetail node panel actions`, () => {
     )
   })
 
-  // EXP-984 — the node's own ceiling, saved on blur.
-  it(`saves a node budget, clears it, and hides it once the node is in`, async () => {
-    graphState.issues = [issue(`i-n1`, `APP-1`)]
-    const running = open({ state: `running` })
-    const minutes = screen.getByTestId(
-      `workflow-node-budget-minutes`
-    ) as HTMLInputElement
-    expect(minutes.value).toBe(``)
-    fireEvent.change(minutes, { target: { value: `45` } })
-    fireEvent.blur(minutes)
-    await vi.waitFor(() =>
-      expect(runMutates.updateNode).toHaveBeenCalledWith(
-        {
-          workflowId: `wf`,
-          issueId: `i-n1`,
-          budget: { minutes: 45, tokens: null },
-        },
-        expect.anything()
-      )
-    )
-    running.unmount()
-
-    // Emptying both fields takes the budget away entirely.
-    const budgeted = open({
-      state: `waiting`,
-      budget: { minutes: 45, tokens: 200000 },
-    })
-    const both = [
-      screen.getByTestId(`workflow-node-budget-minutes`),
-      screen.getByTestId(`workflow-node-budget-tokens`),
-    ] as HTMLInputElement[]
-    expect(both.map((field) => field.value)).toEqual([`45`, `200000`])
-    for (const field of both) fireEvent.change(field, { target: { value: `` } })
-    fireEvent.blur(both[1]!)
-    await vi.waitFor(() =>
-      expect(runMutates.updateNode).toHaveBeenCalledWith(
-        { workflowId: `wf`, issueId: `i-n1`, budget: null },
-        expect.anything()
-      )
-    )
-    budgeted.unmount()
-
-    // A landed or skipped node is history: nothing left to bound.
-    const landed = open({ state: `landed` })
-    expect(screen.queryByTestId(`workflow-node-budget-block`)).toBeNull()
-    landed.unmount()
-    open({ state: `skipped` })
-    expect(screen.queryByTestId(`workflow-node-budget-block`)).toBeNull()
-  })
 })
 
 // EXP-984: what the workflow itself gained — the model reviews run on, and the
@@ -1046,6 +1016,47 @@ describe(`WorkflowDetail review model and metrics`, () => {
         .getByTestId(`workflow-how-it-runs`)
         .querySelectorAll(`[data-slot="glass-picker-row"]`),
     ].find((row) => row.textContent?.startsWith(label))
+
+  // EXP-1002: the phase rows read "Same as Model" while they are blank —
+  // an unpinned phase takes the workflow's Model, never the CLI default.
+  it(`pins a model per phase, blank = the workflow's own`, () => {
+    nodeRows.rows = []
+    graphState.issues = []
+    graphState.relations = []
+    const blank = mount(startable({ launch: { model: `opus` } }))
+    expect(rowLabelled(CONTRACT_MODEL_LABEL)?.textContent).toBe(
+      `${CONTRACT_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
+    )
+    expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
+      `${INTEGRATION_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
+    )
+    expect(rowLabelled(RISK_MODEL_LABEL)?.textContent).toBe(
+      `${RISK_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
+    )
+    blank.unmount()
+
+    mount(
+      startable({
+        launch: {
+          model: `opus`,
+          contractModel: `fable`,
+          integrationModel: `sonnet`,
+          riskModel: `fable`,
+        },
+      })
+    )
+    expect(rowLabelled(CONTRACT_MODEL_LABEL)?.textContent).toBe(
+      `${CONTRACT_MODEL_LABEL}Fable`
+    )
+    expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
+      `${INTEGRATION_MODEL_LABEL}Sonnet`
+    )
+    expect(rowLabelled(RISK_MODEL_LABEL)?.textContent).toBe(
+      `${RISK_MODEL_LABEL}Fable`
+    )
+    // The Model row above them is untouched by any of the pins.
+    expect(rowLabelled(`Model`)?.textContent).toBe(`ModelOpus`)
+  })
 
   it(`offers the review model only under the agent gate`, () => {
     nodeRows.rows = []
@@ -1083,7 +1094,6 @@ describe(`WorkflowDetail review model and metrics`, () => {
       cycles: [],
       landed: 2,
       reviewRounds: 5,
-      budgetPauses: 1,
       defectsByOracle: 3,
       defectsByAgentReview: 1,
     }
@@ -1103,7 +1113,6 @@ describe(`WorkflowDetail review model and metrics`, () => {
     expect(row(`Defects found`)).toBe(
       `Defects found3 by checks · 1 by agent review`
     )
-    expect(row(`Budget pauses`)).toBe(`Budget pauses1`)
     // A counter with nothing to say draws no row.
     expect(screen.queryByTestId(`workflow-metric-Escalations`)).toBeNull()
   })

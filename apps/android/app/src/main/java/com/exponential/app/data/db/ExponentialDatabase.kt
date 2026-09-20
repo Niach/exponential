@@ -329,7 +329,7 @@ import androidx.room.TypeConverters
     //      fallback wipes + resyncs so every node row arrives carrying them.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 69,
+    version = 70,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

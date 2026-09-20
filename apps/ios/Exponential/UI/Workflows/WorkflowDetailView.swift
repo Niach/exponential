@@ -672,19 +672,8 @@ struct WorkflowNodeSheet: View {
     let onOpenChanges: (String) -> Void
 
     @State private var showSkipConfirm = false
-    /// EXP-984 — the two typed budget fields, drafted like the name field: they
-    /// save when the field gives up focus, not on every keystroke.
-    @State private var minutesDraft = ""
-    @State private var tokensDraft = ""
-    @State private var seededBudget = false
-    @FocusState private var budgetFocus: BudgetField?
     /// The review's findings are folded to a few lines while they are long.
     @State private var findingsExpanded = false
-
-    private enum BudgetField: Hashable {
-        case minutes
-        case tokens
-    }
 
     var body: some View {
         GlassSheetChrome(
@@ -762,8 +751,6 @@ struct WorkflowNodeSheet: View {
                     .glassRow()
                 }
 
-                budget
-
                 agentReview
 
                 runControls
@@ -772,21 +759,6 @@ struct WorkflowNodeSheet: View {
             .padding(.bottom, 16)
         }
         .accessibilityIdentifier("workflow-node-sheet")
-        .onAppear {
-            // Seed once, then leave the fields alone: a synced echo must never
-            // stomp what is being typed.
-            guard !seededBudget else { return }
-            seededBudget = true
-            let bounds = node.parsedBudget
-            minutesDraft = bounds?.minutes.map(String.init) ?? ""
-            tokensDraft = bounds?.tokens.map(String.init) ?? ""
-        }
-        .onChange(of: budgetFocus) { _, focus in
-            if focus == nil { saveBudget() }
-        }
-        // Closing the sheet with a field still focused saves it too — the
-        // detail's own name field takes the same way out.
-        .onDisappear { saveBudget() }
         .confirmationDialog(
             WorkflowView.skipNodeLabel,
             isPresented: $showSkipConfirm,
@@ -829,77 +801,7 @@ struct WorkflowNodeSheet: View {
         }
     }
 
-    // MARK: - Budget and agent review (EXP-984)
-
-    /// Either bound pauses the node and tells the workflow's creator; Retry
-    /// resumes it. Adjustable at any status the node can still spend anything
-    /// at — a landed or skipped node has nothing left to bound.
-    @ViewBuilder
-    private var budget: some View {
-        if node.state != DomainContract.wfNodeStateLanded,
-           node.state != DomainContract.wfNodeStateSkipped {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(WorkflowView.budgetTitle)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                HStack(spacing: 8) {
-                    budgetField(
-                        WorkflowView.budgetMinutesLabel,
-                        text: $minutesDraft,
-                        field: .minutes,
-                        identifier: "workflow-node-budget-minutes"
-                    )
-                    budgetField(
-                        WorkflowView.budgetTokensLabel,
-                        text: $tokensDraft,
-                        field: .tokens,
-                        identifier: "workflow-node-budget-tokens"
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("workflow-node-budget")
-        }
-    }
-
-    @ViewBuilder
-    private func budgetField(
-        _ placeholder: String,
-        text: Binding<String>,
-        field: BudgetField,
-        identifier: String
-    ) -> some View {
-        GlassTextField(
-            placeholder,
-            text: text,
-            accessibilityIdentifier: identifier
-        ) {
-            EmptyView()
-        } trailing: {
-            EmptyView()
-        }
-        .focused($budgetFocus, equals: field)
-        .keyboardType(.numberPad)
-        .onSubmit { saveBudget() }
-    }
-
-    /// Both bounds are positive integers; anything else is "no bound", and two
-    /// blanks clear the budget outright (an explicit null).
-    private func saveBudget() {
-        let minutes = Self.bound(minutesDraft)
-        let tokens = Self.bound(tokensDraft)
-        let next = minutes == nil && tokens == nil
-            ? nil
-            : WorkflowNodeBudget(tokens: tokens, minutes: minutes)
-        guard next != node.parsedBudget else { return }
-        onUpdate(WorkflowNodePatch(budget: .some(next)))
-    }
-
-    private static func bound(_ draft: String) -> Int? {
-        guard let value = Int(draft.trimmingCharacters(in: .whitespaces)), value > 0
-        else { return nil }
-        return value
-    }
+    // MARK: - Agent review (EXP-984)
 
     /// The latest verdict an agent reviewer submitted: the one line, its
     /// findings (folded while they are long), and the check it actually RAN —
@@ -1021,11 +923,8 @@ struct WorkflowNodeSheet: View {
                 }
             }
 
-            // EXP-984: a node the engine PAUSED for going over its budget takes
-            // the same two ways out as a failed one — Retry resumes it.
-            if !node.isProposed,
-               node.state == DomainContract.wfNodeStateFailed
-                || node.state == DomainContract.wfNodeStatePaused {
+            // A failed node's two ways out.
+            if !node.isProposed, node.state == DomainContract.wfNodeStateFailed {
                 HStack(spacing: 8) {
                     GlassPill(
                         WorkflowView.retryNodeLabel,

@@ -101,7 +101,7 @@ pub fn workflow_cycle_note(metrics: &WorkflowShape) -> Option<String> {
     ))
 }
 
-const STATE_LABELS: [(&str, &str); 11] = [
+const STATE_LABELS: [(&str, &str); 10] = [
     ("proposed", "Proposed"),
     ("blocked", "Blocked"),
     ("ready", "Ready"),
@@ -112,7 +112,6 @@ const STATE_LABELS: [(&str, &str); 11] = [
     ("landed", "Landed"),
     ("failed", "Failed"),
     ("skipped", "Skipped"),
-    ("paused", "Paused"),
 ];
 
 const KIND_LABELS: [(&str, &str); 3] = [
@@ -321,8 +320,6 @@ pub const RETRY_NODE_LABEL: &str = "Retry";
 pub const SKIP_NODE_LABEL: &str = "Skip";
 pub const SKIP_NODE_CONFIRM: &str =
     "Its dependents go on without it. The node's work is not part of the final pull request.";
-/// The node panel's run + PR affordances.
-pub const OPEN_RUN_LABEL: &str = "Open run";
 /// The strip over the graph that lists the runs that are up, one tap away.
 pub const RUNNING_NOW_LABEL: &str = "Running now";
 
@@ -555,13 +552,50 @@ pub const DISMISS_NODE_LABEL: &str = "Dismiss";
 pub const PROPOSED_NODE_NOTE: &str =
     "Filed during the run. Admit it into the workflow or dismiss it.";
 /// The node panel's agent-review block, the launch row that picks its model,
-/// the budget block's title and fields, and the detail's counters section.
+/// and the detail's counters section.
 pub const AGENT_REVIEW_TITLE: &str = "Agent review";
 pub const REVIEW_MODEL_LABEL: &str = "Review model";
-pub const BUDGET_TITLE: &str = "Budget";
-pub const BUDGET_MINUTES_LABEL: &str = "Minutes";
-pub const BUDGET_TOKENS_LABEL: &str = "Tokens";
 pub const METRICS_TITLE: &str = "Metrics";
+
+// ── Per-phase models (EXP-1002) ───────────────────────────────────────
+
+/// The launch rows pinning what a `contract` / `integration` node runs on,
+/// and their blank pick: the workflow's own Model, never the CLI's default.
+pub const CONTRACT_MODEL_LABEL: &str = "Contract model";
+pub const INTEGRATION_MODEL_LABEL: &str = "Integration model";
+pub const RISK_MODEL_LABEL: &str = "High-risk model";
+pub const SAME_AS_MODEL_LABEL: &str = "Same as Model";
+
+/// EXP-1002: the shipped split for one agent — hand-mirrored with
+/// `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT` (`db-schema/src/domain.ts`), which is
+/// what the server writes at create. Switching the agent row re-seeds every
+/// model pin from here rather than blanking them, so a codex-only machine
+/// gets a configured workflow in one tap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkflowDefaultModels {
+    /// The leaves that implement.
+    pub model: &'static str,
+    /// The contract / integration phases, and any `risk: high` node.
+    pub cheap: &'static str,
+    /// Claude only: the model its subagents run on.
+    pub subagent: Option<&'static str>,
+}
+
+pub fn workflow_default_models(agent: &str) -> Option<WorkflowDefaultModels> {
+    match agent {
+        "" | "claude" => Some(WorkflowDefaultModels {
+            model: "opus",
+            cheap: "fable",
+            subagent: Some("opus"),
+        }),
+        "codex" => Some(WorkflowDefaultModels {
+            model: "gpt-5.6-sol",
+            cheap: "gpt-5.6-luna",
+            subagent: None,
+        }),
+        _ => None,
+    }
+}
 
 /// What the review line reads off `workflow_nodes.review`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -684,10 +718,6 @@ pub fn workflow_metric_rows(metrics: &serde_json::Value) -> Vec<MetricRow> {
                 metric_text(by_agent)
             ),
         ));
-    }
-    let pauses = count("budgetPauses");
-    if pauses > 0.0 {
-        rows.push(row("Budget pauses", metric_text(pauses)));
     }
     rows
 }
@@ -1204,5 +1234,28 @@ mod tests {
         assert_eq!(workflow_node_state_label("brand-new"), "brand-new");
         assert_eq!(workflow_node_kind_label("brand-new"), "brand-new");
         assert_eq!(workflow_node_tone("brand-new"), WorkflowNodeTone::Muted);
+    }
+
+    /// EXP-1002: the shipped split, byte-for-byte with
+    /// `WORKFLOW_DEFAULT_LAUNCH_BY_AGENT` in `db-schema/src/domain.ts` — the
+    /// server writes those values at create and this re-seeds the rows, so a
+    /// drift here is a workflow whose panel disagrees with its own run.
+    #[test]
+    fn the_shipped_split_matches_the_server_constant() {
+        let claude = workflow_default_models("claude").expect("claude");
+        assert_eq!(claude.model, "opus");
+        assert_eq!(claude.cheap, "fable");
+        assert_eq!(claude.subagent, Some("opus"));
+        // A blank agent row IS claude (the contract's first value).
+        assert_eq!(workflow_default_models(""), Some(claude));
+
+        let codex = workflow_default_models("codex").expect("codex");
+        assert_eq!(codex.model, "gpt-5.6-sol");
+        assert_eq!(codex.cheap, "gpt-5.6-luna");
+        assert_eq!(codex.subagent, None, "the subagent pin is claude-only");
+
+        // An agent this build does not know seeds nothing rather than
+        // seeding claude's models into it.
+        assert_eq!(workflow_default_models("brand-new"), None);
     }
 }

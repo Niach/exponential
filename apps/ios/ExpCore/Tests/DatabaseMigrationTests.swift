@@ -1045,7 +1045,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "workflow_nodes"),
             ["id", "workflow_id", "team_id", "issue_id", "member_issue_ids",
              "kind", "state", "risk", "wave", "lane", "on_cycle", "session_id",
-             "attempt", "base_branch", "budget", "touches", "created_at",
+             "attempt", "base_branch", "touches", "created_at",
              "updated_at", "approved_at", "note", "checkpoint_at",
              "after_node_ids", "review_round", "review"]
         )

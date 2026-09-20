@@ -969,7 +969,6 @@ export const wfNodeStateValues = [
   `landed`,
   `failed`,
   `skipped`,
-  `paused`,
 ] as const
 export const wfNodeKindValues = [`contract`, `leaf`, `integration`] as const
 export const wfGateValues = [`none`, `agent`, `human`] as const
@@ -1000,8 +999,17 @@ export const WORKFLOW_DECISIONS_MAX = 65536
  *  optional; an absent one falls back to the runner device's defaults. */
 export interface WorkflowLaunch {
   agent?: string | null
+  /** The model every node's run spawns on, unless its PHASE overrides it. */
   model?: string | null
-  /** Claude only: the model its subagents run on. */
+  /** EXP-1002: the model `contract` nodes run on. Absent = `model`. */
+  contractModel?: string | null
+  /** EXP-1002: the model `integration` nodes run on. Absent = `model`. */
+  integrationModel?: string | null
+  /** EXP-1002: the model a `risk: high` node runs on, WHATEVER its kind —
+   *  the most specific pin there is, so it wins over the phase ones.
+   *  Absent = the node's phase model. */
+  riskModel?: string | null
+  /** Claude only: the model its subagents run on. NOT the node runs' own. */
   subagentModel?: string | null
   effort?: string | null
   /** An agent profile id on the runner device. */
@@ -1013,28 +1021,57 @@ export interface WorkflowLaunch {
   reviewModel?: string | null
 }
 
+/**
+ * EXP-1002: what a NEW workflow starts configured as, PER AGENT. Explicit on
+ * every field a run reads, so a person opening the panel sees the launch
+ * rather than five rows reading "Default".
+ *
+ * The same shape in both vocabularies: the LEAVES that implement (and, on
+ * claude, the subagents they spawn) get the capable model, while the phases
+ * that scaffold and merge get the cheap one. A `risk: high` node joins the
+ * cheap side whatever phase it sits in — the hard ones are written cheaply
+ * and then REVIEWED on the model the adversarial gate swaps to, rather than
+ * written expensively once.
+ *
+ * Model names belong to ONE agent's closed set, so switching the agent row
+ * re-seeds every pin from that agent's entry rather than blanking them.
+ */
+export const WORKFLOW_DEFAULT_LAUNCH_BY_AGENT: Record<string, WorkflowLaunch> = {
+  claude: {
+    agent: `claude`,
+    model: `opus`,
+    contractModel: `fable`,
+    integrationModel: `fable`,
+    riskModel: `fable`,
+    subagentModel: `opus`,
+  },
+  // Codex has no subagent model to pin (claude-only), so its entry is the
+  // four that a node run actually reads.
+  codex: {
+    agent: `codex`,
+    model: `gpt-5.6-sol`,
+    contractModel: `gpt-5.6-luna`,
+    integrationModel: `gpt-5.6-luna`,
+    riskModel: `gpt-5.6-luna`,
+  },
+}
+
+/** The launch a new workflow is created with: the default agent's entry. */
+export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunch =
+  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT.claude!
+
 export const workflowLaunchSchema = z
   .object({
     agent: z.string().max(16).nullish(),
     model: z.string().max(64).nullish(),
+    contractModel: z.string().max(64).nullish(),
+    integrationModel: z.string().max(64).nullish(),
+    riskModel: z.string().max(64).nullish(),
     subagentModel: z.string().max(64).nullish(),
     effort: z.string().max(32).nullish(),
     account: z.string().max(64).nullish(),
     maxParallel: z.number().int().min(1).max(WORKFLOW_MAX_PARALLEL_CAP).nullish(),
     reviewModel: z.string().max(64).nullish(),
-  })
-  .strict()
-
-/** `workflow_nodes.budget`: crossing either pauses the node and notifies. */
-export interface WorkflowNodeBudget {
-  tokens?: number | null
-  minutes?: number | null
-}
-
-export const workflowNodeBudgetSchema = z
-  .object({
-    tokens: z.number().int().positive().nullish(),
-    minutes: z.number().int().positive().nullish(),
   })
   .strict()
 

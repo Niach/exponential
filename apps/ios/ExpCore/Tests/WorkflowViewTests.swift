@@ -302,10 +302,11 @@ final class WorkflowViewTests: XCTestCase {
         )
         XCTAssertEqual(WorkflowView.agentReviewTitle, "Agent review")
         XCTAssertEqual(WorkflowView.reviewModelLabel, "Review model")
-        XCTAssertEqual(WorkflowView.budgetTitle, "Budget")
-        XCTAssertEqual(WorkflowView.budgetMinutesLabel, "Minutes")
-        XCTAssertEqual(WorkflowView.budgetTokensLabel, "Tokens")
         XCTAssertEqual(WorkflowView.metricsTitle, "Metrics")
+        XCTAssertEqual(WorkflowView.contractModelLabel, "Contract model")
+        XCTAssertEqual(WorkflowView.integrationModelLabel, "Integration model")
+        XCTAssertEqual(WorkflowView.riskModelLabel, "High-risk model")
+        XCTAssertEqual(WorkflowView.sameAsModelLabel, "Same as Model")
     }
 
     // A `proposed` node is NOT part of the run: it never holds the final PR up,
@@ -561,10 +562,6 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(metrics.cycles, [["EXP-2"]])
         XCTAssertEqual(metrics.cycleEdges, [])
         XCTAssertEqual(WorkflowMetrics.parse(nil), WorkflowMetrics())
-
-        XCTAssertNil(WorkflowNodeBudget.parse(nil))
-        XCTAssertNil(WorkflowNodeBudget.parse("{}"))
-        XCTAssertEqual(WorkflowNodeBudget.parse(#"{"minutes":30}"#)?.minutes, 30)
     }
 
     // EXP-984: the review payload and the open counter set go the same way —

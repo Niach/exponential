@@ -2250,9 +2250,6 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
     public let sessionId: String?
     public let attempt: Int
     public let baseBranch: String?
-    /// The budget jsonb (`WorkflowNodeBudget.parse`), stored as stringified
-    /// JSON; nil on a node nobody bounded.
-    public let budget: String?
     /// What the node expects to change (`text[]`).
     public let touches: [String]
     /// EXP-982: when a member cleared the node's PR for the merge train; nil
@@ -2272,8 +2269,7 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
     /// stored as stringified JSON; nil until an agent reviewed the node.
     public let review: String?
     /// EXP-982: why the node is `failed` / `waiting`, in the engine's words.
-    /// EXP-984: also why a `proposed` node was not admitted at once, and why a
-    /// node went over its budget.
+    /// EXP-984: also why a `proposed` node was not admitted at once.
     public let note: String?
     public let createdAt: String
     public let updatedAt: String
@@ -2293,7 +2289,6 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         sessionId: String? = nil,
         attempt: Int = 0,
         baseBranch: String? = nil,
-        budget: String? = nil,
         touches: [String] = [],
         approvedAt: String? = nil,
         checkpointAt: String? = nil,
@@ -2318,7 +2313,6 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         self.sessionId = sessionId
         self.attempt = attempt
         self.baseBranch = baseBranch
-        self.budget = budget
         self.touches = touches
         self.approvedAt = approvedAt
         self.checkpointAt = checkpointAt
@@ -2331,7 +2325,7 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, state, risk, wave, lane, attempt, budget, touches, note, review
+        case id, kind, state, risk, wave, lane, attempt, touches, note, review
         case workflowId = "workflow_id"
         case teamId = "team_id"
         case issueId = "issue_id"
@@ -2346,9 +2340,6 @@ public struct WorkflowNodeEntity: FetchableRecord, PersistableRecord, Identifiab
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
-
-    /// The parsed budget; nil when the node has neither bound.
-    public var parsedBudget: WorkflowNodeBudget? { WorkflowNodeBudget.parse(budget) }
 
     /// The parsed review; nil until an agent reviewer submitted a verdict.
     public var parsedReview: WorkflowNodeReview? { WorkflowNodeReview.parse(review) }
@@ -2382,7 +2373,6 @@ extension WorkflowNodeEntity: Codable {
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
         attempt = (try? c.decodeWireInt(forKey: .attempt)) ?? 0
         baseBranch = try c.decodeIfPresent(String.self, forKey: .baseBranch)
-        budget = c.decodeWireJsonString(forKey: .budget)
         touches = c.decodeWireStringList(forKey: .touches)
         approvedAt = try c.decodeIfPresent(String.self, forKey: .approvedAt)
         checkpointAt = try c.decodeIfPresent(String.self, forKey: .checkpointAt)
