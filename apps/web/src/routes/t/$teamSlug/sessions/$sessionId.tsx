@@ -7,7 +7,6 @@ import {
 } from "@tanstack/react-router"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { AgentSessionView } from "@/components/agent-session"
-import { relativeTime } from "@/components/comment-rows/format"
 import { SessionStatusBadge } from "@/components/issue-coding-rows"
 import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssueCodingAction } from "@/components/issue-coding-action"
@@ -16,16 +15,12 @@ import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PinToggleButton } from "@/components/pin-toggle-button"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
-import { Button, useIsMobile, type SessionDotTone } from "@exp/ui"
+import { Button, PrGithubButton, useIsMobile, type SessionDotTone } from "@exp/ui"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import type { WorkFace } from "@/components/team/work-face-toggle"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
 import { descendantIds, nestSessions } from "@/lib/session-tree"
 import { stackPosition, stackPositionLine } from "@/lib/pr-stack"
-import {
-  CONTINUATION_COST_NOTE,
-  CONTINUATION_NOTE,
-} from "@/components/session-account-switch"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -34,6 +29,7 @@ import type { Board, CodingSession, Issue, Team } from "@/db/schema"
 import {
   rowPrState,
   useIssueRuns,
+  useRunChain,
   useSessionRow,
   type AgentSessionRow,
 } from "@/hooks/use-agents-data"
@@ -269,8 +265,17 @@ function OwnSessionPage({
   // EXP-886: the issue's runs of mine — the header's Run/Runs label and the
   // switcher between them. Picking one is the same navigation the Run face
   // makes (`from` rides along); the tab's Run face follows the URL. EXP-893:
-  // on a phone the run swaps IN PLACE (a replace).
+  // on a phone the run swaps IN PLACE (a replace). EXP-974: an ISSUE-LESS
+  // run lists its RESUME CHAIN instead — a resumed chat and the run it came
+  // out of wear one toggle, and the `Runs` caret is how the reader moves
+  // between them (the continuation band above the transcript is gone).
   const { runs: issueRuns } = useIssueRuns(issue?.id, team.id, currentUserId)
+  const { runs: chainRuns } = useRunChain(
+    issue ? undefined : session.id,
+    team.id,
+    currentUserId
+  )
+  const menuRuns = issue ? issueRuns : chainRuns
   const openRun = useCallback(
     (target: CodingSession) => {
       void navigate({
@@ -345,10 +350,10 @@ function OwnSessionPage({
     issue && board
       ? ({
           dot,
-          showingRun,
+          shownFace,
         }: {
           dot: { tone: SessionDotTone; connecting: boolean }
-          showingRun: boolean
+          shownFace: `run` | `changes` | `results`
         }) => (
           <IssueMobileHeader
             issue={issue}
@@ -362,20 +367,20 @@ function OwnSessionPage({
             /* EXP-934: a session route never shows the ISSUE face (that is the
                issue's own URL), so the `…` never belongs in this bar — only
                Stop / Resume do. */
-            face={showingRun ? `run` : face === `diff` ? `changes` : `results`}
+            face={shownFace}
             graphBadge={
               /* EXP-897: the same pill the md+ header wears — the face
                  showing decides which section its sheet opens on. */
               <PrGraphBadge
                 teamId={team.id}
                 teamSlug={teamSlug}
-                face={showingRun ? `run` : `changes`}
+                face={shownFace === `run` ? `run` : `changes`}
                 issue={issue}
                 session={session}
               />
             }
             action={
-              showingRun ? (
+              shownFace === `run` ? (
                 <IssueCodingAction
                   issue={issue}
                   board={board}
@@ -384,6 +389,10 @@ function OwnSessionPage({
                   preferredSessionId={session.id}
                   showStart={false}
                 />
+              ) : shownFace === `changes` && prUrl ? (
+                /* EXP-949: GitHub belongs to the Changes face alone — the
+                   same action slot the issue route's Changes face fills. */
+                <PrGithubButton prUrl={prUrl} />
               ) : undefined
             }
           />
@@ -404,10 +413,6 @@ function OwnSessionPage({
         mergeTarget={row.mergeTarget}
         banner={
           <>
-            {/* EXP-849: a run that was CONTINUED (an account switch, a resume)
-                names the run before and after it, so the chain reads as one
-                conversation instead of three orphans. */}
-            <SessionContinuationBand session={session} />
             {/* EXP-897: where this run's pull request sits in its stack, and
                 what a run below it is asking the person. */}
             {issue && <StackPositionBand issue={issue} teamSlug={teamSlug} />}
@@ -422,8 +427,8 @@ function OwnSessionPage({
         onFace={onFace}
         onIssueFace={issue && board ? openIssue : undefined}
         issueHeader={issueHeader}
-        issueRuns={issue ? issueRuns : undefined}
-        onOpenRun={issue ? openRun : undefined}
+        issueRuns={menuRuns}
+        onOpenRun={openRun}
         onStart={onStart}
         prFiles={prFiles}
         prUrl={prUrl}
@@ -454,49 +459,6 @@ function SessionStubHeader({
   title: string
 }) {
   return <MobileDetailHeader title={title} onBack={onBack} />
-}
-
-/** EXP-849: the continuation chain — `resumed_from_id` links the run a
- * switch or resume came out of to the one that took over. One quiet line with
- * both ends, each opening that run. Absent when this run is neither.
- *
- * The backward link carries the ×4 sentence (`CONTINUATION_NOTE`) plus the
- * one-time transcript re-read it cost, said ONCE on the run that paid it — a
- * second context charge on a new account must never be a surprise. */
-function SessionContinuationBand({ session }: { session: CodingSession }) {
-  const openSession = useOpenSession()
-  const { data: sessionRows } = useLiveQuery((query) =>
-    query.from({ s: codingSessionCollection })
-  )
-  const rows = (sessionRows ?? []) as CodingSession[]
-  const from = session.resumedFromId
-    ? (rows.find((row) => row.id === session.resumedFromId) ?? null)
-    : null
-  const next = rows.find((row) => row.resumedFromId === session.id) ?? null
-  if (!from && !next) return null
-  return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground">
-      {from && (
-        <div className="flex min-w-0 flex-col items-start">
-          <Button
-            variant="link"
-            size="inline"
-            onClick={() => openSession(from)}
-          >
-            {`${CONTINUATION_NOTE} · started ${relativeTime(from.startedAt)}`}
-          </Button>
-          <span className="text-muted-foreground/70">
-            {CONTINUATION_COST_NOTE}
-          </span>
-        </div>
-      )}
-      {next && (
-        <Button variant="link" size="inline" onClick={() => openSession(next)}>
-          {`Continues in a newer run · started ${relativeTime(next.startedAt)}`}
-        </Button>
-      )}
-    </div>
-  )
 }
 
 /** EXP-897: where this run's pull request sits in its STACK. One quiet line —

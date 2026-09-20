@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react"
+import { totals } from "@exp/domain-contract/diff"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -12,6 +13,7 @@ import {
 import { useNow } from "@/hooks/use-now"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useIssueRuns } from "@/hooks/use-agents-data"
+import { useReviewFiles } from "@/hooks/use-review-files"
 import { useSession } from "@/hooks/use-session"
 import {
   shouldConnectSessionDiff,
@@ -166,6 +168,28 @@ function IssueDetailPage() {
     status: runTarget?.status,
   })
   const hasChanges = diffStats.fileCount > 0 || issue?.prState === `open`
+  // EXP-952: source B — the issue's open PR files, read only when there is
+  // no live diff. Resolved HERE, not inside the Changes face, because the
+  // switcher has to count the very files that face draws — otherwise its
+  // Changes row printed no `+N −M` until the face had been opened once
+  // (Android's `WorkScreen` owns its `ChangesViewModel` the same way, and
+  // the session route hoists `useReviewFiles` for the run's Changes face).
+  // A phone thing: md+ has no PR-files face on this route.
+  const { state: prFilesState } = useReviewFiles(issue ?? null, {
+    enabled: isMobile && hasChanges && diffStats.fileCount === 0,
+  })
+  const prFiles = prFilesState.kind === `files` ? prFilesState.files : null
+  /** The switcher's counts: the live diff's, else the PR files' — the one
+   *  list the Changes face draws, never a second reading. */
+  const changesStats = useMemo(
+    () =>
+      diffStats.fileCount > 0
+        ? diffStats
+        : prFiles && prFiles.length > 0
+          ? totals(prFiles)
+          : null,
+    [diffStats, prFiles]
+  )
   const openComposer = useOpenComposer()
 
   // EXP-879: the issue never holds the results itself — they belong to the
@@ -270,7 +294,7 @@ function IssueDetailPage() {
         face={showChanges ? `changes` : `issue`}
         runs={issueRuns}
         viewedRunId={runTarget?.id ?? null}
-        diffStats={diffStats.fileCount > 0 ? diffStats : null}
+        diffStats={changesStats}
         hasChanges={hasChanges}
         sessionTone={sessionTone}
         onFace={(next) => {
@@ -297,6 +321,7 @@ function IssueDetailPage() {
           teamId={team.id}
           readOnly={readOnly}
           origin={search.from}
+          filesState={prFilesState}
           switcher={switcher}
           dot={dot}
         />
