@@ -499,11 +499,14 @@ impl Render for MembersPane {
             cx,
         ));
 
-        // EXP-721: gapped row CARDS, one per member — see
-        // [`Self::render_member_row`].
-        let mut list = v_flex().gap_2();
-        for row in &rows {
-            list = list.child(self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx));
+        // EXP-994: ONE table — a hairline between rows, no gap, no card
+        // around them (see [`Self::render_member_row`]).
+        let mut list = v_flex().w_full().min_w_0();
+        for (index, row) in rows.iter().enumerate() {
+            list = list.child(crate::surface::list_row(
+                self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx),
+                index,
+            ));
         }
         body = body.child(list);
 
@@ -633,8 +636,8 @@ impl Render for MembersPane {
 
             let invites = self.pending_invites(&team_id, cx);
             if !invites.is_empty() {
-                let mut pending_rows = v_flex().gap_2();
-                for invite in invites {
+                let mut pending_rows = v_flex().w_full().min_w_0();
+                for (invite_index, invite) in invites.iter().enumerate() {
                     let invite_id = invite.id.clone();
                     let role: SharedString = invite
                         .role
@@ -688,7 +691,7 @@ impl Render for MembersPane {
                     // EXP-721: a pending invite is an entity too — the same
                     // gapped row card the member rows above it wear, instead
                     // of the hand-rolled bordered box.
-                    pending_rows = pending_rows.child(
+                    pending_rows = pending_rows.child(crate::surface::list_row(
                         crate::surface::flat_row()
                             .flex()
                             .w_full()
@@ -712,7 +715,8 @@ impl Render for MembersPane {
                                         });
                                     }),
                             ),
-                    );
+                        invite_index,
+                    ));
                 }
                 // EXP-771: the web's `GlassSectionHeader` — the same heading
                 // the Members list above wears. NO gap on the wrapper: the

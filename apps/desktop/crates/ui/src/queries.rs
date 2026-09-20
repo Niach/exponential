@@ -3394,6 +3394,8 @@ mod tests {
         let mut row = launch_device_row("r-1", "dev-1", "Buildbox", "me", &["codex"], -30);
         row.launch_defaults = Some(json!({
             "defaultAgent": "codex",
+            // EXP-872: the machine's default ACCOUNT rides the same object.
+            "defaultAccount": "0a1b2c3d",
             "agents": {"codex": {"model": "gpt-5.6-terra", "effort": "high"}},
         }));
         let owner = |_: &str| None;
@@ -3406,6 +3408,7 @@ mod tests {
         );
         let settings = &devices[0].defaults;
         assert_eq!(settings.default_agent, coding::CodingAgent::Codex);
+        assert_eq!(settings.default_account.as_deref(), Some("0a1b2c3d"));
         assert_eq!(settings.codex_model, "gpt-5.6-terra");
         assert_eq!(settings.codex_effort, "high");
     }
@@ -3413,10 +3416,14 @@ mod tests {
     #[test]
     fn launch_defaults_parse_through_a_json_string_column() {
         // §5.5: a jsonb column can arrive as a JSON STRING.
-        let raw = json!(r#"{"defaultAgent":"codex"}"#);
+        let raw = json!(r#"{"defaultAgent":"codex","defaultAccount":"work"}"#);
         assert_eq!(
             device_launch_settings(Some(&raw)).default_agent,
             coding::CodingAgent::Codex
+        );
+        assert_eq!(
+            device_launch_settings(Some(&raw)).default_account.as_deref(),
+            Some("work")
         );
         // Absent / unparsable degrades to the static defaults, never panics.
         assert_eq!(

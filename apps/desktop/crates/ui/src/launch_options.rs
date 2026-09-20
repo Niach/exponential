@@ -157,55 +157,48 @@ fn name_the_machine(sentence: String, device_label: Option<&str>) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// EXP-747 B7 — the account picker
+// EXP-872 — the ONE account picker
 // ---------------------------------------------------------------------------
 
-/// One agent ACCOUNT PROFILE the target machine holds, as the picker offers
-/// it. `id` is [`coding::agent_profiles::SYSTEM_PROFILE`] for the ambient
-/// login, which [`LaunchOptions::account`] carries as `None`.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct AccountOption {
-    pub(crate) id: String,
-    pub(crate) label: String,
-    /// A profile whose CLI is signed out still shows (picking it is how you
-    /// find out); the row says so rather than hiding the choice.
-    pub(crate) signed_in: bool,
-}
-
-/// The account rows of one machine's `agent_accounts` entry for one agent.
-///
-/// A machine with a single login reports NO profiles (the pre-profile
-/// payload is byte-identical), which is why an empty list here means "there
-/// is nothing to pick" and the row hides rather than showing one dead
-/// choice.
-pub(crate) fn account_options(
-    account: Option<&coding::agent_accounts::AgentAccount>,
-) -> Vec<AccountOption> {
-    let Some(account) = account else {
-        return Vec::new();
-    };
-    if account.profiles.len() < 2 {
-        return Vec::new();
+/// The account options the TARGET machine offers, already flattened across
+/// its agents ([`coding::flatten_accounts`]) and clamped to the agents it can
+/// actually run. A machine that reports no login at all still offers one row
+/// per runnable agent, named by the agent — the picker must never go empty
+/// while there is something to launch (the launch blocker, not a blank row,
+/// is what explains a machine with nothing installed).
+pub(crate) fn machine_account_options(
+    accounts: &coding::agent_accounts::AgentAccounts,
+    usage: &coding::agent_usage::AgentUsageMap,
+    settings: &coding::Settings,
+    available: &[CodingAgent],
+) -> Vec<coding::AccountOption> {
+    let mut options = coding::flatten_accounts(
+        accounts,
+        usage,
+        Some(settings.default_agent.id()),
+        settings.default_account.as_deref(),
+    );
+    options.retain(|option| available.contains(&option.agent));
+    if !options.is_empty() {
+        return options;
     }
-    account
-        .profiles
+    available
         .iter()
-        .map(|profile| AccountOption {
-            label: profile
-                .label
-                .clone()
-                .filter(|label| !label.trim().is_empty())
-                .unwrap_or_else(|| {
-                    if profile.id == coding::agent_profiles::SYSTEM_PROFILE {
-                        coding::agent_profiles::SYSTEM_LABEL.to_string()
-                    } else {
-                        profile.id.clone()
-                    }
-                }),
-            id: profile.id.clone(),
-            signed_in: profile.signed_in,
+        .map(|agent| coding::AccountOption {
+            id: coding::SYSTEM_PROFILE.to_string(),
+            agent: *agent,
+            email: agent.label().to_string(),
+            is_device_default: *agent == settings.default_agent,
+            health: coding::Health::Unknown,
+            limits: None,
         })
         .collect()
+}
+
+/// The picker key for an (agent, account) pair — the ambient login carries
+/// `None` on the wire, so it reads back as the `system` profile.
+pub(crate) fn account_key(agent: CodingAgent, account: Option<&str>) -> String {
+    format!("{}:{}", agent.id(), account.unwrap_or(coding::SYSTEM_PROFILE))
 }
 
 /// One pill in the agent strip.
@@ -527,7 +520,19 @@ pub(crate) fn choice_pin<V: Render>(
     on_pick: impl Fn(&mut V, &str, &mut Window, &mut Context<V>) + 'static,
     cx: &mut Context<V>,
 ) -> impl IntoElement {
-    let view = cx.entity().downgrade();
+    choice_pin_for(trigger, choices, picked, cx.entity().downgrade(), on_pick)
+}
+
+/// [`choice_pin`] for a caller with no `Context<V>` at hand: the `⋯`
+/// popover's content closure runs in the POPOVER's own context, so the host's
+/// weak handle is captured up front instead of derived from `cx`.
+pub(crate) fn choice_pin_for<V: Render>(
+    trigger: Button,
+    choices: &'static [(&'static str, &'static str)],
+    picked: String,
+    view: gpui::WeakEntity<V>,
+    on_pick: impl Fn(&mut V, &str, &mut Window, &mut Context<V>) + 'static,
+) -> impl IntoElement {
     let on_pick = std::rc::Rc::new(on_pick);
     trigger.dropdown_menu(move |mut menu, _window, _cx| {
         for (label, value) in choices {
@@ -560,10 +565,23 @@ fn choice_menu<V: Render>(
     access: fn(&mut V) -> &mut LaunchOptionsSection,
     cx: &mut Context<V>,
 ) -> impl IntoElement {
-    choice_pin(
+    choice_menu_for(trigger, choices, picked, select, access, cx.entity().downgrade())
+}
+
+/// [`choice_menu`] against a captured weak handle (the `⋯` popover).
+fn choice_menu_for<V: Render>(
+    trigger: Button,
+    choices: &'static [(&'static str, &'static str)],
+    picked: String,
+    select: fn(&LaunchOptionsSection) -> &ChoiceSelect,
+    access: fn(&mut V) -> &mut LaunchOptionsSection,
+    view: gpui::WeakEntity<V>,
+) -> impl IntoElement {
+    choice_pin_for(
         trigger,
         choices,
         picked,
+        view,
         move |view: &mut V, value: &str, window, cx| {
             let state = select(access(view)).clone();
             state.update(cx, |state, cx| {
@@ -571,174 +589,7 @@ fn choice_menu<V: Render>(
             });
             cx.notify();
         },
-        cx,
     )
-}
-
-/// The Account pin's label: the picked profile's, else the ambient login's.
-fn account_pin_label(options: &[AccountOption], picked: Option<&str>) -> String {
-    options
-        .iter()
-        .find(|option| Some(option.id.as_str()) == picked)
-        .map(|option| option.label.clone())
-        .unwrap_or_else(|| coding::agent_profiles::SYSTEM_LABEL.to_string())
-}
-
-/// Hangs the Account choice menu off an already-dressed `trigger` (EXP-825:
-/// shared by the grouped row and the composer's `⋯` popover).
-fn account_menu<V: Render>(
-    trigger: Button,
-    options: &[AccountOption],
-    picked: Option<&str>,
-    access: fn(&mut V) -> &mut LaunchOptionsSection,
-    cx: &mut Context<V>,
-) -> impl IntoElement {
-    let current = picked.map(str::to_string);
-    let options = options.to_vec();
-    let view = cx.entity().downgrade();
-    trigger
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            for option in &options {
-                let view = view.clone();
-                // The ambient login is `None` on the wire, so the system
-                // profile writes back as "nothing pinned" rather than as the
-                // literal id — `LaunchOptions::with_account` folds the two
-                // together anyway, and this keeps ONE representation.
-                let value = (option.id != coding::agent_profiles::SYSTEM_PROFILE)
-                    .then(|| option.id.clone());
-                let checked = current.as_deref() == value.as_deref();
-                let label = match option.signed_in {
-                    true => option.label.clone(),
-                    false => format!("{} \u{2014} signed out", option.label),
-                };
-                // EXP-862: the trigger leads with the account mark, so every
-                // row carries it too (a value shown with an icon is picked
-                // with that icon).
-                menu = menu.item(PopupMenuItem::new(label)
-                    .icon(Icon::new(crate::icons::registry::NAV_ACCOUNT))
-                    .checked(checked)
-                    .on_click(
-                    move |_, _, cx| {
-                        if let Some(view) = view.upgrade() {
-                            let value = value.clone();
-                            view.update(cx, |view, cx| {
-                                access(view).account = value;
-                                cx.notify();
-                            });
-                        }
-                    },
-                ));
-            }
-            menu
-        })
-}
-
-/// EXP-792 — the MCP multiselect's POPOVER, hung off an already-dressed
-/// `trigger` (the chat page's inline pill).
-///
-/// Not a `dropdown_menu`: `PopupMenu::confirm` dismisses UNCONDITIONALLY
-/// after running an item's handler (gpui-component `popup_menu.rs`, both the
-/// `Item` and the `ElementItem` arm), so a checkbox menu built out of
-/// [`PopupMenuItem`] would close on every single toggle. The repo's own
-/// no-close multiselect is the searchable picker's `Popover` of rows
-/// ([`crate::pickers::searchable_picker`]) — which is also the shape the
-/// web twin wears (`mcp-server-picker.tsx`: a popover of command items) — so
-/// that is what this builds.
-///
-/// EXP-941/EXP-963: a multi picker marks its rows with the leading
-/// `ui-selected`/`ui-unselected` circle pair and fills the picked ones
-/// ([`crate::pickers::selection_glyph`]), never with a checkbox.
-///
-/// A server the target machine cannot satisfy is GREYED and carries its
-/// reason, but stays pickable: the launch blocker then names it, which is a
-/// far better answer than a row that silently refuses to tick.
-pub(crate) fn mcp_pick_popover<V: Render>(
-    prefix: &str,
-    trigger: Button,
-    servers: &[McpServerOption],
-    selected: &[String],
-    toggle: impl Fn(&mut V, &str) + 'static,
-    cx: &mut Context<V>,
-) -> gpui_component::popover::Popover {
-    use gpui_component::popover::Popover;
-
-    let servers = servers.to_vec();
-    let selected = selected.to_vec();
-    let view = cx.entity().downgrade();
-    let toggle = std::rc::Rc::new(toggle);
-    let rows_id: SharedString = format!("{prefix}-mcp-rows").into();
-    let row_prefix = prefix.to_string();
-    Popover::new(SharedString::from(format!("{prefix}-mcp-popover")))
-        .p_1()
-        .trigger(trigger)
-        .content(move |_, _window, cx| {
-            let muted = cx.theme().muted_foreground;
-            // The registry grows with the team — cap + scroll, like every
-            // other picker list (EXP-46a).
-            let mut rows = v_flex()
-                .id(rows_id.clone())
-                .w_full()
-                .min_w(gpui::px(220.))
-                .max_h(gpui::px(240.))
-                .overflow_y_scroll();
-            for server in &servers {
-                let checked = selected.iter().any(|id| id == &server.id);
-                let id = server.id.clone();
-                let view = view.clone();
-                let toggle = toggle.clone();
-                let blocked = server.blocked.clone();
-                rows = rows.child(
-                    crate::pickers::picker_row(
-                        SharedString::from(format!("{row_prefix}-mcp-{}", server.id)),
-                        cx,
-                    )
-                    .when(blocked.is_some(), |row| row.opacity(0.5))
-                    .when(checked, |row| {
-                        row.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-                    })
-                    // The ROW owns the click — the glyph is a MARK, not a
-                    // control, so there is no second handler to double-toggle.
-                    .children(crate::pickers::selection_glyph(
-                        true,
-                        if checked {
-                            crate::pickers::SelectionState::Selected
-                        } else {
-                            crate::pickers::SelectionState::Unselected
-                        },
-                        cx,
-                    ))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .truncate()
-                                    .child(SharedString::from(server.name.clone())),
-                            )
-                            .children(blocked.map(|reason| {
-                                div()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .truncate()
-                                    .child(SharedString::from(reason))
-                            })),
-                    )
-                    .on_click(move |_, _, cx| {
-                        if let Some(view) = view.upgrade() {
-                            let id = id.clone();
-                            let toggle = toggle.clone();
-                            view.update(cx, |view, cx| {
-                                toggle(view, &id);
-                                cx.notify();
-                            });
-                        }
-                    }),
-                );
-            }
-            rows
-        })
 }
 
 /// One switch row of an [`AgentDefaultsGroup`]: the label, its state, and
@@ -926,8 +777,12 @@ pub(crate) struct RemoteDefaults {
     /// EXP-484/747 B7: the machine's `agent_accounts` payload — WHICH login
     /// each agent CLI runs as there, and its account PROFILES. Empty for a
     /// row that never reported (an older build, or a machine that has not
-    /// beaten yet): the Account row then has nothing to offer and hides.
+    /// beaten yet): the account picker then falls back to one row per agent.
     pub(crate) accounts: coding::agent_accounts::AgentAccounts,
+    /// EXP-992: the same machine's `agent_usage` payload — the picker's hover
+    /// preview draws its bars off it (the active login's numbers ride here
+    /// when its profile row carries none).
+    pub(crate) usage: coding::agent_usage::AgentUsageMap,
 }
 
 /// The launch cluster's own state: which agent runs, its
@@ -970,12 +825,13 @@ pub(crate) struct LaunchOptionsSection {
 }
 
 impl LaunchOptionsSection {
-    /// Seed from the settings defaults for the settings' default agent.
+    /// Seed from this install's DEFAULT ACCOUNT (EXP-872) — which names the
+    /// agent too — and that agent's settings defaults.
     pub(crate) fn new(window: &mut Window, cx: &mut App) -> Self {
         let settings = crate::coding_flow::CodingHub::global(cx).read(cx).settings.clone();
         let agent = settings.default_agent;
         let (ultracode, plan_mode) = agent_defaults(&settings, agent);
-        Self {
+        let mut this = Self {
             agent,
             model: choice_select(model_choices_for(agent), settings.model_for(agent), window, cx),
             effort: choice_select(
@@ -996,8 +852,18 @@ impl LaunchOptionsSection {
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_seeded: false,
-            account: None,
-        }
+            // EXP-872: this install's stored default ACCOUNT (the ambient
+            // login rides as `None`); a device settle re-resolves it against
+            // whatever the target machine actually reports.
+            account: settings
+                .default_account
+                .clone()
+                .filter(|id| id != coding::SYSTEM_PROFILE),
+        };
+        // …then settle it against what this machine actually reports, so the
+        // pin can never SHOW one login while the launch spends another.
+        this.settle_account(window, cx);
+        this
     }
 
     /// EXP-792: offer these team MCP servers, already resolved against the
@@ -1042,18 +908,67 @@ impl LaunchOptionsSection {
             .sort_by_key(|id| order.iter().position(|known| known == id).unwrap_or(usize::MAX));
     }
 
-    /// EXP-747 B7: the account profiles the TARGET machine holds for the
-    /// SELECTED agent — its own for a remote run, this install's for a local
-    /// one. Fewer than two = nothing to pick, and the row hides.
-    fn account_options(&self, cx: &mut App) -> Vec<AccountOption> {
-        let agent = self.agent.id();
+    /// EXP-872: every signed-in login the TARGET machine reports, ACROSS
+    /// agents — its own for a remote run, this install's for a local one.
+    /// The device default leads ([`machine_account_options`]).
+    pub(crate) fn account_options(&self, cx: &mut App) -> Vec<coding::AccountOption> {
+        let available = self.pickable(cx);
+        let settings = self.seed_settings(cx);
         match &self.remote {
-            Some(remote) => account_options(remote.accounts.get(agent)),
+            Some(remote) => machine_account_options(
+                &remote.accounts,
+                &remote.usage,
+                &settings,
+                &available,
+            ),
             None => {
-                let (accounts, _usage) = crate::device_settings::own_agent_status(cx);
-                account_options(accounts.get(agent))
+                let (accounts, usage) = crate::device_settings::own_agent_status(cx);
+                machine_account_options(&accounts, &usage, &settings, &available)
             }
         }
+    }
+
+    /// The key the picker carries for the CURRENT pick.
+    pub(crate) fn account_key(&self) -> String {
+        account_key(self.agent, self.account.as_deref())
+    }
+
+    /// EXP-872: pick a login. It carries its agent, so this IS the agent
+    /// switch — model, effort and the toggles re-seed from that agent's
+    /// defaults on the target machine exactly as [`Self::set_agent`] does.
+    pub(crate) fn set_account(
+        &mut self,
+        option: &coding::AccountOption,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if self.agent != option.agent {
+            self.agent = option.agent;
+            let settings = self.seed_settings(cx);
+            self.reseed(&settings, window, cx);
+        }
+        self.account = option.wire_account();
+    }
+
+    /// EXP-872: seed the pick from the machine's DEFAULT account (which also
+    /// decides the agent). Falls back to the settle rule when the machine
+    /// offers nothing at all.
+    fn settle_account(&mut self, window: &mut Window, cx: &mut App) {
+        let options = self.account_options(cx);
+        match coding::default_account_option(&options).cloned() {
+            Some(option) => {
+                self.agent = option.agent;
+                self.account = option.wire_account();
+            }
+            None => {
+                let settings = self.seed_settings(cx);
+                let available = self.pickable(cx);
+                self.agent = settled_agent(&available, settings.default_agent, self.agent);
+                self.account = None;
+            }
+        }
+        let settings = self.seed_settings(cx);
+        self.reseed(&settings, window, cx);
     }
 
     /// The settings the seeds come from: the TARGET machine's published
@@ -1093,12 +1008,10 @@ impl LaunchOptionsSection {
         cx: &mut App,
     ) {
         self.remote = remote;
-        // Same reason as an agent switch: profiles are per MACHINE too.
-        self.account = None;
-        let settings = self.seed_settings(cx);
-        let available = self.pickable(cx);
-        self.agent = settled_agent(&available, settings.default_agent, self.agent);
-        self.reseed(&settings, window, cx);
+        // EXP-872: profiles are per MACHINE, so the pick cannot carry over —
+        // the new machine's DEFAULT ACCOUNT settles both the agent and the
+        // login, and the model/effort seeds follow it.
+        self.settle_account(window, cx);
     }
 
     /// Rebuild the model/effort selects + toggles for [`Self::agent`] from
@@ -1226,35 +1139,6 @@ impl LaunchOptionsSection {
         };
     }
 
-    /// The Agent pin — EXP-862: the SHARED
-    /// [`crate::coding_selects::agent_picker`], one component per client. The
-    /// trigger is icon-only (the brand mark plus a caret, the label in its
-    /// tooltip) and the menu rows carry the same mark, so the composer row
-    /// keeps its width whichever agent is selected.
-    pub(crate) fn agent_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> AnyElement {
-        let agents = self.pickable(cx);
-        let view = cx.entity().downgrade();
-        crate::coding_selects::agent_picker(
-            SharedString::from(format!("{prefix}-agent")),
-            &agents,
-            self.agent,
-            move |agent, window, cx| {
-                if let Some(view) = view.upgrade() {
-                    view.update(cx, |view, cx| {
-                        access(view).set_agent(agent, window, cx);
-                        cx.notify();
-                    });
-                }
-            },
-            cx,
-        )
-    }
-
     /// The Model pin over the picked agent's own model list.
     pub(crate) fn model_pin<V: Render>(
         &self,
@@ -1268,65 +1152,6 @@ impl LaunchOptionsSection {
         let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-model")), label, cx);
         choice_menu(trigger, choices, picked, |section| &section.model, access, cx)
             .into_any_element()
-    }
-
-    /// The Effort pin (the `⋯` popover): the picked agent's effort list;
-    /// while ultracode is on the level IS ultracode, so the pin reads so and
-    /// takes no menu.
-    pub(crate) fn effort_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> AnyElement {
-        if self.ultracode && self.agent.supports_ultracode() {
-            return inline_pin_trigger(
-                SharedString::from(format!("{prefix}-effort")),
-                "Ultracode".to_string(),
-                cx,
-            )
-            .disabled(true)
-            .into_any_element();
-        }
-        let choices = effort_choices_for(self.agent);
-        let picked = selected(&self.effort, cx);
-        let label = pin_label(choices, Some(picked.as_str()).filter(|v| !v.is_empty()));
-        let trigger = inline_pin_trigger(SharedString::from(format!("{prefix}-effort")), label, cx);
-        choice_menu(trigger, choices, picked, |section| &section.effort, access, cx)
-            .into_any_element()
-    }
-
-    /// EXP-981 — the Subagent-model pin (the `⋯` popover); `None` for an
-    /// agent whose subagents take no model pin (everything but claude), the
-    /// `ultracode_toggle` rule. Its blank entry IS the CLI's own default.
-    pub(crate) fn subagent_model_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> Option<AnyElement> {
-        if !self.agent.supports_subagent_model() {
-            return None;
-        }
-        let choices: &'static [(&'static str, &'static str)] = &SUBAGENT_MODEL_CHOICES;
-        let picked = selected(&self.subagent_model, cx);
-        let label = pin_label(choices, Some(picked.as_str()).filter(|v| !v.is_empty()));
-        let trigger = inline_pin_trigger(
-            SharedString::from(format!("{prefix}-subagent-model")),
-            label,
-            cx,
-        );
-        Some(
-            choice_menu(
-                trigger,
-                choices,
-                picked,
-                |section| &section.subagent_model,
-                access,
-                cx,
-            )
-            .into_any_element(),
-        )
     }
 
     /// The Plan switch; `None` for an agent without a plan mode.
@@ -1348,57 +1173,31 @@ impl LaunchOptionsSection {
         ))
     }
 
-    /// The Ultracode switch (the `⋯` popover); `None` for an agent without
-    /// it.
-    pub(crate) fn ultracode_toggle<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> Option<AnyElement> {
-        if !self.agent.supports_ultracode() {
-            return None;
+    /// EXP-991: everything the `⋯` overlay draws, read off the section in
+    /// ONE pass — the popover's content closure runs in the POPOVER's
+    /// context, so it cannot reach back into the host view for a second look.
+    pub(crate) fn more_options(&self, cx: &App) -> MoreOptions {
+        let ultracode_on = self.ultracode && self.agent.supports_ultracode();
+        MoreOptions {
+            effort_label: self.agent.effort_label(),
+            effort_choices: effort_choices_for(self.agent),
+            effort_picked: selected(&self.effort, cx),
+            effort_locked: ultracode_on,
+            subagent_picked: self
+                .agent
+                .supports_subagent_model()
+                .then(|| selected(&self.subagent_model, cx)),
+            ultracode: self.agent.supports_ultracode().then_some(self.ultracode),
+            mcp_servers: self.mcp_servers.clone(),
+            mcp_selected: self.mcp_selected.clone(),
         }
-        Some(inline_switch(
-            SharedString::from(format!("{prefix}-ultracode")),
-            "Ultracode",
-            self.ultracode,
-            move |view: &mut V, on| access(view).ultracode = on,
-            cx,
-        ))
     }
 
-    /// The MCP servers pin (the `⋯` popover); `None` while the team offers
-    /// no servers.
-    pub(crate) fn mcp_pin<V: Render>(
-        &self,
-        prefix: &'static str,
-        access: fn(&mut V) -> &mut LaunchOptionsSection,
-        cx: &mut Context<V>,
-    ) -> Option<AnyElement> {
-        if self.mcp_servers.is_empty() {
-            return None;
-        }
-        let trigger = inline_pin_trigger(
-            SharedString::from(format!("{prefix}-mcp")),
-            format!("MCP: {}", mcp_pick_summary(&self.mcp_servers, &self.mcp_selected)),
-            cx,
-        );
-        Some(
-            mcp_pick_popover(
-                prefix,
-                trigger,
-                &self.mcp_servers,
-                &self.mcp_selected,
-                move |view: &mut V, id: &str| access(view).toggle_mcp_server(id),
-                cx,
-            )
-            .into_any_element(),
-        )
-    }
-
-    /// The Account pin (the `⋯` popover); `None` with fewer than two
-    /// profiles on the target machine (nothing to pick).
+    /// EXP-872 — THE account pin: ONE picker over every signed-in login the
+    /// TARGET machine reports, across agents. It replaced the agent pin and
+    /// the old account pin both — picking a login picks its agent — so it
+    /// renders WHENEVER the machine offers anything, and collapses to plain
+    /// text (no chevron) when there is a single login to spend.
     pub(crate) fn account_pin<V: Render>(
         &self,
         prefix: &'static str,
@@ -1409,19 +1208,230 @@ impl LaunchOptionsSection {
         if options.is_empty() {
             return None;
         }
-        // EXP-862: the label is the PROFILE's (its name or email) behind the
-        // account mark — the row no longer spends a word saying which kind of
-        // pin it is.
-        let trigger = inline_pin_trigger_with(
+        let current = self.account_key();
+        let view = cx.entity().downgrade();
+        Some(crate::coding_selects::account_picker(
             SharedString::from(format!("{prefix}-account")),
-            Some(crate::icons::registry::NAV_ACCOUNT),
-            account_pin_label(&options, self.account.as_deref()),
+            &options,
+            Some(current.as_str()),
+            crate::coding_selects::AccountTrigger::Inline,
+            move |option, window, cx| {
+                if let Some(view) = view.upgrade() {
+                    let option = option.clone();
+                    view.update(cx, |view, cx| {
+                        access(view).set_account(&option, window, cx);
+                        cx.notify();
+                    });
+                }
+            },
             cx,
-        );
-        Some(account_menu(trigger, &options, self.account.as_deref(), access, cx).into_any_element())
+        ))
     }
-
 }
+
+/// EXP-991 — the `⋯` overlay's whole content, snapshotted off a
+/// [`LaunchOptionsSection`].
+#[derive(Clone, Debug)]
+pub(crate) struct MoreOptions {
+    effort_label: &'static str,
+    effort_choices: &'static [(&'static str, &'static str)],
+    effort_picked: String,
+    /// Ultracode IS the effort level while it is on, so the row says so and
+    /// takes no menu.
+    effort_locked: bool,
+    /// `None` for an agent whose subagents take no model pin.
+    subagent_picked: Option<String>,
+    /// `None` for an agent without dynamic workflows.
+    ultracode: Option<bool>,
+    mcp_servers: Vec<McpServerOption>,
+    mcp_selected: Vec<String>,
+}
+
+/// EXP-991 — the composer's `⋯`: an OVERLAY of the options that do not fit
+/// the line (Effort, Subagents, Ultracode, MCP servers), NOT a second inline
+/// row that pushes the field down every time it opens.
+///
+/// The popover surface is the ONLY edge: the rows are hairline-divided and
+/// carry no fill and no radius of their own
+/// ([`surface::glass_group_rows_bare`]) — a `glass_group` in here would be a
+/// card inside a card. The MCP servers are drawn as TICK ROWS in the same
+/// ladder rather than behind a second popover: one overlay, one click.
+pub(crate) fn more_options_popover<V: Render>(
+    prefix: &'static str,
+    trigger: Button,
+    read: fn(&V) -> Option<&LaunchOptionsSection>,
+    access: fn(&mut V) -> &mut LaunchOptionsSection,
+    cx: &mut Context<V>,
+) -> gpui_component::popover::Popover {
+    use gpui_component::popover::Popover;
+
+    let view = cx.entity().downgrade();
+    Popover::new(SharedString::from(format!("{prefix}-more-popover")))
+        .p_1()
+        .trigger(trigger)
+        .content(move |_, _window, cx| {
+            let Some(options) = view
+                .upgrade()
+                .and_then(|entity| read(entity.read(cx)).map(|section| section.more_options(cx)))
+            else {
+                return div().into_any_element();
+            };
+            let muted = cx.theme().muted_foreground;
+            let mut rows: Vec<Div> = Vec::new();
+
+            // Effort.
+            let effort_trigger = inline_pin_trigger(
+                SharedString::from(format!("{prefix}-effort")),
+                if options.effort_locked {
+                    "Ultracode".to_string()
+                } else {
+                    pin_label(
+                        options.effort_choices,
+                        Some(options.effort_picked.as_str()).filter(|value| !value.is_empty()),
+                    )
+                },
+                cx,
+            );
+            rows.push(surface::bare_row_shell().child(options.effort_label).child(
+                if options.effort_locked {
+                    effort_trigger.disabled(true).into_any_element()
+                } else {
+                    choice_menu_for(
+                        effort_trigger,
+                        options.effort_choices,
+                        options.effort_picked.clone(),
+                        |section| &section.effort,
+                        access,
+                        view.clone(),
+                    )
+                    .into_any_element()
+                },
+            ));
+
+            // EXP-981: the claude-only subagent model.
+            if let Some(picked) = options.subagent_picked.clone() {
+                let choices: &'static [(&'static str, &'static str)] = &SUBAGENT_MODEL_CHOICES;
+                let trigger = inline_pin_trigger(
+                    SharedString::from(format!("{prefix}-subagent-model")),
+                    pin_label(choices, Some(picked.as_str()).filter(|value| !value.is_empty())),
+                    cx,
+                );
+                rows.push(
+                    surface::bare_row_shell().child("Subagents").child(
+                        choice_menu_for(
+                            trigger,
+                            choices,
+                            picked,
+                            |section| &section.subagent_model,
+                            access,
+                            view.clone(),
+                        )
+                        .into_any_element(),
+                    ),
+                );
+            }
+
+            // Ultracode.
+            if let Some(on) = options.ultracode {
+                let view = view.clone();
+                rows.push(
+                    surface::bare_row_shell().child("Ultracode").child(
+                        crate::controls::web_switch(SharedString::from(format!(
+                            "{prefix}-ultracode"
+                        )))
+                        .checked(on)
+                        .on_click(move |on: &bool, _window, cx| {
+                            if let Some(entity) = view.upgrade() {
+                                let on = *on;
+                                entity.update(cx, |entity, cx| {
+                                    access(entity).ultracode = on;
+                                    cx.notify();
+                                });
+                            }
+                        }),
+                    ),
+                );
+            }
+
+            // EXP-792: the team's MCP servers, ticked in place.
+            if !options.mcp_servers.is_empty() {
+                rows.push(
+                    surface::bare_row_shell().child("MCP servers").child(
+                        div().text_xs().text_color(muted).child(SharedString::from(
+                            mcp_pick_summary(&options.mcp_servers, &options.mcp_selected),
+                        )),
+                    ),
+                );
+                for server in &options.mcp_servers {
+                    let checked = options.mcp_selected.iter().any(|id| id == &server.id);
+                    let id = server.id.clone();
+                    let view = view.clone();
+                    let blocked = server.blocked.clone();
+                    // A tick row is CLICKABLE, so it is stateful; the plain
+                    // wrapper is what carries the ladder's hairline.
+                    rows.push(div().w_full().child(
+                        surface::bare_row_shell()
+                            .id(SharedString::from(format!("{prefix}-mcp-{}", server.id)))
+                            .cursor_pointer()
+                            .when(blocked.is_some(), |row| row.opacity(0.5))
+                            .child(
+                                h_flex()
+                                    .min_w_0()
+                                    .gap_2()
+                                    .items_center()
+                                    // The ROW owns the click — the glyph is a
+                                    // MARK, not a second control.
+                                    .children(crate::pickers::selection_glyph(
+                                        true,
+                                        if checked {
+                                            crate::pickers::SelectionState::Selected
+                                        } else {
+                                            crate::pickers::SelectionState::Unselected
+                                        },
+                                        cx,
+                                    ))
+                                    .child(
+                                        v_flex()
+                                            .min_w_0()
+                                            .gap_0p5()
+                                            .child(
+                                                div()
+                                                    .truncate()
+                                                    .child(SharedString::from(server.name.clone())),
+                                            )
+                                            .children(blocked.map(|reason| {
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(muted)
+                                                    .truncate()
+                                                    .child(SharedString::from(reason))
+                                            })),
+                                    ),
+                            )
+                            .on_click(move |_, _window, cx| {
+                                if let Some(entity) = view.upgrade() {
+                                    let id = id.clone();
+                                    entity.update(cx, |entity, cx| {
+                                        access(entity).toggle_mcp_server(&id);
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    ));
+                }
+            }
+
+            div()
+                .w(gpui::px(MORE_POPOVER_W))
+                .text_sm()
+                .child(surface::glass_group_rows_bare(rows))
+                .into_any_element()
+        })
+}
+
+/// The `⋯` overlay's width — wide enough for a model alias beside its label,
+/// narrow enough to hang off one glyph.
+const MORE_POPOVER_W: f32 = 320.;
 
 #[cfg(test)]
 mod tests {
@@ -1579,42 +1589,94 @@ mod tests {
         );
     }
 
-    /// EXP-747 B7: a single-login machine reports NO profiles, so there is
-    /// nothing to pick and the row hides — the picker never shows one dead
-    /// choice.
+    /// EXP-872: the machine's logins flatten into ONE list across agents,
+    /// the device default first, clamped to the agents it can RUN. A machine
+    /// that reports no login still offers one row per runnable agent, named
+    /// by the agent — the picker never goes empty while there is something to
+    /// launch.
     #[test]
-    fn account_options_appear_only_when_there_is_a_choice() {
-        use coding::agent_accounts::{AgentAccount, AgentProfileEntry};
-        let profile = |id: &str, label: Option<&str>, signed_in: bool| AgentProfileEntry {
-            id: id.into(),
-            label: label.map(str::to_string),
-            signed_in,
-            ..Default::default()
+    fn account_options_flatten_across_agents_and_never_go_empty() {
+        use coding::agent_accounts::{AgentAccount, AgentAccounts, AgentProfileEntry};
+        let mut settings = coding::Settings {
+            default_agent: CodingAgent::Codex,
+            ..coding::Settings::default()
         };
-        assert!(account_options(None).is_empty());
-        assert!(account_options(Some(&AgentAccount::default())).is_empty());
-        let one = AgentAccount {
-            profiles: vec![profile("system", None, true)],
-            ..Default::default()
-        };
-        assert!(account_options(Some(&one)).is_empty(), "one login is no choice");
+        let mut accounts = AgentAccounts::new();
+        accounts.insert(
+            "claude".into(),
+            AgentAccount {
+                signed_in: true,
+                profiles: vec![
+                    AgentProfileEntry {
+                        id: "work".into(),
+                        signed_in: true,
+                        email: Some("work@x.test".into()),
+                        active: true,
+                        ..Default::default()
+                    },
+                    AgentProfileEntry {
+                        id: "home".into(),
+                        signed_in: true,
+                        email: Some("home@x.test".into()),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        );
+        accounts.insert(
+            "codex".into(),
+            AgentAccount {
+                signed_in: true,
+                email: Some("codex@x.test".into()),
+                ..Default::default()
+            },
+        );
+        let usage = coding::agent_usage::AgentUsageMap::new();
+        let all = CodingAgent::ALL.to_vec();
+        let options = machine_account_options(&accounts, &usage, &settings, &all);
+        assert_eq!(
+            options
+                .iter()
+                .map(|option| option.account_option_key())
+                .collect::<Vec<_>>(),
+            vec![
+                "codex:system".to_string(),
+                "claude:work".to_string(),
+                "claude:home".to_string(),
+            ]
+        );
+        assert!(options[0].is_device_default);
+        // The stored default ACCOUNT wins over the agent's active login.
+        settings.default_agent = CodingAgent::Claude;
+        settings.default_account = Some("home".into());
+        let pinned = machine_account_options(&accounts, &usage, &settings, &all);
+        assert_eq!(pinned[0].account_option_key(), "claude:home");
 
-        let two = AgentAccount {
-            profiles: vec![
-                profile("system", None, true),
-                profile("work", Some("Work"), false),
-                profile("bare", Some("  "), true),
-            ],
-            ..Default::default()
-        };
-        let options = account_options(Some(&two));
-        assert_eq!(options.len(), 3);
-        // The ambient login labels itself, an unlabelled profile falls back
-        // to its id, and the signed-out flag rides along for the caption.
-        assert_eq!(options[0].label, coding::agent_profiles::SYSTEM_LABEL);
-        assert_eq!(options[1].label, "Work");
-        assert!(!options[1].signed_in);
-        assert_eq!(options[2].label, "bare");
+        // An agent the machine cannot RUN offers no login.
+        let claude_only =
+            machine_account_options(&accounts, &usage, &settings, &[CodingAgent::Claude]);
+        assert!(claude_only.iter().all(|option| option.agent == CodingAgent::Claude));
+
+        // No login reported at all: one row per runnable agent, named by it.
+        let bare = machine_account_options(
+            &AgentAccounts::new(),
+            &usage,
+            &settings,
+            &[CodingAgent::Claude, CodingAgent::Codex],
+        );
+        assert_eq!(
+            bare.iter().map(|option| option.email.as_str()).collect::<Vec<_>>(),
+            vec!["Claude Code", "Codex"]
+        );
+        assert!(bare[0].is_device_default, "the machine's default agent leads");
+        // Nothing runnable at all is the one empty case (the launch blocker
+        // names the reason instead of a dead row).
+        assert!(machine_account_options(&AgentAccounts::new(), &usage, &settings, &[]).is_empty());
+
+        // The picker key folds the ambient login back into `system`.
+        assert_eq!(account_key(CodingAgent::Claude, None), "claude:system");
+        assert_eq!(account_key(CodingAgent::Codex, Some("work")), "codex:work");
     }
 
     /// EXP-749: an agent a remote machine has installed but cannot speak ACP

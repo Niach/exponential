@@ -90,10 +90,6 @@ const PROMPT_MAX_W: f32 = 640.;
 /// own chrome, and the panel's own heading is the ×4 "Recent".
 const RECENT_RUNS_LABEL: &str = "Recent runs";
 
-/// EXP-822: the repo-less entry of the Repository pick, byte-identical to the
-/// web chat page's `NO_REPO_LABEL` (`lib/chat-repo.ts`).
-const NO_REPO_LABEL: &str = "No repository";
-
 /// EXP-790/EXP-820: the suggestion POOL over an empty prompt — the desktop
 /// twin of the web page's `CHAT_SUGGESTIONS` (`lib/chat-suggestions.ts`,
 /// rendered by `routes/t/$teamSlug/agent.tsx`), byte-identical and in the
@@ -158,7 +154,13 @@ fn suggestion_seed() -> u64 {
 /// which login each agent CLI runs as there, and its account profiles. Empty
 /// for a row that never reported (an older build, or one that has not beaten
 /// yet): the Account pin then has nothing to offer and hides.
-fn device_agent_accounts(row_id: &str, cx: &App) -> coding::agent_accounts::AgentAccounts {
+fn device_agent_status(
+    row_id: &str,
+    cx: &App,
+) -> (
+    coding::agent_accounts::AgentAccounts,
+    coding::agent_usage::AgentUsageMap,
+) {
     if row_id.is_empty() {
         return Default::default();
     }
@@ -167,8 +169,15 @@ fn device_agent_accounts(row_id: &str, cx: &App) -> coding::agent_accounts::Agen
     let Some(row) = devices.iter().find(|row| row.id == row_id) else {
         return Default::default();
     };
-    crate::device_settings::parse_agent_map::<coding::agent_accounts::AgentAccount>(
-        row.agent_accounts.as_ref(),
+    (
+        crate::device_settings::parse_agent_map::<coding::agent_accounts::AgentAccount>(
+            row.agent_accounts.as_ref(),
+        ),
+        // EXP-992: the ACTIVE login's numbers still ride the pre-profile
+        // slot, which is what the account picker's bars fall back to.
+        crate::device_settings::parse_agent_map::<coding::agent_usage::AgentUsage>(
+            row.agent_usage.as_ref(),
+        ),
     )
 }
 
@@ -359,7 +368,6 @@ pub(crate) struct ChatScreenView {
     /// The image strip's notice (too many / too big).
     notice: Option<SharedString>,
     /// Whether the `⋯` line (Effort, Ultracode, MCP, Account) is unfolded.
-    more_open: bool,
     /// Images are uploading (the send is in flight).
     sending: bool,
     /// The launch is preparing / the remote start is in flight.
@@ -483,7 +491,6 @@ impl ChatScreenView {
             mcp_team: None,
             images: PendingImages::default(),
             notice: None,
-            more_open: false,
             sending: false,
             launching: false,
             error: None,
@@ -1110,11 +1117,15 @@ impl ChatScreenView {
     fn apply_device_defaults(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let remote = self
             .remote_device()
-            .map(|device| launch_options::RemoteDefaults {
-                agents: device.agents.clone(),
-                acp_agents: device.acp_agents.clone(),
-                settings: device.defaults.clone(),
-                accounts: device_agent_accounts(&device.row_id, cx),
+            .map(|device| {
+                let (accounts, usage) = device_agent_status(&device.row_id, cx);
+                launch_options::RemoteDefaults {
+                    agents: device.agents.clone(),
+                    acp_agents: device.acp_agents.clone(),
+                    settings: device.defaults.clone(),
+                    accounts,
+                    usage,
+                }
             });
         let has_subject = !matches!(self.subject, Subject::None);
         let Some(launch) = self.launch.as_mut() else {
@@ -2305,52 +2316,47 @@ impl ChatScreenView {
         .into_any_element()
     }
 
-    /// EXP-822: the Repository pin (no-subject chats only). "No repository"
-    /// is a real entry, so a pick can always be walked back.
-    fn repo_pin(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+    /// EXP-993: the Repository pin (no-subject chats only), offered ONLY
+    /// while the team has more than one repo. One repo is not a choice (it is
+    /// already pre-picked), and there is no "No repository" entry any more: a
+    /// chat runs somewhere the person can name, never in an unexplained
+    /// scratch dir picked by default.
+    fn repo_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if self.team_repos.len() < 2 {
+            return None;
+        }
         let repos = self.team_repos.clone();
         let label = match &self.chat_repo {
             Some(repo) => repo.full_name.clone(),
-            None => NO_REPO_LABEL.to_string(),
+            None => repos[0].full_name.clone(),
         };
         let picked = self.chat_repo.as_ref().map(|repo| repo.id.clone());
         let view = cx.entity().downgrade();
-        inline_pin_trigger("chat-pin-repo".into(), label, cx)
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                let none_view = view.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(NO_REPO_LABEL)
-                        .checked(picked.is_none())
-                        .on_click(move |_, _, cx| {
-                            if let Some(view) = none_view.upgrade() {
-                                view.update(cx, |view, cx| {
-                                    view.chat_repo = None;
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                );
-                for repo in &repos {
-                    let view = view.clone();
-                    let repo = repo.clone();
-                    let checked = picked.as_deref() == Some(repo.id.as_str());
-                    menu = menu.item(
-                        PopupMenuItem::new(repo.full_name.clone())
-                            .checked(checked)
-                            .on_click(move |_, _, cx| {
-                                let repo = repo.clone();
-                                if let Some(view) = view.upgrade() {
-                                    view.update(cx, |view, cx| {
-                                        view.chat_repo = Some(repo);
-                                        cx.notify();
-                                    });
-                                }
-                            }),
-                    );
-                }
-                menu
-            })
-            .into_any_element()
+        Some(
+            inline_pin_trigger("chat-pin-repo".into(), label, cx)
+                .dropdown_menu(move |mut menu, _window, _cx| {
+                    for repo in &repos {
+                        let view = view.clone();
+                        let repo = repo.clone();
+                        let checked = picked.as_deref() == Some(repo.id.as_str());
+                        menu = menu.item(
+                            PopupMenuItem::new(repo.full_name.clone())
+                                .checked(checked)
+                                .on_click(move |_, _, cx| {
+                                    let repo = repo.clone();
+                                    if let Some(view) = view.upgrade() {
+                                        view.update(cx, |view, cx| {
+                                            view.chat_repo = Some(repo);
+                                            cx.notify();
+                                        });
+                                    }
+                                }),
+                        );
+                    }
+                    menu
+                })
+                .into_any_element(),
+        )
     }
 
     /// EXP-202/EXP-662: the Resume switch, inline while a single checked
@@ -2394,8 +2400,14 @@ impl ChatScreenView {
         )
     }
 
-    /// Options row B: Device · Agent · Model (· Account) · Plan (· Resume ·
-    /// Repository) · ⋯, then the unfolded Effort · Ultracode · MCP line.
+    /// EXP-991 — options row B: Device · Account · Model · Plan (· Resume ·
+    /// Repository) · ⋯.
+    ///
+    /// EXP-872 dropped the Agent pin: the ACCOUNT pin carries its agent, so
+    /// the row names the login a run spends rather than the brand twice.
+    /// EXP-991 dropped the unfolded second line with it — the `⋯` opens an
+    /// OVERLAY now ([`launch_options::more_options_popover`]) instead of
+    /// pushing the composer down every time someone looks at Effort.
     fn render_options_row(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         let has_launch = self.launch.is_some();
@@ -2411,54 +2423,32 @@ impl ChatScreenView {
             .child(self.device_pin(cx));
         if has_launch {
             row = row
-                .child(self.launch_ref().agent_pin("chat", Self::launch_access, cx))
-                .child(self.launch_ref().model_pin("chat", Self::launch_access, cx))
-                // EXP-862: WHICH ACCOUNT a run spends is a first-row decision
-                // wherever there is a decision to make — the pin renders only
-                // when the selected machine reports two or more profiles for
-                // the selected agent, so it is never a dead row.
+                // EXP-872: WHICH LOGIN a run spends is the first decision on
+                // the line, and it is also the agent pick.
                 .children(self.launch_ref().account_pin("chat", Self::launch_access, cx))
+                .child(self.launch_ref().model_pin("chat", Self::launch_access, cx))
                 .children(self.launch_ref().plan_toggle("chat", Self::launch_access, cx));
         }
         row = row.children(self.resume_switch(cx));
-        if matches!(self.subject, Subject::None) && !self.team_repos.is_empty() {
-            row = row.child(self.repo_pin(cx));
+        if matches!(self.subject, Subject::None) {
+            row = row.children(self.repo_pin(cx));
         }
         if has_launch {
-            let more = self.more_open;
-            row = row.child(
-                launch_options::inline_icon_trigger("chat-pin-more".into(), registry::UI_MORE, cx)
-                    .tooltip(if more { "Fewer options" } else { "More options" })
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.more_open = !this.more_open;
-                        cx.notify();
-                    })),
-            );
+            let trigger = launch_options::inline_icon_trigger(
+                "chat-pin-more".into(),
+                registry::UI_MORE,
+                cx,
+            )
+            .tooltip("More options");
+            row = row.child(launch_options::more_options_popover(
+                "chat",
+                trigger,
+                |this: &Self| this.launch.as_ref(),
+                Self::launch_access,
+                cx,
+            ));
         }
-        let mut column = v_flex().w_full().min_w_0().gap_1().child(row);
-        if has_launch && self.more_open {
-            let launch = self.launch_ref();
-            column = column.child(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .flex_wrap()
-                    .gap_1()
-                    .items_center()
-                    .px_1()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(div().px_1().child("Effort"))
-                    .child(launch.effort_pin("chat", Self::launch_access, cx))
-                    .children(launch.ultracode_toggle("chat", Self::launch_access, cx))
-                    // EXP-981: the claude-only subagent pin sits beside the
-                    // options the same agent gates.
-                    .child(div().px_1().child("Subagents"))
-                    .children(launch.subagent_model_pin("chat", Self::launch_access, cx))
-                    .children(launch.mcp_pin("chat", Self::launch_access, cx)),
-            );
-        }
-        column.into_any_element()
+        v_flex().w_full().min_w_0().gap_1().child(row).into_any_element()
     }
 
     /// EXP-790: the suggestion chips, shown over the EMPTY, subject-less
@@ -2828,12 +2818,13 @@ mod tests {
         assert!(draws.len() > 1);
     }
 
-    /// EXP-822: the Repository pin seeds itself. One connected repo is not a
-    /// choice, so it lands pre-picked and the chat gets a worktree; with
-    /// several the page stays repo-less on purpose and the run's prompt makes
-    /// the agent ASK which one instead of hunting for a clone on disk.
+    /// EXP-993: the Repository pin seeds itself with the FIRST connected
+    /// repo, whatever the count. A repo-less seed used to be the default
+    /// with two or more, which quietly sent the common case to a scratch dir
+    /// and made the agent ask; there is no repo-less ENTRY any more, so the
+    /// seed has to be a real repo. Only a team with none stays repo-less.
     #[test]
-    fn one_repo_preselects_and_several_stay_repo_less() {
+    fn the_repository_pin_seeds_the_first_repo() {
         let row = |id: &str, full_name: &str| ActionRepoRow {
             id: id.to_string(),
             full_name: full_name.to_string(),
@@ -2842,13 +2833,11 @@ mod tests {
         let only = action_run::preselect_repo(&[row("repo-1", "niach/exponential")]);
         assert_eq!(only.map(|repo| repo.id), Some("repo-1".to_string()));
         assert!(action_run::preselect_repo(&[]).is_none());
-        assert!(action_run::preselect_repo(&[
+        let several = action_run::preselect_repo(&[
             row("repo-1", "niach/exponential"),
             row("repo-2", "niach/other"),
-        ])
-        .is_none());
-        // The pin's repo-less entry reads the same as the web page's.
-        assert_eq!(NO_REPO_LABEL, "No repository");
+        ]);
+        assert_eq!(several.map(|repo| repo.id), Some("repo-1".to_string()));
     }
 
     /// EXP-825: the field's hint follows the subject like the web

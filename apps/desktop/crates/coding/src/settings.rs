@@ -105,6 +105,22 @@ pub struct Settings {
     /// enum error would silently reset every other setting).
     #[serde(deserialize_with = "lenient_agent")]
     pub default_agent: CodingAgent,
+    /// EXP-872 — the DEFAULT ACCOUNT: the profile id, among
+    /// [`Self::default_agent`]'s logins, this machine launches as unless the
+    /// composer picks another. "Default agent" became "default account"
+    /// everywhere: a picked account IMPLIES its agent, and the two fields are
+    /// written together (`coding::account_option::flatten_accounts` resolves
+    /// the pair into the option that leads the list).
+    ///
+    /// `None` = this agent's ambient login, which is also what a blank or
+    /// non-string value degrades to — leniently, like `defaultAgent`, so a
+    /// hand-edited file never resets every other setting. OMITTED from the
+    /// wire when unset.
+    #[serde(
+        deserialize_with = "lenient_account",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub default_account: Option<String>,
     /// Program name or absolute path of the Claude CLI (§7.7 — the doctor's
     /// target and the launcher's spawn program, used verbatim).
     pub claude_path: String,
@@ -189,10 +205,25 @@ fn lenient_agent<'de, D: serde::Deserializer<'de>>(
         .unwrap_or_default())
 }
 
+/// Deserialize [`Settings::default_account`] leniently: a non-string or
+/// blank value is "no pinned account" rather than a parse failure that would
+/// silently reset every other field.
+fn lenient_account<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value
+        .as_str()
+        .map(str::trim)
+        .filter(|account| !account.is_empty())
+        .map(str::to_string))
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             default_agent: CodingAgent::Claude,
+            default_account: None,
             claude_path: DEFAULT_CLAUDE_PATH.to_string(),
             codex_path: DEFAULT_CODEX_PATH.to_string(),
             repos_root: DEFAULT_REPOS_ROOT.to_string(),
@@ -772,6 +803,7 @@ mod tests {
         let path = dir.0.join("settings.json");
         let settings = Settings {
             default_agent: CodingAgent::Codex,
+            default_account: Some("0a1b2c3d".to_string()),
             claude_path: "/opt/homebrew/bin/claude".to_string(),
             codex_path: "/opt/homebrew/bin/codex".to_string(),
             repos_root: "~/code/repos".to_string(),
@@ -799,6 +831,8 @@ mod tests {
         assert!(raw.contains("\"claudeUltracode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"claudePlanMode\""), "camelCase keys: {raw}");
         assert!(raw.contains("\"changelogSeenId\""), "camelCase keys: {raw}");
+        // EXP-872: the default ACCOUNT rides beside the default agent.
+        assert!(raw.contains("\"defaultAccount\": \"0a1b2c3d\""), "camelCase keys: {raw}");
         assert_eq!(Settings::load(&path), settings);
     }
 

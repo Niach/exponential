@@ -547,9 +547,14 @@ impl Render for LabelsPane {
                 )),
         );
 
-        let mut list = v_flex().gap_2();
-        for label in &labels {
-            list = list.child(self.render_label_row(label, window, cx));
+        // EXP-994: ONE table, not a stack of floating cards — every row but
+        // the first draws the ladder's hairline, and nothing boxes them in.
+        let mut list = v_flex();
+        for (index, label) in labels.iter().enumerate() {
+            list = list.child(crate::surface::list_row(
+                self.render_label_row(label, window, cx),
+                index,
+            ));
         }
         if labels.is_empty() && !self.creating {
             list = list.child(
