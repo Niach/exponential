@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Download, ExternalLink, LoaderCircle, Trash2 } from "lucide-react"
+import { Download, ExternalLink, Eye, LoaderCircle, Trash2 } from "lucide-react"
 import type { Attachment } from "@/db/schema"
 import { attachmentCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -10,6 +10,7 @@ import {
   formatAttachmentSize,
   getAttachmentIcon,
   isFileAttachment,
+  isMarkdownAttachment,
 } from "@/lib/attachment-files"
 import {
   Button,
@@ -26,6 +27,7 @@ import {
   AlertDialogTitle,
 } from "@exp/ui"
 import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
+import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdown-preview"
 
 interface IssueFilesSectionProps {
   issueId: string
@@ -74,6 +76,8 @@ export function IssueFilesSection({
   const [error, setError] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<Attachment | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // EXP-955: the `.md` row being previewed in the markdown dialog.
+  const [previewFile, setPreviewFile] = useState<Attachment | null>(null)
 
   const handleFiles = async (selected: File[]) => {
     setError(null)
@@ -190,18 +194,34 @@ export function IssueFilesSection({
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     {formatAttachmentSize(file.sizeBytes)}
                   </span>
-                  <IconTooltip label="Open">
-                    <Button variant="ghost" size="icon-sm" asChild>
-                      <a
-                        href={file.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={`Open ${file.filename}`}
+                  {/* EXP-955: a markdown file previews in the app — the
+                      byte route would only download it. Everything else
+                      opens in a tab (the route renders what a browser can). */}
+                  {isMarkdownAttachment(file.contentType, file.filename) ? (
+                    <IconTooltip label="Preview">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Preview ${file.filename}`}
+                        onClick={() => setPreviewFile(file)}
                       >
-                        <ExternalLink />
-                      </a>
-                    </Button>
-                  </IconTooltip>
+                        <Eye />
+                      </Button>
+                    </IconTooltip>
+                  ) : (
+                    <IconTooltip label="Open">
+                      <Button variant="ghost" size="icon-sm" asChild>
+                        <a
+                          href={file.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`Open ${file.filename}`}
+                        >
+                          <ExternalLink />
+                        </a>
+                      </Button>
+                    </IconTooltip>
+                  )}
                   <IconTooltip label="Download">
                     <Button variant="ghost" size="icon-sm" asChild>
                       <a
@@ -240,6 +260,14 @@ export function IssueFilesSection({
         </p>
       )}
       {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
+
+      <AttachmentMarkdownPreviewDialog
+        attachment={previewFile}
+        open={previewFile !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewFile(null)
+        }}
+      />
 
       <AlertDialog
         open={pendingDelete !== null}

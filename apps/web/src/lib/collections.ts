@@ -1,6 +1,7 @@
 import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
+import { shapeParser } from "@/lib/shape-parser"
 import {
   reportTransportFailure,
   reportTransportResponse,
@@ -36,11 +37,6 @@ const baseUrl =
   typeof window !== `undefined`
     ? window.location.origin
     : `http://localhost:5173`
-
-const shapeParser = {
-  timestamp: (date: string) => new Date(date),
-  timestamptz: (date: string) => new Date(date),
-}
 
 const columnMapper = snakeCamelMapper()
 

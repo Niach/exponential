@@ -15,20 +15,18 @@ type BunS3ClientLike = new (options: {
   bucket: string
   accessKeyId?: string
   secretAccessKey?: string
-}) => { delete(key: string): Promise<void> }
+}) => {
+  delete(key: string): Promise<void>
+  stat(key: string): Promise<{ size: number; type: string }>
+  file(key: string): { arrayBuffer(): Promise<ArrayBuffer> }
+}
 
-export async function deleteStorageObjectsViaBun(
-  keys: string[]
-): Promise<void> {
-  if (keys.length === 0) return
+type BunS3Client = InstanceType<BunS3ClientLike>
+
+function createBunStorageClient(): BunS3Client | null {
   const bun = (globalThis as { Bun?: { S3Client: BunS3ClientLike } }).Bun
-  if (!bun?.S3Client) {
-    console.error(
-      `[bun-s3-cleanup] Bun.S3Client unavailable — skipped deleting ${keys.length} object(s)`
-    )
-    return
-  }
-  const client = new bun.S3Client({
+  if (!bun?.S3Client) return null
+  return new bun.S3Client({
     endpoint: process.env.S3_ENDPOINT || `http://localhost:3900`,
     region: process.env.S3_REGION || `garage`,
     bucket: process.env.S3_BUCKET || `exponential-attachments`,
@@ -39,6 +37,61 @@ export async function deleteStorageObjectsViaBun(
         }
       : {}),
   })
+}
+
+// Bun's S3 errors carry a `code` (`NoSuchKey`) — the only miss signal this
+// client gives; anything else is a real failure the caller should see.
+function isBunMissingKey(error: unknown) {
+  const code = (error as { code?: unknown } | null)?.code
+  return code === `NoSuchKey` || code === `NotFound`
+}
+
+/**
+ * EXP-955: the attachment object probe for callers in the server ENTRY graph
+ * (the size backfill sweep) — the Bun-native twin of the aws-sdk probe in
+ * lib/attachments/finalize.ts. Null when this process is not Bun (the entry
+ * only ever runs under Bun; tests and the dev bridge never reach it).
+ */
+export function bunAttachmentObjectProbe(): {
+  head(key: string): Promise<{ sizeBytes: number; contentType: string | null } | null>
+  read(key: string): Promise<Uint8Array | null>
+  remove(key: string): Promise<void>
+} | null {
+  const client = createBunStorageClient()
+  if (!client) return null
+  return {
+    head: async (key) => {
+      try {
+        const stat = await client.stat(key)
+        return { sizeBytes: stat.size, contentType: stat.type || null }
+      } catch (error) {
+        if (isBunMissingKey(error)) return null
+        throw error
+      }
+    },
+    read: async (key) => {
+      try {
+        return new Uint8Array(await client.file(key).arrayBuffer())
+      } catch (error) {
+        if (isBunMissingKey(error)) return null
+        throw error
+      }
+    },
+    remove: (key) => client.delete(key),
+  }
+}
+
+export async function deleteStorageObjectsViaBun(
+  keys: string[]
+): Promise<void> {
+  if (keys.length === 0) return
+  const client = createBunStorageClient()
+  if (!client) {
+    console.error(
+      `[bun-s3-cleanup] Bun.S3Client unavailable — skipped deleting ${keys.length} object(s)`
+    )
+    return
+  }
   await Promise.allSettled(
     keys.map(async (storageKey) => {
       try {

@@ -94,6 +94,32 @@ export function getAttachmentIcon(contentType: string): LucideIcon {
   return FileIcon
 }
 
+/**
+ * EXP-955: a Files-rail row that previews IN the app through the markdown
+ * renderer instead of opening the byte route (which the browser would only
+ * download — `text/markdown` is not something it renders). Matched by the
+ * stored type, or by the extension for the browsers that upload `.md` with
+ * an empty / generic type (Safari: octet-stream, some pickers: text/plain).
+ */
+export function isMarkdownAttachment(contentType: string, filename: string) {
+  const essence = contentType.split(`;`)[0]?.trim().toLowerCase() ?? ``
+  if (essence === `text/markdown` || essence === `text/x-markdown`) return true
+  if (
+    essence !== `` &&
+    essence !== `text/plain` &&
+    essence !== `application/octet-stream`
+  ) {
+    return false
+  }
+  return /\.(md|markdown)$/i.test(filename.trim())
+}
+
+/**
+ * The largest markdown file the preview will fetch and render. A README is
+ * kilobytes; anything bigger is a download, not a dialog.
+ */
+export const MARKDOWN_PREVIEW_MAX_BYTES = 1024 * 1024
+
 /** Compact human size for attachment rows (1 KB = 1024 B). */
 export function formatAttachmentSize(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return `0 B`

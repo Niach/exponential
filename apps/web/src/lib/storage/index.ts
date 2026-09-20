@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   NoSuchKey,
   PutObjectCommand,
   S3Client,
@@ -111,6 +112,43 @@ export async function getObject(
       error instanceof NoSuchKey ||
       (error instanceof S3ServiceException &&
         error.$metadata.httpStatusCode === 404)
+    ) {
+      return null
+    }
+
+    throw error
+  }
+}
+
+export interface StoredObjectHead {
+  sizeBytes: number
+  /** The object's stored Content-Type, or null when S3 recorded none. */
+  contentType: string | null
+}
+
+/**
+ * HEAD one stored object (EXP-955): the size and type S3 holds for it, or
+ * null when no such key exists. This is how a signed-URL upload's row learns
+ * its real size — the bytes never passed through this process.
+ */
+export async function headObject(
+  key: string
+): Promise<StoredObjectHead | null> {
+  await ensureBucketReady()
+
+  try {
+    const head = await storageClient.send(
+      new HeadObjectCommand({ Bucket: storageBucket, Key: key })
+    )
+    return {
+      sizeBytes:
+        typeof head.ContentLength === `number` ? head.ContentLength : 0,
+      contentType: head.ContentType ?? null,
+    }
+  } catch (error) {
+    if (
+      error instanceof S3ServiceException &&
+      (error.name === `NotFound` || error.$metadata.httpStatusCode === 404)
     ) {
       return null
     }

@@ -8,7 +8,12 @@ import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
-import { formatAttachmentSize, getAttachmentIcon } from "@/lib/attachment-files"
+import {
+  formatAttachmentSize,
+  getAttachmentIcon,
+  isMarkdownAttachment,
+} from "@/lib/attachment-files"
+import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdown-preview"
 import { buildAttachmentPosterUrl } from "@/lib/storage/issue-attachments"
 import { formatDuration } from "@/lib/storage/video-metadata"
 import { formatStorage, UsageBar } from "@/components/team/billing-section"
@@ -242,7 +247,13 @@ export function TeamStorageSection({
                 ? userMap.get(row.uploaderId)
                 : undefined
               // EXP-824: clips preview in the same lightbox as images.
-              const previewable = row.isImage || row.isVideo || row.isAudio
+              // EXP-955: markdown files preview through the renderer.
+              const isMarkdown = isMarkdownAttachment(
+                row.contentType,
+                row.filename
+              )
+              const previewable =
+                row.isImage || row.isVideo || row.isAudio || isMarkdown
 
               return (
                 <GlassRow
@@ -335,7 +346,24 @@ export function TeamStorageSection({
         )}
       </div>
 
-      {previewRow && (
+      {previewRow &&
+        isMarkdownAttachment(previewRow.contentType, previewRow.filename) && (
+          <AttachmentMarkdownPreviewDialog
+            open
+            onOpenChange={(open) => {
+              if (!open) setPreviewRow(null)
+            }}
+            attachment={{
+              id: previewRow.id,
+              url: `/api/attachments/${previewRow.id}`,
+              filename: previewRow.filename,
+              sizeBytes: previewRow.sizeBytes,
+            }}
+          />
+        )}
+
+      {previewRow &&
+        !isMarkdownAttachment(previewRow.contentType, previewRow.filename) && (
         <ImagePreviewDialog
           open
           onOpenChange={(open) => {
