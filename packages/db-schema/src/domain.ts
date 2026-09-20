@@ -1000,8 +1000,13 @@ export const WORKFLOW_DECISIONS_MAX = 65536
  *  optional; an absent one falls back to the runner device's defaults. */
 export interface WorkflowLaunch {
   agent?: string | null
+  /** The model every node's run spawns on, unless its PHASE overrides it. */
   model?: string | null
-  /** Claude only: the model its subagents run on. */
+  /** EXP-1002: the model `contract` nodes run on. Absent = `model`. */
+  contractModel?: string | null
+  /** EXP-1002: the model `integration` nodes run on. Absent = `model`. */
+  integrationModel?: string | null
+  /** Claude only: the model its subagents run on. NOT the node runs' own. */
   subagentModel?: string | null
   effort?: string | null
   /** An agent profile id on the runner device. */
@@ -1017,6 +1022,8 @@ export const workflowLaunchSchema = z
   .object({
     agent: z.string().max(16).nullish(),
     model: z.string().max(64).nullish(),
+    contractModel: z.string().max(64).nullish(),
+    integrationModel: z.string().max(64).nullish(),
     subagentModel: z.string().max(64).nullish(),
     effort: z.string().max(32).nullish(),
     account: z.string().max(64).nullish(),

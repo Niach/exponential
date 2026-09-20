@@ -22,9 +22,16 @@ use crate::trpc::TrpcClient;
 pub struct WorkflowLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// The model every node's run spawns on, unless its PHASE overrides it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Claude only: the model its subagents run on.
+    /// EXP-1002: the model `contract` nodes run on. Absent = `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract_model: Option<String>,
+    /// EXP-1002: the model `integration` nodes run on. Absent = `model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integration_model: Option<String>,
+    /// Claude only: the model its SUBAGENTS run on — never the node run's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -79,6 +79,13 @@ function assertLaunch(launch: WorkflowLaunch): void {
   if (launch.model && !agentModelValues[agent]!.includes(launch.model)) {
     throw bad(`Unknown ${agent} model`)
   }
+  // EXP-1002: the per-PHASE overrides come out of the SAME closed set as the
+  // workflow's own model — they only say which nodes take which of them.
+  for (const phase of [launch.contractModel, launch.integrationModel]) {
+    if (phase && !agentModelValues[agent]!.includes(phase)) {
+      throw bad(`Unknown ${agent} model`)
+    }
+  }
   if (launch.effort && !agentEffortValues[agent]!.includes(launch.effort)) {
     throw bad(`Unknown ${agent} effort`)
   }

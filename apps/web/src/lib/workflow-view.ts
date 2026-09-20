@@ -363,6 +363,15 @@ export const DISMISS_NODE_LABEL = `Dismiss`
 export const PROPOSED_NODE_NOTE = `Filed during the run. Admit it into the workflow or dismiss it.`
 export const AGENT_REVIEW_TITLE = `Agent review`
 export const REVIEW_MODEL_LABEL = `Review model`
+
+// ── Per-phase models (EXP-1002) ────────────────────────────────────────────
+
+/** The settings row pinning what a `contract` node runs on. */
+export const CONTRACT_MODEL_LABEL = `Contract model`
+/** The settings row pinning what an `integration` node runs on. */
+export const INTEGRATION_MODEL_LABEL = `Integration model`
+/** Both phase rows' blank pick: the workflow's own Model, not the CLI's. */
+export const SAME_AS_MODEL_LABEL = `Same as Model`
 export const BUDGET_TITLE = `Budget`
 export const BUDGET_MINUTES_LABEL = `Minutes`
 export const BUDGET_TOKENS_LABEL = `Tokens`

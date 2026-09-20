@@ -425,6 +425,9 @@ class WorkflowViewTest {
         assertEquals("Minutes", WorkflowView.BUDGET_MINUTES_LABEL)
         assertEquals("Tokens", WorkflowView.BUDGET_TOKENS_LABEL)
         assertEquals("Metrics", WorkflowView.METRICS_TITLE)
+        assertEquals("Contract model", WorkflowView.CONTRACT_MODEL_LABEL)
+        assertEquals("Integration model", WorkflowView.INTEGRATION_MODEL_LABEL)
+        assertEquals("Same as Model", WorkflowView.SAME_AS_MODEL_LABEL)
     }
 
     @Test

@@ -563,6 +563,14 @@ pub const BUDGET_MINUTES_LABEL: &str = "Minutes";
 pub const BUDGET_TOKENS_LABEL: &str = "Tokens";
 pub const METRICS_TITLE: &str = "Metrics";
 
+// ── Per-phase models (EXP-1002) ───────────────────────────────────────
+
+/// The launch rows pinning what a `contract` / `integration` node runs on,
+/// and their blank pick: the workflow's own Model, never the CLI's default.
+pub const CONTRACT_MODEL_LABEL: &str = "Contract model";
+pub const INTEGRATION_MODEL_LABEL: &str = "Integration model";
+pub const SAME_AS_MODEL_LABEL: &str = "Same as Model";
+
 /// What the review line reads off `workflow_nodes.review`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReviewLine<'a> {

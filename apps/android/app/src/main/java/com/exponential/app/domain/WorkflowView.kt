@@ -430,6 +430,14 @@ object WorkflowView {
     const val BUDGET_TOKENS_LABEL = "Tokens"
     const val METRICS_TITLE = "Metrics"
 
+    // ── Per-phase models (EXP-1002) ─────────────────────────────────
+
+    /** What a `contract` / `integration` node runs on, and the blank pick
+     * both rows carry: the workflow's own Model, never the CLI's default. */
+    const val CONTRACT_MODEL_LABEL = "Contract model"
+    const val INTEGRATION_MODEL_LABEL = "Integration model"
+    const val SAME_AS_MODEL_LABEL = "Same as Model"
+
     /**
      * The three fields [reviewLine] reads off `workflow_nodes.review`.
      * [oraclePassed] null = the reviewer ran no executable check, which is

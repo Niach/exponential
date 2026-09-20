@@ -306,6 +306,9 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowView.budgetMinutesLabel, "Minutes")
         XCTAssertEqual(WorkflowView.budgetTokensLabel, "Tokens")
         XCTAssertEqual(WorkflowView.metricsTitle, "Metrics")
+        XCTAssertEqual(WorkflowView.contractModelLabel, "Contract model")
+        XCTAssertEqual(WorkflowView.integrationModelLabel, "Integration model")
+        XCTAssertEqual(WorkflowView.sameAsModelLabel, "Same as Model")
     }
 
     // A `proposed` node is NOT part of the run: it never holds the final PR up,

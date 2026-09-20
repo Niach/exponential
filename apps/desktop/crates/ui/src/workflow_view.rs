@@ -40,11 +40,12 @@ use domain::workflow_view::{
     workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation, ReviewLine, StartableWorkflow,
     TrainNode, WorkflowNodeTone, ADMIT_NODE_LABEL, AGENT_REVIEW_TITLE, APPROVE_NODE_LABEL,
     BUDGET_MINUTES_LABEL, BUDGET_TITLE, BUDGET_TOKENS_LABEL, CANCEL_WORKFLOW_CONFIRM,
-    CANCEL_WORKFLOW_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL, DISMISS_NODE_LABEL,
-    FINAL_PR_TITLE, MERGES_IN_FIRST_LABEL, MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
+    CANCEL_WORKFLOW_LABEL, CONTRACT_MODEL_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL,
+    DISMISS_NODE_LABEL, FINAL_PR_TITLE, INTEGRATION_MODEL_LABEL, MERGES_IN_FIRST_LABEL,
+    MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
     OPEN_RUN_LABEL, RUNNING_NOW_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
-    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, SKIP_NODE_CONFIRM,
-    SKIP_NODE_LABEL, START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
+    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, SAME_AS_MODEL_LABEL,
+    SKIP_NODE_CONFIRM, SKIP_NODE_LABEL, START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
 };
 
 use crate::actions_view::page_scaffold_with;
@@ -109,6 +110,26 @@ const REVIEW_MODEL_CHOICES: [(&str, &str); 4] = [
     ("Fable", "fable"),
     ("Opus", "opus"),
     ("Sonnet", "sonnet"),
+];
+
+/// EXP-1002: what a PHASE row offers — the agent's own models, with the blank
+/// "Same as Model" in front. That blank is the workflow's Model row, NOT the
+/// CLI default, so these are never [`crate::coding_selects::MODEL_CHOICES`]
+/// with a "CLI default" head. Both are sliced off the model picks themselves,
+/// so a new model reaches every row at once.
+const PHASE_MODEL_CHOICES: [(&str, &str); 4] = [
+    (SAME_AS_MODEL_LABEL, ""),
+    crate::coding_selects::MODEL_CHOICES[0],
+    crate::coding_selects::MODEL_CHOICES[1],
+    crate::coding_selects::MODEL_CHOICES[2],
+];
+const CODEX_PHASE_MODEL_CHOICES: [(&str, &str); 4] = [
+    (SAME_AS_MODEL_LABEL, ""),
+    // Index 0 is codex's own blank "CLI default" — the phase rows have their
+    // own blank and must not offer a second one.
+    crate::coding_selects::CODEX_MODEL_CHOICES[1],
+    crate::coding_selects::CODEX_MODEL_CHOICES[2],
+    crate::coding_selects::CODEX_MODEL_CHOICES[3],
 ];
 
 /// EXP-984: how many lines of a review's findings show before the fold.
@@ -891,6 +912,9 @@ impl WorkflowView {
                             launch.model = None;
                             launch.effort = None;
                             launch.subagent_model = None;
+                            // EXP-1002: so does a per-phase model.
+                            launch.contract_model = None;
+                            launch.integration_model = None;
                             // EXP-984: a review model belongs to that same
                             // closed set.
                             launch.review_model = None;
@@ -919,6 +943,53 @@ impl WorkflowView {
                     update(
                         Box::new(move |launch| {
                             launch.model = (!value.is_empty()).then_some(value);
+                        }),
+                        cx,
+                    );
+                }
+            },
+            cx,
+        ));
+        // EXP-1002: the two phases that may opt OUT of the model above. Both
+        // rows exist whatever the agent — a phase pin is not claude's.
+        let phase_choices = if claude {
+            &PHASE_MODEL_CHOICES[..]
+        } else {
+            &CODEX_PHASE_MODEL_CHOICES[..]
+        };
+        rows.push(pick_row(
+            "workflow-contract-model",
+            CONTRACT_MODEL_LABEL,
+            phase_choices,
+            launch.contract_model.as_deref().unwrap_or_default(),
+            draft,
+            {
+                let update = update_launch.clone();
+                move |value: &str, cx: &mut App| {
+                    let value = value.to_string();
+                    update(
+                        Box::new(move |launch| {
+                            launch.contract_model = (!value.is_empty()).then_some(value);
+                        }),
+                        cx,
+                    );
+                }
+            },
+            cx,
+        ));
+        rows.push(pick_row(
+            "workflow-integration-model",
+            INTEGRATION_MODEL_LABEL,
+            phase_choices,
+            launch.integration_model.as_deref().unwrap_or_default(),
+            draft,
+            {
+                let update = update_launch.clone();
+                move |value: &str, cx: &mut App| {
+                    let value = value.to_string();
+                    update(
+                        Box::new(move |launch| {
+                            launch.integration_model = (!value.is_empty()).then_some(value);
                         }),
                         cx,
                     );

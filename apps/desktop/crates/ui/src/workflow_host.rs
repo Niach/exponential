@@ -576,6 +576,9 @@ fn snapshot_for(
                     // model).
                     review_model: launch.review_model.clone(),
                     author_model: launch.model.clone(),
+                    // EXP-1002: the phases that opt out of that model.
+                    contract_model: launch.contract_model.clone(),
+                    integration_model: launch.integration_model.clone(),
                 },
                 nodes,
                 edges,
@@ -836,6 +839,7 @@ fn run_pass(
                 node_id,
                 attempt,
                 base_branch,
+                model,
             } => {
                 // The base did not go up this pass: never cut from it.
                 if unbuilt.contains(&base_branch) {
@@ -882,6 +886,13 @@ fn run_pass(
                 if let Some(sha) = snapshot.tips.get(&base_branch).cloned() {
                     remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
                 }
+                // EXP-1002: the node's PHASE picks the model; everything
+                // else (agent, effort, account, subagent model) is the
+                // workflow's own launch configuration — the review's rule.
+                let mut options = pass.options.clone();
+                if let Some(model) = model {
+                    options.model = model;
+                }
                 orders.starts.push(StartOrder {
                     workflow_id: workflow_id.clone(),
                     workflow_name: pass.name.clone(),
@@ -893,7 +904,7 @@ fn run_pass(
                     issue_id,
                     member_issue_ids: members,
                     repo,
-                    options: pass.options.clone(),
+                    options,
                     trpc: Arc::clone(&pass.trpc),
                     in_flight: Some(Arc::new(claim)),
                 });

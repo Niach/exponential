@@ -130,10 +130,19 @@ pub struct WorkflowFacts {
     /// = the author's own model, unless the node is adversarial.
     #[serde(default)]
     pub review_model: Option<String>,
-    /// EXP-984: `launch.model` — what the node's AUTHOR runs on. A high-risk
-    /// node is never reviewed by the same model that wrote it.
+    /// EXP-984: `launch.model` — the model a node's run spawns on unless its
+    /// PHASE overrides it. A high-risk node is never reviewed by the same
+    /// model that wrote it.
     #[serde(default)]
     pub author_model: Option<String>,
+    /// EXP-1002: `launch.contractModel` — what a `contract` node runs on.
+    /// Absent = `author_model`.
+    #[serde(default)]
+    pub contract_model: Option<String>,
+    /// EXP-1002: `launch.integrationModel` — what an `integration` node runs
+    /// on. Absent = `author_model`.
+    #[serde(default)]
+    pub integration_model: Option<String>,
     /// contract `wfStartOn` (`contract|pr_open|landed`). An absent or unknown
     /// word reads as `landed`: the conservative mode, which never starts a
     /// node on work that is not in yet.
@@ -157,6 +166,8 @@ impl Default for WorkflowFacts {
             start_on: start_on_landed(),
             review_model: None,
             author_model: None,
+            contract_model: None,
+            integration_model: None,
         }
     }
 }
@@ -404,6 +415,10 @@ pub enum Decision {
         node_id: String,
         attempt: i64,
         base_branch: String,
+        /// EXP-1002: the model this node's PHASE runs on ([`node_model`]).
+        /// `None` = the device's own default, as for a review.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     /// EXP-983: tell a live (or resume an ended) run that the branch it
     /// builds on moved to `sha`, so it merges it in. The host writes the
@@ -699,6 +714,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             node_id: entry.node.id.clone(),
             attempt: entry.node.attempt + 1,
             base_branch: base,
+            model: node_model(&snapshot.workflow, &entry.node.kind),
         });
         active += 1;
     }
@@ -1146,6 +1162,26 @@ const RISK_HIGH: &str = "high";
 /// The two contract claude models an adversarial review swaps between.
 const MODEL_OPUS: &str = "opus";
 const MODEL_FABLE: &str = "fable";
+/// contract `wfNodeKind` — the two phases that may pin their own model.
+const KIND_CONTRACT: &str = "contract";
+const KIND_INTEGRATION: &str = "integration";
+
+/// EXP-1002: the model a node's run spawns on — its PHASE's pin, else the
+/// workflow's own `launch.model`. `None` = the device's default. A `leaf`
+/// (and any kind this build does not know) is always the workflow's model:
+/// the phases opt OUT of it, they never replace it.
+pub fn node_model(workflow: &WorkflowFacts, kind: &str) -> Option<String> {
+    let phase = match kind {
+        KIND_CONTRACT => workflow.contract_model.as_deref(),
+        KIND_INTEGRATION => workflow.integration_model.as_deref(),
+        _ => None,
+    };
+    phase
+        .filter(|model| !model.is_empty())
+        .or(workflow.author_model.as_deref())
+        .filter(|model| !model.is_empty())
+        .map(str::to_string)
+}
 
 /// EXP-984 rule 7 — the agent review gate. ONE review start per pass, in
 /// (wave, lane, id) order, and the findings of a round said exactly once.
@@ -1194,7 +1230,7 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
         let adversarial = node.risk == RISK_HIGH;
         decisions.push(Decision::StartReview {
             node_id: node.id.clone(),
-            model: review_model(snapshot, adversarial),
+            model: review_model(snapshot, node, adversarial),
             adversarial,
         });
         break;
@@ -1266,14 +1302,22 @@ fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool
 /// The model a review runs on: the workflow's pin, else the author's own.
 /// An ADVERSARIAL review must never be the author's model, so an equal pick
 /// swaps deterministically (`opus` ↔ `fable`; anything else → `opus`).
-fn review_model(snapshot: &Snapshot, adversarial: bool) -> Option<String> {
-    let author = snapshot.workflow.author_model.as_deref();
-    let picked = snapshot.workflow.review_model.as_deref().or(author);
+/// EXP-1002: "the author's" is the model THIS node ran on, phase pin and all
+/// — a high-risk contract node on its own model would otherwise be reviewed
+/// by the very model that wrote it.
+fn review_model(snapshot: &Snapshot, node: &NodeFacts, adversarial: bool) -> Option<String> {
+    let author = node_model(&snapshot.workflow, &node.kind);
+    let picked = snapshot
+        .workflow
+        .review_model
+        .as_deref()
+        .map(str::to_string)
+        .or_else(|| author.clone());
     if !adversarial || picked != author {
-        return picked.map(str::to_string);
+        return picked;
     }
     Some(
-        match author {
+        match author.as_deref() {
             Some(MODEL_OPUS) => MODEL_FABLE,
             Some(MODEL_FABLE) => MODEL_OPUS,
             _ => MODEL_OPUS,
@@ -1763,6 +1807,8 @@ mod tests {
                 start_on: START_ON_LANDED.to_string(),
                 review_model: None,
                 author_model: None,
+                contract_model: None,
+                integration_model: None,
             },
             nodes,
             integration_branch_exists: true,
@@ -1867,8 +1913,78 @@ mod tests {
                 node_id: "a".to_string(),
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
+                model: None,
             }),
             "past the grace the start is retried: {decisions:?}"
+        );
+    }
+
+    /// EXP-1002: a PHASE pin moves that kind of node and nothing else — the
+    /// leaves beside it keep the workflow's own model.
+    #[test]
+    fn a_phase_model_only_moves_its_own_kind() {
+        let mut contract_node = node("a", "ready", 0, 0);
+        contract_node.kind = KIND_CONTRACT.to_string();
+        let mut snapshot = running(vec![contract_node, node("b", "ready", 0, 1)]);
+        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
+        let decisions = evaluate(&snapshot);
+        let started: Vec<(&str, Option<&str>)> = decisions
+            .iter()
+            .filter_map(|decision| match decision {
+                Decision::StartNode { node_id, model, .. } => {
+                    Some((node_id.as_str(), model.as_deref()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            started,
+            vec![("a", Some(MODEL_FABLE)), ("b", Some(MODEL_OPUS))],
+            "{decisions:?}"
+        );
+
+        // Nothing pinned anywhere = the device's own default, as before.
+        let mut bare = running(vec![node("a", "ready", 0, 0)]);
+        bare.workflow.contract_model = Some(String::new());
+        assert_eq!(node_model(&bare.workflow, KIND_CONTRACT), None);
+        assert_eq!(node_model(&bare.workflow, KIND_INTEGRATION), None);
+    }
+
+    /// EXP-1002: "never the author's model" reads the model the NODE ran on,
+    /// so a high-risk node on a phase pin is not reviewed by its own writer.
+    #[test]
+    fn an_adversarial_review_dodges_the_phase_model() {
+        let mut snapshot = running(vec![]);
+        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
+
+        let mut risky = node("a", "in_review", 0, 0);
+        risky.kind = KIND_CONTRACT.to_string();
+        risky.risk = RISK_HIGH.to_string();
+        // It wrote on fable, so its adversarial review is opus — the
+        // workflow's `model` would have been the WRONG dodge here.
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_OPUS)
+        );
+
+        let leaf = node("b", "in_review", 0, 1);
+        assert_eq!(
+            review_model(&snapshot, &leaf, true).as_deref(),
+            Some(MODEL_FABLE),
+            "the leaf wrote on opus"
+        );
+        // Not adversarial: the node's own model, phase pin and all.
+        assert_eq!(
+            review_model(&snapshot, &risky, false).as_deref(),
+            Some(MODEL_FABLE)
+        );
+        // An explicit review pin still wins over both.
+        snapshot.workflow.review_model = Some("sonnet".to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some("sonnet")
         );
     }
 

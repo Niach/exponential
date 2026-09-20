@@ -17,7 +17,10 @@ import {
   PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
+  CONTRACT_MODEL_LABEL,
+  INTEGRATION_MODEL_LABEL,
   REVIEW_MODEL_LABEL,
+  SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   RUNNING_NOW_LABEL,
@@ -1046,6 +1049,36 @@ describe(`WorkflowDetail review model and metrics`, () => {
         .getByTestId(`workflow-how-it-runs`)
         .querySelectorAll(`[data-slot="glass-picker-row"]`),
     ].find((row) => row.textContent?.startsWith(label))
+
+  // EXP-1002: the phase rows read "Same as Model" while they are blank —
+  // an unpinned phase takes the workflow's Model, never the CLI default.
+  it(`pins a model per phase, blank = the workflow's own`, () => {
+    nodeRows.rows = []
+    graphState.issues = []
+    graphState.relations = []
+    const blank = mount(startable({ launch: { model: `opus` } }))
+    expect(rowLabelled(CONTRACT_MODEL_LABEL)?.textContent).toBe(
+      `${CONTRACT_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
+    )
+    expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
+      `${INTEGRATION_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
+    )
+    blank.unmount()
+
+    mount(
+      startable({
+        launch: { model: `opus`, contractModel: `fable`, integrationModel: `sonnet` },
+      })
+    )
+    expect(rowLabelled(CONTRACT_MODEL_LABEL)?.textContent).toBe(
+      `${CONTRACT_MODEL_LABEL}Fable`
+    )
+    expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
+      `${INTEGRATION_MODEL_LABEL}Sonnet`
+    )
+    // The Model row above them is untouched by either pin.
+    expect(rowLabelled(`Model`)?.textContent).toBe(`ModelOpus`)
+  })
 
   it(`offers the review model only under the agent gate`, () => {
     nodeRows.rows = []

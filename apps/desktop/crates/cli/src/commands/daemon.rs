@@ -3074,6 +3074,7 @@ impl AutomationHost {
                     node_id,
                     attempt,
                     base_branch,
+                    model,
                 } => {
                     // The base did not go up this pass: never cut from it.
                     if unbuilt.contains(&base_branch) {
@@ -3084,6 +3085,7 @@ impl AutomationHost {
                         &node_id,
                         attempt,
                         &base_branch,
+                        model,
                         settings,
                         settings_path,
                     );
@@ -3407,6 +3409,7 @@ impl AutomationHost {
         node_id: &str,
         attempt: i64,
         branch: &str,
+        model: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
     ) {
@@ -3439,7 +3442,10 @@ impl AutomationHost {
             start_on: plan.snapshot.workflow.start_on.clone(),
             blockers: workflow_blocker_identifiers(&plan.snapshot, node_id),
         };
-        let options = coding::workflows::launch_options(
+        // EXP-1002: the node's PHASE picks the model; everything else
+        // (agent, effort, account, subagent model) is the workflow's own
+        // launch configuration — the review's rule.
+        let mut options = coding::workflows::launch_options(
             settings,
             plan.launch.agent.as_deref(),
             plan.launch.model.as_deref(),
@@ -3447,6 +3453,9 @@ impl AutomationHost {
             plan.launch.subagent_model.as_deref(),
             plan.launch.account.as_deref(),
         );
+        if let Some(model) = model {
+            options.model = model;
+        }
         match self.prepare_workflow_node(plan, node, run, options, branch) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
@@ -4057,6 +4066,9 @@ fn workflow_plan(
                 // on (a high-risk node is never reviewed by its own model).
                 review_model: launch.review_model.clone(),
                 author_model: launch.model.clone(),
+                // EXP-1002: the phases that opt out of that model.
+                contract_model: launch.contract_model.clone(),
+                integration_model: launch.integration_model.clone(),
             },
             nodes,
             edges,

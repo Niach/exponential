@@ -98,7 +98,10 @@ import {
   PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
+  CONTRACT_MODEL_LABEL,
+  INTEGRATION_MODEL_LABEL,
   REVIEW_MODEL_LABEL,
+  SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   START_WORKFLOW_LABEL,
@@ -151,6 +154,10 @@ const RISK_LABELS: Record<string, string> = {
 }
 /** EXP-983: the node panel's serialization line. Byte-identical ×4. */
 const MERGES_IN_FIRST_LABEL = `Merges in first`
+
+/** EXP-1002: the phase rows' blank pick — the workflow's own Model, which
+ *  is NOT `CLI_DEFAULT_MODEL` (that one means the device's default). */
+const SAME_AS_MODEL = `same-as-model`
 
 /** The four status-only mutations, and what to say when one is refused. */
 type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
@@ -719,6 +726,8 @@ function HowItRunsSection({
               patchLaunch({
                 agent: value,
                 model: null,
+                contractModel: null,
+                integrationModel: null,
                 effort: null,
                 subagentModel: null,
               })
@@ -747,6 +756,37 @@ function HowItRunsSection({
             }
           }}
         />
+        {/* EXP-1002: the two phases that may opt OUT of the model above —
+            blank reads "Same as Model", never the CLI's own default. */}
+        {(
+          [
+            [CONTRACT_MODEL_LABEL, `contractModel`],
+            [INTEGRATION_MODEL_LABEL, `integrationModel`],
+          ] as const
+        ).map(([label, field]) => (
+          <Combobox
+            key={field}
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle={label}
+            disabled={readOnly}
+            value={launch[field] || SAME_AS_MODEL}
+            options={[
+              { value: SAME_AS_MODEL, label: SAME_AS_MODEL_LABEL },
+              ...agentModelValues(agent).map((value) => ({
+                value,
+                label: modelLabel(value),
+              })),
+            ]}
+            onChange={(value) => {
+              if (value !== null) {
+                patchLaunch({
+                  [field]: value === SAME_AS_MODEL ? null : value,
+                })
+              }
+            }}
+          />
+        ))}
         {agentSupportsSubagentModel(agent) && (
           <Combobox
             triggerVariant="row"
