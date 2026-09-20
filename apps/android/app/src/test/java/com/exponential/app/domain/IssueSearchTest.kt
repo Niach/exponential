@@ -26,6 +26,7 @@ class IssueSearchTest {
         override val description: String? = null,
         override val createdAt: String? = null,
         override val updatedAt: String? = null,
+        override val status: String? = null,
     ) : IssueSearch.Row
 
     private data class TestHit(
@@ -61,6 +62,7 @@ class IssueSearchTest {
                         description = str(obj, "description"),
                         createdAt = str(obj, "createdAt"),
                         updatedAt = str(obj, "updatedAt"),
+                        status = str(obj, "status"),
                     )
                 },
                 query = case.getValue("query").jsonPrimitive.content,

@@ -21,6 +21,20 @@ describe(`issues.search ordering`, () => {
     expect(SOURCE.slice(exact, rank)).toContain(`desc`)
   })
 
+  // EXP-922: the server's three ordering keys must be the client engine's
+  // three, in the same order (exact identifier, then undone, then relevance)
+  // — otherwise the hits spliced in behind the local ranking arrive in a
+  // different order than the rows above them.
+  it(`sorts undone issues above done ones, between the exact hit and ts_rank`, () => {
+    const exact = SOURCE.indexOf(`issueSearchIdentifierExactSql(input.query)`)
+    const open = SOURCE.indexOf(`issueSearchOpenSql()`)
+    const rank = SOURCE.indexOf(`issueSearchRankSql(input.query)`)
+    expect(open).toBeGreaterThan(-1)
+    expect(exact).toBeLessThan(open)
+    expect(open).toBeLessThan(rank)
+    expect(SOURCE.slice(open, rank)).toContain(`desc`)
+  })
+
   it(`keeps the wire contract: the same seven selected columns`, () => {
     // Old clients call this procedure; the row shape may not drift.
     for (const field of [

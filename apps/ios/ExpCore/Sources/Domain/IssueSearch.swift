@@ -21,13 +21,39 @@ import Foundation
 ///   description word prefix                                  20
 ///   description substring                                    15
 ///
-/// Ties order by `updatedAt` desc, then `createdAt` desc, then identifier
-/// number desc, then the identifier string desc. An EMPTY query lists the
-/// newest CREATED first (the `#` menu's "recent work" list). Queries and
-/// tokens drop one leading `#` so `#87` and `fix #87` both find EXP-87.
+/// EXP-922: the ordering is THREE keys above the score, in this order:
+///
+///   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
+///      finds EXP-42 first whatever state it is in;
+///   2. UNDONE before done (`closedStatuses`: the `done`/`cancelled`/
+///      `duplicate` anchors every custom status dual-writes; an absent or
+///      unknown status counts as open);
+///   3. the score.
+///
+/// Ties then order by `updatedAt` desc, then `createdAt` desc, then identifier
+/// number desc, then the identifier string desc. An EMPTY query lists open
+/// work first, newest CREATED first inside each half (the `#` menu's "recent
+/// work" list). Queries and tokens drop one leading `#` so `#87` and
+/// `fix #87` both find EXP-87.
 public enum IssueSearch {
-    /// The `limit` every consumer gets without asking.
+    /// The `limit` every consumer gets without asking — and, since EXP-922,
+    /// the one every SEARCH SURFACE uses on all four clients, so the same
+    /// query returns the same rows whichever one you type it into.
     public static let defaultLimit = 30
+
+    /// EXP-922: the builtin status anchors that mean "this issue is finished"
+    /// — the `completed`/`cancelled`/`duplicate` categories' anchors, so a
+    /// team's CUSTOM statuses sort correctly too (they dual-write one of these
+    /// into `issues.status`). Web `ISSUE_SEARCH_CLOSED_STATUSES`.
+    public static let closedStatuses: Set<String> = ["done", "cancelled", "duplicate"]
+
+    /// Whether a row counts as UNDONE for ranking. An absent or unrecognized
+    /// status is open: a server hit that never synced carries none, and a
+    /// client that meets a status it does not know must not bury the row.
+    public static func isOpen(_ status: String?) -> Bool {
+        guard let status else { return true }
+        return !closedStatuses.contains(status)
+    }
 
     private static let scoreIdentifierExact = 100
     private static let scoreIdentifierPrefix = 80
@@ -48,6 +74,9 @@ public enum IssueSearch {
         public let description: String?
         public let createdAt: String?
         public let updatedAt: String?
+        /// EXP-922: the builtin status ANCHOR (`issues.status`) the row
+        /// dual-writes. Absent/unknown = treated as open.
+        public let status: String?
 
         public init(
             id: String,
@@ -55,7 +84,8 @@ public enum IssueSearch {
             title: String,
             description: String? = nil,
             createdAt: String? = nil,
-            updatedAt: String? = nil
+            updatedAt: String? = nil,
+            status: String? = nil
         ) {
             self.id = id
             self.identifier = identifier
@@ -63,6 +93,7 @@ public enum IssueSearch {
             self.description = description
             self.createdAt = createdAt
             self.updatedAt = updatedAt
+            self.status = status
         }
     }
 
@@ -98,7 +129,7 @@ public enum IssueSearch {
 
     /// The row's total score for `tokens`, or nil when any token misses.
     public static func score(_ row: Row, tokens: [String]) -> Int? {
-        score(prepare(row), tokens: tokens)
+        score(prepare(row), tokens: tokens)?.total
     }
 
     // MARK: - Ranking
@@ -125,17 +156,23 @@ public enum IssueSearch {
         }
         guard limit > 0 else { return [] }
         if queryTokens.isEmpty {
-            let sorted = entries.sorted { compareCreated($0, $1) < 0 }
+            let sorted = entries.sorted { a, b in
+                if a.open != b.open { return a.open }
+                return compareCreated(a, b) < 0
+            }
             return sorted.prefix(limit).map(\.value)
         }
         var scored: [Entry<T>] = []
         scored.reserveCapacity(entries.count)
         for var entry in entries {
             guard let score = score(entry.prepared, tokens: queryTokens) else { continue }
-            entry.score = score
+            entry.score = score.total
+            entry.exact = score.exact
             scored.append(entry)
         }
         let sorted = scored.sorted { a, b in
+            if a.exact != b.exact { return a.exact }
+            if a.open != b.open { return a.open }
             if a.score != b.score { return a.score > b.score }
             return compareRecency(a, b) < 0
         }
@@ -205,7 +242,10 @@ public enum IssueSearch {
         let updated: Double
         let identifier: String
         let number: Int
+        /// EXP-922: undone rows rank above done ones.
+        let open: Bool
         var score = 0
+        var exact = false
 
         init(value: T, index: Int, row: Row) {
             self.value = value
@@ -215,6 +255,7 @@ public enum IssueSearch {
             self.updated = IssueSearch.instant(row.updatedAt)
             self.identifier = row.identifier
             self.number = IssueSearch.identifierNumber(row.identifier)
+            self.open = IssueSearch.isOpen(row.status)
         }
     }
 
@@ -284,13 +325,23 @@ public enum IssueSearch {
         return nil
     }
 
-    private static func score(_ row: Prepared, tokens: [String]) -> Int? {
+    /// A matched row's two ranking facts: the summed score, and whether any
+    /// token hit the identifier EXACTLY (the pin that keeps a typed `EXP-42`
+    /// on top).
+    private struct Scored {
+        let total: Int
+        let exact: Bool
+    }
+
+    private static func score(_ row: Prepared, tokens: [String]) -> Scored? {
         var total = 0
+        var exact = false
         for token in tokens {
             guard let score = tokenScore(row, token) else { return nil }
+            if score == scoreIdentifierExact { exact = true }
             total += score
         }
-        return total
+        return Scored(total: total, exact: exact)
     }
 
     /// A wire timestamp as a comparable instant; missing or unparseable sorts
@@ -331,7 +382,8 @@ extension IssueEntity {
             title: title,
             description: description,
             createdAt: createdAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            status: status
         )
     }
 }

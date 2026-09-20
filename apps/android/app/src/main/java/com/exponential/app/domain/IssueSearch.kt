@@ -22,10 +22,20 @@ package com.exponential.app.domain
  *   description word prefix                                  20
  *   description substring                                    15
  *
- * Ties order by `updatedAt` desc, then `createdAt` desc, then identifier
- * number desc, then the identifier string desc. An EMPTY query lists the
- * newest CREATED first (the `#` menu's "recent work" list). Queries and tokens
- * drop one leading `#` so `#87` and `fix #87` both find EXP-87.
+ * EXP-922: the ordering is THREE keys above the score, in this order:
+ *
+ *   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42` finds
+ *      EXP-42 first whatever state it is in;
+ *   2. UNDONE before done ([CLOSED_STATUSES]: the `done`/`cancelled`/
+ *      `duplicate` anchors every custom status dual-writes; an absent or
+ *      unknown status counts as open);
+ *   3. the score.
+ *
+ * Ties then order by `updatedAt` desc, then `createdAt` desc, then identifier
+ * number desc, then the identifier string desc. An EMPTY query lists open work
+ * first, newest CREATED first inside each half (the `#` menu's "recent work"
+ * list). Queries and tokens drop one leading `#` so `#87` and `fix #87` both
+ * find EXP-87.
  */
 object IssueSearch {
 
@@ -46,10 +56,36 @@ object IssueSearch {
         val description: String?
         val createdAt: String?
         val updatedAt: String?
+
+        /**
+         * EXP-922: the builtin status ANCHOR (`issues.status`) the row
+         * dual-writes. Absent/unknown = treated as open. Defaulted so a row
+         * type that carries no status (a server-hit stand-in) still ranks.
+         */
+        val status: String? get() = null
     }
 
-    /** The `limit` every consumer gets without asking. */
+    /**
+     * The `limit` every consumer gets without asking — and, since EXP-922, the
+     * one every SEARCH SURFACE uses on all four clients, so the same query
+     * returns the same rows whichever one you type it into.
+     */
     const val DEFAULT_LIMIT = 30
+
+    /**
+     * EXP-922: the builtin status anchors that mean "this issue is finished" —
+     * the `completed`/`cancelled`/`duplicate` categories' anchors, so a team's
+     * CUSTOM statuses sort correctly too (they dual-write one of these into
+     * `issues.status`). Web `ISSUE_SEARCH_CLOSED_STATUSES`.
+     */
+    val CLOSED_STATUSES = setOf("done", "cancelled", "duplicate")
+
+    /**
+     * Whether a row counts as UNDONE for ranking. An absent or unrecognized
+     * status is open: a server hit that never synced carries none, and a client
+     * that meets a status it does not know must not bury the row.
+     */
+    fun isOpen(status: String?): Boolean = status == null || status !in CLOSED_STATUSES
 
     private const val SCORE_IDENTIFIER_EXACT = 100
     private const val SCORE_IDENTIFIER_PREFIX = 80
@@ -97,14 +133,24 @@ object IssueSearch {
         identifierNumberText(identifier)?.toIntOrNull() ?: -1
 
     /** The row's total score for [tokens], or null when any token misses. */
-    fun score(row: Row, tokens: List<String>): Int? {
-        val prepared = Prepared(row)
+    fun score(row: Row, tokens: List<String>): Int? = scoreRow(Prepared(row), tokens)?.total
+
+    /**
+     * A matched row's two ranking facts: the summed score, and whether any
+     * token hit the identifier EXACTLY (the pin that keeps a typed `EXP-42` on
+     * top).
+     */
+    private class ScoreDetail(val total: Int, val exact: Boolean)
+
+    private fun scoreRow(prepared: Prepared, tokens: List<String>): ScoreDetail? {
         var total = 0
+        var exact = false
         for (token in tokens) {
             val score = tokenScore(prepared, token) ?: return null
+            if (score == SCORE_IDENTIFIER_EXACT) exact = true
             total += score
         }
-        return total
+        return ScoreDetail(total, exact)
     }
 
     /**
@@ -119,17 +165,22 @@ object IssueSearch {
     ): List<T> {
         val tokens = tokens(query)
         val pool = if (exclude.isEmpty()) rows else rows.filter { it.id !in exclude }
-        if (tokens.isEmpty()) return pool.sortedWith(CREATED_ORDER).take(limit)
+        if (tokens.isEmpty()) {
+            return pool.sortedWith(OPEN_ORDER.then(CREATED_ORDER)).take(limit)
+        }
         val scored = ArrayList<Scored<T>>()
         for (row in pool) {
-            val score = score(row, tokens) ?: continue
-            scored.add(Scored(row, score))
+            val score = scoreRow(Prepared(row), tokens) ?: continue
+            scored.add(Scored(row, score.total, score.exact))
         }
         return scored
             .sortedWith(
                 Comparator { a, b ->
-                    val byScore = b.score.compareTo(a.score)
-                    if (byScore != 0) byScore else RECENCY_ORDER.compare(a.row, b.row)
+                    var c = b.exact.compareTo(a.exact)
+                    if (c == 0) c = OPEN_ORDER.compare(a.row, b.row)
+                    if (c == 0) c = b.score.compareTo(a.score)
+                    if (c == 0) c = RECENCY_ORDER.compare(a.row, b.row)
+                    c
                 },
             )
             .take(limit)
@@ -171,7 +222,7 @@ object IssueSearch {
 
     // ── internals ───────────────────────────────────────────────────────────
 
-    private class Scored<T : Row>(val row: T, val score: Int)
+    private class Scored<T : Row>(val row: T, val score: Int, val exact: Boolean)
 
     /**
      * One row's lowercased fields. The description is lowercased LAZILY: a
@@ -272,6 +323,9 @@ object IssueSearch {
         if (c == 0) c = b.identifier.compareTo(a.identifier)
         c
     }
+
+    /** EXP-922: undone before done. */
+    private val OPEN_ORDER = Comparator<Row> { a, b -> isOpen(b.status).compareTo(isOpen(a.status)) }
 
     /** The empty-query order: createdAt desc → identifier number desc → identifier desc. */
     private val CREATED_ORDER = Comparator<Row> { a, b ->
