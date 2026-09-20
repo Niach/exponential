@@ -28,8 +28,8 @@ import { WebMcpReadTools, WebMcpWriteTools } from "@/components/webmcp-tools"
 //   - iframe transport: responses go back to the EMBEDDER's origin, i.e. a
 //     hostile framer would get full read+write. The app is never legitimately
 //     framed (every other client is native), so it is disabled outright —
-//     unconditionally, rather than relying on the opt-in `frame-ancestors`
-//     header (SECURITY_HEADERS_ENABLED is off by default on self-hosted).
+//     unconditionally, rather than relying on the `frame-ancestors` header
+//     (which a deploy can still switch off via SECURITY_HEADERS_ENABLED).
 let polyfillLoaded = false
 
 interface WebMcpUser {
