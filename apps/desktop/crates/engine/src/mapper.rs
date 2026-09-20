@@ -3131,6 +3131,7 @@ fn exp_tool_preview(result: &Value) -> Option<steer::ToolPreview> {
         url: string(&["prUrl", "url", "htmlUrl"]),
         count,
         status: string(&["status"]),
+        refs: vec![],
     };
     (!preview.is_empty()).then_some(preview)
 }

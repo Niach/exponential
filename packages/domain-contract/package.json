@@ -14,6 +14,7 @@
     "./diff": "./src/diff.ts",
     "./edit-card": "./src/edit-card.ts",
     "./exp-tool-group": "./src/exp-tool-group.ts",
+    "./entity-preview": "./src/entity-preview.ts",
     "./diff-tree": "./src/diff-tree.ts",
     "./fixtures/*": "./fixtures/*"
   }

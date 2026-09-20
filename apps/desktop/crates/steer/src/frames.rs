@@ -800,11 +800,58 @@ pub struct ToolPreview {
     /// The subject's status word, when the answer named one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// EXP-920: the entities the answer NAMED, chip by chip (contract
+    /// `expToolPreview.tools`, at most [`TOOL_PREVIEW_MAX_REFS`]). Absent on
+    /// a pre-EXP-920 publisher, where the subject fields above still carry
+    /// the one thing a row can chip.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<EntityRef>,
+}
+
+/// EXP-920: one entity an Exponential tool's answer named — what a viewer
+/// renders as a chip with a hover card resolved from its OWN synced rows.
+/// `kind` = contract `entityRefKind`; `id` = the row id (a `list` ref's id is
+/// its MEMBER kind); `count` only on a `list`. There is deliberately no url:
+/// a result carries ids, never slugs, and three clients have no URLs at all.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityRef {
+    pub kind: String,
+    pub id: String,
+    /// A human identifier (`EXP-42`) when the row has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    /// The display string the result already carried (an issue's title, a
+    /// board's name, a comment's body cut short); on a `list` ref the plural
+    /// noun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// `list` refs only: how many rows the answer carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+}
+
+impl EntityRef {
+    pub fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
+        Self { kind: kind.into(), id: id.into(), identifier: None, title: None, count: None }
+    }
+
+    /// Every free-text field, mutably (the redactor and the clamp walk these).
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        let mut fields = vec![&mut self.id];
+        fields.extend(self.identifier.as_mut());
+        fields.extend(self.title.as_mut());
+        fields
+    }
 }
 
 /// EXP-846: the cap on every [`ToolPreview`] string — generous for an issue
 /// title, far below the narration cap, and mirrored by the relay's zod.
 pub const TOOL_PREVIEW_TEXT_MAX: usize = 200;
+
+/// EXP-920: the cap on `refs` per preview (contract `expToolPreview.maxRefs`,
+/// mirrored by the relay's zod; the publisher cuts the tail).
+pub const TOOL_PREVIEW_MAX_REFS: usize = domain::contract::EXP_TOOL_PREVIEW_MAX_REFS;
 
 impl ToolPreview {
     /// Nothing to show: a preview with no field set is never published.
@@ -815,12 +862,13 @@ impl ToolPreview {
             && self.url.is_none()
             && self.count.is_none()
             && self.status.is_none()
+            && self.refs.is_empty()
     }
 
     /// Every free-text field, mutably — the redactor walks these like any
     /// other published string.
     pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
-        [
+        let mut fields: Vec<&mut String> = [
             self.id.as_mut(),
             self.identifier.as_mut(),
             self.title.as_mut(),
@@ -829,12 +877,18 @@ impl ToolPreview {
         ]
         .into_iter()
         .flatten()
-        .collect()
+        .collect();
+        for entity in &mut self.refs {
+            fields.extend(entity.text_fields_mut());
+        }
+        fields
     }
 
-    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] (the relay drops a frame
-    /// whose preview is wider, so the producer cuts first).
+    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] and the refs at
+    /// [`TOOL_PREVIEW_MAX_REFS`] (the relay drops a frame whose preview is
+    /// wider, so the producer cuts first).
     pub fn clamp(mut self) -> Self {
+        self.refs.truncate(TOOL_PREVIEW_MAX_REFS);
         for field in self.text_fields_mut() {
             if field.chars().count() > TOOL_PREVIEW_TEXT_MAX {
                 *field = crate::activity::truncate(field, TOOL_PREVIEW_TEXT_MAX);
@@ -2256,11 +2310,50 @@ mod tests {
                 url: Some("https://github.com/a/b/pull/7".into()),
                 count: Some(3),
                 status: Some("in_progress".into()),
+                refs: vec![],
             }),
         };
         assert_eq!(
             ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json(),
             r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"id":"c0ffee","identifier":"EXP-42","title":"Fix the flicker","url":"https://github.com/a/b/pull/7","count":3,"status":"in_progress"}},"seq":0}"#
+        );
+        // EXP-920: refs ride last, in the relay's key order, and a ref with
+        // nothing but kind+id carries nothing else.
+        let with_refs = ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            output: None,
+            at: None,
+            preview: Some(ToolPreview {
+                refs: vec![
+                    EntityRef {
+                        kind: "list".into(),
+                        id: "issue".into(),
+                        identifier: None,
+                        title: Some("issues".into()),
+                        count: Some(2),
+                    },
+                    EntityRef {
+                        kind: "issue".into(),
+                        id: "i-1".into(),
+                        identifier: Some("EXP-42".into()),
+                        title: Some("Fix the flicker".into()),
+                        count: None,
+                    },
+                    EntityRef::new("issue", "i-2"),
+                ],
+                ..ToolPreview::default()
+            }),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: with_refs.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"refs":[{"kind":"list","id":"issue","title":"issues","count":2},{"kind":"issue","id":"i-1","identifier":"EXP-42","title":"Fix the flicker"},{"kind":"issue","id":"i-2"}]}},"seq":0}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(&serde_json::to_string(&with_refs).unwrap())
+                .unwrap(),
+            with_refs
         );
         assert_eq!(
             serde_json::from_str::<ActivityEvent>(
