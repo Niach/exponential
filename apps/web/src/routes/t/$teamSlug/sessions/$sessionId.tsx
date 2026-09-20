@@ -289,12 +289,14 @@ function OwnSessionPage({
   )
 
   // EXP-893: the phone's Changes face without a live diff — the issue's PR
-  // files (a batch run's representative issue carries the PR). Fetched only
-  // while a phone is on that face.
+  // files (a batch run's representative issue carries the PR). EXP-952: read
+  // as soon as a phone has an OPEN PR to count, not only on the face — the
+  // switcher's Changes row prints the same `+N −M` the face draws (a live
+  // diff still outranks them in the view).
   const prIssue =
     issue ?? (row.mergeTarget?.kind === `issue` ? row.mergeTarget.issue : null)
   const { state: prFilesState } = useReviewFiles(prIssue, {
-    enabled: isMobile && face === `diff`,
+    enabled: isMobile && (face === `diff` || prIssue?.prState === `open`),
   })
   const prFiles =
     prFilesState.kind === `files` ? prFilesState.files : null
