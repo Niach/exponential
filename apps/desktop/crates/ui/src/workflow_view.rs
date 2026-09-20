@@ -42,14 +42,14 @@ use domain::workflow_view::{
     BUDGET_MINUTES_LABEL, BUDGET_TITLE, BUDGET_TOKENS_LABEL, CANCEL_WORKFLOW_CONFIRM,
     CANCEL_WORKFLOW_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL, DISMISS_NODE_LABEL,
     FINAL_PR_TITLE, MERGES_IN_FIRST_LABEL, MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
-    OPEN_RUN_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
+    OPEN_RUN_LABEL, RUNNING_NOW_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
     RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, SKIP_NODE_CONFIRM,
     SKIP_NODE_LABEL, START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
 };
 
 use crate::actions_view::page_scaffold_with;
 use crate::icons::registry;
-use crate::issue_graph::{grid_view, GridEdge, GridNode};
+use crate::issue_graph::{grid_view, GridEdge, GridGeometry, GridNode};
 use crate::navigation::{nav_for_window, ChatSeed, Navigation, Screen};
 use crate::queries;
 
@@ -57,8 +57,28 @@ use crate::queries;
 const WORKFLOW_COLUMN_W: f32 = 1024.;
 /// The graph's viewport; past it the grid scrolls.
 const GRAPH_VIEW_W: f32 = 640.;
-/// A workflow node's box: two lines (the title over its ONE caption).
-const NODE_H: f32 = 42.;
+const GRAPH_VIEW_H: f32 = 460.;
+/// A workflow node is a CIRCLE with its two lines (the title over its ONE
+/// caption) centred underneath. The edges run circle to circle, never
+/// through a label.
+const NODE_CIRCLE: f32 = 30.;
+const NODE_W: f32 = 140.;
+const NODE_H: f32 = NODE_CIRCLE + 4. + 16. + 16.;
+/// The air an edge keeps from the circle it leaves or enters.
+const NODE_EDGE_AIR: f32 = 4.;
+
+fn graph_geometry() -> GridGeometry {
+    GridGeometry {
+        node_w: NODE_W,
+        node_h: NODE_H,
+        col_gap: 64.,
+        lane_gap: 14.,
+        view_w: GRAPH_VIEW_W,
+        view_h: GRAPH_VIEW_H,
+        edge_out: (NODE_W / 2. + NODE_CIRCLE / 2. + NODE_EDGE_AIR, NODE_CIRCLE / 2.),
+        edge_in: (NODE_W / 2. - NODE_CIRCLE / 2. - NODE_EDGE_AIR, NODE_CIRCLE / 2.),
+    }
+}
 
 /// The grid key of the final-PR box (EXP-982) — deliberately not a uuid, so
 /// it can never collide with a `workflow_nodes` row id.
@@ -389,6 +409,7 @@ impl WorkflowView {
                     compound: false,
                     glyph: Some(registry::NOTIFICATION_PR_MERGED),
                     proposed: false,
+                    run: None,
                 },
             );
         }
@@ -421,16 +442,45 @@ impl WorkflowView {
         if let Some(note) = workflow_cycle_note(&row.shape()) {
             notes.push(SharedString::from(note));
         }
-        grid_view(
-            &grid_nodes,
-            &edges,
-            GRAPH_VIEW_W,
-            NODE_H,
-            &notes,
-            &render,
-            cx,
-        )
-        .into_any_element()
+        let grid = grid_view(&grid_nodes, &edges, graph_geometry(), &notes, &render, cx);
+        // The runs that are up right now, one tap away: a node's circle says
+        // THAT it runs, this strip is the way in.
+        let mut running: Vec<(&domain::rows::WorkflowNodeRow, &NodeFacts)> = nodes
+            .iter()
+            .filter_map(|node| {
+                let facts = facts.get(&node.id)?;
+                facts.run.as_ref().filter(|run| run.live)?;
+                Some((node, facts))
+            })
+            .collect();
+        running.sort_by_key(|(node, _)| (node.wave_index(), node.lane_index()));
+        if running.is_empty() {
+            return grid.into_any_element();
+        }
+        let muted = cx.theme().muted_foreground;
+        v_flex()
+            .min_w_0()
+            .gap_3()
+            .child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(RUNNING_NOW_LABEL)),
+                    )
+                    .children(running.into_iter().filter_map(|(node, facts)| {
+                        let run = facts.run.clone()?;
+                        Some(run_pill(&node.id, &facts.title, run, cx))
+                    })),
+            )
+            .child(grid)
+            .into_any_element()
     }
 
     /// The picked node's panel: its issue, its members, Kind / Risk, the
@@ -483,14 +533,14 @@ impl WorkflowView {
             })
             .collect();
 
-        let open_issue = issue_id.clone();
         Some(
             v_flex()
                 .w(gpui::px(280.))
                 .flex_shrink_0()
                 .min_w_0()
                 .gap_3()
-                .child(issue_chip_for(&issue_id, cx))
+                // The badge IS the way into the issue.
+                .child(issue_chip_link(&issue_id, cx))
                 .child(
                     div()
                         .text_xs()
@@ -634,22 +684,6 @@ impl WorkflowView {
                             .child(SharedString::from(note)),
                     )
                 })
-                .child(
-                    Button::new("workflow-node-open")
-                        .ghost()
-                        .small()
-                        .icon(Icon::from(registry::UI_EXTERNAL_LINK))
-                        .label("Open issue")
-                        .on_click(move |_, window, cx| {
-                            crate::navigation::navigate(
-                                window,
-                                cx,
-                                Screen::IssueDetail {
-                                    issue_id: open_issue.clone(),
-                                },
-                            );
-                        }),
-                )
                 // EXP-982: the node's run, its pull request, the gate and
                 // the two ways out of a failure. EXP-984: a proposal has
                 // none of them — it is admitted or dismissed, nothing else.
@@ -1561,6 +1595,42 @@ struct NodeFacts {
     /// EXP-984: a follow-up nobody admitted yet — drawn with a DASHED
     /// outline, because it is not part of the run.
     proposed: bool,
+    /// The node's coding session, once it has one that synced.
+    run: Option<NodeRun>,
+}
+
+/// One node's run as the graph reads it: where a tap goes, and what the dot
+/// says (the ONE session tone table, `queries::session_dot_tone`).
+#[derive(Clone)]
+struct NodeRun {
+    session_id: String,
+    /// Still up (`running` / `in_review`) — what the Running strip lists.
+    live: bool,
+    /// The agent is mid-turn: the dot pings.
+    busy: bool,
+    tone: gpui::Hsla,
+}
+
+impl NodeRun {
+    fn derive(node: &domain::rows::WorkflowNodeRow, cx: &App) -> Option<Self> {
+        let session_id = node.session_id.clone()?;
+        let collections = Store::try_global(cx)?.collections().clone();
+        let session = collections.coding_sessions.read(cx).get(&session_id).cloned()?;
+        let pr_state = node.issue_id.as_deref().and_then(|issue_id| {
+            collections.issues.read(cx).get(issue_id)?.pr_state.clone()
+        });
+        let live = matches!(session.status.as_deref(), Some("running" | "in_review"));
+        let display = queries::coding_session_display(&session, pr_state.as_deref());
+        Some(Self {
+            session_id,
+            live,
+            busy: live && session.agent_busy.unwrap_or(false),
+            tone: queries::session_dot_tone(
+                queries::SessionDotFacts::from_display(display, !live, false),
+                cx.theme().muted_foreground,
+            ),
+        })
+    }
 }
 
 impl NodeFacts {
@@ -1601,6 +1671,7 @@ impl NodeFacts {
             compound: !members.is_empty(),
             glyph: state_glyph(node.state_wire(), workflow.status_wire()),
             proposed: node.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED,
+            run: NodeRun::derive(node, cx),
         }
     }
 }
@@ -1623,8 +1694,9 @@ fn state_glyph(state: &str, workflow_status: &str) -> Option<crate::icons::ExpIc
     }
 }
 
-/// ONE node's box: the title over its caption, inside the ring its state
-/// earns, with a second card edge behind a compound node.
+/// ONE node: a CIRCLE in the ring its state earns — the state glyph inside,
+/// the session's live dot while its run is up — over the title and its
+/// caption. A compound node draws a second circle edge peeking out behind.
 fn render_node_box(
     node_id: &str,
     facts: Option<&NodeFacts>,
@@ -1634,19 +1706,32 @@ fn render_node_box(
     cx: &App,
 ) -> gpui::AnyElement {
     let theme = cx.theme();
-    let border = if cycled {
-        theme.danger
-    } else if selected {
-        theme.ring
-    } else {
-        theme::tokens::glass::STROKE_CARD.to_hsla()
-    };
-    let caption_color = match facts.map(|facts| facts.tone) {
+    let tone_color = match facts.map(|facts| facts.tone) {
         Some(WorkflowNodeTone::Amber) => theme.warning,
         Some(WorkflowNodeTone::Danger) => theme.danger,
         Some(WorkflowNodeTone::Success) => theme.success,
         Some(WorkflowNodeTone::Active) => theme.foreground,
         _ => theme.muted_foreground,
+    };
+    let live_run = facts
+        .and_then(|facts| facts.run.clone())
+        .filter(|run| run.live);
+    // The ring: red on a cycle, the session's own tone while its run is up,
+    // the state's tone once that says something, the hairline otherwise.
+    let quiet = facts.is_none_or(|facts| facts.tone == WorkflowNodeTone::Muted);
+    let ring = if cycled {
+        theme.danger
+    } else if let Some(run) = live_run.as_ref() {
+        run.tone
+    } else if quiet {
+        theme::tokens::glass::STROKE_STRONG.to_hsla()
+    } else {
+        tone_color
+    };
+    let fill = if live_run.is_some() || !quiet {
+        ring.opacity(0.14)
+    } else {
+        theme::tokens::glass::FILL_CARD.to_hsla()
     };
     let title = facts.map(|facts| facts.title.clone()).unwrap_or_default();
     let caption = facts.map(|facts| facts.caption.clone()).unwrap_or_default();
@@ -1656,80 +1741,145 @@ fn render_node_box(
     let proposed = facts.is_some_and(|facts| facts.proposed);
     let glyph = facts.and_then(|facts| facts.glyph.clone());
     let target = node_id.to_string();
-    let card = div()
-        .id(SharedString::from(format!("workflow-node-{node_id}")))
+
+    let circle = div()
         .absolute()
         .inset_0()
         .flex()
-        .flex_col()
+        .items_center()
         .justify_center()
-        .px_2()
-        .rounded(gpui::px(6.))
+        .rounded_full()
         .border_1()
         .when(proposed, |this| this.border_dashed())
-        .border_color(border)
-        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-        .cursor_pointer()
-        .on_click(move |_: &ClickEvent, _window, cx| on_pick(&target, cx))
-        .when(!title.is_empty(), |this| {
-            this.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .child(SharedString::from(title)),
-            )
-        })
-        .child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .items_center()
-                .gap_1()
-                // EXP-982: the state reads by SHAPE as well as by colour —
-                // the same tint, so the glyph never says anything new.
-                .when_some(glyph, |this, glyph| {
-                    this.child(
-                        Icon::from(glyph)
-                            .xsmall()
-                            .text_color(caption_color),
-                    )
-                })
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .text_xs()
-                        .text_color(caption_color)
-                        .child(SharedString::from(caption)),
-                ),
-        );
-    div()
+        .border_color(ring)
+        .bg(fill)
+        .map(|this| match (live_run.as_ref(), glyph) {
+            (Some(run), _) => this.child(crate::surface::live_dot(run.tone, run.busy)),
+            (None, Some(glyph)) => this.child(Icon::from(glyph).xsmall().text_color(tone_color)),
+            (None, None) => this,
+        });
+    let disc = div()
         .relative()
-        .size_full()
-        // The stacked card: a second edge peeking out behind a compound node.
+        .flex_shrink_0()
+        .size(gpui::px(NODE_CIRCLE))
+        // The stacked circle: a second edge peeking out behind a compound node.
         .when(compound, |this| {
             this.child(
                 div()
                     .absolute()
-                    .left(gpui::px(3.))
+                    .left(gpui::px(4.))
                     .top(gpui::px(-3.))
-                    .right(gpui::px(-3.))
-                    .bottom(gpui::px(3.))
-                    .rounded(gpui::px(6.))
+                    .size(gpui::px(NODE_CIRCLE))
+                    .rounded_full()
                     .border_1()
-                    .border_color(theme::tokens::glass::STROKE_CARD.to_hsla()),
+                    .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()),
             )
         })
-        .child(card)
+        // The pick: a halo OUTSIDE the ring, so the state colour stays put.
+        .when(selected, |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .left(gpui::px(-3.))
+                    .top(gpui::px(-3.))
+                    .size(gpui::px(NODE_CIRCLE + 6.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(theme.ring),
+            )
+        })
+        .child(circle);
+
+    div()
+        .id(SharedString::from(format!("workflow-node-{node_id}")))
+        .size_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_1()
+        .cursor_pointer()
+        .on_click(move |_: &ClickEvent, _window, cx| on_pick(&target, cx))
+        .child(disc)
+        .child(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .when(!title.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .max_w_full()
+                            .truncate()
+                            .text_xs()
+                            .when(selected, |this| this.font_weight(gpui::FontWeight::MEDIUM))
+                            .child(SharedString::from(title)),
+                    )
+                })
+                .child(
+                    div()
+                        .max_w_full()
+                        .truncate()
+                        .text_xs()
+                        .text_color(if live_run.is_some() { ring } else { tone_color }.opacity(
+                            if quiet && live_run.is_none() { 0.8 } else { 1. },
+                        ))
+                        .child(SharedString::from(caption)),
+                ),
+        )
+        .into_any_element()
+}
+
+/// One live run of the Running strip: the session's dot and the node's
+/// title, and a tap lands IN that run.
+fn run_pill(node_id: &str, title: &str, run: NodeRun, cx: &App) -> gpui::AnyElement {
+    let session_id = run.session_id.clone();
+    crate::surface::glass_pill_button(
+        SharedString::from(format!("workflow-run-{node_id}")),
+        crate::surface::PillSize::Sm,
+        cx,
+    )
+    .child(
+        h_flex()
+            .items_center()
+            .gap_1p5()
+            .child(crate::surface::live_dot(run.tone, run.busy))
+            .child(SharedString::from(title.to_string())),
+    )
+    .on_click(move |_, window, cx| {
+        crate::navigation::navigate(
+            window,
+            cx,
+            Screen::Session {
+                session_id: session_id.clone(),
+            },
+        );
+    })
+    .into_any_element()
+}
+
+/// [`issue_chip_for`], opening the issue on a tap.
+fn issue_chip_link(issue_id: &str, cx: &App) -> gpui::AnyElement {
+    let target = issue_id.to_string();
+    issue_chip_element(issue_id, cx)
+        .on_click(move |_, window, cx| {
+            crate::navigation::navigate(
+                window,
+                cx,
+                Screen::IssueDetail {
+                    issue_id: target.clone(),
+                },
+            );
+        })
         .into_any_element()
 }
 
 /// The shared issue chip for one issue id, degrading to the raw id while the
 /// row has not synced.
 fn issue_chip_for(issue_id: &str, cx: &App) -> gpui::AnyElement {
+    issue_chip_element(issue_id, cx).into_any_element()
+}
+
+fn issue_chip_element(issue_id: &str, cx: &App) -> crate::issue_chip::IssueChip {
     let row = Store::try_global(cx)
         .and_then(|store| store.collections().issues.read(cx).get(issue_id).cloned());
     let identifier = row
@@ -1746,7 +1896,7 @@ fn issue_chip_for(issue_id: &str, cx: &App) -> gpui::AnyElement {
     if let Some(status) = crate::issue_chip::synced_issue_status(issue_id, cx) {
         chip = chip.status(status);
     }
-    chip.into_any_element()
+    chip
 }
 
 /// ONE labelled pick row over a (label, value) list — the launch cluster's

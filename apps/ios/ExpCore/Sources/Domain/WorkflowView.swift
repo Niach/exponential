@@ -269,6 +269,8 @@ public enum WorkflowView {
     public static let mergeTrainTitle = "Merge train"
     public static let mergeTrainEmpty = "Nothing is waiting to land."
     public static let finalPrTitle = "Final pull request"
+    /// The strip over the graph that lists the runs that are up, one tap away.
+    public static let runningNowLabel = "Running now"
 
     /// What Start reads off the workflow row.
     public struct StartableWorkflow: Sendable, Equatable {

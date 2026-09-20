@@ -1,7 +1,16 @@
 import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { SyncedWorkflow, WorkflowNode } from "@/db/schema"
-import { workflowCollection, workflowNodeCollection } from "@/lib/collections"
+import type { WorkflowNodeRun } from "@/components/workflow-graph"
+import type { CodingSession, Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
+import {
+  codingSessionCollection,
+  workflowCollection,
+  workflowNodeCollection,
+} from "@/lib/collections"
+import {
+  sessionDisplayState,
+  sessionRowIsWorking,
+} from "@/lib/coding-session-display"
 
 // EXP-981: the two synced workflow shapes, read the way every other list
 // reads its collection. `wave`/`lane`/`on_cycle` on a node ARE the layout —
@@ -66,4 +75,44 @@ export function useWorkflowNodes(
       ),
     [rows]
   )
+}
+
+/** Each node's synced coding session, by node id — what the graph paints its
+ *  live dot from and what the Running strip links into. A node whose session
+ *  row has not synced is simply absent. */
+export function useWorkflowNodeRuns(
+  teamId: string | undefined,
+  nodes: readonly WorkflowNode[],
+  issueById: ReadonlyMap<string, Issue>
+): ReadonlyMap<string, WorkflowNodeRun> {
+  const { data: rows } = useLiveQuery(
+    (query) =>
+      teamId
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) => eq(s.teamId, teamId))
+        : undefined,
+    [teamId]
+  )
+  return useMemo(() => {
+    const sessionById = new Map(
+      ((rows ?? []) as CodingSession[]).map((session) => [session.id, session])
+    )
+    const runs = new Map<string, WorkflowNodeRun>()
+    for (const node of nodes) {
+      const session = node.sessionId ? sessionById.get(node.sessionId) : undefined
+      if (!session) continue
+      const prState = issueById.get(node.issueId)?.prState
+      // `live` is the row's status alone — a run the engine lost is reported
+      // by the NODE's own state, never by a stale dot. The same rule ×4.
+      const live = session.status === `running` || session.status === `in_review`
+      runs.set(node.id, {
+        sessionId: session.id,
+        live,
+        state: sessionDisplayState(session, prState),
+        working: sessionRowIsWorking(session, prState),
+      })
+    }
+    return runs
+  }, [rows, nodes, issueById])
 }

@@ -241,6 +241,7 @@ fun WorkflowDetailScreen(
                     workflowStatus = row.status,
                     cycleNote = null,
                     onSelectNode = { selectedNode = it },
+                    onOpenRun = onOpenSession,
                     finalPrCaption = finalPrCaption,
                     finalPrUrl = row.finalPrUrl,
                 )
@@ -912,8 +913,14 @@ private fun WorkflowNodeSheet(
                 .testTag("workflow-node-sheet"),
         ) {
             if (issue != null) {
+                // The BADGE is the way into the issue — tapping the subject
+                // opens it, so the sheet needs no "Open issue" pill.
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenIssue(issue.id) }
+                        .padding(horizontal = 16.dp)
+                        .testTag("workflow-node-issue"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     StatusIcon(IssueStatus.fromWire(issue.status), size = 14.dp)
@@ -1198,13 +1205,6 @@ private fun WorkflowNodeSheet(
                         icon = ExpIcons.prOpen,
                         onClick = { onOpenChanges(issue.id) },
                         modifier = Modifier.testTag("workflow-node-pr"),
-                    )
-                }
-                if (issue != null) {
-                    GlassPill(
-                        "Open issue",
-                        icon = ExpIcons.navIssues,
-                        onClick = { onOpenIssue(issue.id) },
                     )
                 }
             }

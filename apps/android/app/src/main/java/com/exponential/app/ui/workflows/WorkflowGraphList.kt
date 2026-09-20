@@ -3,6 +3,7 @@ package com.exponential.app.ui.workflows
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -36,14 +38,22 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.captionNode
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.LiveDot
+import com.exponential.app.ui.issue.LiveGreen
+import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.issue.ReviewGreen
+import com.exponential.app.ui.session.LostGray
 import com.exponential.app.ui.markdown.MdStyle
+import com.exponential.app.ui.work.SessionToneDot
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -67,6 +77,20 @@ internal fun workflowToneColor(tone: WorkflowView.Tone): Color = when (tone) {
     WorkflowView.Tone.Active -> MaterialTheme.colorScheme.onSurface
     WorkflowView.Tone.Muted ->
         MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+}
+
+/**
+ * EXP-982: the caption colour a LIVE run lends its node — the ×4 session-dot
+ * palette ([SessionToneDot]'s own), so a running node and a running run read
+ * alike wherever they sit beside each other.
+ */
+@Composable
+internal fun sessionToneColor(tone: SessionDotTone): Color = when (tone) {
+    SessionDotTone.Running -> LiveGreen
+    SessionDotTone.Review -> ReviewGreen
+    SessionDotTone.NeedsInput -> NeedsInputAmber
+    SessionDotTone.Done -> DoneBlue
+    SessionDotTone.Muted -> LostGray
 }
 
 /**
@@ -193,6 +217,8 @@ internal fun WorkflowGraphList(
     cycleNote: String?,
     onSelectNode: (WorkflowNodeEntity) -> Unit,
     modifier: Modifier = Modifier,
+    /** EXP-982: steer the node's run — the Running strip's tap. */
+    onOpenRun: (String) -> Unit = {},
     /**
      * EXP-982 ([WorkflowView.finalPrCaption]): non-null once the integration
      * branch is ready to land on the default one. Web and the desktop draw it
@@ -208,6 +234,7 @@ internal fun WorkflowGraphList(
     // Already ordered by (wave, lane) — grouping keeps it.
     val waves = remember(graph.nodes) { graph.nodes.groupBy { it.wave ?: 0 } }
     Column(modifier = modifier.fillMaxWidth().testTag("workflow-graph")) {
+        RunningStrip(graph = graph, onOpenRun = onOpenRun)
         waves.forEach { (wave, nodes) ->
             SectionHeader("Wave ${wave + 1}")
             nodes.forEach { node ->
@@ -217,6 +244,9 @@ internal fun WorkflowGraphList(
                     workflowStatus = workflowStatus,
                     blockers = incoming[node.id].orEmpty(),
                     nodesById = nodesById,
+                    // EXP-982: a node that is UP reads off the session itself,
+                    // not off the node state alone.
+                    run = graph.runsByNodeId[node.id]?.takeIf { it.live },
                     onClick = { onSelectNode(node) },
                 )
             }
@@ -234,6 +264,49 @@ internal fun WorkflowGraphList(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .testTag("workflow-cycle-note"),
             )
+        }
+    }
+}
+
+/**
+ * EXP-982 — the runs that are up right now, one tap away: a node's row says
+ * THAT it runs, this strip is the way in. A wide run set scrolls sideways
+ * rather than wrapping the header off a phone.
+ */
+@Composable
+private fun RunningStrip(graph: WorkflowGraph, onOpenRun: (String) -> Unit) {
+    val live = graph.liveRuns
+    if (live.isEmpty()) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = 8.dp)
+            .testTag("workflow-running-strip"),
+    ) {
+        Text(
+            WorkflowView.RUNNING_NOW_LABEL,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            live.forEach { (node, run) ->
+                val issue = graph.issuesById[node.issueId]
+                GlassPill(
+                    label = WorkflowView.nodeTitle(
+                        issue?.identifier ?: node.issueId,
+                        node.memberIssueIds.size,
+                    ),
+                    onClick = { onOpenRun(run.sessionId) },
+                    leading = { SessionToneDot(run.tone, busy = run.busy) },
+                    modifier = Modifier.testTag("workflow-running-${node.id}"),
+                )
+            }
         }
     }
 }
@@ -295,13 +368,16 @@ private fun WorkflowNodeRow(
     workflowStatus: String,
     blockers: List<WorkflowView.Edge>,
     nodesById: Map<String, WorkflowNodeEntity>,
+    run: WorkflowNodeRun?,
     onClick: () -> Unit,
 ) {
     val issue = graph.issuesById[node.issueId]
     val caption = remember(node, workflowStatus) {
         WorkflowView.nodeCaption(node.captionNode, workflowStatus)
     }
-    val tone = workflowToneColor(WorkflowView.nodeTone(node.state))
+    // A live run paints the caption in its SESSION's tone, not the node's.
+    val tone = run?.let { sessionToneColor(it.tone) }
+        ?: workflowToneColor(WorkflowView.nodeTone(node.state))
     val shape = remember { RoundedCornerShape(GlassTokens.RowRadius) }
     val compound = node.memberIssueIds.isNotEmpty()
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -367,7 +443,15 @@ private fun WorkflowNodeRow(
             ) {
                 // EXP-982: a draft has no states yet, so its caption names the
                 // plan and there is nothing for a glyph to say.
-                if (workflowStatus != DomainContract.wfStatusDraft &&
+                if (run != null) {
+                    Box(
+                        modifier = Modifier.size(14.dp).testTag("workflow-node-run-dot"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        SessionToneDot(run.tone, busy = run.busy)
+                    }
+                    Spacer(Modifier.width(6.dp))
+                } else if (workflowStatus != DomainContract.wfStatusDraft &&
                     workflowStateHasGlyph(node.state)
                 ) {
                     WorkflowStateGlyph(node.state)

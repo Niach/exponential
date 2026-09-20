@@ -248,6 +248,9 @@ object WorkflowView {
     const val MERGE_TRAIN_EMPTY = "Nothing is waiting to land."
     const val FINAL_PR_TITLE = "Final pull request"
 
+    /** The strip over the graph that lists the runs that are up, one tap away. */
+    const val RUNNING_NOW_LABEL = "Running now"
+
     /** The four fields Start is judged on, off the synced workflow row. */
     data class Startable(
         val status: String,

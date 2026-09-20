@@ -72,6 +72,8 @@ const EDGE_STROKE: Record<WorkflowEdgeStyle, string> = {
 export interface WaveGraphNodeProps {
   className?: string
   testId?: string
+  /** The cell paints outside its box (a ping halo, a pick ring). */
+  overflowVisible?: boolean
 }
 
 /**
@@ -85,6 +87,10 @@ export function WaveGraph({
   edges,
   nodeWidth = NODE_W,
   nodeHeight = NODE_H,
+  waveGap = WAVE_GAP,
+  laneGap = LANE_GAP,
+  edgeOut,
+  edgeIn,
   idPrefix = `issue-graph`,
   renderNode,
   nodeProps,
@@ -93,6 +99,13 @@ export function WaveGraph({
   edges: readonly WaveGraphEdge[]
   nodeWidth?: number
   nodeHeight?: number
+  waveGap?: number
+  laneGap?: number
+  /** Where an edge LEAVES and ENTERS a cell, as offsets from its top-left.
+   *  Boxes default to their side middles; the workflow graph's circles
+   *  anchor on the circle, not on the label underneath it. */
+  edgeOut?: { x: number; y: number }
+  edgeIn?: { x: number; y: number }
   /** Names the edge paths and any unnamed node box in the DOM. */
   idPrefix?: string
   renderNode: (id: string) => ReactNode
@@ -105,8 +118,8 @@ export function WaveGraph({
     let lanes = 0
     for (const node of nodes) {
       at.set(node.id, {
-        x: node.wave * (nodeWidth + WAVE_GAP),
-        y: node.lane * (nodeHeight + LANE_GAP),
+        x: node.wave * (nodeWidth + waveGap),
+        y: node.lane * (nodeHeight + laneGap),
       })
       waves = Math.max(waves, node.wave + 1)
       lanes = Math.max(lanes, node.lane + 1)
@@ -120,10 +133,12 @@ export function WaveGraph({
     return {
       at,
       onCycle,
-      width: Math.max(0, waves * (nodeWidth + WAVE_GAP) - WAVE_GAP),
-      height: Math.max(0, lanes * (nodeHeight + LANE_GAP) - LANE_GAP),
+      width: Math.max(0, waves * (nodeWidth + waveGap) - waveGap),
+      height: Math.max(0, lanes * (nodeHeight + laneGap) - laneGap),
     }
-  }, [nodes, edges, nodeWidth, nodeHeight])
+  }, [nodes, edges, nodeWidth, nodeHeight, waveGap, laneGap])
+  const out = edgeOut ?? { x: nodeWidth, y: nodeHeight / 2 }
+  const into = edgeIn ?? { x: 0, y: nodeHeight / 2 }
 
   return (
     <div
@@ -141,17 +156,28 @@ export function WaveGraph({
           const from = layout.at.get(edge.from)
           const to = layout.at.get(edge.to)
           if (!from || !to) return null
-          const x1 = from.x + nodeWidth
-          const y1 = from.y + nodeHeight / 2
-          const x2 = to.x
-          const y2 = to.y + nodeHeight / 2
-          // A forward edge bows half the gap; a cycle edge that runs
-          // backwards (or inside one wave) still reads as a curve.
-          const bend = Math.max(WAVE_GAP / 2, Math.abs(x2 - x1) / 2)
+          const x1 = from.x + out.x
+          const y1 = from.y + out.y
+          const x2 = to.x + into.x
+          const y2 = to.y + into.y
+          // The curve lives in the GAP between two cells: a level stub runs
+          // from the anchor to its cell's edge first, so an edge never cuts
+          // through a label that sits beside (or under) its anchor. A cycle
+          // edge that runs backwards (or inside one wave) has no gap to
+          // curve in and bows half a gap instead.
+          const gapStart = from.x + nodeWidth
+          const gapEnd = to.x
+          const forward = gapEnd > gapStart
+          const c1 = forward ? gapStart : x1
+          const c2 = forward ? gapEnd : x2
+          const bend = forward
+            ? (c2 - c1) / 2
+            : Math.max(waveGap / 2, Math.abs(x2 - x1) / 2)
+          const d = `M ${x1} ${y1} L ${c1} ${y1} C ${c1 + bend} ${y1}, ${c2 - bend} ${y2}, ${c2} ${y2} L ${x2} ${y2}`
           return (
             <path
               key={`${edge.from}:${edge.to}`}
-              d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`}
+              d={d}
               fill="none"
               strokeWidth={1.25}
               stroke={EDGE_STROKE[edge.style]}
@@ -177,7 +203,8 @@ export function WaveGraph({
           <div
             key={node.id}
             className={cn(
-              `absolute flex items-center overflow-hidden rounded-md`,
+              `absolute flex items-center rounded-md`,
+              !chrome.overflowVisible && `overflow-hidden`,
               chrome.className
             )}
             style={{

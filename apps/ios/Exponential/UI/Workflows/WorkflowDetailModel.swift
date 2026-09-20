@@ -2,6 +2,18 @@ import ExpCore
 import Foundation
 import GRDB
 
+/// EXP-982 — one node's coding run as the graph and the sheet read it: where a
+/// tap goes, and what the dot says (the ONE session tone table, the same one
+/// every session list paints with).
+struct WorkflowNodeRun: Equatable {
+    let sessionId: String
+    /// Still up — what the Running strip lists.
+    let live: Bool
+    let tone: SessionDotTone
+    /// The agent is mid-turn: the dot pulses (EXP-848).
+    let busy: Bool
+}
+
 /// EXP-981 — one workflow's detail: the synced row, its nodes (the server's
 /// `wave`/`lane` layout), the issues they cover and the `blocks` relations that
 /// ARE the edges, all LIVE off the two new shapes, plus the member-gated writes
@@ -23,6 +35,9 @@ final class WorkflowDetailModel {
     /// without one rather than disappearing.
     private(set) var issues: [String: IssueEntity] = [:]
     private(set) var relations: [IssueRelationEntity] = []
+    /// The nodes' coding sessions by SESSION id — what the graph's live dots
+    /// and the Running strip read. A session that has not synced is absent.
+    private(set) var sessions: [String: CodingSessionEntity] = [:]
     /// EVERY machine of the team, offline included: a workflow BINDS its runner
     /// the way an automation does — a sleeping box still owns the binding.
     private(set) var devices: [SteerDevice] = []
@@ -126,6 +141,36 @@ final class WorkflowDetailModel {
         nodes.first { $0.coveredIssueIds.contains(issueId) }
     }
 
+    /// EXP-982 — `node id → its run`, for every node whose session row has
+    /// synced. A node's marker and the Running strip both read this, so the
+    /// graph never invents a liveness the session row does not claim.
+    var runs: [String: WorkflowNodeRun] {
+        var runs: [String: WorkflowNodeRun] = [:]
+        for node in nodes {
+            guard let sessionId = node.sessionId, let session = sessions[sessionId] else {
+                continue
+            }
+            // The row's status alone — a run the engine lost is reported by
+            // the NODE's own state, never by a stale dot. The same rule ×4.
+            let live = session.status == DomainContract.codingSessionStatusRunning
+                || session.status == DomainContract.codingSessionStatusInReview
+            let state = CodingSessionDisplayState.of(
+                session: session, prState: issues[node.issueId]?.prState
+            )
+            runs[node.id] = WorkflowNodeRun(
+                sessionId: sessionId,
+                live: live,
+                // An ended run keeps its row (Open run still works) but never a
+                // live tone: the strip lists what is up, nothing else.
+                tone: live ? SessionStateDot.tone(of: state) : .muted,
+                busy: CodingSessionDisplayState.pulses(
+                    state: state, agentBusy: session.agentBusy, live: live
+                )
+            )
+        }
+        return runs
+    }
+
     // MARK: - Observation
 
     func observe() {
@@ -133,13 +178,23 @@ final class WorkflowDetailModel {
         else { return }
         let id = workflowId
         let observation = ValueObservation.tracking {
-            db -> (WorkflowEntity?, [WorkflowNodeEntity], [IssueEntity], [IssueRelationEntity]) in
+            db -> (
+                WorkflowEntity?, [WorkflowNodeEntity], [IssueEntity], [IssueRelationEntity],
+                [CodingSessionEntity]
+            ) in
             let workflow = try WorkflowEntity.fetchOne(db, key: id)
             let nodes = try WorkflowNodeEntity
                 .filter(Column("workflow_id") == id)
                 .fetchAll(db)
+            // EXP-982: the run each started node is in — the graph marks a node
+            // that is up with its session's own dot, and the Running strip
+            // opens it.
+            let sessionIds = Array(Set(nodes.compactMap(\.sessionId)))
+            let sessions = sessionIds.isEmpty
+                ? []
+                : try CodingSessionEntity.filter(sessionIds.contains(Column("id"))).fetchAll(db)
             let covered = Array(Set(nodes.flatMap(\.coveredIssueIds)))
-            guard !covered.isEmpty else { return (workflow, nodes, [], []) }
+            guard !covered.isEmpty else { return (workflow, nodes, [], [], sessions) }
             let issues = try IssueEntity.filter(covered.contains(Column("id"))).fetchAll(db)
             // Only the relations between COVERED issues can be edges; the rule
             // drops the rest anyway, so they never need reading.
@@ -148,11 +203,13 @@ final class WorkflowDetailModel {
                 .filter(covered.contains(Column("issue_id")))
                 .filter(covered.contains(Column("related_issue_id")))
                 .fetchAll(db)
-            return (workflow, nodes, issues, relations)
+            return (workflow, nodes, issues, relations, sessions)
         }
         observationTask = Task { [weak self] in
             do {
-                for try await (workflow, nodes, issues, relations) in observation.values(in: pool) {
+                for try await (workflow, nodes, issues, relations, sessions)
+                    in observation.values(in: pool)
+                {
                     guard let self, !Task.isCancelled else { return }
                     self.workflow = workflow
                     self.nodes = nodes.sorted { ($0.wave, $0.lane) < ($1.wave, $1.lane) }
@@ -160,6 +217,9 @@ final class WorkflowDetailModel {
                         issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
                     )
                     self.relations = relations
+                    self.sessions = Dictionary(
+                        sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
+                    )
                     self.loaded = true
                     await self.loadDevices()
                 }

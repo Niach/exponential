@@ -193,7 +193,9 @@ struct WorkflowDetailView: View {
             issues: model.issues,
             finalPrCaption: model.finalPrCaption,
             finalPrUrl: model.workflow?.finalPrUrl,
-            onSelect: { selectedNodeId = WorkflowNodeTarget(id: $0.id) }
+            runs: model.runs,
+            onSelect: { selectedNodeId = WorkflowNodeTarget(id: $0.id) },
+            onOpenRun: { pushRoute(.agentSession(accountId: accountId, sessionId: $0)) }
         )
     }
 
@@ -1068,13 +1070,7 @@ struct WorkflowNodeSheet: View {
             }
 
             HStack(spacing: 8) {
-                GlassPill(
-                    "Open issue",
-                    icon: AppIcons.uiExternalLink,
-                    mode: .action { onOpenIssue(node.issueId) }
-                )
-                .accessibilityIdentifier("workflow-node-open-issue")
-
+                // The issue itself is reached through the badge above.
                 // The run the engine started for this node.
                 if let sessionId = node.sessionId {
                     GlassPill(
@@ -1104,18 +1100,25 @@ struct WorkflowNodeSheet: View {
         WorkflowGraphView.color(tone)
     }
 
-    /// The node's own issue, with the caption the graph row carries.
+    /// The node's own issue, with the caption the graph row carries. The BADGE
+    /// is the way into the issue — tapping the subject opens it, so the sheet
+    /// needs no "Open issue" pill of its own.
     @ViewBuilder
     private var subject: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            chip(node.issueId)
-            if let title = issues[node.issueId]?.title {
-                Text(title)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        Button { onOpenIssue(node.issueId) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                chip(node.issueId, memberCount: node.memberIssueIds.count)
+                if let title = issues[node.issueId]?.title {
+                    Text(title)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("workflow-node-issue")
     }
 
     /// One covered issue as the shared badge. `memberCount` names a compound
