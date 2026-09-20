@@ -33,12 +33,6 @@ data class WorkflowLaunch(
     val reviewModel: String = "",
 )
 
-/** `workflow_nodes.budget`: crossing either pauses the node and notifies. */
-data class WorkflowNodeBudget(
-    val tokens: Int? = null,
-    val minutes: Int? = null,
-)
-
 /**
  * EXP-984: an executable check the reviewer RAN. An agent's opinion is
  * advisory; a passing oracle is what turns its approval into the approval.
@@ -88,13 +82,6 @@ fun workflowLaunch(raw: String?): WorkflowLaunch {
             ?: DomainContract.workflowMaxParallelDefault,
         reviewModel = obj.string("reviewModel"),
     )
-}
-
-/** A node's token/minute budget, or null when it carries none. */
-fun workflowNodeBudget(raw: String?): WorkflowNodeBudget? {
-    val obj = parseObject(raw) ?: return null
-    val budget = WorkflowNodeBudget(tokens = obj.int("tokens"), minutes = obj.int("minutes"))
-    return budget.takeIf { it.tokens != null || it.minutes != null }
 }
 
 /**

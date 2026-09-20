@@ -39,7 +39,7 @@ use domain::workflow_view::{
     workflow_node_tone, workflow_review_line, workflow_shape_line, workflow_start_blocker,
     workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation, ReviewLine, StartableWorkflow,
     TrainNode, WorkflowNodeTone, ADMIT_NODE_LABEL, AGENT_REVIEW_TITLE, APPROVE_NODE_LABEL,
-    BUDGET_MINUTES_LABEL, BUDGET_TITLE, BUDGET_TOKENS_LABEL, CANCEL_WORKFLOW_CONFIRM,
+    CANCEL_WORKFLOW_CONFIRM,
     CANCEL_WORKFLOW_LABEL, CONTRACT_MODEL_LABEL, CONTRACT_PUBLISHED_LABEL, DELETE_WORKFLOW_LABEL,
     DISMISS_NODE_LABEL, FINAL_PR_TITLE, INTEGRATION_MODEL_LABEL, MERGES_IN_FIRST_LABEL,
     MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
@@ -147,12 +147,6 @@ pub struct WorkflowView {
     /// The name last pushed into the input, so a remote rename repaints it
     /// while a local edit in flight does not bounce.
     name_seeded: String,
-    /// EXP-984: the picked node's budget, saved on blur like the name.
-    budget_minutes: Entity<InputState>,
-    budget_tokens: Entity<InputState>,
-    /// The node the two budget fields currently hold, so picking another one
-    /// reseeds them (and a save can never write onto the wrong node).
-    budget_node: Option<String>,
     /// EXP-984: whether the agent review's findings are unfolded.
     findings_expanded: bool,
     scroll: ScrollHandle,
@@ -173,23 +167,6 @@ impl WorkflowView {
                 }
             },
         )];
-        // EXP-984: the node budget's two fields. Both save on blur (and on
-        // Enter), exactly like the workflow name above.
-        let budget_minutes =
-            cx.new(|cx| InputState::new(window, cx).placeholder(BUDGET_MINUTES_LABEL));
-        let budget_tokens =
-            cx.new(|cx| InputState::new(window, cx).placeholder(BUDGET_TOKENS_LABEL));
-        for field in [&budget_minutes, &budget_tokens] {
-            subscriptions.push(cx.subscribe_in(
-                field,
-                window,
-                |this, _, event: &InputEvent, _window, cx| {
-                    if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
-                        this.save_budget(cx);
-                    }
-                },
-            ));
-        }
         let nav = nav_for_window(window, cx);
         subscriptions.push(cx.observe(&nav, |_, _, cx| cx.notify()));
         if let Some(store) = Store::try_global(cx) {
@@ -215,9 +192,6 @@ impl WorkflowView {
             picked: None,
             name_input,
             name_seeded: String::new(),
-            budget_minutes,
-            budget_tokens,
-            budget_node: None,
             findings_expanded: false,
             scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
@@ -236,9 +210,6 @@ impl WorkflowView {
         }
         self.workflow_id = workflow_id.to_string();
         self.picked = None;
-        // The budget fields belong to a node of the OLD workflow: forget
-        // them, or the next blur would save onto it.
-        self.budget_node = None;
         self.findings_expanded = false;
         // Swap the name UNCONDITIONALLY on a workflow switch, or the next
         // blur would write the previous workflow's name onto this one.
@@ -280,34 +251,6 @@ impl WorkflowView {
         let mut input = api::workflows::WorkflowUpdate::new(self.workflow_id.clone());
         input.name = Some(name);
         spawn_update(input, cx);
-    }
-
-    /// EXP-984 — save the picked node's budget. Both fields empty (or
-    /// unreadable) is a budget of NOTHING, which clears the column; anything
-    /// else sends the positive whole numbers the server's schema takes.
-    fn save_budget(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(node_id) = self.budget_node.clone() else {
-            return;
-        };
-        let Some(issue_id) = self
-            .nodes(cx)
-            .into_iter()
-            .find(|node| node.id == node_id)
-            .and_then(|node| node.issue_id)
-        else {
-            return;
-        };
-        let minutes = budget_field(&self.budget_minutes, cx);
-        let tokens = budget_field(&self.budget_tokens, cx);
-        let mut input =
-            api::workflows::WorkflowNodeUpdate::new(self.workflow_id.clone(), issue_id);
-        input.budget = match (minutes, tokens) {
-            (None, None) => api::Patch::Null,
-            (minutes, tokens) => {
-                api::Patch::Set(api::workflows::NodeBudget { minutes, tokens })
-            }
-        };
-        spawn_update_node(input, cx);
     }
 
     /// The nodes in the server's layout order, with the issue each one
@@ -511,21 +454,17 @@ impl WorkflowView {
         &mut self,
         row: &domain::rows::WorkflowRow,
         nodes: &[domain::rows::WorkflowNodeRow],
-        window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let picked = self.picked.clone()?;
         let node = nodes.iter().find(|node| node.id == picked)?.clone();
         let issue_id = node.issue_id.clone()?;
-        // EXP-984: the budget fields follow the picked node.
-        self.seed_budget(&node, window, cx);
         let facts = NodeFacts::derive(&node, row, cx);
         let muted = cx.theme().muted_foreground;
         let workflow_id = self.workflow_id.clone();
         let draft = row.status_wire() == domain::contract::WF_STATUS_DRAFT;
         // EXP-984: a node nobody admitted yet is decided on, not run.
         let proposed = node.state_wire() == domain::contract::WF_NODE_STATE_PROPOSED;
-        let settled = matches!(node.state_wire(), "landed" | "skipped");
 
         let members: Vec<gpui::AnyElement> = node
             .member_ids()
@@ -691,11 +630,6 @@ impl WorkflowView {
                 // tone it earned, the findings themselves, and the command
                 // the reviewer actually ran.
                 .children(self.render_agent_review(&node, cx))
-                // EXP-984: what this node may spend. A settled node has
-                // spent it; a proposal has not started.
-                .when(!proposed && !settled, |this| {
-                    this.child(self.render_budget(window, cx))
-                })
                 // EXP-982: why the node is failed or waiting, in the
                 // sentence the engine reported.
                 .when_some(node.note.clone(), |this, note| {
@@ -713,64 +647,6 @@ impl WorkflowView {
                 .children((!proposed).then(|| node_gate_actions(&node, row)).unwrap_or_default())
                 .into_any_element(),
         )
-    }
-
-    /// EXP-984 — the picked node's budget fields, reseeded whenever the
-    /// picked node changes (never while the same node is being edited, or a
-    /// synced echo would eat what is being typed).
-    fn seed_budget(
-        &mut self,
-        node: &domain::rows::WorkflowNodeRow,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.budget_node.as_deref() == Some(node.id.as_str()) {
-            return;
-        }
-        self.budget_node = Some(node.id.clone());
-        let (minutes, tokens) = node.budget_limits();
-        let text = |value: Option<i64>| {
-            value.map(|value| value.to_string()).unwrap_or_default()
-        };
-        self.budget_minutes
-            .update(cx, |input, cx| input.set_value(text(minutes), window, cx));
-        self.budget_tokens
-            .update(cx, |input, cx| input.set_value(text(tokens), window, cx));
-    }
-
-    /// EXP-984 — the `Budget` block: two optional whole numbers, saved on
-    /// blur. Both empty clears the budget.
-    fn render_budget(
-        &self,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let field = |state: &Entity<InputState>| {
-            crate::surface::glass_row_input(crate::controls::glass_input(state, window, cx))
-                .into_any_element()
-        };
-        v_flex()
-            .min_w_0()
-            .gap_1()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(SharedString::from(BUDGET_TITLE)),
-            )
-            .child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_input_row(
-                    BUDGET_MINUTES_LABEL,
-                    field(&self.budget_minutes),
-                    cx,
-                ),
-                crate::surface::glass_input_row(
-                    BUDGET_TOKENS_LABEL,
-                    field(&self.budget_tokens),
-                    cx,
-                ),
-            ]))
-            .into_any_element()
     }
 
     /// EXP-984 — the `Agent review` block, or nothing while no review was
@@ -1280,7 +1156,7 @@ impl Render for WorkflowView {
             });
 
         let graph = self.render_graph(&row, &nodes, cx);
-        let panel = self.render_node_panel(&row, &nodes, _window, cx);
+        let panel = self.render_node_panel(&row, &nodes, cx);
         let body = h_flex()
             .w_full()
             .min_w_0()
@@ -1648,18 +1524,6 @@ fn render_metrics(row: &domain::rows::WorkflowRow, cx: &App) -> Option<gpui::Any
             .child(crate::surface::glass_group_rows(value_rows))
             .into_any_element(),
     )
-}
-
-/// EXP-984 — one budget field as a positive whole number, or `None` when it
-/// is empty (or not one), which is what clears that half of the budget.
-fn budget_field(state: &Entity<InputState>, cx: &App) -> Option<u32> {
-    state
-        .read(cx)
-        .value()
-        .trim()
-        .parse::<u32>()
-        .ok()
-        .filter(|value| *value > 0)
 }
 
 /// The contract's node KIND picks with their shipped labels.

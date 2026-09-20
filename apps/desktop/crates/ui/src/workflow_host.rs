@@ -526,7 +526,6 @@ fn snapshot_for(
                     round: review.round,
                     head: review.head,
                 }),
-                budget: node_budget(node),
                 updated_at_ms: node
                     .updated_at
                     .as_deref()
@@ -666,25 +665,7 @@ fn session_facts(row: &domain::rows::CodingSession) -> SessionFacts {
             .and_then(|value| value.get("resetsAt"))
             .and_then(parse_resets_at),
         agent_busy: row.agent_busy.unwrap_or(false),
-        // EXP-984: the minutes budget's clock. `tokens_used` stays None —
-        // the token counter lives in the session's own feed, which this host
-        // does not read, so only minutes bound a run here.
-        started_at_ms: row
-            .started_at
-            .as_deref()
-            .or(row.created_at.as_deref())
-            .and_then(workflows::parse_wire_timestamp_ms),
-        tokens_used: None,
     }
-}
-
-/// EXP-984: the node's budget as the engine reads it.
-fn node_budget(node: &domain::rows::WorkflowNodeRow) -> Option<workflows::BudgetFacts> {
-    let (minutes, tokens) = node.budget_limits();
-    (minutes.is_some() || tokens.is_some()).then_some(workflows::BudgetFacts {
-        minutes,
-        tokens: tokens.map(|tokens| tokens as u64),
-    })
 }
 
 /// The wall's reset stamp as ms epoch — a number already, or the ISO string
@@ -1017,21 +998,6 @@ fn run_pass(
                 update_state(&pass, &workflow_id, |state| {
                     state.findings_sent.insert(node_id.clone(), round);
                 });
-            }
-            // EXP-984: over budget — end the run, then park the node for a
-            // person (the server notifies the workflow's creator).
-            Decision::PauseNode {
-                node_id,
-                session_id,
-                note,
-            } => {
-                if let Some(engine) = pass.engines.get(&session_id) {
-                    engine.kill("ended");
-                }
-                let mut report = api::workflows::NodeReport::new(&node_id, "paused");
-                report.note = api::patch::Patch::Set(one_line(&note));
-                report_node(&pass.trpc, &report);
-                log::info!("[workflows] {workflow_id}: paused {node_id} — {note}");
             }
             // EXP-983: the collision the engine decided to serialize. The
             // state rides along unchanged — `reportNode` always takes one.

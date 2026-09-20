@@ -555,12 +555,9 @@ pub const DISMISS_NODE_LABEL: &str = "Dismiss";
 pub const PROPOSED_NODE_NOTE: &str =
     "Filed during the run. Admit it into the workflow or dismiss it.";
 /// The node panel's agent-review block, the launch row that picks its model,
-/// the budget block's title and fields, and the detail's counters section.
+/// and the detail's counters section.
 pub const AGENT_REVIEW_TITLE: &str = "Agent review";
 pub const REVIEW_MODEL_LABEL: &str = "Review model";
-pub const BUDGET_TITLE: &str = "Budget";
-pub const BUDGET_MINUTES_LABEL: &str = "Minutes";
-pub const BUDGET_TOKENS_LABEL: &str = "Tokens";
 pub const METRICS_TITLE: &str = "Metrics";
 
 // ── Per-phase models (EXP-1002) ───────────────────────────────────────
@@ -724,10 +721,6 @@ pub fn workflow_metric_rows(metrics: &serde_json::Value) -> Vec<MetricRow> {
                 metric_text(by_agent)
             ),
         ));
-    }
-    let pauses = count("budgetPauses");
-    if pauses > 0.0 {
-        rows.push(row("Budget pauses", metric_text(pauses)));
     }
     rows
 }

@@ -207,23 +207,20 @@ private struct SetIssuesInput: Encodable {
 }
 
 /// A partial `workflows.updateNode`, addressed by ISSUE (a member's id
-/// resolves to its compound node). `budget` is clearable like `deviceId`.
+/// resolves to its compound node).
 public struct WorkflowNodePatch: Sendable, Equatable {
     public var kind: String?
     public var risk: String?
     public var touches: [String]?
-    public var budget: WorkflowNodeBudget??
 
     public init(
         kind: String? = nil,
         risk: String? = nil,
-        touches: [String]? = nil,
-        budget: WorkflowNodeBudget?? = nil
+        touches: [String]? = nil
     ) {
         self.kind = kind
         self.risk = risk
         self.touches = touches
-        self.budget = budget
     }
 }
 
@@ -233,7 +230,7 @@ struct WorkflowNodeUpdateInput: Encodable {
     let patch: WorkflowNodePatch
 
     enum CodingKeys: String, CodingKey {
-        case workflowId, issueId, kind, risk, touches, budget
+        case workflowId, issueId, kind, risk, touches
     }
 
     func encode(to encoder: Encoder) throws {
@@ -243,9 +240,6 @@ struct WorkflowNodeUpdateInput: Encodable {
         try c.encodeIfPresent(patch.kind, forKey: .kind)
         try c.encodeIfPresent(patch.risk, forKey: .risk)
         try c.encodeIfPresent(patch.touches, forKey: .touches)
-        if let budget = patch.budget {
-            try c.encode(budget, forKey: .budget)
-        }
     }
 }
 
@@ -328,7 +322,7 @@ public final class WorkflowsApi: Sendable {
     }
 
     /// Member-gated `workflows.updateNode` — what the plan declares per node.
-    /// Kind and touches shape the PLAN (draft-only); risk and budget stay
+    /// Kind and touches shape the PLAN (draft-only); risk stays
     /// adjustable.
     public func updateNode(
         accountId: String,

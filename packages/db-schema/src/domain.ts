@@ -1076,19 +1076,6 @@ export const workflowLaunchSchema = z
   })
   .strict()
 
-/** `workflow_nodes.budget`: crossing either pauses the node and notifies. */
-export interface WorkflowNodeBudget {
-  tokens?: number | null
-  minutes?: number | null
-}
-
-export const workflowNodeBudgetSchema = z
-  .object({
-    tokens: z.number().int().positive().nullish(),
-    minutes: z.number().int().positive().nullish(),
-  })
-  .strict()
-
 /** `workflows.metrics`: the plan's shape (written by the server layout) plus,
  *  from the engine's phases on, the run's counters. */
 export interface WorkflowMetricsJson {

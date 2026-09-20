@@ -758,8 +758,7 @@
         "operatorMinutes": 37,
         "reviewRounds": 6,
         "defectsByOracle": 2,
-        "defectsByAgentReview": 1,
-        "budgetPauses": 1
+        "defectsByAgentReview": 1
       },
       "rows": [
         {
@@ -789,10 +788,6 @@
         {
           "label": "Defects found",
           "value": "2 by checks · 1 by agent review"
-        },
-        {
-          "label": "Budget pauses",
-          "value": "1"
         }
       ]
     },

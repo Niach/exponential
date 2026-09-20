@@ -425,9 +425,6 @@ object WorkflowView {
         "Filed during the run. Admit it into the workflow or dismiss it."
     const val AGENT_REVIEW_TITLE = "Agent review"
     const val REVIEW_MODEL_LABEL = "Review model"
-    const val BUDGET_TITLE = "Budget"
-    const val BUDGET_MINUTES_LABEL = "Minutes"
-    const val BUDGET_TOKENS_LABEL = "Tokens"
     const val METRICS_TITLE = "Metrics"
 
     // ── Per-phase models (EXP-1002) ─────────────────────────────────
@@ -530,8 +527,6 @@ object WorkflowView {
                 ),
             )
         }
-        val pauses = count("budgetPauses")
-        if (pauses > 0) rows.add(MetricRow("Budget pauses", "$pauses"))
         return rows
     }
 

@@ -26,9 +26,8 @@
 //! EXP-984 closes the loop: under the `agent` gate every node's pushed branch
 //! gets a REVIEWER run (adversarial, and never on the author's own model, for
 //! a `risk: high` node) whose `request_changes` findings go back to the author
-//! at most three rounds; a node that spends more than its budget is paused for
-//! a person; and a follow-up node nobody admitted (`proposed`) is treated as
-//! absent from the run entirely.
+//! at most three rounds; and a follow-up node nobody admitted (`proposed`) is
+//! treated as absent from the run entirely.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
@@ -239,9 +238,6 @@ pub struct NodeFacts {
     /// on (the findings themselves are the host's to deliver).
     #[serde(default)]
     pub review: Option<ReviewFacts>,
-    /// EXP-984: what this node may spend before it is paused for a person.
-    #[serde(default)]
-    pub budget: Option<BudgetFacts>,
     /// The row's `updated_at` as ms epoch — a `running` node with no session
     /// is the host's in-flight start for [`START_GRACE_MS`] after it. `None`
     /// = unknown, which holds.
@@ -264,16 +260,6 @@ pub struct ReviewFacts {
     /// stale: it clears nothing, and the new head gets its own review.
     #[serde(default)]
     pub head: Option<String>,
-}
-
-/// `workflow_nodes.budget` — whole minutes and whole tokens, each optional.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct BudgetFacts {
-    #[serde(default)]
-    pub minutes: Option<i64>,
-    #[serde(default)]
-    pub tokens: Option<u64>,
 }
 
 /// What the engine reads off a node's representative issue.
@@ -303,14 +289,6 @@ pub struct SessionFacts {
     /// EXP-848: mid-turn right now.
     #[serde(default)]
     pub agent_busy: bool,
-    /// EXP-984: when the run started, as ms epoch — the minutes budget's
-    /// clock. `None` = unknown, and then minutes bound nothing.
-    #[serde(default)]
-    pub started_at_ms: Option<i64>,
-    /// EXP-984: the tokens the run has spent, when the host can see a
-    /// counter at all. `None` = unknown, and then tokens bound nothing.
-    #[serde(default)]
-    pub tokens_used: Option<u64>,
 }
 
 /// One evaluation pass's inputs — everything, including the clock.
@@ -466,14 +444,6 @@ pub enum Decision {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
     },
-    /// EXP-984: the node spent more than its budget — end the run and report
-    /// it `paused`, which notifies the workflow's creator.
-    #[serde(rename_all = "camelCase")]
-    PauseNode {
-        node_id: String,
-        session_id: String,
-        note: String,
-    },
     /// The merge train's one step: `workflows.landNode`.
     #[serde(rename_all = "camelCase")]
     LandNode { node_id: String },
@@ -574,9 +544,9 @@ fn is_unlanded(state: &str) -> bool {
 ///    branch under it moved; 5. serialize two siblings whose work collided;
 /// 6. nudge a run whose rate limit reset; 7. the agent review gate — ONE
 ///    review start per pass, and a round's findings said exactly once;
-/// 8. pause a node that went over its budget; 9. land ONE cleared node in
-///    TOPOLOGICAL order (the merge train); 10. open the final PR once
-///    everything is in; 11. drop a synthetic base nothing builds on any more.
+/// 8. land ONE cleared node in TOPOLOGICAL order (the merge train); 9. open
+///    the final PR once everything is in; 10. drop a synthetic base nothing
+///    builds on any more.
 /// A `cancelled` workflow ends its runs and drops its branches;
 /// `draft`/`done` decide nothing.
 ///
@@ -627,9 +597,10 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // already resolved, are both left exactly where they are.
     let mut mirrored: Vec<Mirrored<'_>> = Vec::with_capacity(order.len());
     for node in &order {
-        // EXP-984: a node PAUSED over its budget is settled until a person
-        // retries it — the mirror would otherwise read its still-open pull
-        // request and put it straight back into the run.
+        // A `paused` node is settled until a person retries it — the mirror
+        // would otherwise read its still-open pull request and put it straight
+        // back into the run. Nothing pauses a node any more (budgets are
+        // gone), but rows paused by an older build still read this way.
         if is_final(&node.state)
             || node.state == STATE_PAUSED
             || snapshot.in_flight.contains(&node.id)
@@ -834,7 +805,6 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
 
     // (8) EXP-984: a node that spent more than it was given stops there and
     // waits for a person (`resolveNode retry` puts it back in the run).
-    decisions.extend(budget_decisions(snapshot, &mirrored));
 
     // (9) The merge train: ONE land per pass, and only while the host is not
     // already landing one. The train is strict order among LANDABLE nodes —
@@ -1157,7 +1127,8 @@ fn is_ancestor(blockers: &HashMap<&str, Vec<&str>>, ancestor: &str, node: &str) 
     false
 }
 
-/// contract `wfNodeState` — a node held over its budget.
+/// contract `wfNodeState` — ORPHANED with the budgets that produced it; kept
+/// because rows an older build paused are still in the table.
 const STATE_PAUSED: &str = "paused";
 /// contract `wfGate` — every node's pull request gets an AGENT review.
 const GATE_AGENT: &str = "agent";
@@ -1336,61 +1307,6 @@ fn review_model(snapshot: &Snapshot, node: &NodeFacts, adversarial: bool) -> Opt
         }
         .to_string(),
     )
-}
-
-/// EXP-984 rule 8 — the budget. A live run that spent more minutes (or more
-/// tokens, where the host can count them) than the node was given is ended
-/// and the node parked for a person.
-fn budget_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decision> {
-    let mut decisions = Vec::new();
-    for entry in mirrored {
-        let node = entry.node;
-        if !matches!(entry.state.as_str(), "running" | "updating") {
-            continue;
-        }
-        if snapshot.in_flight.contains(&node.id) {
-            continue;
-        }
-        let Some(budget) = node.budget.as_ref() else {
-            continue;
-        };
-        let Some(session_id) = node.session_id.as_deref() else {
-            continue;
-        };
-        let Some(session) = snapshot.sessions.get(session_id) else {
-            continue;
-        };
-        if !session.live {
-            continue;
-        }
-        let Some(note) = over_budget(budget, session, snapshot.now_ms) else {
-            continue;
-        };
-        decisions.push(Decision::PauseNode {
-            node_id: node.id.clone(),
-            session_id: session_id.to_string(),
-            note,
-        });
-    }
-    decisions
-}
-
-/// The note a run that went over its budget carries, or `None` while it is
-/// still inside it. Minutes are read first: they always apply, while tokens
-/// only do where the host can see a counter at all.
-fn over_budget(budget: &BudgetFacts, session: &SessionFacts, now_ms: i64) -> Option<String> {
-    if let (Some(limit), Some(started_at)) = (budget.minutes, session.started_at_ms) {
-        let minutes = (now_ms - started_at) / 60_000;
-        if limit > 0 && minutes > limit {
-            return Some(format!("Over budget: {minutes} of {limit} minutes"));
-        }
-    }
-    if let (Some(limit), Some(used)) = (budget.tokens, session.tokens_used) {
-        if limit > 0 && used > limit {
-            return Some(format!("Over budget: {used} of {limit} tokens"));
-        }
-    }
-    None
 }
 
 /// EXP-983 rule 6 — the train's topological gate: a node lands only once

@@ -14,7 +14,6 @@ import {
   DialogTitle,
   getDeviceIcon,
   GlassGroup,
-  GlassInputRow,
   GlassSectionHeader,
   Input,
   Sheet,
@@ -36,7 +35,6 @@ import {
   type WfRisk,
   type WfStartOn,
   type WorkflowLaunch,
-  type WorkflowNodeBudget,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
@@ -83,9 +81,6 @@ import {
   ADMIT_NODE_LABEL,
   AGENT_REVIEW_TITLE,
   APPROVE_NODE_LABEL,
-  BUDGET_MINUTES_LABEL,
-  BUDGET_TITLE,
-  BUDGET_TOKENS_LABEL,
   CANCEL_WORKFLOW_CONFIRM,
   CANCEL_WORKFLOW_LABEL,
   CONTRACT_PUBLISHED_LABEL,
@@ -127,7 +122,7 @@ import {
 //
 // EXP-984: the run learns to judge itself and to grow. The node panel gains
 // the agent reviewer's latest verdict, the two decisions a follow-up filed
-// mid-run needs (Admit · Dismiss), and the node's own budget; the
+// mid-run needs (Admit · Dismiss); the
 // configuration gains the model reviews run on; and a started workflow
 // carries its counters under the graph.
 
@@ -992,11 +987,7 @@ export function WorkflowNodePanel({
     })
     .filter((row): row is Issue => Boolean(row))
 
-  const updateNode = async (patch: {
-    kind?: WfNodeKind
-    risk?: WfRisk
-    budget?: WorkflowNodeBudget | null
-  }) => {
+  const updateNode = async (patch: { kind?: WfNodeKind; risk?: WfRisk }) => {
     onError(null)
     try {
       await trpc.workflows.updateNode.mutate(
@@ -1060,9 +1051,6 @@ export function WorkflowNodePanel({
   const canWithdraw =
     !proposed && Boolean(node.approvedAt) && node.state !== `landed`
   const review = readNodeReview(node.review)
-  // The node is history once it landed or was skipped; a budget on it would
-  // never be read again.
-  const canBudget = node.state !== `landed` && node.state !== `skipped`
 
   return (
     <div className="flex flex-col gap-3" data-testid="workflow-node-panel">
@@ -1172,14 +1160,6 @@ export function WorkflowNodePanel({
           }}
         />
       </GlassGroup>
-      {canBudget && (
-        <NodeBudgetBlock
-          key={node.id}
-          nodeId={node.id}
-          budget={node.budget}
-          onSave={(budget) => void updateNode({ budget })}
-        />
-      )}
       {node.touches.length > 0 && (
         <div
           className="flex flex-col gap-0.5"
@@ -1264,7 +1244,7 @@ export function WorkflowNodePanel({
           </Button>
         </div>
       )}
-      {/* A budget pause (EXP-984) is resolved the same way as a failure. */}
+      {/* A node an older build paused is resolved the same way as a failure. */}
       {!proposed && (node.state === `failed` || node.state === `paused`) && (
         <div className="flex flex-wrap gap-2">
           <Button
@@ -1400,101 +1380,5 @@ function AgentReviewBlock({ review }: { review: PanelReview }) {
         </span>
       )}
     </div>
-  )
-}
-
-// ── Budgets (EXP-984) ───────────────────────────────────────────────────────
-
-/** Both fields hold a positive integer or nothing at all; anything else reads
- *  as nothing (and normalises away the moment the field is left). */
-const budgetNumber = (value: unknown): number | null =>
-  typeof value === `number` && Number.isInteger(value) && value > 0
-    ? value
-    : null
-
-const budgetField = (raw: string): number | null => {
-  const trimmed = raw.trim()
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
-}
-
-const budgetText = (value: number | null): string =>
-  value === null ? `` : String(value)
-
-/** The node's own ceiling. The engine pauses a node that crosses either one
- *  and tells the person who started the workflow; editing it follows the issue
- *  title's rule — a plain field that saves on blur. Both fields empty means no
- *  budget at all (`budget: null`). */
-function NodeBudgetBlock({
-  nodeId,
-  budget,
-  onSave,
-}: {
-  nodeId: string
-  budget: unknown
-  onSave: (budget: WorkflowNodeBudget | null) => void
-}) {
-  const row =
-    budget && typeof budget === `object` && !Array.isArray(budget)
-      ? (budget as Record<string, unknown>)
-      : {}
-  const minutes = budgetNumber(row.minutes)
-  const tokens = budgetNumber(row.tokens)
-  const [draft, setDraft] = useState({
-    minutes: budgetText(minutes),
-    tokens: budgetText(tokens),
-  })
-  // The row is the truth: an engine write (or another member's edit) lands in
-  // the fields. Our own save echoes back identical, so nothing flickers.
-  useEffect(() => {
-    setDraft({ minutes: budgetText(minutes), tokens: budgetText(tokens) })
-  }, [minutes, tokens])
-
-  const commit = () => {
-    const nextMinutes = budgetField(draft.minutes)
-    const nextTokens = budgetField(draft.tokens)
-    setDraft({
-      minutes: budgetText(nextMinutes),
-      tokens: budgetText(nextTokens),
-    })
-    if (nextMinutes === minutes && nextTokens === tokens) return
-    onSave(
-      nextMinutes === null && nextTokens === null
-        ? null
-        : { minutes: nextMinutes, tokens: nextTokens }
-    )
-  }
-
-  const field = (which: `minutes` | `tokens`, label: string) => (
-    <GlassInputRow
-      id={`workflow-node-budget-${which}-${nodeId}`}
-      label={label}
-      inputMode="numeric"
-      placeholder="None"
-      data-testid={`workflow-node-budget-${which}`}
-      value={draft[which]}
-      onChange={(event) =>
-        setDraft((previous) => ({ ...previous, [which]: event.target.value }))
-      }
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === `Enter`) event.currentTarget.blur()
-        if (event.key === `Escape`) {
-          setDraft({ minutes: budgetText(minutes), tokens: budgetText(tokens) })
-          event.currentTarget.blur()
-        }
-      }}
-    />
-  )
-
-  return (
-    <section className="flex flex-col" data-testid="workflow-node-budget-block">
-      <GlassSectionHeader label={BUDGET_TITLE} />
-      <GlassGroup>
-        {field(`minutes`, BUDGET_MINUTES_LABEL)}
-        {field(`tokens`, BUDGET_TOKENS_LABEL)}
-      </GlassGroup>
-    </section>
   )
 }

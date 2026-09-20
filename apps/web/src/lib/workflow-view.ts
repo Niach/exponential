@@ -356,7 +356,7 @@ export const CONTRACT_PUBLISHED_LABEL = `Contract published`
 export const MERGES_IN_FIRST_LABEL = `Merges in first`
 
 
-// ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────────
+// ── Review gate, dynamic graphs, metrics (EXP-984) ─────────────────────────
 
 export const ADMIT_NODE_LABEL = `Admit`
 export const DISMISS_NODE_LABEL = `Dismiss`
@@ -374,9 +374,6 @@ export const INTEGRATION_MODEL_LABEL = `Integration model`
 export const RISK_MODEL_LABEL = `High-risk model`
 /** Both phase rows' blank pick: the workflow's own Model, not the CLI's. */
 export const SAME_AS_MODEL_LABEL = `Same as Model`
-export const BUDGET_TITLE = `Budget`
-export const BUDGET_MINUTES_LABEL = `Minutes`
-export const BUDGET_TOKENS_LABEL = `Tokens`
 export const METRICS_TITLE = `Metrics`
 
 export interface ReviewLine {
@@ -453,7 +450,5 @@ export function workflowMetricRows(metrics: Record<string, unknown>): MetricRow[
       value: `${byOracle} by checks · ${byAgent} by agent review`,
     })
   }
-  const pauses = count(metrics, `budgetPauses`)
-  if (pauses > 0) rows.push({ label: `Budget pauses`, value: `${pauses}` })
   return rows
 }

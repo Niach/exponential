@@ -4,7 +4,6 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.workflowMetricCounters
-import com.exponential.app.domain.workflowNodeBudget
 import com.exponential.app.domain.workflowNodeReview
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -161,7 +160,6 @@ class WorkflowEntityDecodeTest {
                 "at": "2026-09-19 12:00:00+00"
               },
               "note": "The rebase hit a conflict in apps/web/src/lib/workflows.ts",
-              "budget": {"tokens": 120000, "minutes": 30},
               "touches": "{apps/web/**,packages/ui/**}",
               "created_at": "2026-09-19 10:00:00+00",
               "updated_at": "2026-09-19 10:00:00+00"
@@ -189,11 +187,8 @@ class WorkflowEntityDecodeTest {
         // EXP-983: the contract stamp and the engine's serialization edges.
         assertEquals("2026-09-19 11:30:00+00", node.checkpointAt)
         assertEquals(listOf("node-7", "node-9"), node.afterNodeIds)
-        val budget = workflowNodeBudget(node.budget)
-        assertEquals(120000, budget?.tokens)
-        assertEquals(30, budget?.minutes)
         // EXP-984: the agent review gate — the round counter and the latest
-        // verdict, the jsonb read as tolerantly as the budget beside it.
+        // verdict, a jsonb read as tolerantly as the row beside it.
         assertEquals(2, node.reviewRound)
         val review = workflowNodeReview(node.review)
         assertEquals(DomainContract.wfReviewVerdictRequestChanges, review?.verdict)
@@ -229,7 +224,6 @@ class WorkflowEntityDecodeTest {
         assertEquals(0, node.lane)
         assertTrue(node.memberIssueIds.isEmpty())
         assertTrue(node.touches.isEmpty())
-        assertNull(workflowNodeBudget(node.budget))
         // EXP-983: a node that published nothing and collided with nobody.
         assertNull(node.checkpointAt)
         assertTrue(node.afterNodeIds.isEmpty())
@@ -302,13 +296,12 @@ class WorkflowEntityDecodeTest {
         val counters = workflowMetricCounters(
             """
                 {"nodes":12,"depth":3,"width":8,"cycles":[["EXP-1"]],"landed":"garbage",
-                 "mergeIns":9,"contractChanges":2,"budgetPauses":1}
+                 "mergeIns":9,"contractChanges":2}
             """.trimIndent(),
         )
         assertEquals(12, counters["nodes"])
         assertEquals(3, counters["depth"])
         assertEquals(9, counters["mergeIns"])
-        assertEquals(1, counters["budgetPauses"])
         // A list is not a counter, and neither is a word.
         assertNull(counters["cycles"])
         assertNull(counters["landed"])

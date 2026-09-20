@@ -12,7 +12,6 @@ import {
   WORKFLOW_MAX_ISSUES,
   wfNodeStateSchema,
   workflowLaunchSchema,
-  workflowNodeBudgetSchema,
   workflowTouchesSchema,
   wfGateSchema,
   wfNodeKindSchema,
@@ -257,35 +256,6 @@ export function appendDecisionLine(log: string, text: string, now: Date): string
   return out.slice(-WORKFLOW_DECISIONS_MAX)
 }
 
-/** A budget pause reaches the person who started the workflow (inbox row +
- *  push). Best-effort. */
-async function notifyNodePaused(
-  workflow: { id: string; teamId: string; name: string },
-  issueId: string,
-  note: string | null
-): Promise<void> {
-  try {
-    const { db } = await import(`@/db/connection`)
-    const [row] = await db
-      .select({ creatorId: workflows.creatorId, identifier: issues.identifier })
-      .from(workflows)
-      .innerJoin(issues, eq(issues.id, issueId))
-      .where(eq(workflows.id, workflow.id))
-      .limit(1)
-    if (!row?.creatorId) return
-    const { sendAgentMessage } = await import(`@/lib/integrations/notifications`)
-    await sendAgentMessage({
-      teamId: workflow.teamId,
-      senderUserId: row.creatorId,
-      recipientIds: [row.creatorId],
-      title: `${row.identifier} paused in ${workflow.name}`,
-      body: note ?? `The node went over its budget.`,
-    })
-  } catch (err) {
-    console.error(`[workflows] pause notice failed:`, err)
-  }
-}
-
 /** A recorded decision reaches every run of the workflow that is parked on a
  *  question (the sibling that asked the same thing included). Best-effort. */
 async function relayDecision(workflowId: string, text: string): Promise<void> {
@@ -342,7 +312,6 @@ export const WORKFLOW_COUNTERS = [
   `defectsByOracle`,
   `defectsByAgentReview`,
   `admitted`,
-  `budgetPauses`,
 ] as const
 
 /**
@@ -417,7 +386,6 @@ export const workflowsRouter = router({
           sessionId: workflowNodes.sessionId,
           attempt: workflowNodes.attempt,
           baseBranch: workflowNodes.baseBranch,
-          budget: workflowNodes.budget,
           touches: workflowNodes.touches,
         })
         .from(workflowNodes)
@@ -642,7 +610,6 @@ export const workflowsRouter = router({
         kind: wfNodeKindSchema.optional(),
         risk: wfRiskSchema.optional(),
         touches: workflowTouchesSchema.optional(),
-        budget: workflowNodeBudgetSchema.nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -660,7 +627,7 @@ export const workflowsRouter = router({
         (row) => row.issueId === input.issueId || row.members.includes(input.issueId)
       )
       if (!node) throw bad(`That issue is not part of the workflow`)
-      // Kind and touches shape the PLAN; risk and budget stay adjustable.
+      // Kind and touches shape the PLAN; risk stays adjustable.
       if (input.kind !== undefined || input.touches !== undefined) {
         assertDraft(existing.status, `Re-planning a node`)
       }
@@ -672,7 +639,6 @@ export const workflowsRouter = router({
             ...(input.kind !== undefined && { kind: input.kind }),
             ...(input.risk !== undefined && { risk: input.risk }),
             ...(input.touches !== undefined && { touches: input.touches }),
-            ...(input.budget !== undefined && { budget: input.budget }),
           })
           .where(eq(workflowNodes.id, node.id))
         return { txId, nodeId: node.id }
@@ -1073,15 +1039,6 @@ export const workflowsRouter = router({
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
         .where(eq(workflowNodes.id, input.nodeId))
-      // EXP-984: the engine paused the node over its budget. A paused node
-      // does nothing until a person looks, so it says so ONCE, on the edge.
-      if (input.state === `paused` && node.state !== `paused`) {
-        await ctx.db
-          .update(workflows)
-          .set({ metrics: bumpMetrics({ budgetPauses: 1 }) })
-          .where(eq(workflows.id, workflow.id))
-        await notifyNodePaused(workflow, node.issueId, input.note ?? null)
-      }
       return { updated: true }
     }),
 

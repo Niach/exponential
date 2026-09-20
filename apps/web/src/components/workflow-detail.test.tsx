@@ -43,7 +43,7 @@ import {
 // the published contract, and the nodes this one merges in first.
 //
 // EXP-984: the reviewer's verdict reads off the node, a `proposed` follow-up is
-// decided on rather than run, the node carries a budget, and the workflow
+// decided on rather than run, and the workflow
 // carries its counters.
 
 const nodeRows = vi.hoisted(() => ({ rows: [] as unknown[] }))
@@ -177,7 +177,6 @@ const node = (
     note: null,
     reviewRound: 0,
     review: null,
-    budget: null,
     ...over,
   }) as unknown as WorkflowNode
 
@@ -990,55 +989,6 @@ describe(`WorkflowDetail node panel actions`, () => {
     )
   })
 
-  // EXP-984 — the node's own ceiling, saved on blur.
-  it(`saves a node budget, clears it, and hides it once the node is in`, async () => {
-    graphState.issues = [issue(`i-n1`, `APP-1`)]
-    const running = open({ state: `running` })
-    const minutes = screen.getByTestId(
-      `workflow-node-budget-minutes`
-    ) as HTMLInputElement
-    expect(minutes.value).toBe(``)
-    fireEvent.change(minutes, { target: { value: `45` } })
-    fireEvent.blur(minutes)
-    await vi.waitFor(() =>
-      expect(runMutates.updateNode).toHaveBeenCalledWith(
-        {
-          workflowId: `wf`,
-          issueId: `i-n1`,
-          budget: { minutes: 45, tokens: null },
-        },
-        expect.anything()
-      )
-    )
-    running.unmount()
-
-    // Emptying both fields takes the budget away entirely.
-    const budgeted = open({
-      state: `waiting`,
-      budget: { minutes: 45, tokens: 200000 },
-    })
-    const both = [
-      screen.getByTestId(`workflow-node-budget-minutes`),
-      screen.getByTestId(`workflow-node-budget-tokens`),
-    ] as HTMLInputElement[]
-    expect(both.map((field) => field.value)).toEqual([`45`, `200000`])
-    for (const field of both) fireEvent.change(field, { target: { value: `` } })
-    fireEvent.blur(both[1]!)
-    await vi.waitFor(() =>
-      expect(runMutates.updateNode).toHaveBeenCalledWith(
-        { workflowId: `wf`, issueId: `i-n1`, budget: null },
-        expect.anything()
-      )
-    )
-    budgeted.unmount()
-
-    // A landed or skipped node is history: nothing left to bound.
-    const landed = open({ state: `landed` })
-    expect(screen.queryByTestId(`workflow-node-budget-block`)).toBeNull()
-    landed.unmount()
-    open({ state: `skipped` })
-    expect(screen.queryByTestId(`workflow-node-budget-block`)).toBeNull()
-  })
 })
 
 // EXP-984: what the workflow itself gained — the model reviews run on, and the
@@ -1128,7 +1078,6 @@ describe(`WorkflowDetail review model and metrics`, () => {
       cycles: [],
       landed: 2,
       reviewRounds: 5,
-      budgetPauses: 1,
       defectsByOracle: 3,
       defectsByAgentReview: 1,
     }
@@ -1148,7 +1097,6 @@ describe(`WorkflowDetail review model and metrics`, () => {
     expect(row(`Defects found`)).toBe(
       `Defects found3 by checks · 1 by agent review`
     )
-    expect(row(`Budget pauses`)).toBe(`Budget pauses1`)
     // A counter with nothing to say draws no row.
     expect(screen.queryByTestId(`workflow-metric-Escalations`)).toBeNull()
   })

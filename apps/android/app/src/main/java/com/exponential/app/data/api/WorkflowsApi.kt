@@ -2,7 +2,6 @@ package com.exponential.app.data.api
 
 import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.domain.WorkflowLaunch
-import com.exponential.app.domain.WorkflowNodeBudget
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
@@ -133,8 +132,7 @@ internal fun updateWorkflowInput(
 
 /**
  * `workflows.updateNode`'s patch — addressed by ISSUE (a member's id resolves
- * to its compound node). Same omitted-key rule as above; `budget` is the one
- * key whose explicit null CLEARS.
+ * to its compound node). Same omitted-key rule as above.
  */
 internal fun updateWorkflowNodeInput(
     workflowId: String,
@@ -142,8 +140,6 @@ internal fun updateWorkflowNodeInput(
     kind: String?,
     risk: String?,
     touches: List<String>?,
-    budget: WorkflowNodeBudget? = null,
-    clearBudget: Boolean = false,
 ): JsonObject = buildJsonObject {
     put("workflowId", workflowId)
     put("issueId", issueId)
@@ -151,15 +147,6 @@ internal fun updateWorkflowNodeInput(
     risk?.let { put("risk", it) }
     touches?.let { globs ->
         putJsonArray("touches") { globs.forEach { add(JsonPrimitive(it)) } }
-    }
-    // EXP-984: both fields empty is the explicit null that CLEARS the budget;
-    // a null `budget` with no clear flag leaves it alone.
-    when {
-        clearBudget -> put("budget", JsonNull)
-        budget != null -> putJsonObject("budget") {
-            budget.tokens?.let { put("tokens", it) }
-            budget.minutes?.let { put("minutes", it) }
-        }
     }
 }
 
@@ -242,8 +229,8 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * `workflows.updateNode` — what the plan declares for one node. Kind and
-     * touches are draft-only (the server refuses them later); risk and the
-     * EXP-984 [budget] stay adjustable at any status.
+     * touches are draft-only (the server refuses them later); risk stays
+     * adjustable at any status.
      */
     suspend fun updateNode(
         accountId: String,
@@ -252,8 +239,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
         kind: String? = null,
         risk: String? = null,
         touches: List<String>? = null,
-        budget: WorkflowNodeBudget? = null,
-        clearBudget: Boolean = false,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -264,8 +249,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
                 kind = kind,
                 risk = risk,
                 touches = touches,
-                budget = budget,
-                clearBudget = clearBudget,
             ),
             inputSerializer = JsonObject.serializer(),
         )
