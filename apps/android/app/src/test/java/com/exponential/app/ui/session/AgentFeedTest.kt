@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.EntityRef
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentRowClass
@@ -1648,6 +1649,54 @@ class AgentFeedTest {
             .applying(toolWithId("call-2", "other"))
             .applying(event("""{"kind":"tool_update","id":"call-2","preview":{}}"""))
         assertNull((none.feed.single() as AgentFeedItem.Tool).preview)
+    }
+
+    @Test
+    fun `a tool_update folds the answer's entity refs onto its call`() {
+        // EXP-920: every ref in publisher order; a malformed entry or an
+        // unknown kind drops on its own, and the list caps at the contract's
+        // `maxRefs` — a `list` ref over its members survives the cap intact
+        // only as far as the cap allows.
+        val refs = (1..10).joinToString(",") { n ->
+            """{"kind":"issue","id":"i-$n","identifier":"EXP-$n","title":"Issue $n"}"""
+        }
+        val state = ActivityFeedState()
+            .applying(toolWithId("call-1", "other"))
+            .applying(
+                event(
+                    """{"kind":"tool_update","id":"call-1","status":"completed",
+                       "preview":{"count":10,"refs":[
+                         {"kind":"list","id":"issue","title":"issues","count":10},
+                         {"kind":"thing","id":"x"},
+                         "junk",
+                         {"kind":"issue","id":"   "},
+                         $refs]}}""",
+                ),
+            )
+        val row = state.feed.single() as AgentFeedItem.Tool
+        val preview = row.preview!!
+        assertEquals(10, preview.count)
+        assertEquals(DomainContract.expToolPreviewMaxRefs, preview.refs.size)
+        assertEquals(EntityRef("list", "issue", title = "issues", count = 10), preview.refs.first())
+        assertEquals(
+            (1..7).map { EntityRef("issue", "i-$it", identifier = "EXP-$it", title = "Issue $it") },
+            preview.refs.drop(1),
+        )
+        // The refs weigh against the feed budget like every other folded payload.
+        assertTrue(feedItemBytes(row) > feedItemBytes(row.copy(preview = preview.copy(refs = emptyList()))))
+
+        // A preview whose refs are ALL unusable is a preview with none — and
+        // one that says nothing else is no preview at all.
+        val none = ActivityFeedState()
+            .applying(toolWithId("call-2", "other"))
+            .applying(event("""{"kind":"tool_update","id":"call-2","preview":{"refs":[{"kind":"thing","id":"x"}]}}"""))
+        assertNull((none.feed.single() as AgentFeedItem.Tool).preview)
+        // A later update carrying NO preview keeps the refs the call already
+        // carried (a diff-only update never strips a settled answer).
+        val kept = state.applying(
+            event("""{"kind":"tool_update","id":"call-1","diff":"- a\n+ b"}"""),
+        )
+        assertEquals(preview.refs, (kept.feed.single() as AgentFeedItem.Tool).preview!!.refs)
     }
 
 
