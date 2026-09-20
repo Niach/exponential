@@ -50,6 +50,16 @@ import {
   suggestionCaretOffset,
 } from "@/components/launch-composer"
 
+// Radix positions the popovers with ResizeObserver and cmdk scrolls the
+// active row into view; jsdom has neither.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= ResizeObserverStub as never
+Element.prototype.scrollIntoView ??= function scrollIntoView() {}
+
 const device: SteerDevice = {
   deviceId: `dev-1`,
   deviceLabel: `buildbox`,
@@ -91,9 +101,9 @@ function fakeLaunch(): LaunchOptions {
     mcpServerIds: [],
     setMcpServerIds: vi.fn(),
     toggleMcpServer: vi.fn(),
-    accountProfiles: [],
-    account: undefined,
-    setAccount: vi.fn(),
+    accountOptions: [],
+    accountKey: undefined,
+    setAccountKey: vi.fn(),
     buildOptions: () => ({
       agent: `claude`,
       model: `opus`,
@@ -268,36 +278,84 @@ describe(`LaunchComposer`, () => {
     expect(suggestionCaretOffset(`Label every issue in the backlog`)).toBeUndefined()
   })
 
-  // EXP-862: the options line — THE agent picker (icon-only, the name in its
-  // accessible name), and the account promoted out of the `⋯` overflow the
-  // moment the machine reports two logins for the picked agent.
-  it(`renders the shared agent picker icon-only`, () => {
-    render(<LaunchComposer model={fakeModel()} users={[]} />)
-    const trigger = screen.getByLabelText(`Claude Code`)
-    expect(trigger.getAttribute(`data-slot`)).toBe(`agent-picker`)
-    expect(trigger.textContent).toBe(``)
-  })
-
-  it(`promotes the account picker into the row with two profiles`, () => {
-    const one = fakeModel()
-    render(<LaunchComposer model={one} users={[]} />)
-    expect(screen.queryByLabelText(`Account`)).toBeNull()
-
+  // EXP-872: the options line — ONE account picker over the machine's
+  // flattened logins (brand mark + email, never a profile name), the agent
+  // implied by the pick; one login collapses to plain text.
+  it(`says the one login as plain text`, () => {
     const model = fakeModel({
       launch: {
         ...fakeLaunch(),
-        account: `p1`,
-        accountProfiles: [
-          { id: `p1`, label: `work@example.com`, active: true, health: `ok` },
-          { id: `p2`, label: `side@example.com`, active: false, health: `ok` },
+        accountKey: `claude:system`,
+        accountOptions: [
+          { id: `system`, agent: `claude`, email: `me@example.com`, isDeviceDefault: true, health: `ok` },
+        ],
+      },
+    })
+    render(<LaunchComposer model={model} users={[]} />)
+    const word = screen.getByTestId(`agent-composer-account`)
+    expect(word.getAttribute(`data-slot`)).toBe(`combobox-inline-word`)
+    expect(word.textContent).toContain(`me@example.com`)
+    expect(screen.queryByLabelText(`Account`)).toBeNull()
+  })
+
+  it(`offers every login by email and reports the pick`, () => {
+    const setAccountKey = vi.fn()
+    const model = fakeModel({
+      launch: {
+        ...fakeLaunch(),
+        setAccountKey,
+        accountKey: `claude:p1`,
+        accountOptions: [
+          { id: `p1`, agent: `claude`, email: `work@example.com`, isDeviceDefault: true, health: `ok` },
+          { id: `only`, agent: `codex`, email: `codex@example.com`, isDeviceDefault: false, health: `needs_relogin` },
         ],
       },
     })
     render(<LaunchComposer model={model} users={[]} />)
     const account = screen.getByLabelText(`Account`)
     expect(account.textContent).toContain(`work@example.com`)
-    // The row is where it lives now — never the overflow sheet.
+    expect(account.textContent?.toLowerCase()).not.toContain(`default`)
+    fireEvent.click(account)
+    expect(screen.getByText(`codex@example.com`)).toBeTruthy()
+    expect(screen.getByText(`Needs re-login`)).toBeTruthy()
+    fireEvent.click(screen.getByText(`codex@example.com`))
+    expect(setAccountKey).toHaveBeenCalledWith(`codex:only`)
+    // The row is where it lives — never the overflow sheet.
     expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
+  })
+
+  // EXP-993: the repository is a choice only with several repos, and there
+  // is no repo-less row.
+  it(`shows the repository picker only with two or more repos`, () => {
+    const one = fakeModel({
+      repoId: `r1`,
+      repoOptions: [{ value: `r1`, label: `niach/exponential` }],
+    })
+    render(<LaunchComposer model={one} users={[]} />)
+    expect(screen.queryByLabelText(`Repository`)).toBeNull()
+
+    const two = fakeModel({
+      repoId: `r1`,
+      repoOptions: [
+        { value: `r1`, label: `niach/exponential` },
+        { value: `r2`, label: `niach/other` },
+      ],
+    })
+    render(<LaunchComposer model={two} users={[]} />)
+    const repo = screen.getByLabelText(`Repository`)
+    expect(repo.textContent).toContain(`niach/exponential`)
+    fireEvent.click(repo)
+    expect(screen.queryByText(`No repository`)).toBeNull()
+  })
+
+  // EXP-994: the ⋯ overlay is the divided-rows shell without a second card.
+  it(`opens the options overlay as a bare divided group`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    fireEvent.click(screen.getByLabelText(`More options`))
+    const sheet = screen.getByTestId(`agent-options-sheet`)
+    const group = sheet.querySelector(`[data-slot=glass-group]`)
+    expect(group?.getAttribute(`data-bare`)).toBe(`true`)
+    expect(group?.className).not.toContain(`rounded-lg`)
   })
 
   it(`says so when no desktop is online`, () => {

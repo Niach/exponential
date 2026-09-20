@@ -244,20 +244,33 @@ function GlassRow({
   )
 }
 
+// EXP-994: THE settings shell — the ONE grouped-rows container every platform
+// draws (desktop `surface::glass_group`, iOS `GlassSection`, Android
+// `OptionGroup`): the row fill, radius 12, a hairline BETWEEN every pair of
+// rows, and NO outer stroke — the fill is the edge. `bare` is the same shell
+// with the fill and the radius dropped, for a host that already IS a surface
+// (the composer's `⋯` popover, a bottom sheet): the rows keep their dividers
+// and the host's card is the only edge, never a card inside a card.
 function GlassGroup({
   className,
   scroll = false,
+  bare = false,
   ...props
 }: React.ComponentProps<`div`> & {
   /** A long roster scrolls INSIDE the group (EXP-939): the vertical axis
    *  opens, the group keeps clipping sideways. The host caps the height. */
   scroll?: boolean
+  /** Dividers only — no fill, no radius: the host (a popover, a sheet) is
+   *  the surface. */
+  bare?: boolean
 }) {
   return (
     <div
       data-slot="glass-group"
+      data-bare={bare ? `true` : undefined}
       className={cn(
-        `flex flex-col divide-y divide-glass-stroke rounded-lg bg-glass-row`,
+        `flex flex-col divide-y divide-glass-stroke`,
+        !bare && `rounded-lg bg-glass-row`,
         scroll ? `overflow-x-hidden overflow-y-auto` : `overflow-hidden`,
         className
       )}

@@ -168,10 +168,15 @@ impl Render for WorkflowsView {
                     continue;
                 }
                 let id = band_row_id(band);
+                // EXP-994: the band's rows are ONE table — a hairline
+                // between them, and no card around them.
                 let rendered: Vec<gpui::AnyElement> = rows
                     .iter()
                     .enumerate()
-                    .map(|(index, row)| self.workflow_row(id, index, row, cx))
+                    .map(|(index, row)| {
+                        crate::surface::list_row(self.workflow_row(id, index, row, cx), index)
+                            .into_any_element()
+                    })
                     .collect();
                 column = column.child(
                     v_flex()

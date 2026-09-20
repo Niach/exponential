@@ -121,6 +121,31 @@ object AgentAccountsRows {
     }
 
     /**
+     * EXP-872: the SAME rows off the bare maps, for a caller that holds the
+     * reporting without a machine around it ([AccountOptions.flatten], which
+     * only needs the logins and never the device's own identity). UNSORTED,
+     * like [agentProfileUsageRows] — [sortDeviceLogins] owns the order.
+     */
+    fun loginRows(
+        accounts: Map<String, AgentAccount>?,
+        usageMap: Map<String, AgentUsage>?,
+        usageAt: String? = null,
+    ): List<AgentProfileUsageRow> {
+        val out = mutableListOf<AgentProfileUsageRow>()
+        profileRows(
+            out = out,
+            deviceId = "",
+            deviceLabel = "",
+            mine = true,
+            online = true,
+            accounts = accounts.orEmpty(),
+            usageMap = usageMap.orEmpty(),
+            usageAt = usageAt,
+        )
+        return out
+    }
+
+    /**
      * ONE machine's logins, appended to [out]. The union of "has an account"
      * and "reported usage": a machine that only managed one of the two still
      * gets its row.

@@ -65,124 +65,94 @@ describe(`useLaunchOptions readiness`, () => {
   })
 })
 
-// EXP-825 (EXP-747 B7): the ⋯ popover's Account picker — the agent profiles
-// the settled device reports, the active one seeding the pick, and only a
-// NAMED, non-system profile riding out as `account`.
+// EXP-872: ONE account picker — the flattened logins of the settled device
+// (both agents, email-labelled, the device default first); a pick implies
+// the agent, and only a NAMED, non-system profile rides out as `account`.
 describe(`useLaunchOptions account`, () => {
   const profiled: SteerDevice = {
     ...device,
     agents: [`claude`, `codex`],
+    launchDefaults: { defaultAgent: `claude` },
     agentAccounts: {
       claude: {
         signedIn: true,
         profiles: [
-          { id: `work`, label: `Work`, signedIn: true },
-          { id: `system`, signedIn: true, active: true },
+          { id: `work`, label: `Work`, signedIn: true, email: `work@x.test` },
+          { id: `system`, signedIn: true, active: true, email: `me@x.test` },
         ],
       },
       codex: {
         signedIn: true,
-        profiles: [{ id: `only`, label: `Only`, signedIn: true, active: true }],
+        profiles: [
+          { id: `only`, label: `Only`, signedIn: true, active: true, email: `codex@x.test` },
+        ],
       },
     },
   }
 
-  it(`lists the device's profiles active-first and seeds the active one`, () => {
+  it(`lists every login default-first, by email, and seeds the default`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [profiled] })
     )
-    expect(result.current.accountProfiles.map((p) => p.id)).toEqual([
-      `system`,
-      `work`,
+    expect(result.current.accountOptions.map((o) => `${o.agent}:${o.id}`)).toEqual([
+      `claude:system`,
+      `claude:work`,
+      `codex:only`,
     ])
-    expect(result.current.accountProfiles[0]!.label).toBe(`Default`)
-    expect(result.current.account).toBe(`system`)
+    expect(result.current.accountOptions.map((o) => o.email)).toEqual([
+      `me@x.test`,
+      `work@x.test`,
+      `codex@x.test`,
+    ])
+    expect(result.current.accountKey).toBe(`claude:system`)
+    expect(result.current.agent).toBe(`claude`)
     // The ambient login is the server's default — nothing rides out.
     expect(result.current.buildOptions().account).toBeUndefined()
   })
 
-  it(`emits a named profile and reseeds on an agent switch`, () => {
+  it(`a pick implies the agent and emits a named profile`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [profiled] })
     )
-    act(() => result.current.setAccount(`work`))
+    act(() => result.current.setAccountKey(`claude:work`))
     expect(result.current.buildOptions().account).toBe(`work`)
+    expect(result.current.buildOptions().agent).toBe(`claude`)
 
-    act(() => result.current.switchAgent(`codex`))
-    expect(result.current.accountProfiles.map((p) => p.id)).toEqual([`only`])
-    expect(result.current.account).toBe(`only`)
+    act(() => result.current.setAccountKey(`codex:only`))
+    expect(result.current.agent).toBe(`codex`)
+    expect(result.current.buildOptions().agent).toBe(`codex`)
     expect(result.current.buildOptions().account).toBe(`only`)
   })
 
-  it(`sends nothing for a device that reports no profiles`, () => {
+  it(`falls back to one ambient option per runnable agent when the device reports no login`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [device] })
     )
-    expect(result.current.accountProfiles).toEqual([])
-    expect(result.current.account).toBeUndefined()
-    // A stale pick for a profile the machine does not have never rides out.
-    act(() => result.current.setAccount(`ghost`))
+    expect(result.current.accountOptions).toEqual([
+      {
+        id: `system`,
+        agent: `claude`,
+        email: `Claude Code`,
+        isDeviceDefault: true,
+        health: `unknown`,
+      },
+    ])
+    expect(result.current.accountKey).toBe(`claude:system`)
     expect(result.current.buildOptions().account).toBeUndefined()
   })
-})
 
-// EXP-981: the subagent model — claude's CLI env var, so it is offered for
-// claude alone, seeded from the device's advertised defaults like every other
-// launch option, and OMITTED from the payload while it is the CLI default.
-describe(`useLaunchOptions subagent model`, () => {
-  it(`omits the CLI default from the payload`, () => {
+  it(`re-seeds to the default login when the pick vanishes with a device switch`, () => {
+    const other: SteerDevice = {
+      ...profiled,
+      deviceId: `dev-2`,
+      launchDefaults: { defaultAgent: `codex` },
+    }
     const { result } = renderHook(() =>
-      useLaunchOptions({ open: true, devices: [device] })
+      useLaunchOptions({ open: true, devices: [profiled, other] })
     )
-    expect(result.current.subagentModel).toBe(``)
-    expect(result.current.buildOptions().subagentModel).toBeUndefined()
-
-    act(() => result.current.setSubagentModel(`sonnet`))
-    expect(result.current.buildOptions().subagentModel).toBe(`sonnet`)
-  })
-
-  it(`seeds the device's advertised value`, () => {
-    const { result } = renderHook(() =>
-      useLaunchOptions({
-        open: true,
-        devices: [
-          {
-            ...device,
-            launchDefaults: {
-              defaultAgent: `claude`,
-              agents: { claude: { subagentModel: `sonnet` } },
-            },
-          },
-        ],
-      })
-    )
-    expect(result.current.subagentModel).toBe(`sonnet`)
-    expect(result.current.buildOptions().subagentModel).toBe(`sonnet`)
-  })
-
-  it(`never rides a non-claude agent`, () => {
-    const { result } = renderHook(() =>
-      useLaunchOptions({
-        open: true,
-        devices: [
-          {
-            ...device,
-            agents: [`claude`, `codex`],
-            launchDefaults: {
-              defaultAgent: `claude`,
-              agents: {
-                claude: { subagentModel: `sonnet` },
-                codex: { subagentModel: `sonnet` },
-              },
-            },
-          },
-        ],
-      })
-    )
-    expect(result.current.buildOptions().subagentModel).toBe(`sonnet`)
-    act(() => result.current.switchAgent(`codex`))
-    // Reseeded from codex's defaults, where the field is meaningless.
-    expect(result.current.subagentModel).toBe(``)
-    expect(result.current.buildOptions().subagentModel).toBeUndefined()
+    act(() => result.current.setAccountKey(`claude:work`))
+    act(() => result.current.setDeviceId(`dev-2`))
+    expect(result.current.accountKey).toBe(`codex:only`)
+    expect(result.current.agent).toBe(`codex`)
   })
 })

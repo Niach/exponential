@@ -35,6 +35,7 @@
 //! falsely block, always explain), and the worktree layout are specified in
 //! [`launcher`] / [`git_worktree`].
 
+pub mod account_option;
 pub mod action_prompt;
 pub mod agent;
 pub mod agent_accounts;
@@ -108,6 +109,10 @@ pub use doctor::{
     AgentAdvertisement, AgentLaunchDefaults, ClaudeAuthStatus, DoctorReport, Tool,
     ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION,
     MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
+};
+pub use account_option::{
+    default_account_option, flatten_accounts, parse_account_option_key, AccountLimits,
+    AccountModelLimit, AccountOption,
 };
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health};
 pub use agent_profiles::{profile_id, AgentProfile, SYSTEM_PROFILE};

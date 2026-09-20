@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn the_playbook_pins_the_run_to_its_own_working_directory() {
         assert!(RUN_SKILL.contains("## Your workspace"));
-        assert!(RUN_SKILL.contains("Never go looking for the repository elsewhere on this machine"));
+        assert!(RUN_SKILL.contains("Never look for the repository elsewhere on this machine"));
         assert!(RUN_SKILL.contains("ask which one"));
     }
 

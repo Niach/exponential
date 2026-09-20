@@ -238,9 +238,10 @@ impl Render for WidgetPane {
                 );
             }
             Load::Ready(Ok(widgets)) => {
-                let mut list = v_flex().gap_2();
-                for widget in widgets {
-                    list = list.child(self.render_row(widget, cx));
+                // EXP-994: a hairline between rows, nothing around them.
+                let mut list = v_flex().w_full().min_w_0();
+                for (index, widget) in widgets.iter().enumerate() {
+                    list = list.child(crate::surface::list_row(self.render_row(widget, cx), index));
                 }
                 body = body.child(list);
             }

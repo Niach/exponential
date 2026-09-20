@@ -94,6 +94,19 @@ final class LaunchOptionsState {
             agent = available.first ?? "claude"
         }
         applyAgentDefaults(for: agent, device: device)
+        // EXP-872: the machine's default ACCOUNT decides the agent too — the
+        // options list is every login it reports and the default is its first
+        // row. Only when that agent is actually runnable here: a login for an
+        // agent the machine cannot start is still a login, but it is not a
+        // seed.
+        if let option = AccountOptions.defaultOption(accountOptions(on: device)),
+           available.contains(option.agent) {
+            if option.agent != agent {
+                agent = option.agent
+                applyAgentDefaults(for: agent, device: device)
+            }
+            account = option.id == Self.systemProfileId ? "" : option.id
+        }
         lastSeededDeviceId = device?.deviceId
     }
 
@@ -157,12 +170,51 @@ final class LaunchOptionsState {
         return value
     }
 
-    // MARK: - Accounts (EXP-825)
+    // MARK: - Accounts (EXP-825/EXP-872)
 
-    /// The login profiles the picked machine reports for the picked agent —
-    /// the Account picker renders only with two or more.
-    func accountProfiles(on device: SteerDevice?) -> [AgentAccountProfile] {
-        device?.agentAccounts?[agent]?.profiles ?? []
+    /// EXP-872: the ONE launch list — every signed-in login the picked machine
+    /// reports, across agents, the machine's default first
+    /// (`AccountOptions.flatten`). Picking one picks its agent too: there is
+    /// no separate agent pick any more.
+    ///
+    /// A machine that reports NO login still offers a row per runnable agent,
+    /// named by the agent itself — there is nothing better to say, and a
+    /// composer with no picker at all would hide which agent starts.
+    func accountOptions(on device: SteerDevice?) -> [AccountOption] {
+        let options = AccountOptions.flatten(
+            accounts: device?.agentAccounts,
+            usage: device?.agentUsage,
+            launchDefaults: device?.launchDefaults
+        )
+        if !options.isEmpty { return options }
+        let agents = availableAgents(for: device)
+        let fallbackDefault = device?.defaultLaunchAgent ?? agents.first
+        return agents.map { value in
+            AccountOption(
+                id: Self.systemProfileId,
+                agent: value,
+                email: LaunchVocabulary.agentLabel(value),
+                isDeviceDefault: value == fallbackDefault
+            )
+        }
+    }
+
+    /// Which option the trigger reads as: the exact pick, else that agent's
+    /// first login (the account was reset by an agent clamp), else the first
+    /// row — the picker never renders blank.
+    func selectedAccount(in options: [AccountOption]) -> AccountOption? {
+        let id = account.isEmpty ? Self.systemProfileId : account
+        return options.first { $0.agent == agent && $0.id == id }
+            ?? options.first { $0.agent == agent }
+            ?? options.first
+    }
+
+    /// EXP-872: take BOTH halves of a picked option — the agent reseeds the
+    /// per-agent options (`selectAgent` clears the account), then the login
+    /// lands on top. `system` is the ambient login, which a start never names.
+    func selectAccount(_ option: AccountOption, device: SteerDevice?) {
+        selectAgent(option.agent, device: device)
+        account = option.id == Self.systemProfileId ? "" : option.id
     }
 
     /// The web's `SYSTEM_PROFILE_ID`: the machine's ambient login, which a

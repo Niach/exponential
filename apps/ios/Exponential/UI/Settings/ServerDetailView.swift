@@ -207,9 +207,18 @@ struct ServerDetailView: View {
         }
     }
 
+    /// Whether anything renders ABOVE "Remove server" — what decides its
+    /// leading hairline (a divider over the first row would fence off nothing).
+    private var hasAccountActions: Bool {
+        account?.token != nil || account?.instanceUrl != nil
+    }
+
+    /// EXP-994: ONE grouped card, rows separated by hairlines — the Settings
+    /// idiom. These used to be individually bordered rows in a 6pt-gapped
+    /// stack, the shape every other grouped list on this client stopped using.
     private var actionsSection: some View {
         sectionStack(title: nil) {
-            VStack(spacing: 6) {
+            VStack(spacing: 0) {
                 if account?.token != nil {
                     Button {
                         Task {
@@ -252,6 +261,8 @@ struct ServerDetailView: View {
                     }
                     .buttonStyle(.plain)
 
+                    GlassDivider()
+
                     // App Store guideline 5.1.1(v): account deletion must be
                     // initiable in-app, not via email.
                     Button {
@@ -280,6 +291,7 @@ struct ServerDetailView: View {
                 }
 
                 if !isBuiltInCloud {
+                    if hasAccountActions { GlassDivider() }
                     Button {
                         showRemoveConfirm = true
                     } label: {
@@ -292,6 +304,7 @@ struct ServerDetailView: View {
                     .buttonStyle(.plain)
                 }
             }
+            .glassSection()
         }
     }
 
@@ -307,6 +320,8 @@ struct ServerDetailView: View {
         }
     }
 
+    /// One row of the actions card: no fill and no border of its own — the
+    /// card carries both (EXP-994).
     private func actionRow(icon: String, title: String, tint: Color) -> some View {
         HStack(spacing: 12) {
             AppIcon(icon, size: AppIcon.Size.medium)
@@ -317,8 +332,9 @@ struct ServerDetailView: View {
                 .foregroundStyle(tint == .red ? .red.opacity(0.9) : .white)
             Spacer()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .glassRow()
+        .contentShape(Rectangle())
     }
 }

@@ -297,17 +297,32 @@ struct WorkflowDetailView: View {
                 )
             }
 
+            // EXP-872: ONE account row — the runner machine's flattened logins
+            // (both agents, by email, its default first); a pick implies the
+            // agent, so there is no Agent row any more. A started workflow's
+            // configuration is history, so the row reads as a plain label.
             optionRow {
-                GlassPickerRow(
-                    "Agent",
-                    selection: Binding(
-                        get: { model.agent },
-                        set: { model.setAgent($0) }
-                    ),
-                    options: model.availableAgents,
-                    label: { LaunchVocabulary.agentLabel($0) },
-                    enabled: enabled
-                )
+                HStack(spacing: 8) {
+                    Text("Account")
+                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    Spacer(minLength: 8)
+                    if enabled {
+                        AccountPickerMenu(
+                            options: model.accountOptions,
+                            selection: model.selectedAccount,
+                            mark: { AgentBrandMark.image($0) },
+                            onSelect: { model.selectAccount($0) }
+                        )
+                    } else {
+                        AccountPickerTriggerLabel(
+                            option: model.selectedAccount,
+                            mark: model.selectedAccount.flatMap { AgentBrandMark.image($0.agent) },
+                            chevron: false
+                        )
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("workflow-account-row")
             }
 
             optionRow {
@@ -356,26 +371,6 @@ struct WorkflowDetailView: View {
                     },
                     enabled: enabled
                 )
-            }
-
-            // The login the nodes run under — offered only where it is a
-            // choice (the composer's rule: two or more profiles).
-            if model.accountProfiles.count >= 2 {
-                optionRow {
-                    GlassPickerRow(
-                        "Account",
-                        selection: Binding(
-                            get: { model.launch.account ?? "" },
-                            set: { model.setAccount($0.isEmpty ? nil : $0) }
-                        ),
-                        options: [""] + model.accountProfiles.map(\.id),
-                        label: { id in
-                            model.accountProfiles.first { $0.id == id }
-                                .map(accountLabel) ?? "Active login"
-                        },
-                        enabled: enabled
-                    )
-                }
             }
 
             optionRow {
@@ -488,14 +483,6 @@ struct WorkflowDetailView: View {
         case DomainContract.wfStartOnLanded: "When landed"
         default: "On contract"
         }
-    }
-
-    /// One login's name, with the health badge a refused credential earns —
-    /// the composer's own label rule.
-    private func accountLabel(_ profile: AgentAccountProfile) -> String {
-        let name = profile.email ?? profile.label ?? profile.id
-        guard let badge = AgentAccountHealth.of(profile).badgeLabel else { return name }
-        return "\(name) · \(badge.lowercased())"
     }
 
     /// A launch field the "CLI default" sentinel stands in for: the picker
@@ -711,7 +698,8 @@ struct WorkflowNodeSheet: View {
 
                 mergesInFirst
 
-                VStack(spacing: 2) {
+                // EXP-994: one grouped card, hairline-separated rows.
+                VStack(spacing: 0) {
                     GlassPickerRow(
                         "Kind",
                         selection: Binding(
@@ -724,7 +712,8 @@ struct WorkflowNodeSheet: View {
                     )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
-                    .glassRow()
+
+                    GlassDivider()
 
                     GlassPickerRow(
                         "Risk",
@@ -737,8 +726,8 @@ struct WorkflowNodeSheet: View {
                     )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
-                    .glassRow()
                 }
+                .glassSection()
 
                 // What the node expects to change — the planner's own globs,
                 // read-only here.

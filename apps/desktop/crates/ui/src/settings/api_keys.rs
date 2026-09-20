@@ -588,9 +588,10 @@ impl Render for ApiKeysPane {
                             ),
                     );
                 } else {
-                    let list = rows.iter().map(|row| {
+                    // EXP-994: a hairline between rows, nothing around them.
+                    let list = rows.iter().enumerate().map(|(index, row)| {
                         let this_device = device_key_id.as_deref() == Some(row.id.as_str());
-                        self.render_row(row, this_device, cx)
+                        crate::surface::list_row(self.render_row(row, this_device, cx), index)
                     });
                     body = body.child(v_flex().w_full().min_w_0().children(list));
                 }

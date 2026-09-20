@@ -68,6 +68,7 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.data.api.builtinPlanWorkflowAction
+import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
@@ -146,7 +147,6 @@ fun AgentScreen(
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val images by viewModel.images.collectAsStateWithLifecycle()
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
-    val chatRepoId by viewModel.chatRepoId.collectAsStateWithLifecycle()
     val resume by viewModel.resume.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val pendingPrIssueId by viewModel.pendingPrIssueId.collectAsStateWithLifecycle()
@@ -605,18 +605,18 @@ fun AgentScreen(
                             device = device,
                             onDeviceChange = viewModel::setDevice,
                             launch = launch,
-                            availableAgents = availableAgentsFor(device),
-                            onAgentChange = viewModel::selectAgent,
+                            // EXP-872: the settled machine's logins — picking
+                            // one sets the account AND its agent.
+                            accountOptions = accountOptionsFor(
+                                device,
+                                availableAgentsFor(device),
+                            ),
+                            onAccountChange = viewModel::selectAccount,
                             onModelChange = viewModel::setModel,
                             onPlanModeChange = viewModel::setPlanMode,
                             resumeCandidate = resumeCandidate,
                             resume = resume,
                             onResumeChange = viewModel::setResume,
-                            showRepository = subject == null,
-                            repos = teamRepos,
-                            chatRepoId = chatRepoId,
-                            onChatRepoChange = viewModel::setChatRepoId,
-                            onAccountChange = viewModel::setAccount,
                             onMore = { optionsOpen = true },
                         )
                     }

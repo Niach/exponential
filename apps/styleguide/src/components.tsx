@@ -46,6 +46,10 @@ import { parseDiff } from "@exp/domain-contract/diff"
 import { editCard } from "@exp/domain-contract/edit-card"
 import {
   AgentBrandMark,
+  AccountPicker,
+  AccountLimitBars,
+  MENU_SURFACE_CLASS,
+  cn,
   AgentPicker,
   AgentPickerTabs,
   Alert,
@@ -868,7 +872,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `group`,
     title: `Group container`,
     kind: `Lists & rows`,
-    blurb: `Borderless: radius 12, the row fill, hairline separators between children, overflow hidden. The fill is the edge — no outer stroke.`,
+    blurb: `EXP-994: THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill is the edge, never an outer stroke, and never a card inside a card: inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form.`,
     status: {
       web: ok(`GlassGroup`, WEB_GLASS_ROWS),
       desktop: ok(`surface::glass_group / glass_group_rows`, DESKTOP_SURFACE),
@@ -876,23 +880,44 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       android: ok(`Modifier.glassGroup()`, ANDROID_GLASS, `OptionGroup in ui/components/SheetOptionRows.kt is the list wrapper around it.`),
     },
     island: () => (
-      <GlassGroup>
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Repository"
-          value="exp"
-          onChange={noop}
-          options={[{ value: `exp`, label: `niach/exponential` }]}
-        />
-        <GlassInputRow id="demo-group-slug" label="Slug" defaultValue="mobile-app" />
-        <GlassToggleRow
-          id="demo-group-archived"
-          label="Archived"
-          checked={false}
-          onCheckedChange={noop}
-        />
-      </GlassGroup>
+      <div className="grid gap-4">
+        <GlassGroup>
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle="Repository"
+            value="exp"
+            onChange={noop}
+            options={[{ value: `exp`, label: `niach/exponential` }]}
+          />
+          <GlassInputRow id="demo-group-slug" label="Slug" defaultValue="mobile-app" />
+          <GlassToggleRow
+            id="demo-group-archived"
+            label="Archived"
+            checked={false}
+            onCheckedChange={noop}
+          />
+        </GlassGroup>
+        {/* The bare form, inside the menu surface an overlay already draws. */}
+        <div className={cn(MENU_SURFACE_CLASS, `w-[20rem] p-0`)}>
+          <GlassGroup bare>
+            <Combobox
+              triggerVariant="row"
+              searchable={false}
+              mobileTitle="Effort"
+              value="cli-default"
+              onChange={noop}
+              options={[{ value: `cli-default`, label: `CLI default` }]}
+            />
+            <GlassToggleRow
+              id="demo-group-bare-ultracode"
+              label="Ultracode"
+              checked={false}
+              onCheckedChange={noop}
+            />
+          </GlassGroup>
+        </div>
+      </div>
     ),
   },
   {
@@ -3723,10 +3748,74 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     ),
   },
   {
+    id: `account-picker`,
+    title: `Account picker`,
+    kind: `Inputs & pickers`,
+    blurb: `EXP-872: ONE account picker per platform, replacing the agent picker + the account picker on every launch surface (the composer's options line, the device settings' "Default account" row, the workflow runner). The list is every signed-in login the machine reports across both agents, flattened (\`flattenAccounts\`): the row and the chip read as the agent's brand mark + the login's EMAIL — never a profile name, never the word "default"; the device default is simply first, and a dead credential rides a muted hint. Picking a login implies its agent. One login collapses the inline word to plain text. EXP-992: on a pointer platform hovering a row shows a very small preview right of it — three 4px bars labelled 5h / week / <model> off the login's limits; on touch the same bars sit inline under the email in the sheet row. The menu is a portal, so the specimen is the closed trigger at both variants beside the bars block.`,
+    status: {
+      web: ok(
+        `AccountPicker / AccountLimitBars`,
+        `packages/ui/src/account-picker.tsx`,
+        `variant inline = the composer word, row = the glass form ladder's picker row`
+      ),
+      desktop: ok(
+        `coding_selects::account_picker`,
+        `apps/desktop/crates/ui/src/coding_selects.rs`,
+        `the hover preview is an anchored overlay right of the menu row`
+      ),
+      ios: ok(
+        `AccountPickerMenu`,
+        `apps/ios/ExpUI/Sources/AccountPicker.swift`,
+        `touch: the three bars sit inline in the menu row`
+      ),
+      android: ok(
+        `AccountPickerPill`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/components/AccountPickerPill.kt`,
+        `touch: the three bars sit inline in the menu row`
+      ),
+    },
+    island: () => (
+      <div className="grid gap-4">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <AccountPicker
+            value="claude:work"
+            onChange={noop}
+            options={[
+              { key: `claude:work`, agent: `claude`, email: `work@example.com` },
+              { key: `codex:main`, agent: `codex`, email: `codex@example.com` },
+            ]}
+          />
+          <AccountPicker
+            value="codex:main"
+            onChange={noop}
+            options={[{ key: `codex:main`, agent: `codex`, email: `codex@example.com` }]}
+          />
+        </div>
+        <GlassGroup>
+          <AccountPicker
+            variant="row"
+            mobileTitle="Default account"
+            value="claude:work"
+            onChange={noop}
+            options={[
+              { key: `claude:work`, agent: `claude`, email: `work@example.com` },
+              { key: `codex:main`, agent: `codex`, email: `codex@example.com` },
+            ]}
+          />
+        </GlassGroup>
+        <div className={cn(MENU_SURFACE_CLASS, `w-36 p-2`)}>
+          <AccountLimitBars
+            limits={{ fiveHour: 0.4, week: 0.85, model: { label: `Fable`, used: 0.97 } }}
+          />
+        </div>
+      </div>
+    ),
+  },
+  {
     id: `agent-picker`,
     title: `Agent picker`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-862: ONE agent picker per platform, so the trigger can never drift into a per-surface copy again — the composer's options row, the device settings' "Default agent" row and the launch pane all render this. The trigger is ICON-ONLY: the brand mark plus a chevron, with the name in the menu rows and in the tooltip, which doubles as its accessible name. \`AgentPickerTabs\` is the same picker as a segmented STRIP, for the launch pane where the agents sit side by side rather than behind a chevron. The menu is a portal, so the specimen is the closed trigger at both rungs.`,
+    blurb: `EXP-862: ONE agent picker per platform, so the trigger can never drift into a per-surface copy again. EXP-872 took it OUT of every launch surface — the composer, the device settings default row and the workflow runner pick an ACCOUNT now (the entry above), which implies the agent — so what is left picks an agent where there is no login yet: the Add-account sheet, and the per-agent defaults strip (\`AgentPickerTabs\`, the same picker as a segmented STRIP). The trigger is ICON-ONLY: the brand mark plus a chevron, with the name in the menu rows and in the tooltip, which doubles as its accessible name. The menu is a portal, so the specimen is the closed trigger at both rungs.`,
     status: {
       web: ok(
         `AgentPicker / AgentPickerTabs`,
@@ -3743,10 +3832,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `apps/ios/ExpUI/Sources/GlassMenu.swift`,
         `AgentOptionsRow (UI/Agent/AgentOptionsRow.swift) is the composer's host`
       ),
-      android: ok(
-        `AgentPickerPill`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt`,
-        `AgentMenuItems in the same file is the shared row set`
+      android: na(
+        `EXP-872 retired AgentPickerPill: Add account picks its agent with a PickerRow; every launch surface picks an account.`
       ),
     },
     island: () => (
