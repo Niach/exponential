@@ -58,6 +58,9 @@
 //!   actor/field/issue changes collapses to its net effect; "Show all" on the
 //!   timeline header returns the raw rows, EXP-468), byte-locked ×4 by
 //!   `fixtures/activity-fold.json`;
+//! * [`entity_preview`] — EXP-920's entity-chip rule over a settled
+//!   Exponential tool row's `preview.refs` (icon concept, noun, clamped
+//!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`;
 //! * [`workflow_view`] — EXP-981's workflow bands, shape line, node captions
 //!   and node edges (the server owns the `wave`/`lane` geometry), byte-locked
 //!   ×4 by `fixtures/workflow-view.json`.
@@ -75,6 +78,7 @@ pub mod client_version;
 pub mod diff;
 pub mod diff_tree;
 pub mod edit_card;
+pub mod entity_preview;
 pub mod enums;
 pub mod hydrate;
 pub mod image_message;

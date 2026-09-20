@@ -2127,10 +2127,37 @@ describe(`activity event kinds`, () => {
         url: `https://github.com/a/b/pull/7`,
         count: 3,
         status: `in_progress`,
+        // EXP-920: the entities the answer named, chip by chip.
+        refs: [
+          { kind: `list`, id: `issue`, title: `issues`, count: 3 },
+          { kind: `issue`, id: `c0ffee`, identifier: `EXP-42`, title: `Fix the flicker` },
+          { kind: `status`, id: `s-1` },
+        ],
       },
     }
     activity(hub, pub, settled)
     expect(member.events()[0]).toEqual(settled as never)
+
+    // EXP-920: a ref of a kind the contract does not know, an empty id, or
+    // more refs than `maxRefs` drops the whole frame — the engine clamps.
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: { refs: [{ kind: `galaxy`, id: `x` }] },
+    })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: { refs: [{ kind: `issue`, id: `` }] },
+    })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: {
+        refs: Array.from({ length: 9 }, (_, i) => ({ kind: `issue`, id: `i-${i}` })),
+      },
+    })
+    expect(room(hub).activityLog.length).toBe(1)
 
     // An over-cap string or a negative count drops the WHOLE frame — the
     // producer clamps first.

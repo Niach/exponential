@@ -1,0 +1,282 @@
+{
+  "description": "EXP-920: the entity-preview chip rule over tool_update.preview.refs — chip label (entityChipLabel), issue detail (entityChipDetail), icon concept (entityRefIcon) and list grouping (groupPreviewRefs). Locked ×4: web @exp/domain-contract entity-preview.ts, desktop domain::entity_preview, iOS ExpCore EntityPreview.swift, Android domain/EntityPreview.kt.",
+  "chips": [
+    {
+      "name": "an issue chip reads its identifier, the title is its detail",
+      "ref": { "kind": "issue", "id": "i-1", "identifier": "EXP-42", "title": "Fix the flicker" },
+      "label": "EXP-42",
+      "detail": "Fix the flicker",
+      "icon": "ui-issue"
+    },
+    {
+      "name": "an issue with a title and no identifier reads the title",
+      "ref": { "kind": "issue", "id": "i-2", "title": "Untracked issue" },
+      "label": "Untracked issue",
+      "detail": null,
+      "icon": "ui-issue"
+    },
+    {
+      "name": "an issue named by a bare id reads the noun",
+      "ref": { "kind": "issue", "id": "9a5c7b2e-0000-4000-8000-000000000001" },
+      "label": "Issue",
+      "detail": null,
+      "icon": "ui-issue"
+    },
+    {
+      "name": "an issue whose identifier is padding reads the title",
+      "ref": { "kind": "issue", "id": "i-3", "identifier": "   ", "title": "Padded" },
+      "label": "Padded",
+      "detail": null,
+      "icon": "ui-issue"
+    },
+    {
+      "name": "a board reads its name",
+      "ref": { "kind": "board", "id": "b-1", "title": "Web" },
+      "label": "Web",
+      "detail": null,
+      "icon": "nav-boards"
+    },
+    {
+      "name": "a board with no name reads the capitalized noun",
+      "ref": { "kind": "board", "id": "b-2" },
+      "label": "Board",
+      "detail": null,
+      "icon": "nav-boards"
+    },
+    {
+      "name": "a session is a run",
+      "ref": { "kind": "session", "id": "s-1" },
+      "label": "Run",
+      "detail": null,
+      "icon": "coding-running"
+    },
+    {
+      "name": "a session reads the issue title it carried",
+      "ref": { "kind": "session", "id": "s-2", "title": "Fix the flicker" },
+      "label": "Fix the flicker",
+      "detail": null,
+      "icon": "coding-running"
+    },
+    {
+      "name": "a comment reads its body excerpt, cut to 48 code points with an ellipsis, no dangling space",
+      "ref": { "kind": "comment", "id": "c-1", "title": "Reviewed the flicker fix: the debounce is fine but the rerender is not, see the trace" },
+      "label": "Reviewed the flicker fix: the debounce is fine…",
+      "detail": null,
+      "icon": "notification-issue-comment"
+    },
+    {
+      "name": "a label within the cap is not cut",
+      "ref": { "kind": "action", "id": "a-1", "title": "Release train: bump, tag, publish, verify, ship" },
+      "label": "Release train: bump, tag, publish, verify, ship",
+      "detail": null,
+      "icon": "nav-actions"
+    },
+    {
+      "name": "the cut counts code points, not UTF-16 units",
+      "ref": { "kind": "automation", "id": "au-1", "title": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀" },
+      "label": "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀…",
+      "detail": null,
+      "icon": "nav-automations"
+    },
+    {
+      "name": "a title is trimmed before it is measured",
+      "ref": { "kind": "label", "id": "l-1", "title": "  bug  " },
+      "label": "bug",
+      "detail": null,
+      "icon": "settings-labels"
+    },
+    {
+      "name": "a list counts its members in the member noun",
+      "ref": { "kind": "list", "id": "issue", "title": "issues", "count": 3 },
+      "label": "3 issues",
+      "detail": null,
+      "icon": "ui-issue"
+    },
+    {
+      "name": "a list of one is singular",
+      "ref": { "kind": "list", "id": "session", "title": "sessions", "count": 1 },
+      "label": "1 run",
+      "detail": null,
+      "icon": "coding-running"
+    },
+    {
+      "name": "a list of none is plural",
+      "ref": { "kind": "list", "id": "label", "title": "labels", "count": 0 },
+      "label": "0 labels",
+      "detail": null,
+      "icon": "settings-labels"
+    },
+    {
+      "name": "a list with no count is a list of none",
+      "ref": { "kind": "list", "id": "board", "title": "boards" },
+      "label": "0 boards",
+      "detail": null,
+      "icon": "nav-boards"
+    },
+    {
+      "name": "the irregular plurals",
+      "ref": { "kind": "list", "id": "status", "title": "statuses", "count": 6 },
+      "label": "6 statuses",
+      "detail": null,
+      "icon": "settings-statuses"
+    },
+    {
+      "name": "repositories",
+      "ref": { "kind": "list", "id": "repository", "title": "repositories", "count": 2 },
+      "label": "2 repositories",
+      "detail": null,
+      "icon": "ui-repository"
+    },
+    {
+      "name": "a list of an unknown member kind counts items under the list glyph",
+      "ref": { "kind": "list", "id": "thing", "title": "things", "count": 2 },
+      "label": "2 items",
+      "detail": null,
+      "icon": "ui-checklist"
+    },
+    {
+      "name": "every remaining kind draws its concept",
+      "ref": { "kind": "status", "id": "st-1", "title": "In review" },
+      "label": "In review",
+      "detail": null,
+      "icon": "settings-statuses"
+    },
+    {
+      "name": "a workflow",
+      "ref": { "kind": "workflow", "id": "w-1", "title": "EXP-468 +16" },
+      "label": "EXP-468 +16",
+      "detail": null,
+      "icon": "nav-workflows"
+    },
+    {
+      "name": "a device",
+      "ref": { "kind": "device", "id": "d-1", "title": "MacBook Pro" },
+      "label": "MacBook Pro",
+      "detail": null,
+      "icon": "ui-device"
+    },
+    {
+      "name": "a member",
+      "ref": { "kind": "member", "id": "u-1", "title": "Danny" },
+      "label": "Danny",
+      "detail": null,
+      "icon": "ui-avatar-placeholder"
+    },
+    {
+      "name": "a repository",
+      "ref": { "kind": "repository", "id": "r-1", "title": "Niach/exponential" },
+      "label": "Niach/exponential",
+      "detail": null,
+      "icon": "ui-repository"
+    },
+    {
+      "name": "a team",
+      "ref": { "kind": "team", "id": "t-1", "title": "Acme" },
+      "label": "Acme",
+      "detail": null,
+      "icon": "ui-team"
+    },
+    {
+      "name": "an invite reads the email it carried",
+      "ref": { "kind": "invite", "id": "inv-1", "title": "sam@example.com" },
+      "label": "sam@example.com",
+      "detail": null,
+      "icon": "ui-invite"
+    },
+    {
+      "name": "a notification",
+      "ref": { "kind": "notification", "id": "n-1", "title": "EXP-42 was assigned to you" },
+      "label": "EXP-42 was assigned to you",
+      "detail": null,
+      "icon": "nav-notifications"
+    },
+    {
+      "name": "a thread",
+      "ref": { "kind": "thread", "id": "th-1", "title": "Login loops on Safari" },
+      "label": "Login loops on Safari",
+      "detail": null,
+      "icon": "nav-support"
+    },
+    {
+      "name": "an attachment reads its file name",
+      "ref": { "kind": "attachment", "id": "at-1", "title": "trace.png" },
+      "label": "trace.png",
+      "detail": null,
+      "icon": "ui-attach"
+    },
+    {
+      "name": "an unknown kind reads its title under the list glyph",
+      "ref": { "kind": "thing", "id": "x-1", "title": "Something new" },
+      "label": "Something new",
+      "detail": null,
+      "icon": "ui-checklist"
+    },
+    {
+      "name": "an unknown kind with no title reads Item",
+      "ref": { "kind": "thing", "id": "x-2" },
+      "label": "Item",
+      "detail": null,
+      "icon": "ui-checklist"
+    }
+  ],
+  "groups": [
+    {
+      "name": "a list absorbs the member refs behind it",
+      "refs": [
+        { "kind": "list", "id": "issue", "title": "issues", "count": 3 },
+        { "kind": "issue", "id": "i-1", "identifier": "EXP-1" },
+        { "kind": "issue", "id": "i-2", "identifier": "EXP-2" },
+        { "kind": "issue", "id": "i-3", "identifier": "EXP-3" }
+      ],
+      "groups": [{ "ref": 0, "members": [1, 2, 3] }]
+    },
+    {
+      "name": "a ref of another kind after a list is its own chip",
+      "refs": [
+        { "kind": "list", "id": "comment", "title": "comments", "count": 2 },
+        { "kind": "comment", "id": "c-1", "title": "First" },
+        { "kind": "comment", "id": "c-2", "title": "Second" },
+        { "kind": "issue", "id": "i-1", "identifier": "EXP-1" }
+      ],
+      "groups": [{ "ref": 0, "members": [1, 2] }, { "ref": 3, "members": [] }]
+    },
+    {
+      "name": "a member kind that appears BEFORE the list is not absorbed",
+      "refs": [
+        { "kind": "issue", "id": "i-1", "identifier": "EXP-1" },
+        { "kind": "list", "id": "issue", "title": "issues", "count": 1 },
+        { "kind": "issue", "id": "i-2", "identifier": "EXP-2" }
+      ],
+      "groups": [{ "ref": 0, "members": [] }, { "ref": 1, "members": [2] }]
+    },
+    {
+      "name": "an empty list is a chip with no members",
+      "refs": [{ "kind": "list", "id": "issue", "title": "issues", "count": 0 }],
+      "groups": [{ "ref": 0, "members": [] }]
+    },
+    {
+      "name": "two lists are two chips",
+      "refs": [
+        { "kind": "list", "id": "issue", "title": "issues", "count": 1 },
+        { "kind": "issue", "id": "i-1", "identifier": "EXP-1" },
+        { "kind": "list", "id": "label", "title": "labels", "count": 1 },
+        { "kind": "label", "id": "l-1", "title": "bug" }
+      ],
+      "groups": [{ "ref": 0, "members": [1] }, { "ref": 2, "members": [3] }]
+    },
+    {
+      "name": "plain refs are one chip each, in order",
+      "refs": [
+        { "kind": "comment", "id": "c-1", "title": "Looks good" },
+        { "kind": "issue", "id": "i-1", "identifier": "EXP-1" },
+        { "kind": "issue", "id": "i-2", "identifier": "EXP-2" }
+      ],
+      "groups": [{ "ref": 0, "members": [] }, { "ref": 1, "members": [] }, { "ref": 2, "members": [] }]
+    },
+    {
+      "name": "nothing is nothing",
+      "refs": [],
+      "groups": []
+    }
+  ]
+}

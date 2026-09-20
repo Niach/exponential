@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -67,25 +68,10 @@ fun IssueChip(
     removeContentDescription: String = "Remove $identifier",
     removeTestTag: String? = null,
 ) {
-    val shape = remember { RoundedCornerShape(MdStyle.chipCornerRadius) }
     // Web parity through the markdown renderer's own cap: a chip is a badge,
     // not a place to read a sentence.
     val chipText = title?.takeIf { it.isNotBlank() }?.let { remember(it) { chipTitle(it) } }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(IssueChipDefaults.Spacing),
-        modifier = modifier
-            .clip(shape)
-            .background(MdStyle.IssueRefBg, shape)
-            .border(IssueChipDefaults.BorderWidth, MdStyle.IssueRefBorder, shape)
-            .then(
-                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
-            )
-            .padding(
-                horizontal = IssueChipDefaults.HorizontalPadding,
-                vertical = IssueChipDefaults.VerticalPadding,
-            ),
-    ) {
+    ChipShell(modifier = modifier, onClick = onClick) {
         // A chip whose issue has not synced (another team's, a trashed board)
         // still names it: the glyph is the one part that can be missing.
         if (status != null) StatusIcon(status, size = MdStyle.chipIconSize)
@@ -123,6 +109,37 @@ fun IssueChip(
             )
         }
     }
+}
+
+/**
+ * EXP-920: the chip BOX every badge shares — [IssueChip] and [EntityChip]
+ * paint through this one recipe (the painter's corner radius, fill and
+ * hairline; the same insets and gap), so an entity chip under a tool row sits
+ * pixel-for-pixel beside the issue chip in the line above it.
+ */
+@Composable
+internal fun ChipShell(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val shape = remember { RoundedCornerShape(MdStyle.chipCornerRadius) }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(IssueChipDefaults.Spacing),
+        modifier = modifier
+            .clip(shape)
+            .background(MdStyle.IssueRefBg, shape)
+            .border(IssueChipDefaults.BorderWidth, MdStyle.IssueRefBorder, shape)
+            .then(
+                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+            )
+            .padding(
+                horizontal = IssueChipDefaults.HorizontalPadding,
+                vertical = IssueChipDefaults.VerticalPadding,
+            ),
+        content = content,
+    )
 }
 
 /** The removable variant's ONE control: a round hit area around the ✕. */

@@ -269,6 +269,11 @@ struct ToolState {
     /// Lines [`Mapper::note_tool_output`] already dropped off the FRONT of
     /// `output`, so the settle's marker counts them too.
     output_dropped: usize,
+    /// EXP-920: the call's ACP `raw_input`, kept ONLY for an Exponential MCP
+    /// call — the settle's preview reads the `$`-rooted spec terms off it
+    /// (`pr_open` answers with a url, the input named the issue). `None` for
+    /// every other tool, so a `Read` of a megabyte file costs nothing here.
+    raw_input: Option<Value>,
 }
 
 struct PermissionAsk {
@@ -1617,6 +1622,7 @@ impl Mapper {
                 kind: call.kind,
                 output: String::new(),
                 output_dropped: 0,
+                raw_input: exp_tool_input(&call.title, call.raw_input.as_ref()),
             },
         );
         let diff = self.tool_content(&id, call.kind, &call.content, call.raw_output.as_ref(), out);
@@ -1639,6 +1645,7 @@ impl Mapper {
             title,
             content,
             locations,
+            raw_input,
             raw_output,
             ..
         } = &update.fields;
@@ -1652,6 +1659,11 @@ impl Mapper {
         if let Some(state) = self.tools.get_mut(&id) {
             state.kind = kind;
             state.title.clone_from(&title);
+            // EXP-920: an adapter that names the input only on a later update
+            // (or titles the call only then) still gets it retained.
+            if state.raw_input.is_none() {
+                state.raw_input = exp_tool_input(&title, raw_input.as_ref());
+            }
         }
         // Rule 2: the pending → in-progress churn is a local card patch; only
         // a SETTLE (and an edit's diff) becomes a wire row, below.
@@ -1787,11 +1799,21 @@ impl Mapper {
     /// titles an MCP call with the raw `mcp__exponential__exponential_*`), and
     /// the strings are redacted-on-publish like any other free text, clamped
     /// here to the wire cap.
+    ///
+    /// EXP-920: plus the entity `refs` the answer named
+    /// ([`crate::exp_tool_refs::exp_tool_refs`], read off the answer and the
+    /// retained input) — the chips every client renders. The legacy subject
+    /// fields stay beside them for a pre-EXP-920 viewer; a preview with ONLY
+    /// refs is still published.
     fn exp_tool_preview(&self, id: &str, result: &Value) -> Option<steer::ToolPreview> {
-        let title = self.tools.get(id).map(|state| state.title.as_str())?;
+        let state = self.tools.get(id)?;
+        let title = state.title.as_str();
         steer::exp_tool_row(title)?;
-        let preview = exp_tool_preview(result)?;
-        Some(preview.clamp())
+        let mut preview = exp_tool_preview(result).unwrap_or_default();
+        let no_input = Value::Object(Map::new());
+        let input = state.raw_input.as_ref().unwrap_or(&no_input);
+        preview.refs = crate::exp_tool_refs::exp_tool_refs(title, result, input);
+        (!preview.is_empty()).then(|| preview.clamp())
     }
 
     /// Queue a settled tool call for eviction. Re-settling one (a `failed`
@@ -3085,26 +3107,21 @@ fn wire_tool_kind(kind: ToolKind) -> WireToolKind {
     }
 }
 
-/// EXP-846: the JSON an MCP answer actually carries. MCP returns a
-/// `{content:[{type:"text",text:"…"}]}` envelope and the text is usually the
-/// JSON itself, so both shapes (and a bare object) resolve to one value here;
-/// anything unparseable is simply no preview.
+/// EXP-846: the JSON an MCP answer actually carries — ONE rule with the refs
+/// ([`crate::exp_tool_refs::tool_result_payload`]): the text behind the MCP
+/// envelope, a bare value as itself, an `isError` envelope as nothing (EXP-920:
+/// a failed call previews no subject either), anything unparseable as no
+/// preview.
 fn json_payload(result: &Value) -> Option<Value> {
-    match result {
-        Value::String(text) => serde_json::from_str(text).ok(),
-        Value::Object(map) => {
-            if let Some(content) = map.get("content").and_then(Value::as_array) {
-                // The first text block that parses as JSON is the payload.
-                return content
-                    .iter()
-                    .filter_map(|block| block.get("text").and_then(Value::as_str))
-                    .find_map(|text| serde_json::from_str::<Value>(text).ok());
-            }
-            Some(Value::Object(map.clone()))
-        }
-        Value::Array(_) => Some(result.clone()),
-        _ => None,
-    }
+    crate::exp_tool_refs::tool_result_payload(result)
+}
+
+/// EXP-920: the ACP `raw_input` worth RETAINING on a tool's state — only an
+/// Exponential MCP call's, whose settle reads the `$`-rooted spec terms off
+/// it; every other tool's input is read once for the row's detail and dropped.
+fn exp_tool_input(title: &str, raw_input: Option<&Value>) -> Option<Value> {
+    let raw_input = raw_input?;
+    steer::exp_tool::exp_tool_index(title).is_some().then(|| raw_input.clone())
 }
 
 /// EXP-846: `{id, identifier, title, url, count, status}` out of one of our
@@ -3131,6 +3148,7 @@ fn exp_tool_preview(result: &Value) -> Option<steer::ToolPreview> {
         url: string(&["prUrl", "url", "htmlUrl"]),
         count,
         status: string(&["status"]),
+        refs: vec![],
     };
     (!preview.is_empty()).then_some(preview)
 }
@@ -3999,6 +4017,93 @@ mod tests {
             Some(steer::TOOL_PREVIEW_TEXT_MAX)
         );
         assert_eq!(preview.id.as_deref(), Some("i1"));
+    }
+
+    /// EXP-920: the settle of one of our calls publishes the entity REFS its
+    /// answer named beside the legacy subject — the call's `raw_input` is
+    /// retained from the `ToolCall` so a `$`-rooted term can read it later.
+    #[test]
+    fn a_settled_exponential_call_publishes_its_refs() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(
+            ToolCallId::new("tc-refs-1"),
+            "mcp__exponential__exponential_issues_create",
+        )
+        .kind(ToolKind::Other)
+        .raw_input(json!({"boardId": "b-1", "title": "Fix the flicker"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        assert!(mapper.tools["tc-refs-1"].raw_input.is_some(), "the input is retained");
+
+        let mut out = MapOut::default();
+        let update = ToolCallUpdate::new(
+            ToolCallId::new("tc-refs-1"),
+            ToolCallUpdateFields::new()
+                .status(ToolCallStatus::Completed)
+                .raw_output(json!({
+                    "content": [{
+                        "type": "text",
+                        "text": "{\"id\":\"i-1\",\"identifier\":\"EXP-42\",\"title\":\"Fix the flicker\",\"status\":\"backlog\",\"statusId\":\"s-1\"}"
+                    }]
+                })),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(update)), &mut out);
+        let preview = out
+            .wire
+            .iter()
+            .find_map(|event| match event {
+                ActivityEvent::ToolUpdate { preview: Some(preview), .. } => Some(preview.clone()),
+                _ => None,
+            })
+            .expect("the settle carries a preview");
+        // The legacy subject still rides along for an older viewer.
+        assert_eq!(preview.identifier.as_deref(), Some("EXP-42"));
+        let mut expected = steer::EntityRef::new("issue", "i-1");
+        expected.identifier = Some("EXP-42".to_string());
+        expected.title = Some("Fix the flicker".to_string());
+        assert_eq!(preview.refs, vec![expected]);
+    }
+
+    /// EXP-920: a `$`-rooted spec term reads the retained INPUT — `pr_open`
+    /// answers with a url and no issue, the input named it. The preview is
+    /// published on the strength of the refs alone.
+    #[test]
+    fn a_dollar_rooted_spec_reads_the_retained_input() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-refs-2"), "exponential_pr_open")
+            .kind(ToolKind::Other)
+            .raw_input(json!({"issueId": "EXP-895", "title": "Fix it"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+
+        let mut out = MapOut::default();
+        let update = ToolCallUpdate::new(
+            ToolCallId::new("tc-refs-2"),
+            ToolCallUpdateFields::new()
+                .status(ToolCallStatus::Completed)
+                .raw_output(json!({"ok": true})),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(update)), &mut out);
+        let preview = out
+            .wire
+            .iter()
+            .find_map(|event| match event {
+                ActivityEvent::ToolUpdate { preview: Some(preview), .. } => Some(preview.clone()),
+                _ => None,
+            })
+            .expect("refs alone are a preview");
+        assert_eq!(preview.id, None);
+        let mut expected = steer::EntityRef::new("issue", "EXP-895");
+        expected.identifier = Some("EXP-895".to_string());
+        assert_eq!(preview.refs, vec![expected]);
+
+        // A tool that is not ours never retains its input.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-refs-3"), "Read")
+            .kind(ToolKind::Read)
+            .raw_input(json!({"file_path": "/tmp/worktree/big.txt"}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        assert!(mapper.tools["tc-refs-3"].raw_input.is_none());
     }
 
     /// EXP-848: the turn slot's edges — one `started` when the host opens a

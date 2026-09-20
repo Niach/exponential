@@ -155,6 +155,11 @@ public struct AgentToolPreview: Equatable, Sendable {
     /// A list tool's row count.
     public let count: Int?
     public let status: String?
+    /// EXP-920: every entity the answer named, in the publisher's order and
+    /// already cut to `expToolPreviewMaxRefs` — one chip each
+    /// (`EntityPreview.groupRefs`). Empty on a pre-EXP-920 publisher, and the
+    /// row then keeps its single-subject rendering.
+    public let refs: [EntityRef]
 
     public init(
         id: String? = nil,
@@ -162,7 +167,8 @@ public struct AgentToolPreview: Equatable, Sendable {
         title: String? = nil,
         url: String? = nil,
         count: Int? = nil,
-        status: String? = nil
+        status: String? = nil,
+        refs: [EntityRef] = []
     ) {
         self.id = id
         self.identifier = identifier
@@ -170,12 +176,13 @@ public struct AgentToolPreview: Equatable, Sendable {
         self.url = url
         self.count = count
         self.status = status
+        self.refs = refs
     }
 
     /// Nothing to draw — every field came back empty.
     public var isEmpty: Bool {
         id == nil && identifier == nil && title == nil && url == nil
-            && count == nil && status == nil
+            && count == nil && status == nil && refs.isEmpty
     }
 }
 
@@ -996,9 +1003,18 @@ public enum AgentFeed {
             title: string(row["title"]),
             url: string(row["url"]),
             count: (row["count"] as? NSNumber)?.intValue,
-            status: string(row["status"])
+            status: string(row["status"]),
+            refs: entityRefs(row["refs"])
         )
         return preview.isEmpty ? nil : preview
+    }
+
+    /// EXP-920: the preview's `refs[]`, each through `EntityRef.parse` (an
+    /// unknown kind or a blank id is skipped, never a chip) and the tail past
+    /// `expToolPreviewMaxRefs` cut, exactly like web `parseToolPreview`.
+    public static func entityRefs(_ raw: Any?) -> [EntityRef] {
+        guard let rows = raw as? [Any] else { return [] }
+        return Array(rows.compactMap(EntityRef.parse).prefix(DomainContract.expToolPreviewMaxRefs))
     }
 
     /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose

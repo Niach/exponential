@@ -58,6 +58,8 @@ mod debug_board;
 mod dev_ready;
 mod description_editor;
 mod emoji;
+mod entity_chip;
+mod entity_preview;
 mod emoji_picker;
 pub mod diff;
 mod diff_pane;

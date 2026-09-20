@@ -116,6 +116,9 @@ fun ActionsScreen(
     onOpenSteer: (codingSessionId: String) -> Unit,
     // EXP-825: Run / New action / a suggestion navigate to the composer.
     onOpenAgent: (AgentComposerSeed) -> Unit,
+    /** EXP-920: a segment a caller asks for ("automations") — an entity
+     *  preview's Open lands on the Automations list, not the tab's default. */
+    requestedSegment: String? = null,
     viewModel: ActionsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -132,6 +135,9 @@ fun ActionsScreen(
     val automationError by viewModel.automationError.collectAsStateWithLifecycle()
 
     var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
+    LaunchedEffect(requestedSegment) {
+        if (requestedSegment == SEGMENT_AUTOMATIONS) segment = SEGMENT_AUTOMATIONS
+    }
 
     // The owner-only automation form: true = creating, non-null row = editing.
     var automationForm by remember { mutableStateOf(false) }

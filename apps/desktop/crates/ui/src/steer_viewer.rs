@@ -63,7 +63,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     bounce, div, ease_in_out, list, prelude::FluentBuilder as _, px, relative,
-    AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, Entity, FocusHandle,
+    AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
     Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
     ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
@@ -7355,6 +7355,11 @@ fn exp_tool_call_row(
 /// * `list` — "N results";
 /// * `session` / `board` / `action` / `automation` / `comment` — a name chip;
 /// * `none` — nothing: the caption said it all.
+///
+/// EXP-920: a preview carrying `refs` renders the ENTITY CHIP ROW instead
+/// ([`exp_entity_chip_row`]) — one chip per ref group, each with a hover
+/// card resolved from the synced store and a click into the entity. A
+/// pre-EXP-920 preview (no refs) keeps the single-subject rendering above.
 fn exp_tool_preview_row(
     id: FeedItemId,
     result: &str,
@@ -7362,6 +7367,9 @@ fn exp_tool_preview_row(
     cx: &mut App,
 ) -> Option<AnyElement> {
     use steer::exp_tool::result as kind;
+    if !preview.refs.is_empty() {
+        return Some(exp_entity_chip_row(id, &preview.refs, cx));
+    }
     let muted = cx.theme().muted_foreground;
     match result {
         kind::ISSUE => {
@@ -7448,6 +7456,45 @@ fn exp_tool_preview_row(
         // session / board / action / automation / comment: a name chip.
         _ => exp_preview_label(preview).map(|label| exp_preview_chip(registry::CODING_TOOL, label, cx)),
     }
+}
+
+/// EXP-920 — the wrapping row of entity chips under a settled Exponential
+/// tool row: one [`crate::entity_chip::entity_chip`] per
+/// [`domain::entity_preview::group_preview_refs`] group (a `list` ref
+/// absorbs the member refs behind it into ONE chip whose card lists them).
+/// Hover = the card; click = [`crate::entity_preview::entity_target`], or
+/// nothing when the target does not resolve here (a `list`, an unsynced row).
+fn exp_entity_chip_row(id: FeedItemId, refs: &[steer::EntityRef], cx: &mut App) -> AnyElement {
+    let views: Vec<domain::entity_preview::EntityRefView<'_>> =
+        refs.iter().map(crate::entity_preview::view).collect();
+    let groups = domain::entity_preview::group_preview_refs(&views);
+    let mut row = h_flex().w_full().min_w_0().flex_wrap().gap_1().items_center();
+    for (index, group) in groups.iter().enumerate() {
+        let r#ref = &refs[group.r#ref];
+        let members: Vec<steer::EntityRef> =
+            group.members.iter().map(|&member| refs[member].clone()).collect();
+        let key = format!("steer-exp-entity-{}-{index}", id as usize);
+        let mut chip = crate::entity_chip::entity_chip(
+            ElementId::from(SharedString::from(key.clone())),
+            r#ref,
+            &members,
+        );
+        // A card exists for a synced row, a list, and the two never-synced
+        // kinds (a slim card); anything else hovers into nothing, so it
+        // does not even ask.
+        let has_card = matches!(r#ref.kind.as_str(), "list" | "repository" | "thread")
+            || crate::entity_preview::row_facts(&r#ref.kind, &r#ref.id, cx).synced;
+        if has_card {
+            chip = chip.hover_card(key);
+        }
+        if let Some(target) = crate::entity_preview::entity_target(&r#ref.kind, &r#ref.id, cx) {
+            chip = chip.on_click(move |_, window, cx| {
+                crate::entity_preview::open_target(target.clone(), window, cx)
+            });
+        }
+        row = row.child(chip);
+    }
+    row.into_any_element()
 }
 
 /// What a non-issue preview is CALLED: its human identifier, else its title.

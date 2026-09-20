@@ -1,0 +1,1210 @@
+{
+  "description": "EXP-920: toolResultPreview — the refs an Exponential MCP tool's answer yields, per contract expToolPreview.tools (kind@path terms). Locked ×2: web lib/mcp/preview.ts (toolResultPreview) and the engine's crates/engine/src/mapper.rs (exp_tool_refs). `input` is the call's own arguments (for the `$`-rooted terms); absent = {}.",
+  "cases": [
+    {
+      "name": "issues_create: the bare issue row is one issue ref",
+      "tool": "mcp__exponential__exponential_issues_create",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"id\":\"i-1\",\"identifier\":\"EXP-42\",\"title\":\"Fix the flicker\",\"status\":\"backlog\",\"statusId\":\"s-1\",\"boardId\":\"b-1\",\"teamId\":\"t-1\"}"
+          }
+        ]
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-42",
+          "title": "Fix the flicker"
+        }
+      ]
+    },
+    {
+      "name": "issues_list: a bare array is one list ref plus its first members",
+      "tool": "exponential_issues_list",
+      "result": [
+        {
+          "id": "i-1",
+          "identifier": "EXP-1",
+          "title": "One"
+        },
+        {
+          "id": "i-2",
+          "identifier": "EXP-2",
+          "title": "Two"
+        },
+        {
+          "id": "i-3",
+          "identifier": "EXP-3",
+          "title": "Three"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "issue",
+          "title": "issues",
+          "count": 3
+        },
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-1",
+          "title": "One"
+        },
+        {
+          "kind": "issue",
+          "id": "i-2",
+          "identifier": "EXP-2",
+          "title": "Two"
+        },
+        {
+          "kind": "issue",
+          "id": "i-3",
+          "identifier": "EXP-3",
+          "title": "Three"
+        }
+      ]
+    },
+    {
+      "name": "issues_list: members are capped at maxRefs minus the list ref, the count is the whole array",
+      "tool": "exponential_issues_list",
+      "result": [
+        {
+          "id": "i-1",
+          "identifier": "EXP-1",
+          "title": "a"
+        },
+        {
+          "id": "i-2",
+          "identifier": "EXP-2",
+          "title": "b"
+        },
+        {
+          "id": "i-3",
+          "identifier": "EXP-3",
+          "title": "c"
+        },
+        {
+          "id": "i-4",
+          "identifier": "EXP-4",
+          "title": "d"
+        },
+        {
+          "id": "i-5",
+          "identifier": "EXP-5",
+          "title": "e"
+        },
+        {
+          "id": "i-6",
+          "identifier": "EXP-6",
+          "title": "f"
+        },
+        {
+          "id": "i-7",
+          "identifier": "EXP-7",
+          "title": "g"
+        },
+        {
+          "id": "i-8",
+          "identifier": "EXP-8",
+          "title": "h"
+        },
+        {
+          "id": "i-9",
+          "identifier": "EXP-9",
+          "title": "i"
+        },
+        {
+          "id": "i-10",
+          "identifier": "EXP-10",
+          "title": "j"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "issue",
+          "title": "issues",
+          "count": 10
+        },
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-1",
+          "title": "a"
+        },
+        {
+          "kind": "issue",
+          "id": "i-2",
+          "identifier": "EXP-2",
+          "title": "b"
+        },
+        {
+          "kind": "issue",
+          "id": "i-3",
+          "identifier": "EXP-3",
+          "title": "c"
+        },
+        {
+          "kind": "issue",
+          "id": "i-4",
+          "identifier": "EXP-4",
+          "title": "d"
+        },
+        {
+          "kind": "issue",
+          "id": "i-5",
+          "identifier": "EXP-5",
+          "title": "e"
+        },
+        {
+          "kind": "issue",
+          "id": "i-6",
+          "identifier": "EXP-6",
+          "title": "f"
+        },
+        {
+          "kind": "issue",
+          "id": "i-7",
+          "identifier": "EXP-7",
+          "title": "g"
+        }
+      ]
+    },
+    {
+      "name": "issues_list: an empty array is a list of nothing",
+      "tool": "exponential_issues_list",
+      "result": [],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "issue",
+          "title": "issues",
+          "count": 0
+        }
+      ]
+    },
+    {
+      "name": "attachments_list: a wrapped list takes its own total",
+      "tool": "exponential_attachments_list",
+      "input": {
+        "issueId": "EXP-7"
+      },
+      "result": {
+        "attachments": [
+          {
+            "id": "a-1",
+            "filename": "trace.txt",
+            "contentType": "text/plain",
+            "sizeBytes": 12
+          }
+        ],
+        "total": 17
+      },
+      "refs": [
+        {
+          "kind": "list",
+          "id": "attachment",
+          "title": "attachments",
+          "count": 17
+        },
+        {
+          "kind": "attachment",
+          "id": "a-1",
+          "title": "trace.txt"
+        },
+        {
+          "kind": "issue",
+          "id": "EXP-7",
+          "identifier": "EXP-7"
+        }
+      ]
+    },
+    {
+      "name": "issues_update_status: the issue and the status it named",
+      "tool": "exponential_issues_update_status",
+      "result": {
+        "id": "i-1",
+        "identifier": "EXP-42",
+        "title": "Fix the flicker",
+        "status": "in_progress",
+        "statusId": "s-9",
+        "boardId": "b-1"
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-42",
+          "title": "Fix the flicker"
+        },
+        {
+          "kind": "status",
+          "id": "s-9"
+        }
+      ]
+    },
+    {
+      "name": "issues_update_status: a null statusId names no status",
+      "tool": "exponential_issues_update_status",
+      "result": {
+        "id": "i-1",
+        "identifier": "EXP-42",
+        "title": "Fix the flicker",
+        "status": "backlog",
+        "statusId": null
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-42",
+          "title": "Fix the flicker"
+        }
+      ]
+    },
+    {
+      "name": "comments_create: the comment (body as title) and the issue it sits on, by id alone",
+      "tool": "exponential_comments_create",
+      "result": {
+        "id": "c-1",
+        "issueId": "i-1",
+        "teamId": "t-1",
+        "boardId": "b-1",
+        "authorId": "u-1",
+        "parentId": null,
+        "source": "mcp",
+        "body": "Confirmed on the device farm, cold start is under target now."
+      },
+      "refs": [
+        {
+          "kind": "comment",
+          "id": "c-1",
+          "title": "Confirmed on the device farm, cold start is under target now."
+        },
+        {
+          "kind": "issue",
+          "id": "i-1"
+        }
+      ]
+    },
+    {
+      "name": "comments_list: the comments listed plus the issue the INPUT named",
+      "tool": "exponential_comments_list",
+      "input": {
+        "issueId": "EXP-12",
+        "limit": 100
+      },
+      "result": [
+        {
+          "id": "c-1",
+          "issueId": "i-1",
+          "body": "First"
+        },
+        {
+          "id": "c-2",
+          "issueId": "i-1",
+          "body": "Second"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "comment",
+          "title": "comments",
+          "count": 2
+        },
+        {
+          "kind": "comment",
+          "id": "c-1",
+          "title": "First"
+        },
+        {
+          "kind": "comment",
+          "id": "c-2",
+          "title": "Second"
+        },
+        {
+          "kind": "issue",
+          "id": "EXP-12",
+          "identifier": "EXP-12"
+        }
+      ]
+    },
+    {
+      "name": "pr_open: the answer names no issue, the input does (identifier or uuid)",
+      "tool": "exponential_pr_open",
+      "input": {
+        "issueId": "EXP-895",
+        "title": "Fix it"
+      },
+      "result": {
+        "url": "https://github.com/a/b/pull/7",
+        "number": 7,
+        "base": "master"
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "EXP-895",
+          "identifier": "EXP-895"
+        }
+      ]
+    },
+    {
+      "name": "pr_open: a batch fans the issueIds out",
+      "tool": "exponential_pr_open",
+      "input": {
+        "issueIds": [
+          "EXP-1",
+          "EXP-2",
+          "0f1e2d3c-0000-4000-8000-000000000001"
+        ],
+        "head": "exp/batch-1",
+        "title": "Batch"
+      },
+      "result": {
+        "url": "https://github.com/a/b/pull/8",
+        "number": 8,
+        "base": "master"
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "EXP-1",
+          "identifier": "EXP-1"
+        },
+        {
+          "kind": "issue",
+          "id": "EXP-2",
+          "identifier": "EXP-2"
+        },
+        {
+          "kind": "issue",
+          "id": "0f1e2d3c-0000-4000-8000-000000000001"
+        }
+      ]
+    },
+    {
+      "name": "pr_merge: one issue per result row (issueId + identifier, no own id)",
+      "tool": "exponential_pr_merge",
+      "result": {
+        "results": [
+          {
+            "issueId": "i-1",
+            "identifier": "EXP-1",
+            "merged": true
+          },
+          {
+            "issueId": "i-2",
+            "identifier": "EXP-2",
+            "merged": false,
+            "error": "stale base"
+          }
+        ]
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-1"
+        },
+        {
+          "kind": "issue",
+          "id": "i-2",
+          "identifier": "EXP-2"
+        }
+      ]
+    },
+    {
+      "name": "pr_merge: a chore merge names no issue",
+      "tool": "exponential_pr_merge",
+      "result": {
+        "results": [
+          {
+            "repositoryId": "r-1",
+            "prNumber": 9,
+            "merged": true
+          }
+        ]
+      },
+      "refs": []
+    },
+    {
+      "name": "issue_relations_add: both issues off the input",
+      "tool": "exponential_issue_relations_add",
+      "input": {
+        "issueId": "EXP-1",
+        "relatedIssueId": "EXP-2",
+        "type": "blocks"
+      },
+      "result": {
+        "ok": true,
+        "txId": 3
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "EXP-1",
+          "identifier": "EXP-1"
+        },
+        {
+          "kind": "issue",
+          "id": "EXP-2",
+          "identifier": "EXP-2"
+        }
+      ]
+    },
+    {
+      "name": "issue_labels_add: the issue and the label off the input",
+      "tool": "exponential_issue_labels_add",
+      "input": {
+        "issueId": "i-1",
+        "labelId": "l-1"
+      },
+      "result": {
+        "ok": true
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-1"
+        },
+        {
+          "kind": "label",
+          "id": "l-1"
+        }
+      ]
+    },
+    {
+      "name": "sessions_start: the session, its issue (twins), the input deduped by identifier",
+      "tool": "exponential_sessions_start",
+      "input": {
+        "deviceId": "d-1",
+        "issueId": "EXP-5"
+      },
+      "result": {
+        "ok": true,
+        "deviceId": "d-1",
+        "sessionId": "cs-1",
+        "session": {
+          "id": "cs-1",
+          "issueId": "i-5",
+          "issueIdentifier": "EXP-5",
+          "issueTitle": "Five",
+          "teamId": "t-1",
+          "status": "running",
+          "actionName": null
+        }
+      },
+      "refs": [
+        {
+          "kind": "session",
+          "id": "cs-1",
+          "title": "Five"
+        },
+        {
+          "kind": "issue",
+          "id": "i-5",
+          "identifier": "EXP-5",
+          "title": "Five"
+        }
+      ]
+    },
+    {
+      "name": "sessions_start: a null session row leaves the input's issue",
+      "tool": "exponential_sessions_start",
+      "input": {
+        "deviceId": "d-1",
+        "issueId": "EXP-5"
+      },
+      "result": {
+        "ok": true,
+        "deviceId": "d-1",
+        "sessionId": null,
+        "session": null,
+        "note": "not registered within 10s"
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "EXP-5",
+          "identifier": "EXP-5"
+        }
+      ]
+    },
+    {
+      "name": "sessions_get: the run (titled by its issue) and the issue",
+      "tool": "exponential_sessions_get",
+      "result": {
+        "id": "cs-1",
+        "issueId": "i-5",
+        "issueIdentifier": "EXP-5",
+        "issueTitle": "Five",
+        "status": "running",
+        "actionName": null,
+        "depth": 0
+      },
+      "refs": [
+        {
+          "kind": "session",
+          "id": "cs-1",
+          "title": "Five"
+        },
+        {
+          "kind": "issue",
+          "id": "i-5",
+          "identifier": "EXP-5",
+          "title": "Five"
+        }
+      ]
+    },
+    {
+      "name": "sessions_get: an action run is titled by its action name",
+      "tool": "exponential_sessions_get",
+      "result": {
+        "id": "cs-2",
+        "issueId": null,
+        "issueIdentifier": null,
+        "issueTitle": null,
+        "actionId": "a-1",
+        "actionName": "Release all",
+        "status": "ended"
+      },
+      "refs": [
+        {
+          "kind": "session",
+          "id": "cs-2",
+          "title": "Release all"
+        }
+      ]
+    },
+    {
+      "name": "sessions_list: runs, each titled",
+      "tool": "exponential_sessions_list",
+      "result": [
+        {
+          "id": "cs-1",
+          "issueIdentifier": "EXP-5",
+          "issueTitle": "Five",
+          "actionName": null
+        },
+        {
+          "id": "cs-2",
+          "actionName": "Release all"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "session",
+          "title": "sessions",
+          "count": 2
+        },
+        {
+          "kind": "session",
+          "id": "cs-1",
+          "title": "Five"
+        },
+        {
+          "kind": "session",
+          "id": "cs-2",
+          "title": "Release all"
+        }
+      ]
+    },
+    {
+      "name": "boards_create: the board by name",
+      "tool": "exponential_boards_create",
+      "result": {
+        "id": "b-1",
+        "teamId": "t-1",
+        "name": "Mobile",
+        "slug": "mobile",
+        "prefix": "MOB",
+        "icon": "smartphone",
+        "color": "#3b82f6"
+      },
+      "refs": [
+        {
+          "kind": "board",
+          "id": "b-1",
+          "title": "Mobile"
+        }
+      ]
+    },
+    {
+      "name": "actions_list: the builtins ride along as members",
+      "tool": "exponential_actions_list",
+      "result": [
+        {
+          "id": "a-1",
+          "teamId": "t-1",
+          "name": "Release all",
+          "builtin": false
+        },
+        {
+          "id": "builtin:create-action",
+          "name": "Create action",
+          "builtin": true
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "action",
+          "title": "actions",
+          "count": 2
+        },
+        {
+          "kind": "action",
+          "id": "a-1",
+          "title": "Release all"
+        },
+        {
+          "kind": "action",
+          "id": "builtin:create-action",
+          "title": "Create action"
+        }
+      ]
+    },
+    {
+      "name": "automations_create: an automation has no name, the chip resolves it",
+      "tool": "exponential_automations_create",
+      "result": {
+        "id": "au-1",
+        "teamId": "t-1",
+        "actionId": "a-1",
+        "deviceId": "d-1",
+        "enabled": true,
+        "trigger": {
+          "kind": "schedule"
+        }
+      },
+      "refs": [
+        {
+          "kind": "automation",
+          "id": "au-1"
+        }
+      ]
+    },
+    {
+      "name": "devices_list: rows keyed by deviceId, labelled",
+      "tool": "exponential_devices_list",
+      "result": [
+        {
+          "deviceId": "d-1",
+          "label": "MacBook",
+          "online": true
+        },
+        {
+          "deviceId": "d-2",
+          "label": "homeserver",
+          "online": false
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "device",
+          "title": "devices",
+          "count": 2
+        },
+        {
+          "kind": "device",
+          "id": "d-1",
+          "title": "MacBook"
+        },
+        {
+          "kind": "device",
+          "id": "d-2",
+          "title": "homeserver"
+        }
+      ]
+    },
+    {
+      "name": "members_list: the user, never the membership row",
+      "tool": "exponential_members_list",
+      "result": [
+        {
+          "id": "u-1",
+          "memberId": "m-1",
+          "name": "Ada Lovelace",
+          "email": "ada@example.com",
+          "role": "owner"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "member",
+          "title": "members",
+          "count": 1
+        },
+        {
+          "kind": "member",
+          "id": "u-1",
+          "title": "Ada Lovelace"
+        }
+      ]
+    },
+    {
+      "name": "repositories_list: full names",
+      "tool": "exponential_repositories_list",
+      "result": [
+        {
+          "id": "r-1",
+          "fullName": "niach/exponential",
+          "defaultBranch": "master"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "repository",
+          "title": "repositories",
+          "count": 1
+        },
+        {
+          "kind": "repository",
+          "id": "r-1",
+          "title": "niach/exponential"
+        }
+      ]
+    },
+    {
+      "name": "invites_create: the wrapped invite by email",
+      "tool": "exponential_invites_create",
+      "result": {
+        "invite": {
+          "id": "inv-1",
+          "email": "sam@example.com",
+          "role": "member"
+        },
+        "token": "secret",
+        "emailDelivered": true
+      },
+      "refs": [
+        {
+          "kind": "invite",
+          "id": "inv-1",
+          "title": "sam@example.com"
+        }
+      ]
+    },
+    {
+      "name": "statuses_list: statuses, the irregular plural",
+      "tool": "exponential_statuses_list",
+      "result": [
+        {
+          "id": "s-1",
+          "name": "Backlog",
+          "category": "backlog"
+        },
+        {
+          "id": "s-2",
+          "name": "In progress",
+          "category": "started"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "status",
+          "title": "statuses",
+          "count": 2
+        },
+        {
+          "kind": "status",
+          "id": "s-1",
+          "title": "Backlog"
+        },
+        {
+          "kind": "status",
+          "id": "s-2",
+          "title": "In progress"
+        }
+      ]
+    },
+    {
+      "name": "labels_create: a label by name",
+      "tool": "exponential_labels_create",
+      "result": {
+        "id": "l-1",
+        "teamId": "t-1",
+        "name": "bug",
+        "color": "#ef4444"
+      },
+      "refs": [
+        {
+          "kind": "label",
+          "id": "l-1",
+          "title": "bug"
+        }
+      ]
+    },
+    {
+      "name": "workflows_get: the workflow and its nodes' issues",
+      "tool": "exponential_workflows_get",
+      "result": {
+        "workflow": {
+          "id": "wf-1",
+          "name": "EXP-468 +16",
+          "status": "running"
+        },
+        "nodes": [
+          {
+            "id": "n-1",
+            "issueId": "i-1",
+            "identifier": "EXP-1",
+            "title": "One",
+            "state": "done"
+          },
+          {
+            "id": "n-2",
+            "issueId": "i-2",
+            "identifier": "EXP-2",
+            "title": "Two",
+            "state": "running"
+          }
+        ],
+        "edges": [
+          {
+            "from": "n-1",
+            "to": "n-2"
+          }
+        ]
+      },
+      "refs": [
+        {
+          "kind": "workflow",
+          "id": "wf-1",
+          "title": "EXP-468 +16"
+        },
+        {
+          "kind": "list",
+          "id": "issue",
+          "title": "issues",
+          "count": 2
+        },
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-1"
+        },
+        {
+          "kind": "issue",
+          "id": "i-2",
+          "identifier": "EXP-2"
+        }
+      ]
+    },
+    {
+      "name": "workflows_create: the workflow plus the issues the input named",
+      "tool": "exponential_workflows_create",
+      "input": {
+        "name": "Plan",
+        "issueIds": [
+          "EXP-1",
+          "EXP-2"
+        ]
+      },
+      "result": {
+        "id": "wf-1",
+        "name": "Plan",
+        "status": "created",
+        "metrics": {
+          "nodes": 2
+        }
+      },
+      "refs": [
+        {
+          "kind": "workflow",
+          "id": "wf-1",
+          "title": "Plan"
+        },
+        {
+          "kind": "issue",
+          "id": "EXP-1",
+          "identifier": "EXP-1"
+        },
+        {
+          "kind": "issue",
+          "id": "EXP-2",
+          "identifier": "EXP-2"
+        }
+      ]
+    },
+    {
+      "name": "workflows_start: the workflow by its own id",
+      "tool": "exponential_workflows_start",
+      "result": {
+        "ok": true,
+        "id": "wf-1"
+      },
+      "refs": [
+        {
+          "kind": "workflow",
+          "id": "wf-1"
+        }
+      ]
+    },
+    {
+      "name": "helpdesk_threads_get: the thread and its linked issue",
+      "tool": "exponential_helpdesk_threads_get",
+      "result": {
+        "thread": {
+          "id": "th-1",
+          "title": "Login broken",
+          "status": "open"
+        },
+        "messages": [],
+        "linkedIssue": {
+          "id": "i-9",
+          "identifier": "EXP-9",
+          "title": "Login broken",
+          "status": "backlog"
+        }
+      },
+      "refs": [
+        {
+          "kind": "thread",
+          "id": "th-1",
+          "title": "Login broken"
+        },
+        {
+          "kind": "issue",
+          "id": "i-9",
+          "identifier": "EXP-9",
+          "title": "Login broken"
+        }
+      ]
+    },
+    {
+      "name": "helpdesk_threads_get: no linked issue",
+      "tool": "exponential_helpdesk_threads_get",
+      "result": {
+        "thread": {
+          "id": "th-1",
+          "title": "Login broken",
+          "status": "open"
+        },
+        "messages": [],
+        "linkedIssue": null
+      },
+      "refs": [
+        {
+          "kind": "thread",
+          "id": "th-1",
+          "title": "Login broken"
+        }
+      ]
+    },
+    {
+      "name": "report_bug: the filed issue by issueId + identifier",
+      "tool": "exponential_report_bug",
+      "result": {
+        "issueId": "i-77",
+        "identifier": "FEED-77"
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-77",
+          "identifier": "FEED-77"
+        }
+      ]
+    },
+    {
+      "name": "notifications_list: notifications by title",
+      "tool": "exponential_notifications_list",
+      "result": [
+        {
+          "id": "n-1",
+          "issueId": "i-1",
+          "type": "issue_mention",
+          "title": "Ada mentioned you",
+          "body": "…"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "notification",
+          "title": "notifications",
+          "count": 1
+        },
+        {
+          "kind": "notification",
+          "id": "n-1",
+          "title": "Ada mentioned you"
+        }
+      ]
+    },
+    {
+      "name": "teams_get: the team",
+      "tool": "exponential_teams_get",
+      "result": {
+        "id": "t-1",
+        "name": "Acme",
+        "slug": "acme"
+      },
+      "refs": [
+        {
+          "kind": "team",
+          "id": "t-1",
+          "title": "Acme"
+        }
+      ]
+    },
+    {
+      "name": "attachments_upload: the minted upload names the attachment by attachmentId",
+      "tool": "exponential_attachments_upload",
+      "result": {
+        "attachmentId": "a-9",
+        "uploadUrl": "https://x/u",
+        "expiresAt": "2026-01-01T00:00:00Z",
+        "curl": "curl …"
+      },
+      "refs": [
+        {
+          "kind": "attachment",
+          "id": "a-9"
+        }
+      ]
+    },
+    {
+      "name": "attachments_upload: the inline upload is the attachment row",
+      "tool": "exponential_attachments_upload",
+      "result": {
+        "id": "a-9",
+        "url": "/api/attachments/a-9",
+        "filename": "shot.png",
+        "contentType": "image/png",
+        "sizeBytes": 100
+      },
+      "refs": [
+        {
+          "kind": "attachment",
+          "id": "a-9",
+          "title": "shot.png"
+        }
+      ]
+    },
+    {
+      "name": "actions_delete: nothing to preview",
+      "tool": "exponential_actions_delete",
+      "result": {
+        "ok": true,
+        "id": "a-1"
+      },
+      "refs": []
+    },
+    {
+      "name": "an error envelope previews nothing",
+      "tool": "exponential_issues_create",
+      "result": {
+        "isError": true,
+        "content": [
+          {
+            "type": "text",
+            "text": "boom"
+          }
+        ]
+      },
+      "refs": []
+    },
+    {
+      "name": "a non-JSON answer previews nothing",
+      "tool": "exponential_issues_create",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "not json"
+          }
+        ]
+      },
+      "refs": []
+    },
+    {
+      "name": "a tool of another server named like ours previews nothing",
+      "tool": "mcp__other__issues_create",
+      "result": {
+        "id": "i-1",
+        "identifier": "EXP-1",
+        "title": "x"
+      },
+      "refs": []
+    },
+    {
+      "name": "an unknown tool previews nothing",
+      "tool": "Bash",
+      "result": {
+        "id": "i-1"
+      },
+      "refs": []
+    },
+    {
+      "name": "strings are cut to textMax",
+      "tool": "exponential_issues_create",
+      "result": {
+        "id": "i-1",
+        "identifier": "EXP-1",
+        "title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-1",
+          "identifier": "EXP-1",
+          "title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+        }
+      ]
+    },
+    {
+      "name": "whitespace-only strings are no fields",
+      "tool": "exponential_issues_create",
+      "result": {
+        "id": "  ",
+        "identifier": "EXP-1",
+        "title": "x"
+      },
+      "refs": []
+    },
+    {
+      "name": "the bare JSON text form of the answer reads the same",
+      "tool": "exponential_boards_get",
+      "result": "{\"id\":\"b-1\",\"name\":\"Mobile\"}",
+      "refs": [
+        {
+          "kind": "board",
+          "id": "b-1",
+          "title": "Mobile"
+        }
+      ]
+    },
+    {
+      "name": "issue_relations_add: the same issue twice is one ref",
+      "tool": "exponential_issue_relations_add",
+      "input": {
+        "issueId": "EXP-1",
+        "relatedIssueId": "EXP-1",
+        "type": "related"
+      },
+      "result": {
+        "ok": true
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "EXP-1",
+          "identifier": "EXP-1"
+        }
+      ]
+    }
+  ]
+}

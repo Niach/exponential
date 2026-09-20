@@ -110,8 +110,6 @@ public struct IssueChip: View {
         )
     }
 
-    private var pointSize: CGFloat { MarkdownStyle.resolvedBodyFont(bodySize).pointSize }
-
     /// The same 60-character cut the markdown chip takes, so one issue reads
     /// identically wherever it is chipped.
     private var chipTitle: String? {
@@ -150,42 +148,20 @@ public struct IssueChip: View {
         }
     }
 
+    /// EXP-920: the SHARED box (`ChipBox`, EntityChip.swift) — an entity chip
+    /// on the same row is the same rect, the same paint, the same parts.
     private var surface: some View {
-        HStack(spacing: IssueChipTokens.spacing) {
+        ChipBox(
+            identifier: identifier,
+            title: chipTitle,
+            bodySize: bodySize,
+            showsRemoveGlyph: onRemove != nil
+        ) {
             if let iconName {
                 AppIcon(iconName, size: MarkdownStyle.chipStatusIconSize)
                     .foregroundStyle(statusColor ?? Color(MarkdownStyle.chipTokenColor))
             }
-            if let identifier, !identifier.isEmpty {
-                Text(identifier)
-                    .font(.system(size: pointSize, design: .monospaced))
-                    .foregroundStyle(Color(MarkdownStyle.chipTokenColor))
-                    .lineLimit(1)
-            }
-            if let chipTitle {
-                Text(chipTitle)
-                    .font(.system(size: pointSize, weight: .medium))
-                    .foregroundStyle(Color(MarkdownStyle.textColor))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: IssueChipTokens.titleMaxWidth, alignment: .leading)
-            }
-            if onRemove != nil {
-                AppIcon(AppIcons.uiClose, size: IssueChipTokens.removeGlyphSize)
-                    .foregroundStyle(Color(MarkdownStyle.chipTokenColor))
-            }
         }
-        .padding(.horizontal, IssueChipTokens.horizontalPadding)
-        .padding(.vertical, IssueChipTokens.verticalPadding)
-        .background(
-            RoundedRectangle(cornerRadius: MarkdownStyle.chipCornerRadius, style: .continuous)
-                .fill(Color(MarkdownStyle.chipBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: MarkdownStyle.chipCornerRadius, style: .continuous)
-                .strokeBorder(
-                    Color(MarkdownStyle.chipBorder), lineWidth: IssueChipTokens.borderWidth)
-        )
     }
 
     /// The chip's ONE control when it is removable: a clear target over the ✕,
