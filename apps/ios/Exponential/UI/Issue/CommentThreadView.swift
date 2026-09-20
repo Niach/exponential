@@ -17,6 +17,12 @@ import UniformTypeIdentifiers
 // body behind one hairline, each with a 20pt avatar, and the "Leave a reply…"
 // row closes every top-level card. Tapping it hands the bottom-bar composer a
 // reply target (`CommentReplyTarget`), which posts with `parentId`.
+//
+// EXP-900/EXP-468: the event rows are folded at READ time by the shared
+// `ExpCore.foldActivity` (this issue's comments ride along as barriers), so a
+// dev's A → B → A round trip vanishes instead of filling the timeline; the
+// header's "Show all" pill returns the unfolded rows ("Show less" to re-fold).
+// Nothing is ever deleted server-side — the fold is a view of the synced rows.
 
 /// The comment the docked composer is replying to (EXP-741): set by the
 /// thread's reply row, cleared by the bar on send, collapse or its ✕.
@@ -75,6 +81,10 @@ struct CommentThreadView: View {
     // Opened event runs, keyed by the run's first event id (survives sync
     // re-emits — see collapseTimeline).
     @State private var expandedRuns: Set<String> = []
+    /// EXP-468: the header toggle — on, the timeline skips the fold and shows
+    /// every synced event row. Per issue (the header's "Show less" and a swipe
+    /// to another issue both put it back).
+    @State private var showAllActivity = false
     // Each observation loop is stored and cancelled individually — a single
     // wrapper task would NOT propagate cancellation into unstructured inner
     // `Task {}` loops, and the view re-arms on every appear, so leaked loops
@@ -99,6 +109,37 @@ struct CommentThreadView: View {
         return IssueStatusResolver.teamStatuses(statusRows.filter { $0.teamId == teamId })
     }
 
+    /// EXP-900: the events this timeline draws. The fold runs over the FULL
+    /// list — suppressed `created` rows included, they belong to the run
+    /// boundaries — with this issue's comments (replies too) as barriers, so a
+    /// reviewer's note still splits a dev's round trip. "Show all" bypasses it.
+    private var foldedEvents: [IssueEventEntity] {
+        if showAllActivity { return events }
+        return foldActivity(
+            events,
+            barriers: humanComments.map {
+                ActivityBarrier(
+                    issueId: issue.id,
+                    actorUserId: $0.authorId,
+                    createdAt: $0.createdAt
+                )
+            }
+        )
+    }
+
+    // EXP-530: server `created` events are suppressed (nil phrase) — drop them
+    // HERE too, so collapsed-run counts never include hidden rows. Applied
+    // AFTER the fold (EXP-900): a hidden row still bounds a run.
+    private func visibleEvents(_ rows: [IssueEventEntity]) -> [IssueEventEntity] {
+        rows.filter { eventPhrase($0, users: users, labels: labels, boards: boards) != nil }
+    }
+
+    /// Whether folding actually removed rows the timeline would have drawn —
+    /// the only reason to offer "Show all".
+    private var foldRemovedRows: Bool {
+        !showAllActivity && visibleEvents(foldedEvents).count < visibleEvents(events).count
+    }
+
     private var timeline: [TimelineItem] {
         let created = TimelineItem.created(
             actorId: issue.creatorId,
@@ -107,13 +148,9 @@ struct CommentThreadView: View {
         )
         // (createdAt, id) — the deterministic tie-break Android uses, so
         // same-timestamp items order identically on both platforms.
-        // EXP-530: server `created` events are suppressed (nil phrase) — drop
-        // them HERE too, so collapsed-run counts never include hidden rows.
-        let visibleEvents = events.filter {
-            eventPhrase($0, users: users, labels: labels, boards: boards) != nil
-        }
+        let shown = visibleEvents(foldedEvents)
         let rest = (threads.topLevel.map { TimelineItem.comment($0) }
-            + visibleEvents.map { TimelineItem.event($0) })
+            + shown.map { TimelineItem.event($0) })
             .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
         return [created] + rest
     }
@@ -134,6 +171,18 @@ struct CommentThreadView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .accessibilityIdentifier("comment-thread-header")
                 Spacer()
+                // EXP-468: only when the fold actually hid something (or while
+                // it is off) — a timeline with nothing to unfold shows no pill.
+                if showAllActivity || foldRemovedRows {
+                    GlassPill(showAllActivity ? "Show less" : "Show all", mode: .action {
+                        // `motion.standard` is nil under Reduce Motion and
+                        // `withAnimation(nil)` applies the change instantly.
+                        withAnimation(motion.standard) {
+                            showAllActivity.toggle()
+                        }
+                    })
+                    .accessibilityIdentifier("activity-show-all")
+                }
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -149,6 +198,9 @@ struct CommentThreadView: View {
         .padding(.vertical, 8)
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
+        // The Work screen can swap the issue under a live view (EXP-893), and
+        // "show everything" is a decision about ONE issue's timeline.
+        .onChange(of: issue.id) { _, _ in showAllActivity = false }
     }
 
     // MARK: - Rows
