@@ -35,6 +35,9 @@ pub mod adapters;
 // EXP-936: the run's own compaction ask — the verdict policy and the two
 // steps the command loop takes for an accepted one. Pure; `host` drives it.
 pub mod compaction;
+// EXP-920: the entity refs an Exponential MCP answer names, distilled on the
+// device for every client's chips (fixture-locked with web `lib/mcp/preview.ts`).
+pub mod exp_tool_refs;
 pub mod host;
 pub mod lifecycle;
 pub mod local;
