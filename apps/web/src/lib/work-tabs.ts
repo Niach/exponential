@@ -285,6 +285,13 @@ export interface LiveRun {
  *
  *   * a tab bound to a live run is `live`; an issue tab with no live binding
  *     binds to its issue's live run (a resume swaps the run under the tab);
+ *   * EXP-902: a run that lands under an issue tab THIS way — one you did
+ *     not open (an agent spawned it, an automation started it, a resume
+ *     from another device) — flips the tab's face to `run`, so the next
+ *     click on the chip opens the run and not the issue behind it. A run
+ *     you start yourself arrives through its route (`upsertFromRoute`)
+ *     already on the Run face. The tab being READ on its issue face is
+ *     left alone, exactly like a viewed run is never rebound.
  *   * a tab whose run is no longer live keeps its place with `live: false`.
  */
 export function reconcileLive(
@@ -293,7 +300,10 @@ export function reconcileLive(
   // The run the URL is showing right now: a tab bound to it is being READ
   // (a past run of an issue that also has a live one), so it is never
   // rebound out from under the reader.
-  viewedRunId: string | null = null
+  viewedRunId: string | null = null,
+  // The issue the URL is showing right now (its Issue face): a run binding
+  // under it does not flip the face of the page you are reading.
+  viewedIssueId: string | null = null
 ): WorkTabsState {
   const liveById = new Map(runs.map((run) => [run.runId, run]))
   const liveByIssue = new Map<string, LiveRun>()
@@ -321,9 +331,14 @@ export function reconcileLive(
     }
     const live = runId !== null && liveById.has(runId)
     if (live && runId) bound.add(runId)
-    if (runId === tab.runId && live === tab.live) return tab
+    // EXP-902: a NEW live run under a background tab is where the tab goes.
+    const face: WorkTabFace =
+      live && runId !== tab.runId && tab.issueId !== viewedIssueId
+        ? `run`
+        : tab.face
+    if (runId === tab.runId && live === tab.live && face === tab.face) return tab
     changed = true
-    return { ...tab, runId, live }
+    return { ...tab, runId, live, face }
   })
 
   return changed ? { tabs } : state
