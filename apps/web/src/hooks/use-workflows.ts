@@ -103,9 +103,12 @@ export function useWorkflowNodeRuns(
       const session = node.sessionId ? sessionById.get(node.sessionId) : undefined
       if (!session) continue
       const prState = issueById.get(node.issueId)?.prState
+      // `live` is the row's status alone — a run the engine lost is reported
+      // by the NODE's own state, never by a stale dot. The same rule ×4.
+      const live = session.status === `running` || session.status === `in_review`
       runs.set(node.id, {
         sessionId: session.id,
-        live: session.status !== `ended`,
+        live,
         state: sessionDisplayState(session, prState),
         working: sessionRowIsWorking(session, prState),
       })

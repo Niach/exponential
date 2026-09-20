@@ -412,6 +412,7 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowView.mergeTrainTitle, "Merge train")
         XCTAssertEqual(WorkflowView.mergeTrainEmpty, "Nothing is waiting to land.")
         XCTAssertEqual(WorkflowView.finalPrTitle, "Final pull request")
+        XCTAssertEqual(WorkflowView.runningNowLabel, "Running now")
         XCTAssertEqual(WorkflowView.retryNodeLabel, "Retry")
         XCTAssertEqual(WorkflowView.skipNodeLabel, "Skip")
         XCTAssertEqual(

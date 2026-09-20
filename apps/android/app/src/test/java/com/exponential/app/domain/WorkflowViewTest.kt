@@ -340,6 +340,7 @@ class WorkflowViewTest {
         assertEquals("Merge train", WorkflowView.MERGE_TRAIN_TITLE)
         assertEquals("Nothing is waiting to land.", WorkflowView.MERGE_TRAIN_EMPTY)
         assertEquals("Final pull request", WorkflowView.FINAL_PR_TITLE)
+        assertEquals("Running now", WorkflowView.RUNNING_NOW_LABEL)
         assertEquals("Retry", WorkflowView.RETRY_NODE_LABEL)
         assertEquals("Skip", WorkflowView.SKIP_NODE_LABEL)
         assertEquals(

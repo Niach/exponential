@@ -27,7 +27,12 @@ struct WorkflowGraphView: View {
     /// not drawn (a wave of its own after the last one).
     let finalPrCaption: String?
     let finalPrUrl: String?
+    /// EXP-982 — `node id → its run`. A node that is UP wears its session's own
+    /// dot instead of the state glyph, and the strip above the waves opens it.
+    var runs: [String: WorkflowNodeRun] = [:]
     let onSelect: (WorkflowNodeEntity) -> Void
+    /// Steer the node's run — the Running strip's tap.
+    var onOpenRun: (String) -> Void = { _ in }
 
     private var nodesById: [String: WorkflowNodeEntity] {
         Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -55,6 +60,7 @@ struct WorkflowGraphView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
             } else {
+                runningStrip
                 ForEach(waves, id: \.wave) { entry in
                     GlassSectionBand("Wave \(entry.wave + 1)")
                     ForEach(entry.nodes) { node in
@@ -70,6 +76,44 @@ struct WorkflowGraphView: View {
             }
         }
         .accessibilityIdentifier("workflow-graph")
+    }
+
+    /// The runs that are up right now, one tap away: a node's row says THAT it
+    /// runs, this strip is the way in. A wide run set scrolls sideways rather
+    /// than wrapping the header off a phone.
+    @ViewBuilder
+    private var runningStrip: some View {
+        let live = nodes.compactMap { node -> (WorkflowNodeEntity, WorkflowNodeRun)? in
+            guard let run = runs[node.id], run.live else { return nil }
+            return (node, run)
+        }
+        if !live.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(WorkflowView.runningNowLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(live, id: \.0.id) { node, run in
+                            GlassPill(
+                                WorkflowView.nodeTitle(
+                                    identifier: issues[node.issueId]?.identifier ?? node.issueId,
+                                    memberCount: node.memberIssueIds.count
+                                ),
+                                mode: .action { onOpenRun(run.sessionId) }
+                            ) {
+                                SessionStateDot(tone: run.tone, pulsing: run.busy, size: 8)
+                            }
+                            .accessibilityIdentifier("workflow-running-\(node.id)")
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .accessibilityIdentifier("workflow-running-strip")
+        }
     }
 
     /// The final-PR node. It links out to the pull request once there is one;
@@ -113,6 +157,12 @@ struct WorkflowGraphView: View {
             workflowStatus: workflowStatus
         )
         let tone = WorkflowView.nodeTone(node.state)
+        // EXP-982: a node whose run is UP reads off the session itself — the
+        // ×4 dot table, pulsing only while the agent is mid-turn — rather than
+        // off the node state alone, so "running" on a phone says as much as the
+        // circle does on the grid clients.
+        let run = runs[node.id].flatMap { $0.live ? $0 : nil }
+        let captionColor = run.map { SessionStateDot.color($0.tone) } ?? Self.color(tone)
         Button { onSelect(node) } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
@@ -122,13 +172,16 @@ struct WorkflowGraphView: View {
                 // EXP-982: the caption painted by its tone PLUS a glyph, so a
                 // state reads by shape as well as by colour.
                 HStack(spacing: 5) {
-                    if let icon = Self.stateIcon(node.state) {
+                    if let run {
+                        SessionStateDot(tone: run.tone, pulsing: run.busy, size: 8)
+                            .accessibilityIdentifier("workflow-node-run-dot")
+                    } else if let icon = Self.stateIcon(node.state) {
                         AppIcon(icon, size: AppIcon.Size.small)
                             .foregroundStyle(Self.color(tone))
                     }
                     Text(caption)
                         .font(.caption2)
-                        .foregroundStyle(Self.color(tone))
+                        .foregroundStyle(captionColor)
                 }
                 if !incoming.isEmpty {
                     HStack(spacing: 6) {
