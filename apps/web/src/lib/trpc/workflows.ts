@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm"
 import {
   WORKFLOW_DECISIONS_MAX,
   WORKFLOW_MAX_REVIEW_ROUNDS,
@@ -1028,6 +1028,9 @@ export const workflowsRouter = router({
       ) {
         return { updated: false }
       }
+      // EXP-1007: the read above and this write are not one transaction —
+      // `landNode` can land the node in between. The WHERE repeats the
+      // guard so a late report never takes a landing back.
       await ctx.db
         .update(workflowNodes)
         .set({
@@ -1038,7 +1041,12 @@ export const workflowsRouter = router({
           ...(input.note !== undefined && { note: input.note }),
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
-        .where(eq(workflowNodes.id, input.nodeId))
+        .where(
+          and(
+            eq(workflowNodes.id, input.nodeId),
+            notInArray(workflowNodes.state, [`landed`, `skipped`])
+          )
+        )
       return { updated: true }
     }),
 
@@ -1056,37 +1064,44 @@ export const workflowsRouter = router({
       if (workflow.status !== `running`) {
         return { merged: false, reason: `The workflow is not running`, retargeted: [] as string[] }
       }
-      if (nodeNeedsApproval(workflow.gate, node.kind) && !node.approvedAt) {
-        return { merged: false, reason: `Waiting for a person to approve`, retargeted: [] as string[] }
-      }
-      // EXP-983: with speculative starts a dependent's PR can be up before
-      // its blocker landed. The train lands in TOPOLOGICAL order, always.
-      const graph = await loadWorkflowEdges(ctx.db, workflow.id)
-      const stateOf = new Map(graph.nodes.map((row) => [row.id, row.state]))
-      const waitsOn = graph.edges
-        .filter(([, to]) => to === node.id)
-        .some(([from]) => {
-          const state = stateOf.get(from)
-          return state !== `landed` && state !== `skipped`
-        })
-      if (waitsOn) {
-        return {
-          merged: false,
-          reason: `Waiting for its blockers to land`,
-          retargeted: [] as string[],
-        }
-      }
-      // Merged already (a person pressed Merge on GitHub, or the webhook
-      // beat this call): the train's step is done.
+      // Merged already (a person pressed Merge on GitHub or in Reviews, or
+      // the webhook beat this call): the train's step is done. EXP-1007:
+      // this is read BEFORE the gate and the landing order — both guard a
+      // merge that has not happened yet, and a node whose code is in the
+      // integration branch but can never be approved (the web offers Approve
+      // only while it is `in_review`) would otherwise sit there for ever.
       const [issue] = await ctx.db
         .select({ prState: issues.prState })
         .from(issues)
         .where(eq(issues.id, node.issueId))
         .limit(1)
+      const merged = issue?.prState === `merged`
+      if (!merged && nodeNeedsApproval(workflow.gate, node.kind) && !node.approvedAt) {
+        return { merged: false, reason: `Waiting for a person to approve`, retargeted: [] as string[] }
+      }
+      // EXP-983: with speculative starts a dependent's PR can be up before
+      // its blocker landed. The train lands in TOPOLOGICAL order, always.
+      if (!merged) {
+        const graph = await loadWorkflowEdges(ctx.db, workflow.id)
+        const stateOf = new Map(graph.nodes.map((row) => [row.id, row.state]))
+        const waitsOn = graph.edges
+          .filter(([, to]) => to === node.id)
+          .some(([from]) => {
+            const state = stateOf.get(from)
+            return state !== `landed` && state !== `skipped`
+          })
+        if (waitsOn) {
+          return {
+            merged: false,
+            reason: `Waiting for its blockers to land`,
+            retargeted: [] as string[],
+          }
+        }
+      }
       const { issuesRouter } = await import(`@/lib/trpc/issues`)
       const { ensureNodePrOnIntegrationBranch } = await import(`@/lib/workflow-final-pr`)
       try {
-        if (issue?.prState === `merged`) {
+        if (merged) {
           // fall through to the landed write below
         } else {
           // The PR must be based on the integration branch, or the squash
