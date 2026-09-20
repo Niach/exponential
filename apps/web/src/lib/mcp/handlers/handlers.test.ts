@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { NotImplementedError } from "./not-implemented"
 import {
-  countIssueAttachments,
-  listIssueAttachments,
-} from "./attachments-list"
-import {
   finalizeSignedAttachmentUpload,
   mintSignedAttachmentUpload,
 } from "./attachments-upload"
@@ -17,15 +13,7 @@ import {
 // assertion here with its own tests when it fills the file; until then the
 // stub has to say so loudly rather than return a plausible empty result.
 describe(`MCP handler stubs (EXP-988)`, () => {
-  it(`attachments_list throws not-implemented (EXP-979)`, async () => {
-    await expect(
-      listIssueAttachments({ issueId: `i`, limit: 50, offset: 0 })
-    ).rejects.toBeInstanceOf(NotImplementedError)
-  })
-
-  it(`issues_get's attachmentCount reads 0 until EXP-979 fills it`, async () => {
-    await expect(countIssueAttachments(`i`)).resolves.toBe(0)
-  })
+  // EXP-979 filled attachments-list.ts: see attachments-list.test.ts.
 
   it(`the signed upload halves throw not-implemented (EXP-929)`, async () => {
     await expect(
