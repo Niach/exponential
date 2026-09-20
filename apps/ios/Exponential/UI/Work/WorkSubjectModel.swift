@@ -17,7 +17,8 @@ enum WorkSubject: Hashable {
 /// run's machine and decide whether an ended run can be resumed.
 ///
 /// Pure derivations (`WorkFaces.codingTarget`, `PastRuns.issueRuns`,
-/// `RunResume.target`) run over these rows; the screen holds the face.
+/// `RunChain.chain`, `RunResume.target`) run over these rows; the screen
+/// holds the face.
 @MainActor @Observable
 final class WorkSubjectModel {
 
@@ -48,6 +49,14 @@ final class WorkSubjectModel {
     /// newest end first, uncapped), each with its host machine as it presents
     /// now — the switcher's rows. Empty for an issue-less subject.
     private(set) var issueRuns: [IssueRun] = []
+    /// EXP-974: the SHOWN run's resume chain (`RunChain.chain`: every row the
+    /// succession of `resumed_from_id` links, oldest first) reversed to NEWEST
+    /// FIRST, each with its host machine as it presents now — the run menu's
+    /// rows for an issue-LESS subject (a chat, action or batch run has no
+    /// issue to list runs under; an issue's own runs already include its
+    /// resumes, so an issue-bound subject keeps `issueRuns`). Observed per
+    /// shown row id, like `shownRow`.
+    private(set) var chainRuns: [IssueRun] = []
     /// EXP-876: the issues the shown BATCH run covers — what NAMES an
     /// issue-less run in this screen's header, where "Batch run" told two
     /// batches apart no better than it did in the list. Empty for every other
@@ -63,6 +72,10 @@ final class WorkSubjectModel {
     private let db: DatabaseManager
 
     private var runRows: [CodingSessionEntity] = []
+    /// EXP-974: the shown run's whole resume component (every row reachable
+    /// through `resumed_from_id` in either direction, forks included);
+    /// `RunChain.chain` picks the one succession out of it.
+    private var chainRows: [CodingSessionEntity] = []
     private var deviceRows: [DeviceEntity] = []
     private var boundObservationTask: Task<Void, Never>?
     /// EXP-876: the covered-issue observation and the key it is armed for
@@ -70,6 +83,7 @@ final class WorkSubjectModel {
     private var batchObservationTask: Task<Void, Never>?
     private var batchKey: String?
     private var shownObservationTask: Task<Void, Never>?
+    private var chainObservationTask: Task<Void, Never>?
     private var runObservationTask: Task<Void, Never>?
     private var deviceObservationTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
@@ -85,9 +99,11 @@ final class WorkSubjectModel {
     // MARK: - Reads
 
     /// The synced row for a run this screen may show — one of the issue's own
-    /// runs, or the bound session itself.
+    /// runs, one of the shown run's resume chain (EXP-974: an issue-less pick
+    /// from the run menu lands here), or the bound session itself.
     func session(id: String) -> CodingSessionEntity? {
         if let row = runRows.first(where: { $0.id == id }) { return row }
+        if let row = chainRows.first(where: { $0.id == id }) { return row }
         if boundSession?.id == id { return boundSession }
         if shownRow?.id == id { return shownRow }
         return nil
@@ -100,7 +116,15 @@ final class WorkSubjectModel {
         shownObservationTask?.cancel()
         shownObservationTask = nil
         shownRow = nil
+        chainObservationTask?.cancel()
+        chainObservationTask = nil
+        // EXP-974: a pick WITHIN the chain lands in the same component, so
+        // the rows already held answer for the new id at once (an id outside
+        // them yields [] until the new read lands) — no empty flash in the
+        // menu between the two observations.
+        rebuildChainRuns()
         startObservingShown()
+        startObservingChain()
     }
 
     /// The run the screen shows by default (`WorkFaces.codingTarget`): the
@@ -133,6 +157,7 @@ final class WorkSubjectModel {
     func start() {
         startObservingBound()
         startObservingShown()
+        startObservingChain()
         startObservingRuns()
         startObservingDevices()
         startClock()
@@ -146,6 +171,8 @@ final class WorkSubjectModel {
         batchKey = nil
         shownObservationTask?.cancel()
         shownObservationTask = nil
+        chainObservationTask?.cancel()
+        chainObservationTask = nil
         runObservationTask?.cancel()
         runObservationTask = nil
         deviceObservationTask?.cancel()
@@ -206,6 +233,46 @@ final class WorkSubjectModel {
                         // EXP-876: follow the shown run — a switch between
                         // two batches re-points the covered-issue pool.
                         self.observeBatch(for: row)
+                    }
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+    }
+
+    /// EXP-974: the shown run's resume component, read by a recursive walk
+    /// over `resumed_from_id` in BOTH directions from the shown row (so a fork
+    /// is in the pool and `RunChain.chain` can pick the newest branch, and a
+    /// row opened from an older sibling still finds its shared past). `UNION`
+    /// dedups, so a cyclic link terminates. One-shot GRDB stream: re-subscribe
+    /// on error like every other observation here.
+    private func startObservingChain() {
+        guard chainObservationTask == nil, let shownRowId else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let sql = """
+            WITH RECURSIVE chain(id) AS (
+                SELECT "id" FROM "coding_sessions" WHERE "id" = ?
+                UNION
+                SELECT s."id" FROM "coding_sessions" s, chain c
+                WHERE s."resumed_from_id" = c."id"
+                   OR s."id" = (SELECT "resumed_from_id" FROM "coding_sessions" WHERE "id" = c."id")
+            )
+            SELECT * FROM "coding_sessions" WHERE "id" IN (SELECT "id" FROM chain)
+            """
+        let observation = ValueObservation.tracking { db in
+            try CodingSessionEntity.fetchAll(db, sql: sql, arguments: [shownRowId])
+        }
+        chainObservationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    for try await rows in observation.values(in: pool) {
+                        guard let self else { return }
+                        self.chainRows = rows
+                        self.rebuildChainRuns()
                     }
                     return
                 } catch is CancellationError {
@@ -299,6 +366,7 @@ final class WorkSubjectModel {
                         self.deviceRows = rows
                         // A machine rename repaints the switcher's bylines.
                         self.rebuildIssueRuns()
+                        self.rebuildChainRuns()
                     }
                     return
                 } catch is CancellationError {
@@ -318,6 +386,7 @@ final class WorkSubjectModel {
                 guard let self, !Task.isCancelled else { return }
                 self.now = Date()
                 self.rebuildIssueRuns()
+                self.rebuildChainRuns()
             }
         }
     }
@@ -327,6 +396,22 @@ final class WorkSubjectModel {
     private func rebuildIssueRuns() {
         let now = Date()
         issueRuns = PastRuns.issueRuns(runRows, issueId: issueId, userId: currentUserId).map { row in
+            IssueRun(
+                session: row,
+                device: SessionDevicePresentation.resolve(session: row, devices: deviceRows, now: now)
+            )
+        }
+    }
+
+    /// EXP-974: the run menu's rows for an issue-less subject — the shown
+    /// run's chain, NEWEST first (the same reading order as `issueRuns`).
+    private func rebuildChainRuns() {
+        guard let shownRowId else {
+            chainRuns = []
+            return
+        }
+        let now = Date()
+        chainRuns = RunChain.chain(chainRows, sessionId: shownRowId).reversed().map { row in
             IssueRun(
                 session: row,
                 device: SessionDevicePresentation.resolve(session: row, devices: deviceRows, now: now)
