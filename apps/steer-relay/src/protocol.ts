@@ -173,6 +173,25 @@ export const TOOL_OUTPUT_MAX_WIRE_BYTES = contract.steerFeed.toolOutputMaxBytes 
  *  result shape the engine knows) and every field optional: a tool that named
  *  none sends no preview at all. The result KIND is not on the wire — it is the
  *  contract's `expToolResults` entry for the tool's own name. */
+/** EXP-920: one entity an Exponential tool's answer NAMED — what a viewer
+ *  renders as a chip (issue, board, action, …) with a hover card resolved
+ *  from its own synced rows. `kind` = contract `entityRefKind`; `id` = the
+ *  row id (a `list` ref's id is its MEMBER kind); `count` only on a `list`.
+ *  The engine distils these per contract `expToolPreview.tools` (the rule is
+ *  fixture-locked ×2: web `lib/mcp/preview.ts`, engine `mapper.rs`). */
+export const ENTITY_REF_KINDS = contract.entityRefKind.values as [
+  string,
+  ...string[],
+]
+
+export const entityRefSchema = z.object({
+  kind: z.enum(ENTITY_REF_KINDS),
+  id: z.string().min(1).max(contract.expToolPreview.textMax),
+  identifier: z.string().max(contract.expToolPreview.textMax).optional(),
+  title: z.string().max(contract.expToolPreview.textMax).optional(),
+  count: z.number().int().nonnegative().max(4294967295).optional(),
+})
+
 export const toolPreviewSchema = z.object({
   id: z.string().max(200).optional(),
   identifier: z.string().max(200).optional(),
@@ -180,6 +199,8 @@ export const toolPreviewSchema = z.object({
   url: z.string().max(200).optional(),
   count: z.number().int().nonnegative().max(4294967295).optional(),
   status: z.string().max(200).optional(),
+  // EXP-920: the entities the answer named, chip by chip (≤ maxRefs).
+  refs: z.array(entityRefSchema).max(contract.expToolPreview.maxRefs).optional(),
 })
 
 /** EXP-850: every workflow / background-task string is cut to the contract's
