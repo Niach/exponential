@@ -154,6 +154,7 @@ describe(`workflows.create`, () => {
         model: `opus`,
         contractModel: `fable`,
         integrationModel: `fable`,
+        riskModel: `fable`,
         subagentModel: `opus`,
       },
     })

@@ -1027,14 +1027,18 @@ export interface WorkflowLaunch {
  * a run reads, so a person opening the panel sees the launch rather than four
  * rows reading "Default": the phases that scaffold and merge are cheap
  * (`fable`), the LEAVES that implement and the subagents they spawn are not
- * (`opus`). Pinned to claude because these are claude's model names — picking
- * another agent clears all four (the panel's own rule).
+ * (`opus`). A `risk: high` node goes back to `fable` whatever phase it sits
+ * in — the hard ones are written cheaply and then REVIEWED on the model the
+ * adversarial gate swaps to (`opus`), rather than written expensively once.
+ * Pinned to claude because these are claude's model names — picking another
+ * agent clears all five (the panel's own rule).
  */
 export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunch = {
   agent: `claude`,
   model: `opus`,
   contractModel: `fable`,
   integrationModel: `fable`,
+  riskModel: `fable`,
   subagentModel: `opus`,
 }
 
