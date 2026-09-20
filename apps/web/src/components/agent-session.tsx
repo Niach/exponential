@@ -199,6 +199,7 @@ import {
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
+import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
 
@@ -3860,7 +3861,12 @@ function ExpToolRow({
  *  gets the very chip an `#IDENT` reference renders (preview on hover, tap
  *  opens the issue) when the row is synced here, and the same chip inert with
  *  a muted glyph when it is not (EXP-887); a PR gets its link; a list its row count; the
- *  named things a small chip. `none` renders nothing at all. */
+ *  named things a small chip. `none` renders nothing at all.
+ *
+ *  EXP-920: a publisher that distilled `refs` gets the entity chip ROW instead
+ *  — one chip per ref group, each with its hover card and target
+ *  (`components/entity-preview/`), the same rendering ×4. The legacy branches
+ *  below stay for previews that carry no refs. */
 function ExpToolResult({
   kind,
   preview,
@@ -3870,6 +3876,13 @@ function ExpToolResult({
 }) {
   const issueRefs = useIssueRefs()
   const label = preview.title ?? preview.identifier ?? preview.id ?? null
+  if (preview.refs && preview.refs.length > 0) {
+    return (
+      <div className="ml-5 pt-0.5">
+        <EntityRefChips refs={preview.refs} />
+      </div>
+    )
+  }
   if (kind === `issue`) {
     const resolved = preview.id
       ? (issueRefs?.resolveById(preview.id) ??
