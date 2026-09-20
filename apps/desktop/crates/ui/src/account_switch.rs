@@ -62,13 +62,6 @@ pub(crate) const WALL_SWITCH_LABEL: &str = "Switch account";
 pub(crate) const COST_NOTE: &str =
     "The run continues under the other account. Re-reading the transcript once costs tokens.";
 
-/// The continuation byline a resumed run's screen carries.
-pub(crate) const CONTINUATION_NOTE: &str = "Continues an earlier run";
-
-/// What that continuation cost, said ONCE on the new run.
-pub(crate) const CONTINUATION_COST_NOTE: &str =
-    "The agent re-read the transcript once to pick it up — a one-time cost.";
-
 const REASON_AGENT: &str = "Only claude can switch accounts during a run.";
 const REASON_OFFLINE: &str = "The machine is offline.";
 const REASON_NO_CAP: &str = "Update the app on that machine to switch accounts.";
@@ -958,11 +951,6 @@ mod tests {
         assert_eq!(
             COST_NOTE,
             "The run continues under the other account. Re-reading the transcript once costs tokens."
-        );
-        assert_eq!(CONTINUATION_NOTE, "Continues an earlier run");
-        assert_eq!(
-            CONTINUATION_COST_NOTE,
-            "The agent re-read the transcript once to pick it up — a one-time cost."
         );
     }
 

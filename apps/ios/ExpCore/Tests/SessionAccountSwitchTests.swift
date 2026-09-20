@@ -155,10 +155,5 @@ final class SessionAccountSwitchTests: XCTestCase {
             SessionAccountSwitch.costNote,
             "The run continues under the other account. Re-reading the transcript once costs tokens."
         )
-        XCTAssertEqual(SessionAccountSwitch.continuationNote, "Continues an earlier run")
-        XCTAssertEqual(
-            SessionAccountSwitch.continuationCostNote,
-            "The agent re-read the transcript once to pick it up — a one-time cost."
-        )
     }
 }

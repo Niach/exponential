@@ -71,11 +71,9 @@ export const WALL_SWITCH_LABEL = `Switch account`
  *  transcript — one extra context read, not a per-message surcharge. */
 export const SWITCH_COST_NOTE = `The run continues under the other account. Re-reading the transcript once costs tokens.`
 
-/** The continuation byline a resumed run's screen carries. */
-export const CONTINUATION_NOTE = `Continues an earlier run`
-
-/** What that continuation cost, said ONCE on the new run. */
-export const CONTINUATION_COST_NOTE = `The agent re-read the transcript once to pick it up — a one-time cost.`
+// EXP-974 retired the continuation byline + its cost note: a resumed run and
+// the run it came out of share ONE toggle now, and the `Runs` caret is the
+// link between them (`lib/sessions/run-chain.ts`).
 
 // ── Refusals ─────────────────────────────────────────────────────────────────
 // One sentence each, and the reason is always about the thing the person can

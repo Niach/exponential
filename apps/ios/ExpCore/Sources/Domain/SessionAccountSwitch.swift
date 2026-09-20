@@ -84,13 +84,6 @@ public enum SessionAccountSwitch {
     public static let costNote =
         "The run continues under the other account. Re-reading the transcript once costs tokens."
 
-    /// The continuation byline a resumed run's screen carries.
-    public static let continuationNote = "Continues an earlier run"
-
-    /// What that continuation cost, said ONCE on the new run.
-    public static let continuationCostNote =
-        "The agent re-read the transcript once to pick it up — a one-time cost."
-
     // MARK: - Refusals
 
     // One sentence each, and the reason is always about the thing the person

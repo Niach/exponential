@@ -720,20 +720,31 @@ impl IssueHeader {
     /// (`work_header::face_toggle`), just left of the pin — the web header's
     /// order. (EXP-723 retired the Subscribe toggle on every client; EXP-760
     /// folded copy-link and delete into the menu; EXP-791 retired the
-    /// prev/next switcher.)
+    /// prev/next switcher.) `changes_open` = the Changes face is the one on
+    /// show (the detail's PR files pane or a run's diff face), the ONE face
+    /// that carries the GitHub link (EXP-949).
     pub(crate) fn right_cluster(
         &mut self,
         issue: &Issue,
         leading: Option<gpui::AnyElement>,
+        changes_open: bool,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
         let mut cluster = Vec::with_capacity(5);
         // EXP-897 §4: the ONE stack/batch badge, shared by all three faces.
         cluster.extend(self.pr_graph_badge(issue, cx));
         cluster.extend(leading);
-        // EXP-916: the way out to GitHub, on every face of a subject with a
-        // pull request — the diff surfaces no longer carry one of their own.
-        cluster.extend(crate::work_header::github_button("work-github", issue.pr_url.as_deref(), cx));
+        // EXP-916: the way out to GitHub for a subject with a pull request —
+        // the diff surfaces no longer carry one of their own. EXP-949: on
+        // the Changes face ALONE (never Issue, Run or Results), beside the
+        // diff it opens.
+        if changes_open {
+            cluster.extend(crate::work_header::github_button(
+                "work-github",
+                issue.pr_url.as_deref(),
+                cx,
+            ));
+        }
         // EXP-778: the personal pin toggle — a pinned issue lands in the
         // rail's Pinned section. Needs the team (the board's) to address
         // the toggle; a not-yet-synced board hides it for a repaint.
