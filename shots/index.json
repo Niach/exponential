@@ -401,15 +401,15 @@
         "file": "shots/chat/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 37508,
-        "sha256": "450b6e152faa63c3169332f91939fe804c40f4679cccee6ac4399d666696bc0a"
+        "bytes": 36546,
+        "sha256": "2f45cebe8be30a736e9b313e0a9ed3405bd7ce16e0a5dfd031d2add30b23071a"
       },
       "web-mobile": {
         "file": "shots/chat/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 41600,
-        "sha256": "2052c4622b855ea53c4b07637503a94667fd6cf12346efb149591c17d0e51c7c"
+        "bytes": 40038,
+        "sha256": "48b18a4da644790627efbf2e6e6cb49461f74349b731ae6ecf1c49e94a309f6d"
       }
     },
     "chat-action": {
@@ -763,15 +763,15 @@
         "file": "shots/machine-settings/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 23346,
-        "sha256": "c6a215197fbe3289df785eb7505bb7efcebb714a8946acc2b27f43a88a40fb39"
+        "bytes": 24404,
+        "sha256": "93e8504241e9502c4e0756c33f3928a516449023debba515e79a6077acedb6e4"
       },
       "web-mobile": {
         "file": "shots/machine-settings/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 29494,
-        "sha256": "3287d48e64e94d51fac9568d63d6e877a8113598092b81fcf814a502888934f3"
+        "bytes": 30594,
+        "sha256": "6614df12a83bc2feeca545ebc220eae12071a0feb7be1bab0dd1a20e03e87919"
       }
     },
     "my-issues": {
@@ -1261,8 +1261,8 @@
         "file": "shots/settings-mcp-servers/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 53344,
-        "sha256": "c55e4c472be21dd1f3e95772817f7d67103d30e5f1529952ae9286b7fa16696f"
+        "bytes": 69398,
+        "sha256": "e5d4dbb729933240df62c114802e956cdee7eb74e2c10385843bdfdc70cf6e32"
       },
       "web-mobile": {
         "file": "shots/settings-mcp-servers/web-mobile.webp",
@@ -1534,8 +1534,8 @@
         "file": "shots/steering/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 106898,
-        "sha256": "40f3915045b5e136444007c676dd676815d3cc9b840d32fdbe2f5d62d665b87e"
+        "bytes": 112948,
+        "sha256": "4f9edf1587680c3d0a6c5bc95b6b34b84ab531498b7867fe185b9cac14b90063"
       },
       "web-mobile": {
         "file": "shots/steering/web-mobile.webp",

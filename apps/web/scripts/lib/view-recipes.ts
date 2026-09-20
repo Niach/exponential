@@ -253,7 +253,7 @@ async function recipeOpenCreateIssue(page: Page): Promise<void> {
  * desktop and the tab bar on the phone.
  */
 async function recipeOpenSearch(page: Page): Promise<void> {
-  const input = page.getByPlaceholder(`Search issues...`)
+  const input = page.getByPlaceholder(`Search issues`, { exact: true })
   await page.keyboard.press(`ControlOrMeta+f`)
   if (!(await appears(input, 4_000))) {
     const button = page.getByRole(`button`, { name: `Search`, exact: true })
