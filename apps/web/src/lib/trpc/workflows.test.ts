@@ -412,6 +412,50 @@ describe(`the engine's write path`, () => {
     expect(written[0]!.values).toEqual({ state: `landed`, note: null })
   })
 
+  // EXP-1007: a person merged the node's PR from Reviews or GitHub while the
+  // node was `running`/`updating` — no approval, and the web offers Approve
+  // only on `in_review`. The code is in the integration branch: the train's
+  // step is done, whatever the gate or the landing order say.
+  it(`lands a node whose PR merged outside the train, past the human gate and the order`, async () => {
+    h.loadWorkflowEdges.mockResolvedValueOnce({
+      nodes: [
+        { id: `node-0`, state: `in_review` },
+        { id: `node-1`, state: `updating` },
+      ],
+      edges: [[`node-0`, `node-1`]],
+    } as never)
+    selectQueue.push(
+      [node({ state: `updating`, approvedAt: null })],
+      [workflow({ status: `running`, deviceId: `dev-1`, gate: `human` })],
+      [{ id: `device-row` }],
+      [{ prState: `merged` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: true,
+      reason: null,
+      retargeted: [],
+    })
+    expect(h.mergePr).not.toHaveBeenCalled()
+    expect(h.ensureNodePrOnIntegrationBranch).not.toHaveBeenCalled()
+    expect(written[0]!.values).toEqual({ state: `landed`, note: null })
+    expect(h.retargetReleasedDependents).toHaveBeenCalledWith(fakeDb, WF, `node-1`, `user-1`)
+  })
+
+  it(`a paused workflow lands nothing, merged or not`, async () => {
+    selectQueue.push(
+      [node({ state: `updating` })],
+      [workflow({ status: `paused`, deviceId: `dev-1`, gate: `human` })],
+      [{ id: `device-row` }],
+      [{ prState: `merged` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: false,
+      reason: `The workflow is not running`,
+      retargeted: [],
+    })
+    expect(written).toEqual([])
+  })
+
   it(`a retry forgets the old approval and review with the old attempt`, async () => {
     selectQueue.push([node({ state: `failed` })], [workflow({ status: `running` })])
     await caller.resolveNode({ nodeId: NODE, action: `retry` })

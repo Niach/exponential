@@ -90,6 +90,9 @@ pub const NOTE_NEEDS_ANSWER: &str = "Needs an answer";
 pub const NOTE_RATE_LIMITED: &str = "Rate limited";
 /// The note a node carries when its run ended with nothing to review.
 pub const NOTE_NO_PULL_REQUEST: &str = "The run ended without a pull request";
+/// EXP-1007: the note a node carries when its start never came up on the
+/// runner twice (the host reported `running`, no run ever named itself).
+pub const NOTE_START_NEVER_CAME_UP: &str = "The run never came up on the runner";
 /// The note a node carries while its run merges the integration branch in
 /// after GitHub refused to land its pull request (the host's own note, the
 /// refusal's reason, wins when it is already on the row).
@@ -1389,6 +1392,21 @@ fn desired_state(
         if node.state == "running" && start_in_grace(snapshot, node) {
             return Some(state("running"));
         }
+        // EXP-1007: a start that never produced a run gets ONE free retry,
+        // like a run that ended with nothing to review — `attempt` counts
+        // the host's `running` reports, so the retry is the second. Past
+        // that the node stops and says so, instead of a fresh start every
+        // grace (each wiping the previous failure's note) until the
+        // server's attempt bound rejects the report and it stalls mute. A
+        // person's `retry` resets the count.
+        if node.state == "running" && node.attempt > 1 {
+            return Some(state_with_note("failed", NOTE_START_NEVER_CAME_UP));
+        }
+        if node.state == "failed" && node.attempt > 1 {
+            // Its note (the host's launch error, or the one above) stays:
+            // the mirror never rewrites an unchanged state.
+            return Some(state("failed"));
+        }
         // Not started yet: the blockers decide, read through the workflow's
         // START MODE (EXP-983 — `landed` waits for the merge, `pr_open` for
         // the pull request, `contract` for the announcement).
@@ -1835,6 +1853,54 @@ mod tests {
                 model: None,
             }),
             "past the grace the start is retried: {decisions:?}"
+        );
+    }
+
+    /// EXP-1007: the second start that never came up is the last automatic
+    /// one — the node fails with a note instead of a start every grace.
+    #[test]
+    fn a_start_that_never_came_up_twice_fails_instead_of_retrying_for_ever() {
+        let mut stale = node("a", "running", 0, 0);
+        stale.attempt = 2;
+        stale.updated_at_ms = Some(1_000);
+        let mut snapshot = running(vec![stale]);
+        snapshot.now_ms = 1_000 + START_GRACE_MS;
+        let decisions = evaluate(&snapshot);
+        assert_eq!(
+            decisions,
+            vec![Decision::SetNodeState {
+                node_id: "a".to_string(),
+                state: "failed".to_string(),
+                note: Some(NOTE_START_NEVER_CAME_UP.to_string()),
+            }],
+            "no third start: {decisions:?}"
+        );
+    }
+
+    /// EXP-1007: a launch the host could not make (`failed`, no run) is
+    /// retried once; a second failure stays, note and all, for a person.
+    #[test]
+    fn a_failed_launch_is_retried_once_then_left_for_a_person() {
+        let mut first = node("a", "failed", 0, 0);
+        first.attempt = 1;
+        let snapshot = running(vec![first]);
+        let decisions = evaluate(&snapshot);
+        assert!(
+            decisions.contains(&Decision::StartNode {
+                node_id: "a".to_string(),
+                attempt: 2,
+                base_branch: "exp/wf-abcdef12".to_string(),
+                model: None,
+            }),
+            "one free retry: {decisions:?}"
+        );
+
+        let mut second = node("a", "failed", 0, 0);
+        second.attempt = 2;
+        let snapshot = running(vec![second]);
+        assert!(
+            evaluate(&snapshot).is_empty(),
+            "the second failure is final until a person retries"
         );
     }
 

@@ -1595,7 +1595,13 @@ fn launch_node(order: StartOrder, cx: &mut App) {
             .background_executor()
             .spawn(async move { coding::prepare(&request, &deps) })
             .await;
-        let _ = window.update(cx, |_, window, cx| match prepared {
+        // EXP-1007: a window that closed between the pass and this point
+        // dropped the prepared run on the floor — the node stayed `running`
+        // with no session and was started again every grace. Now it fails
+        // with a note like every other launch error.
+        let trpc_for_lost_window = Arc::clone(&trpc);
+        let node_for_lost_window = node.clone();
+        let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
                 let subject = match subject {
@@ -1628,6 +1634,17 @@ fn launch_node(order: StartOrder, cx: &mut App) {
             }
             Err(err) => fail_node_async(&trpc, &node, &err.to_string(), cx),
         });
+        if updated.is_err() {
+            cx.background_executor()
+                .spawn(async move {
+                    fail_node(
+                        &trpc_for_lost_window,
+                        &node_for_lost_window,
+                        "The Exponential window closed before the run could start",
+                    )
+                })
+                .detach();
+        }
         drop(hold);
     })
     .detach();
