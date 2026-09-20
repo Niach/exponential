@@ -198,6 +198,7 @@ vi.mock(`@/lib/storage`, () => ({
   uploadObject: h.uploadObject,
   deleteObject: h.deleteObject,
   getObject: h.getObject,
+  headObject: vi.fn(),
 }))
 
 // EXP-704: attachments_get mints real signed download tokens.
@@ -1208,17 +1209,29 @@ describe(`exponential_attachments_upload`, () => {
 // ── EXP-988: the contract's three-shape upload + the two new tools ───────────
 
 describe(`exponential_attachments_upload signed path (EXP-988/EXP-929)`, () => {
-  it(`without dataBase64 checks access first, then reaches the signed handler`, async () => {
+  it(`without dataBase64 checks access first, then mints a signed upload URL with a curl line`, async () => {
     const result = await tool(`exponential_attachments_upload`)({
       issueId: UUID,
       filename: `shot.png`,
       contentType: `image/png`,
     })
-    // The stub says so; EXP-929 replaces this with the uploadUrl assertion.
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not implemented`)
+    const payload = parseOk(result) as {
+      attachmentId: string
+      uploadUrl: string
+      expiresAt: string
+      curl: string
+    }
     expect(membership.assertTeamMember).toHaveBeenCalledWith(USER.id, `ws-1`)
+    // The sessions_results grant shape: the bytes never cross MCP, and no
+    // row exists until the PUT lands (EXP-929).
+    expect(
+      payload.uploadUrl.startsWith(`https://x.test/api/attachment-uploads/`)
+    ).toBe(true)
+    expect(payload.curl).toBe(`curl -sS -T 'shot.png' "${payload.uploadUrl}"`)
+    expect(Date.parse(payload.expiresAt)).toBeGreaterThan(Date.now())
+    expect(payload.attachmentId).toMatch(/^[0-9a-f-]{36}$/)
     expect(uploadObject).not.toHaveBeenCalled()
+    expect(insertValues).not.toHaveBeenCalled()
   })
 
   it(`denies the signed path to a non-member before minting anything`, async () => {
@@ -1233,11 +1246,14 @@ describe(`exponential_attachments_upload signed path (EXP-988/EXP-929)`, () => {
   })
 
   it(`attachmentId alone is the finalize call`, async () => {
+    // No row for the id yet: the handler tells the agent to run the curl
+    // line first (the rest of finalize is covered in handlers/).
+    dbRows.current = []
     const result = await tool(`exponential_attachments_upload`)({
       attachmentId: UUID,
     })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not implemented`)
+    expect(result.content[0].text).toContain(`No upload has landed`)
     expect(membership.getIssueTeamContext).not.toHaveBeenCalled()
   })
 
