@@ -1,4 +1,10 @@
-/* Single source of truth for every external URL on the marketing site. */
+/* Single source of truth for every external URL on the marketing site.
+   The site ships a CSP (public/serve.json): only app.exponential.at is a
+   script source, and only it plus api.github.com are connect sources. A new
+   origin that the browser has to FETCH (a script, a font, an XHR target, an
+   embed) must be added there in the same change, or it is silently blocked
+   in production while dev — which serves no headers — looks fine. Origins
+   that only ever appear as href targets or prose need nothing. */
 
 const APP = `https://app.exponential.at`
 const REPO = `https://github.com/Niach/exponential`

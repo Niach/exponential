@@ -173,8 +173,9 @@ function withSecurityHeaders(response: Response): Response {
 // site. The `noindex` meta from
 // __root.tsx only reaches crawlers that parse the HTML head; this header also
 // covers attachments, API JSON, and crawlers that never render. Ungated
-// (unlike SECURITY_HEADERS_ENABLED) — self-hosted instances must not be indexed
-// either. Unfurlers ignore robots directives, so OG previews still work.
+// (SECURITY_HEADERS_ENABLED can be switched off when a proxy owns that set; no
+// deploy may opt out of noindex). Unfurlers ignore robots directives, so OG
+// previews still work.
 function withNoindexHeader(response: Response): Response {
   if (!response.headers.has(`X-Robots-Tag`)) {
     response.headers.set(`X-Robots-Tag`, `noindex`)
