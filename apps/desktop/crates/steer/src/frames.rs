@@ -198,6 +198,76 @@ pub enum ClientFrame<'a> {
     /// tell the activity audience to clear its feed. Sent right before a
     /// full-history re-publish, so a reconnect never doubles the feed.
     ActivityReset,
+    /// PUBLISHER-only (EXP-936): the host's answer to a
+    /// [`ServerFrame::CompactRequest`]. The relay hands it to the web
+    /// server's awaiting `POST /sessions/:id/compact` and nothing else — no
+    /// viewer sees it, nothing enters the room's replay log. One ask is in
+    /// flight per room at a time, so `session_id` (the room) is the whole
+    /// correlation. `refused_because` is absent when accepted.
+    #[serde(rename_all = "camelCase")]
+    CompactVerdict {
+        session_id: String,
+        accepted: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refused_because: Option<CompactRefusal>,
+    },
+}
+
+/// EXP-936: why the host refused a compaction ask — the four codes the web
+/// handler declared (`sessionsCompactRefusals`, lib/mcp/handlers/
+/// sessions-compact.ts; relay `COMPACT_REFUSALS`). The device decides only
+/// the first two (it holds the context meter and the turn count); the other
+/// two are the server's, kept here so one enum spells the wire.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactRefusal {
+    /// Below half the context window: nothing worth compacting yet.
+    TooEarly,
+    /// A compaction is open or pending, or the last one is too recent.
+    Cooldown,
+    /// The asking run is not the one it names (server-side).
+    NotOwnSession,
+    /// The run's agent has no compaction command (server-side).
+    UnsupportedAgent,
+}
+
+impl CompactRefusal {
+    /// The wire code, as the relay's zod spells it.
+    pub fn code(self) -> &'static str {
+        match self {
+            CompactRefusal::TooEarly => "too_early",
+            CompactRefusal::Cooldown => "cooldown",
+            CompactRefusal::NotOwnSession => "not_own_session",
+            CompactRefusal::UnsupportedAgent => "unsupported_agent",
+        }
+    }
+}
+
+/// EXP-936: the host's decision on a [`ServerFrame::CompactRequest`], as the
+/// engine's hook returns it and [`ClientFrame::CompactVerdict`] carries it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompactVerdict {
+    /// The host will send the agent's `/compact` at the next turn boundary.
+    Accepted,
+    Refused(CompactRefusal),
+}
+
+impl CompactVerdict {
+    /// The frame that answers the relay for room `session_id`.
+    pub fn frame(self, session_id: &str) -> ClientFrame<'static> {
+        match self {
+            CompactVerdict::Accepted => ClientFrame::CompactVerdict {
+                session_id: session_id.to_string(),
+                accepted: true,
+                refused_because: None,
+            },
+            CompactVerdict::Refused(reason) => ClientFrame::CompactVerdict {
+                session_id: session_id.to_string(),
+                accepted: false,
+                refused_because: Some(reason),
+            },
+        }
+    }
 }
 
 /// A single public activity event (masterplan §P7) — the desktop emits these
@@ -1601,8 +1671,11 @@ pub enum ServerFrame {
     Unqueue { id: String },
     /// EXP-988/EXP-936: the run's own `exponential_sessions_compact` asked
     /// the host to compact the agent's context at the next turn boundary;
-    /// `keep` names what the summary must preserve. Declared ahead of the
-    /// behaviour: the publisher ignores it until EXP-936 lands.
+    /// `keep` names what the summary must preserve. The publisher answers it
+    /// with ONE [`ClientFrame::CompactVerdict`] from the engine's
+    /// `PublisherHooks::compact` (the host holds the context meter and the
+    /// compaction state the verdict needs); an accepted ask is executed at
+    /// the next turn boundary.
     #[serde(rename_all = "camelCase")]
     CompactRequest {
         session_id: String,
@@ -3314,6 +3387,32 @@ mod tests {
                 keep: None,
             }
         );
+        // EXP-936: the verdict, publisher → relay; `refusedBecause` rides only
+        // on a refusal.
+        assert_eq!(
+            CompactVerdict::Accepted.frame("s1").to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":true}"#
+        );
+        assert_eq!(
+            CompactVerdict::Refused(CompactRefusal::TooEarly)
+                .frame("s1")
+                .to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":false,"refusedBecause":"too_early"}"#
+        );
+        assert_eq!(
+            CompactVerdict::Refused(CompactRefusal::Cooldown)
+                .frame("s1")
+                .to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":false,"refusedBecause":"cooldown"}"#
+        );
+        for reason in [
+            CompactRefusal::TooEarly,
+            CompactRefusal::Cooldown,
+            CompactRefusal::NotOwnSession,
+            CompactRefusal::UnsupportedAgent,
+        ] {
+            assert_eq!(serde_json::to_string(&reason).unwrap(), format!("\"{}\"", reason.code()));
+        }
         assert_eq!(ClientFrame::Interrupt.to_json(), r#"{"t":"interrupt"}"#);
         assert_eq!(
             ClientFrame::Unqueue {

@@ -258,6 +258,13 @@ pub(crate) enum EngineCommand {
     /// — start them now, oldest first. Sent by [`SessionCtx::dispatch`] on
     /// the idle edge, never by a client.
     DrainQueue,
+    /// EXP-936: take the compaction step owed, if the agent is between turns
+    /// — the `/compact <keep>` an accepted `exponential_sessions_compact`
+    /// asked for, or the continuation prompt after it. Sent by the
+    /// publisher's compact hook on acceptance and by [`SessionCtx::dispatch`]
+    /// on every idle edge while a step is owed; a no-op mid-turn (the next
+    /// idle edge asks again).
+    AdvanceCompaction,
     Shutdown {
         outcome: &'static str,
     },
@@ -1067,6 +1074,11 @@ pub(crate) struct SessionCtx {
     /// to strand every held line: the flush tick re-checks this flag and
     /// drains the moment the gate is down.
     pub(crate) drain_wanted: AtomicBool,
+    /// EXP-936: the run's own compaction asks — the verdict's facts (the
+    /// meter, the fold, the turn edges, fed by [`SessionCtx::dispatch`]) and
+    /// the step owed for an accepted one. Shared with the publisher's compact
+    /// hook, which decides on the socket loop.
+    pub(crate) compaction: Arc<Mutex<crate::compaction::CompactionPolicy>>,
     /// FEED-25: when the agent last produced anything the mapper emitted (or
     /// a turn edge) — the stall watchdog's clock. The `diff` ticker's own
     /// snapshots never advance it.
@@ -1120,10 +1132,46 @@ impl SessionCtx {
             let awaited = self.with_mapper(|mapper| mapper.pending_delivery_ids());
             self.retire_sent_except(&awaited);
         }
+        // EXP-936: the compaction policy reads the meter, the fold and the
+        // turn edges off the same stream every viewer gets.
+        let compaction_step_owed = {
+            let mut policy = self.compaction.lock().unwrap_or_else(|err| err.into_inner());
+            for event in &out.wire {
+                policy.observe(event);
+            }
+            policy.has_pending()
+        };
         self.deliver(out);
         if gate_edge {
             self.request_drain();
         }
+        // After `deliver`, so the loop reads the idle signal this step set.
+        // The drain request went first: a held line starts its turn ahead of
+        // the `/compact`, which then waits for the next idle edge.
+        if idle_edge && compaction_step_owed {
+            if let Some(commands) = self.queue_commands.get() {
+                let _ = commands.send(EngineCommand::AdvanceCompaction);
+            }
+        }
+    }
+
+    /// EXP-936: the run's own compaction ask, as the publisher's hook (a
+    /// relay `compact_request`) and [`crate::EngineSession::request_compaction`]
+    /// both make it. The policy decides off the state `dispatch` fed it; an
+    /// acceptance owes the `/compact` step and nudges the command loop, which
+    /// takes it once the agent is between turns.
+    pub(crate) fn request_compaction(&self, keep: Option<String>) -> steer::CompactVerdict {
+        let verdict = self
+            .compaction
+            .lock()
+            .map(|mut policy| policy.request(keep))
+            .unwrap_or(steer::CompactVerdict::Refused(steer::CompactRefusal::Cooldown));
+        if verdict == steer::CompactVerdict::Accepted {
+            if let Some(commands) = self.queue_commands.get() {
+                let _ = commands.send(EngineCommand::AdvanceCompaction);
+            }
+        }
+        verdict
     }
 
     /// EXP-861: is a compaction open right now? A message that arrives then
@@ -1949,6 +1997,11 @@ fn handle_command(
         EngineCommand::Cancel => {
             ctx.with_mapper(|mapper| mapper.forget_deliveries());
             ctx.clear_prompt_queue();
+            // EXP-936: the person said stop; a `/compact` owed from before
+            // would read as the run ignoring them.
+            if let Ok(mut policy) = ctx.compaction.lock() {
+                policy.cancel();
+            }
             cancel_turn(cx, ctx, session_id, true)
         }
         EngineCommand::Interrupt => cancel_turn(cx, ctx, session_id, false),
@@ -1973,6 +2026,36 @@ fn handle_command(
             if !ctx.compaction_open() {
                 drain_queue(cx, ctx, session_id, turns);
             }
+        }
+        EngineCommand::AdvanceCompaction => {
+            // Between turns only: the ask lands mid-turn (it is a tool call
+            // of that turn), and the idle edge re-sends this command.
+            if !ctx.turn_signal.is_idle() || ctx.compaction_open() {
+                return true;
+            }
+            let step = ctx
+                .compaction
+                .lock()
+                .ok()
+                .and_then(|mut policy| policy.take_step());
+            let text = match step {
+                Some(crate::compaction::CompactionStep::Compact { keep }) => {
+                    crate::compaction::compact_command(keep.as_deref())
+                }
+                Some(crate::compaction::CompactionStep::Continue) => {
+                    crate::compaction::COMPACT_CONTINUE_PROMPT.to_string()
+                }
+                None => return true,
+            };
+            log::info!("engine: session {} compaction step: {text}", ctx.session_id);
+            gate_or_start(
+                cx,
+                ctx,
+                session_id,
+                text.clone(),
+                TurnPrompt::Ready(LocalizedPrompt::plain(text)),
+                turns,
+            );
         }
         EngineCommand::SetConfig { id, value } => {
             let sent = cx.send_request(SetSessionConfigOptionRequest::new(

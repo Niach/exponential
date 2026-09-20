@@ -265,6 +265,7 @@ vi.mock(`@/lib/steer`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
   getSteerRelayConfig: vi.fn(),
   relayPostInput: vi.fn(),
+  relayPostCompact: vi.fn(),
 }))
 vi.mock(`@/lib/steer-child-messages`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -280,7 +281,11 @@ import {
 } from "@/lib/integrations/notifications"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { endSessionByAgent } from "@/lib/coding-session-end"
-import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
+import {
+  getSteerRelayConfig,
+  relayPostCompact,
+  relayPostInput,
+} from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { createPullRequest } from "@/lib/integrations/github-pr"
 import {
@@ -1302,14 +1307,39 @@ describe(`exponential_sessions_compact (EXP-988/EXP-936)`, () => {
     expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
   })
 
-  it(`reaches the handler for the header run`, async () => {
+  it(`relays the header run's ask and answers with the host's verdict`, async () => {
+    dbRows.current = [
+      {
+        id: SESSION,
+        userId: USER.id,
+        hostUserId: null,
+        status: `running`,
+        agent: `claude`,
+      },
+    ]
+    vi.mocked(getSteerRelayConfig).mockReturnValue({
+      url: `wss://relay.test`,
+      secret: `s`,
+    })
+    vi.mocked(relayPostCompact).mockResolvedValue({
+      delivered: true,
+      accepted: false,
+      refusedBecause: `too_early`,
+    })
     const inRun = collectTools(USER, SESSION)
     const result = await inRun.get(`exponential_sessions_compact`)!({
       reason: `long`,
       keep: `open threads`,
     })
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not implemented`)
+    expect(parseOk(result)).toEqual({
+      accepted: false,
+      refusedBecause: `too_early`,
+    })
+    expect(relayPostCompact).toHaveBeenCalledWith(
+      { url: `wss://relay.test`, secret: `s` },
+      SESSION,
+      `open threads`
+    )
   })
 })
 
