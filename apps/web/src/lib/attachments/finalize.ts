@@ -38,7 +38,10 @@ export type {
 } from "@/lib/attachments/finalize-core"
 
 const storageProbe: AttachmentObjectProbe = {
-  head: headObject,
+  // Resolved at call time, not module load: suites that mock `@/lib/storage`
+  // for the inline upload path (EXP-929 imports this module through the MCP
+  // handler) need not know about `headObject`.
+  head: (key) => headObject(key),
   read: async (key) => {
     const object = await getObject(key)
     const body = object?.Body

@@ -198,6 +198,7 @@ vi.mock(`@/lib/storage`, () => ({
   uploadObject: h.uploadObject,
   deleteObject: h.deleteObject,
   getObject: h.getObject,
+  headObject: vi.fn(),
 }))
 
 // EXP-704: attachments_get mints real signed download tokens.

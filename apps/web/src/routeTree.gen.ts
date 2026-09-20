@@ -81,6 +81,7 @@ import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
+import { Route as ApiAttachmentUploadsTokenRouteImport } from './routes/api/attachment-uploads/$token'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin/users'
 import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
 import { Route as AuthenticatedAdminPerformanceRouteImport } from './routes/_authenticated/admin/performance'
@@ -496,6 +497,12 @@ const ApiAttachmentsAttachmentIdRoute =
     path: '/api/attachments/$attachmentId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAttachmentUploadsTokenRoute =
+  ApiAttachmentUploadsTokenRouteImport.update({
+    id: '/api/attachment-uploads/$token',
+    path: '/api/attachment-uploads/$token',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
   id: '/users',
   path: '/users',
@@ -801,6 +808,7 @@ export interface FileRoutesByFullPath {
   '/admin/performance': typeof AuthenticatedAdminPerformanceRoute
   '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/api/attachment-uploads/$token': typeof ApiAttachmentUploadsTokenRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
@@ -918,6 +926,7 @@ export interface FileRoutesByTo {
   '/admin/performance': typeof AuthenticatedAdminPerformanceRoute
   '/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/api/attachment-uploads/$token': typeof ApiAttachmentUploadsTokenRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
@@ -1040,6 +1049,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/performance': typeof AuthenticatedAdminPerformanceRoute
   '/_authenticated/admin/teams': typeof AuthenticatedAdminTeamsRoute
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/api/attachment-uploads/$token': typeof ApiAttachmentUploadsTokenRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
@@ -1162,6 +1172,7 @@ export interface FileRouteTypes {
     | '/admin/performance'
     | '/admin/teams'
     | '/admin/users'
+    | '/api/attachment-uploads/$token'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
@@ -1279,6 +1290,7 @@ export interface FileRouteTypes {
     | '/admin/performance'
     | '/admin/teams'
     | '/admin/users'
+    | '/api/attachment-uploads/$token'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
@@ -1400,6 +1412,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/performance'
     | '/_authenticated/admin/teams'
     | '/_authenticated/admin/users'
+    | '/api/attachment-uploads/$token'
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
@@ -1513,6 +1526,7 @@ export interface RootRouteChildren {
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   InviteTokenRoute: typeof InviteTokenRoute
   SupportTokenRoute: typeof SupportTokenRoute
+  ApiAttachmentUploadsTokenRoute: typeof ApiAttachmentUploadsTokenRoute
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
@@ -2065,6 +2079,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAttachmentsAttachmentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/attachment-uploads/$token': {
+      id: '/api/attachment-uploads/$token'
+      path: '/api/attachment-uploads/$token'
+      fullPath: '/api/attachment-uploads/$token'
+      preLoaderRoute: typeof ApiAttachmentUploadsTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/admin/users': {
       id: '/_authenticated/admin/users'
       path: '/users'
@@ -2576,6 +2597,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   InviteTokenRoute: InviteTokenRoute,
   SupportTokenRoute: SupportTokenRoute,
+  ApiAttachmentUploadsTokenRoute: ApiAttachmentUploadsTokenRoute,
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
