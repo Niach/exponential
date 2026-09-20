@@ -143,6 +143,11 @@ pub struct WorkflowFacts {
     /// on. Absent = `author_model`.
     #[serde(default)]
     pub integration_model: Option<String>,
+    /// EXP-1002: `launch.riskModel` — what a `risk: high` node runs on,
+    /// WHATEVER its kind. The most specific pin there is, so it wins over the
+    /// phase ones. Absent = the node's phase model.
+    #[serde(default)]
+    pub risk_model: Option<String>,
     /// contract `wfStartOn` (`contract|pr_open|landed`). An absent or unknown
     /// word reads as `landed`: the conservative mode, which never starts a
     /// node on work that is not in yet.
@@ -168,6 +173,7 @@ impl Default for WorkflowFacts {
             author_model: None,
             contract_model: None,
             integration_model: None,
+            risk_model: None,
         }
     }
 }
@@ -714,7 +720,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             node_id: entry.node.id.clone(),
             attempt: entry.node.attempt + 1,
             base_branch: base,
-            model: node_model(&snapshot.workflow, &entry.node.kind),
+            model: node_model(&snapshot.workflow, &entry.node.kind, &entry.node.risk),
         });
         active += 1;
     }
@@ -1166,18 +1172,24 @@ const MODEL_FABLE: &str = "fable";
 const KIND_CONTRACT: &str = "contract";
 const KIND_INTEGRATION: &str = "integration";
 
-/// EXP-1002: the model a node's run spawns on — its PHASE's pin, else the
-/// workflow's own `launch.model`. `None` = the device's default. A `leaf`
-/// (and any kind this build does not know) is always the workflow's model:
-/// the phases opt OUT of it, they never replace it.
-pub fn node_model(workflow: &WorkflowFacts, kind: &str) -> Option<String> {
+/// EXP-1002: the model a node's run spawns on, most specific pin first —
+/// its RISK, then its PHASE, then the workflow's own `launch.model`. `None` =
+/// the device's default. A `risk: high` node is the one the person called
+/// hard, so that pin outranks the phase it happens to sit in; a `leaf` (and
+/// any kind this build does not know) has no phase pin at all. The pins opt
+/// OUT of the workflow's model, they never replace it.
+pub fn node_model(workflow: &WorkflowFacts, kind: &str, risk: &str) -> Option<String> {
+    let risk_pin = (risk == RISK_HIGH)
+        .then(|| workflow.risk_model.as_deref())
+        .flatten();
     let phase = match kind {
         KIND_CONTRACT => workflow.contract_model.as_deref(),
         KIND_INTEGRATION => workflow.integration_model.as_deref(),
         _ => None,
     };
-    phase
+    risk_pin
         .filter(|model| !model.is_empty())
+        .or(phase.filter(|model| !model.is_empty()))
         .or(workflow.author_model.as_deref())
         .filter(|model| !model.is_empty())
         .map(str::to_string)
@@ -1306,7 +1318,7 @@ fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool
 /// — a high-risk contract node on its own model would otherwise be reviewed
 /// by the very model that wrote it.
 fn review_model(snapshot: &Snapshot, node: &NodeFacts, adversarial: bool) -> Option<String> {
-    let author = node_model(&snapshot.workflow, &node.kind);
+    let author = node_model(&snapshot.workflow, &node.kind, &node.risk);
     let picked = snapshot
         .workflow
         .review_model
@@ -1809,6 +1821,7 @@ mod tests {
                 author_model: None,
                 contract_model: None,
                 integration_model: None,
+                risk_model: None,
             },
             nodes,
             integration_branch_exists: true,
@@ -1947,8 +1960,41 @@ mod tests {
         // Nothing pinned anywhere = the device's own default, as before.
         let mut bare = running(vec![node("a", "ready", 0, 0)]);
         bare.workflow.contract_model = Some(String::new());
-        assert_eq!(node_model(&bare.workflow, KIND_CONTRACT), None);
-        assert_eq!(node_model(&bare.workflow, KIND_INTEGRATION), None);
+        assert_eq!(node_model(&bare.workflow, KIND_CONTRACT, ""), None);
+        assert_eq!(node_model(&bare.workflow, KIND_INTEGRATION, ""), None);
+    }
+
+    /// EXP-1002: the risk pin is the most specific one — it outranks the
+    /// phase a hard node happens to sit in, and only a `risk: high` node
+    /// takes it.
+    #[test]
+    fn the_risk_pin_outranks_the_phase_pin() {
+        let mut snapshot = running(vec![]);
+        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
+        snapshot.workflow.risk_model = Some("sonnet".to_string());
+        let facts = &snapshot.workflow;
+
+        assert_eq!(
+            node_model(facts, KIND_CONTRACT, RISK_HIGH).as_deref(),
+            Some("sonnet"),
+            "a hard contract node takes the risk pin, not the phase's"
+        );
+        assert_eq!(
+            node_model(facts, "leaf", RISK_HIGH).as_deref(),
+            Some("sonnet"),
+            "so does a hard leaf, which has no phase pin at all"
+        );
+        assert_eq!(
+            node_model(facts, KIND_CONTRACT, "medium").as_deref(),
+            Some(MODEL_FABLE),
+            "an ordinary contract node is untouched by it"
+        );
+        assert_eq!(
+            node_model(facts, "leaf", "low").as_deref(),
+            Some(MODEL_OPUS),
+            "and an ordinary leaf keeps the workflow's model"
+        );
     }
 
     /// EXP-1002: "never the author's model" reads the model the NODE ran on,
@@ -1985,6 +2031,14 @@ mod tests {
         assert_eq!(
             review_model(&snapshot, &risky, true).as_deref(),
             Some("sonnet")
+        );
+        // And with a RISK pin the dodge follows that instead: the node wrote
+        // on opus, so its adversarial review is fable.
+        snapshot.workflow.review_model = None;
+        snapshot.workflow.risk_model = Some(MODEL_OPUS.to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_FABLE)
         );
     }
 

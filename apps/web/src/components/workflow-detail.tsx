@@ -101,6 +101,7 @@ import {
   CONTRACT_MODEL_LABEL,
   INTEGRATION_MODEL_LABEL,
   REVIEW_MODEL_LABEL,
+  RISK_MODEL_LABEL,
   SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
@@ -728,6 +729,7 @@ function HowItRunsSection({
                 model: null,
                 contractModel: null,
                 integrationModel: null,
+                riskModel: null,
                 effort: null,
                 subagentModel: null,
               })
@@ -756,12 +758,14 @@ function HowItRunsSection({
             }
           }}
         />
-        {/* EXP-1002: the two phases that may opt OUT of the model above —
-            blank reads "Same as Model", never the CLI's own default. */}
+        {/* EXP-1002: the pins that may opt OUT of the model above — the two
+            phases, and the risk that outranks them on a `risk: high` node.
+            Blank reads "Same as Model", never the CLI's own default. */}
         {(
           [
             [CONTRACT_MODEL_LABEL, `contractModel`],
             [INTEGRATION_MODEL_LABEL, `integrationModel`],
+            [RISK_MODEL_LABEL, `riskModel`],
           ] as const
         ).map(([label, field]) => (
           <Combobox

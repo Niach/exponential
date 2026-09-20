@@ -530,7 +530,7 @@
     "expected": []
   },
   {
-    "name": "EXP-1002: each phase pin moves its own kind, the leaves keep the workflow's model",
+    "name": "EXP-1002: each phase pin moves its own kind, the risk pin outranks them, the leaves keep the workflow's model",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
@@ -540,12 +540,13 @@
         "maxParallel": 3,
         "authorModel": "opus",
         "contractModel": "fable",
-        "integrationModel": "fable"
+        "integrationModel": "fable",
+        "riskModel": "sonnet"
       },
       "nodes": [
         { "id": "head", "issueId": "i-head", "kind": "contract", "state": "ready", "wave": 0, "lane": 0 },
         { "id": "leaf", "issueId": "i-leaf", "kind": "leaf", "state": "ready", "wave": 0, "lane": 1 },
-        { "id": "tail", "issueId": "i-tail", "kind": "integration", "state": "ready", "wave": 0, "lane": 2 }
+        { "id": "tail", "issueId": "i-tail", "kind": "integration", "state": "ready", "wave": 0, "lane": 2, "risk": "high" }
       ],
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -570,7 +571,7 @@
         "nodeId": "tail",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
-        "model": "fable"
+        "model": "sonnet"
       }
     ]
   }

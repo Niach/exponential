@@ -147,6 +147,16 @@ describe(`workflows.create`, () => {
     const result = await caller.create({ teamId: TEAM, issueIds: [B, A] })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
     expect(written[0]!.values).toMatchObject({ name: `APP-6 +1`, repositoryId: `repo-1` })
+    // EXP-1002: the draft opens on the shipped split, every field explicit.
+    expect(written[0]!.values).toMatchObject({
+      launch: {
+        agent: `claude`,
+        model: `opus`,
+        contractModel: `fable`,
+        integrationModel: `fable`,
+        subagentModel: `opus`,
+      },
+    })
     expect(h.replanWorkflow).toHaveBeenCalledTimes(1)
     expect(result.workflow.metrics).toMatchObject({ nodes: 2 })
   })

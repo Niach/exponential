@@ -427,6 +427,7 @@ class WorkflowViewTest {
         assertEquals("Metrics", WorkflowView.METRICS_TITLE)
         assertEquals("Contract model", WorkflowView.CONTRACT_MODEL_LABEL)
         assertEquals("Integration model", WorkflowView.INTEGRATION_MODEL_LABEL)
+        assertEquals("High-risk model", WorkflowView.RISK_MODEL_LABEL)
         assertEquals("Same as Model", WorkflowView.SAME_AS_MODEL_LABEL)
     }
 

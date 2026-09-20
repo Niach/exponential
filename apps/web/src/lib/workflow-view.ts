@@ -370,6 +370,8 @@ export const REVIEW_MODEL_LABEL = `Review model`
 export const CONTRACT_MODEL_LABEL = `Contract model`
 /** The settings row pinning what an `integration` node runs on. */
 export const INTEGRATION_MODEL_LABEL = `Integration model`
+/** The settings row pinning what a `risk: high` node runs on, any kind. */
+export const RISK_MODEL_LABEL = `High-risk model`
 /** Both phase rows' blank pick: the workflow's own Model, not the CLI's. */
 export const SAME_AS_MODEL_LABEL = `Same as Model`
 export const BUDGET_TITLE = `Budget`

@@ -436,6 +436,7 @@ object WorkflowView {
      * both rows carry: the workflow's own Model, never the CLI's default. */
     const val CONTRACT_MODEL_LABEL = "Contract model"
     const val INTEGRATION_MODEL_LABEL = "Integration model"
+    const val RISK_MODEL_LABEL = "High-risk model"
     const val SAME_AS_MODEL_LABEL = "Same as Model"
 
     /**

@@ -20,6 +20,7 @@ import {
   CONTRACT_MODEL_LABEL,
   INTEGRATION_MODEL_LABEL,
   REVIEW_MODEL_LABEL,
+  RISK_MODEL_LABEL,
   SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
@@ -1063,11 +1064,19 @@ describe(`WorkflowDetail review model and metrics`, () => {
     expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
       `${INTEGRATION_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
     )
+    expect(rowLabelled(RISK_MODEL_LABEL)?.textContent).toBe(
+      `${RISK_MODEL_LABEL}${SAME_AS_MODEL_LABEL}`
+    )
     blank.unmount()
 
     mount(
       startable({
-        launch: { model: `opus`, contractModel: `fable`, integrationModel: `sonnet` },
+        launch: {
+          model: `opus`,
+          contractModel: `fable`,
+          integrationModel: `sonnet`,
+          riskModel: `fable`,
+        },
       })
     )
     expect(rowLabelled(CONTRACT_MODEL_LABEL)?.textContent).toBe(
@@ -1076,7 +1085,10 @@ describe(`WorkflowDetail review model and metrics`, () => {
     expect(rowLabelled(INTEGRATION_MODEL_LABEL)?.textContent).toBe(
       `${INTEGRATION_MODEL_LABEL}Sonnet`
     )
-    // The Model row above them is untouched by either pin.
+    expect(rowLabelled(RISK_MODEL_LABEL)?.textContent).toBe(
+      `${RISK_MODEL_LABEL}Fable`
+    )
+    // The Model row above them is untouched by any of the pins.
     expect(rowLabelled(`Model`)?.textContent).toBe(`ModelOpus`)
   })
 

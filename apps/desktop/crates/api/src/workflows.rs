@@ -31,6 +31,10 @@ pub struct WorkflowLaunch {
     /// EXP-1002: the model `integration` nodes run on. Absent = `model`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integration_model: Option<String>,
+    /// EXP-1002: the model a `risk: high` node runs on, whatever its kind.
+    /// Absent = the node's phase model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_model: Option<String>,
     /// Claude only: the model its SUBAGENTS run on — never the node run's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_model: Option<String>,

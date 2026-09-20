@@ -569,6 +569,7 @@ pub const METRICS_TITLE: &str = "Metrics";
 /// and their blank pick: the workflow's own Model, never the CLI's default.
 pub const CONTRACT_MODEL_LABEL: &str = "Contract model";
 pub const INTEGRATION_MODEL_LABEL: &str = "Integration model";
+pub const RISK_MODEL_LABEL: &str = "High-risk model";
 pub const SAME_AS_MODEL_LABEL: &str = "Same as Model";
 
 /// What the review line reads off `workflow_nodes.review`.

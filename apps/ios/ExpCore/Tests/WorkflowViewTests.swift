@@ -308,6 +308,7 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowView.metricsTitle, "Metrics")
         XCTAssertEqual(WorkflowView.contractModelLabel, "Contract model")
         XCTAssertEqual(WorkflowView.integrationModelLabel, "Integration model")
+        XCTAssertEqual(WorkflowView.riskModelLabel, "High-risk model")
         XCTAssertEqual(WorkflowView.sameAsModelLabel, "Same as Model")
     }
 

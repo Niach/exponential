@@ -506,6 +506,7 @@ public enum WorkflowView {
     /// on, and their blank pick: the workflow's own Model, not the CLI's.
     public static let contractModelLabel = "Contract model"
     public static let integrationModelLabel = "Integration model"
+    public static let riskModelLabel = "High-risk model"
     public static let sameAsModelLabel = "Same as Model"
 
     /// The node panel's one line about the latest agent review:

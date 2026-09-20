@@ -44,8 +44,9 @@ use domain::workflow_view::{
     DISMISS_NODE_LABEL, FINAL_PR_TITLE, INTEGRATION_MODEL_LABEL, MERGES_IN_FIRST_LABEL,
     MERGE_TRAIN_EMPTY, MERGE_TRAIN_TITLE, METRICS_TITLE,
     OPEN_RUN_LABEL, RUNNING_NOW_LABEL, PAUSE_WORKFLOW_LABEL, PLAN_WORKFLOW_LABEL, PROPOSED_NODE_NOTE,
-    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, SAME_AS_MODEL_LABEL,
-    SKIP_NODE_CONFIRM, SKIP_NODE_LABEL, START_WORKFLOW_LABEL, WITHDRAW_APPROVAL_LABEL,
+    RESUME_WORKFLOW_LABEL, RETRY_NODE_LABEL, REVIEW_MODEL_LABEL, RISK_MODEL_LABEL,
+    SAME_AS_MODEL_LABEL, SKIP_NODE_CONFIRM, SKIP_NODE_LABEL, START_WORKFLOW_LABEL,
+    WITHDRAW_APPROVAL_LABEL,
 };
 
 use crate::actions_view::page_scaffold_with;
@@ -915,6 +916,7 @@ impl WorkflowView {
                             // EXP-1002: so does a per-phase model.
                             launch.contract_model = None;
                             launch.integration_model = None;
+                            launch.risk_model = None;
                             // EXP-984: a review model belongs to that same
                             // closed set.
                             launch.review_model = None;
@@ -990,6 +992,27 @@ impl WorkflowView {
                     update(
                         Box::new(move |launch| {
                             launch.integration_model = (!value.is_empty()).then_some(value);
+                        }),
+                        cx,
+                    );
+                }
+            },
+            cx,
+        ));
+        // EXP-1002: the risk pin outranks both phases on a `risk: high` node.
+        rows.push(pick_row(
+            "workflow-risk-model",
+            RISK_MODEL_LABEL,
+            phase_choices,
+            launch.risk_model.as_deref().unwrap_or_default(),
+            draft,
+            {
+                let update = update_launch.clone();
+                move |value: &str, cx: &mut App| {
+                    let value = value.to_string();
+                    update(
+                        Box::new(move |launch| {
+                            launch.risk_model = (!value.is_empty()).then_some(value);
                         }),
                         cx,
                     );

@@ -1006,6 +1006,10 @@ export interface WorkflowLaunch {
   contractModel?: string | null
   /** EXP-1002: the model `integration` nodes run on. Absent = `model`. */
   integrationModel?: string | null
+  /** EXP-1002: the model a `risk: high` node runs on, WHATEVER its kind —
+   *  the most specific pin there is, so it wins over the phase ones.
+   *  Absent = the node's phase model. */
+  riskModel?: string | null
   /** Claude only: the model its subagents run on. NOT the node runs' own. */
   subagentModel?: string | null
   effort?: string | null
@@ -1018,12 +1022,29 @@ export interface WorkflowLaunch {
   reviewModel?: string | null
 }
 
+/**
+ * EXP-1002: what a NEW workflow starts configured as. Explicit on every field
+ * a run reads, so a person opening the panel sees the launch rather than four
+ * rows reading "Default": the phases that scaffold and merge are cheap
+ * (`fable`), the LEAVES that implement and the subagents they spawn are not
+ * (`opus`). Pinned to claude because these are claude's model names — picking
+ * another agent clears all four (the panel's own rule).
+ */
+export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunch = {
+  agent: `claude`,
+  model: `opus`,
+  contractModel: `fable`,
+  integrationModel: `fable`,
+  subagentModel: `opus`,
+}
+
 export const workflowLaunchSchema = z
   .object({
     agent: z.string().max(16).nullish(),
     model: z.string().max(64).nullish(),
     contractModel: z.string().max(64).nullish(),
     integrationModel: z.string().max(64).nullish(),
+    riskModel: z.string().max(64).nullish(),
     subagentModel: z.string().max(64).nullish(),
     effort: z.string().max(32).nullish(),
     account: z.string().max(64).nullish(),

@@ -579,6 +579,7 @@ fn snapshot_for(
                     // EXP-1002: the phases that opt out of that model.
                     contract_model: launch.contract_model.clone(),
                     integration_model: launch.integration_model.clone(),
+                    risk_model: launch.risk_model.clone(),
                 },
                 nodes,
                 edges,
