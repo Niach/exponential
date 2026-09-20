@@ -2384,7 +2384,8 @@ impl IssueDetailView {
                 },
                 None,
             );
-            let right = header.right_cluster(issue, toggle, cx);
+            // EXP-949: the GitHub link rides the Changes face alone.
+            let right = header.right_cluster(issue, toggle, changes_open, cx);
             let actions = header.issue_actions(issue, action, cx);
             (
                 right,

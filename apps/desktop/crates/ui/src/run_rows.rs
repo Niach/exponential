@@ -722,17 +722,53 @@ pub(crate) fn issue_run_entries(issue_id: &str, cx: &App) -> Vec<crate::work_hea
     let devices = store.collections().devices.read(cx);
     crate::queries::issue_runs(sessions.iter(), &me, issue_id)
         .into_iter()
-        .map(|session| {
-            let label =
-                crate::queries::session_device_presentation(session, devices.iter(), now * 1_000)
-                    .label;
-            crate::work_header::RunEntry {
-                id: session.id.clone(),
-                label: issue_run_label(session, label.as_deref(), now),
-                live: crate::queries::is_live_run_status(session),
-            }
-        })
+        .map(|session| run_entry(session, devices.iter(), now))
         .collect()
+}
+
+/// EXP-974: the Run item's menu rows for an ISSUE-LESS run (chat / action /
+/// batch) — `session_id`'s resume chain ([`crate::queries::run_chain`]: the
+/// same run under every row that continued it), NEWEST FIRST like an issue's
+/// runs, each labelled [`issue_run_label`]. A run nothing resumed and that
+/// resumed nothing is a one-row menu, which the toggle shows no caret for.
+/// Empty when signed out or before the store exists.
+pub(crate) fn chain_run_entries(session_id: &str, cx: &App) -> Vec<crate::work_header::RunEntry> {
+    let Some(me) = crate::queries::active_account(cx).map(|account| account.user_id) else {
+        return Vec::new();
+    };
+    let Some(store) = sync::Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let now = chrono::Utc::now().timestamp();
+    let sessions = store.collections().coding_sessions.read(cx);
+    let devices = store.collections().devices.read(cx);
+    let mut chain = crate::queries::run_chain(
+        sessions
+            .iter()
+            .filter(|session| session.user_id.as_deref() == Some(me.as_str())),
+        session_id,
+    );
+    chain.reverse();
+    chain
+        .into_iter()
+        .map(|session| run_entry(session, devices.iter(), now))
+        .collect()
+}
+
+/// One [`crate::work_header::RunEntry`] for a run: the machine's current
+/// label ([`crate::queries::session_device_presentation`]) and
+/// [`issue_run_label`], live-status runs marked.
+fn run_entry<'a>(
+    session: &domain::rows::CodingSession,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    now: i64,
+) -> crate::work_header::RunEntry {
+    let label = crate::queries::session_device_presentation(session, devices, now * 1_000).label;
+    crate::work_header::RunEntry {
+        id: session.id.clone(),
+        label: issue_run_label(session, label.as_deref(), now),
+        live: crate::queries::is_live_run_status(session),
+    }
 }
 
 /// When a past run finished: its `ended_at`, else the last `updated_at` (a
