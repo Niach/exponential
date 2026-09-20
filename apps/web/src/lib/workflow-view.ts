@@ -63,7 +63,6 @@ const STATE_LABELS: Record<string, string> = {
   landed: `Landed`,
   failed: `Failed`,
   skipped: `Skipped`,
-  paused: `Paused`,
 }
 
 const KIND_LABELS: Record<string, string> = {

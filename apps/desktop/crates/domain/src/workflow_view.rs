@@ -101,7 +101,7 @@ pub fn workflow_cycle_note(metrics: &WorkflowShape) -> Option<String> {
     ))
 }
 
-const STATE_LABELS: [(&str, &str); 11] = [
+const STATE_LABELS: [(&str, &str); 10] = [
     ("proposed", "Proposed"),
     ("blocked", "Blocked"),
     ("ready", "Ready"),
@@ -112,7 +112,6 @@ const STATE_LABELS: [(&str, &str); 11] = [
     ("landed", "Landed"),
     ("failed", "Failed"),
     ("skipped", "Skipped"),
-    ("paused", "Paused"),
 ];
 
 const KIND_LABELS: [(&str, &str); 3] = [

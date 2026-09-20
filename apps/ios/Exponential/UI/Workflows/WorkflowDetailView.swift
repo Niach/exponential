@@ -923,11 +923,8 @@ struct WorkflowNodeSheet: View {
                 }
             }
 
-            // A node an older build paused takes the same two ways out as a
-            // failed one — Retry resumes it.
-            if !node.isProposed,
-               node.state == DomainContract.wfNodeStateFailed
-                || node.state == DomainContract.wfNodeStatePaused {
+            // A failed node's two ways out.
+            if !node.isProposed, node.state == DomainContract.wfNodeStateFailed {
                 HStack(spacing: 8) {
                     GlassPill(
                         WorkflowView.retryNodeLabel,

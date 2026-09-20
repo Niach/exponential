@@ -1083,14 +1083,8 @@ private fun WorkflowNodeSheet(
                         modifier = Modifier.testTag("workflow-node-withdraw"),
                     )
                 }
-                // A node an older build paused resumes on the same Retry a
-                // failed one takes.
-                if (!isProposed &&
-                    (
-                        node.state == DomainContract.wfNodeStateFailed ||
-                            node.state == DomainContract.wfNodeStatePaused
-                        )
-                ) {
+                // A failed node's two ways out.
+                if (!isProposed && node.state == DomainContract.wfNodeStateFailed) {
                     GlassPill(
                         WorkflowView.RETRY_NODE_LABEL,
                         icon = ExpIcons.uiRefresh,

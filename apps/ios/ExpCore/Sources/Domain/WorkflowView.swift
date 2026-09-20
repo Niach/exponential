@@ -66,7 +66,6 @@ public enum WorkflowView {
         "landed": "Landed",
         "failed": "Failed",
         "skipped": "Skipped",
-        "paused": "Paused",
     ]
 
     private static let kindLabels: [String: String] = [

@@ -1231,8 +1231,8 @@ export function WorkflowNodePanel({
           </Button>
         </div>
       )}
-      {/* A node an older build paused is resolved the same way as a failure. */}
-      {!proposed && (node.state === `failed` || node.state === `paused`) && (
+      {/* A failed node's two ways out. */}
+      {!proposed && node.state === `failed` && (
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"

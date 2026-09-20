@@ -597,14 +597,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // already resolved, are both left exactly where they are.
     let mut mirrored: Vec<Mirrored<'_>> = Vec::with_capacity(order.len());
     for node in &order {
-        // A `paused` node is settled until a person retries it — the mirror
-        // would otherwise read its still-open pull request and put it straight
-        // back into the run. Nothing pauses a node any more (budgets are
-        // gone), but rows paused by an older build still read this way.
-        if is_final(&node.state)
-            || node.state == STATE_PAUSED
-            || snapshot.in_flight.contains(&node.id)
-        {
+        if is_final(&node.state) || snapshot.in_flight.contains(&node.id) {
             mirrored.push(Mirrored {
                 node,
                 state: node.state.clone(),
@@ -1127,9 +1120,6 @@ fn is_ancestor(blockers: &HashMap<&str, Vec<&str>>, ancestor: &str, node: &str) 
     false
 }
 
-/// contract `wfNodeState` — ORPHANED with the budgets that produced it; kept
-/// because rows an older build paused are still in the table.
-const STATE_PAUSED: &str = "paused";
 /// contract `wfGate` — every node's pull request gets an AGENT review.
 const GATE_AGENT: &str = "agent";
 /// contract `wfReviewVerdict`.

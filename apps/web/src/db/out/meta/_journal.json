@@ -946,6 +946,13 @@
       "when": 1789915720551,
       "tag": "0134_drop_workflow_node_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1789915721551,
+      "tag": "0135_drop_workflow_node_paused",
+      "breakpoints": true
     }
   ]
 }

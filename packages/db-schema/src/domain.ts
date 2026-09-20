@@ -969,7 +969,6 @@ export const wfNodeStateValues = [
   `landed`,
   `failed`,
   `skipped`,
-  `paused`,
 ] as const
 export const wfNodeKindValues = [`contract`, `leaf`, `integration`] as const
 export const wfGateValues = [`none`, `agent`, `human`] as const

@@ -649,35 +649,6 @@
     ]
   },
   {
-    "name": "a node an older build paused is left exactly where a person left it",
-    "snapshot": {
-      "workflow": {
-        "id": "abcdef12-3456-7890-abcd-ef1234567890",
-        "status": "running",
-        "gate": "none",
-        "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
-      },
-      "nodes": [
-        {
-          "id": "a",
-          "issueId": "i-a",
-          "kind": "leaf",
-          "state": "paused",
-          "wave": 0,
-          "lane": 0,
-          "sessionId": "s-a",
-          "budget": { "minutes": 30 }
-        }
-      ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true, "startedAtMs": 998140000 } },
-      "integrationBranchExists": true,
-      "nowMs": 1000000000
-    },
-    "expected": []
-  },
-  {
     "name": "rule 7: an approval of an older head is stale, the current head is reviewed instead of landed",
     "snapshot": {
       "workflow": {

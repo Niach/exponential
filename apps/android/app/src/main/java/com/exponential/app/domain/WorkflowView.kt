@@ -85,7 +85,6 @@ object WorkflowView {
         DomainContract.wfNodeStateLanded to "Landed",
         DomainContract.wfNodeStateFailed to "Failed",
         DomainContract.wfNodeStateSkipped to "Skipped",
-        DomainContract.wfNodeStatePaused to "Paused",
     )
 
     private val KIND_LABELS = mapOf(
