@@ -53,6 +53,7 @@ pub mod clone_manager;
 pub mod codex_app_server;
 pub mod codex_sessions;
 pub mod codex_trust;
+pub mod device_mcp_servers;
 pub mod doctor;
 pub mod git_credentials;
 pub mod git_worktree;

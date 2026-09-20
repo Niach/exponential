@@ -36,7 +36,7 @@ use std::path::{Path, PathBuf};
 /// `CLAUDE_CONFIG_DIR`, the launcher passes it), else
 /// `$CLAUDE_CONFIG_DIR/.claude.json` when set, else `$HOME/.claude.json`
 /// (claude relocates all of its state under `CLAUDE_CONFIG_DIR`).
-fn claude_config_path(config_dir: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn claude_config_path(config_dir: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = config_dir {
         return Some(dir.join(".claude.json"));
     }
