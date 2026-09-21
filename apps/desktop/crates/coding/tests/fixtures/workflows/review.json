@@ -435,6 +435,102 @@
     "expected": [{ "kind": "startReview", "nodeId": "a", "adversarial": false }]
   },
   {
+    "name": "rule 7: a codex workflow's adversarial review swaps inside the codex models",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "agent": "codex",
+        "authorModel": "gpt-5.6-sol",
+        "riskModel": "gpt-5.6-luna"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-sol", "adversarial": true }]
+  },
+  {
+    "name": "rule 7: a codex workflow's adversarial review with no models at all picks a codex one",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "agent": "codex"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-sol", "adversarial": true }]
+  },
+  {
+    "name": "rule 7: a codex author on sol is reviewed on luna",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "agent": "codex",
+        "authorModel": "gpt-5.6-sol"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
+  },
+  {
     "name": "rule 7: ONE review start per pass, in landing order",
     "snapshot": {
       "workflow": {

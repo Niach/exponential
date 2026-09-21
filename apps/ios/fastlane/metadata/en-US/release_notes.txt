@@ -1,8 +1,4 @@
-- Workflows: plan a set of backlog issues of one repository as a graph of what blocks what, and let a device run them in parallel; Workflows sits behind a button on the Agent page
-- A workflow lands its own work: nodes start as their blockers land, pull requests merge in dependency order into the workflow's branch, and one final pull request carries the whole diff
-- Workflows check themselves: a separate run reviews every pull request, a follow-up issue can join a workflow while it runs, and a node over its budget pauses and waits for you
-- Sub-issues and blockers in every list: a sub-issue sits under its parent on a connector line, and one badge counts what blocks a row and opens the dependency graph
-- Starting a blocked issue shows the whole chain and offers Cancel, Start anyway or a stacked pull request, and says why a stack is not possible
-- A coding run that hits a rate limit sends you a push and an inbox row that opens it; turn it off under notification settings, Blocked runs
-- On the Agent page past runs moved behind a history button, and the chat and New issue buttons sit in the tab bar on every tab
-- The board switcher lists teams and boards only, and a run opened from an issue no longer shows an empty screen until you drag it
+- Workflows: a node whose run is live wears that run's own status dot, and a Running now strip above the waves opens each live run in one tap
+- Workflows can run their contract, integration and high risk nodes on their own models (picked on the web or the desktop app), and editing a workflow on the phone keeps those picks
+- The issue badge in a node's sheet opens the issue; node budgets and the paused node state are gone
+- A workflow no longer stalls when a node's pull request is merged outside of it, and a node that fails to start is retried once instead of endlessly

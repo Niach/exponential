@@ -2,6 +2,7 @@ import { useMemo } from "react"
 import { conceptIcon, LiveDot } from "@exp/ui"
 import { RunningIndicator } from "@/components/agent-session-row"
 import type { SessionDisplayState } from "@/lib/coding-session-display"
+import type { WorkflowNodeRun } from "@/lib/workflow-run"
 import type { Issue, WorkflowNode } from "@/db/schema"
 import { WaveGraph } from "@/components/issue-graph"
 import {
@@ -53,16 +54,6 @@ const LANE_GAP = 14
 const EDGE_AIR = 4
 const EDGE_OUT = { x: NODE_W / 2 + NODE_CIRCLE / 2 + EDGE_AIR, y: NODE_CIRCLE / 2 }
 const EDGE_IN = { x: NODE_W / 2 - NODE_CIRCLE / 2 - EDGE_AIR, y: NODE_CIRCLE / 2 }
-
-/** One node's coding session as the graph reads it (`workflowNodeRuns`). */
-export interface WorkflowNodeRun {
-  sessionId: string
-  /** Still up (`running` / `in_review`). */
-  live: boolean
-  state: SessionDisplayState
-  /** The agent is mid-turn: the dot pings. */
-  working: boolean
-}
 
 /** The caption's paint per `workflowNodeTone` (amber = a person is needed). */
 const TONE_CLASS: Record<WorkflowNodeTone, string> = {

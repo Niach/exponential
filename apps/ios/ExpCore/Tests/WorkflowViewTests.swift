@@ -564,6 +564,91 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertEqual(WorkflowMetrics.parse(nil), WorkflowMetrics())
     }
 
+    // EXP-1002: the three phase pins decode when present and stay nil when
+    // absent or null — a launch an older server wrote is still a launch.
+    func testThePhaseModelsDecodeWithAndWithoutTheirKeys() {
+        let pinned = WorkflowLaunch.parse(
+            #"{"agent":"claude","model":"opus","contractModel":"fable","integrationModel":"sonnet","riskModel":"haiku"}"#
+        )
+        XCTAssertEqual(pinned.contractModel, "fable")
+        XCTAssertEqual(pinned.integrationModel, "sonnet")
+        XCTAssertEqual(pinned.riskModel, "haiku")
+        XCTAssertEqual(pinned.model, "opus")
+
+        let absent = WorkflowLaunch.parse(#"{"agent":"claude","model":"opus"}"#)
+        XCTAssertNil(absent.contractModel)
+        XCTAssertNil(absent.integrationModel)
+        XCTAssertNil(absent.riskModel)
+
+        let nulled = WorkflowLaunch.parse(
+            #"{"contractModel":null,"integrationModel":null,"riskModel":null,"effort":"high"}"#
+        )
+        XCTAssertNil(nulled.contractModel)
+        XCTAssertNil(nulled.integrationModel)
+        XCTAssertNil(nulled.riskModel)
+        XCTAssertEqual(nulled.effort, "high")
+    }
+
+    // The phone has no picker for the phase pins, so what keeps them alive is
+    // the copy-and-edit every setter does: editing another field and encoding
+    // the result must hand the server the same three values back.
+    func testEditingAnotherLaunchFieldPreservesThePhaseModels() throws {
+        var launch = WorkflowLaunch.parse(
+            #"{"agent":"claude","contractModel":"fable","integrationModel":"sonnet","riskModel":"haiku","maxParallel":2}"#
+        )
+        launch.effort = "high"
+        launch.maxParallel = 4
+
+        let data = try JSONEncoder().encode(launch)
+        let decoded = try JSONDecoder().decode(WorkflowLaunch.self, from: data)
+        XCTAssertEqual(decoded, launch)
+        XCTAssertEqual(decoded.contractModel, "fable")
+        XCTAssertEqual(decoded.integrationModel, "sonnet")
+        XCTAssertEqual(decoded.riskModel, "haiku")
+        XCTAssertEqual(decoded.effort, "high")
+        XCTAssertEqual(decoded.maxParallel, 4)
+    }
+
+    // The wire contract of `workflows.update`: for the three phase pins an
+    // ABSENT key means "keep the stored value", so this client always sends
+    // them — an explicit null when unset — while every other unset field stays
+    // omitted.
+    func testTheUpdatePayloadNamesThePhaseModelsExplicitly() throws {
+        func launchObject(_ launch: WorkflowLaunch) throws -> [String: Any] {
+            let input = WorkflowUpdateInput(id: "wf-1", patch: WorkflowPatch(launch: launch))
+            let root = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? [String: Any]
+            )
+            XCTAssertEqual(root["id"] as? String, "wf-1")
+            return try XCTUnwrap(root["launch"] as? [String: Any])
+        }
+
+        let unset = try launchObject(WorkflowLaunch(agent: "codex", maxParallel: 3))
+        for key in ["contractModel", "integrationModel", "riskModel"] {
+            XCTAssertTrue(unset[key] is NSNull, "\(key) must ride as an explicit null")
+        }
+        XCTAssertEqual(unset["agent"] as? String, "codex")
+        XCTAssertEqual(unset["maxParallel"] as? Int, 3)
+        XCTAssertNil(unset["model"])
+        XCTAssertNil(unset["effort"])
+        XCTAssertNil(unset["reviewModel"])
+
+        let pinned = try launchObject(WorkflowLaunch(
+            agent: "claude", contractModel: "fable", riskModel: "opus"
+        ))
+        XCTAssertEqual(pinned["contractModel"] as? String, "fable")
+        XCTAssertTrue(pinned["integrationModel"] is NSNull)
+        XCTAssertEqual(pinned["riskModel"] as? String, "opus")
+
+        // A patch that does not touch `launch` sends no launch at all.
+        let nameOnly = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(
+                WorkflowUpdateInput(id: "wf-1", patch: WorkflowPatch(name: "Renamed"))
+            )) as? [String: Any]
+        )
+        XCTAssertNil(nameOnly["launch"])
+    }
+
     // EXP-984: the review payload and the open counter set go the same way —
     // an unknown key is ignored, a missing one defaults, and a payload that
     // names no verdict is no review at all rather than a blank block.

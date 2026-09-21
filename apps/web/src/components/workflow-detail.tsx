@@ -642,6 +642,17 @@ function MetricsSection({ metrics }: { metrics: Record<string, unknown> }) {
   )
 }
 
+/** The launch as the web sends it: every EXP-1002 phase pin explicit, `null`
+ *  when unset (the server keeps a pin whose key is absent). */
+export function explicitPhasePins(launch: WorkflowLaunch): WorkflowLaunch {
+  return {
+    ...launch,
+    contractModel: launch.contractModel ?? null,
+    integrationModel: launch.integrationModel ?? null,
+    riskModel: launch.riskModel ?? null,
+  }
+}
+
 /** The start configuration, persisted field by field with `workflows.update`.
  *  Same vocabulary as the Agent composer's options line — device, agent,
  *  model, subagent model (claude), effort, account — plus the workflow's own
@@ -664,8 +675,11 @@ function HowItRunsSection({
   )
   const launch = workflow.launch ?? {}
   const agent = launch.agent || contract.codingAgent.values[0]!
+  // `workflows.update` replaces the launch whole, EXCEPT the three phase pins:
+  // there an ABSENT key means "keep what is stored" (older clients never send
+  // them), so this sender always names all three — `null` is how one clears.
   const patchLaunch = (patch: Partial<WorkflowLaunch>) =>
-    void onSave({ launch: { ...launch, ...patch } })
+    void onSave({ launch: explicitPhasePins({ ...launch, ...patch }) })
 
   // The machine's logins for the picked agent, the active one first — the
   // composer's rule (EXP-825/849), read straight off the heartbeat.

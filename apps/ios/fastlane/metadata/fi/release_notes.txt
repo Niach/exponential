@@ -1,8 +1,4 @@
-- Workflows: suunnittele yhden repositorion backlogin issuet graafiksi siitä mikä estää mitä, ja anna laitteen ajaa ne rinnakkain; Workflows on Agent-sivun painikkeen takana
-- Workflow vie työnsä itse maaliin: solmut käynnistyvät kun niiden estäjät laskeutuvat, pull requestit yhdistetään riippuvuusjärjestyksessä workflow'n haaraan, ja yksi lopullinen pull request kantaa koko diffin
-- Workflow tarkistaa itsensä: erillinen ajo käy läpi jokaisen pull requestin, jatkoissue voi liittyä mukaan kesken kaiken, ja budjettinsa ylittänyt solmu pysähtyy odottamaan sinua
-- Aliissuet ja estäjät joka listalla: aliissue asettuu vanhempansa alle yhdysviivalle, ja yksi merkki laskee mikä riviä estää ja avaa riippuvuusgraafin
-- Estetyn issuen käynnistys näyttää koko ketjun ja tarjoaa Cancel, Start anyway tai pinotun pull requestin, ja kertoo miksi pino ei onnistu
-- Rajaansa törmännyt ajo lähettää sinulle pushin ja rivin postilaatikkoon, joka avaa sen; sen sammutat ilmoitusasetuksista kohdasta Blocked runs
-- Agent-sivulla menneet ajot siirtyivät historiapainikkeen taakse, ja chatin ja New issue -painikkeet ovat välilehtipalkissa joka välilehdellä
-- Boardin valitsin listaa vain tiimit ja boardit, eikä issuesta avattu ajo näytä enää tyhjää ruutua ennen kuin vedät sitä
+- Workflows: solmu, jonka ajo on käynnissä, kantaa juuri sen ajon omaa tilapistettä, ja aaltojen yläpuolinen Running now -palkki avaa jokaisen elävän ajon yhdellä napautuksella
+- Workflow voi ajaa sopimus-, integraatio- ja korkean riskin solmunsa omilla malleillaan (valitset ne webissä tai työpöytäsovelluksessa), ja workflow'n muokkaus puhelimella säilyttää nuo valinnat
+- Solmun paneelissa oleva issue-merkki avaa issuen; solmubudjetit ja solmun pysäytetty tila ovat poissa
+- Workflow ei enää jumitu, kun solmun pull request yhdistetään sen ulkopuolella, ja solmu, jonka käynnistys epäonnistuu, yritetään uudelleen kerran loputtoman sijaan

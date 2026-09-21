@@ -681,7 +681,10 @@ private fun HowItRunsSection(
             selected = agent,
             optionLabel = ::agentLabel,
             enabled = enabled,
-            onSelect = { next -> onLaunchChange { it.copy(agent = next, model = "", effort = "") } },
+            onSelect = { next ->
+                // The phase pins are models of the OLD agent too.
+                onLaunchChange { it.copy(agent = next, model = "", effort = "").withoutPhaseModels() }
+            },
         )
         GroupDivider()
         PickerRow(

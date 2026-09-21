@@ -45,11 +45,8 @@ describe(`screenFromPath`, () => {
       boardSlug: `web`,
       identifier: `MET-12`,
     })
-    // Full pages and anything outside a team are context-free — EXP-870's two
-    // legacy redirect routes included (they never render a page of their own).
+    // Full pages and anything outside a team are context-free.
     for (const path of [
-      `/t/acme/boards/web/issues/MET-12/session`,
-      `/t/acme/sessions/s1/issue`,
       `/t/acme/devices`,
       `/t/acme/reviews/MET-3`,
       `/t/acme/settings/general`,
@@ -206,10 +203,8 @@ describe(`formatOrigin / parseOrigin`, () => {
     expect(formatOrigin(null)).toBeUndefined()
     // EXP-818's spelling of the Agent list still parses.
     expect(parseOrigin(`sessions`)).toEqual({ kind: `agent` })
-    // EXP-870: the retired issue origin reads as its board's list.
-    expect(parseOrigin(`issue:web:MET-12`)).toEqual(board)
-    expect(formatOrigin(parseOrigin(`issue:web:MET-12`))).toBe(`board:web`)
-    // Junk is no origin at all.
+    // Junk is no origin at all — the retired `issue:` origin included.
+    expect(parseOrigin(`issue:web:MET-12`)).toBeNull()
     expect(parseOrigin(``)).toBeNull()
     expect(parseOrigin(`board:`)).toBeNull()
     expect(parseOrigin(`nope`)).toBeNull()
@@ -346,9 +341,6 @@ describe(`sidebarOccupant`, () => {
       `/t/acme/reviews`,
       `/t/acme/devices`,
       `/t/acme/boards/web`,
-      // EXP-870: the legacy redirects are not details.
-      `/t/acme/boards/web/issues/MET-12/session`,
-      `/t/acme/sessions/s1/issue`,
       `/onboarding`,
     ]) {
       expect(sidebarOccupant(path, `inbox`), path).toEqual({ kind: `main` })
@@ -395,10 +387,6 @@ describe(`originListNavigation`, () => {
 
   it(`leaves the no-origin fallback to the caller`, () => {
     expect(originListNavigation(`acme`, null)).toBeNull()
-    // A legacy issue token goes back to its board.
-    expect(
-      originListNavigation(`acme`, parseOrigin(`issue:web:MET-12`))?.params
-    ).toEqual({ teamSlug: `acme`, boardSlug: `web` })
   })
 })
 

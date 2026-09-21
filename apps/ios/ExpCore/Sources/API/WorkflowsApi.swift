@@ -152,7 +152,9 @@ private struct CreateInput: Encodable {
 /// A partial `workflows.update`: an OMITTED field keeps what the row has,
 /// while `deviceId` is CLEARABLE — a nested optional, so `.some(nil)` sends an
 /// explicit null ("no runner bound"). `launch` is replaced WHOLE: the server
-/// stores the object it receives, so an omitted key inside it IS unset.
+/// stores the object it receives, so an omitted key inside it IS unset —
+/// except the three EXP-1002 phase pins (`contractModel`, `integrationModel`,
+/// `riskModel`), which `WorkflowLaunch` always sends explicitly (null = clear).
 public struct WorkflowPatch: Sendable, Equatable {
     public var name: String?
     public var deviceId: String??

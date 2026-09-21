@@ -310,6 +310,93 @@
     "expected": [{ "kind": "landNode", "nodeId": "a" }]
   },
   {
+    "name": "rule 1: a merged PR lands the node while its run is still live (EXP-1007)",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "running",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "merged" } },
+      "sessions": { "s-a": { "live": true, "agentBusy": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+  },
+  {
+    "name": "rule 1: a merged PR lands a node parked on a question",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "human",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "waiting",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "merged" } },
+      "sessions": { "s-a": { "live": true, "needsInput": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+  },
+  {
+    "name": "rule 1: a merged PR of a live in_review node lands ONCE, the train does not repeat it",
+    "snapshot": {
+      "workflow": {
+        "id": "wf-1",
+        "status": "running",
+        "gate": "none",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 0
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a",
+          "attempt": 1
+        }
+      ],
+      "issues": { "i-a": { "prState": "merged" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "landNode", "nodeId": "a" }]
+  },
+  {
     "name": "rule 1: a session this device has not synced decides nothing",
     "snapshot": {
       "workflow": {

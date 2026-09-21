@@ -1,8 +1,4 @@
-- Workflows: sadu issues z backlogu jedného repozitára naplánuješ ako graf toho, čo čo blokuje, a necháš zariadenie, nech ich beží súbežne; Workflows sedí za tlačidlom na stránke Agent
-- Workflow si svoju prácu dotiahne sám: uzly štartujú, len čo dobehnú ich blokátory, pull requesty sa zlučujú v poradí závislostí do vetvy workflow a jeden záverečný pull request nesie celý diff
-- Workflow sa kontroluje sám: každý pull request prejde zvláštnym behom recenzie, nadväzujúce issue sa môže pridať za behu a uzol cez rozpočet sa pozastaví a počká na teba
-- Pod-issues a blokátory v každom zozname: pod-issue sedí pod svojím rodičom na spojnici a jeden odznak počíta, čo riadok blokuje, a otvorí graf závislostí
-- Spustenie blokovaného issue ukáže celú reťaz a ponúkne Cancel, Start anyway alebo naskladaný pull request, a povie, prečo stack nejde
-- Beh, ktorý narazí na limit, ti pošle push a riadok v schránke, ktorý ho otvorí; vypneš to v nastaveniach notifikácií pri Blocked runs
-- Na stránke Agent sa minulé behy presunuli za tlačidlo histórie a tlačidlá chatu a New issue sedia v lište kariet na každej karte
-- Prepínač boardov vypisuje len tímy a boardy a beh otvorený z issue už neukáže prázdnu obrazovku, kým ním nepohneš
+- Workflows: uzol, ktorého beh práve beží, nosí stavovú bodku toho behu a pruh Running now nad vlnami otvorí každý živý beh jedným ťuknutím
+- Workflows vedia pustiť svoje kontraktové, integračné a vysoko rizikové uzly na vlastných modeloch (vyberieš ich na webe alebo v desktopovej aplikácii) a úprava workflow na telefóne ti tieto voľby zachová
+- Odznak issue v paneli uzla otvorí issue; rozpočty uzlov a pozastavený stav uzla sú preč
+- Workflow sa už nezasekne, keď sa pull request uzla zlúči mimo neho, a uzol, ktorý sa nepodarí naštartovať, sa skúsi ešte raz namiesto donekonečna

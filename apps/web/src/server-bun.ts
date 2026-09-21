@@ -51,6 +51,7 @@ import {
   captureReturnVisit,
 } from "@/lib/conversion/capture"
 import { MAX_REQUEST_BODY_BYTES } from "@/lib/request-body-limit"
+import { buildSecurityHeaders } from "@/lib/security-headers"
 import {
   classifyRequestPath,
   recordRequest,
@@ -132,31 +133,12 @@ const key = process.env.NITRO_SSL_KEY
 const nitroApp = useNitroApp()
 const securityHeadersEnabled = process.env.SECURITY_HEADERS_ENABLED === `true`
 
-// Conservative CSP that allows TanStack Start's inline hydration script,
-// Google OAuth redirects (image avatars from googleusercontent), and
-// Electric long-poll requests against the same origin. Tightening to
-// nonce-based scripts requires a Start-internal change and is left as
-// follow-up. The dogfood feedback widget is cloud-only and same-origin
-// ('self' covers it); self-hosted instances redirect to the cloud feedback
-// board instead of embedding, so no external script-src entry is needed.
-const SECURITY_HEADERS: Record<string, string> = {
-  "Content-Security-Policy": [
-    `default-src 'self'`,
-    `script-src 'self' 'unsafe-inline'`,
-    `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`,
-    `img-src 'self' data: blob: https://*.googleusercontent.com`,
-    `font-src 'self' data: https://fonts.gstatic.com`,
-    `connect-src 'self' https: wss:`,
-    `frame-src 'self' https://accounts.google.com`,
-    `frame-ancestors 'none'`,
-    `base-uri 'self'`,
-    `form-action 'self' https://accounts.google.com`,
-  ].join(`; `),
-  "Referrer-Policy": `strict-origin-when-cross-origin`,
-  "X-Content-Type-Options": `nosniff`,
-  "X-Frame-Options": `SAMEORIGIN`,
-  "Strict-Transport-Security": `max-age=63072000; includeSubDomains`,
-}
+// The header set itself (CSP, HSTS, …) and its per-deploy variations live in
+// `lib/security-headers.ts`, where they are unit-tested.
+const SECURITY_HEADERS = buildSecurityHeaders({
+  CLOUD_INSTANCE: process.env.CLOUD_INSTANCE,
+  BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
+})
 
 function withSecurityHeaders(response: Response): Response {
   if (!securityHeadersEnabled) return response

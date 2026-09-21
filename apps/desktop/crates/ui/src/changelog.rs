@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-21-release-train",
+    date: "2026-09-21",
+    title: "Release train 2026-09-21",
+    summary: "A clearer workflow graph with live-run markers, a model per workflow phase, and a workflow that no longer stalls on a merge made outside of it.",
+    body: r#"- **Workflow graph**: nodes are circles in their state's ring, edges gather into one bus between the waves, a node whose run is live wears that run's own dot, and a Running now strip opens each live run in one tap on every client.
+- **A model per phase**: a workflow runs its contract, integration and high risk nodes on their own models; new workflows start on the shipped split, and an edit from a phone or an older app keeps the picks.
+- **Workflows that keep moving**: a node whose pull request was merged outside the workflow lands instead of blocking it, also while its run is still open, a failed start is retried once and then waits for you, and git network calls run under a deadline. Node budgets and the paused node state are gone.
+- **Self-hosting**: the published image sends its security headers by default, without pinning your sibling subdomains to https and with room for your identity provider's avatars.
+- **Android**: the Drafts tab shows again on Inbox and My Issues, also on devices that had already lost it."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-release-train",
     date: "2026-09-19",
     title: "Release train 2026-09-19",
@@ -54,19 +68,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Phones**: the tab bar shows the Agents and New issue buttons on every tab, the Agent page keeps past runs behind a history button, and the board switcher lists teams and boards only.
 - **Review fixes**: a workflow dependent can no longer be merged into your default branch behind the final pull request, a node's approval is bound to the reviewer run and the commit it reviewed, the metrics beat is recorded again, a skipped node's issue no longer moves to done with the final pull request, and a stacked start refuses a blocking cycle that runs through a closed issue.
 - **Cleanup**: batch runs are named from their stored issue list on every client (older runs were backfilled), the staleness sweep only deletes runs whose machine is gone, and retired external-agent run records are dropped when the desktop app or CLI loads them."#,
-};
-
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-19-workflows-review-gate",
-    date: "2026-09-19",
-    title: "Workflows review themselves, grow while they run, and keep to a budget",
-    summary: "An agent review gate backed by real checks, follow-up issues that join a running workflow, per-node budgets and a metrics section.",
-    body: r#"- **Agent review**: with the Agent review gate every pull request of a workflow is reviewed by a separate run that never sees the author's reasoning. It reads the issue and the diff, runs the tests, and says what is wrong and where. An approval counts only when the checks it ran passed; otherwise it is advice and you still approve. High risk nodes get an adversarial reviewer on a different model. After three rounds without agreement the node waits for you, and the contract always does.
-- **Workflows that grow**: a follow-up issue a run files and links behind its own work joins the running workflow by itself. One that would change what existing nodes wait for shows up dashed as a proposal you admit or dismiss.
-- **Budgets**: give a node a limit in minutes or tokens. A run that goes over is paused, you get a notification, and Retry picks it up again.
-- **Metrics**: every started workflow shows how deep its critical path is for its size, how many merge-ins a contract change caused, how often runs escalated and how many of those were duplicates, the minutes it waited for you, and how many defects the checks found compared to the agent review."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

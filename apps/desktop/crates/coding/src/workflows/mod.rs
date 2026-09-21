@@ -128,6 +128,11 @@ pub struct WorkflowFacts {
     pub final_pr_url: Option<String>,
     /// `launch.maxParallel`, or the contract default.
     pub max_parallel: usize,
+    /// `launch.agent` (contract `codingAgent`) — the agent EVERY run of this
+    /// workflow spawns on, its reviews included. Absent = claude. It names
+    /// the model family an adversarial review swaps inside.
+    #[serde(default)]
+    pub agent: Option<String>,
     /// EXP-984: `launch.reviewModel` — what an agent review runs on. Absent
     /// = the author's own model, unless the node is adversarial.
     #[serde(default)]
@@ -171,6 +176,7 @@ impl Default for WorkflowFacts {
             final_pr_url: None,
             max_parallel: 0,
             start_on: start_on_landed(),
+            agent: None,
             review_model: None,
             author_model: None,
             contract_model: None,
@@ -806,10 +812,16 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // already landing one. The train is strict order among LANDABLE nodes —
     // a node still waiting for a person, for a blocker or for the sibling it
     // has to merge in never blocks a landable one behind it.
-    let landing = mirrored.iter().any(|entry| {
-        snapshot.in_flight.contains(&entry.node.id)
-            && (entry.state == "in_review" || entry.state == "updating")
-    });
+    // A land the mirror already asked for (a pull request merged behind our
+    // back) IS this pass's land: its node still reads `in_review` here, and
+    // the train would otherwise ask for the same one twice.
+    let landing = decisions
+        .iter()
+        .any(|decision| matches!(decision, Decision::LandNode { .. }))
+        || mirrored.iter().any(|entry| {
+            snapshot.in_flight.contains(&entry.node.id)
+                && (entry.state == "in_review" || entry.state == "updating")
+        });
     if !landing {
         let state_of: HashMap<&str, &str> = mirrored
             .iter()
@@ -1132,6 +1144,11 @@ const RISK_HIGH: &str = "high";
 /// The two contract claude models an adversarial review swaps between.
 const MODEL_OPUS: &str = "opus";
 const MODEL_FABLE: &str = "fable";
+/// contract `codingAgent` — the agent whose reviews swap inside `codexModel`.
+const AGENT_CODEX: &str = "codex";
+/// The two contract codex models an adversarial review swaps between.
+const MODEL_CODEX_SOL: &str = "gpt-5.6-sol";
+const MODEL_CODEX_LUNA: &str = "gpt-5.6-luna";
 /// contract `wfNodeKind` — the two phases that may pin their own model.
 const KIND_CONTRACT: &str = "contract";
 const KIND_INTEGRATION: &str = "integration";
@@ -1277,7 +1294,10 @@ fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool
 
 /// The model a review runs on: the workflow's pin, else the author's own.
 /// An ADVERSARIAL review must never be the author's model, so an equal pick
-/// swaps deterministically (`opus` ↔ `fable`; anything else → `opus`).
+/// swaps deterministically INSIDE the workflow agent's own family — the
+/// review keeps that agent, and a codex reviewer handed `opus` cannot start
+/// (claude: `opus` ↔ `fable`, anything else → `opus`; codex: `gpt-5.6-sol` ↔
+/// `gpt-5.6-luna`, anything else → `gpt-5.6-sol`).
 /// EXP-1002: "the author's" is the model THIS node ran on, phase pin and all
 /// — a high-risk contract node on its own model would otherwise be reviewed
 /// by the very model that wrote it.
@@ -1292,11 +1312,13 @@ fn review_model(snapshot: &Snapshot, node: &NodeFacts, adversarial: bool) -> Opt
     if !adversarial || picked != author {
         return picked;
     }
+    let codex = snapshot.workflow.agent.as_deref() == Some(AGENT_CODEX);
     Some(
-        match author.as_deref() {
-            Some(MODEL_OPUS) => MODEL_FABLE,
-            Some(MODEL_FABLE) => MODEL_OPUS,
-            _ => MODEL_OPUS,
+        match (codex, author.as_deref()) {
+            (false, Some(MODEL_OPUS)) => MODEL_FABLE,
+            (false, _) => MODEL_OPUS,
+            (true, Some(MODEL_CODEX_SOL)) => MODEL_CODEX_LUNA,
+            (true, _) => MODEL_CODEX_SOL,
         }
         .to_string(),
     )
@@ -1444,6 +1466,16 @@ fn desired_state(
         .issues
         .get(node.issue_id.as_str())
         .and_then(|issue| issue.pr_state.as_deref());
+    // EXP-1007: a merged pull request lands the node WHATEVER its run is
+    // doing. A merge does not always end the run (the team's
+    // `endSessionsOnMerge` off, `pr_merge({endSessions: false})`, a run that
+    // merged its OWN pull request), and a node that waited for the run to end
+    // first sat `running` / `waiting` for ever with its code already in. The
+    // server's `landNode` reads the merged state before its gate, and a
+    // landed node is final, so the mirror never looks at it again.
+    if pr_state == Some(domain::contract::PR_STATE_MERGED) {
+        return Some(Desired::Land);
+    }
     // GitHub refused to land this head and the run is merging the trunk in:
     // the node stays `updating` until its pull request MOVES (live or not —
     // the host's resume of an ended run is what moves it), and the train
@@ -1479,7 +1511,6 @@ fn desired_state(
     }
     match pr_state {
         Some("open") => Some(state("in_review")),
-        Some("merged") => Some(Desired::Land),
         // The run ended with nothing to review: one free retry, then a
         // person's call. `attempt` counts the starts so far (the first run
         // is attempt 1), so the retry is the second start.
@@ -1741,6 +1772,7 @@ mod tests {
                 final_pr_url: None,
                 max_parallel: 3,
                 start_on: START_ON_LANDED.to_string(),
+                agent: None,
                 review_model: None,
                 author_model: None,
                 contract_model: None,
@@ -1792,6 +1824,82 @@ mod tests {
         // Both are final, at least one landed: the pass goes straight to the
         // final pull request without touching either row.
         assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    }
+
+    /// EXP-1007: a merge that left the run UP (`endSessionsOnMerge` off,
+    /// `endSessions: false`, a run that merged its own pull request) still
+    /// lands the node — whatever the live run looks like, in every state a
+    /// run can hold a node in.
+    #[test]
+    fn a_merged_pull_request_lands_the_node_while_its_run_is_live() {
+        let sessions = [
+            SessionFacts { live: true, ..SessionFacts::default() },
+            SessionFacts { live: true, agent_busy: true, ..SessionFacts::default() },
+            SessionFacts { live: true, needs_input: true, ..SessionFacts::default() },
+            SessionFacts { live: true, blocked: true, ..SessionFacts::default() },
+            SessionFacts::default(),
+        ];
+        for state in ["running", "waiting", "in_review", "updating"] {
+            for session in &sessions {
+                let mut a = node("a", state, 0, 0);
+                a.session_id = Some("s-a".to_string());
+                a.attempt = 1;
+                let mut snapshot = running(vec![a, node("b", "ready", 0, 1)]);
+                snapshot.sessions.insert("s-a".to_string(), session.clone());
+                snapshot.issues.insert(
+                    "issue-a".to_string(),
+                    IssueFacts { pr_state: Some("merged".to_string()) },
+                );
+                let decisions = evaluate(&snapshot);
+                let lands: Vec<&Decision> = decisions
+                    .iter()
+                    .filter(|decision| matches!(decision, Decision::LandNode { .. }))
+                    .collect();
+                assert_eq!(
+                    lands,
+                    vec![&Decision::LandNode { node_id: "a".to_string() }],
+                    "{state} {session:?}: {decisions:?}"
+                );
+                assert!(
+                    !decisions.iter().any(|decision| matches!(
+                        decision,
+                        Decision::SetNodeState { node_id, .. } if node_id == "a"
+                    )),
+                    "a merged node is landed, never re-mirrored: {decisions:?}"
+                );
+            }
+        }
+    }
+
+    /// The land is asked for ONCE: not while the host is already on it, and
+    /// never again once the node is `landed` — its run may well still be up.
+    #[test]
+    fn a_merged_node_with_a_live_run_lands_once() {
+        let build = |state: &str| {
+            let mut a = node("a", state, 0, 0);
+            a.session_id = Some("s-a".to_string());
+            let mut snapshot = running(vec![a]);
+            snapshot.sessions.insert(
+                "s-a".to_string(),
+                SessionFacts { live: true, agent_busy: true, ..SessionFacts::default() },
+            );
+            snapshot.issues.insert(
+                "issue-a".to_string(),
+                IssueFacts { pr_state: Some("merged".to_string()) },
+            );
+            snapshot
+        };
+        let mut landing = build("running");
+        landing.in_flight.insert("a".to_string());
+        assert!(
+            !evaluate(&landing)
+                .iter()
+                .any(|decision| matches!(decision, Decision::LandNode { .. })),
+            "the host is mid-land"
+        );
+        // Landed: final. The live run changes nothing, the pass moves on to
+        // the final pull request.
+        assert_eq!(evaluate(&build("landed")), vec![Decision::OpenFinalPr]);
     }
 
     /// EXP-984 — a review branch is this workflow's, names its node's issue
@@ -2012,6 +2120,71 @@ mod tests {
             review_model(&snapshot, &risky, true).as_deref(),
             Some(MODEL_FABLE)
         );
+    }
+
+    /// A codex workflow's review runs on codex too (`launch_review` keeps the
+    /// workflow's agent), so its adversarial swap stays inside `codexModel`:
+    /// a claude alias there is a reviewer that cannot start.
+    #[test]
+    fn an_adversarial_review_swaps_inside_the_agents_own_models() {
+        let mut snapshot = running(vec![]);
+        snapshot.workflow.agent = Some(AGENT_CODEX.to_string());
+        snapshot.workflow.author_model = Some(MODEL_CODEX_SOL.to_string());
+        snapshot.workflow.risk_model = Some(MODEL_CODEX_LUNA.to_string());
+
+        let mut risky = node("a", "in_review", 0, 0);
+        risky.risk = RISK_HIGH.to_string();
+        // The codex defaults: a high-risk node wrote on luna, no review pin.
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_CODEX_SOL)
+        );
+        // Written on sol, reviewed on luna.
+        snapshot.workflow.risk_model = None;
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_CODEX_LUNA)
+        );
+        // No model at all (the device default), or one this build does not
+        // know: still a codex model, never a claude alias.
+        for author in [None, Some("gpt-5.6-terra"), Some("gpt-9")] {
+            snapshot.workflow.author_model = author.map(str::to_string);
+            assert_eq!(
+                review_model(&snapshot, &risky, true).as_deref(),
+                Some(MODEL_CODEX_SOL),
+                "{author:?}"
+            );
+        }
+        // A review that is not adversarial keeps the author's model, and an
+        // explicit pin that differs from it is left alone.
+        snapshot.workflow.author_model = Some(MODEL_CODEX_SOL.to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, false).as_deref(),
+            Some(MODEL_CODEX_SOL)
+        );
+        snapshot.workflow.review_model = Some("gpt-5.6-terra".to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some("gpt-5.6-terra")
+        );
+        // The swap words ARE contract `codexModel` / `codingModel` values.
+        for model in [MODEL_CODEX_SOL, MODEL_CODEX_LUNA] {
+            assert!(domain::contract::CODEX_MODEL_VALUES.contains(&model));
+        }
+        for model in [MODEL_OPUS, MODEL_FABLE] {
+            assert!(domain::contract::CODING_MODEL_VALUES.contains(&model));
+        }
+        assert!(domain::contract::CODING_AGENT_VALUES.contains(&AGENT_CODEX));
+        // And claude (named or absent) keeps its own pair.
+        snapshot.workflow.review_model = None;
+        for agent in [None, Some("claude")] {
+            snapshot.workflow.agent = agent.map(str::to_string);
+            snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+            assert_eq!(
+                review_model(&snapshot, &risky, true).as_deref(),
+                Some(MODEL_FABLE)
+            );
+        }
     }
 
     /// The DAG relation rule 5 skips: an ancestor through any chain of

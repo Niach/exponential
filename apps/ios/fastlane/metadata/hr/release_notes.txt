@@ -1,8 +1,4 @@
-- Workflows: skup issuea iz backloga jednog repozitorija isplaniraš kao graf onoga što što blokira i pustiš uređaj da ih izvodi usporedno; Workflows stoji iza gumba na stranici Agent
-- Workflow sam dovrši svoj posao: čvorovi kreću čim njihovi blokatori slete, pull requestovi se spajaju redom ovisnosti u granu workflowa, a jedan završni pull request nosi cijeli diff
-- Workflow se sam provjerava: zasebno izvođenje pregledava svaki pull request, naknadni issue može se uključiti u hodu, a čvor preko svog proračuna zastane i čeka tebe
-- Pod-issuei i blokatori u svakom popisu: pod-issue stoji ispod svog roditelja na spojnici, a jedna oznaka broji što blokira redak i otvara graf ovisnosti
-- Pokretanje blokiranog issuea pokazuje cijeli lanac i nudi Cancel, Start anyway ili složeni pull request, i kaže zašto stack nije moguć
-- Izvođenje koje udari u ograničenje pošalje ti push i redak u pristigloj pošti koji ga otvara; isključuje se u postavkama obavijesti, Blocked runs
-- Na stranici Agent prošla izvođenja preselila su se iza gumba povijesti, a gumbi za razgovor i New issue stoje u traci kartica na svakoj kartici
-- Birač boardova popisuje samo timove i boardove, a izvođenje otvoreno iz issuea više ne pokazuje prazan zaslon dok ga ne povučeš
+- Workflows: čvor čije izvođenje traje nosi statusnu točku baš tog izvođenja, a traka Running now iznad valova otvara svako živo izvođenje jednim dodirom
+- Workflows mogu vrtjeti svoje ugovorne, integracijske i visokorizične čvorove na vlastitim modelima (biraš ih na webu ili u desktop aplikaciji), a uređivanje workflowa na telefonu čuva te izbore
+- Oznaka issuea u panelu čvora otvara issue; proračuni čvorova i pauzirano stanje čvora nestali su
+- Workflow se više ne zaglavi kad se pull request čvora spoji izvan njega, a čvor koji se ne uspije pokrenuti pokuša se ponovno jednom umjesto beskonačno

@@ -776,12 +776,38 @@ pub(crate) fn git_output(
 /// long closed; with no bound that froze the workflow engine, which awaits
 /// its passes one after the other.
 fn network_timeout(args: &[&str]) -> Option<std::time::Duration> {
-    let seconds = match args.iter().find(|arg| !arg.starts_with('-'))? {
-        &"ls-remote" => 120,
-        &"fetch" | &"push" | &"pull" => 600,
+    let seconds = match git_subcommand(args)? {
+        "ls-remote" => 120,
+        "fetch" | "push" | "pull" => 600,
         _ => return None,
     };
     Some(std::time::Duration::from_secs(seconds))
+}
+
+/// The git SUBCOMMAND of an argv: the first word that is neither a global
+/// option nor the value of one. `-c k=v`, `-C <dir>` and the long options
+/// spelled with a separate value take the next word along; `--git-dir=<p>`
+/// is one token and needs nothing. Without this `["-c", "k=v", "fetch"]`
+/// read `k=v` as the subcommand and ran unbounded.
+fn git_subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+    const TAKES_VALUE: [&str; 6] = [
+        "-c",
+        "-C",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--config-env",
+    ];
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        if !arg.starts_with('-') {
+            return Some(arg);
+        }
+        if TAKES_VALUE.contains(arg) {
+            args.next();
+        }
+    }
+    None
 }
 
 /// `Command::output` with a deadline: `Ok(None)` = killed at `limit`. The
@@ -878,6 +904,20 @@ mod tests {
         assert!(network_timeout(&["push", "origin", "exp/EXP-1"]).is_some());
         assert!(network_timeout(&["clone", "url", "dir"]).is_none());
         assert!(network_timeout(&["rev-parse", "HEAD"]).is_none());
+    }
+
+    #[test]
+    fn a_global_options_value_is_not_the_subcommand() {
+        let bounded = |args: &[&str]| network_timeout(args).is_some();
+        assert!(bounded(&["-c", "credential.helper=", "fetch", "origin"]));
+        assert!(bounded(&["-C", "/repo", "-c", "k=v", "push", "origin", "exp/EXP-1"]));
+        assert!(bounded(&["--git-dir=/repo/.git", "ls-remote", "origin"]));
+        assert!(bounded(&["--git-dir", "/repo/.git", "pull"]));
+        assert!(bounded(&["--no-pager", "fetch"]));
+        // A value that merely NAMES a network op is still a value.
+        assert!(!bounded(&["-C", "fetch", "rev-parse", "HEAD"]));
+        assert!(!bounded(&["-c", "k=v", "rev-parse", "HEAD"]));
+        assert!(!bounded(&["-c", "k=v"]));
     }
 
     #[cfg(unix)]

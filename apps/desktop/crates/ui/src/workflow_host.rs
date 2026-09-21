@@ -570,6 +570,8 @@ fn snapshot_for(
                         .start_on
                         .clone()
                         .unwrap_or_else(|| workflows::START_ON_LANDED.to_string()),
+                    // The agent names the family an adversarial review swaps in.
+                    agent: launch.agent.clone(),
                     // EXP-984: what a review runs on, and what the AUTHORS
                     // run on (a high-risk node is never reviewed by its own
                     // model).

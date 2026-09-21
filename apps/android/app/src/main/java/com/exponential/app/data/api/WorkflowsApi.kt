@@ -8,6 +8,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -124,10 +125,22 @@ internal fun updateWorkflowInput(
             // EXP-984: "" means "let the engine pick", which is the ABSENT
             // key — the server validates it against the model vocabulary.
             options.reviewModel.takeIf { it.isNotEmpty() }?.let { put("reviewModel", it) }
+            // EXP-1002: the phase pins are ALWAYS stated. For these three keys
+            // the router reads absent = "keep the stored pin" (old clients),
+            // null = clear, string = set — so an explicit null is the only
+            // way this client's "no pin" reaches the server.
+            putPhaseModel("contractModel", options.contractModel)
+            putPhaseModel("integrationModel", options.integrationModel)
+            putPhaseModel("riskModel", options.riskModel)
         }
     }
     gate?.let { put("gate", it) }
     startOn?.let { put("startOn", it) }
+}
+
+private fun JsonObjectBuilder.putPhaseModel(key: String, value: String?) {
+    val pin = value?.takeIf { it.isNotEmpty() }
+    put(key, if (pin == null) JsonNull else JsonPrimitive(pin))
 }
 
 /**
