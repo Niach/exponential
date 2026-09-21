@@ -11,8 +11,8 @@
 //    no profiles yields its ambient `system` login);
 //  - the label is ALWAYS the agent's brand mark + the email — never the
 //    profile name (`label`), never the word "default". A login the device
-//    reports without an address shows its plan; with neither, its profile id
-//    (the machine has nothing better);
+//    reports without an address shows its plan; with neither, "No email"
+//    (EXP-1013 `accountName`; a signed-out login keeps its last address);
 //  - the DEVICE DEFAULT is marked by ORDER (it is first) and by a check, not
 //    by a label: `isDeviceDefault` is true for exactly one option — the
 //    `launch_defaults.defaultAccount` profile of `defaultAgent` when the
@@ -42,6 +42,7 @@ import type {
 } from "@/db/schema"
 import { contract } from "@exp/domain-contract"
 import {
+  accountName,
   deviceLoginRows,
   sortDeviceLogins,
   type AgentProfileUsageRow,
@@ -93,7 +94,7 @@ export function parseAccountOptionKey(
 
 /** The email a row reads as — see the header's fallback ladder. */
 function optionEmail(row: AgentProfileUsageRow): string {
-  return row.email || row.plan || row.profileId
+  return accountName(row)
 }
 
 function fraction(percent: number | undefined): number {

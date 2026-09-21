@@ -73,8 +73,8 @@ class SessionAccountSwitchTest {
         assertEquals("Default", options[0].label)
         assertEquals("Work", options[1].label)
         assertEquals("work@acme.test", options[1].caption)
-        // The label is the last resort when a login names nobody.
-        assertEquals("Spare", options[3].caption)
+        // EXP-1013: a login that names nobody is never its internal label.
+        assertEquals("No email", options[3].caption)
         assertEquals(AgentHealth.NeedsRelogin, options[2].health)
     }
 

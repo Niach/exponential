@@ -126,6 +126,25 @@ impl Health {
     }
 }
 
+/// EXP-1013 — what a login with no known address and no plan is called.
+/// Byte-identical on all four clients.
+pub const NO_EMAIL_LABEL: &str = "No email";
+
+/// EXP-1013 — the ONE name a login wears on every surface (pickers, rows,
+/// sheets; `accountName` ×4): its EMAIL, signed in or not. An agent that
+/// reports no address (codex's API-key login) is named by its plan; a login
+/// nobody has ever signed in to is [`NO_EMAIL_LABEL`]. Never the profile's
+/// internal label ("Default", "Claude Code account 2"): nobody knows whose
+/// that is.
+pub fn account_name(email: Option<&str>, plan: Option<&str>) -> String {
+    let filled = |value: Option<&str>| {
+        value.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string)
+    };
+    filled(email)
+        .or_else(|| filled(plan))
+        .unwrap_or_else(|| NO_EMAIL_LABEL.to_string())
+}
+
 /// One agent's signed-in identity. `Default` is the signed-out row.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

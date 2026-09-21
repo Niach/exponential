@@ -43,7 +43,7 @@ data class SessionAccountOption(
     val usage: AgentUsage?,
 ) {
     /** The identity line: the email, else the plan, else the profile label. */
-    val caption: String get() = email ?: plan ?: label
+    val caption: String get() = AgentAccountsRows.accountName(email, plan)
 }
 
 object SessionAccountSwitch {

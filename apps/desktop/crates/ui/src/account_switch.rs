@@ -290,16 +290,13 @@ pub(crate) fn switch_targets(
 }
 
 /// EXP-862 — the account's identity, never its status: the email, else the
-/// plan (an agent may report a provider, never an address), else the login's
-/// own label. A signed-out account used to title itself "Not signed in", which
+/// plan (an agent may report a provider, never an address), else "No email"
+/// (EXP-1013: never the profile's internal label). A signed-out account used to title itself "Not signed in", which
 /// said what the refusal under the rows already says and buried the only
 /// identifying thing the row had (iOS `SessionAccountSwitch.caption`, Android
 /// `SessionAccountOption.caption`, desktop [`crate::usage_bar::login_label`]).
 fn caption_of(row: &crate::usage_bar::AgentProfileUsageRow) -> String {
-    row.email
-        .clone()
-        .or_else(|| row.plan.clone())
-        .unwrap_or_else(|| row.profile_label.clone())
+    crate::usage_bar::login_label(row)
 }
 
 /// EXP-849 — what the usage sheet needs to offer an account switch for ONE
@@ -964,11 +961,11 @@ mod tests {
         let mut signed_out = row("deadbeef", false, Health::SignedOut);
         assert_eq!(caption_of(&signed_out), "deadbeef@acme.test");
 
-        // No email: the plan, then the login's own label.
+        // No email: the plan, then "No email" — never the internal label.
         signed_out.email = None;
         signed_out.plan = Some("Pro".to_string());
         assert_eq!(caption_of(&signed_out), "Pro");
         signed_out.plan = None;
-        assert_eq!(caption_of(&signed_out), signed_out.profile_label);
+        assert_eq!(caption_of(&signed_out), "No email");
     }
 }

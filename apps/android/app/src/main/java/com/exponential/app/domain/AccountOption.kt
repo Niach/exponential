@@ -160,7 +160,7 @@ object AccountOptions {
     /** The email a row reads as — the header's fallback ladder. NOTE: the
      *  profile's own LABEL is never it; the id is the last resort. */
     private fun optionEmail(row: AgentProfileUsageRow): String =
-        row.email ?: row.plan ?: row.profileId
+        AgentAccountsRows.accountName(row.email, row.plan)
 
     private fun optionLimits(row: AgentProfileUsageRow): AccountLimits? {
         val windows = row.usage?.windows.orEmpty()

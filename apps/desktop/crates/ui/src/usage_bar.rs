@@ -1036,19 +1036,16 @@ pub(crate) fn device_profile_rows(cx: &App) -> Vec<AgentProfileUsageRow> {
 /// ×4 (`NO_LOGIN_REPORTED`).
 pub(crate) const NO_LOGIN_REPORTED: &str = "No login reported";
 
-/// EXP-909 — a login's line on the Devices page: WHO it is — the email, else
-/// the plan (an agent may report a provider, never an address), else the
-/// profile's own label. Never a STATUS: the health badge beside it says
-/// "Signed out", the brand mark says which agent, and the row above says which
-/// machine. Byte-identical ×4 (`loginLabel`).
+/// EXP-909/EXP-1013 — a login's line on the Devices page: WHO it is — the
+/// email (a signed-out login keeps its last one), else the plan (an agent may
+/// report a provider, never an address), else "No email". Never the profile's
+/// internal label and never a STATUS: the health badge beside it says "Signed
+/// out". Byte-identical ×4 (`accountName`).
 ///
 /// The `· plan` tail the row adds when an email AND a plan are both known is
 /// the CALLER's (it renders muted), so the label itself stays one identity.
 pub(crate) fn login_label(row: &AgentProfileUsageRow) -> String {
-    row.email
-        .clone()
-        .or_else(|| row.plan.clone())
-        .unwrap_or_else(|| row.profile_label.clone())
+    coding::agent_accounts::account_name(row.email.as_deref(), row.plan.as_deref())
 }
 
 /// The contract position of an agent id, unknown ids last (they still sort
@@ -2135,7 +2132,7 @@ mod tests {
     }
 
     /// EXP-909 (×4 `loginLabel`): the login line is WHO it is — the email,
-    /// else the plan, else the profile's own label. Never its status: the
+    /// else the plan, else "No email". Never its status: the
     /// badge beside it is what says "Signed out".
     #[test]
     fn the_login_label_is_the_identity_never_the_status() {
@@ -2148,13 +2145,15 @@ mod tests {
         row.email = None;
         assert_eq!(login_label(&row), "max");
 
+        // EXP-1013: never the profile's internal label.
         row.plan = None;
-        assert_eq!(login_label(&row), "Work");
+        assert_eq!(login_label(&row), "No email");
 
         // Signed out changes nothing about the identity.
+        row.email = Some("dev@acme.test".to_string());
         row.signed_in = false;
         row.health = coding::agent_accounts::Health::SignedOut;
-        assert_eq!(login_label(&row), "Work");
+        assert_eq!(login_label(&row), "dev@acme.test");
         assert_eq!(NO_LOGIN_REPORTED, "No login reported");
     }
 

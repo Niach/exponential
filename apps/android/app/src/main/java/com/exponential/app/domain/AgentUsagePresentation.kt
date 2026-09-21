@@ -449,8 +449,10 @@ object AgentUsagePresentation {
      */
     fun accountCaption(account: AgentAccount?): String {
         if (account == null) return "unknown"
-        if (!account.signedIn) return "signed out"
+        // EXP-1013: a signed-out login still says WHOSE it is.
         val email = account.email?.takeIf { it.isNotBlank() }
+        if (email != null) return email
+        if (!account.signedIn) return "signed out"
         val plan = account.plan?.takeIf { it.isNotBlank() }
         return when {
             email != null -> email

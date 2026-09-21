@@ -62,6 +62,7 @@ import {
   agentHealth,
   parseAgentLoginResult,
   SYSTEM_PROFILE_ID,
+  accountName,
 } from "@/lib/agent-usage"
 import {
   canRemoveAccountOn,
@@ -116,6 +117,7 @@ export interface AccountChipRow {
   /** The profile's label (`Default` for the ambient login). */
   profileLabel: string
   email?: string | null
+  plan?: string | null
   signedIn: boolean
   /** The machine's ACTIVE login for that agent. */
   active: boolean
@@ -169,9 +171,9 @@ export function accountChipActionable(
   return accountChipActions(device, row).length > 0
 }
 
-/** The login a confirm names: its address, else the profile's own label. */
+/** The login a confirm names (`accountName`): its address. */
 export function accountChipLabel(row: AccountChipRow): string {
-  return row.email || row.profileLabel
+  return accountName(row)
 }
 
 /** EXP-862: has the login a sign-in was FOR landed on the device yet? The

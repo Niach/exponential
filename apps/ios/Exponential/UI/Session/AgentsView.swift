@@ -240,7 +240,7 @@ struct AgentsView: View {
                     // The pinned sentence ×4: it names the login and the
                     // machine, and says the account itself survives.
                     Text(AgentAccountsRows.removeAccountConfirmCopy(
-                        account: target.row.email ?? target.row.profileLabel,
+                        account: AgentAccountsRows.loginLabel(target.row),
                         device: target.row.deviceLabel.isEmpty
                             ? target.row.deviceId
                             : target.row.deviceLabel

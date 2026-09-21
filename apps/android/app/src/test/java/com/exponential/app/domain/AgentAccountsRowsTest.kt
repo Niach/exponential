@@ -296,9 +296,9 @@ class AgentAccountsRowsTest {
             "max",
             AgentAccountsRows.loginLabel(row(deviceId = "d", agent = "claude", plan = "max")),
         )
-        // Neither: the login's own label — never "Not signed in" / "signed in".
+        // Neither: "No email" — never the profile's internal label (EXP-1013).
         assertEquals(
-            "Work",
+            "No email",
             AgentAccountsRows.loginLabel(
                 row(deviceId = "d", agent = "claude", signedIn = false, profileLabel = "Work"),
             ),
