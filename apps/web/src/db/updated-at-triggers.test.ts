@@ -47,6 +47,9 @@ const APP_STAMPED: Record<string, string> = {
   // EXP-702: write-once steer images — nothing ever updates a row after
   // insert (only the session FK's SET NULL touches it).
   session_attachments: `write-once — no app writer updates rows`,
+  // EXP-891: device-authoritative rows. `deviceMcpServers.sync` is the ONLY
+  // writer (a full replace per device) and stamps updatedAt on every upsert.
+  device_mcp_servers: `deviceMcpServers.sync stamps it on every upsert`,
 }
 
 function tablesWithUpdatedAt(): string[] {
