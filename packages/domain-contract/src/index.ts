@@ -56,7 +56,6 @@ export interface DomainContract {
   wfStatus: { values: readonly string[] }
   wfNodeState: { values: readonly string[] }
   wfNodeKind: { values: readonly string[] }
-  wfGate: { values: readonly string[] }
   wfStartOn: { values: readonly string[] }
   wfRisk: { values: readonly string[] }
   wfReviewVerdict: { values: readonly string[] }

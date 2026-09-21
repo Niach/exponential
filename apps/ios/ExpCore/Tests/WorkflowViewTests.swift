@@ -112,7 +112,6 @@ final class WorkflowViewTests: XCTestCase {
 
     private struct TrainCase: Decodable {
         let name: String
-        let gate: String
         let nodes: [FixtureTrainNode]
         let expected: [FixtureTrainEntry]
     }
@@ -329,7 +328,7 @@ final class WorkflowViewTests: XCTestCase {
         )
         XCTAssertTrue(proposed.isProposed)
         XCTAssertTrue(
-            WorkflowView.mergeTrain([proposed], gate: DomainContract.wfGateHuman).isEmpty
+            WorkflowView.mergeTrain([proposed]).isEmpty
         )
     }
 
@@ -360,8 +359,7 @@ final class WorkflowViewTests: XCTestCase {
                         id: $0.id, kind: $0.kind, state: $0.state,
                         wave: $0.wave, lane: $0.lane, approvedAt: $0.approvedAt
                     )
-                },
-                gate: testCase.gate
+                }
             )
             XCTAssertEqual(
                 actual.map { FixtureTrainEntry(id: $0.id, step: $0.step.rawValue) },
@@ -422,38 +420,13 @@ final class WorkflowViewTests: XCTestCase {
         )
     }
 
-    // The gate rule the merge train and the node panel share: the contract is
-    // always human-gated, every other node follows the workflow's gate.
-    func testTheContractNodeAlwaysNeedsAPerson() {
-        for gate in DomainContract.wfGateValues {
-            XCTAssertTrue(
-                WorkflowView.nodeNeedsApproval(
-                    gate: gate, kind: DomainContract.wfNodeKindContract
-                ),
-                gate
-            )
-        }
-        XCTAssertFalse(
-            WorkflowView.nodeNeedsApproval(
-                gate: DomainContract.wfGateNone, kind: DomainContract.wfNodeKindLeaf
-            )
-        )
-        XCTAssertTrue(
-            WorkflowView.nodeNeedsApproval(
-                gate: DomainContract.wfGateAgent, kind: DomainContract.wfNodeKindLeaf
-            )
-        )
-    }
-
     // The two entity overloads the run surfaces actually call.
     func testTheRunOverloadsReadTheSyncedRows() {
         let approved = makeWorkflowNode(
             id: "a", issueId: "i1", approvedAt: "2026-09-19T09:00:00Z"
         )
         let waiting = makeWorkflowNode(id: "b", issueId: "i2", lane: 1)
-        let train = WorkflowView.mergeTrain(
-            [waiting, approved], gate: DomainContract.wfGateHuman
-        )
+        let train = WorkflowView.mergeTrain([waiting, approved])
         XCTAssertEqual(
             train.map(\.step), [WorkflowView.TrainStep.next, .needsApproval]
         )

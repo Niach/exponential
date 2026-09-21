@@ -23,7 +23,7 @@
 //! whose work collides get a SERIALIZATION edge, and the train still lands in
 //! topological order.
 //!
-//! EXP-984 closes the loop: under the `agent` gate every node's pushed branch
+//! EXP-984 closes the loop (EXP-1010: for EVERY workflow): every node's pushed branch
 //! gets a REVIEWER run (adversarial, and never on the author's own model, for
 //! a `risk: high` node) whose `request_changes` findings go back to the author
 //! at most three rounds; and a follow-up node nobody admitted (`proposed`) is
@@ -103,6 +103,9 @@ pub const NOTE_REVIEW_NO_VERDICT: &str = "The review runs ended without a verdic
 /// start before the engine reads it as a start that never came up (a host
 /// that died between its `running` report and its `session_id` report).
 pub const START_GRACE_MS: i64 = 10 * 60_000;
+
+/// EXP-1010: how long a failed launch rests before its one free retry.
+pub const RETRY_BACKOFF_MS: i64 = 2 * 60_000;
 /// How long a session the host is RESUMING reads as live for the engine: the
 /// interval between the resume and the moment the node names the new run
 /// (the server re-points `session_id` on `codingSessions.start`).
@@ -121,8 +124,6 @@ pub struct WorkflowFacts {
     pub id: String,
     /// contract `wfStatus` — a raw wire word (an unknown one decides nothing).
     pub status: String,
-    /// contract `wfGate`; `none` = only the contract needs a person.
-    pub gate: String,
     pub integration_branch: String,
     #[serde(default)]
     pub final_pr_url: Option<String>,
@@ -171,7 +172,6 @@ impl Default for WorkflowFacts {
         Self {
             id: String::new(),
             status: String::new(),
-            gate: String::new(),
             integration_branch: String::new(),
             final_pr_url: None,
             max_parallel: 0,
@@ -218,7 +218,7 @@ pub struct NodeFacts {
     pub session_id: Option<String>,
     #[serde(default)]
     pub attempt: i64,
-    /// Only its PRESENCE matters — the human gate's stamp.
+    /// Only its PRESENCE matters — an approving review's stamp, or a person's.
     #[serde(default)]
     pub approved_at: Option<String>,
     /// EXP-983: only its PRESENCE matters — the run announced its contract
@@ -829,7 +829,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             .collect();
         if let Some(entry) = mirrored.iter().find(|entry| {
             entry.state == "in_review"
-                && is_cleared(&snapshot.workflow.gate, entry.node)
+                && is_cleared(entry.node)
                 && !approval_is_stale(snapshot, entry.node)
                 && is_landable(entry.node, &blockers, &state_of)
         }) {
@@ -1135,8 +1135,6 @@ fn is_ancestor(blockers: &HashMap<&str, Vec<&str>>, ancestor: &str, node: &str) 
     false
 }
 
-/// contract `wfGate` — every node's pull request gets an AGENT review.
-const GATE_AGENT: &str = "agent";
 /// contract `wfReviewVerdict`.
 const VERDICT_REQUEST_CHANGES: &str = "request_changes";
 /// contract `wfRisk` — the risk that makes a review adversarial.
@@ -1181,9 +1179,6 @@ pub fn node_model(workflow: &WorkflowFacts, kind: &str, risk: &str) -> Option<St
 /// Nothing here decides an approval: the SERVER does, and only a passing
 /// oracle on a non-contract node counts.
 fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decision> {
-    if snapshot.workflow.gate != GATE_AGENT {
-        return Vec::new();
-    }
     let mut decisions = Vec::new();
     for entry in mirrored {
         let node = entry.node;
@@ -1303,16 +1298,20 @@ fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool
 /// by the very model that wrote it.
 fn review_model(snapshot: &Snapshot, node: &NodeFacts, adversarial: bool) -> Option<String> {
     let author = node_model(&snapshot.workflow, &node.kind, &node.risk);
+    let codex = snapshot.workflow.agent.as_deref() == Some(AGENT_CODEX);
+    // EXP-1010: a claude review runs on fable unless the workflow pins
+    // another model; codex has no such default and reviews on the author's.
     let picked = snapshot
         .workflow
         .review_model
         .as_deref()
+        .filter(|model| !model.is_empty())
         .map(str::to_string)
+        .or_else(|| (!codex).then(|| MODEL_FABLE.to_string()))
         .or_else(|| author.clone());
     if !adversarial || picked != author {
         return picked;
     }
-    let codex = snapshot.workflow.agent.as_deref() == Some(AGENT_CODEX);
     Some(
         match (codex, author.as_deref()) {
             (false, Some(MODEL_OPUS)) => MODEL_FABLE,
@@ -1429,6 +1428,13 @@ fn desired_state(
             // the mirror never rewrites an unchanged state.
             return Some(state("failed"));
         }
+        // EXP-1010: the free retry waits out what made the launch fail. Two
+        // starts a beat apart both meet the same transient error (a dropped
+        // connection, a rate limit) and leave the node to a person for
+        // nothing. An unknown stamp does not hold (the hosts always fill it).
+        if node.state == "failed" && retry_in_backoff(snapshot, node) {
+            return Some(state("failed"));
+        }
         // Not started yet: the blockers decide, read through the workflow's
         // START MODE (EXP-983 — `landed` waits for the merge, `pr_open` for
         // the pull request, `contract` for the announcement).
@@ -1517,6 +1523,13 @@ fn desired_state(
         _ if node.attempt <= 1 => Some(state("ready")),
         _ => Some(state_with_note("failed", NOTE_NO_PULL_REQUEST)),
     }
+}
+
+/// A launch that just failed is not retried for [`RETRY_BACKOFF_MS`] after
+/// the row was last written (the failure report itself).
+fn retry_in_backoff(snapshot: &Snapshot, node: &NodeFacts) -> bool {
+    node.updated_at_ms
+        .is_some_and(|updated_at| snapshot.now_ms - updated_at < RETRY_BACKOFF_MS)
 }
 
 /// A `running` node with no session yet is the host's own start for
@@ -1692,21 +1705,20 @@ pub fn settle_review_runs(
     outcomes
 }
 
-/// A node is cleared for the train when no person is owed an approval, or
-/// one already gave it. Mirrors `domain::workflow_view` (and the server,
-/// which enforces it).
-fn is_cleared(gate: &str, node: &NodeFacts) -> bool {
-    !domain::workflow_view::workflow_node_needs_approval(gate, &node.kind)
-        || node.approved_at.is_some()
+/// EXP-1010: a node is cleared for the train once it carries an approval —
+/// the agent review's (the only gate there is) or a person's, by hand. The
+/// server enforces it.
+fn is_cleared(node: &NodeFacts) -> bool {
+    node.approved_at.is_some()
 }
 
-/// Under the agent gate an approval is tied to the commit the reviewer
+/// An agent approval is tied to the commit the reviewer
 /// judged: a verdict that names a `head` other than the pull request's
 /// CURRENT head approved something that is no longer there. A person's
 /// approval (no agent head on the row) is never stale, and neither is one
 /// whose head the host cannot see this beat.
 fn approval_is_stale(snapshot: &Snapshot, node: &NodeFacts) -> bool {
-    if snapshot.workflow.gate != GATE_AGENT || node.approved_at.is_none() {
+    if node.approved_at.is_none() {
         return false;
     }
     let reviewed = node
@@ -1767,7 +1779,6 @@ mod tests {
             workflow: WorkflowFacts {
                 id: "wf-1".to_string(),
                 status: "running".to_string(),
-                gate: "none".to_string(),
                 integration_branch: "exp/wf-abcdef12".to_string(),
                 final_pr_url: None,
                 max_parallel: 3,
@@ -2001,6 +2012,21 @@ mod tests {
                 model: None,
             }),
             "one free retry: {decisions:?}"
+        );
+
+        // EXP-1010: not within the backoff of the failure, though.
+        let mut resting = node("a", "failed", 0, 0);
+        resting.attempt = 1;
+        resting.updated_at_ms = Some(1_000);
+        let mut snapshot = running(vec![resting]);
+        snapshot.now_ms = 1_000 + RETRY_BACKOFF_MS - 1;
+        assert!(evaluate(&snapshot).is_empty(), "the failure rests first");
+        snapshot.now_ms = 1_000 + RETRY_BACKOFF_MS;
+        assert!(
+            evaluate(&snapshot)
+                .iter()
+                .any(|decision| matches!(decision, Decision::StartNode { attempt: 2, .. })),
+            "then it is retried"
         );
 
         let mut second = node("a", "failed", 0, 0);

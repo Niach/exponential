@@ -53,7 +53,7 @@ pub struct WorkflowLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_parallel: Option<u32>,
     /// EXP-984: the model AGENT REVIEWS run on. Absent = the engine picks
-    /// one (the author's); a `risk: high` node is always reviewed on a model
+    /// one (fable on claude, else the author's); a `risk: high` node is always reviewed on a model
     /// other than its author's, whatever this says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_model: Option<String>,
@@ -76,8 +76,6 @@ pub struct Workflow {
     pub device_id: Option<String>,
     #[serde(default)]
     pub launch: WorkflowLaunch,
-    #[serde(default)]
-    pub gate: Option<String>,
     #[serde(default)]
     pub start_on: Option<String>,
     #[serde(default)]
@@ -138,8 +136,6 @@ pub struct WorkflowUpdate {
     /// `.strict()`), so senders read the current launch first and edit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub launch: Option<WorkflowLaunch>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub gate: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_on: Option<String>,
 }
@@ -498,7 +494,6 @@ pub fn from_row(row: &domain::rows::WorkflowRow) -> Workflow {
         status: row.status_wire().to_string(),
         device_id: row.device_id.clone(),
         launch,
-        gate: row.gate.clone(),
         start_on: row.start_on.clone(),
         integration_branch: row.integration_branch.clone(),
         metrics: row.metrics.clone(),
@@ -525,7 +520,7 @@ mod tests {
             200,
             r#"{"result":{"data":{"workflow":{"id":"wf-1","teamId":"team-1",
                 "repositoryId":"repo-1","name":"EXP-1 +2","status":"draft",
-                "deviceId":null,"launch":{},"gate":"human","startOn":"contract",
+                "deviceId":null,"launch":{},"startOn":"contract",
                 "integrationBranch":"exp/wf-abcdef12",
                 "metrics":{"nodes":3,"edges":0,"depth":1,"width":3,"cycles":[]}},
                 "txId":"1"}}}"#,
@@ -534,7 +529,6 @@ mod tests {
         let workflow = create(&client(&base), "team-1", &issues, None).unwrap();
         assert_eq!(workflow.id, "wf-1");
         assert_eq!(workflow.status, "draft");
-        assert_eq!(workflow.gate.as_deref(), Some("human"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/workflows.create HTTP/1.1"));
         assert!(request.contains(r#""issueIds":["i-1","i-2","i-3"]"#));
@@ -686,7 +680,6 @@ mod tests {
             "status": "draft",
             "device_id": "dev-1",
             "launch": r#"{"agent":"claude","subagentModel":"sonnet","maxParallel":5}"#,
-            "gate": "agent",
             "start_on": "pr_open",
             "metrics": r#"{"nodes":3,"edges":2,"depth":2,"width":2,"cycles":[]}"#,
         }))

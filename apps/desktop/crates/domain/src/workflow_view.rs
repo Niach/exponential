@@ -358,12 +358,6 @@ pub fn workflow_start_blocker(
     None
 }
 
-/// A node lands without a person only when the workflow has no gate AND it is
-/// not the contract (always human-gated). Mirrors the server.
-pub fn workflow_node_needs_approval(gate: &str, kind: &str) -> bool {
-    kind == "contract" || gate != "none"
-}
-
 /// What the merge train reads off a node row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrainNode<'a> {
@@ -415,8 +409,9 @@ pub struct TrainEntry {
 /// The merge train: every node whose PR is up (`in_review`, or `updating`
 /// while it merges the trunk in), in landing order (wave, then lane). The
 /// FIRST node that is cleared to land is `Next`; cleared ones behind it are
-/// `Queued`; one still waiting for a person says so.
-pub fn workflow_merge_train(nodes: &[TrainNode<'_>], gate: &str) -> Vec<TrainEntry> {
+/// `Queued`; one no review approved yet says so (EXP-1010: the agent review
+/// is the only gate, a person may approve by hand).
+pub fn workflow_merge_train(nodes: &[TrainNode<'_>]) -> Vec<TrainEntry> {
     let mut waiting: Vec<&TrainNode<'_>> = nodes
         .iter()
         .filter(|node| node.state == "in_review" || node.state == "updating")
@@ -433,7 +428,7 @@ pub fn workflow_merge_train(nodes: &[TrainNode<'_>], gate: &str) -> Vec<TrainEnt
         .map(|node| {
             let step = if node.state == "updating" {
                 TrainStep::Updating
-            } else if workflow_node_needs_approval(gate, node.kind) && !node.approved {
+            } else if !node.approved {
                 TrainStep::NeedsApproval
             } else if next_taken {
                 TrainStep::Queued
@@ -872,7 +867,6 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct FixtureTrainCase {
         name: String,
-        gate: String,
         nodes: Vec<FixtureTrainNode>,
         expected: Vec<FixtureTrainEntry>,
     }
@@ -1082,7 +1076,7 @@ mod tests {
                     approved: node.approved_at.is_some(),
                 })
                 .collect();
-            let got = workflow_merge_train(&nodes, &case.gate);
+            let got = workflow_merge_train(&nodes);
             let want: Vec<(&str, &str)> = case
                 .expected
                 .iter()
@@ -1175,17 +1169,6 @@ mod tests {
         }
     }
 
-    /// The gate rule the train and the node panel share: the contract always
-    /// needs a person, everything else only under a gate.
-    #[test]
-    fn the_contract_always_needs_a_person() {
-        assert!(workflow_node_needs_approval("none", "contract"));
-        assert!(!workflow_node_needs_approval("none", "leaf"));
-        assert!(!workflow_node_needs_approval("none", "integration"));
-        assert!(workflow_node_needs_approval("human", "leaf"));
-        assert!(workflow_node_needs_approval("agent", "leaf"));
-    }
-
     /// The train is strict order only among CLEARED nodes: a node waiting for
     /// a person never blocks a cleared one behind it.
     #[test]
@@ -1205,10 +1188,10 @@ mod tests {
                 state: "in_review",
                 wave: 1,
                 lane: 0,
-                approved: false,
+                approved: true,
             },
         ];
-        let train = workflow_merge_train(&nodes, "none");
+        let train = workflow_merge_train(&nodes);
         assert_eq!(
             train
                 .iter()

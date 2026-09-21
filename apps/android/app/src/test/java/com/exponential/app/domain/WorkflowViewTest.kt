@@ -263,11 +263,10 @@ class WorkflowViewTest {
                 obj.getValue("id").jsonPrimitive.content to
                     obj.getValue("step").jsonPrimitive.content
             }
-            val gate = case.getValue("gate").jsonPrimitive.content
             assertEquals(
                 name,
                 expected,
-                WorkflowView.mergeTrain(nodes, gate).map { it.id to it.step.key },
+                WorkflowView.mergeTrain(nodes).map { it.id to it.step.key },
             )
         }
     }
@@ -348,20 +347,6 @@ class WorkflowViewTest {
                 "final pull request.",
             WorkflowView.SKIP_NODE_CONFIRM,
         )
-    }
-
-    @Test
-    fun `only the contract escapes an absent gate`() {
-        // The server's rule: a gate means every node waits; without one only
-        // the contract still does.
-        assertTrue(WorkflowView.nodeNeedsApproval("none", "contract"))
-        assertFalse(WorkflowView.nodeNeedsApproval("none", "leaf"))
-        assertFalse(WorkflowView.nodeNeedsApproval("none", "integration"))
-        listOf("agent", "human").forEach { gate ->
-            DomainContract.wfNodeKindValues.forEach { kind ->
-                assertTrue(WorkflowView.nodeNeedsApproval(gate, kind))
-            }
-        }
     }
 
     // ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────
@@ -450,10 +435,6 @@ class WorkflowViewTest {
 
     @Test
     fun `the how-it-runs pickers name every contract value`() {
-        assertEquals(
-            listOf("No gate", "Agent review", "Human review"),
-            DomainContract.wfGateValues.map(WorkflowView::gateLabel),
-        )
         assertEquals(
             listOf("On contract", "On PR open", "When landed"),
             DomainContract.wfStartOnValues.map(WorkflowView::startOnLabel),

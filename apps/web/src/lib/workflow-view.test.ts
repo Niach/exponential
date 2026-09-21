@@ -61,7 +61,7 @@ describe(`workflow view (contract fixture)`, () => {
 
   for (const c of fixture.trains) {
     it(c.name, () => {
-      expect(workflowMergeTrain(c.nodes, c.gate)).toEqual(c.expected)
+      expect(workflowMergeTrain(c.nodes)).toEqual(c.expected)
     })
   }
 

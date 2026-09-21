@@ -245,9 +245,6 @@
   "wfNodeKind": {
     "values": ["contract", "leaf", "integration"]
   },
-  "wfGate": {
-    "values": ["none", "agent", "human"]
-  },
   "wfStartOn": {
     "values": ["contract", "pr_open", "landed"]
   },

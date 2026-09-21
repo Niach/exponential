@@ -5,7 +5,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -29,7 +28,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -50,7 +48,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -84,7 +81,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -140,7 +136,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -182,7 +177,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -211,7 +205,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -240,7 +233,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -286,7 +278,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -315,7 +306,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -344,7 +334,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -373,7 +362,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 0
       },
@@ -402,7 +390,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -429,7 +416,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },

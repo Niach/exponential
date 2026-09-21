@@ -14,7 +14,6 @@ import {
   wfNodeStateSchema,
   workflowLaunchSchema,
   workflowTouchesSchema,
-  wfGateSchema,
   wfNodeKindSchema,
   wfRiskSchema,
   wfStartOnSchema,
@@ -166,7 +165,6 @@ const wireColumns = {
   status: workflows.status,
   deviceId: workflows.deviceId,
   launch: workflows.launch,
-  gate: workflows.gate,
   startOn: workflows.startOn,
   integrationBranch: workflows.integrationBranch,
   finalPrUrl: workflows.finalPrUrl,
@@ -285,6 +283,8 @@ async function loadNode(nodeId: string) {
       state: workflowNodes.state,
       approvedAt: workflowNodes.approvedAt,
       sessionId: workflowNodes.sessionId,
+      mergedInto: workflowNodes.mergedInto,
+      retriedAt: workflowNodes.retriedAt,
     })
     .from(workflowNodes)
     .where(eq(workflowNodes.id, nodeId))
@@ -293,12 +293,53 @@ async function loadNode(nodeId: string) {
   return node
 }
 
-/** A node lands without a person only when the workflow has no gate AND it
- *  is not the contract: the contract carries the most risk, so it is ALWAYS
- *  human-gated. `agent` review is advisory until EXP-984 and gates like
- *  `human` until then. */
-export function nodeNeedsApproval(gate: string, kind: string): boolean {
-  return kind === `contract` || gate !== `none`
+/**
+ * EXP-1010: does the merged PR count as THIS attempt's? A merge older than
+ * the workflow's start, or than the node's last retry, belongs to an earlier
+ * life of the issue and would land the node empty. Pure.
+ */
+export function mergeBelongsToAttempt(args: {
+  mergedAt: Date | string | null
+  startedAt: Date | string | null
+  retriedAt: Date | string | null
+}): boolean {
+  if (!args.mergedAt) return true // nobody stamped it: trust the state
+  const merged = new Date(args.mergedAt).getTime()
+  const floor = Math.max(
+    args.startedAt ? new Date(args.startedAt).getTime() : 0,
+    args.retriedAt ? new Date(args.retriedAt).getTime() : 0
+  )
+  return merged >= floor
+}
+
+/**
+ * EXP-1010: what a node whose PR merged OUTSIDE the train does next. Pure.
+ * - the integration branch, a base nobody recorded, or a branch that is none
+ *   of the workflow's (the default branch): it lands.
+ * - a BLOCKER's branch: its code reaches the integration branch only with
+ *   that blocker, so it waits for it, and fails once the blocker is skipped
+ *   (the final PR would lack its code while its issue is marked done).
+ * - a synthetic `<integration>-base-…` merge base: nothing ever lands that
+ *   branch, so the code is lost and the node fails.
+ */
+export function mergedNodeOutcome(args: {
+  mergedInto: string | null
+  integrationBranch: string
+  /** branch → state of the workflow's OTHER nodes. */
+  carriers: ReadonlyMap<string, string>
+}): { step: `land` } | { step: `wait` } | { step: `fail`; note: string } {
+  const base = args.mergedInto
+  if (!base || base === args.integrationBranch) return { step: `land` }
+  const lost = `its code is not in the workflow's branch. Retry runs it again`
+  if (base.startsWith(`${args.integrationBranch}-base-`)) {
+    return { step: `fail`, note: `Merged into ${base}, a throwaway base: ${lost}` }
+  }
+  const carrier = args.carriers.get(base)
+  if (carrier === undefined || carrier === `landed`) return { step: `land` }
+  if (carrier === `skipped`) {
+    return { step: `fail`, note: `Merged into ${base}, which was skipped: ${lost}` }
+  }
+  return { step: `wait` }
 }
 
 /** `2026-09-19: <text>` appended to the log every node prompt carries. */
@@ -372,28 +413,29 @@ export const WORKFLOW_COUNTERS = [
 ] as const
 
 /**
- * What one submitted review does to its node. Pure.
- * - approve + an oracle that PASSED, on a non-contract node → the approval
- *   stands in for the person (evidence, not opinion).
- * - approve without a passing oracle → advisory: the node still waits for a
- *   person, with the reviewer's word on it.
+ * What one submitted review does to its node. Pure. EXP-1010: the agent
+ * review is the ONLY gate, for every kind of node.
+ * - approve → the node is cleared for the train, unless the reviewer's own
+ *   checks FAILED (an approval its evidence contradicts stays advisory and
+ *   waits for a person).
  * - request_changes → back to the author, up to the round cap; after that the
  *   node stops bouncing and waits for a person.
  */
 export function reviewOutcome(args: {
   verdict: `approve` | `request_changes`
   oraclePassed: boolean | null
-  kind: string
   round: number
 }): { approve: boolean; state: `in_review` | `updating` | `waiting`; note: string } {
   if (args.verdict === `approve`) {
-    const backed = args.oraclePassed === true && args.kind !== `contract`
+    const stands = args.oraclePassed !== false
     return {
-      approve: backed,
+      approve: stands,
       state: `in_review`,
-      note: backed
-        ? `Agent review passed, backed by its checks`
-        : `Agent review passed (advisory): needs a person`,
+      note: stands
+        ? args.oraclePassed
+          ? `Agent review passed, backed by its checks`
+          : `Agent review passed`
+        : `Agent review passed but its checks failed: needs a person`,
     }
   }
   if (args.round >= WORKFLOW_MAX_REVIEW_ROUNDS) {
@@ -527,7 +569,6 @@ export const workflowsRouter = router({
         name: z.string().trim().min(1).max(255).optional(),
         deviceId: z.string().min(1).max(128).nullable().optional(),
         launch: workflowLaunchSchema.optional(),
-        gate: wfGateSchema.optional(),
         startOn: wfStartOnSchema.optional(),
         // EXP-982: an answer worth keeping. Appended as a dated line to the
         // log every node prompt carries, at ANY status: a decision is not
@@ -603,7 +644,6 @@ export const workflowsRouter = router({
             ...(name !== undefined && { name }),
             ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
             ...(nextLaunch !== undefined && { launch: nextLaunch }),
-            ...(input.gate !== undefined && { gate: input.gate }),
             ...(input.startOn !== undefined && { startOn: input.startOn }),
             ...(decision !== undefined && {
               decisions: appendDecisionLine(existing.decisions, decision, new Date()),
@@ -864,7 +904,8 @@ export const workflowsRouter = router({
       })
     }),
 
-  /** The human gate: a member approves a node's open PR for the merge train.
+  /** A member clears a node's open PR for the merge train by hand (the agent
+   *  review normally does; this is the way out when it did not converge).
    *  `approved: false` takes it back while the node has not landed. */
   approveNode: authedProcedure
     .input(z.object({ nodeId: z.string().uuid(), approved: z.boolean().default(true) }))
@@ -928,6 +969,10 @@ export const workflowsRouter = router({
                   approvedAt: null,
                   review: null,
                   reviewRound: 0,
+                  // EXP-1010: a PR that merged before now is the old
+                  // attempt's; it lands nothing.
+                  mergedInto: null,
+                  retriedAt: new Date(),
                 }
           )
           .where(eq(workflowNodes.id, input.nodeId))
@@ -1014,7 +1059,6 @@ export const workflowsRouter = router({
         const outcome = reviewOutcome({
           verdict: input.verdict,
           oraclePassed,
-          kind: node.kind,
           round,
         })
         const review: WorkflowNodeReview = {
@@ -1170,7 +1214,7 @@ export const workflowsRouter = router({
     }),
 
   /** ENGINE: the merge train's one step — squash-merge this node's PR into
-   *  the integration branch. The gate is enforced HERE, not trusted from the
+   *  the integration branch. The approval is enforced HERE, not trusted from the
    *  device. A refusal by GitHub (a conflict with what landed before it) is
    *  an answer, not an error: the engine has the node merge the trunk in. */
   landNode: authedProcedure
@@ -1183,25 +1227,68 @@ export const workflowsRouter = router({
       if (workflow.status !== `running`) {
         return { merged: false, reason: `The workflow is not running`, retargeted: [] as string[] }
       }
-      // Merged already (a person pressed Merge on GitHub or in Reviews, or
-      // the webhook beat this call): the train's step is done. EXP-1007:
-      // this is read BEFORE the gate and the landing order — both guard a
-      // merge that has not happened yet, and a node whose code is in the
-      // integration branch but can never be approved (the web offers Approve
-      // only while it is `in_review`) would otherwise sit there for ever.
+      // Merged already (a person pressed Merge on GitHub or in Reviews, the
+      // node's own run did, or the webhook beat this call): the train's step
+      // is done. EXP-1007: read BEFORE the approval and the landing order —
+      // both guard a merge that has not happened yet. EXP-1010: nobody is
+      // refused that merge (a workflow getting done beats who reviewed it);
+      // it only has to be THIS attempt's, and to have gone somewhere the
+      // final PR will carry.
       const [issue] = await ctx.db
-        .select({ prState: issues.prState })
+        .select({ prState: issues.prState, prMergedAt: issues.prMergedAt })
         .from(issues)
         .where(eq(issues.id, node.issueId))
         .limit(1)
-      const merged = issue?.prState === `merged`
-      if (!merged && nodeNeedsApproval(workflow.gate, node.kind) && !node.approvedAt) {
-        return { merged: false, reason: `Waiting for a person to approve`, retargeted: [] as string[] }
+      const merged =
+        issue?.prState === `merged` &&
+        mergeBelongsToAttempt({
+          mergedAt: issue.prMergedAt,
+          startedAt: workflow.startedAt,
+          retriedAt: node.retriedAt,
+        })
+      const waiting = (reason: string) => ({ merged: false, reason, retargeted: [] as string[] })
+      if (!merged && !node.approvedAt) {
+        // The literal is matched by shipped engines (`LandOutcome::is_waiting`).
+        return waiting(`Waiting for a person to approve`)
       }
-      // EXP-983: with speculative starts a dependent's PR can be up before
-      // its blocker landed. The train lands in TOPOLOGICAL order, always.
-      if (!merged) {
-        const graph = await loadWorkflowEdges(ctx.db, workflow.id)
+      const graph = await loadWorkflowEdges(ctx.db, workflow.id)
+      if (merged) {
+        const others = graph.nodes.filter((row) => row.id !== node.id)
+        const branches = others.length
+          ? await ctx.db
+              .select({ id: issues.id, branch: issues.branch })
+              .from(issues)
+              .where(inArray(issues.id, others.map((row) => row.issueId)))
+          : []
+        const branchOf = new Map(branches.map((row) => [row.id, row.branch]))
+        const carriers = new Map<string, string>()
+        for (const row of others) {
+          const branch = branchOf.get(row.issueId)
+          if (branch) carriers.set(branch, row.state)
+        }
+        const outcome = mergedNodeOutcome({
+          mergedInto: node.mergedInto,
+          integrationBranch: workflow.integrationBranch,
+          carriers,
+        })
+        if (outcome.step === `fail`) {
+          // Guarded: the engine asks again every beat while the PR reads
+          // merged, and a person's skip must not be overwritten.
+          await ctx.db
+            .update(workflowNodes)
+            .set({ state: `failed`, note: outcome.note.slice(0, 500), attempt: sql`GREATEST(${workflowNodes.attempt}, 2)` })
+            .where(
+              and(
+                eq(workflowNodes.id, input.nodeId),
+                notInArray(workflowNodes.state, [`landed`, `skipped`, `failed`])
+              )
+            )
+          return waiting(`Waiting for its blockers to land`)
+        }
+        if (outcome.step === `wait`) return waiting(`Waiting for its blockers to land`)
+      } else {
+        // EXP-983: with speculative starts a dependent's PR can be up before
+        // its blocker landed. The train lands in TOPOLOGICAL order, always.
         const stateOf = new Map(graph.nodes.map((row) => [row.id, row.state]))
         const waitsOn = graph.edges
           .filter(([, to]) => to === node.id)
@@ -1209,13 +1296,7 @@ export const workflowsRouter = router({
             const state = stateOf.get(from)
             return state !== `landed` && state !== `skipped`
           })
-        if (waitsOn) {
-          return {
-            merged: false,
-            reason: `Waiting for its blockers to land`,
-            retargeted: [] as string[],
-          }
-        }
+        if (waitsOn) return waiting(`Waiting for its blockers to land`)
       }
       const { issuesRouter } = await import(`@/lib/trpc/issues`)
       const { ensureNodePrOnIntegrationBranch } = await import(`@/lib/workflow-final-pr`)
@@ -1244,14 +1325,53 @@ export const workflowsRouter = router({
         const reason = err instanceof Error ? err.message : `GitHub refused the merge`
         return { merged: false, reason: reason.slice(0, 500), retargeted: [] as string[] }
       }
-      await ctx.db
-        .update(workflowNodes)
-        .set({ state: `landed`, note: null })
-        .where(eq(workflowNodes.id, input.nodeId))
-      await ctx.db
-        .update(workflows)
-        .set({ metrics: bumpMetrics({ landed: 1 }) })
-        .where(eq(workflows.id, workflow.id))
+      // EXP-1010: the state guard IS the claim. A concurrent `skip` stays a
+      // skip, and two landings of one node count once.
+      const outside = merged && !node.approvedAt
+      const landed = await ctx.db.transaction(async (tx) => {
+        const rows = await tx
+          .update(workflowNodes)
+          .set({ state: `landed`, note: null })
+          .where(
+            and(
+              eq(workflowNodes.id, input.nodeId),
+              notInArray(workflowNodes.state, [`landed`, `skipped`])
+            )
+          )
+          .returning({ id: workflowNodes.id })
+        if (rows.length === 0) return false
+        let decisions: string | undefined
+        if (outside) {
+          const [ident] = await tx
+            .select({ identifier: issues.identifier })
+            .from(issues)
+            .where(eq(issues.id, node.issueId))
+            .limit(1)
+          const [log] = await tx
+            .select({ decisions: workflows.decisions })
+            .from(workflows)
+            .where(eq(workflows.id, workflow.id))
+            .limit(1)
+          const where =
+            node.mergedInto && node.mergedInto !== workflow.integrationBranch
+              ? ` into ${node.mergedInto}`
+              : ``
+          decisions = appendDecisionLine(
+            log?.decisions ?? ``,
+            `${ident?.identifier ?? `A node`} was merged outside the train${where}, before a review approved it.`,
+            new Date()
+          )
+        }
+        await tx
+          .update(workflows)
+          .set({
+            metrics: bumpMetrics({ landed: 1 }),
+            ...(decisions !== undefined && { decisions }),
+          })
+          .where(eq(workflows.id, workflow.id))
+        return true
+      })
+      if (!landed) return { merged: true, reason: null, retargeted: [] as string[] }
       // EXP-983: dependents whose last unlanded blocker this was move their
       // PR onto the integration branch; the engine has them merge it in.
       const { retargetReleasedDependents } = await import(`@/lib/workflow-final-pr`)

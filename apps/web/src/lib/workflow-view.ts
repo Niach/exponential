@@ -228,12 +228,6 @@ export function workflowStartBlocker(
   return null
 }
 
-/** A node lands without a person only when the workflow has no gate AND it is
- *  not the contract (always human-gated). Mirrors the server. */
-export function workflowNodeNeedsApproval(gate: string, kind: string): boolean {
-  return kind === `contract` || gate !== `none`
-}
-
 export interface TrainNode {
   id: string
   kind: string
@@ -254,19 +248,17 @@ export interface TrainEntry {
  * The merge train: every node whose PR is up (`in_review`, or `updating`
  * while it merges the trunk in), in landing order (wave, then lane). The
  * FIRST node that is cleared to land is `next`; cleared ones behind it are
- * `queued`; one still waiting for a person says so.
+ * `queued`; one no review approved yet says so (EXP-1010: the agent review is
+ * the only gate, a person may approve by hand).
  */
-export function workflowMergeTrain(
-  nodes: readonly TrainNode[],
-  gate: string
-): TrainEntry[] {
+export function workflowMergeTrain(nodes: readonly TrainNode[]): TrainEntry[] {
   const waiting = nodes
     .filter((node) => node.state === `in_review` || node.state === `updating`)
     .sort((a, b) => a.wave - b.wave || a.lane - b.lane || (a.id < b.id ? -1 : 1))
   let nextTaken = false
   return waiting.map((node) => {
     if (node.state === `updating`) return { id: node.id, step: `updating` }
-    if (workflowNodeNeedsApproval(gate, node.kind) && !node.approvedAt) {
+    if (!node.approvedAt) {
       return { id: node.id, step: `needs-approval` }
     }
     if (nextTaken) return { id: node.id, step: `queued` }

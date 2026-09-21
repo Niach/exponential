@@ -265,12 +265,10 @@ fun WorkflowDetailScreen(
                         devices = devices,
                         device = device,
                         launch = launch,
-                        gate = row.gate,
                         startOn = row.startOn,
                         enabled = isDraft && !busy,
                         onDeviceChange = viewModel::setDevice,
                         onLaunchChange = viewModel::setLaunch,
-                        onGateChange = viewModel::setGate,
                         onStartOnChange = viewModel::setStartOn,
                     )
                 }
@@ -369,7 +367,6 @@ fun WorkflowDetailScreen(
             node = node,
             graph = graph,
             workflowStatus = row?.status.orEmpty(),
-            gate = row?.gate.orEmpty(),
             editable = isDraft && !busy,
             busy = busy,
             onKindChange = { viewModel.updateNode(node.issueId, kind = it) },
@@ -649,12 +646,10 @@ private fun HowItRunsSection(
     devices: List<SteerDevice>,
     device: SteerDevice?,
     launch: WorkflowLaunch,
-    gate: String,
     startOn: String,
     enabled: Boolean,
     onDeviceChange: (String) -> Unit,
     onLaunchChange: ((WorkflowLaunch) -> WorkflowLaunch) -> Unit,
-    onGateChange: (String) -> Unit,
     onStartOnChange: (String) -> Unit,
 ) {
     // An unset agent means "the runner's own default", which is claude
@@ -774,29 +769,17 @@ private fun HowItRunsSection(
             },
         )
         GroupDivider()
+        // EXP-1010: every node's PR gets an agent review; this is the model it
+        // runs on. "" = the engine picks one.
         PickerRow(
-            label = "Gate",
-            value = WorkflowView.gateLabel(gate),
-            options = DomainContract.wfGateValues,
-            selected = gate,
-            optionLabel = WorkflowView::gateLabel,
+            label = WorkflowView.REVIEW_MODEL_LABEL,
+            value = subagentModelLabel(launch.reviewModel),
+            options = subagentModelOptions(),
+            selected = launch.reviewModel,
+            optionLabel = ::subagentModelLabel,
             enabled = enabled,
-            onSelect = onGateChange,
+            onSelect = { next -> onLaunchChange { it.copy(reviewModel = next) } },
         )
-        // EXP-984: only an AGENT gate reviews anything, so the model it
-        // reviews on is only a question there. "" = the engine picks one.
-        if (gate == DomainContract.wfGateAgent) {
-            GroupDivider()
-            PickerRow(
-                label = WorkflowView.REVIEW_MODEL_LABEL,
-                value = subagentModelLabel(launch.reviewModel),
-                options = subagentModelOptions(),
-                selected = launch.reviewModel,
-                optionLabel = ::subagentModelLabel,
-                enabled = enabled,
-                onSelect = { next -> onLaunchChange { it.copy(reviewModel = next) } },
-            )
-        }
         GroupDivider()
         PickerRow(
             label = "Start",
@@ -826,8 +809,6 @@ private fun WorkflowNodeSheet(
     node: WorkflowNodeEntity,
     graph: WorkflowGraph,
     workflowStatus: String,
-    /** The workflow's review gate — what [WorkflowView.nodeNeedsApproval] reads. */
-    gate: String,
     editable: Boolean,
     busy: Boolean,
     onKindChange: (String) -> Unit,
@@ -1072,10 +1053,10 @@ private fun WorkflowNodeSheet(
                         modifier = Modifier.testTag("workflow-node-dismiss"),
                     )
                 }
-                // The gate, while this node's PR is up and nobody cleared it.
+                // While this node's PR is up and no review cleared it, a person
+                // may approve it by hand.
                 if (!isProposed &&
                     node.state == DomainContract.wfNodeStateInReview &&
-                    WorkflowView.nodeNeedsApproval(gate, node.kind) &&
                     node.approvedAt.isNullOrEmpty()
                 ) {
                     GlassPill(

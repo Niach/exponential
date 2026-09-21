@@ -1084,9 +1084,6 @@ pub struct WorkflowRow {
     /// to the runner device's own launch defaults.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub launch: Option<serde_json::Value>,
-    /// contract `wfGate` — raw wire word.
-    #[serde(default)]
-    pub gate: Option<String>,
     /// contract `wfStartOn` — raw wire word.
     #[serde(default)]
     pub start_on: Option<String>,

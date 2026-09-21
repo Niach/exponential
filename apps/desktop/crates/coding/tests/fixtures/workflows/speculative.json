@@ -5,7 +5,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
@@ -28,7 +27,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -54,7 +52,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "contract"
@@ -79,7 +76,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -101,7 +97,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "contract"
@@ -123,7 +118,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "contract"
@@ -147,7 +141,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -190,7 +183,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -235,7 +227,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -285,7 +276,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -319,7 +309,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -344,7 +333,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -369,7 +357,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -403,7 +390,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
@@ -446,7 +432,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
@@ -478,7 +463,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
@@ -512,14 +496,13 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "afterNodeIds": ["a"] },
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-a", "branch": "exp/EXP-1" }
+        { "id": "b", "issueId": "i-b", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 0, "sessionId": "s-b", "branch": "exp/EXP-2", "afterNodeIds": ["a"], "approvedAt": "2026-09-19T10:00:00.000Z" },
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "in_review", "wave": 0, "lane": 1, "sessionId": "s-a", "branch": "exp/EXP-1", "approvedAt": "2026-09-19T10:00:00.000Z" }
       ],
       "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
       "sessions": { "s-a": { "live": false }, "s-b": { "live": false } },
@@ -534,7 +517,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -557,7 +539,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -589,7 +570,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "cancelled",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -617,7 +597,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -642,7 +621,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -670,7 +648,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
@@ -706,7 +683,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "pr_open"
@@ -741,7 +717,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
@@ -766,13 +741,12 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "updating", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12" }
+        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "updating", "wave": 0, "lane": 0, "sessionId": "s-a", "branch": "exp/EXP-1", "baseBranch": "exp/wf-abcdef12", "approvedAt": "2026-09-19T10:00:00.000Z" }
       ],
       "issues": { "i-a": { "prState": "open" } },
       "sessions": { "s-a": { "live": false } },

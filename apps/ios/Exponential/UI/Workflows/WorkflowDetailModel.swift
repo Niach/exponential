@@ -66,7 +66,6 @@ final class WorkflowDetailModel {
     var isDraft: Bool { workflow?.status == DomainContract.wfStatusDraft }
 
     var status: String { workflow?.status ?? DomainContract.wfStatusDraft }
-    var gate: String { workflow?.gate ?? DomainContract.wfGateHuman }
 
     /// Why Start is disabled, or nil when the draft can start — the shared
     /// rule, so the caption says exactly what the server would refuse with.
@@ -77,7 +76,7 @@ final class WorkflowDetailModel {
     /// The merge train: the nodes whose PR is up, in landing order. Empty on a
     /// draft — the strip is hidden there anyway.
     var mergeTrain: [WorkflowView.TrainEntry] {
-        WorkflowView.mergeTrain(nodes, gate: gate)
+        WorkflowView.mergeTrain(nodes)
     }
 
     /// EXP-984 — the run's counters as the detail's Metrics rows. Empty-ish on
@@ -286,10 +285,6 @@ final class WorkflowDetailModel {
     /// Bind (or unbind) the runner machine.
     func setDevice(_ deviceId: String?) {
         update(WorkflowPatch(deviceId: .some(deviceId)))
-    }
-
-    func setGate(_ value: String) {
-        update(WorkflowPatch(gate: value))
     }
 
     func setStartOn(_ value: String) {

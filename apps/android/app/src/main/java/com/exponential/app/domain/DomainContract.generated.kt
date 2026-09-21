@@ -25,7 +25,6 @@ object DomainContract {
     val wfStatusValues: List<String> = listOf("draft", "running", "paused", "done", "cancelled")
     val wfNodeStateValues: List<String> = listOf("proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped")
     val wfNodeKindValues: List<String> = listOf("contract", "leaf", "integration")
-    val wfGateValues: List<String> = listOf("none", "agent", "human")
     val wfStartOnValues: List<String> = listOf("contract", "pr_open", "landed")
     val wfRiskValues: List<String> = listOf("low", "medium", "high")
     val wfReviewVerdictValues: List<String> = listOf("approve", "request_changes")
@@ -173,9 +172,6 @@ object DomainContract {
     const val wfNodeKindContract: String = "contract"
     const val wfNodeKindLeaf: String = "leaf"
     const val wfNodeKindIntegration: String = "integration"
-    const val wfGateNone: String = "none"
-    const val wfGateAgent: String = "agent"
-    const val wfGateHuman: String = "human"
     const val wfStartOnContract: String = "contract"
     const val wfStartOnPrOpen: String = "pr_open"
     const val wfStartOnLanded: String = "landed"

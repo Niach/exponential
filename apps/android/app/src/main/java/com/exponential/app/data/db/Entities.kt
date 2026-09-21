@@ -498,8 +498,11 @@ data class WorkflowEntity(
     // draft nobody bound yet.
     @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String? = null,
     @Serializable(with = JsonAsStringSerializer::class) val launch: String? = null,
-    // contract `wfGate` / `wfStartOn`.
-    val gate: String = DomainContract.wfGateHuman,
+    // EXP-1010: a relic. The review gate setting is gone (every node gets an
+    // agent review); the server still syncs the column for older engines and
+    // it stays here only so the Room schema does not move. Nothing reads it.
+    val gate: String = "agent",
+    // contract `wfStartOn`.
     @ColumnInfo(name = "start_on") @SerialName("start_on") @JsonNames("startOn") val startOn: String = DomainContract.wfStartOnContract,
     @ColumnInfo(name = "integration_branch") @SerialName("integration_branch") @JsonNames("integrationBranch") val integrationBranch: String = "",
     @ColumnInfo(name = "final_pr_url") @SerialName("final_pr_url") @JsonNames("finalPrUrl") val finalPrUrl: String? = null,

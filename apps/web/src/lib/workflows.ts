@@ -416,6 +416,23 @@ export async function issueLandsInLiveWorkflow(
   return rows.length > 0
 }
 
+/** EXP-1010: remember the base a live node's PR merged into. NULL (a base
+ *  nobody recorded) reads as the integration branch in `landNode`. */
+export async function stampNodeMergedInto(
+  executor: Executor,
+  issueId: string,
+  base: string | null
+): Promise<void> {
+  const live = executor
+    .select({ id: workflows.id })
+    .from(workflows)
+    .where(inArray(workflows.status, [`running`, `paused`]))
+  await executor
+    .update(workflowNodes)
+    .set({ mergedInto: base })
+    .where(and(eq(workflowNodes.issueId, issueId), inArray(workflowNodes.workflowId, live)))
+}
+
 /** The live workflow node covering an issue, with what `pr_open` needs to
  *  derive the base: agents pass nothing new. */
 export async function liveWorkflowBaseForIssue(
