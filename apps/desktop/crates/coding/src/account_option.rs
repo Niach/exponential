@@ -547,7 +547,7 @@ mod tests {
                 .iter()
                 .map(|option| option.email.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Max", "p2"]
+            vec!["Max", "No email"]
         );
     }
 

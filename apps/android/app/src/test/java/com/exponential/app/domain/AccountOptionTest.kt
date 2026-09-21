@@ -207,7 +207,7 @@ class AccountOptionTest {
             usage = null,
             launchDefaults = null,
         )
-        assertEquals(listOf("Max", "p2"), options.map { it.email })
+        assertEquals(listOf("Max", "No email"), options.map { it.email })
     }
 
     @Test

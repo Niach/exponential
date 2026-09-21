@@ -181,7 +181,7 @@ final class AccountOptionTests: XCTestCase {
             usage: nil,
             launchDefaults: nil
         )
-        XCTAssertEqual(options.map(\.email), ["Max", "p2"])
+        XCTAssertEqual(options.map(\.email), ["Max", "No email"])
     }
 
     func testYieldsTheAmbientSystemLoginForADeviceThatReportsNoProfiles() {

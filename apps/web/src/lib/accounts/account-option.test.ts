@@ -182,7 +182,7 @@ describe(`flattenAccounts (EXP-872)`, () => {
         },
       },
     })
-    expect(options.map((option) => option.email)).toEqual([`Max`, `p2`])
+    expect(options.map((option) => option.email)).toEqual([`Max`, `No email`])
   })
 
   it(`yields the ambient system login for a device that reports no profiles`, () => {
