@@ -287,14 +287,26 @@ public enum AgentAccountsRows {
         }
     }
 
-    /// A login's title on its device row: who it IS — the email, else the bare
-    /// plan (an agent that names a provider instead of an address), else the
-    /// profile's own label. NEVER a status: the brand mark says which agent,
-    /// the row above says which machine, and the health badge says whether it
-    /// still works. Locked ×4 by `the login label is the identity, never the
-    /// status`.
+    /// EXP-1013: what a login with no known address and no plan is called.
+    /// Byte-identical ×4.
+    public static let noEmailLabel = "No email"
+
+    /// EXP-1013: the ONE name a login wears on every surface (pickers, rows,
+    /// sheets; ×4 `accountName`): its EMAIL, signed in or not (the device
+    /// keeps the last address a signed-out login answered with). An agent that
+    /// reports no address (codex's API-key login) is named by its plan; a
+    /// login nobody ever signed in to is "No email". NEVER the profile's
+    /// internal label ("Default", "Claude Code account 2").
+    public static func accountName(email: String?, plan: String?) -> String {
+        nonEmpty(email) ?? nonEmpty(plan) ?? noEmailLabel
+    }
+
+    /// A login's title on its device row: who it IS (`accountName`). NEVER a
+    /// status: the brand mark says which agent, the row above says which
+    /// machine, and the health badge says whether it still works. Locked ×4 by
+    /// `the login label is the identity, never the status`.
     public static func loginLabel(_ row: AgentProfileUsageRow) -> String {
-        row.email ?? row.plan ?? row.profileLabel
+        accountName(email: row.email, plan: row.plan)
     }
 
     /// The badge a LOGIN row wears, or nil when there is nothing to say —

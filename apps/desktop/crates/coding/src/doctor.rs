@@ -557,6 +557,8 @@ impl DoctorReport {
             account.profiles = rows;
             accounts.insert(agent.id().to_string(), account);
         }
+        // EXP-1013: a signed-out login still names its last email.
+        crate::agent_profiles::remember_emails(data_dir, &mut accounts);
         ProfileAccounts {
             accounts,
             usage_eligible,

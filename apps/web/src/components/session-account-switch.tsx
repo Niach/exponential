@@ -38,6 +38,7 @@ import {
   healthBadgeLabel,
   usageAge,
   type AgentProfileUsageRow,
+  accountName,
 } from "@/lib/agent-usage"
 import {
   deviceCanResumeRun,
@@ -93,7 +94,7 @@ export const REASON_ALREADY = `This run is already on this account.`
 /** One account the run's machine holds for the run's agent. */
 export interface SessionAccountOption {
   profileId: string
-  /** The identity line: the email, else the plan, else the profile's label. */
+  /** The identity line (`accountName`): the email, else the plan. */
   label: string
   plan: string | null
   /** The machine's ACTIVE login for that agent. */
@@ -279,7 +280,7 @@ export function useSessionAccountSwitch(
       .sort((a, b) => Number(b.active) - Number(a.active))
     return rows.map((row) => ({
       profileId: row.profileId,
-      label: row.email ?? row.plan ?? row.profileLabel,
+      label: accountName(row),
       plan: row.plan,
       active: row.active,
       current: currentAccount === row.profileId,

@@ -294,11 +294,11 @@ pub fn flatten_accounts(
             AccountOption {
                 id: row.profile_id.clone(),
                 agent: row.agent,
-                email: row
-                    .email
-                    .clone()
-                    .or_else(|| row.plan.clone())
-                    .unwrap_or_else(|| row.profile_id.clone()),
+                // EXP-1013: `accountName` — never the profile's id or label.
+                email: crate::agent_accounts::account_name(
+                    row.email.as_deref(),
+                    row.plan.as_deref(),
+                ),
                 is_device_default: at == default_at,
                 health: row.health,
                 limits: option_limits(row),
@@ -547,7 +547,7 @@ mod tests {
                 .iter()
                 .map(|option| option.email.as_str())
                 .collect::<Vec<_>>(),
-            vec!["Max", "p2"]
+            vec!["Max", "No email"]
         );
     }
 

@@ -77,8 +77,8 @@ final class SessionAccountSwitchTests: XCTestCase {
         XCTAssertEqual(options[0].label, "Default")
         XCTAssertEqual(options[1].label, "Work")
         XCTAssertEqual(options[1].caption, "work@acme.test")
-        // The label is the last resort when a login names nobody.
-        XCTAssertEqual(options[3].caption, "Spare")
+        // EXP-1013: a login that names nobody is never its internal label.
+        XCTAssertEqual(options[3].caption, "No email")
         XCTAssertEqual(options[2].health, .needsRelogin)
         XCTAssertTrue(options[0].active)
         XCTAssertFalse(options[1].active)

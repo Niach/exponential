@@ -430,8 +430,9 @@ public enum AgentUsagePresentation {
     /// which is not "signed out".
     public static func accountCaption(_ account: AgentAccount?) -> String {
         guard let account else { return "unknown" }
-        guard account.signedIn == true else { return "signed out" }
+        // EXP-1013: a signed-out login still says WHOSE it is.
         if let email = account.email, !email.isEmpty { return email }
+        guard account.signedIn == true else { return "signed out" }
         if let plan = account.plan, !plan.isEmpty { return plan }
         return "signed in"
     }

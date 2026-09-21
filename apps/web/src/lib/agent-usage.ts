@@ -379,9 +379,10 @@ export function accountCaption(
   account: DeviceAgentAccount | null | undefined
 ): string {
   if (!account) return `unknown`
-  if (!account.signedIn) return `signed out`
+  // EXP-1013: a signed-out login still says WHOSE it is.
   const email = account.email && account.email.length > 0 ? account.email : null
   if (email) return email
+  if (!account.signedIn) return `signed out`
   const plan = account.plan && account.plan.length > 0 ? account.plan : null
   if (plan) return plan
   return `signed in`
@@ -743,16 +744,29 @@ export function agentProfileUsageRows(
   )
 }
 
-/** EXP-909: what a login row is CALLED — its identity, never its status: the
- * email, else the plan (some agents report a provider and no address), else
- * the profile's own label. The brand mark beside it says which agent, the
- * device row above it says which machine, and the health badge says what is
- * wrong; a title that repeated any of those said the same thing twice.
- * Hand-mirrored ×4. */
-export function loginLabel(
-  row: Pick<AgentProfileUsageRow, `email` | `plan` | `profileLabel`>
+/** EXP-1013: what a login with no known address and no plan is called.
+ * Byte-identical ×4. */
+export const NO_EMAIL_LABEL = `No email`
+
+/** EXP-1013: the ONE name a login wears on every surface (pickers, rows,
+ * sheets; hand-mirrored ×4): its EMAIL, signed in or not (the device keeps
+ * the last address a signed-out login answered with). An agent that reports
+ * no address (codex's API-key login) is named by its plan; a login nobody
+ * ever signed in to is "No email". NEVER the profile's internal label
+ * ("Default", "Claude Code account 2"): nobody knows whose that is. */
+export function accountName(
+  login: { email?: string | null; plan?: string | null } | null | undefined
 ): string {
-  return row.email || row.plan || row.profileLabel
+  return login?.email?.trim() || login?.plan?.trim() || NO_EMAIL_LABEL
+}
+
+/** EXP-909: what a login row is CALLED — its identity, never its status
+ * (`accountName`). The brand mark beside it says which agent, the device row
+ * above it says which machine, and the health badge says what is wrong. */
+export function loginLabel(
+  row: Pick<AgentProfileUsageRow, `email` | `plan`>
+): string {
+  return accountName(row)
 }
 
 /** EXP-909: the order logins appear in UNDER one device: contract agent order

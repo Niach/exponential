@@ -130,11 +130,11 @@ describe(`accountChipActionable`, () => {
 })
 
 describe(`accountChipLabel`, () => {
-  it(`names the login by its address, else by its profile`, () => {
+  it(`names the login by its address, never by its profile label`, () => {
     expect(accountChipLabel(chip({ email: `dev@acme.test` }))).toBe(
       `dev@acme.test`
     )
-    expect(accountChipLabel(chip())).toBe(`Work`)
+    expect(accountChipLabel(chip())).toBe(`No email`)
   })
 })
 

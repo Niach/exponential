@@ -1094,6 +1094,8 @@ fn collect_inner(
     }
     // EXP-849: last, so it sees every outcome this pass folded in.
     apply_health(&mut accounts, &cache, data_dir);
+    // EXP-1013: the usage probe may have named (or cleared) an email since.
+    crate::agent_profiles::remember_emails(data_dir, &mut accounts);
     AgentStatusPayload { accounts, usage }
 }
 

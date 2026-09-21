@@ -40,7 +40,7 @@ public struct SessionAccountOption: Equatable, Sendable, Identifiable {
     public var id: String { profileId }
 
     /// The identity line: the email, else the plan, else the profile label.
-    public var caption: String { email ?? plan ?? label }
+    public var caption: String { AgentAccountsRows.accountName(email: email, plan: plan) }
 
     public init(
         profileId: String,

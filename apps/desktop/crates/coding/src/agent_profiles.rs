@@ -19,6 +19,7 @@
 //! heartbeat's `active` flag key on. It lives here, device-locally, rather
 //! than on the launch-defaults wire (see the module note in `remote_admin`).
 
+use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -274,6 +275,78 @@ pub fn config_env(data_dir: &Path, agent: CodingAgent, account: Option<&str>) ->
     Some((var.to_string(), dir.to_string_lossy().into_owned()))
 }
 
+/// EXP-1013 — the last email each login of `agent` was seen signed in as.
+const EMAILS_FILE: &str = "emails.json";
+
+fn emails_path(data_dir: &Path, agent: CodingAgent) -> PathBuf {
+    agent_root(data_dir, agent).join(EMAILS_FILE)
+}
+
+fn read_emails(data_dir: &Path, agent: CodingAgent) -> BTreeMap<String, String> {
+    std::fs::read_to_string(emails_path(data_dir, agent))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+/// EXP-1013 — a login is named by its EMAIL on every client, signed in or
+/// not. A signed-out CLI names nobody, so the device remembers the last
+/// address each profile (`system` included) answered with and fills it back
+/// into a row that has none. An email is identity, never a credential.
+///
+/// Learns from every row that names an address, forgets removed profiles,
+/// and writes only on a change. Best effort: an unwritable file costs the
+/// memory, never the heartbeat.
+pub fn remember_emails(data_dir: &Path, accounts: &mut crate::agent_accounts::AgentAccounts) {
+    for agent in CodingAgent::ALL {
+        let Some(account) = accounts.get_mut(agent.id()) else {
+            continue;
+        };
+        let before = read_emails(data_dir, agent);
+        let mut emails = before.clone();
+        let known: Vec<String> = list(data_dir, agent).into_iter().map(|p| p.id).collect();
+        emails.retain(|id, _| known.contains(id));
+        let active = if account.profiles.is_empty() {
+            SYSTEM_PROFILE.to_string()
+        } else {
+            account
+                .profiles
+                .iter()
+                .find(|row| row.active)
+                .map(|row| row.id.clone())
+                .unwrap_or_default()
+        };
+        // A signed-IN row with no address is a real answer (codex's API-key
+        // login): a plan proves it, and the memory goes. Presence-only
+        // (no plan yet) says nothing either way.
+        let mut settle =
+            |id: &str, signed_in: bool, plan: Option<&str>, email: &mut Option<String>| {
+                match email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+                    Some(seen) => {
+                        emails.insert(id.to_string(), seen.to_string());
+                    }
+                    None if !signed_in => *email = emails.get(id).cloned(),
+                    None if plan.is_some() => {
+                        emails.remove(id);
+                    }
+                    None => {}
+                }
+            };
+        for row in &mut account.profiles {
+            settle(&row.id, row.signed_in, row.plan.as_deref(), &mut row.email);
+        }
+        if !active.is_empty() {
+            settle(&active, account.signed_in, account.plan.as_deref(), &mut account.email);
+        }
+        if emails != before {
+            let _ = create_private_dir(&agent_root(data_dir, agent)).and_then(|_| {
+                let json = serde_json::to_string_pretty(&emails).map_err(io::Error::other)?;
+                crate::atomic_config::write_atomic(&emails_path(data_dir, agent), &json)
+            });
+        }
+    }
+}
+
 /// The device's per-agent DEFAULT account: the profile a local start picks
 /// when nothing else is said, and the one the heartbeat flags `active`.
 /// `system` unless set to an existing custom profile.
@@ -430,5 +503,55 @@ mod tests {
         std::fs::write(&path, "{{{").unwrap();
         assert_eq!(list(&dir, CodingAgent::Claude).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_signed_out_login_keeps_the_email_it_last_answered_with() {
+        use crate::agent_accounts::{AgentAccount, AgentAccounts, AgentProfileEntry};
+        let dir = temp_dir("emails");
+        let work = create(&dir, CodingAgent::Claude, "Work").unwrap();
+        let build = |signed_in: bool, email: Option<&str>| {
+            let mut accounts = AgentAccounts::new();
+            accounts.insert(
+                "claude".into(),
+                AgentAccount {
+                    signed_in,
+                    email: email.map(str::to_string),
+                    profiles: vec![
+                        AgentProfileEntry {
+                            id: SYSTEM_PROFILE.into(),
+                            signed_in,
+                            email: email.map(str::to_string),
+                            active: true,
+                            ..AgentProfileEntry::default()
+                        },
+                        AgentProfileEntry {
+                            id: work.id.clone(),
+                            signed_in,
+                            email: email.map(|_| "w@acme.test".to_string()),
+                            ..AgentProfileEntry::default()
+                        },
+                    ],
+                    ..AgentAccount::default()
+                },
+            );
+            accounts
+        };
+        let mut seen = build(true, Some("dev@acme.test"));
+        remember_emails(&dir, &mut seen);
+        let mut out = build(false, None);
+        remember_emails(&dir, &mut out);
+        let claude = &out["claude"];
+        assert!(!claude.signed_in);
+        assert_eq!(claude.email.as_deref(), Some("dev@acme.test"));
+        assert_eq!(claude.profiles[0].email.as_deref(), Some("dev@acme.test"));
+        assert_eq!(claude.profiles[1].email.as_deref(), Some("w@acme.test"));
+
+        // A removed profile takes its memory along.
+        remove(&dir, CodingAgent::Claude, &work.id).unwrap();
+        let mut after = build(false, None);
+        remember_emails(&dir, &mut after);
+        assert_eq!(after["claude"].profiles[1].email, None);
+        assert_eq!(after["claude"].profiles[0].email.as_deref(), Some("dev@acme.test"));
     }
 }

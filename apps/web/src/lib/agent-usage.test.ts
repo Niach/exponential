@@ -411,6 +411,10 @@ describe(`accountCaption`, () => {
 
   it(`says signed out`, () => {
     expect(accountCaption({ signedIn: false })).toBe(`signed out`)
+    // EXP-1013: a signed-out login still says whose it is.
+    expect(accountCaption({ signedIn: false, email: `danny@example.com` })).toBe(
+      `danny@example.com`
+    )
   })
 
   it(`renders a plan-only account (a provider, no email)`, () => {
@@ -847,15 +851,14 @@ describe(`device logins (EXP-909)`, () => {
   })
 
   it(`the login label is the identity, never the status`, () => {
-    expect(
-      loginLabel({ email: `dev@acme.test`, plan: `max`, profileLabel: `Default` })
-    ).toBe(`dev@acme.test`)
-    expect(
-      loginLabel({ email: null, plan: `openai-codex (oauth)`, profileLabel: `Default` })
-    ).toBe(`openai-codex (oauth)`)
-    expect(
-      loginLabel({ email: null, plan: null, profileLabel: `Claude account 2` })
-    ).toBe(`Claude account 2`)
+    expect(loginLabel({ email: `dev@acme.test`, plan: `max` })).toBe(
+      `dev@acme.test`
+    )
+    expect(loginLabel({ email: null, plan: `openai-codex (oauth)` })).toBe(
+      `openai-codex (oauth)`
+    )
+    // EXP-1013: never the profile's internal label.
+    expect(loginLabel({ email: null, plan: null })).toBe(`No email`)
   })
 
   it(`says a machine reported no login at all`, () => {

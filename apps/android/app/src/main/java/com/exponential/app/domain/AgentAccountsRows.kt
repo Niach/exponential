@@ -253,8 +253,21 @@ object AgentAccountsRows {
      * single signed-out notice, and the brand mark says which agent. The device
      * is not in it either — the row it sits under already named the machine.
      */
-    fun loginLabel(row: AgentProfileUsageRow): String =
-        row.email ?: row.plan ?: row.profileLabel.ifBlank { row.profileId }
+    fun loginLabel(row: AgentProfileUsageRow): String = accountName(row.email, row.plan)
+
+    /** EXP-1013: what a login with no known address and no plan is called. ×4. */
+    const val NO_EMAIL_LABEL = "No email"
+
+    /**
+     * EXP-1013: the ONE name a login wears on every surface (pickers, rows,
+     * sheets; ×4 `accountName`): its EMAIL, signed in or not (the device keeps
+     * the last address a signed-out login answered with). An agent that
+     * reports no address (codex's API-key login) is named by its plan; a login
+     * nobody ever signed in to is "No email". NEVER the profile's internal
+     * label ("Default", "Claude Code account 2").
+     */
+    fun accountName(email: String?, plan: String?): String =
+        nonEmpty(email) ?: nonEmpty(plan) ?: NO_EMAIL_LABEL
 
     /**
      * EXP-849/EXP-909: a login row's health badge, or null when there is

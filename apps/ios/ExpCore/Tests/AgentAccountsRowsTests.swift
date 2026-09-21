@@ -120,13 +120,13 @@ final class AgentAccountsRowsTests: XCTestCase {
             AgentAccountsRows.loginLabel(row(deviceId: "d1", agent: "zed", plan: "anthropic (oauth)")),
             "anthropic (oauth)"
         )
-        // Neither: the profile's own label — and a SIGNED-OUT login still
-        // reads as itself, with the badge carrying the state.
+        // Neither: "No email", never the profile's internal label (EXP-1013)
+        // — the badge carries the state.
         let out = row(
             deviceId: "d1", agent: "claude", profileId: "p2", profileLabel: "Second",
             signedIn: false, health: .signedOut
         )
-        XCTAssertEqual(AgentAccountsRows.loginLabel(out), "Second")
+        XCTAssertEqual(AgentAccountsRows.loginLabel(out), "No email")
         XCTAssertEqual(AgentAccountsRows.healthBadge(out), "Signed out")
         XCTAssertNil(AgentAccountsRows.healthBadge(row(deviceId: "d1", agent: "claude", health: .ok)))
     }

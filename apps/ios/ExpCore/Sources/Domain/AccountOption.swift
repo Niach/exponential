@@ -159,7 +159,7 @@ public enum AccountOptions {
     /// rung is the profile ID, not its label: a label is a name somebody
     /// typed, and this list never shows one.
     private static func optionEmail(_ row: AgentProfileUsageRow) -> String {
-        row.email ?? row.plan ?? row.profileId
+        AgentAccountsRows.accountName(email: row.email, plan: row.plan)
     }
 
     private static func fraction(_ percent: Double?) -> Double {
