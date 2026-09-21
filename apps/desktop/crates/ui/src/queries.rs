@@ -2078,6 +2078,83 @@ pub(crate) fn issue_runs<'a>(
     out
 }
 
+/// EXP-974 — the RESUME CHAIN of `session_id` (×4: web `runChain`, iOS
+/// `RunChain.chain`, Android `runChain`). A resume is the SAME run under a
+/// new row (`resumed_from_id` → predecessor, EXP-637/EXP-906), so every
+/// member of the succession wears ONE toggle and the `Runs` segment's menu is
+/// where the reader picks between them. Walks `resumed_from_id` BACKWARDS to
+/// the first row and FORWARDS to the latest, and returns the chain
+/// oldest-first, the named session included. An unknown id yields nothing.
+/// A fork (two rows resuming the same predecessor) follows the NEWEST
+/// successor by `created_at` (ties by id, so every client picks the same
+/// row); seen from an older sibling the chain is its own past plus itself. A
+/// predecessor the sweep deleted (a dangling `resumed_from_id`) simply ends
+/// the backward walk, and a cycle (which no writer produces, but a synced
+/// row is a synced row) never loops. Pure.
+///
+/// Who reads it: the session screen's run menu for an ISSUE-LESS run
+/// ([`crate::run_rows::chain_run_entries`]); an issue-bound run's menu is
+/// [`issue_runs`], whose rows already include the issue's resumes.
+/// [`resume_chain`] is the SET flavour (every continuation, forks included)
+/// the busy guard uses.
+pub(crate) fn run_chain<'a>(
+    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
+    session_id: &str,
+) -> Vec<&'a domain::rows::CodingSession> {
+    let rows: Vec<&domain::rows::CodingSession> = rows.collect();
+    let by_id = |id: &str| rows.iter().copied().find(|row| row.id == id);
+    let Some(start) = by_id(session_id) else {
+        return Vec::new();
+    };
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    seen.insert(start.id.as_str());
+
+    // Backwards to the first row. A missing predecessor (swept) ends the
+    // walk; a cycle ends it too.
+    let mut before: Vec<&domain::rows::CodingSession> = Vec::new();
+    let mut cursor = start;
+    while let Some(previous_id) = cursor.resumed_from_id.as_deref() {
+        let Some(previous) = by_id(previous_id) else {
+            break;
+        };
+        if !seen.insert(previous.id.as_str()) {
+            break;
+        }
+        before.push(previous);
+        cursor = previous;
+    }
+    before.reverse();
+
+    // Forwards to the latest, the newest successor at every fork:
+    // `created_at` descending, then id descending. ISO-8601 stamps sort
+    // lexicographically (the `past_run_ended_key` convention); a row with
+    // none sorts oldest, as the web's `stamp` of 0 does.
+    let mut after: Vec<&domain::rows::CodingSession> = Vec::new();
+    let mut cursor = start;
+    loop {
+        let next = rows
+            .iter()
+            .copied()
+            .filter(|row| row.resumed_from_id.as_deref() == Some(cursor.id.as_str()))
+            .filter(|row| !seen.contains(row.id.as_str()))
+            .max_by(|a, b| {
+                a.created_at
+                    .as_deref()
+                    .unwrap_or("")
+                    .cmp(b.created_at.as_deref().unwrap_or(""))
+                    .then_with(|| a.id.cmp(&b.id))
+            });
+        let Some(next) = next else {
+            break;
+        };
+        seen.insert(next.id.as_str());
+        after.push(next);
+        cursor = next;
+    }
+
+    before.into_iter().chain(std::iter::once(start)).chain(after).collect()
+}
+
 /// When a past run finished, for ordering: its `ended_at`, else the last
 /// `updated_at` (a row the server swept never got an `ended_at`).
 fn past_run_ended_key(session: &domain::rows::CodingSession) -> Option<&str> {
@@ -3394,6 +3471,8 @@ mod tests {
         let mut row = launch_device_row("r-1", "dev-1", "Buildbox", "me", &["codex"], -30);
         row.launch_defaults = Some(json!({
             "defaultAgent": "codex",
+            // EXP-872: the machine's default ACCOUNT rides the same object.
+            "defaultAccount": "0a1b2c3d",
             "agents": {"codex": {"model": "gpt-5.6-terra", "effort": "high"}},
         }));
         let owner = |_: &str| None;
@@ -3406,6 +3485,7 @@ mod tests {
         );
         let settings = &devices[0].defaults;
         assert_eq!(settings.default_agent, coding::CodingAgent::Codex);
+        assert_eq!(settings.default_account.as_deref(), Some("0a1b2c3d"));
         assert_eq!(settings.codex_model, "gpt-5.6-terra");
         assert_eq!(settings.codex_effort, "high");
     }
@@ -3413,10 +3493,14 @@ mod tests {
     #[test]
     fn launch_defaults_parse_through_a_json_string_column() {
         // §5.5: a jsonb column can arrive as a JSON STRING.
-        let raw = json!(r#"{"defaultAgent":"codex"}"#);
+        let raw = json!(r#"{"defaultAgent":"codex","defaultAccount":"work"}"#);
         assert_eq!(
             device_launch_settings(Some(&raw)).default_agent,
             coding::CodingAgent::Codex
+        );
+        assert_eq!(
+            device_launch_settings(Some(&raw)).default_account.as_deref(),
+            Some("work")
         );
         // Absent / unparsable degrades to the static defaults, never panics.
         assert_eq!(
@@ -3870,6 +3954,101 @@ mod tests {
         assert_eq!(picked[1].id, "swept");
         assert_eq!(picked[2].id, "run-29");
         assert_eq!(picked[31].id, "run-00");
+    }
+
+    // EXP-974: the resume chain (`run_chain`). The six cases the web
+    // `run-chain.test.ts` names, by name — iOS `RunChainTests` and Android
+    // `RunChainTest` mirror them too.
+    fn chain_row(id: &str, resumed_from_id: Option<&str>, created_at: &str) -> domain::rows::CodingSession {
+        serde_json::from_value(json!({
+            "id": id,
+            "user_id": "me",
+            "status": "ended",
+            "resumed_from_id": resumed_from_id,
+            "created_at": created_at,
+        }))
+        .unwrap()
+    }
+
+    fn chain_ids(rows: &[domain::rows::CodingSession], session_id: &str) -> Vec<String> {
+        run_chain(rows.iter(), session_id)
+            .into_iter()
+            .map(|row| row.id.clone())
+            .collect()
+    }
+
+    fn chain_fixture() -> [domain::rows::CodingSession; 4] {
+        [
+            chain_row("a", None, "2026-09-01T10:00:00Z"),
+            chain_row("b", Some("a"), "2026-09-01T11:00:00Z"),
+            chain_row("c", Some("b"), "2026-09-01T12:00:00Z"),
+            // An unrelated run of the same person, interleaved in time.
+            chain_row("x", None, "2026-09-01T11:30:00Z"),
+        ]
+    }
+
+    #[test]
+    fn returns_just_the_session_when_nothing_resumed_it_and_it_resumed_nothing() {
+        let [a, _, _, x] = chain_fixture();
+        assert_eq!(chain_ids(&[a, x], "x"), vec!["x"]);
+    }
+
+    #[test]
+    fn walks_resumed_from_id_backwards_to_the_first_row() {
+        let [a, b, c, x] = chain_fixture();
+        assert_eq!(chain_ids(&[c, x, a, b], "c"), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn walks_forwards_to_the_latest_resume_from_a_middle_or_first_row() {
+        let [a, b, c, x] = chain_fixture();
+        let rows = [c, x, a, b];
+        assert_eq!(chain_ids(&rows, "a"), vec!["a", "b", "c"]);
+        assert_eq!(chain_ids(&rows, "b"), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn follows_the_newest_successor_at_a_fork() {
+        let [a, b, _, _] = chain_fixture();
+        let c1 = chain_row("c1", Some("b"), "2026-09-01T12:00:00Z");
+        let c2 = chain_row("c2", Some("b"), "2026-09-01T13:00:00Z");
+        let d2 = chain_row("d2", Some("c2"), "2026-09-01T14:00:00Z");
+        let rows = [a.clone(), b.clone(), c1, c2.clone(), d2];
+        // From the root or the fork point: the newest branch, to its end.
+        assert_eq!(chain_ids(&rows, "a"), vec!["a", "b", "c2", "d2"]);
+        assert_eq!(chain_ids(&rows, "b"), vec!["a", "b", "c2", "d2"]);
+        // From the older sibling: its own past plus itself — never the
+        // other branch.
+        assert_eq!(chain_ids(&rows, "c1"), vec!["a", "b", "c1"]);
+        // Same stamp: the id breaks the tie, so every client picks the same
+        // row.
+        let c3 = chain_row("c3", Some("b"), "2026-09-01T13:00:00Z");
+        assert_eq!(chain_ids(&[a, b, c2, c3], "b"), vec!["a", "b", "c3"]);
+    }
+
+    #[test]
+    fn yields_nothing_for_an_unknown_id() {
+        let [a, b, c, _] = chain_fixture();
+        assert!(chain_ids(&[a, b, c], "nope").is_empty());
+        assert!(chain_ids(&[], "a").is_empty());
+    }
+
+    #[test]
+    fn tolerates_a_predecessor_the_sweep_deleted_dangling_resumed_from_id() {
+        let [_, b, c, _] = chain_fixture();
+        // `b` resumed `a`, but `a` is gone: the chain starts at `b`.
+        let rows = [b, c];
+        assert_eq!(chain_ids(&rows, "c"), vec!["b", "c"]);
+        assert_eq!(chain_ids(&rows, "b"), vec!["b", "c"]);
+    }
+
+    #[test]
+    fn never_loops_on_a_cyclic_resumed_from_id() {
+        let p = chain_row("p", Some("q"), "2026-09-01T10:00:00Z");
+        let q = chain_row("q", Some("p"), "2026-09-01T11:00:00Z");
+        let rows = [p, q];
+        assert_eq!(chain_ids(&rows, "p"), vec!["q", "p"]);
+        assert_eq!(chain_ids(&rows, "q"), vec!["p", "q"]);
     }
 
     /// EXP-676: an automation's runs live in the Automations tab's "Recent

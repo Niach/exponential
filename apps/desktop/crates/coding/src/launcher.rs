@@ -1375,9 +1375,19 @@ fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsStrin
 /// Runs BEFORE any repo/git/server-side step so a refused pick costs one
 /// tRPC read and creates nothing. An empty pick resolves to nothing without
 /// touching the network (every pick-less launch and every agent shell).
+///
+/// EXP-891: this machine's own enabled servers ([`crate::device_mcp_servers`])
+/// are appended after the pick — every run on the device gets them, a team
+/// server folding to the same config key wins, and a device row never blocks
+/// a launch (no credential position exists to be missing).
 fn resolve_mcp_servers(deps: &CodingDeps, ids: &[String]) -> Result<ResolvedMcp, DisabledReason> {
-    crate::mcp_servers::resolve(&deps.data_dir, &deps.account_id, &deps.trpc, ids)
-        .map_err(DisabledReason::McpBlocked)
+    let mut resolved = crate::mcp_servers::resolve(&deps.data_dir, &deps.account_id, &deps.trpc, ids)
+        .map_err(DisabledReason::McpBlocked)?;
+    crate::device_mcp_servers::merge_into(
+        &mut resolved.servers,
+        crate::device_mcp_servers::wires(&deps.data_dir),
+    );
+    Ok(resolved)
 }
 
 /// EXP-792: the spawn-env half of the team servers, beside [`apply_mcp_env`]:

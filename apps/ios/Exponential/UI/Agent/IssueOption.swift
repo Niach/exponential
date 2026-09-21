@@ -31,7 +31,9 @@ struct IssueOption: Identifiable, Sendable, Equatable {
             title: title,
             description: description,
             createdAt: createdAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            // EXP-922: undone issues rank above done ones.
+            status: status
         )
     }
 

@@ -257,11 +257,20 @@ fn comment_card_content(
                             let timeline_delete = timeline.clone();
                             let edit_id = edit_id.clone();
                             let delete_id = delete_id.clone();
-                            menu.item(PopupMenuItem::new("Edit").on_click(move |_, window, cx| {
-                                timeline_edit.update(cx, |timeline, cx| {
-                                    timeline.begin_edit(&edit_id, window, cx);
-                                });
-                            }))
+                            // EXP-956: Edit carries the pencil like the
+                            // Delete row carries its trash — the natives'
+                            // comment menu (`AppIcons.uiEdit` /
+                            // `ExpIcons.uiEdit`), never a bare label
+                            // beside an iconed one.
+                            menu.item(
+                                PopupMenuItem::new("Edit")
+                                    .icon(Icon::new(registry::UI_EDIT))
+                                    .on_click(move |_, window, cx| {
+                                        timeline_edit.update(cx, |timeline, cx| {
+                                            timeline.begin_edit(&edit_id, window, cx);
+                                        });
+                                    }),
+                            )
                             .item(
                                 crate::controls::danger_menu_item(
                                     "Delete",

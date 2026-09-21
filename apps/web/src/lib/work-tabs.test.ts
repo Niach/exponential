@@ -184,7 +184,10 @@ describe(`reconcileLive`, () => {
     ).toEqual([`issue:i9`])
   })
 
-  it(`binds an open issue tab to its issue's live run`, () => {
+  // EXP-902: a run that lands under a background issue tab this way is one
+  // you did not open (an agent spawned it): the chip's next click opens the
+  // RUN, not the issue behind it.
+  it(`binds an open issue tab to its issue's live run, on the Run face`, () => {
     const s = reconcileLive(
       state([
         { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: `board:web`, live: false },
@@ -192,10 +195,26 @@ describe(`reconcileLive`, () => {
       [run(`s1`, `i1`)]
     )
     expect(s.tabs).toEqual([
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: `s1`, from: `board:web`, live: true },
+      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `board:web`, live: true },
     ])
     // Idempotent: nothing changes on a second pass.
     expect(reconcileLive(s, [run(`s1`, `i1`)])).toBe(s)
+  })
+
+  // EXP-902: the issue face being READ is not flipped under the reader —
+  // the run binds, the face stays until the next click somewhere else.
+  it(`keeps the Issue face of the issue the URL shows`, () => {
+    const start = state([
+      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
+      { kind: `issue`, issueId: `i2`, face: `issue`, runId: null, from: null, live: false },
+    ])
+    const s = reconcileLive(start, [run(`s1`, `i1`), run(`s2`, `i2`)], null, `i1`)
+    expect(s.tabs[0]).toMatchObject({ face: `issue`, runId: `s1`, live: true })
+    expect(s.tabs[1]).toMatchObject({ face: `run`, runId: `s2`, live: true })
+    // A tab already bound to its live run keeps whatever face it has: only a
+    // NEW run under the tab flips it.
+    const again = reconcileLive(s, [run(`s1`, `i1`), run(`s2`, `i2`)], null, null)
+    expect(again).toBe(s)
   })
 
   // A resume starts a NEW run on the same issue: the tab follows it.

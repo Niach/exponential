@@ -22,6 +22,9 @@ import { authorLabel, relativeTime } from "./format"
 // EXP-698 r5: the comment menu is a bare vertical ellipsis on every client —
 // no glass ring around it.
 const UiMoreVerticalIcon = conceptIcon(`ui-more-vertical`)
+// EXP-956: the menu rows carry the same glyphs as the native comment menus.
+const UiEditIcon = conceptIcon(`ui-edit`)
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 /**
  * Everything ONE comment needs to render its header, body and edit form —
@@ -102,8 +105,12 @@ function CommentCardContent({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>
+              <DropdownMenuItem onSelect={onEdit}>
+                <UiEditIcon />
+                Edit
+              </DropdownMenuItem>
               <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                <UiDeleteIcon />
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>

@@ -1929,7 +1929,7 @@ fn spawn_device_worker(
                     // (a query every 5 min, local reads otherwise, a token
                     // refresh for anything inside the 10-min margin).
                     let snapshot = mcp_state.lock().ok().and_then(|mut state| {
-                        state.sweep(&ctx.data_dir, &ctx.account.id, &ctx.trpc)
+                        state.sweep(&ctx.data_dir, &ctx.account.id, &ctx.trpc, &device_id)
                     });
                     if let (Some(snapshot), Ok(mut slot)) = (snapshot, mcp_readiness.lock()) {
                         *slot = Some(snapshot);

@@ -72,6 +72,15 @@ data class AgentLaunchDefaults(
 @Serializable
 data class DeviceLaunchDefaults(
     @SerialName("defaultAgent") val defaultAgent: String? = null,
+    /**
+     * EXP-872: the machine's default ACCOUNT — a profile id of [defaultAgent]'s
+     * logins (`agent_profiles`), which the one account picker seeds itself to.
+     * "Default agent" became "default account" on every surface: the agent is
+     * DERIVED from the picked login, and this field names which login that is.
+     * Absent on a machine (or a stored row) from before the rename — the
+     * agent's ACTIVE login is then the default, exactly as it was.
+     */
+    @SerialName("defaultAccount") val defaultAccount: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
 )
 

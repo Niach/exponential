@@ -16,16 +16,25 @@ import SwiftUI
 ///   circle, plus the close-without-merge dialog (Close exists nowhere else
 ///   on iOS).
 /// - The Work screen: file sheet · Merge / Fix conflicts · the face switcher.
+///
+/// EXP-952: the Work screen hands its OWN `ChangesViewModel` in (`model`),
+/// so its switcher counts the very files this face draws — before the face
+/// was ever opened, and never a different list. nil = this face creates and
+/// drives its own, which is what the Reviews page does.
 struct PrChangesFace<Trailing: View>: View {
     let issueId: String
     let reviewMode: Bool
+    /// EXP-952: an injected model the HOST owns (its lifecycle is the host's:
+    /// this face never starts or stops it). nil = own one, created on appear.
+    var model: ChangesViewModel? = nil
     @ViewBuilder let trailing: () -> Trailing
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.openURL) private var openURL
-    @State private var viewModel: ChangesViewModel?
+    /// The face's OWN model, when none was injected.
+    @State private var ownModel: ChangesViewModel?
     @State private var mergeConfirm = false
     @State private var closeConfirm = false
     // "Fix conflicts" (EXP-323, desktop parity): a refused merge is usually a
@@ -36,6 +45,9 @@ struct PrChangesFace<Trailing: View>: View {
     @State private var fileSheet = false
     /// The path the sheet last picked — the card list expands it and jumps.
     @State private var selectedPath: String?
+
+    /// The one model this face reads: the host's, else its own.
+    private var viewModel: ChangesViewModel? { model ?? ownModel }
 
     var body: some View {
         Group {
@@ -53,8 +65,10 @@ struct PrChangesFace<Trailing: View>: View {
             }
         }
         .onAppear {
-            if viewModel == nil {
-                viewModel = ChangesViewModel(
+            // EXP-952: an injected model is the host's to start and stop.
+            guard model == nil else { return }
+            if ownModel == nil {
+                ownModel = ChangesViewModel(
                     accountId: accountId,
                     issueId: issueId,
                     db: deps.db,
@@ -65,14 +79,14 @@ struct PrChangesFace<Trailing: View>: View {
             }
             // Re-arm on every appear: pushing another screen stops the
             // observation (onDisappear), popping back must resume it.
-            viewModel?.startObserving()
+            ownModel?.startObserving()
         }
         .task(id: accountId) {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
         }
         .onDisappear {
-            viewModel?.stopObserving()
+            ownModel?.stopObserving()
         }
         // Squash-merge (EXP-131) — confirm-gated like the Reviews list.
         .alert("Merge pull request?", isPresented: $mergeConfirm) {

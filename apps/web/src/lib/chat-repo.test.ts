@@ -3,7 +3,6 @@ import {
   chatRepoOptions,
   chatStartInputs,
   defaultChatRepoId,
-  NO_REPO,
 } from "@/lib/chat-repo"
 
 const repos = [
@@ -12,23 +11,21 @@ const repos = [
 ]
 
 describe(`chat repository choice`, () => {
-  it(`offers repo-less first, then every connected repo`, () => {
+  it(`offers every connected repo and nothing else`, () => {
+    // EXP-993: no "No repository" row — repo-less is not a choice any more.
     expect(chatRepoOptions(repos)).toEqual([
-      { value: NO_REPO, label: `No repository` },
       { value: `repo-1`, label: `niach/exponential` },
       { value: `repo-2`, label: `niach/other` },
     ])
   })
 
   it(`offers nothing when the team has no repo connected`, () => {
-    // A one-entry menu reading "No repository" is noise on a page that is
-    // meant to be one prompt box; the pages hide the picker on an empty list.
     expect(chatRepoOptions([])).toEqual([])
   })
 
-  it(`pre-picks the only repo and otherwise stays repo-less`, () => {
+  it(`pre-picks the first repo`, () => {
     expect(defaultChatRepoId([repos[0]!])).toBe(`repo-1`)
-    expect(defaultChatRepoId(repos)).toBe(``)
+    expect(defaultChatRepoId(repos)).toBe(`repo-1`)
     expect(defaultChatRepoId([])).toBe(``)
   })
 

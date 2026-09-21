@@ -508,6 +508,28 @@ app.post(`/sessions/:id/input`, async (c) => {
   return c.json({ ok: true, delivered })
 })
 
+// EXP-936: the run's own `exponential_sessions_compact`, relayed to its
+// publisher as a `compact_request` and AWAITED: the host answers with its
+// verdict (`compact_verdict`) and that answer is this response. `keep`
+// mirrors the tool's argument (what the summary must preserve). Same
+// delivery contract as kill/input — 200 with delivered=false when no live
+// publisher holds the room or the host never answered — so an old relay's
+// 404 and a missing host read alike on the web side.
+const COMPACT_KEEP_MAX_CHARS = 2_000
+
+app.post(`/sessions/:id/compact`, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null
+  const keep = typeof body?.keep === `string` ? body.keep : undefined
+  if (keep !== undefined && (keep.length === 0 || keep.length > COMPACT_KEEP_MAX_CHARS)) {
+    return c.json({ error: `Bad request` }, 400)
+  }
+  const outcome = await hub.requestCompaction(c.req.param(`id`), keep)
+  return c.json({ ok: true, ...outcome })
+})
+
 // ── WebSocket upgrade + handlers ──────────────────────────────────────────────
 
 interface WsData {

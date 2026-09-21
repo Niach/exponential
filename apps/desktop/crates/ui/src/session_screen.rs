@@ -535,65 +535,6 @@ impl SessionScreenView {
         crate::work_header::resume_path_cached(&row, &mut self.resumable, cx)
     }
 
-    /// EXP-849 — this run IS the continuation of an earlier one (an ordinary
-    /// Resume, or a switch to another account): say so ONCE, with the
-    /// transcript's one-time cost, so a second context-window charge on a new
-    /// account is never a surprise. The ×4 sentences
-    /// (`crate::account_switch`); the run it continues is reachable from the
-    /// lists, which nest the chain.
-    fn render_continuation(&mut self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        // The synced row is the authority (it covers a run this machine does
-        // not host); the local registry answers a beat earlier, before the
-        // resumed row's Electric echo lands.
-        let continues = self
-            .inner
-            .read(cx)
-            .session_row()
-            .and_then(|row| row.resumed_from_id.clone())
-            .or_else(|| resumed_from_id(&self.session_id, cx))
-            .is_some_and(|id| !id.trim().is_empty());
-        if !continues {
-            return None;
-        }
-        let muted = cx.theme().muted_foreground;
-        Some(
-            h_flex()
-                .w_full()
-                .flex_shrink_0()
-                .min_w_0()
-                .items_start()
-                .gap_1p5()
-                .px_3()
-                .py_1p5()
-                .border_b_1()
-                .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                .child(
-                    Icon::new(registry::RUN_RESUME)
-                        .xsmall()
-                        .flex_shrink_0()
-                        .text_color(muted),
-                )
-                .child(
-                    v_flex()
-                        .min_w_0()
-                        .gap_0p5()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted)
-                                .child(crate::account_switch::CONTINUATION_NOTE),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted.opacity(0.7))
-                                .child(crate::account_switch::CONTINUATION_COST_NOTE),
-                        ),
-                )
-                .into_any_element(),
-        )
-    }
-
     /// EXP-897 — a STACKED run says where it sits before its transcript: the
     /// position line (`2 of 3 · on top of #EXP-11`) and the one sentence that
     /// explains the diff it is about to show (`Your pull request is based on
@@ -680,11 +621,15 @@ impl SessionScreenView {
         use crate::work_header::{Face, FaceToggle};
         let inner = self.inner.clone();
         // EXP-886 / EXP-950: "Runs" once the issue has several runs of mine
-        // — the segment's caret is where they are picked.
-        let runs = issue_id
-            .as_deref()
-            .map(|issue_id| crate::run_rows::issue_run_entries(issue_id, cx))
-            .unwrap_or_default();
+        // — the segment's caret is where they are picked. EXP-974: an
+        // ISSUE-LESS run (chat / action / batch) has no issue to list runs
+        // under, so its menu is its RESUME CHAIN — the same run under every
+        // row that continued it, newest first — and a resumed run shares
+        // the ONE toggle with its successor instead of a continuation band.
+        let runs = match issue_id.as_deref() {
+            Some(issue_id) => crate::run_rows::issue_run_entries(issue_id, cx),
+            None => crate::run_rows::chain_run_entries(&self.session_id, cx),
+        };
         let viewed = self.session_id.clone();
         let menu_issue_id = issue_id.clone();
         // EXP-879: a Results face whose pictures went away is not a face —
@@ -732,16 +677,24 @@ impl SessionScreenView {
             }),
             // EXP-950: picking a run flips this tab's Run face to it — the
             // same `set_tab_face` the toggle uses, so the tab rebinds and
-            // nothing else moves. The run on show never re-opens.
+            // nothing else moves. The run on show never re-opens. EXP-974:
+            // an issue-less run has no issue tab to rebind, so a pick from
+            // its chain OPENS that row's screen (`open_session`: a screen
+            // already open is activated, not duplicated; the resume swap
+            // leaves two open tabs of one chain alone).
             Rc::new(move |run_id, window, cx| {
-                if let Some(issue_id) = menu_issue_id.as_deref().filter(|_| run_id != viewed) {
-                    crate::screens::set_tab_face(
+                if run_id == viewed {
+                    return;
+                }
+                match menu_issue_id.as_deref() {
+                    Some(issue_id) => crate::screens::set_tab_face(
                         issue_id,
                         crate::screens::TabFace::Run,
                         Some(run_id.to_string()),
                         window,
                         cx,
-                    );
+                    ),
+                    None => open_session(run_id, window, cx),
                 }
             }),
             cx,
@@ -802,7 +755,7 @@ impl SessionScreenView {
                     },
                     Some(session_id.clone()),
                 );
-                let right = header.right_cluster(&issue, toggle, cx);
+                let right = header.right_cluster(&issue, toggle, diff_open, cx);
                 let actions = header.issue_actions(&issue, action, cx);
                 (
                     right,
@@ -845,12 +798,15 @@ impl SessionScreenView {
             right.extend(crate::pr_graph::badge("session-pr-graph", spec, cx));
         }
         // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the
-        // header, exactly as an issue's does.
-        right.extend(crate::work_header::github_button(
-            "work-github",
-            row.as_ref().and_then(|row| row.pr_url.as_deref()),
-            cx,
-        ));
+        // header, exactly as an issue's does — EXP-949: on the Changes face
+        // alone, where the diff it opens is on show.
+        if self.run_face(cx) == crate::screens::RunFace::Diff {
+            right.extend(crate::work_header::github_button(
+                "work-github",
+                row.as_ref().and_then(|row| row.pr_url.as_deref()),
+                cx,
+            ));
+        }
         right.extend(self.face_toggle(None, cx));
         let (merge_target, killable, local, device_label) = {
             let inner = self.inner.read(cx);
@@ -1026,10 +982,9 @@ impl Focusable for SessionScreenView {
 impl Render for SessionScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let header = self.render_header(window, cx);
-        // EXP-849: the continuation byline sits directly under the header —
-        // it is about THIS run's history, not about its result.
-        let continuation = self.render_continuation(cx);
-        // EXP-897: and, for a stacked run, where in the stack it sits.
+        // EXP-897: for a stacked run, where in the stack it sits. (EXP-974:
+        // the "Continues an earlier run" band is gone — a resumed run and
+        // its predecessor share the header's `Runs` menu.)
         let stack_position = self.render_stack_position(cx);
         // EXP-773/EXP-877: one column — the shared work header, then the
         // transcript, whose own footer carries the composer (and the usage
@@ -1041,7 +996,6 @@ impl Render for SessionScreenView {
             .min_h_0()
             .track_focus(&self.focus_handle)
             .child(header)
-            .children(continuation)
             .children(stack_position)
             .child(div().flex_1().min_h_0().child(self.inner.clone()))
     }

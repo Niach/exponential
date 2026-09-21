@@ -371,6 +371,12 @@ fun RunFace(
     // not stacked at all).
     val stackPosition by viewModel.stackPosition.collectAsStateWithLifecycle()
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
+    // EXP-920: the transcript's entity-preview sheets read the run's team
+    // rows off the account DB (the viewer id scopes notifications).
+    val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    val entityRefResolver = remember(viewModel, session?.teamId, currentUserId) {
+        EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId)
+    }
     val issueRefHandler = remember(issueRefCandidates) {
         IssueRefHandler(
             issueRefCandidates,
@@ -673,44 +679,6 @@ fun RunFace(
             // EXP-893: nothing floats over its tail any more — the diff is the
             // Changes face, Merge lives there too, and the bar below is in
             // the flow, so the feed simply ends above it.
-            // EXP-849 phase 3: this run CONTINUES another one (an account
-            // switch, or a plain Resume) — the chain is the synced
-            // `resumed_from_id`, so say so once at the top instead of letting a
-            // transcript that starts mid-conversation look like a lost run. The
-            // cost of that pick-up is named here and nowhere else.
-            if (session?.resumedFromId != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassRow()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .testTag("session-continuation-note"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(
-                        ExpIcons.runResume,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            SessionAccountSwitch.CONTINUATION_NOTE,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            SessionAccountSwitch.CONTINUATION_COST_NOTE,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Tertiary,
-                            ),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-            }
             // EXP-897: this run's pull request is STACKED on another issue's —
             // say where it sits and what it is built on, in the same words the
             // Reviews list and the other three clients use.
@@ -838,6 +806,9 @@ fun RunFace(
                         // `#IDENTIFIER` contract.
                         LocalIssueRefs provides issueRefHandler,
                         LocalIssueRefBare provides true,
+                        // EXP-920: what a tool row's entity chips resolve
+                        // their preview sheets against — the run's team.
+                        LocalEntityRefResolver provides entityRefResolver,
                         // EXP-698: inline `code` is TINTED in a chat feed —
                         // narration, the user's own bubbles, plan and ask
                         // cards, everything under this provider. Issue
@@ -4252,6 +4223,16 @@ private const val EXP_TOOL_SUBJECT_MAX = 48
 @Composable
 private fun ExpToolPreview(display: ExpToolRow, preview: ToolResultPreview?) {
     val result = preview ?: return
+    // EXP-920: an answer that named its entities renders them as chips — one
+    // per group, each opening a preview sheet. A pre-EXP-920 publisher sends
+    // no refs and the single-subject rendering below stays exactly as it was.
+    if (result.refs.isNotEmpty()) {
+        EntityRefChips(
+            refs = result.refs,
+            modifier = Modifier.padding(start = EXP_TOOL_PREVIEW_INSET, top = 4.dp),
+        )
+        return
+    }
     when (display.result) {
         ExpToolDisplay.RESULT_ISSUE -> ExpToolIssuePreview(result)
         ExpToolDisplay.RESULT_PR -> {

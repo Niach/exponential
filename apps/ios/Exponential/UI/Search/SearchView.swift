@@ -13,10 +13,6 @@ struct SearchView: View {
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
     @FocusState private var searchFocused: Bool
-    // Same identifier column treatment as IssueListView (EXP-24): min width
-    // so status icons/titles align across rows despite varying identifier
-    // lengths in cross-board results (EXP-250).
-    @ScaledMetric(relativeTo: .caption) private var identifierMinWidth: CGFloat = 60
 
     var body: some View {
         ZStack {
@@ -32,11 +28,11 @@ struct SearchView: View {
                     if trimmed.isEmpty {
                         searchHint
                     } else {
-                        let groups = vm.results(for: trimmed)
-                        if groups.isEmpty {
+                        let results = vm.results(for: trimmed)
+                        if results.isEmpty {
                             noResults
                         } else {
-                            resultsList(groups)
+                            resultsList(results)
                         }
                     }
                 }
@@ -70,6 +66,8 @@ struct SearchView: View {
     // iPhone, colliding with the floating tab bar.
     private var searchField: some View {
         GlassSheetSearchField(
+            // EXP-922: the ×4 copy set — same words on web, desktop, iOS and
+            // Android (web `lib/issue-search.ts`; `issue-search-surfaces.test.ts` greps this file).
             placeholder: "Search issues",
             text: $query,
             accessibilityIdentifier: "search-field"
@@ -112,22 +110,20 @@ struct SearchView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// EXP-922: ONE flat relevance-ordered list — the web sheet's and the
+    /// desktop palette's shape. The board moved onto each row's sub-line; the
+    /// per-board sections are gone, because banding fought the ranking (a
+    /// board's header jumped to wherever its best hit landed and pulled its
+    /// weaker hits up with it, so the same query read differently here than on
+    /// every other client).
     @ViewBuilder
-    private func resultsList(_ groups: [SearchViewModel.ResultGroup]) -> some View {
+    private func resultsList(_ results: [SearchViewModel.Result]) -> some View {
         List {
-            ForEach(groups) { group in
-                Section {
-                    ForEach(group.issues, id: \.id) { issue in
-                        resultRow(issue)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
-                    }
-                } header: {
-                    boardHeader(group.board, count: group.issues.count)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 2, trailing: 16))
-                        .listRowBackground(Color.clear)
-                }
+            ForEach(results) { result in
+                resultRow(result)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
             }
         }
         .listStyle(.plain)
@@ -145,47 +141,16 @@ struct SearchView: View {
         // floating bar is hidden here and the full height is ours.
     }
 
+    /// The ×4 search row (EXP-922): the issue's status glyph, its title, and a
+    /// sub-line carrying the board's own glyph, the board name and the
+    /// identifier — byte-for-byte the web `IssueSearchSheet` row and the
+    /// desktop palette's `render_issue_row`. Priority is deliberately absent:
+    /// no other client shows it here.
     @ViewBuilder
-    private func boardHeader(_ board: BoardEntity, count: Int) -> some View {
-        HStack(spacing: 8) {
-            // Board glyph tinted with the board color — same idiom as the
-            // board switcher sheet, scaled down for a section header (EXP-449).
-            AppIcon(BoardTypeDisplay.iconName(for: board), size: 13)
-                .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-
-            Text(board.name)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-            Text("\(count)")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-            Spacer()
-        }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
-        .textCase(nil)
-    }
-
-    @ViewBuilder
-    private func resultRow(_ issue: IssueEntity) -> some View {
+    private func resultRow(_ result: SearchViewModel.Result) -> some View {
+        let issue = result.issue
         NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
             HStack(spacing: 10) {
-                // Priority icon (16pt column, IssueListView/Android parity)
-                AppIcon(IssuePriority.from(issue.priority).iconName, size: AppIcon.Size.small)
-                    .foregroundStyle(IssuePriority.from(issue.priority).color)
-                    .frame(width: 16)
-
-                // Leading-aligned min width so the status icon and title
-                // don't shift with identifier length (EXP-250); longer
-                // identifiers grow instead of ellipsizing into ambiguity.
-                Text(issue.identifier ?? "")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .frame(minWidth: identifierMinWidth, alignment: .leading)
-
                 // Anchor glyph (EXP-314): search spans teams, and status rows
                 // are team-scoped — the anchor renders correctly for builtins
                 // and is the right neutral fallback for customs.
@@ -193,12 +158,29 @@ struct SearchView: View {
                     .foregroundStyle(IssueStatus.from(issue.status).color)
                     .frame(width: 16)
 
-                Text(issue.title)
-                    .font(.subheadline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(issue.title)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
 
-                Spacer()
+                    HStack(spacing: 6) {
+                        if let board = result.board {
+                            AppIcon(BoardTypeDisplay.iconName(for: board), size: 11)
+                                .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+                            Text("\(board.name) · \(issue.identifier ?? "")")
+                                .lineLimit(1)
+                        } else {
+                            Text(issue.identifier ?? "")
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)

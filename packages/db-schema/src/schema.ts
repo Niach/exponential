@@ -1139,6 +1139,12 @@ export interface DeviceAgentLaunchDefaults {
 }
 export interface DeviceLaunchDefaults {
   defaultAgent?: string
+  /** EXP-872: the DEFAULT ACCOUNT — a profile id of `defaultAgent`'s logins
+   * (`agent_profiles`). "Default agent" became "default account" on every
+   * client: the setting stores the profile and the agent is derived from it;
+   * `defaultAgent` stays written beside it for older devices. Absent = the
+   * agent's active login. */
+  defaultAccount?: string
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
 // Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
@@ -1151,6 +1157,7 @@ export interface DeviceLaunchDefaults {
 // register.
 export const deviceLaunchDefaultsSchema = z.object({
   defaultAgent: z.string().min(1).max(32).nullish(),
+  defaultAccount: z.string().min(1).max(64).nullish(),
   agents: z
     .record(
       z.string().min(1).max(32),
@@ -2162,6 +2169,49 @@ export const mcpOauthFlows = pgTable(
   (table) => [index(`idx_mcp_oauth_flows_device`).on(table.deviceRowId)]
 )
 
+// EXP-891: MCP servers a MACHINE connects on its own runs — per device and
+// per member, beside the team registry above. The device is the writer: the
+// desktop / CLI autodetects what the local claude/codex config already has
+// (`claude mcp add …`, `[mcp_servers.*]` in codex's config.toml) and imports
+// it (`source = detected`), or a person types one there (`manual`); every
+// edit replaces the machine's set through `deviceMcpServers.sync`. The web
+// only READS them, grouped per device. Config only — url or command + args,
+// never a header value, a token or an env value: a detected server keeps
+// its credentials where the agent already holds them. Server-only (tRPC,
+// never a shape). `device_id` is the steer id the row is reported under
+// (denormalized off the devices row so the contract shape needs no join);
+// `enabled = false` keeps a row listed but off every launch.
+export const deviceMcpServers = pgTable(
+  `device_mcp_servers`,
+  {
+    id: uuidPk(),
+    deviceRowId: uuid(`device_row_id`)
+      .notNull()
+      .references(() => devices.id, { onDelete: `cascade` }),
+    deviceId: text(`device_id`).notNull(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    name: varchar({ length: 64 }).notNull(),
+    // Documented varchar (mcpTransportValues in domain.ts).
+    transport: varchar({ length: 16 }).notNull().default(`http`),
+    url: text(),
+    command: text(),
+    args: jsonb().$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // `detected` | `manual` (lib/mcp/device-mcp-servers.ts).
+    source: varchar({ length: 16 }).notNull().default(`manual`),
+    // The local agent config a detected row came from (`claude` | `codex`);
+    // null for a typed one.
+    agent: varchar({ length: 16 }),
+    enabled: boolean().notNull().default(true),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.deviceRowId, table.name),
+    index(`idx_device_mcp_servers_device`).on(table.deviceRowId),
+  ]
+)
+
 // Team action prompts. An action is a named markdown prompt the desktop runs
 // as an interactive agent session on the trunk clone (or a scratch dir when
 // repo-less) — code review, backlog grooming, deploys… Synced as the 15th
@@ -2977,6 +3027,7 @@ export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>
 export type McpServerReadiness = InferSelectModel<typeof mcpServerReadiness>
 export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
+export type DeviceMcpServerRow = InferSelectModel<typeof deviceMcpServers>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
 export type Action = InferSelectModel<typeof actions>
 export type Automation = InferSelectModel<typeof automations>

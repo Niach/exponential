@@ -16,7 +16,9 @@ import {
 import { cn } from "@/lib/utils"
 
 // EXP-886 / EXP-950: the run MENU — the select between an issue's runs of
-// mine (`selectIssueRuns`, live first then newest end first). EXP-950 folded
+// mine (`selectIssueRuns`, live first then newest end first), or (EXP-974)
+// between the members of an issue-less run's RESUME CHAIN (`runChain`,
+// newest first — the predecessor and its successor, one toggle). EXP-950 folded
 // the separate switcher pill into the work header's face toggle: with two or
 // more runs the `Runs` segment carries a caret (`WorkFaceToggle` `runMenu`)
 // and this is the menu it opens, on the issue face and the run face alike.

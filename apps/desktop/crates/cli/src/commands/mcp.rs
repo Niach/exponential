@@ -8,6 +8,13 @@
 //! redirect back), `set-secret` reads the value from a no-echo prompt (or a
 //! piped stdin line). Both end by re-reporting this device's readiness so
 //! the web's matrix flips without waiting for the daemon's next sweep.
+//!
+//! EXP-891: `import | add | enable | disable | remove` manage THIS
+//! MACHINE's own servers ([`coding::device_mcp_servers`]) — the ones every
+//! run started here connects beside the team pick. `import` takes what the
+//! local claude/codex configs already list (`claude mcp add …` lands there),
+//! `add` types one. Every edit pushes the set (`deviceMcpServers.sync`) so
+//! the web's per-device view follows at once.
 
 use std::io::{BufRead, Write};
 use std::process::ExitCode;
@@ -22,11 +29,18 @@ use crate::term;
 const USAGE: &str = "\
 Usage: exponential mcp <command>
 
-Commands:
-  list                         Team MCP servers and this machine's readiness
+Team servers:
+  list                         Team MCP servers, this machine's readiness, and
+                               this machine's own servers
   login <server> [--paste]     Sign in to an OAuth server on this machine
   set-secret <server> <NAME>   Store the value for a declared header/env name
   status                       This machine's readiness per server
+
+This machine's servers (connected on every run started here):
+  import [--dry-run]           Import what claude / codex already list locally
+  add <name> <url | command…>  Add one (an https URL, or a command line)
+  enable <name> / disable <name>
+  remove <name>                Forget it here (the agent's own config is untouched)
 ";
 
 pub fn run(args: &[String]) -> CommandResult {
@@ -37,6 +51,11 @@ pub fn run(args: &[String]) -> CommandResult {
         "login" => login(rest),
         "set-secret" => set_secret(rest),
         "status" => status(rest),
+        "import" => import(rest),
+        "add" => add(rest),
+        "enable" => set_enabled(rest, true),
+        "disable" => set_enabled(rest, false),
+        "remove" => remove(rest),
         "help" | "--help" | "-h" | "" => {
             print!("{USAGE}");
             Ok(ExitCode::SUCCESS)
@@ -148,6 +167,172 @@ pub fn list(args: &[String]) -> CommandResult {
             println!("    id {}", config.id);
         }
     }
+    println!();
+    print_local(&ctx);
+    Ok(ExitCode::SUCCESS)
+}
+
+// ---------------------------------------------------------------------------
+// EXP-891: this machine's own servers
+// ---------------------------------------------------------------------------
+
+/// The "THIS MACHINE'S SERVERS" block `list` ends with: the held rows, then
+/// what the local agent configs list that is not held yet.
+fn print_local(ctx: &Ctx) {
+    let held = coding::device_mcp_servers::load(&ctx.data_dir);
+    let detected = coding::device_mcp_servers::detect(&ctx.data_dir);
+    println!("THIS MACHINE'S SERVERS (connected on every run started here)");
+    if held.is_empty() {
+        println!("  none yet");
+    }
+    for row in &held {
+        println!(
+            "  {:<24}  {:<8}  {}  {}{}",
+            row.name,
+            if row.enabled { "on" } else { "off" },
+            row.target(),
+            row.source_label(),
+            ""
+        );
+    }
+    let importable = coding::device_mcp_servers::importable(&detected, &held);
+    if !importable.is_empty() {
+        println!();
+        println!("Detected locally, not imported (`exponential mcp import`):");
+        for candidate in importable {
+            println!(
+                "  {:<24}  {}  ({}, {})",
+                candidate.name,
+                candidate.target(),
+                agent_label(candidate.agent),
+                candidate.origin.display()
+            );
+        }
+    }
+    let skipped: Vec<_> = detected
+        .iter()
+        .filter(|candidate| candidate.skipped.is_some())
+        .filter(|candidate| !held.iter().any(|row| row.name.eq_ignore_ascii_case(&candidate.name)))
+        .collect();
+    if !skipped.is_empty() {
+        println!();
+        println!("Detected locally, not importable:");
+        for candidate in skipped {
+            println!(
+                "  {:<24}  {}",
+                candidate.name,
+                candidate.skipped.as_deref().unwrap_or("")
+            );
+        }
+    }
+}
+
+fn agent_label(agent: &str) -> &'static str {
+    match agent {
+        "claude" => "Claude Code",
+        "codex" => "Codex",
+        _ => "agent config",
+    }
+}
+
+/// Push the machine's set now, so the web's per-device view follows.
+fn sync_local(ctx: &Ctx) {
+    match coding::device_mcp_servers::sync_now(&ctx.data_dir, &ctx.trpc, &ctx.device_id()) {
+        Ok(_) => {}
+        Err(error) => log::debug!("deviceMcpServers.sync failed (the daemon's next sweep retries): {error}"),
+    }
+}
+
+pub fn import(args: &[String]) -> CommandResult {
+    let mut args = args.to_vec();
+    let dry_run = take_flag(&mut args, "--dry-run");
+    reject_unknown_flags(&args)?;
+    let ctx = context::load()?;
+    let held = coding::device_mcp_servers::load(&ctx.data_dir);
+    let detected = coding::device_mcp_servers::detect(&ctx.data_dir);
+    let importable = coding::device_mcp_servers::importable(&detected, &held);
+    if importable.is_empty() {
+        println!("Nothing new to import: this machine already holds every server claude / codex list locally.");
+        let skipped = detected.iter().filter(|c| c.skipped.is_some()).count();
+        if skipped > 0 {
+            println!("({skipped} detected entr{} cannot be imported; `exponential mcp list` says why.)", if skipped == 1 { "y" } else { "ies" });
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    if dry_run {
+        println!("Would import:");
+        for candidate in importable {
+            println!("  {:<24}  {}  ({})", candidate.name, candidate.target(), agent_label(candidate.agent));
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    let added = coding::device_mcp_servers::import(&ctx.data_dir).map_err(|error| anyhow!(error))?;
+    for row in &added {
+        println!("Imported {:<24}  {}  ({})", row.name, row.target(), row.source_label());
+    }
+    println!(
+        "{} server{} now connect{} on every run started here. `exponential mcp disable <name>` turns one off.",
+        added.len(),
+        if added.len() == 1 { "" } else { "s" },
+        if added.len() == 1 { "s" } else { "" }
+    );
+    sync_local(&ctx);
+    Ok(ExitCode::SUCCESS)
+}
+
+pub fn add(args: &[String]) -> CommandResult {
+    let mut args = args.to_vec();
+    let disabled = take_flag(&mut args, "--disabled");
+    reject_unknown_flags(&args)?;
+    let (name, target) = match args.as_slice() {
+        [name, target @ ..] if !target.is_empty() => (name.clone(), target.join(" ")),
+        _ => bail!("usage: exponential mcp add <name> <https://url | command [args…]> [--disabled]"),
+    };
+    let ctx = context::load()?;
+    let mut server = coding::device_mcp_servers::parse_target(&name, &target);
+    server.enabled = !disabled;
+    let row = coding::device_mcp_servers::add(&ctx.data_dir, server).map_err(|error| anyhow!(error))?;
+    println!(
+        "Added {} ({}) on this machine{}.",
+        row.name,
+        row.target(),
+        if row.enabled { "; it connects on every run started here" } else { ", disabled" }
+    );
+    sync_local(&ctx);
+    Ok(ExitCode::SUCCESS)
+}
+
+pub fn set_enabled(args: &[String], enabled: bool) -> CommandResult {
+    reject_unknown_flags(args)?;
+    let [name] = args else {
+        bail!(
+            "usage: exponential mcp {} <name>",
+            if enabled { "enable" } else { "disable" }
+        );
+    };
+    let ctx = context::load()?;
+    let found = coding::device_mcp_servers::set_enabled(&ctx.data_dir, name, enabled)
+        .map_err(|error| anyhow!(error))?;
+    if !found {
+        bail!("no server named `{name}` on this machine (`exponential mcp list`)");
+    }
+    println!("{name} is now {} on this machine.", if enabled { "on" } else { "off" });
+    sync_local(&ctx);
+    Ok(ExitCode::SUCCESS)
+}
+
+pub fn remove(args: &[String]) -> CommandResult {
+    reject_unknown_flags(args)?;
+    let [name] = args else {
+        bail!("usage: exponential mcp remove <name>");
+    };
+    let ctx = context::load()?;
+    let found = coding::device_mcp_servers::remove(&ctx.data_dir, name).map_err(|error| anyhow!(error))?;
+    if !found {
+        bail!("no server named `{name}` on this machine (`exponential mcp list`)");
+    }
+    println!("Forgot {name} on this machine. Its entry in the agent's own config is untouched.");
+    sync_local(&ctx);
     Ok(ExitCode::SUCCESS)
 }
 

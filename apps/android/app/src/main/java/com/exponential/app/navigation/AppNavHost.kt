@@ -106,6 +106,9 @@ import dagger.hilt.android.EntryPointAccessors
  * on the top-level routes. Replaces the inline graph + `MainScaffold` drawer
  * shell that used to live in MainActivity.
  */
+/** EXP-920: the saved-state key the Actions entry reads its requested segment from. */
+private const val ACTIONS_SEGMENT_KEY = "exp.actions.segment"
+
 @Composable
 fun AppNavHost() {
     val viewModel: AppViewModel = hiltViewModel()
@@ -418,8 +421,45 @@ private fun AuthenticatedNav(
     val reduceMotion = LocalReduceMotion.current
     val pushSpec = Motion.slow<IntOffset>(reduceMotion)
 
+    // EXP-920: the ONE navigator an entity-preview sheet's Open rides — every
+    // kind's detail surface behind one local, so the transcript never threads
+    // a lambda per kind.
+    val entityNavigator = remember(navController) {
+        EntityNavigator { target ->
+            when (target) {
+                is EntityTarget.Issue -> navController.navigate("issue/${target.id}")
+                is EntityTarget.Board -> navController.navigate("board/${target.id}")
+                is EntityTarget.Session -> navController.navigate("steer/${target.id}")
+                is EntityTarget.Workflow -> navController.navigate("workflow/${target.id}")
+                is EntityTarget.SupportThread -> navController.navigate("support/${target.id}")
+                EntityTarget.Workflows -> navController.navigate("workflows") { launchSingleTop = true }
+                EntityTarget.Actions, EntityTarget.Automations -> {
+                    navController.navigate("actions") {
+                        launchSingleTop = true
+                        popUpTo("home")
+                    }
+                    runCatching { navController.getBackStackEntry("actions") }.getOrNull()
+                        ?.savedStateHandle
+                        ?.set(ACTIONS_SEGMENT_KEY, if (target == EntityTarget.Automations) "automations" else null)
+                }
+                EntityTarget.Devices -> navController.navigate("agents") {
+                    launchSingleTop = true
+                    popUpTo("home")
+                }
+                EntityTarget.TeamSettings -> navController.navigate("team-settings")
+                EntityTarget.Inbox -> navController.navigate("personal") {
+                    launchSingleTop = true
+                    popUpTo("home")
+                }
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-    CompositionLocalProvider(LocalBottomBarSuppression provides barSuppression) {
+    CompositionLocalProvider(
+        LocalBottomBarSuppression provides barSuppression,
+        LocalEntityNavigator provides entityNavigator,
+    ) {
     NavHost(
         navController = navController,
         startDestination = if (needsOnboarding) "onboarding" else "home",
@@ -484,12 +524,19 @@ private fun AuthenticatedNav(
             // the settings gear, and runs start from the Agent page composer.
             AgentsScreen()
         }
-        composable("actions") {
+        composable("actions") { entry ->
             // Team actions (EXP-253, view + run only) — its own bottom-bar tab
             // since EXP-686; NOT helpdesk-gated.
+            // EXP-920: an entity preview's Open on an automation asks for that
+            // segment through the entry's saved state (the route stays
+            // `actions`, which the tab bar compares against).
+            val requestedSegment by entry.savedStateHandle
+                .getStateFlow<String?>(ACTIONS_SEGMENT_KEY, null)
+                .collectAsStateWithLifecycle()
             ActionsScreen(
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenAgent = openAgent,
+                requestedSegment = requestedSegment,
             )
         }
         composable(

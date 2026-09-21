@@ -1,6 +1,11 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
-import { HISTORY_ROOM_LINGER_MS, Hub, type RelaySocket } from "./hub"
+import {
+  COMPACT_VERDICT_TIMEOUT_MS,
+  HISTORY_ROOM_LINGER_MS,
+  Hub,
+  type RelaySocket,
+} from "./hub"
 import {
   CLOSE_PUBLISHER_IDLE,
   CLOSE_SESSION_ENDED,
@@ -1184,6 +1189,153 @@ describe(`session rooms`, () => {
     expect(hub.injectInput(`sess-1`, `hello`)).toBe(false)
   })
 
+  // EXP-936: the run's own compaction ask (POST /sessions/:id/compact) —
+  // relayed as ONE `compact_request` and answered by the publisher's
+  // `compact_verdict`, which is the HTTP response and nothing else.
+  test(`requestCompaction relays the ask and resolves with the host's verdict`, async () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+
+    const ask = hub.requestCompaction(`sess-1`, `open threads, file paths`)
+    expect(pub.lastFrame(`compact_request`)).toEqual({
+      t: `compact_request`,
+      sessionId: `sess-1`,
+      keep: `open threads, file paths`,
+    })
+    hub.onMessage(
+      pub,
+      JSON.stringify({ t: `compact_verdict`, sessionId: `sess-1`, accepted: true })
+    )
+    await expect(ask).resolves.toEqual({ delivered: true, accepted: true })
+    // The verdict is the web server's alone: nothing reached the audience,
+    // nothing entered the replay log.
+    expect(member.framesOf(`compact_request`).length).toBe(0)
+    expect(member.framesOf(`compact_verdict`).length).toBe(0)
+    expect(member.events().length).toBe(0)
+    expect(hub.counters().compactRequests).toBe(1)
+
+    // A refusal carries its code; `keep` stays off the frame when absent.
+    const refused = hub.requestCompaction(`sess-1`)
+    expect(pub.lastFrame(`compact_request`)).toEqual({
+      t: `compact_request`,
+      sessionId: `sess-1`,
+    })
+    hub.onMessage(
+      pub,
+      JSON.stringify({
+        t: `compact_verdict`,
+        sessionId: `sess-1`,
+        accepted: false,
+        refusedBecause: `too_early`,
+      })
+    )
+    await expect(refused).resolves.toEqual({
+      delivered: true,
+      accepted: false,
+      refusedBecause: `too_early`,
+    })
+    hub.destroy()
+  })
+
+  test(`requestCompaction: only the room's publisher may answer, and only once`, async () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+
+    const ask = hub.requestCompaction(`sess-1`, `keep`)
+    // A second ask while the first waits is refused as busy, not queued.
+    await expect(hub.requestCompaction(`sess-1`)).resolves.toEqual({
+      delivered: false,
+      reason: `busy`,
+    })
+    // A viewer cannot answer for the host; a verdict naming another room is
+    // dropped too.
+    hub.onMessage(
+      member,
+      JSON.stringify({ t: `compact_verdict`, sessionId: `sess-1`, accepted: true })
+    )
+    hub.onMessage(
+      pub,
+      JSON.stringify({ t: `compact_verdict`, sessionId: `sess-2`, accepted: true })
+    )
+    let settled = false
+    void ask.then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    hub.onMessage(
+      pub,
+      JSON.stringify({
+        t: `compact_verdict`,
+        sessionId: `sess-1`,
+        accepted: false,
+        refusedBecause: `cooldown`,
+      })
+    )
+    await expect(ask).resolves.toEqual({
+      delivered: true,
+      accepted: false,
+      refusedBecause: `cooldown`,
+    })
+    // A stray verdict with nothing open is ignored.
+    hub.onMessage(
+      pub,
+      JSON.stringify({ t: `compact_verdict`, sessionId: `sess-1`, accepted: true })
+    )
+    hub.destroy()
+  })
+
+  test(`requestCompaction settles when the host is gone or silent`, async () => {
+    const hub = new Hub()
+    await expect(hub.requestCompaction(`nope`)).resolves.toEqual({
+      delivered: false,
+      reason: `no_publisher`,
+    })
+
+    // The publisher drops with the ask open: nothing will answer it.
+    let pub = connectPublisher(hub)
+    const dropped = hub.requestCompaction(`sess-1`)
+    hub.onClose(pub)
+    await expect(dropped).resolves.toEqual({
+      delivered: false,
+      reason: `no_publisher`,
+    })
+
+    // A host older than the frame never answers: the timer settles the ask.
+    pub = connectPublisher(hub)
+    const pending: { ms?: number; fn: () => void }[] = []
+    const realSetTimeout = globalThis.setTimeout
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      pending.push({ fn, ms })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as typeof setTimeout
+    let silent: Promise<unknown>
+    try {
+      silent = hub.requestCompaction(`sess-1`, `keep`)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+    const timer = pending.find((t) => t.ms === COMPACT_VERDICT_TIMEOUT_MS)
+    expect(timer).toBeDefined()
+    timer!.fn()
+    await expect(silent!).resolves.toEqual({
+      delivered: false,
+      reason: `no_verdict`,
+    })
+    expect(hub.counters().compactVerdictTimeouts).toBe(1)
+    // The slot is free again after the timeout.
+    const again = hub.requestCompaction(`sess-1`)
+    hub.onMessage(
+      pub,
+      JSON.stringify({ t: `compact_verdict`, sessionId: `sess-1`, accepted: true })
+    )
+    await expect(again).resolves.toEqual({ delivered: true, accepted: true })
+    hub.destroy()
+  })
+
   test(`bye closes the room and evicts members`, () => {
     const hub = new Hub()
     const pub = connectPublisher(hub)
@@ -1975,10 +2127,37 @@ describe(`activity event kinds`, () => {
         url: `https://github.com/a/b/pull/7`,
         count: 3,
         status: `in_progress`,
+        // EXP-920: the entities the answer named, chip by chip.
+        refs: [
+          { kind: `list`, id: `issue`, title: `issues`, count: 3 },
+          { kind: `issue`, id: `c0ffee`, identifier: `EXP-42`, title: `Fix the flicker` },
+          { kind: `status`, id: `s-1` },
+        ],
       },
     }
     activity(hub, pub, settled)
     expect(member.events()[0]).toEqual(settled as never)
+
+    // EXP-920: a ref of a kind the contract does not know, an empty id, or
+    // more refs than `maxRefs` drops the whole frame — the engine clamps.
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: { refs: [{ kind: `galaxy`, id: `x` }] },
+    })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: { refs: [{ kind: `issue`, id: `` }] },
+    })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-1`,
+      preview: {
+        refs: Array.from({ length: 9 }, (_, i) => ({ kind: `issue`, id: `i-${i}` })),
+      },
+    })
+    expect(room(hub).activityLog.length).toBe(1)
 
     // An over-cap string or a negative count drops the WHOLE frame — the
     // producer clamps first.
@@ -2738,6 +2917,8 @@ describe(`stats counters (EXP-553)`, () => {
       historyPagesViaDevice: 0,
       historyRoomLingerExpiries: 0,
       historyRoomDeviceLost: 0,
+      compactRequests: 0,
+      compactVerdictTimeouts: 0,
     })
 
     const desktop = new FakeSocket()

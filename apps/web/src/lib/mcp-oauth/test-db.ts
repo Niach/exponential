@@ -82,6 +82,15 @@ const TABLE_DEFAULTS: Record<string, () => Row> = {
     createdById: null,
   }),
   mcp_server_readiness: () => ({ expiresAt: null, error: null }),
+  device_mcp_servers: () => ({
+    url: null,
+    command: null,
+    args: [],
+    transport: `http`,
+    source: `manual`,
+    agent: null,
+    enabled: true,
+  }),
 }
 
 export function createFakeDb(seed: Record<string, Row[]> = {}) {

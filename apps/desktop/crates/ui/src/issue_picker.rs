@@ -278,6 +278,9 @@ fn engine_row(row: &IssueRow) -> domain::issue_search::SearchRow<'_> {
         description: row.description.as_deref(),
         created_at: row.created_at.as_deref(),
         updated_at: row.updated_at.as_deref(),
+        // EXP-922: undone rows rank above done ones. The pool already hides
+        // closed issues, so this only orders the PRE-SEEDED re-run rows.
+        status: row.status.as_wire(),
     }
 }
 

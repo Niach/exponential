@@ -12,6 +12,7 @@ import {
   parseClientFrame,
   type ActivityEvent,
   type ClientFrame,
+  type CompactRefusal,
   type ServerFrame,
   type StartInput,
   type StartRepoGroup,
@@ -144,6 +145,24 @@ interface Room {
   historyServed: boolean
   /** EXP-796: fires HISTORY_ROOM_LINGER_MS after the replay's `bye`. */
   lingerTimer: ReturnType<typeof setTimeout> | null
+  /** EXP-936: the ONE `compact_request` awaiting the host's verdict, or
+   *  null. Resolved by the publisher's `compact_verdict`, by the publisher
+   *  dropping, by the room closing, or by its own timer — never left
+   *  dangling, since the web server's tool call is blocked on it. */
+  compactAsk: CompactAsk | null
+}
+
+/** EXP-936: what `POST /sessions/:id/compact` gets back. `delivered: false`
+ *  = no live publisher held the room, or the one that did never answered
+ *  (a host older than EXP-936 ignores the frame); the web server turns
+ *  that into a tool error, never into a verdict. */
+export type CompactOutcome =
+  | { delivered: false; reason: `no_publisher` | `no_verdict` | `busy` }
+  | { delivered: true; accepted: boolean; refusedBecause?: CompactRefusal }
+
+interface CompactAsk {
+  resolve: (outcome: CompactOutcome) => void
+  timer: ReturnType<typeof setTimeout>
 }
 
 /** One in-flight `history_page`: who gets the chunks, under which id THEY
@@ -266,6 +285,12 @@ const HISTORY_PAGES_IN_FLIGHT = 4
  *  after this belongs to a publisher that is gone — freed, or the room's
  *  in-flight cap would fill with dead asks and refuse every viewer. */
 const HISTORY_PAGE_TIMEOUT_MS = 20_000
+/** EXP-936: how long a `compact_request` may wait for the host's verdict.
+ *  The device answers off in-memory state the moment the frame lands, so a
+ *  slot still open after this is a host that does not speak the frame; the
+ *  web server's own fetch timeout sits above this, so the relay always
+ *  answers first with a structured `no_verdict`. */
+export const COMPACT_VERDICT_TIMEOUT_MS = 4_000
 /** EXP-796: how long a history room stays up after the device's replay said
  *  `bye {outcome:'history'}`. The parked viewers keep their sockets and page
  *  older transcript through the device's control socket; the room goes when
@@ -361,6 +386,10 @@ export class Hub {
   private historyPagesViaDevice = 0
   private historyRoomLingerExpiries = 0
   private historyRoomDeviceLost = 0
+  /** EXP-936: `compact_request`s routed to a publisher, and how many the
+   *  host never answered (a host older than the frame). */
+  private compactRequests = 0
+  private compactVerdictTimeouts = 0
 
   constructor() {
     // REV2-X: Start the idle publisher detector — checks every 30s for
@@ -478,6 +507,8 @@ export class Hub {
       room.publisher = null
       // EXP-795: every page ask went down THIS socket; none is coming back.
       this.dropHistoryPages(room)
+      // EXP-936: nor is the compaction verdict.
+      this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
       room.staleTimer ??= setTimeout(() => {
         this.closeRoom(room, `publisher_lost`)
       }, PUBLISHER_GRACE_MS)
@@ -803,6 +834,28 @@ export class Hub {
         return
       }
 
+      // EXP-936: publisher-only — the host's answer to the room's ONE
+      // pending `compact_request`. Never fanned out, never logged: the
+      // verdict belongs to the web server's awaiting HTTP call alone. A
+      // verdict with no ask open (its timer fired first, or a stray frame)
+      // is dropped.
+      case `compact_verdict`: {
+        const room = this.roomFor(conn)
+        if (!room || room.publisher !== conn) return
+        if (msg.sessionId !== room.sessionId) return
+        this.settleCompactAsk(
+          room,
+          msg.accepted
+            ? { delivered: true, accepted: true }
+            : {
+                delivered: true,
+                accepted: false,
+                refusedBecause: msg.refusedBecause ?? `cooldown`,
+              }
+        )
+        return
+      }
+
       case `bye`: {
         const room = this.roomFor(conn)
         if (!room || room.publisher !== conn) return
@@ -946,6 +999,48 @@ export class Hub {
     return true
   }
 
+  /** EXP-936: relay the run's own `exponential_sessions_compact` to its
+   *  publisher and wait for the host's verdict. The host decides — it holds
+   *  the context meter, the turn count since the last compaction and the
+   *  open-fold state — and the relay only carries the answer back. One ask
+   *  per room at a time: a second one while the first waits reads `busy`
+   *  rather than queueing behind a verdict that will answer it too. */
+  requestCompaction(sessionId: string, keep?: string): Promise<CompactOutcome> {
+    const room = this.rooms.get(sessionId)
+    if (!room?.publisher) {
+      return Promise.resolve({ delivered: false, reason: `no_publisher` })
+    }
+    if (room.compactAsk) {
+      return Promise.resolve({ delivered: false, reason: `busy` })
+    }
+    const publisher = room.publisher
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.compactVerdictTimeouts += 1
+        this.settleCompactAsk(room, { delivered: false, reason: `no_verdict` })
+      }, COMPACT_VERDICT_TIMEOUT_MS)
+      room.compactAsk = { resolve, timer }
+      this.compactRequests += 1
+      publisher.sock.send(
+        frame({
+          t: `compact_request`,
+          sessionId,
+          ...(keep === undefined ? {} : { keep }),
+        })
+      )
+    })
+  }
+
+  /** EXP-936: answer (or give up on) the room's pending compaction ask. A
+   *  no-op when none is open, so every exit path may call it. */
+  private settleCompactAsk(room: Room, outcome: CompactOutcome) {
+    const ask = room.compactAsk
+    if (!ask) return
+    clearTimeout(ask.timer)
+    room.compactAsk = null
+    ask.resolve(outcome)
+  }
+
   stats() {
     return {
       connections: this.conns.size,
@@ -971,6 +1066,8 @@ export class Hub {
       historyPagesViaDevice: this.historyPagesViaDevice,
       historyRoomLingerExpiries: this.historyRoomLingerExpiries,
       historyRoomDeviceLost: this.historyRoomDeviceLost,
+      compactRequests: this.compactRequests,
+      compactVerdictTimeouts: this.compactVerdictTimeouts,
     }
   }
 
@@ -1115,6 +1212,7 @@ export class Hub {
       historyDevice: null,
       historyServed: false,
       lingerTimer: null,
+      compactAsk: null,
     }
   }
 
@@ -1304,6 +1402,7 @@ export class Hub {
     if (room.historyTimer) clearTimeout(room.historyTimer)
     if (room.lingerTimer) clearTimeout(room.lingerTimer)
     this.dropHistoryPages(room)
+    this.settleCompactAsk(room, { delivered: false, reason: `no_publisher` })
     this.rooms.delete(room.sessionId)
     const msg = frame({ t: `bye`, outcome })
     for (const member of room.activityMembers.keys()) {

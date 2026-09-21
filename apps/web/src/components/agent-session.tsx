@@ -199,6 +199,7 @@ import {
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
+import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import { cn } from "@/lib/utils"
 
@@ -378,11 +379,14 @@ export function AgentSessionView({
     trailing?: ReactNode
     tray?: ReactNode
   }
-  /** EXP-886: the issue's runs of mine (`useIssueRuns`), switcher order —
-   *  the Run/Runs label, the md+ toggle's run menu (EXP-950) and the phone
-   *  switcher's run rows all read it. */
+  /** EXP-886: the runs behind the `Runs` segment, switcher order — the
+   *  Run/Runs label, the md+ toggle's run menu (EXP-950) and the phone
+   *  switcher's run rows all read it. An issue-bound run's are the issue's
+   *  runs of mine (`useIssueRuns`); EXP-974: an issue-less run's are its
+   *  RESUME CHAIN (`useRunChain`), so a resumed run and its successor share
+   *  one toggle and pick each other from the menu. */
   issueRuns?: readonly PastRunRow[]
-  /** EXP-886: open another of the issue's runs (the view swaps in place). */
+  /** EXP-886: open another of those runs (the view swaps in place). */
   onOpenRun?: (session: CodingSession) => void
   /** EXP-893: start a NEW run on the issue — the phone switcher's `Start
    *  coding` row once this run ended for good. */
@@ -390,18 +394,21 @@ export function AgentSessionView({
   /** EXP-893: the issue's PR files, the phone's Changes face when the run
    *  published no live diff (`useReviewFiles`). */
   prFiles?: DiffFile[] | null
-  /** EXP-893: the PR page, the Changes face's GitHub circle. */
+  /** EXP-893: the PR page — the GitHub button, which EXP-949 confines to
+   *  the Changes face on every width. */
   prUrl?: string | null
   /** EXP-897: the stack/batch pill (`PrGraphBadge`) — the route builds it so
    *  this file stays free of routing. It rides the ONE work header, and its
    *  overlay's sections follow the face showing. */
   graphBadge?: ReactNode
   /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
-   *  route wraps it so the same bar shows on every face; `showingRun` says
-   *  whether to put Stop / Resume in its trailing slot. */
+   *  route wraps it so the same bar shows on every face; `shownFace` is the
+   *  face actually SHOWING (a `?view=` that fell back reads as `run`), which
+   *  decides its action slot: Stop / Resume on Run, GitHub on Changes
+   *  (EXP-949), nothing on Results. */
   renderMobileHeader?: (input: {
     dot: { tone: SessionDotTone; connecting: boolean }
-    showingRun: boolean
+    shownFace: `run` | `changes` | `results`
   }) => ReactNode
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
@@ -970,8 +977,16 @@ export function AgentSessionView({
    *  card to belong to, so they wear the toggle's own height
    *  (`placement="header"`) — a 24px Stop next to a 36px `Run +8870 −4` read
    *  as a stray. Inside the tray they stay chips (`placement="tray"`). */
+  /** EXP-949: the way out to GitHub belongs to the CHANGES face alone (and
+   *  the Reviews page) — never beside the transcript, the issue or the
+   *  results. Same rule on the issue route, the IDE and the phones. */
+  const githubButton =
+    showDiffFace && prUrl ? <PrGithubButton prUrl={prUrl} /> : null
   const runTrailing = issueHeader ? (
-    issueHeader.trailing
+    <>
+      {githubButton}
+      {issueHeader.trailing}
+    </>
   ) : (
     <>
       {/* EXP-916: the Changes face has no bar of its own any more, so the
@@ -983,7 +998,7 @@ export function AgentSessionView({
           placement="header"
         />
       )}
-      {prUrl && <PrGithubButton prUrl={prUrl} />}
+      {githubButton}
       {canKill ? (
         <StopRunPill onStop={requestKill} placement="header" />
       ) : sessionEnded && canResumeRun ? (
@@ -1061,6 +1076,12 @@ export function AgentSessionView({
     stale: staleMinutes !== null,
   })
   const showingRun = !showDiffFace && !showResultsFace
+  /** The face actually showing, for the phone header's action slot. */
+  const shownFace: `run` | `changes` | `results` = showDiffFace
+    ? `changes`
+    : showResultsFace
+      ? `results`
+      : `run`
 
   /** EXP-893: the phone's face switcher — the bottom-right circle. Faces:
    *  Issue when the run links one, Run (this IS the run), Changes once there
@@ -1116,20 +1137,18 @@ export function AgentSessionView({
     <MobileWorkBar trailing={mobileSwitcher} />
   ) : showDiffFace ? (
     <MobileWorkBar
-      /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides the
-         issue header's action slot (an issue-less run keeps the circle).
-         EXP-916: the Reviews page's cluster — files · Merge PR · switcher. */
+      /* EXP-895: the file LIST is the leading slot on a phone; GitHub rides
+         the header's action slot (EXP-949: on this face alone, issue-bound or
+         not). EXP-916: the Reviews page's cluster — files · Merge PR ·
+         switcher. The face only stands with files, so the sheet is always
+         there. */
       cluster
       leading={
-        changesFiles.length > 0 ? (
-          <ChangesFileSheet
-            files={changesFiles}
-            selected={diffFile}
-            onSelect={setDiffFile}
-          />
-        ) : prUrl ? (
-          <PrGithubButton prUrl={prUrl} variant="circle" />
-        ) : undefined
+        <ChangesFileSheet
+          files={changesFiles}
+          selected={diffFile}
+          onSelect={setDiffFile}
+        />
       }
       capsule={
         canMerge && mergeProps ? (
@@ -1212,7 +1231,7 @@ export function AgentSessionView({
            same Stop / Resume on the right. No caption row, no plan chip:
            the strips under the transcript say what the run is doing. */
         renderMobileHeader ? (
-          renderMobileHeader({ dot, showingRun })
+          renderMobileHeader({ dot, shownFace })
         ) : (
           <MobileDetailHeader
             title={
@@ -1229,6 +1248,9 @@ export function AgentSessionView({
                 {/* EXP-897: an issue-less run — a BATCH run above all — says
                     what it is part of here, the same pill, the same sheet. */}
                 {graphBadge}
+                {/* EXP-949: GitHub on the Changes face, in the slot Stop /
+                    Resume hold on the Run face. */}
+                {githubButton}
                 {showingRun &&
                   (canKill ? (
                     <StopRunPill onStop={requestKill} />
@@ -3839,7 +3861,12 @@ function ExpToolRow({
  *  gets the very chip an `#IDENT` reference renders (preview on hover, tap
  *  opens the issue) when the row is synced here, and the same chip inert with
  *  a muted glyph when it is not (EXP-887); a PR gets its link; a list its row count; the
- *  named things a small chip. `none` renders nothing at all. */
+ *  named things a small chip. `none` renders nothing at all.
+ *
+ *  EXP-920: a publisher that distilled `refs` gets the entity chip ROW instead
+ *  — one chip per ref group, each with its hover card and target
+ *  (`components/entity-preview/`), the same rendering ×4. The legacy branches
+ *  below stay for previews that carry no refs. */
 function ExpToolResult({
   kind,
   preview,
@@ -3849,6 +3876,13 @@ function ExpToolResult({
 }) {
   const issueRefs = useIssueRefs()
   const label = preview.title ?? preview.identifier ?? preview.id ?? null
+  if (preview.refs && preview.refs.length > 0) {
+    return (
+      <div className="ml-5 pt-0.5">
+        <EntityRefChips refs={preview.refs} />
+      </div>
+    )
+  }
   if (kind === `issue`) {
     const resolved = preview.id
       ? (issueRefs?.resolveById(preview.id) ??

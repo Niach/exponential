@@ -32,10 +32,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.api.AgentAccountProfile
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.db.DeviceWorktreeEntity
+import com.exponential.app.domain.AccountOption
+import com.exponential.app.ui.components.AccountPickerPill
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -48,9 +48,6 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.SwitchThumb
-import com.exponential.app.ui.components.agentIconPainter
-import com.exponential.app.ui.components.agentIconTint
-import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.deviceOptionLabel
 import com.exponential.app.ui.components.effortLabel
@@ -68,13 +65,17 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-825: the launch options as ONE muted inline line under the composer
- * card (Danny's variant B): Device, Agent, Model, a Plan switch, the Resume
- * switch inline while a worktree makes it offerable (EXP-481), the Repository
- * pick only while there is no subject (a chat's optional anchor, EXP-739), and
- * a `⋯` pill for the rest ([AgentOptionsSheet]: Effort, Ultracode, Account).
+ * card (Danny's variant B): Device, Account, Model, a Plan switch, the Resume
+ * switch inline while a worktree makes it offerable (EXP-481), and a `⋯` pill
+ * for the rest ([AgentOptionsSheet]: Effort, Subagent model, Ultracode).
  * Every pill is a menu or a toggle — no disabled controls; the caption under
  * the row explains what cannot start. Horizontally scrolling: a phone cannot
  * fit six pills, and wrapping would push the sessions list around.
+ *
+ * EXP-872: there is no agent pill any more — the ACCOUNT picker carries the
+ * brand mark, and picking a login implies its agent. EXP-993: and no
+ * repository pill: mobile never showed the chat's optional anchor well, so a
+ * chat simply takes the team's first repository.
  */
 @Composable
 internal fun AgentOptionsRow(
@@ -82,19 +83,15 @@ internal fun AgentOptionsRow(
     device: SteerDevice?,
     onDeviceChange: (String) -> Unit,
     launch: LaunchDraft,
-    availableAgents: List<String>,
-    onAgentChange: (String) -> Unit,
+    /** EXP-872: the settled machine's logins, device default first. */
+    accountOptions: List<AccountOption>,
+    /** A picked login sets the agent AND the account in one go. */
+    onAccountChange: (AccountOption) -> Unit,
     onModelChange: (String) -> Unit,
     onPlanModeChange: (Boolean) -> Unit,
     resumeCandidate: DeviceWorktreeEntity?,
     resume: Boolean,
     onResumeChange: (Boolean) -> Unit,
-    showRepository: Boolean,
-    repos: List<TeamRepo>,
-    chatRepoId: String,
-    onChatRepoChange: (String) -> Unit,
-    /** EXP-862: the account pill's pick — `""` = the machine's active login. */
-    onAccountChange: (String) -> Unit,
     onMore: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -131,14 +128,15 @@ internal fun AgentOptionsRow(
                 modifier = Modifier.testTag("agent-device-pill"),
             )
         }
-        // The agent — the ONE picker every surface renders (EXP-862): the
-        // brand mark alone, its name only in the menu and the description.
+        // EXP-872: the ACCOUNT — the ONE picker every launch surface renders.
+        // The brand mark plus the login's email; picking one implies its
+        // agent, so there is no agent pill beside it.
         // EXP-642: the store slide's pop-out rect used to be measured off the
         // segmented strip this replaced, so the testTag stays on this pill.
-        AgentPickerPill(
-            agent = launch.agent,
-            agents = availableAgents,
-            onSelect = onAgentChange,
+        AccountPickerPill(
+            options = accountOptions,
+            selectedKey = launch.accountKey,
+            onSelect = onAccountChange,
             modifier = Modifier.testTag("start-coding-agent-picker"),
         )
         OptionMenuPill(
@@ -168,152 +166,11 @@ internal fun AgentOptionsRow(
                 contentDescription = "Resume previous session",
             )
         }
-        // The chat's OPTIONAL repository (EXP-615/739): with one the run gets
-        // its own `exp/chat-<id8>` worktree, without one it runs in the
-        // agent's scratch dir. Only while there is no subject — an issue
-        // brings its board's repo, an action its own.
-        if (showRepository) {
-            if (repos.isEmpty()) {
-                GlassPill("No repository", icon = ExpIcons.actionRepository)
-            } else {
-                OptionMenuPill(
-                    icon = ExpIcons.actionRepository,
-                    text = repos.firstOrNull { it.id == chatRepoId }?.fullName ?: "No repository",
-                    contentDescription = "Repository",
-                    options = listOf("") + repos.map { it.id },
-                    optionLabel = { id ->
-                        if (id.isEmpty()) "No repository" else repos.firstOrNull { it.id == id }?.fullName ?: id
-                    },
-                    selected = chatRepoId,
-                    onSelect = onChatRepoChange,
-                )
-            }
-        }
-        // EXP-862: the account is a DECISION, not an overflow entry — the pill
-        // rides the row itself the moment the picked machine reports two or
-        // more logins for the picked agent (web/desktop/iOS parity).
-        val profiles: List<AgentAccountProfile> =
-            device?.agentAccounts?.get(launch.agent)?.profiles.orEmpty()
-        if (profiles.size >= 2) {
-            OptionMenuPill(
-                icon = ExpIcons.uiSignIn,
-                text = accountPillLabel(profiles, launch.account),
-                contentDescription = "Account",
-                options = listOf("") + profiles.map { it.id },
-                optionLabel = { id -> accountOptionLabel(profiles, id) },
-                selected = launch.account,
-                onSelect = onAccountChange,
-                modifier = Modifier.testTag("agent-account-pill"),
-            )
-        }
         GlassPill(
             "",
             icon = ExpIcons.uiMore,
             onClick = onMore,
             contentDescription = "More options",
-        )
-    }
-}
-
-/** The active login reads as itself, never as an id. */
-private const val ACTIVE_LOGIN_LABEL = "Active login"
-
-private fun accountOptionLabel(profiles: List<AgentAccountProfile>, id: String): String =
-    if (id.isEmpty()) {
-        ACTIVE_LOGIN_LABEL
-    } else {
-        profiles.firstOrNull { it.id == id }
-            ?.let { it.email ?: it.label?.trim()?.takeIf { l -> l.isNotEmpty() } ?: it.id }
-            ?: id
-    }
-
-private fun accountPillLabel(profiles: List<AgentAccountProfile>, account: String): String =
-    accountOptionLabel(profiles, account)
-
-/**
- * EXP-862: THE agent picker of this client — an icon-only trigger (the brand
- * mark plus the chevron) whose menu names the agents. "Claude Code" / "Codex"
- * appear in the menu and in the accessibility description only; the row itself
- * is a mark, like web's `AgentPicker`, the desktop's `coding_selects::agent_picker`
- * and iOS's `AgentPickerMenu`.
- *
- * A lone agent is not a choice: the pill states it and opens nothing.
- */
-@Composable
-internal fun AgentPickerPill(
-    agent: String,
-    agents: List<String>,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var open by remember { mutableStateOf(false) }
-    val enabled = agents.size > 1
-    Box(modifier = modifier) {
-        GlassPill(
-            "",
-            onClick = if (enabled) ({ open = true }) else null,
-            leading = {
-                Icon(
-                    agentIconPainter(agent),
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = agentIconTint(agent),
-                )
-            },
-            trailing = if (enabled) {
-                {
-                    Icon(
-                        ExpIcons.uiChevronDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(10.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
-            } else {
-                null
-            },
-            contentDescription = agentLabel(agent),
-        )
-        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            AgentMenuItems(
-                agents = agents,
-                selected = agent,
-                onSelect = {
-                    open = false
-                    onSelect(it)
-                },
-            )
-        }
-    }
-}
-
-/**
- * The agent rows of a menu a surface already owns (EXP-862): the brand mark,
- * the agent's name, a check on the current pick.
- */
-@Composable
-internal fun AgentMenuItems(
-    agents: List<String>,
-    selected: String?,
-    onSelect: (String) -> Unit,
-) {
-    agents.forEach { option ->
-        GlassMenuItem(
-            text = { Text(agentLabel(option)) },
-            leadingIcon = {
-                Icon(
-                    agentIconPainter(option),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = agentIconTint(option),
-                )
-            },
-            trailingIcon = if (option == selected) {
-                { Icon(ExpIcons.uiCheck, contentDescription = null, modifier = Modifier.size(16.dp)) }
-            } else {
-                null
-            },
-            onClick = { onSelect(option) },
         )
     }
 }

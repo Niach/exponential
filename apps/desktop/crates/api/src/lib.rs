@@ -80,6 +80,7 @@ pub mod pins;
 pub mod relations;
 pub mod boards;
 pub mod device_identity;
+pub mod device_mcp_servers;
 pub mod devices;
 pub mod repositories;
 pub mod settings_lock;

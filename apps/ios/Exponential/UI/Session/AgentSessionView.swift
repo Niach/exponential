@@ -172,10 +172,9 @@ struct AgentSessionView<Switcher: View>: View {
     /// composer band.
     @ViewBuilder
     private func runFace(_ model: AgentSessionModel) -> some View {
-        // EXP-849: a resumed/switched run says it is a continuation, above
-        // everything else on the screen.
-        continuationNote(model)
-        // EXP-897: and where this run's pull request sits in its stack.
+        // EXP-974: no continuation band any more — a resumed run and its
+        // successor share ONE toggle, and the run menu picks between them.
+        // EXP-897: where this run's pull request sits in its stack.
         stackPositionNote(model)
         // EXP-773: an ended run's close-out sits ABOVE its transcript.
         endedHeader(model)
@@ -631,37 +630,6 @@ struct AgentSessionView<Switcher: View>: View {
             } catch {
                 continuation.failed(error.userFacingMessage)
             }
-        }
-    }
-
-    /// EXP-849: this run IS the continuation of an earlier one (a Resume, or a
-    /// switch to another account) — say so once, with the transcript's one-time
-    /// cost, so a second context-window charge on a new account is never a
-    /// surprise. The ×4 sentence; the run it continues is reachable from the
-    /// lists, which nest the chain.
-    @ViewBuilder
-    private func continuationNote(_ model: AgentSessionModel) -> some View {
-        if let resumedFrom = (model.session ?? session).resumedFromId, !resumedFrom.isEmpty {
-            HStack(alignment: .top, spacing: 6) {
-                AppIcon(AppIcons.runResume, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(SessionAccountSwitch.continuationNote)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    // The one-time transcript re-read, said ONCE on the run it
-                    // cost — a second context charge on a new account must
-                    // never be a surprise.
-                    Text(SessionAccountSwitch.continuationCostNote)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .accessibilityIdentifier("run-continuation")
         }
     }
 
@@ -3253,6 +3221,10 @@ private struct ToolRow: View {
 ///   session/board/action/automation → a name chip
 ///   none                          → the caption alone
 ///
+/// EXP-920: a preview that carries `refs` (what the answer touched, one
+/// entity each) draws `EntityRefChips` instead — one chip per ref, a tap
+/// opens its preview sheet — and the kinds above only serve older publishers.
+///
 /// Nothing is forced: a call that reported no preview is the mark plus its
 /// caption, which is already the whole story for a delete or an update.
 /// Hand-mirrored ×4 (web `agent-feed` rows, desktop `steer` feed, Android
@@ -3302,6 +3274,18 @@ private struct ExpToolRow: View {
 
     @ViewBuilder
     private func previewRow(_ preview: AgentToolPreview) -> some View {
+        // EXP-920: a publisher that named what the answer touched gets one
+        // chip per entity (a tap opens its preview); a pre-EXP-920 preview
+        // keeps the single-subject rendering below, untouched.
+        if !preview.refs.isEmpty {
+            EntityRefChips(refs: preview.refs, context: refs)
+        } else {
+            legacyPreviewRow(preview)
+        }
+    }
+
+    @ViewBuilder
+    private func legacyPreviewRow(_ preview: AgentToolPreview) -> some View {
         switch display.result {
         case .issue:
             ExpToolIssuePreview(

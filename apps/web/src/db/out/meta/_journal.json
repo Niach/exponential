@@ -953,6 +953,13 @@
       "when": 1789915721551,
       "tag": "0135_drop_workflow_node_paused",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1790015877336,
+      "tag": "0136_device_mcp_servers",
+      "breakpoints": true
     }
   ]
 }

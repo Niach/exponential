@@ -55,7 +55,7 @@ use coding::{CodingAgent, Settings};
 
 use crate::coding_flow::CodingHub;
 use crate::coding_selects::{
-    agent_icon, agent_picker, choice_select, effort_choices_for, model_choices_for, selected,
+    agent_icon, choice_select, effort_choices_for, model_choices_for, selected,
     ChoiceSelect,
 };
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
@@ -79,6 +79,11 @@ pub struct AgentsPane {
     /// EXP-862: picked with the SHARED [`agent_picker`], so the pane holds
     /// the value itself instead of a one-off choice select.
     default_agent: CodingAgent,
+    /// EXP-872: the DEFAULT ACCOUNT — the profile id of `default_agent`'s
+    /// logins this install launches as. "Default agent" became "default
+    /// account": the picker offers the machine's logins and the agent above
+    /// derives from the pick.
+    default_account: Option<String>,
     claude_input: Entity<InputState>,
     model_select: ChoiceSelect,
     effort_select: ChoiceSelect,
@@ -177,6 +182,7 @@ impl AgentsPane {
 
         let mut this = Self {
             default_agent: defaults.default_agent,
+            default_account: defaults.default_account.clone(),
             claude_input,
             model_select,
             effort_select,
@@ -200,6 +206,7 @@ impl AgentsPane {
     /// never drift.
     fn overlay_owned(onto: &mut Settings, from: &Settings) {
         onto.default_agent = from.default_agent;
+        onto.default_account = from.default_account.clone();
         onto.claude_path = from.claude_path.clone();
         onto.codex_path = from.codex_path.clone();
         onto.claude_model = from.claude_model.clone();
@@ -232,6 +239,7 @@ impl AgentsPane {
             input.set_value(settings.codex_path.clone(), window, cx)
         });
         self.default_agent = settings.default_agent;
+        self.default_account = settings.default_account.clone();
         // The persisted values are load-normalized into the choice sets, so
         // every set_selected_value below finds its row.
         for (select, value) in [
@@ -273,6 +281,7 @@ impl AgentsPane {
         let mut drafted = self.synced.clone().unwrap_or_default();
         let owned = Settings {
             default_agent: self.default_agent,
+            default_account: self.default_account.clone(),
             claude_path: value(&self.claude_input, &defaults.claude_path),
             codex_path: value(&self.codex_input, &defaults.codex_path),
             claude_model: selected(&self.model_select, cx),
@@ -437,20 +446,40 @@ impl AgentsPane {
                     },
                 ));
         }
-        // EXP-862: the default agent rides the ONE shared picker — the same
-        // icon-only trigger the composer and the device dialog wear.
+        // EXP-872: "Default agent" became "Default account" — the ONE shared
+        // account picker over THIS install's logins, across agents. A pick
+        // writes both fields: the agent derives from the login.
         let pane = cx.entity();
-        let default_agent = self.default_agent;
+        let (accounts, usage) = crate::device_settings::own_agent_status(cx);
+        let settings = Settings {
+            default_agent: self.default_agent,
+            default_account: self.default_account.clone(),
+            ..Settings::default()
+        };
+        let options = crate::launch_options::machine_account_options(
+            &accounts,
+            &usage,
+            &settings,
+            &CodingAgent::ALL,
+        );
+        let current = crate::launch_options::account_key(
+            self.default_agent,
+            self.default_account.as_deref(),
+        );
         let default_row = surface::glass_picker_row(
-            "Default agent",
+            "Default account",
             None,
-            agent_picker(
-                "settings-default-agent",
-                &CodingAgent::ALL,
-                default_agent,
-                move |agent, _window, cx| {
+            crate::coding_selects::account_picker(
+                "settings-default-account",
+                &options,
+                Some(current.as_str()),
+                crate::coding_selects::AccountTrigger::Row,
+                move |option, _window, cx| {
+                    let agent = option.agent;
+                    let account = option.wire_account();
                     pane.update(cx, |this, cx| {
                         this.default_agent = agent;
+                        this.default_account = account;
                         this.save(cx);
                         cx.notify();
                     });

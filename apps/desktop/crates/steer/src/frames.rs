@@ -198,6 +198,76 @@ pub enum ClientFrame<'a> {
     /// tell the activity audience to clear its feed. Sent right before a
     /// full-history re-publish, so a reconnect never doubles the feed.
     ActivityReset,
+    /// PUBLISHER-only (EXP-936): the host's answer to a
+    /// [`ServerFrame::CompactRequest`]. The relay hands it to the web
+    /// server's awaiting `POST /sessions/:id/compact` and nothing else — no
+    /// viewer sees it, nothing enters the room's replay log. One ask is in
+    /// flight per room at a time, so `session_id` (the room) is the whole
+    /// correlation. `refused_because` is absent when accepted.
+    #[serde(rename_all = "camelCase")]
+    CompactVerdict {
+        session_id: String,
+        accepted: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refused_because: Option<CompactRefusal>,
+    },
+}
+
+/// EXP-936: why the host refused a compaction ask — the four codes the web
+/// handler declared (`sessionsCompactRefusals`, lib/mcp/handlers/
+/// sessions-compact.ts; relay `COMPACT_REFUSALS`). The device decides only
+/// the first two (it holds the context meter and the turn count); the other
+/// two are the server's, kept here so one enum spells the wire.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactRefusal {
+    /// Below half the context window: nothing worth compacting yet.
+    TooEarly,
+    /// A compaction is open or pending, or the last one is too recent.
+    Cooldown,
+    /// The asking run is not the one it names (server-side).
+    NotOwnSession,
+    /// The run's agent has no compaction command (server-side).
+    UnsupportedAgent,
+}
+
+impl CompactRefusal {
+    /// The wire code, as the relay's zod spells it.
+    pub fn code(self) -> &'static str {
+        match self {
+            CompactRefusal::TooEarly => "too_early",
+            CompactRefusal::Cooldown => "cooldown",
+            CompactRefusal::NotOwnSession => "not_own_session",
+            CompactRefusal::UnsupportedAgent => "unsupported_agent",
+        }
+    }
+}
+
+/// EXP-936: the host's decision on a [`ServerFrame::CompactRequest`], as the
+/// engine's hook returns it and [`ClientFrame::CompactVerdict`] carries it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompactVerdict {
+    /// The host will send the agent's `/compact` at the next turn boundary.
+    Accepted,
+    Refused(CompactRefusal),
+}
+
+impl CompactVerdict {
+    /// The frame that answers the relay for room `session_id`.
+    pub fn frame(self, session_id: &str) -> ClientFrame<'static> {
+        match self {
+            CompactVerdict::Accepted => ClientFrame::CompactVerdict {
+                session_id: session_id.to_string(),
+                accepted: true,
+                refused_because: None,
+            },
+            CompactVerdict::Refused(reason) => ClientFrame::CompactVerdict {
+                session_id: session_id.to_string(),
+                accepted: false,
+                refused_because: Some(reason),
+            },
+        }
+    }
 }
 
 /// A single public activity event (masterplan §P7) — the desktop emits these
@@ -730,11 +800,58 @@ pub struct ToolPreview {
     /// The subject's status word, when the answer named one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// EXP-920: the entities the answer NAMED, chip by chip (contract
+    /// `expToolPreview.tools`, at most [`TOOL_PREVIEW_MAX_REFS`]). Absent on
+    /// a pre-EXP-920 publisher, where the subject fields above still carry
+    /// the one thing a row can chip.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<EntityRef>,
+}
+
+/// EXP-920: one entity an Exponential tool's answer named — what a viewer
+/// renders as a chip with a hover card resolved from its OWN synced rows.
+/// `kind` = contract `entityRefKind`; `id` = the row id (a `list` ref's id is
+/// its MEMBER kind); `count` only on a `list`. There is deliberately no url:
+/// a result carries ids, never slugs, and three clients have no URLs at all.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityRef {
+    pub kind: String,
+    pub id: String,
+    /// A human identifier (`EXP-42`) when the row has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    /// The display string the result already carried (an issue's title, a
+    /// board's name, a comment's body cut short); on a `list` ref the plural
+    /// noun.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// `list` refs only: how many rows the answer carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+}
+
+impl EntityRef {
+    pub fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
+        Self { kind: kind.into(), id: id.into(), identifier: None, title: None, count: None }
+    }
+
+    /// Every free-text field, mutably (the redactor and the clamp walk these).
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        let mut fields = vec![&mut self.id];
+        fields.extend(self.identifier.as_mut());
+        fields.extend(self.title.as_mut());
+        fields
+    }
 }
 
 /// EXP-846: the cap on every [`ToolPreview`] string — generous for an issue
 /// title, far below the narration cap, and mirrored by the relay's zod.
 pub const TOOL_PREVIEW_TEXT_MAX: usize = 200;
+
+/// EXP-920: the cap on `refs` per preview (contract `expToolPreview.maxRefs`,
+/// mirrored by the relay's zod; the publisher cuts the tail).
+pub const TOOL_PREVIEW_MAX_REFS: usize = domain::contract::EXP_TOOL_PREVIEW_MAX_REFS;
 
 impl ToolPreview {
     /// Nothing to show: a preview with no field set is never published.
@@ -745,12 +862,13 @@ impl ToolPreview {
             && self.url.is_none()
             && self.count.is_none()
             && self.status.is_none()
+            && self.refs.is_empty()
     }
 
     /// Every free-text field, mutably — the redactor walks these like any
     /// other published string.
     pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
-        [
+        let mut fields: Vec<&mut String> = [
             self.id.as_mut(),
             self.identifier.as_mut(),
             self.title.as_mut(),
@@ -759,12 +877,18 @@ impl ToolPreview {
         ]
         .into_iter()
         .flatten()
-        .collect()
+        .collect();
+        for entity in &mut self.refs {
+            fields.extend(entity.text_fields_mut());
+        }
+        fields
     }
 
-    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] (the relay drops a frame
-    /// whose preview is wider, so the producer cuts first).
+    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] and the refs at
+    /// [`TOOL_PREVIEW_MAX_REFS`] (the relay drops a frame whose preview is
+    /// wider, so the producer cuts first).
     pub fn clamp(mut self) -> Self {
+        self.refs.truncate(TOOL_PREVIEW_MAX_REFS);
         for field in self.text_fields_mut() {
             if field.chars().count() > TOOL_PREVIEW_TEXT_MAX {
                 *field = crate::activity::truncate(field, TOOL_PREVIEW_TEXT_MAX);
@@ -1599,6 +1723,19 @@ pub enum ServerFrame {
     Interrupt,
     /// EXP-861: a viewer revoking one queued message.
     Unqueue { id: String },
+    /// EXP-988/EXP-936: the run's own `exponential_sessions_compact` asked
+    /// the host to compact the agent's context at the next turn boundary;
+    /// `keep` names what the summary must preserve. The publisher answers it
+    /// with ONE [`ClientFrame::CompactVerdict`] from the engine's
+    /// `PublisherHooks::compact` (the host holds the context meter and the
+    /// compaction state the verdict needs); an accepted ask is executed at
+    /// the next turn boundary.
+    #[serde(rename_all = "camelCase")]
+    CompactRequest {
+        session_id: String,
+        #[serde(default)]
+        keep: Option<String>,
+    },
     Bye {
         #[serde(default)]
         outcome: Option<String>,
@@ -2173,11 +2310,50 @@ mod tests {
                 url: Some("https://github.com/a/b/pull/7".into()),
                 count: Some(3),
                 status: Some("in_progress".into()),
+                refs: vec![],
             }),
         };
         assert_eq!(
             ClientFrame::Activity { event: event.clone(), seq: 0 }.to_json(),
             r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"id":"c0ffee","identifier":"EXP-42","title":"Fix the flicker","url":"https://github.com/a/b/pull/7","count":3,"status":"in_progress"}},"seq":0}"#
+        );
+        // EXP-920: refs ride last, in the relay's key order, and a ref with
+        // nothing but kind+id carries nothing else.
+        let with_refs = ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            output: None,
+            at: None,
+            preview: Some(ToolPreview {
+                refs: vec![
+                    EntityRef {
+                        kind: "list".into(),
+                        id: "issue".into(),
+                        identifier: None,
+                        title: Some("issues".into()),
+                        count: Some(2),
+                    },
+                    EntityRef {
+                        kind: "issue".into(),
+                        id: "i-1".into(),
+                        identifier: Some("EXP-42".into()),
+                        title: Some("Fix the flicker".into()),
+                        count: None,
+                    },
+                    EntityRef::new("issue", "i-2"),
+                ],
+                ..ToolPreview::default()
+            }),
+        };
+        assert_eq!(
+            ClientFrame::Activity { event: with_refs.clone(), seq: 0 }.to_json(),
+            r#"{"t":"activity","event":{"kind":"tool_update","id":"tc-1","status":"completed","preview":{"refs":[{"kind":"list","id":"issue","title":"issues","count":2},{"kind":"issue","id":"i-1","identifier":"EXP-42","title":"Fix the flicker"},{"kind":"issue","id":"i-2"}]}},"seq":0}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(&serde_json::to_string(&with_refs).unwrap())
+                .unwrap(),
+            with_refs
         );
         assert_eq!(
             serde_json::from_str::<ActivityEvent>(
@@ -3287,6 +3463,49 @@ mod tests {
                 id: "m1".to_string()
             }
         );
+        // EXP-988/EXP-936: the compaction request, relay → publisher; `keep`
+        // is optional on the wire.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"compact_request","sessionId":"s1","keep":"open threads"}"#)
+                .unwrap(),
+            ServerFrame::CompactRequest {
+                session_id: "s1".to_string(),
+                keep: Some("open threads".to_string()),
+            }
+        );
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"compact_request","sessionId":"s1"}"#).unwrap(),
+            ServerFrame::CompactRequest {
+                session_id: "s1".to_string(),
+                keep: None,
+            }
+        );
+        // EXP-936: the verdict, publisher → relay; `refusedBecause` rides only
+        // on a refusal.
+        assert_eq!(
+            CompactVerdict::Accepted.frame("s1").to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":true}"#
+        );
+        assert_eq!(
+            CompactVerdict::Refused(CompactRefusal::TooEarly)
+                .frame("s1")
+                .to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":false,"refusedBecause":"too_early"}"#
+        );
+        assert_eq!(
+            CompactVerdict::Refused(CompactRefusal::Cooldown)
+                .frame("s1")
+                .to_json(),
+            r#"{"t":"compact_verdict","sessionId":"s1","accepted":false,"refusedBecause":"cooldown"}"#
+        );
+        for reason in [
+            CompactRefusal::TooEarly,
+            CompactRefusal::Cooldown,
+            CompactRefusal::NotOwnSession,
+            CompactRefusal::UnsupportedAgent,
+        ] {
+            assert_eq!(serde_json::to_string(&reason).unwrap(), format!("\"{}\"", reason.code()));
+        }
         assert_eq!(ClientFrame::Interrupt.to_json(), r#"{"t":"interrupt"}"#);
         assert_eq!(
             ClientFrame::Unqueue {

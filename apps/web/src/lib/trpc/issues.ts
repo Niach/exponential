@@ -68,6 +68,7 @@ import {
 import {
   issueSearchIdentifierExactSql,
   issueSearchMatchIds,
+  issueSearchOpenSql,
   issueSearchRankSql,
 } from "@/lib/issue-search-sql"
 import { applyStatusDerivations } from "@/lib/status-derivations"
@@ -2676,8 +2677,12 @@ export const issuesRouter = router({
         -- An exact identifier hit sorts FIRST: those rows come from the
         -- ILIKE branch, so their ts_rank is 0 and the limit below would
         -- otherwise drop the very issue the person typed (EXP-892).
+        -- EXP-922: then UNDONE before done, above the relevance rank — the
+        -- same three keys the client engine sorts by, so the hits spliced in
+        -- behind the local ranking carry on in the same order.
         order by
           ${issueSearchIdentifierExactSql(input.query)} desc,
+          ${issueSearchOpenSql()} desc,
           ${issueSearchRankSql(input.query)} desc,
           i.updated_at desc
         limit ${input.limit}

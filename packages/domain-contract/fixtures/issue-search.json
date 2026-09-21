@@ -157,5 +157,61 @@
     ],
     "query": "session\u00a0results",
     "expected": ["w1"]
+  },
+  {
+    "name": "an undone issue outranks a done one whatever the score",
+    "rows": [
+      { "id": "a1", "identifier": "EXP-1", "title": "Login flicker", "status": "done", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z" },
+      { "id": "a2", "identifier": "EXP-2", "title": "Nothing here", "description": "a login bug in the body", "status": "backlog", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "a3", "identifier": "EXP-3", "title": "Login timeout", "status": "in_progress", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "login",
+    "expected": ["a3", "a2", "a1"]
+  },
+  {
+    "name": "an exact identifier hit stays on top even when it is done",
+    "rows": [
+      { "id": "b1", "identifier": "EXP-42", "title": "Finished long ago", "status": "done", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "b2", "identifier": "EXP-7", "title": "Reverts exp-42 for now", "status": "in_progress", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "b3", "identifier": "EXP-420", "title": "Open follow up", "status": "backlog", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" }
+    ],
+    "query": "exp-42",
+    "expected": ["b1", "b3", "b2"]
+  },
+  {
+    "name": "cancelled and duplicate finish an issue too, an absent or unknown status is open",
+    "rows": [
+      { "id": "c1", "identifier": "EXP-1", "title": "Cache warmup", "status": "cancelled", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-09-01T00:00:00Z" },
+      { "id": "c2", "identifier": "EXP-2", "title": "Cache miss", "status": "duplicate", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-08-01T00:00:00Z" },
+      { "id": "c3", "identifier": "EXP-3", "title": "Cache purge", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" },
+      { "id": "c4", "identifier": "EXP-4", "title": "Cache headers", "status": "in_review", "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-01-04T00:00:00Z" },
+      { "id": "c5", "identifier": "EXP-5", "title": "Cache eviction", "status": "triaging", "createdAt": "2026-01-05T00:00:00Z", "updatedAt": "2026-01-05T00:00:00Z" }
+    ],
+    "query": "cache",
+    "expected": ["c5", "c4", "c3", "c1", "c2"]
+  },
+  {
+    "name": "the empty query lists open work first, newest created inside each half",
+    "rows": [
+      { "id": "d1", "identifier": "EXP-1", "title": "Oldest open", "status": "backlog", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "d2", "identifier": "EXP-2", "title": "Newest, but done", "status": "done", "createdAt": "2026-05-01T00:00:00Z", "updatedAt": "2026-05-01T00:00:00Z" },
+      { "id": "d3", "identifier": "EXP-3", "title": "Newer open", "status": "in_progress", "createdAt": "2026-03-01T00:00:00Z", "updatedAt": "2026-03-01T00:00:00Z" },
+      { "id": "d4", "identifier": "EXP-4", "title": "Cancelled, newest of all", "status": "cancelled", "createdAt": "2026-06-01T00:00:00Z", "updatedAt": "2026-06-01T00:00:00Z" }
+    ],
+    "query": "  ",
+    "expected": ["d3", "d1", "d4", "d2"]
+  },
+  {
+    "name": "a done local row still sits above the server hits spliced in behind it",
+    "rows": [
+      { "id": "e1", "identifier": "EXP-1", "title": "Retry backoff", "status": "done", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "e2", "identifier": "EXP-2", "title": "Retry storm", "status": "backlog", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" }
+    ],
+    "query": "retry",
+    "serverHits": [
+      { "id": "e9", "identifier": "EXP-9", "title": "Only a comment mentions retry" }
+    ],
+    "allowUnsynced": true,
+    "expected": ["e2", "e1", "e9"]
   }
 ]

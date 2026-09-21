@@ -511,7 +511,12 @@ fn beat(
     // local secret reads otherwise, a refresh for tokens inside the margin)
     // — attached only when its key moved, like the two maps above.
     let mcp_snapshot = mcp_state.lock().ok().and_then(|mut state| {
-        state.sweep(&snapshot.data_dir, &snapshot.account_id, &snapshot.trpc)
+        state.sweep(
+            &snapshot.data_dir,
+            &snapshot.account_id,
+            &snapshot.trpc,
+            &snapshot.device_id,
+        )
     });
     writes.mcp = pending_mcp_write(mcp_snapshot.as_ref(), sent_status);
 

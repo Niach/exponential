@@ -173,7 +173,10 @@ enum IssueRefLookup {
                         title: row["title"],
                         description: nil,
                         createdAt: createdAt,
-                        updatedAt: updatedAt
+                        updatedAt: updatedAt,
+                        // EXP-922: the anchor the row already selects, so the
+                        // `#` menu lists undone work first.
+                        status: row["status"]
                     )
                 }
             )

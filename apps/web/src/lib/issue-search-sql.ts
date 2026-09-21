@@ -16,7 +16,10 @@
 // scan megabytes of markdown per keystroke; whole-word matches ride FTS.
 import { sql, type SQL } from "drizzle-orm"
 import { escapeLikePattern } from "@/lib/like-pattern"
-import { issueSearchTokens } from "@/lib/issue-search"
+import {
+  ISSUE_SEARCH_CLOSED_STATUSES,
+  issueSearchTokens,
+} from "@/lib/issue-search"
 
 /**
  * The ceiling a caller that searches ACROSS boards passes as `limit`
@@ -57,6 +60,20 @@ export function issueSearchFtsQuery(query: string): string {
 /** `ts_rank` of issue alias `i` for `query` — the relevance sort key. */
 export function issueSearchRankSql(query: string): SQL {
   return sql`ts_rank(${ISSUE_TSVECTOR}, websearch_to_tsquery('english', ${issueSearchFtsQuery(query)}))`
+}
+
+/**
+ * EXP-922: `1` when issue alias `i` is UNDONE, `0` when it is finished — the
+ * ordering term that belongs between `issueSearchIdentifierExactSql` and
+ * `issueSearchRankSql`, so the server's full-text pass lists open work first
+ * exactly like the client engine (`rankIssueSearch`). Reads the dual-written
+ * builtin ANCHOR, so a team's custom statuses sort correctly too.
+ */
+export function issueSearchOpenSql(): SQL {
+  return sql`case when i.status in (${sql.join(
+    ISSUE_SEARCH_CLOSED_STATUSES.map((status) => sql`${status}`),
+    sql`, `
+  )}) then 0 else 1 end`
 }
 
 /**

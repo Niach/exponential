@@ -25,7 +25,10 @@ import type { WorkTabFace } from "@/lib/work-tabs"
 // An unavailable face is HIDDEN, never disabled, and the control itself is
 // absent under two faces — unless (EXP-950) the issue has several runs of
 // mine: then the `Runs` segment carries a caret opening the run menu, and a
-// lone `Runs` item still shows so the menu is never out of reach.
+// lone `Runs` item still shows so the menu is never out of reach. EXP-974:
+// an issue-less run's menu lists its RESUME CHAIN (`lib/sessions/run-chain`),
+// so a resumed run and its successor wear the same toggle and pick each
+// other from the caret instead of a band above the transcript.
 
 /** The four faces a work tab can show. `diff` is the run's changes,
  *  `results` its published screenshots (EXP-879). */
@@ -54,7 +57,8 @@ export function runFaceLabel(multipleRuns: boolean): string {
 
 /** EXP-950: the runs behind the `Runs` segment's caret. */
 export interface WorkFaceRunMenu {
-  /** `useIssueRuns` rows — the caret exists from two up. */
+  /** `useIssueRuns` rows (an issue-less run: `useRunChain`, EXP-974) — the
+   *  caret exists from two up. */
   runs: readonly PastRunRow[]
   checkedRunId?: string
   onOpen: (session: CodingSession) => void

@@ -84,6 +84,10 @@ function makeEditor(options?: {
         rec.commands.push(`blur`)
         return true
       },
+      focus: () => {
+        rec.commands.push(`focus`)
+        return true
+      },
     },
   } as unknown as Editor
 
@@ -458,5 +462,71 @@ describe(`FormattingRail keyboard dismissal`, () => {
     )
     fireEvent.click(screen.getByLabelText(`Hide keyboard`))
     expect(onDismissKeyboard).toHaveBeenCalled()
+  })
+})
+
+describe(`LinkEditor inside a modal dialog`, () => {
+  // EXP-967: the desktop selection rail portals to document.body, OUTSIDE the
+  // Radix Dialog's focus trap. The trap watches `focusin` document-wide and
+  // pulls focus back into the panel (to the editor) the moment the URL field
+  // takes it, so typed URLs landed in the description instead. Real Dialog
+  // here, no mocks: the trap is the thing under test.
+  it(`moves focus to the URL field even though the rail portals out of the dialog`, async () => {
+    const { Dialog, DialogContent, DialogTitle } = await import(`@exp/ui`)
+    const { createPortal } = await import(`react-dom`)
+    const { useState } = await import(`react`)
+    const { editor, rec } = makeEditor()
+
+    function Host() {
+      const [mode, setMode] = useState<`main` | `link`>(`main`)
+      return (
+        <Dialog open onOpenChange={() => {}}>
+          <DialogContent aria-describedby={undefined}>
+            <DialogTitle>Issue</DialogTitle>
+            <div
+              contentEditable
+              data-testid="editor"
+              suppressContentEditableWarning
+            >
+              text
+            </div>
+            <button type="button" onClick={() => setMode(`link`)}>
+              Open link mode
+            </button>
+            {createPortal(
+              <div data-editor-rail="">
+                <FormattingRail
+                  editor={editor}
+                  platform="desktop"
+                  mode={mode}
+                  onModeChange={(next) => setMode(next as `main` | `link`)}
+                />
+              </div>,
+              document.body
+            )}
+          </DialogContent>
+        </Dialog>
+      )
+    }
+
+    render(<Host />)
+    // The editor holds focus when the user presses Link, like the real
+    // selection bubble; the trap has recorded it as the element to return to.
+    const editorNode = screen.getByTestId(`editor`)
+    editorNode.focus()
+    expect(document.activeElement).toBe(editorNode)
+
+    fireEvent.click(screen.getByText(`Open link mode`))
+    const input = screen.getByLabelText(`Link URL`) as HTMLInputElement
+    expect(document.activeElement).toBe(input)
+
+    // And the trap does not fight the field while the user types either.
+    fireEvent.change(input, { target: { value: `https://exp.example` } })
+    expect(document.activeElement).toBe(input)
+
+    // Cancelling hands focus (and the selection) back to the editor.
+    fireEvent.keyDown(input, { key: `Escape` })
+    expect(rec.commands).toContain(`focus`)
+    expect(screen.queryByLabelText(`Link URL`)).toBeNull()
   })
 })

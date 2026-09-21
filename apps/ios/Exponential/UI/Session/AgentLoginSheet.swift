@@ -334,7 +334,9 @@ struct AddAccountSheet: View {
         GlassSheetChrome(
             title: "Add account",
             content: {
-                VStack(spacing: 2) {
+                // EXP-994: ONE grouped card with a hairline between its rows,
+                // the Settings idiom — not a gapped stack of bordered rows.
+                VStack(spacing: 0) {
                     // The machine is named, not picked: this sheet is opened
                     // from its own row.
                     HStack(spacing: 8) {
@@ -347,12 +349,13 @@ struct AddAccountSheet: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
-                    .glassRow()
+
+                    GlassDivider()
 
                     // EXP-862: the SHARED agent picker (brand mark + chevron
-                    // over marked menu rows), the same control the composer,
-                    // device settings and web's own Add-account dialog carry —
-                    // never a second picker on this client.
+                    // over marked menu rows). The ONE surface that still picks
+                    // an AGENT rather than an account (EXP-872): this sheet
+                    // creates the login an account option is made of.
                     HStack(spacing: 8) {
                         Text("Agent")
                             .foregroundStyle(.white.opacity(TextOpacity.primary))
@@ -367,8 +370,8 @@ struct AddAccountSheet: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
-                    .glassRow()
                 }
+                .glassSection()
                 .padding(.horizontal, GlassSheetTokens.headerHPadding)
                 .padding(.bottom, 16)
             },

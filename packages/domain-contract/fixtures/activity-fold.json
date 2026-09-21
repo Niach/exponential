@@ -1,0 +1,345 @@
+[
+  {
+    "name": "label added then removed by one actor within 1 min → gone",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "label_removed", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": []
+  },
+  {
+    "name": "status progress → in review by dev, reviewer moves back → BOTH kept",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "s-progress", "toStatusId": "s-review", "fromName": "In Progress", "toName": "In Review" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "B", "type": "status_changed", "payload": { "fromStatusId": "s-review", "toStatusId": "s-progress", "fromName": "In Review", "toName": "In Progress" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "s-progress", "toStatusId": "s-review", "fromName": "In Progress", "toName": "In Review" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "status_changed", "payload": { "fromStatusId": "s-review", "toStatusId": "s-progress", "fromName": "In Review", "toName": "In Progress" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "same actor, same field, 2 hours apart → both kept",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "x", "toStatusId": "y" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "y", "toStatusId": "x" }, "createdAt": "2026-09-19T12:00:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "x", "toStatusId": "y" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "status_changed", "payload": { "fromStatusId": "y", "toStatusId": "x" }, "createdAt": "2026-09-19T12:00:00Z" }
+    ]
+  },
+  {
+    "name": "A → B → C by one actor within 2 min → one A → C event",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b", "fromName": "Alpha", "toName": "Beta" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "c", "fromName": "Beta", "toName": "Gamma" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "c", "fromName": "Alpha", "toName": "Gamma" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ]
+  },
+  {
+    "name": "A → B → A by one actor within the window → gone",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b", "fromName": "Alpha", "toName": "Beta" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a", "fromName": "Beta", "toName": "Alpha" }, "createdAt": "2026-09-19T10:03:00Z" }
+    ],
+    "barriers": [],
+    "expected": []
+  },
+  {
+    "name": "a foreign event on the same issue in between breaks the run",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "B", "type": "assignee_changed", "payload": { "from": null, "to": "A" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "assignee_changed", "payload": { "from": null, "to": "A" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ]
+  },
+  {
+    "name": "a foreign event on ANOTHER issue does not break the run",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i2", "actorUserId": "B", "type": "assignee_changed", "payload": { "from": null, "to": "A" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "assignee_changed", "payload": { "from": null, "to": "A" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "different fields by the same actor never fold into each other",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "creation events are never folded away",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "created", "payload": { "status": "backlog", "priority": "none", "source": "user" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "created", "payload": { "status": "backlog", "priority": "none", "source": "user" }, "createdAt": "2026-09-19T10:00:00Z" }
+    ]
+  },
+  {
+    "name": "pr_opened and pr_merged never fold",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "pr_opened", "payload": { "prUrl": "https://github.com/o/r/pull/7", "prNumber": 7, "branch": "exp/EXP-1" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "pr_merged", "payload": { "prUrl": "https://github.com/o/r/pull/7" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "pr_opened", "payload": { "prUrl": "https://github.com/o/r/pull/7", "prNumber": 7, "branch": "exp/EXP-1" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "pr_merged", "payload": { "prUrl": "https://github.com/o/r/pull/7" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "a run spanning more than the window from first to last is left alone",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "c" }, "createdAt": "2026-09-19T10:06:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "c", "toStatusId": "a" }, "createdAt": "2026-09-19T10:11:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "c" }, "createdAt": "2026-09-19T10:06:00Z" },
+      { "id": "e3", "type": "status_changed", "payload": { "fromStatusId": "c", "toStatusId": "a" }, "createdAt": "2026-09-19T10:11:00Z" }
+    ]
+  },
+  {
+    "name": "returns the input untouched when nothing folds",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "B", "type": "assignee_changed", "payload": { "from": null, "to": "A" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "type": "assignee_changed", "payload": { "from": null, "to": "A" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ]
+  },
+  {
+    "name": "a comment by another actor between two changes breaks the run",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "s-progress", "toStatusId": "s-review" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "s-review", "toStatusId": "s-progress" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [
+      { "issueId": "i1", "actorUserId": "B", "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "s-progress", "toStatusId": "s-review" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "status_changed", "payload": { "fromStatusId": "s-review", "toStatusId": "s-progress" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ]
+  },
+  {
+    "name": "a comment by the same actor between two changes does not break the run",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [
+      { "issueId": "i1", "actorUserId": "A", "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "expected": []
+  },
+  {
+    "name": "a comment on another issue does not break the run",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [
+      { "issueId": "i2", "actorUserId": "B", "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "expected": []
+  },
+  {
+    "name": "another field edited by the same actor in between keeps the run",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "assignee set then cleared → gone",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "assignee_changed", "payload": { "from": null, "to": "U2" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "assignee_changed", "payload": { "from": "U2", "to": null }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": []
+  },
+  {
+    "name": "assignee changed twice folds to first → last",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "assignee_changed", "payload": { "from": null, "to": "U2" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "assignee_changed", "payload": { "from": "U2", "to": "U3" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "assignee_changed", "payload": { "from": null, "to": "U3" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "the same label added twice collapses to the last add",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "different labels never fold into each other",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "label_added", "payload": { "labelId": "L1" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "label_removed", "payload": { "labelId": "L2" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "label_added", "payload": { "labelId": "L1" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "label_removed", "payload": { "labelId": "L2" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "a relation added then removed cancels",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "relation_added", "payload": { "type": "blocks", "relatedIssueId": "i9", "relatedIdentifier": "EXP-9", "direction": "forward", "source": "user" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "relation_removed", "payload": { "type": "blocks", "relatedIssueId": "i9", "relatedIdentifier": "EXP-9", "direction": "forward", "source": "user" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": []
+  },
+  {
+    "name": "relations to different issues never fold into each other",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "relation_added", "payload": { "type": "blocks", "relatedIssueId": "i8", "relatedIdentifier": "EXP-8", "direction": "forward", "source": "user" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "relation_removed", "payload": { "type": "blocks", "relatedIssueId": "i9", "relatedIdentifier": "EXP-9", "direction": "forward", "source": "user" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "relation_added", "payload": { "type": "blocks", "relatedIssueId": "i8", "relatedIdentifier": "EXP-8", "direction": "forward", "source": "user" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "relation_removed", "payload": { "type": "blocks", "relatedIssueId": "i9", "relatedIdentifier": "EXP-9", "direction": "forward", "source": "user" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "an event without an actor never folds and breaks every run on its issue",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": null, "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "c" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "c", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "c" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "type": "status_changed", "payload": { "fromStatusId": "c", "toStatusId": "a" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ]
+  },
+  {
+    "name": "a board move and back cancels",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "board_moved", "payload": { "fromBoardId": "b1", "toBoardId": "b2", "fromIdentifier": "EXP-1", "toIdentifier": "OPS-4" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "board_moved", "payload": { "fromBoardId": "b2", "toBoardId": "b1", "fromIdentifier": "OPS-4", "toIdentifier": "EXP-1" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": []
+  },
+  {
+    "name": "two board moves fold into one carrying the first origin",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "board_moved", "payload": { "fromBoardId": "b1", "toBoardId": "b2", "fromIdentifier": "EXP-1", "toIdentifier": "OPS-4" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "board_moved", "payload": { "fromBoardId": "b2", "toBoardId": "b3", "fromIdentifier": "OPS-4", "toIdentifier": "WEB-2" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "board_moved", "payload": { "fromBoardId": "b1", "toBoardId": "b3", "fromIdentifier": "EXP-1", "toIdentifier": "WEB-2" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "legacy status payloads compare on the enum",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "from": "backlog", "to": "in_progress" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "from": "in_progress", "to": "backlog" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": []
+  },
+  {
+    "name": "a label event without a label id never folds",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "label_added", "payload": null, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "label_removed", "payload": null, "createdAt": "2026-09-19T10:01:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e1", "type": "label_added", "payload": null, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "type": "label_removed", "payload": null, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "folded output stays chronological across interleaved fields",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "b" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "fromStatusId": "b", "toStatusId": "c" }, "createdAt": "2026-09-19T10:03:00Z" },
+      { "id": "e4", "issueId": "i1", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "none", "to": "low" }, "createdAt": "2026-09-19T10:04:00Z" },
+      { "id": "e5", "issueId": "i1", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "low", "to": "none" }, "createdAt": "2026-09-19T10:05:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "label_added", "payload": { "labelId": "L" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "type": "status_changed", "payload": { "fromStatusId": "a", "toStatusId": "c" }, "createdAt": "2026-09-19T10:03:00Z" }
+    ]
+  },
+  {
+    "name": "runs fold per issue when the list spans several issues",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i2", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i1", "actorUserId": "A", "type": "priority_changed", "payload": { "from": "high", "to": "none" }, "createdAt": "2026-09-19T10:02:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "priority_changed", "payload": { "from": "none", "to": "high" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
+    "name": "an empty list folds to an empty list",
+    "events": [],
+    "barriers": [],
+    "expected": []
+  }
+]

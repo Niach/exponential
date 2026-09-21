@@ -198,6 +198,7 @@ vi.mock(`@/lib/storage`, () => ({
   uploadObject: h.uploadObject,
   deleteObject: h.deleteObject,
   getObject: h.getObject,
+  headObject: vi.fn(),
 }))
 
 // EXP-704: attachments_get mints real signed download tokens.
@@ -265,6 +266,7 @@ vi.mock(`@/lib/steer`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
   getSteerRelayConfig: vi.fn(),
   relayPostInput: vi.fn(),
+  relayPostCompact: vi.fn(),
 }))
 vi.mock(`@/lib/steer-child-messages`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -280,7 +282,11 @@ import {
 } from "@/lib/integrations/notifications"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { endSessionByAgent } from "@/lib/coding-session-end"
-import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
+import {
+  getSteerRelayConfig,
+  relayPostCompact,
+  relayPostInput,
+} from "@/lib/steer"
 import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { createPullRequest } from "@/lib/integrations/github-pr"
 import {
@@ -1197,6 +1203,165 @@ describe(`exponential_attachments_upload`, () => {
     expect(result.content[0].text).toContain(`not allowed here`)
     expect(uploadObject).not.toHaveBeenCalled()
     expect(insertValues).not.toHaveBeenCalled()
+  })
+})
+
+// ── EXP-988: the contract's three-shape upload + the two new tools ───────────
+
+describe(`exponential_attachments_upload signed path (EXP-988/EXP-929)`, () => {
+  it(`without dataBase64 checks access first, then mints a signed upload URL with a curl line`, async () => {
+    const result = await tool(`exponential_attachments_upload`)({
+      issueId: UUID,
+      filename: `shot.png`,
+      contentType: `image/png`,
+    })
+    const payload = parseOk(result) as {
+      attachmentId: string
+      uploadUrl: string
+      expiresAt: string
+      curl: string
+    }
+    expect(membership.assertTeamMember).toHaveBeenCalledWith(USER.id, `ws-1`)
+    // The sessions_results grant shape: the bytes never cross MCP, and no
+    // row exists until the PUT lands (EXP-929).
+    expect(
+      payload.uploadUrl.startsWith(`https://x.test/api/attachment-uploads/`)
+    ).toBe(true)
+    expect(payload.curl).toBe(`curl -sS -T 'shot.png' "${payload.uploadUrl}"`)
+    expect(Date.parse(payload.expiresAt)).toBeGreaterThan(Date.now())
+    expect(payload.attachmentId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(uploadObject).not.toHaveBeenCalled()
+    expect(insertValues).not.toHaveBeenCalled()
+  })
+
+  it(`denies the signed path to a non-member before minting anything`, async () => {
+    membership.assertTeamMember.mockRejectedValue(forbidden())
+    const result = await tool(`exponential_attachments_upload`)({
+      issueId: UUID,
+      filename: `shot.png`,
+      contentType: `image/png`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not allowed here`)
+  })
+
+  it(`attachmentId alone is the finalize call`, async () => {
+    // No row for the id yet: the handler tells the agent to run the curl
+    // line first (the rest of finalize is covered in handlers/).
+    dbRows.current = []
+    const result = await tool(`exponential_attachments_upload`)({
+      attachmentId: UUID,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`No upload has landed`)
+    expect(membership.getIssueTeamContext).not.toHaveBeenCalled()
+  })
+
+  it(`refuses attachmentId mixed with first-call fields`, async () => {
+    const result = await tool(`exponential_attachments_upload`)({
+      attachmentId: UUID,
+      issueId: UUID,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`attachmentId alone`)
+  })
+
+  it(`still requires issueId, filename and contentType on a first call`, async () => {
+    const result = await tool(`exponential_attachments_upload`)({
+      issueId: UUID,
+      filename: `shot.png`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`contentType are required`)
+  })
+
+  it(`keeps commentId off the inline path`, async () => {
+    const result = await tool(`exponential_attachments_upload`)({
+      issueId: UUID,
+      filename: `shot.png`,
+      contentType: `image/png`,
+      dataBase64: Buffer.from(`x`).toString(`base64`),
+      commentId: UUID,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`attachmentIds`)
+    expect(uploadObject).not.toHaveBeenCalled()
+  })
+})
+
+describe(`exponential_attachments_list (EXP-988/EXP-979)`, () => {
+  it(`applies attachments_get's access rule, then reaches the handler`, async () => {
+    const result = await tool(`exponential_attachments_list`)({
+      issueId: UUID,
+      limit: 50,
+      offset: 0,
+    })
+    expect(result.isError).toBeFalsy()
+    expect(JSON.parse(result.content[0].text ?? `null`)).toEqual({
+      attachments: [],
+      total: 0,
+    })
+    expect(membership.getIssueTeamContext).toHaveBeenCalledWith(UUID)
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(USER.id, `ws-1`)
+    // The query is scoped to the resolved issue.
+    expect(renderWhere().sql).toContain(`"attachments"."issue_id" = $1`)
+  })
+
+  it(`denies a non-member`, async () => {
+    membership.resolveTeamAccess.mockRejectedValue(forbidden())
+    const result = await tool(`exponential_attachments_list`)({
+      issueId: UUID,
+      limit: 50,
+      offset: 0,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not allowed here`)
+  })
+})
+
+describe(`exponential_sessions_compact (EXP-988/EXP-936)`, () => {
+  it(`needs a session header`, async () => {
+    const headerless = collectTools()
+    const handler = headerless.get(`exponential_sessions_compact`)
+    expect(handler).toBeDefined()
+    const result = await handler!({ reason: `long` })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`X-Exp-Session-Id`)
+  })
+
+  it(`relays the header run's ask and answers with the host's verdict`, async () => {
+    dbRows.current = [
+      {
+        id: SESSION,
+        userId: USER.id,
+        hostUserId: null,
+        status: `running`,
+        agent: `claude`,
+      },
+    ]
+    vi.mocked(getSteerRelayConfig).mockReturnValue({
+      url: `wss://relay.test`,
+      secret: `s`,
+    })
+    vi.mocked(relayPostCompact).mockResolvedValue({
+      delivered: true,
+      accepted: false,
+      refusedBecause: `too_early`,
+    })
+    const inRun = collectTools(USER, SESSION)
+    const result = await inRun.get(`exponential_sessions_compact`)!({
+      reason: `long`,
+      keep: `open threads`,
+    })
+    expect(parseOk(result)).toEqual({
+      accepted: false,
+      refusedBecause: `too_early`,
+    })
+    expect(relayPostCompact).toHaveBeenCalledWith(
+      { url: `wss://relay.test`, secret: `s` },
+      SESSION,
+      `open threads`
+    )
   })
 })
 

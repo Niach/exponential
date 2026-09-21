@@ -298,6 +298,20 @@ fn attach_publisher(
                 let _ = commands.send(EngineCommand::Unqueue(id));
             }) as Arc<dyn Fn(String) + Send + Sync>
         }),
+        // EXP-936: the run's own compaction ask. The policy decides off the
+        // state `dispatch` fed it; an acceptance owes the `/compact` step,
+        // which the command loop takes on the idle edge (nudged here too, for
+        // an ask that lands between turns).
+        compact: Some({
+            // A `Weak`: the hooks outlive nothing, but the publisher handle
+            // is owned by the session and a strong `ctx` here would be a
+            // cycle. A gone session refuses (the relay's ask must settle).
+            let ctx = Arc::downgrade(ctx);
+            Arc::new(move |keep: Option<String>| match ctx.upgrade() {
+                Some(ctx) => ctx.request_compaction(keep),
+                None => steer::CompactVerdict::Refused(steer::CompactRefusal::Cooldown),
+            }) as steer::CompactHook
+        }),
     };
 
     let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {

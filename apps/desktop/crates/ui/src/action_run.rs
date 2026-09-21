@@ -126,16 +126,14 @@ pub(crate) fn fetch_repositories(
     trpc.query_with_input("repositories.list", &Input { team_id })
 }
 
-/// What a chat's repository picker starts on (EXP-615, shared in EXP-822).
-/// Exactly one connected repo pre-picks it: there is nothing to choose, and
-/// leaving it blank would send the run to a scratch dir for no reason. With
-/// several, repo-less stays the default and the run's own prompt makes the
-/// agent ask which one rather than go hunting for a clone on the machine.
+/// What a chat's repository picker starts on (EXP-615, shared in EXP-822;
+/// EXP-993 made it the FIRST repo whatever the count). A repo-less chat was
+/// the old default with several connected repos, which meant the common case
+/// — a team with two repos — started every chat in a scratch dir and made the
+/// agent ask. The picker offers the other repos; there is no "no repository"
+/// entry any more, so the seed has to be a real one.
 pub(crate) fn preselect_repo(repos: &[ActionRepoRow]) -> Option<ActionRepoRow> {
-    match repos {
-        [only] => Some(only.clone()),
-        _ => None,
-    }
+    repos.first().cloned()
 }
 
 /// The EXP-530 poison-pill hook, widened by EXP-739 to SETTLED semantics:

@@ -74,6 +74,7 @@ import {
   type McpServerRow,
 } from "@/lib/mcp-servers"
 import { builtinExpTools } from "@/lib/agent-feed"
+import { DeviceMcpServersGroup } from "@/components/team/device-mcp-servers-group"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useNow } from "@/hooks/use-now"
 import { cn } from "@/lib/utils"
@@ -296,8 +297,10 @@ export function TeamMcpServersSection({
         }
       />
       <p className="mb-3 px-1 text-xs text-muted-foreground">
-        Servers a coding run can connect to besides Exponential. Credentials
-        stay on each machine; the server only keeps names and readiness.
+        Servers a coding run can connect to besides Exponential. The team
+        registry is picked per run on the Agent page; credentials stay on each
+        machine, the server only keeps names and readiness. Below it, what each
+        machine connects on its own.
       </p>
 
       {error && <p className="px-1 pb-2 text-xs text-destructive">{error}</p>}
@@ -329,6 +332,10 @@ export function TeamMcpServersSection({
           ))}
         </div>
       )}
+
+      {/* EXP-891: what each machine connects on its own runs — read-only
+          here, written by the machines (desktop pane / `exponential mcp`). */}
+      <DeviceMcpServersGroup teamId={teamId} currentUserId={currentUserId} />
 
       <BuiltinToolsGroup />
 

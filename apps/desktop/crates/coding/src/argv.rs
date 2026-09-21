@@ -464,7 +464,15 @@ impl LaunchOptions {
             plan_mode: settings.plan_mode_for(agent) && agent.supports_plan_mode(),
             subagent_model: settings.subagent_model_for(agent).to_string(),
             mcp_server_ids: Vec::new(),
-            account: None,
+            // EXP-872: a LOCAL launch spends this machine's stored DEFAULT
+            // ACCOUNT — but only on the agent it belongs to: a profile id
+            // names a directory under ONE agent's config root, so carrying it
+            // onto another agent would name a directory that does not exist
+            // there. The ambient login rides as `None`.
+            account: (agent == settings.default_agent)
+                .then(|| settings.default_account.clone())
+                .flatten()
+                .filter(|id| id != crate::agent_profiles::SYSTEM_PROFILE),
         }
     }
 
@@ -935,6 +943,24 @@ mod tests {
         assert_eq!(via_default.effort, via_for.effort);
 
         assert!(LaunchOptions::defaults_for(&settings, CodingAgent::Claude).plan_mode);
+
+        // EXP-872: a local launch spends the stored DEFAULT ACCOUNT, and
+        // only on the agent whose config dir holds that profile.
+        settings.default_account = Some("0a1b2c3d".to_string());
+        assert_eq!(
+            LaunchOptions::defaults_for(&settings, CodingAgent::Claude).account.as_deref(),
+            Some("0a1b2c3d")
+        );
+        assert_eq!(
+            LaunchOptions::defaults_for(&settings, CodingAgent::Codex).account,
+            None
+        );
+        // The ambient login is `None` on the wire, never the literal id.
+        settings.default_account = Some(crate::agent_profiles::SYSTEM_PROFILE.to_string());
+        assert_eq!(
+            LaunchOptions::defaults_for(&settings, CodingAgent::Claude).account,
+            None
+        );
     }
 
     #[test]

@@ -24,6 +24,7 @@ final class IssueSearchTests: XCTestCase {
         let description: String?
         let createdAt: String?
         let updatedAt: String?
+        let status: String?
 
         var row: IssueSearch.Row {
             IssueSearch.Row(
@@ -32,7 +33,8 @@ final class IssueSearchTests: XCTestCase {
                 title: title,
                 description: description,
                 createdAt: createdAt,
-                updatedAt: updatedAt
+                updatedAt: updatedAt,
+                status: status
             )
         }
     }

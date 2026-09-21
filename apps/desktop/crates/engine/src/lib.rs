@@ -32,6 +32,12 @@
 //! in its doc comment: E1 core, E2 claude, E3 codex, S1 spike.
 
 pub mod adapters;
+// EXP-936: the run's own compaction ask — the verdict policy and the two
+// steps the command loop takes for an accepted one. Pure; `host` drives it.
+pub mod compaction;
+// EXP-920: the entity refs an Exponential MCP answer names, distilled on the
+// device for every client's chips (fixture-locked with web `lib/mcp/preview.ts`).
+pub mod exp_tool_refs;
 pub mod host;
 pub mod lifecycle;
 pub mod local;
@@ -48,6 +54,10 @@ mod terminals;
 pub mod transport;
 
 pub use adapters::{Adapter, AdapterKind, AdapterSpec};
+pub use compaction::{
+    compact_command, CompactionPolicy, CompactionStep, COMPACT_CONTINUE_PROMPT, COMPACT_COOLDOWN,
+    COMPACT_COOLDOWN_TURNS, COMPACT_MIN_CONTEXT_FRACTION,
+};
 pub use host::{
     client_capabilities, ChildExitLink, EngineExit, EngineHost, KillFeed, KillReason, LocalSink,
     NATIVE_SESSION_META_KEY,

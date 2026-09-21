@@ -1,5 +1,6 @@
 package com.exponential.app.ui.search
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,19 +30,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.domain.IssueStatus
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.IssueRow
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassRow
 
 /**
  * Search: a pure cross-board search — instant local matching over identifier +
@@ -50,6 +55,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  *
  * EXP-686 took it off the bottom bar — it is pushed from the board header's
  * search button now, so it carries its own back button and no bar inset.
+ *
+ * EXP-922: ONE flat relevance-ordered list, undone issues first, the same
+ * limit and the same copy as the web sheet, the desktop palette and iOS.
  */
 @Composable
 fun SearchScreen(
@@ -89,13 +97,15 @@ fun SearchScreen(
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
 
+            // EXP-922: the ×4 copy set — same words on web, desktop, iOS and
+            // Android (web `lib/issue-search.ts`; `issue-search-surfaces.test.ts` greps this file).
             when {
                 state.query.isEmpty() -> EmptyState(
                     message = "Search issues across all your boards.",
                     detail = "Matches identifiers, titles, and full text.",
                     icon = ExpIcons.navSearch,
                 )
-                state.groups.isEmpty() -> EmptyState(
+                state.results.isEmpty() -> EmptyState(
                     message = "No issues match",
                     icon = ExpIcons.navSearch,
                 )
@@ -104,18 +114,8 @@ fun SearchScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    state.groups.forEach { group ->
-                        item(key = "board-${group.board.id}") {
-                            BoardHeader(board = group.board, count = group.issues.size)
-                        }
-                        items(group.issues, key = { it.id }) { issue ->
-                            IssueRow(
-                                issue = issue,
-                                labels = emptyList(),
-                                assignee = null,
-                                onClick = { onOpenIssue(issue.id) },
-                            )
-                        }
+                    items(state.results, key = { it.issue.id }) { result ->
+                        SearchResultRow(result = result, onClick = { onOpenIssue(result.issue.id) })
                     }
                 }
             }
@@ -123,30 +123,55 @@ fun SearchScreen(
     }
 }
 
-// Board group header: glyph + name + result count — the count is what iOS
-// (`boardHeader(_:count:)`) and desktop show, styled like the issue list's
-// StatusHeader count (EXP-716).
+/**
+ * The ×4 search row (EXP-922): the issue's status glyph, its title, and a
+ * sub-line carrying the board's own glyph, the board name and the identifier —
+ * the web `IssueSearchSheet` row, the desktop palette's `render_issue_row` and
+ * the iOS `resultRow`. Priority is deliberately absent: no other client shows
+ * it here. The anchor glyph is the right one cross-team (EXP-314): status rows
+ * are team-scoped and search spans teams.
+ */
 @Composable
-private fun BoardHeader(board: BoardEntity, count: Int) {
+private fun SearchResultRow(result: SearchResult, onClick: () -> Unit) {
+    val issue = result.issue
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .testTag("issue-row-${issue.identifier}")
+            .glassRow()
+            .clickable(onClick = onClick)
+            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BoardIcon(board, size = 14.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(
-            board.name,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            count.toString(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
+        StatusIcon(IssueStatus.fromWire(issue.status), size = 16.dp)
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                issue.title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (result.board != null) {
+                    BoardIcon(result.board, size = 12.dp)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    if (result.board != null) {
+                        "${result.board.name} · ${issue.identifier}"
+                    } else {
+                        issue.identifier
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 

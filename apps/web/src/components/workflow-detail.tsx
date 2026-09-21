@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import {
+  AccountPicker,
   agentLabel,
   Button,
   Combobox,
@@ -60,7 +61,9 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import { useWorkflowNodeRuns, useWorkflowNodes } from "@/hooks/use-workflows"
-import { agentHealth, healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { accountOptionKey } from "@/lib/accounts/account-option"
+import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import { BUILTIN_PLAN_WORKFLOW_ID } from "@/lib/builtin-actions"
 import {
   agentEffortValues,
@@ -681,19 +684,36 @@ function HowItRunsSection({
   const patchLaunch = (patch: Partial<WorkflowLaunch>) =>
     void onSave({ launch: explicitPhasePins({ ...launch, ...patch }) })
 
-  // The machine's logins for the picked agent, the active one first — the
-  // composer's rule (EXP-825/849), read straight off the heartbeat.
-  const accountProfiles = (device?.agentAccounts?.[agent]?.profiles ?? [])
-    .filter((profile) => Boolean(profile?.id))
-    .map((profile) => ({
-      id: profile.id,
-      label:
-        profile.label ||
-        (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
-      active: profile.active === true,
-      health: agentHealth(profile),
-    }))
-    .sort((left, right) => Number(right.active) - Number(left.active))
+  // A different agent has a different model vocabulary, so every model pin is
+  // re-seeded from THAT agent's shipped split rather than blanked (stale
+  // values would only be refused by the router). Effort is cleared: it has no
+  // shipped default.
+  const agentSwitchPatch = (value: string): Partial<WorkflowLaunch> => ({
+    model: null,
+    contractModel: null,
+    integrationModel: null,
+    riskModel: null,
+    subagentModel: null,
+    ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[value],
+    agent: value,
+    effort: null,
+  })
+
+  // EXP-872: ONE account row — the machine's flattened logins (both agents,
+  // by email, the device default first); a pick implies the agent. The row
+  // reads the stored pair back: the named profile, else the agent's default
+  // login.
+  const accountOptions = accountOptionsOf(device).map((option) => ({
+    key: accountOptionKey(option),
+    agent: option.agent,
+    email: option.email,
+    hint: healthBadgeLabel(option.health) ?? undefined,
+    limits: option.limits,
+  }))
+  const pickedAccount =
+    accountOptions.find(
+      (option) => option.agent === agent && option.key.endsWith(`:${launch.account}`)
+    ) ?? accountOptions.find((option) => option.agent === agent)
 
   const agents = device?.agents?.length
     ? device.agents
@@ -726,35 +746,41 @@ function HowItRunsSection({
             if (value !== null) void onSave({ deviceId: value })
           }}
         />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
-          mobileTitle="Agent"
-          disabled={readOnly}
-          value={agent}
-          options={agents.map((value) => ({
-            value,
-            label: agentLabel(value),
-          }))}
-          onChange={(value) => {
-            // A different agent has a different model vocabulary, so every
-            // model pin is re-seeded from THAT agent's shipped split rather
-            // than blanked (stale values would only be refused by the
-            // router). Effort is cleared: it has no shipped default.
-            if (value !== null) {
+        {accountOptions.length > 0 ? (
+          <AccountPicker
+            variant="row"
+            mobileTitle="Account"
+            disabled={readOnly}
+            value={pickedAccount?.key ?? null}
+            options={accountOptions}
+            onChange={(key) => {
+              const option = accountOptions.find((candidate) => candidate.key === key)
+              if (!option) return
+              const [, id] = key.split(`:`, 2)
+              // A different agent has a different model/effort vocabulary —
+              // stale values would only be refused by the router.
               patchLaunch({
-                model: null,
-                contractModel: null,
-                integrationModel: null,
-                riskModel: null,
-                subagentModel: null,
-                ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[value],
-                agent: value,
-                effort: null,
+                ...(option.agent !== agent ? agentSwitchPatch(option.agent) : {}),
+                account: id && id !== SYSTEM_PROFILE_ID ? id : null,
               })
-            }
-          }}
-        />
+            }}
+          />
+        ) : (
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle="Agent"
+            disabled={readOnly}
+            value={agent}
+            options={agents.map((value) => ({
+              value,
+              label: agentLabel(value),
+            }))}
+            onChange={(value) => {
+              if (value !== null) patchLaunch(agentSwitchPatch(value))
+            }}
+          />
+        )}
         <Combobox
           triggerVariant="row"
           searchable={false}
@@ -880,26 +906,6 @@ function HowItRunsSection({
             }
           }}
         />
-        {accountProfiles.length >= 2 && (
-          <Combobox
-            triggerVariant="row"
-            searchable={false}
-            mobileTitle="Account"
-            disabled={readOnly}
-            value={launch.account ?? null}
-            triggerLabel="Machine default"
-            options={accountProfiles.map((profile) => ({
-              value: profile.id,
-              // EXP-849: a dead credential says so BEFORE the run lands on it.
-              label: healthBadgeLabel(profile.health)
-                ? `${profile.label} — ${healthBadgeLabel(profile.health)}`
-                : profile.label,
-            }))}
-            onChange={(value) => {
-              if (value !== null) patchLaunch({ account: value })
-            }}
-          />
-        )}
         <Combobox
           triggerVariant="row"
           searchable={false}

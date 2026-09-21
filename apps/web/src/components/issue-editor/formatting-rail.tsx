@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react"
 import type { Editor } from "@tiptap/react"
 import { NodeSelection } from "@tiptap/pm/state"
+import { FocusScope } from "radix-ui/internal"
 import {
   Button,
   conceptIcon,
@@ -667,11 +668,6 @@ function LinkEditor({
     return typeof href === `string` ? href : ``
   })
 
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => inputRef.current?.focus())
-    return () => cancelAnimationFrame(frame)
-  }, [])
-
   const apply = () => {
     const href = url.trim()
     if (href) {
@@ -682,10 +678,37 @@ function LinkEditor({
     onDone()
   }
 
+  const cancel = () => {
+    // Hand focus (and the selection under it) back to the editor ourselves:
+    // the scope below is told NOT to on unmount, see there.
+    editor.commands.focus()
+    onDone()
+  }
+
   return (
     // The dialog shells whitelist Escape aimed at this layer so it closes the
     // link editor instead of the dialog (dialog-shell.tsx).
-    <div className="flex w-full items-center gap-1" data-editor-link-edit="">
+    //
+    // EXP-967: both rails portal to document.body, OUTSIDE the create/edit
+    // dialog's Radix focus trap, which watches `focusin` document-wide and
+    // pulled focus straight back to the editor the moment this field took it
+    // (the typed URL then replaced the selection). Radix's own escape hatch is
+    // a nested FocusScope: mounting one pauses every scope above it on the
+    // stack for as long as it lives, and unmounting resumes them. Untrapped,
+    // so Tab still leaves the field; the mount autofocus IS the field focus
+    // the old requestAnimationFrame did.
+    <FocusScope.Root
+      className="flex w-full items-center gap-1"
+      data-editor-link-edit=""
+      onMountAutoFocus={(event) => {
+        event.preventDefault()
+        inputRef.current?.focus()
+      }}
+      // Apply and Cancel refocus the editor themselves (with the selection
+      // restored); the scope's own return-focus would otherwise fire a tick
+      // later, after a closing dialog has already moved focus elsewhere.
+      onUnmountAutoFocus={(event) => event.preventDefault()}
+    >
       <Input
         ref={inputRef}
         // The SearchField's `sm` rung, shrunk to the width of a URL: the rail
@@ -702,16 +725,16 @@ function LinkEditor({
             apply()
           } else if (event.key === `Escape`) {
             event.preventDefault()
-            onDone()
+            cancel()
           }
         }}
       />
       <RailButton label="Apply link" onClick={apply}>
         <CheckIcon />
       </RailButton>
-      <RailButton label="Cancel link" onClick={onDone}>
+      <RailButton label="Cancel link" onClick={cancel}>
         <CloseIcon />
       </RailButton>
-    </div>
+    </FocusScope.Root>
   )
 }

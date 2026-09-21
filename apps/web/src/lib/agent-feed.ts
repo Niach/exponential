@@ -19,6 +19,11 @@ import {
   isEditCall,
 } from "@exp/domain-contract/edit-card"
 import { expToolRunEnd, isExpToolCall } from "@exp/domain-contract/exp-tool-group"
+import {
+  entityRefKinds,
+  type EntityRef,
+  type EntityRefKind,
+} from "@/lib/mcp/preview"
 // EXP-787: the transcript's rhythm is a shared token group, read straight from
 // the canonical tokens.json (@exp/design-tokens is not a dependency of this
 // app — see design-tokens.test.ts, which reads the same file by path).
@@ -1864,11 +1869,44 @@ export interface ExpToolPreview {
   url?: string
   count?: number
   status?: string
+  /** EXP-920: the entities the answer named, chip by chip — the engine's
+   *  `toolResultPreview` distillation (contract `expToolPreview`). Absent on
+   *  a pre-EXP-920 publisher, where the subject fields above still carry the
+   *  one thing a row can chip. */
+  refs?: EntityRef[]
 }
 
 /** The engine caps every preview string; the client re-clamps because the
  *  wire is a device's word, not ours. */
 const PREVIEW_FIELD_MAX = 200
+
+/** EXP-920: one ref off the wire — kind checked against the contract, every
+ *  string re-clamped, `count` only meaningful on a `list`. Unknown kinds (a
+ *  NEWER publisher) are dropped, never the whole preview. */
+export function parseEntityRef(value: unknown): EntityRef | null {
+  if (!isEventRecord(value)) return null
+  const kind = value.kind
+  const id = value.id
+  if (typeof kind !== `string` || typeof id !== `string`) return null
+  if (!(entityRefKinds as readonly string[]).includes(kind)) return null
+  const trimmedId = id.trim()
+  if (!trimmedId) return null
+  const ref: EntityRef = {
+    kind: kind as EntityRefKind,
+    id: trimmedId.slice(0, PREVIEW_FIELD_MAX),
+  }
+  for (const key of [`identifier`, `title`] as const) {
+    const raw = value[key]
+    if (typeof raw !== `string`) continue
+    const trimmed = raw.trim()
+    if (trimmed) ref[key] = trimmed.slice(0, PREVIEW_FIELD_MAX)
+  }
+  const count = value.count
+  if (typeof count === `number` && Number.isFinite(count) && count >= 0) {
+    ref.count = Math.round(count)
+  }
+  return ref
+}
 
 export function parseToolPreview(value: unknown): ExpToolPreview | null {
   if (!isEventRecord(value)) return null
@@ -1882,6 +1920,13 @@ export function parseToolPreview(value: unknown): ExpToolPreview | null {
   const count = value.count
   if (typeof count === `number` && Number.isFinite(count) && count >= 0) {
     out.count = Math.round(count)
+  }
+  if (Array.isArray(value.refs)) {
+    const refs = value.refs
+      .map(parseEntityRef)
+      .filter((ref): ref is EntityRef => ref !== null)
+      .slice(0, contract.expToolPreview.maxRefs)
+    if (refs.length > 0) out.refs = refs
   }
   return Object.keys(out).length > 0 ? out : null
 }

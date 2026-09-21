@@ -319,6 +319,27 @@ export interface DomainContract {
     tokenTickMs: number
     previewMax: number
   }
+  /**
+   * EXP-920: what an Exponential MCP tool's ANSWER can point at — the chip
+   * kinds a run transcript renders for a settled `exponential_*` call. `list`
+   * is the one-per-list-answer ref (its `id` = the member kind, its `count`
+   * = how many rows the answer carried); everything else names ONE row.
+   */
+  entityRefKind: { values: readonly string[] }
+  /**
+   * EXP-920: the per-tool preview SPEC the engine distils refs by (the rule
+   * home is web `lib/mcp/preview.ts`, mirrored by `crates/engine` and locked
+   * ×2 by `fixtures/tool-result-preview.json`). Each tool's `refs` is a
+   * whitespace-separated list of `kind@path` terms — `path` dotted into the
+   * answer, `[]` fans an array out one ref per row, an empty path is the
+   * answer itself; `list:<member>@path` yields the list ref plus up to
+   * `maxRefs - 1` member refs. A tool with no row previews nothing.
+   */
+  expToolPreview: {
+    maxRefs: number
+    textMax: number
+    tools: readonly { name: string; refs: string }[]
+  }
 }
 
 export const contract = contractJson as unknown as DomainContract

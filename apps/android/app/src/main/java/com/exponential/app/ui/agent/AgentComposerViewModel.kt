@@ -23,6 +23,8 @@ import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.AccountOption
+import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
@@ -37,6 +39,7 @@ import com.exponential.app.domain.StackStart
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.agentSeed
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
@@ -135,7 +138,14 @@ data class LaunchDraft(
     val ultracode: Boolean = false,
     val planMode: Boolean = false,
     val account: String = "",
-)
+) {
+    /**
+     * EXP-872: the picked login as an `AccountOption.key`, which is what the
+     * ONE account picker selects on. `""` is the machine's AMBIENT login —
+     * the `system` profile, which a start deliberately sends no `account` for.
+     */
+    val accountKey: String get() = "$agent:${account.ifEmpty { SYSTEM_PROFILE_ID }}"
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -270,9 +280,14 @@ class AgentComposerViewModel @Inject constructor(
     private val _imageError = MutableStateFlow<String?>(null)
     val imageError: StateFlow<String?> = _imageError
 
-    /** EXP-615/739: the chat's OPTIONAL repository — "" = none. */
+    /**
+     * EXP-615/739: the chat's OPTIONAL repository — "" = none, and the run
+     * goes to the agent's scratch dir. EXP-993: mobile has no picker for it
+     * (the composer's options line is pills on a phone, and one of them can
+     * never be a repository list), so this is seeded from the team and never
+     * shown.
+     */
     private val _chatRepoId = MutableStateFlow("")
-    val chatRepoId: StateFlow<String> = _chatRepoId
 
     /** EXP-481: "Resume previous session" — ON whenever it is offerable; a
      * manual flip sticks for the page's lifetime. */
@@ -389,15 +404,25 @@ class AgentComposerViewModel @Inject constructor(
         viewModelScope.launch {
             device.collect { settled ->
                 settled ?: return@collect
+                // EXP-872: the machine's default ACCOUNT names the agent — the
+                // stored default agent's login, or the first login it reports.
+                val options = accountOptionsFor(settled, availableAgentsFor(settled))
                 if (seededDeviceId == settled.deviceId) {
                     val available = availableAgentsFor(settled)
-                    if (_launch.value.agent !in available) {
+                    // A heartbeat can land AFTER the machine settled: a pick
+                    // that no longer names a reported login goes back to the
+                    // default one (idempotent — the next beat matches again).
+                    if (options.none { it.key == _launch.value.accountKey }) {
+                        AccountOptions.default(options)?.let(::selectAccount)
+                    } else if (_launch.value.agent !in available) {
                         applyAgentSeed(available.firstOrNull() ?: DEFAULT_AGENT, settled)
                     }
                     return@collect
                 }
                 seededDeviceId = settled.deviceId
-                applyAgentSeed(defaultAgentFor(settled), settled)
+                val default = AccountOptions.default(options)
+                applyAgentSeed(default?.agent ?: defaultAgentFor(settled), settled)
+                applyAccountPick(default)
             }
         }
     }
@@ -505,13 +530,14 @@ class AgentComposerViewModel @Inject constructor(
         steerLaunch.clearFailure()
     }
 
-    fun setChatRepoId(repoId: String) {
-        _chatRepoId.value = repoId
-    }
-
-    /** A team with exactly one repository pre-picks it for a chat (web parity). */
+    /**
+     * EXP-993: a chat takes the team's FIRST repository. With no picker on
+     * this client the alternative was a scratch-dir run on a team that has a
+     * repo, which is never what someone typing into the composer meant; a
+     * team with none still runs repo-less.
+     */
     fun defaultChatRepo(repoIds: List<String>) {
-        if (_chatRepoId.value.isEmpty() && repoIds.size == 1) _chatRepoId.value = repoIds.first()
+        if (_chatRepoId.value.isEmpty()) _chatRepoId.value = repoIds.firstOrNull().orEmpty()
     }
 
     fun setResume(value: Boolean) {
@@ -554,11 +580,24 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(pickedDeviceId = deviceId, requestedDeviceId = null)
     }
 
-    /** Every option follows the agent: the vocabularies differ per agent and
-     * so do the settled machine's advertised defaults (EXP-437). */
-    fun selectAgent(agent: String) {
-        if (agent == _launch.value.agent) return
-        applyAgentSeed(agent, device.value)
+    /**
+     * EXP-872: the ONE launch pick — a login. It sets the ACCOUNT the run
+     * spends and, since every option carries its agent, the agent too: a
+     * different agent re-seeds every option that follows it (the vocabularies
+     * differ per agent and so do the machine's advertised defaults, EXP-437),
+     * while another login of the SAME agent leaves the rest of the draft
+     * alone.
+     */
+    fun selectAccount(option: AccountOption) {
+        if (option.agent != _launch.value.agent) applyAgentSeed(option.agent, device.value)
+        applyAccountPick(option)
+    }
+
+    /** The picked login as the wire carries it: `""` for the ambient one. */
+    private fun applyAccountPick(option: AccountOption?) {
+        _launch.value = _launch.value.copy(
+            account = option?.id?.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+        )
     }
 
     fun setModel(value: String) {
@@ -580,10 +619,6 @@ class AgentComposerViewModel @Inject constructor(
 
     fun setPlanMode(value: Boolean) {
         _launch.value = _launch.value.copy(planMode = value)
-    }
-
-    fun setAccount(value: String) {
-        _launch.value = _launch.value.copy(account = value)
     }
 
     private fun applyAgentSeed(agent: String, device: SteerDevice?) {

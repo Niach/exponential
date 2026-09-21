@@ -4,6 +4,10 @@
 // selection marker anywhere (nothing here is ever "the picked row").
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  ISSUE_SEARCH_EMPTY_DETAIL,
+  ISSUE_SEARCH_EMPTY_HINT,
+} from "@/lib/issue-search"
 
 class ResizeObserverStub {
   observe() {}
@@ -172,6 +176,9 @@ describe(`IssueSearchSheet`, () => {
     open()
 
     expect(rows()).toHaveLength(0)
-    expect(screen.getByText(`Type to search issues`)).toBeTruthy()
+    // EXP-922: the ×4 copy set (issue-search-surfaces.test.ts locks that the
+    // other three surfaces spell the same words).
+    expect(screen.getByText(ISSUE_SEARCH_EMPTY_HINT)).toBeTruthy()
+    expect(screen.getByText(ISSUE_SEARCH_EMPTY_DETAIL)).toBeTruthy()
   })
 })

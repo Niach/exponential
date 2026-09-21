@@ -21,6 +21,7 @@ import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
@@ -48,6 +49,7 @@ import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
 import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resumeTargetFor
+import com.exponential.app.domain.runChain
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.resolveSessionDevice
@@ -155,6 +157,10 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    /** EXP-920: the account DB the transcript's entity-preview sheets resolve
+     *  their refs against ([EntityRefResolver]); scoped like every query here. */
+    val accountDb: Flow<ExponentialDatabase?> get() = dbFlow
 
     /** The live connection for this session — shared with every other screen
      *  that has it open, and released in [onCleared]. */
@@ -526,6 +532,53 @@ class AgentSessionViewModel @AssistedInject constructor(
             resumeTargetFor(it, devices.map { d -> d.toSteerDevice(now, userId) }, userId)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-974: this run's RESUME CHAIN — every row of the same run (a resume
+     * is the same run under a new row, `resumed_from_id`), NEWEST FIRST, over
+     * the caller's OWN rows of the run's team. The Work screen's run switcher
+     * reads it for an ISSUE-LESS subject (a chat, action or batch run has no
+     * issue to list runs under), so a resumed chat run and its successor share
+     * ONE toggle and its menu picks between them; an issue-bound run keeps the
+     * issue's own runs, which already include its resumes. Rows reuse the
+     * Recent list's shape so bylines come off the same ×4 rules; the ×4
+     * selection is [runChain]. Someone else's run, or a signed-out reader,
+     * lists nothing.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val teamSessions: Flow<List<CodingSessionEntity>> = session
+        .map { it?.teamId }
+        .distinctUntilChanged()
+        .flatMapLatest { teamId ->
+            if (teamId == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) {
+                    it.codingSessionDao().observeByTeam(teamId)
+                }
+            }
+        }
+
+    val chainRuns: StateFlow<List<PastRunRow>> = combine(
+        teamSessions,
+        deviceRows,
+        DeviceLiveness.ticker(),
+        currentUserId,
+    ) { sessions, devices, now, userId ->
+        if (userId == null) {
+            emptyList()
+        } else {
+            runChain(sessions.filter { it.userId == userId }, codingSessionId)
+                .asReversed()
+                .map { row ->
+                    PastRunRow(
+                        session = row,
+                        issue = null,
+                        device = resolveSessionDevice(row, devices, now),
+                    )
+                }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ── The live connection's state, re-exposed unchanged (EXP-621) ─────────
 

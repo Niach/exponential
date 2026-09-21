@@ -24,8 +24,15 @@
 //! The host is registered per `WindowId` in a Global (the `NavRegistry`
 //! precedent) and mounted ONCE by [`crate::shell::Shell`], under the dialog
 //! layers.
+//!
+//! EXP-920: the same host serves the ENTITY chips under an Exponential tool
+//! row ([`PreviewTarget::Entity`] → [`crate::entity_preview::card`]); a card
+//! stays up while the pointer is inside it, so a list card's rows can be
+//! clicked.
 
+use std::cell::Cell;
 use std::ops::Range;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
@@ -34,7 +41,7 @@ use gpui::{
     MouseDownEvent, MouseMoveEvent, ParentElement as _, Pixels, Render, ScrollWheelEvent,
     SharedString, Styled, Task, Window, WindowId,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, ElementExt as _, Sizable as _};
 use std::collections::HashMap;
 
 use domain::options::get_issue_priority_config;
@@ -186,19 +193,7 @@ pub(crate) fn card(issue_id: &str, cx: &mut App) -> Option<AnyElement> {
     }
 
     Some(
-        v_flex()
-            .w(px(CARD_W))
-            .gap_1p5()
-            .px_3()
-            .py_2p5()
-            .rounded(px(theme::tokens::radius::LG))
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            // OPAQUE: the card floats over prose, and a translucent fill
-            // would show the very text it is meant to explain through it
-            // (`surface::glass_bar`'s rule).
-            .bg(cx.theme().popover)
-            .shadow_md()
+        card_frame(cx)
             .child(header)
             .child(
                 div()
@@ -210,6 +205,24 @@ pub(crate) fn card(issue_id: &str, cx: &mut App) -> Option<AnyElement> {
             .child(chips)
             .into_any_element(),
     )
+}
+
+/// The ONE card chrome (EXP-920: every entity card — issue, board, run,
+/// comment, … — sits in this same 320px frame so the hover previews read as
+/// one family). OPAQUE: the card floats over prose, and a translucent fill
+/// would show the very text it is meant to explain through it
+/// (`surface::glass_bar`'s rule).
+pub(crate) fn card_frame(cx: &App) -> gpui::Div {
+    v_flex()
+        .w(px(CARD_W))
+        .gap_1p5()
+        .px_3()
+        .py_2p5()
+        .rounded(px(theme::tokens::radius::LG))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .bg(cx.theme().popover)
+        .shadow_md()
 }
 
 /// The pill a hovered CHARACTER index falls inside, if any.
@@ -232,11 +245,24 @@ pub(crate) fn pill_at_index(
 // The host
 // ---------------------------------------------------------------------------
 
+/// EXP-920: what a card is ABOUT. An issue pill names a row id; an entity
+/// chip under an Exponential tool row names the wire ref it drew (plus, for a
+/// `list` chip, the member refs its card lists) — the card resolves both
+/// against the synced store at render time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PreviewTarget {
+    Issue(String),
+    Entity {
+        r#ref: steer::EntityRef,
+        members: Vec<steer::EntityRef>,
+    },
+}
+
 struct Pending {
     /// Identifies the requesting pill, so a `release` from a pill the pointer
     /// has already left cannot close the card the NEXT pill just opened.
     key: SharedString,
-    issue_id: String,
+    target: PreviewTarget,
     anchor: Bounds<Pixels>,
     open: bool,
 }
@@ -245,6 +271,13 @@ struct Pending {
 pub(crate) struct IssuePreviewHost {
     pending: Option<Pending>,
     timer: Option<Task<()>>,
+    /// EXP-920: where the open card painted last frame, so the backstop can
+    /// tell "the pointer moved INTO the card" (a list card's rows are
+    /// clickable) from "the pointer left". `None` while nothing is up.
+    card_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// EXP-920: the pointer is inside the card right now — a pill's own
+    /// `release` (the pointer left it FOR the card) must not close it then.
+    card_hovered: Rc<Cell<bool>>,
 }
 
 impl IssuePreviewHost {
@@ -252,6 +285,8 @@ impl IssuePreviewHost {
         Self {
             pending: None,
             timer: None,
+            card_bounds: Rc::new(Cell::new(None)),
+            card_hovered: Rc::new(Cell::new(false)),
         }
     }
 
@@ -262,6 +297,29 @@ impl IssuePreviewHost {
         &mut self,
         key: impl Into<SharedString>,
         issue_id: impl Into<String>,
+        anchor: Bounds<Pixels>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.request_target(key, PreviewTarget::Issue(issue_id.into()), anchor, cx);
+    }
+
+    /// EXP-920: [`Self::request`] for an entity chip — the card is
+    /// [`crate::entity_preview::card`] over the ref (and a list's members).
+    pub(crate) fn request_entity(
+        &mut self,
+        key: impl Into<SharedString>,
+        r#ref: steer::EntityRef,
+        members: Vec<steer::EntityRef>,
+        anchor: Bounds<Pixels>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.request_target(key, PreviewTarget::Entity { r#ref, members }, anchor, cx);
+    }
+
+    fn request_target(
+        &mut self,
+        key: impl Into<SharedString>,
+        target: PreviewTarget,
         anchor: Bounds<Pixels>,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -282,10 +340,12 @@ impl IssuePreviewHost {
         let was_open = self.pending.as_ref().is_some_and(|p| p.open);
         self.pending = Some(Pending {
             key: key.clone(),
-            issue_id: issue_id.into(),
+            target,
             anchor,
             open: false,
         });
+        self.card_bounds.set(None);
+        self.card_hovered.set(false);
         self.timer = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(OPEN_DELAY).await;
             let _ = this.update(cx, |this, cx| {
@@ -311,6 +371,12 @@ impl IssuePreviewHost {
         self.timer = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(CLOSE_DELAY).await;
             let _ = this.update(cx, |this, cx| {
+                // EXP-920: the pointer left the pill INTO its card (a list
+                // card's rows are clickable) — the backstop closes it once
+                // the pointer leaves the card too.
+                if this.card_hovered.get() {
+                    return;
+                }
                 if this.pending.as_ref().is_some_and(|p| p.key == key) {
                     this.dismiss(cx);
                 }
@@ -323,8 +389,20 @@ impl IssuePreviewHost {
         let was_open = self.pending.as_ref().is_some_and(|p| p.open);
         self.pending = None;
         self.timer = None;
+        self.card_bounds.set(None);
+        self.card_hovered.set(false);
         if was_open {
             cx.notify();
+        }
+    }
+}
+
+/// EXP-920: the card body for a target, `None` when its rows are not synced.
+fn card_for_target(target: &PreviewTarget, cx: &mut App) -> Option<AnyElement> {
+    match target {
+        PreviewTarget::Issue(issue_id) => card(issue_id, cx),
+        PreviewTarget::Entity { r#ref, members } => {
+            crate::entity_preview::card(r#ref, members, cx)
         }
     }
 }
@@ -340,9 +418,16 @@ impl Render for IssuePreviewHost {
             return div();
         };
         let anchor = pending.anchor;
-        let Some(card) = card(&pending.issue_id, cx) else {
+        let Some(card) = card_for_target(&pending.target, cx) else {
             return div();
         };
+        let card_bounds = self.card_bounds.clone();
+        let card_hovered = self.card_hovered.clone();
+        let card_bounds_write = card_bounds.clone();
+        // The card's own painted rectangle, read by the backstop NEXT frame.
+        let card = div()
+            .on_prepaint(move |bounds, _, _| card_bounds_write.set(Some(bounds)))
+            .child(card);
 
         // Window-level backstop (the image-resize precedent above in
         // `markdown::editor`): the surfaces report leaving their own pill,
@@ -353,22 +438,41 @@ impl Render for IssuePreviewHost {
             |_, _, _| (),
             move |_, _, window, _| {
                 let moved = entity.clone();
+                let moved_card_bounds = card_bounds.clone();
+                let moved_card_hovered = card_hovered.clone();
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
                     if !phase.bubble() {
                         return;
                     }
-                    if !anchor
-                        .dilate(px(ANCHOR_SLACK))
-                        .contains(&event.position)
+                    // EXP-920: inside the card counts as "still here" — a
+                    // list card's rows are targets of their own.
+                    let in_card = moved_card_bounds
+                        .get()
+                        .is_some_and(|bounds| bounds.dilate(px(ANCHOR_SLACK)).contains(&event.position));
+                    moved_card_hovered.set(in_card);
+                    if !in_card
+                        && !anchor
+                            .dilate(px(ANCHOR_SLACK))
+                            .contains(&event.position)
                     {
                         moved.update(cx, |this, cx| this.dismiss(cx));
                     }
                 });
                 let pressed = entity.clone();
-                window.on_mouse_event(move |_: &MouseDownEvent, phase, _, cx| {
-                    if phase.bubble() {
-                        pressed.update(cx, |this, cx| this.dismiss(cx));
+                let pressed_card_bounds = card_bounds.clone();
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
+                    if !phase.bubble() {
+                        return;
                     }
+                    // A press INSIDE the card is one of its rows being
+                    // clicked: the row's handler closes the card itself.
+                    if pressed_card_bounds
+                        .get()
+                        .is_some_and(|bounds| bounds.contains(&event.position))
+                    {
+                        return;
+                    }
+                    pressed.update(cx, |this, cx| this.dismiss(cx));
                 });
                 let scrolled = entity.clone();
                 window.on_mouse_event(move |_: &ScrollWheelEvent, phase, _, cx| {

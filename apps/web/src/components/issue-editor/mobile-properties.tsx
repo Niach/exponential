@@ -33,7 +33,7 @@ import {
   Button,
   conceptIcon,
   DatePicker,
-  GlassCard,
+  GlassGroup,
   GlassSectionHeader,
   Pill,
   UserAvatar,
@@ -165,7 +165,8 @@ export function IssueEditorMobileProperties({
 
   return (
     <div className="mx-3 my-3 flex flex-col gap-4">
-      <GlassCard className="divide-y divide-glass-stroke overflow-hidden">
+      {/* EXP-994: the divided-rows shell, not a hand-divided card. */}
+      <GlassGroup>
         <Combobox
           searchable={false}
           value={status.id}
@@ -313,7 +314,7 @@ export function IssueEditorMobileProperties({
             }
           />
         )}
-      </GlassCard>
+      </GlassGroup>
 
       {/* EXP-698 r4: labels leave the row list. Every team label is a chip
           that toggles on tap (Android parity), and the trailing "+ Label"

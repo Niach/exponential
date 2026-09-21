@@ -703,18 +703,23 @@ impl Render for RepositoriesPane {
                         // the shared repo.
                         let owner = super::is_owner(cx, &team_id);
                         let me = queries::active_account(cx).map(|account| account.user_id);
-                        let mut list = v_flex().gap_2();
+                        // EXP-994: ONE table — a hairline between rows, no
+                        // gap and no card around them.
+                        let mut list = v_flex().w_full().min_w_0();
                         for (index, repo) in repos.iter().enumerate() {
                             let can_manage = owner
                                 || repo.shared_by.as_ref().is_some_and(|shared| {
                                     me.as_deref() == Some(shared.id.as_str())
                                 });
-                            list = list.child(self.render_repo_row(
+                            list = list.child(crate::surface::list_row(
+                                self.render_repo_row(
+                                    index,
+                                    repo,
+                                    can_manage,
+                                    loaded.status.as_ref(),
+                                    cx,
+                                ),
                                 index,
-                                repo,
-                                can_manage,
-                                loaded.status.as_ref(),
-                                cx,
                             ));
                         }
                         body = body.child(list);

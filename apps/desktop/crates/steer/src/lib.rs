@@ -117,12 +117,13 @@ pub use feed::{
 };
 pub use frames::{
     rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, BackgroundTask,
-    BackgroundTaskKind, ClientFrame, QueuedMessage, QUEUE_MAX, QUEUE_TEXT_MAX,
+    BackgroundTaskKind, ClientFrame, CompactRefusal, CompactVerdict, QueuedMessage, QUEUE_MAX,
+    QUEUE_TEXT_MAX,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
     StartRepoGroup, StartStack, StartStackIssue, SteerRole, SubagentStatus, ToolKind, ToolPreview,
     TaskListEntry, TaskListStatus, ToolUpdateStatus, TurnState,
     ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, TASK_LIST_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
-    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX,
+    CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX, EntityRef, TOOL_PREVIEW_MAX_REFS,
 };
 pub use workflow::{
     workflow_caption, WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowState,
@@ -149,8 +150,8 @@ pub use exp_tool_group::{
 };
 pub use publisher::{
     has_image_embed, image_localizer, localize_message, publish, ActivitySender, AttachmentHook,
-    ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks, PublisherTickets,
-    TrpcPublisherTickets,
+    CompactHook, ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks,
+    PublisherTickets, TrpcPublisherTickets,
 };
 pub use viewer::{
     chunk_input, spawn_viewer, spawn_viewer_with, TrpcViewerTickets, ViewerEvent, ViewerHandle,

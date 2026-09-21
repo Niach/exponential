@@ -518,6 +518,11 @@ impl MachinesSection {
     fn render_row(
         &self,
         index: usize,
+        // EXP-994: the position WITHIN this section — the device lines are
+        // one table, so every row but its first draws the ladder's hairline
+        // (`index` is offset across the two sections for the element ids and
+        // cannot answer that).
+        position: usize,
         device: &DeviceCard,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
@@ -580,7 +585,7 @@ impl MachinesSection {
         // line · the gear — `min_w_0` down the name side so only the NAME
         // gives way.
         let row_hover = theme.list_hover;
-        let line = crate::surface::flat_row()
+        let line = crate::surface::list_row_divider(crate::surface::flat_row(), position)
             .id(SharedString::from(format!("machine-{}", device.row_id)))
             .group(MACHINE_ROW_GROUP)
             .flex()
@@ -950,7 +955,9 @@ impl MachinesSection {
                         .child(SharedString::from(line))
                 }));
             rows.push(
-                indent(gpui_component::h_flex())
+                // EXP-994: every login sits under its own hairline, so the
+                // device line and its logins read as one table.
+                crate::surface::glass_row_divider(indent(gpui_component::h_flex()))
                     .id(("machine-login", index * 64 + slot))
                     .items_center()
                     .gap_2()
@@ -1325,13 +1332,13 @@ impl Render for MachinesSection {
         let mine_rows: Vec<gpui::AnyElement> = mine
             .iter()
             .enumerate()
-            .map(|(index, device)| self.render_row(index, device, cx))
+            .map(|(index, device)| self.render_row(index, index, device, cx))
             .collect();
         let team_rows: Vec<gpui::AnyElement> = team
             .iter()
             .enumerate()
             // Offset the element ids so the two groups can never collide.
-            .map(|(index, device)| self.render_row(index + mine.len(), device, cx))
+            .map(|(index, device)| self.render_row(index + mine.len(), index, device, cx))
             .collect();
 
         // EXP-642: the web `GlassSectionHeader` — a plain-text heading with

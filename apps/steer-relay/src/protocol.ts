@@ -173,6 +173,25 @@ export const TOOL_OUTPUT_MAX_WIRE_BYTES = contract.steerFeed.toolOutputMaxBytes 
  *  result shape the engine knows) and every field optional: a tool that named
  *  none sends no preview at all. The result KIND is not on the wire — it is the
  *  contract's `expToolResults` entry for the tool's own name. */
+/** EXP-920: one entity an Exponential tool's answer NAMED — what a viewer
+ *  renders as a chip (issue, board, action, …) with a hover card resolved
+ *  from its own synced rows. `kind` = contract `entityRefKind`; `id` = the
+ *  row id (a `list` ref's id is its MEMBER kind); `count` only on a `list`.
+ *  The engine distils these per contract `expToolPreview.tools` (the rule is
+ *  fixture-locked ×2: web `lib/mcp/preview.ts`, engine `mapper.rs`). */
+export const ENTITY_REF_KINDS = contract.entityRefKind.values as [
+  string,
+  ...string[],
+]
+
+export const entityRefSchema = z.object({
+  kind: z.enum(ENTITY_REF_KINDS),
+  id: z.string().min(1).max(contract.expToolPreview.textMax),
+  identifier: z.string().max(contract.expToolPreview.textMax).optional(),
+  title: z.string().max(contract.expToolPreview.textMax).optional(),
+  count: z.number().int().nonnegative().max(4294967295).optional(),
+})
+
 export const toolPreviewSchema = z.object({
   id: z.string().max(200).optional(),
   identifier: z.string().max(200).optional(),
@@ -180,6 +199,8 @@ export const toolPreviewSchema = z.object({
   url: z.string().max(200).optional(),
   count: z.number().int().nonnegative().max(4294967295).optional(),
   status: z.string().max(200).optional(),
+  // EXP-920: the entities the answer named, chip by chip (≤ maxRefs).
+  refs: z.array(entityRefSchema).max(contract.expToolPreview.maxRefs).optional(),
 })
 
 /** EXP-850: every workflow / background-task string is cut to the contract's
@@ -651,6 +672,31 @@ export const activityResetFrame = z.object({
   t: z.literal(`activity_reset`),
 })
 
+// EXP-936, publisher → relay: the host's answer to a `compact_request`. The
+// DEVICE holds the facts the verdict needs (context occupancy, turns since
+// the last compaction, whether a fold is already open), so it decides and
+// the relay only carries the answer back to the web server's awaiting
+// `POST /sessions/:id/compact` — the agent reads it off its tool result;
+// viewers never see it (nothing enters the room's log). One ask is in flight
+// per room at a time, so the frame needs no request id: `sessionId` names
+// the room the way `compact_request` did. `refusedBecause` is one of the
+// handler's four codes (`sessionsCompactRefusals`, lib/mcp/handlers/
+// sessions-compact.ts); absent when accepted.
+export const COMPACT_REFUSALS = [
+  `too_early`,
+  `cooldown`,
+  `not_own_session`,
+  `unsupported_agent`,
+] as const
+export type CompactRefusal = (typeof COMPACT_REFUSALS)[number]
+
+export const compactVerdictFrame = z.object({
+  t: z.literal(`compact_verdict`),
+  sessionId: z.string().min(1).max(128),
+  accepted: z.boolean(),
+  refusedBecause: z.enum(COMPACT_REFUSALS).optional(),
+})
+
 export const clientFrame = z.discriminatedUnion(`t`, [
   onlineFrame,
   helloFrame,
@@ -667,6 +713,7 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   activityResetFrame,
   historyPageFrame,
   historyChunkFrame,
+  compactVerdictFrame,
 ])
 
 export type ClientFrame = z.infer<typeof clientFrame>
@@ -837,6 +884,13 @@ export type ServerFrame =
   | { t: `interrupt` }
   // EXP-861: revoke one queued message (relay → publisher).
   | { t: `unqueue`; id: string }
+  // EXP-988/EXP-936: relay → publisher. The run's OWN MCP call
+  // (`exponential_sessions_compact`) asked the host to compact the agent's
+  // context; the host does it at the next turn boundary, or refuses (the
+  // verdict rides the tool result, never a frame). `keep` = what the summary
+  // must preserve. Declared ahead of the behaviour: the hub route that sends
+  // it and the device side that acts on it are EXP-936's.
+  | { t: `compact_request`; sessionId: string; keep?: string }
   // EXP-481: fire-and-forget check-in nudge to a device's control socket —
   // the web server persisted new work (a queued command, edited launch
   // defaults) and an online device should heartbeat NOW instead of on its

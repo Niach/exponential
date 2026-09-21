@@ -6,6 +6,7 @@
 // Adding a component: `shadcn add` into src/, rewrite its `@/…` imports to
 // relative ones, then add a line here (see README.md).
 export * from "./agent-brand-mark"
+export * from "./account-picker"
 export * from "./agent-picker"
 export * from "./alert"
 export * from "./alert-dialog"
@@ -43,6 +44,8 @@ export * from "./edited-files-card"
 export * from "./emoji-picker"
 export * from "./emoji-search"
 export * from "./empty-state"
+export * from "./entity-chip"
+export * from "./entity-preview-card"
 export * from "./exponential-logo"
 export * from "./fab-chrome"
 export * from "./file-diff-card"
