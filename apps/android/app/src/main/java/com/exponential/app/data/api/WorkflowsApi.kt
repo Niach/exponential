@@ -103,7 +103,6 @@ internal fun updateWorkflowInput(
     deviceId: String?,
     clearDevice: Boolean,
     launch: WorkflowLaunch?,
-    gate: String?,
     startOn: String?,
 ): JsonObject = buildJsonObject {
     put("id", id)
@@ -134,7 +133,6 @@ internal fun updateWorkflowInput(
             putPhaseModel("riskModel", options.riskModel)
         }
     }
-    gate?.let { put("gate", it) }
     startOn?.let { put("startOn", it) }
 }
 
@@ -203,7 +201,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String? = null,
         clearDevice: Boolean = false,
         launch: WorkflowLaunch? = null,
-        gate: String? = null,
         startOn: String? = null,
     ): WorkflowDto = trpc.mutation(
         accountId,
@@ -214,7 +211,6 @@ class WorkflowsApi @Inject constructor(private val trpc: TrpcClient) {
             deviceId = deviceId,
             clearDevice = clearDevice,
             launch = launch,
-            gate = gate,
             startOn = startOn,
         ),
         inputSerializer = JsonObject.serializer(),

@@ -4038,7 +4038,6 @@ fn workflow_plan(
             workflow: coding::workflows::WorkflowFacts {
                 id: workflow.id.clone(),
                 status: workflow.status_wire().to_string(),
-                gate: workflow.gate.clone().unwrap_or_else(|| "human".to_string()),
                 integration_branch,
                 final_pr_url: workflow.final_pr_url.clone(),
                 max_parallel: workflow.max_parallel(),

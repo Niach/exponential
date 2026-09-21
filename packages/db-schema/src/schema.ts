@@ -2326,8 +2326,11 @@ export const workflows = pgTable(
     // draft nobody bound yet.
     deviceId: varchar(`device_id`, { length: 128 }),
     launch: jsonb().$type<WorkflowLaunch>().notNull().default(sql`'{}'::jsonb`),
-    // contract `wfGate` / `wfStartOn`.
-    gate: varchar({ length: 16 }).notNull().default(`human`),
+    // EXP-1010: the review gate setting is GONE — every node gets an agent
+    // review. The column stays pinned to `agent` (and synced) only because
+    // engines older than that release still read it; drop it with them.
+    gate: varchar({ length: 16 }).notNull().default(`agent`),
+    // contract `wfStartOn`.
     startOn: varchar(`start_on`, { length: 16 }).notNull().default(`contract`),
     // `exp/wf-<id8>`, stamped at create.
     integrationBranch: varchar(`integration_branch`, { length: 255 }).notNull(),
@@ -2386,10 +2389,18 @@ export const workflowNodes = pgTable(
     }),
     attempt: integer().notNull().default(0),
     baseBranch: varchar(`base_branch`, { length: 255 }),
-    // EXP-982: a person approved this node's PR for the merge train (the
-    // `human` gate, and ALWAYS for a contract node). The engine lands only
-    // approved or ungated nodes.
+    // The node's PR is cleared for the merge train: stamped by an approving
+    // agent review (EXP-1010: the only gate), or by a person who approves it
+    // by hand. The engine lands only approved nodes.
     approvedAt: timestamp(`approved_at`, { withTimezone: true }),
+    // EXP-1010, SERVER-ONLY (behind the shape allowlist). `merged_into` = the
+    // base the node's PR had when it merged (`applyPrMergeState` stamps it
+    // before `issues.pr_base_branch` is nulled): a merge into a blocker's
+    // branch lands only once that blocker did. `retried_at` = the last
+    // `resolveNode retry`; a merge older than it (or than the workflow's
+    // start) belongs to an earlier attempt and lands nothing.
+    mergedInto: varchar(`merged_into`, { length: 255 }),
+    retriedAt: timestamp(`retried_at`, { withTimezone: true }),
     // EXP-983: the node announced its CONTRACT (its first push: the types,
     // stubs and tests its dependents build against) with
     // `exponential_workflows_checkpoint`. Under `start_on: contract` its

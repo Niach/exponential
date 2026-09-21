@@ -90,7 +90,6 @@ struct WorkflowDetailView: View {
                     issues: model.issues,
                     nodesById: model.nodesById,
                     enabled: model.isDraft,
-                    gate: model.gate,
                     busy: model.busy,
                     onUpdate: { patch in
                         model.updateNode(issueId: node.issueId, patch: patch)
@@ -388,22 +387,9 @@ struct WorkflowDetailView: View {
                 )
             }
 
-            optionRow {
-                GlassPickerRow(
-                    "Gate",
-                    selection: Binding(
-                        get: { model.workflow?.gate ?? DomainContract.wfGateHuman },
-                        set: { model.setGate($0) }
-                    ),
-                    options: DomainContract.wfGateValues,
-                    label: Self.gateLabel,
-                    enabled: enabled
-                )
-            }
-
-            // EXP-984: the model the gate's agent reviews run on — only ever a
-            // question under the agent gate, so the row appears only there.
-            if model.gate == DomainContract.wfGateAgent {
+            // EXP-1010: every node's PR gets an agent review; this is the model
+            // it runs on.
+            do {
                 optionRow {
                     GlassPickerRow(
                         WorkflowView.reviewModelLabel,
@@ -470,14 +456,6 @@ struct WorkflowDetailView: View {
     /// The server's own cap (`WORKFLOW_MAX_PARALLEL_CAP`) — how many nodes the
     /// engine may run at once.
     private static let maxParallelCap = 8
-
-    private static func gateLabel(_ value: String) -> String {
-        switch value {
-        case DomainContract.wfGateNone: "No gate"
-        case DomainContract.wfGateAgent: "Agent review"
-        default: "Human review"
-        }
-    }
 
     private static func startOnLabel(_ value: String) -> String {
         switch value {
@@ -644,9 +622,6 @@ struct WorkflowNodeSheet: View {
     let nodesById: [String: WorkflowNodeEntity]
     /// Kind shapes the PLAN, so the server takes it on a draft only.
     let enabled: Bool
-    /// contract `wfGate` — with `nodeNeedsApproval` it decides whether the node
-    /// waits for a person before it lands.
-    let gate: String
     /// A write is in flight; the run controls go inert rather than double-fire.
     let busy: Bool
     let onUpdate: (WorkflowNodePatch) -> Void
@@ -932,9 +907,9 @@ struct WorkflowNodeSheet: View {
                 }
             }
 
-            // The gate: a node with its PR up asks for a person, and the answer
-            // can be taken back right up until it lands.
-            if !node.isProposed, WorkflowView.nodeNeedsApproval(gate: gate, kind: node.kind) {
+            // A node with its PR up waits for an approval: the agent review's,
+            // or a person's by hand, which can be taken back until it lands.
+            if !node.isProposed {
                 if node.approvedAt != nil {
                     if node.state != DomainContract.wfNodeStateLanded {
                         GlassPill(

@@ -20,8 +20,7 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
     public let status: String
     public let deviceId: String?
     public let launch: WorkflowLaunch
-    /// contract `wfGate` / `wfStartOn`.
-    public let gate: String
+    /// contract `wfStartOn`.
     public let startOn: String
     public let integrationBranch: String
     public let finalPrUrl: String?
@@ -42,7 +41,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
         status: String = "draft",
         deviceId: String? = nil,
         launch: WorkflowLaunch = WorkflowLaunch(),
-        gate: String = "human",
         startOn: String = "contract",
         integrationBranch: String = "",
         finalPrUrl: String? = nil,
@@ -62,7 +60,6 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
         self.status = status
         self.deviceId = deviceId
         self.launch = launch
-        self.gate = gate
         self.startOn = startOn
         self.integrationBranch = integrationBranch
         self.finalPrUrl = finalPrUrl
@@ -79,7 +76,7 @@ public struct WorkflowDto: Identifiable, Sendable, Equatable {
 
 extension WorkflowDto: Decodable {
     enum CodingKeys: String, CodingKey {
-        case id, teamId, repositoryId, name, status, deviceId, launch, gate, startOn
+        case id, teamId, repositoryId, name, status, deviceId, launch, startOn
         case integrationBranch, finalPrUrl, finalPrNumber, finalPrState, decisions
         case metrics, startedAt, endedAt, createdAt, updatedAt
     }
@@ -95,7 +92,6 @@ extension WorkflowDto: Decodable {
         // The two jsonb columns: objects over tRPC, pre-stringified from
         // fixtures — both go through the tolerant parse.
         launch = WorkflowLaunch.parse(c.decodeWireJsonString(forKey: .launch))
-        gate = (try? c.decodeIfPresent(String.self, forKey: .gate)) ?? "human"
         startOn = (try? c.decodeIfPresent(String.self, forKey: .startOn)) ?? "contract"
         integrationBranch =
             (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""
@@ -122,7 +118,6 @@ public extension WorkflowDto {
             status: entity.status,
             deviceId: entity.deviceId,
             launch: entity.parsedLaunch,
-            gate: entity.gate,
             startOn: entity.startOn,
             integrationBranch: entity.integrationBranch,
             finalPrUrl: entity.finalPrUrl,
@@ -159,20 +154,17 @@ public struct WorkflowPatch: Sendable, Equatable {
     public var name: String?
     public var deviceId: String??
     public var launch: WorkflowLaunch?
-    public var gate: String?
     public var startOn: String?
 
     public init(
         name: String? = nil,
         deviceId: String?? = nil,
         launch: WorkflowLaunch? = nil,
-        gate: String? = nil,
         startOn: String? = nil
     ) {
         self.name = name
         self.deviceId = deviceId
         self.launch = launch
-        self.gate = gate
         self.startOn = startOn
     }
 }
@@ -184,7 +176,7 @@ struct WorkflowUpdateInput: Encodable {
     let patch: WorkflowPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, deviceId, launch, gate, startOn
+        case id, name, deviceId, launch, startOn
     }
 
     func encode(to encoder: Encoder) throws {
@@ -197,7 +189,6 @@ struct WorkflowUpdateInput: Encodable {
             try c.encode(deviceId, forKey: .deviceId)
         }
         try c.encodeIfPresent(patch.launch, forKey: .launch)
-        try c.encodeIfPresent(patch.gate, forKey: .gate)
         try c.encodeIfPresent(patch.startOn, forKey: .startOn)
     }
 }

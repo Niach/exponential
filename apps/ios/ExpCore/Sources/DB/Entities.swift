@@ -2106,8 +2106,8 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
     /// The launch jsonb, stored as stringified JSON and tolerant-parsed lazily
     /// via `WorkflowLaunch.parse` (the `automations.trigger` pattern).
     public let launch: String?
-    /// contract `wfGate` / `wfStartOn`.
-    public let gate: String
+    /// contract `wfStartOn`. (EXP-1010: the synced `gate` column is a relic
+    /// for older engines; nothing here reads it.)
     public let startOn: String
     /// `exp/wf-<id8>`, stamped at create.
     public let integrationBranch: String
@@ -2132,7 +2132,6 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
         status: String = "draft",
         deviceId: String? = nil,
         launch: String? = nil,
-        gate: String = "human",
         startOn: String = "contract",
         integrationBranch: String = "",
         finalPrUrl: String? = nil,
@@ -2152,7 +2151,6 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
         self.status = status
         self.deviceId = deviceId
         self.launch = launch
-        self.gate = gate
         self.startOn = startOn
         self.integrationBranch = integrationBranch
         self.finalPrUrl = finalPrUrl
@@ -2167,7 +2165,7 @@ public struct WorkflowEntity: FetchableRecord, PersistableRecord, Identifiable, 
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, status, launch, gate, decisions, metrics
+        case id, name, status, launch, decisions, metrics
         case teamId = "team_id"
         case repositoryId = "repository_id"
         case deviceId = "device_id"
@@ -2205,7 +2203,6 @@ extension WorkflowEntity: Codable {
         status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "draft"
         deviceId = try c.decodeIfPresent(String.self, forKey: .deviceId)
         launch = c.decodeWireJsonString(forKey: .launch)
-        gate = (try? c.decodeIfPresent(String.self, forKey: .gate)) ?? "human"
         startOn = (try? c.decodeIfPresent(String.self, forKey: .startOn)) ?? "contract"
         integrationBranch =
             (try? c.decodeIfPresent(String.self, forKey: .integrationBranch)) ?? ""

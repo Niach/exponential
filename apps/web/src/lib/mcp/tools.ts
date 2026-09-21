@@ -10,7 +10,6 @@ import {
   workflowReviewHeadSchema,
   workflowReviewOracleSchema,
   workflowTouchesSchema,
-  type WfGate,
   type WfReviewVerdict,
   type WfStartOn,
   CATEGORY_ANCHOR,
@@ -4877,7 +4876,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_review_submit`,
     {
-      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN; head = the PR head commit sha you reviewed (a later push needs a new review). An approval counts as evidence only with a passing oracle; otherwise a person still decides.`,
+      description: `Workflow REVIEW runs only: your verdict on the node named in your prompt. verdict approve|request_changes; findings = what is wrong and where (the author gets it verbatim); oracle = {command, passed} for the checks you actually RAN; head = the PR head commit sha you reviewed (a later push needs a new review). An approval clears the node for the merge train unless your own oracle failed; then a person decides.`,
       inputSchema: strictInput({
         nodeId: uuidString,
         verdict: z.enum(contract.wfReviewVerdict.values as [string, ...string[]]),
@@ -4915,11 +4914,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_update`,
     {
-      description: `Update a workflow; pass only what changes. Draft only: addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}], gate, startOn. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
+      description: `Update a workflow; pass only what changes. Draft only: addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}], startOn. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
-        gate: z.enum(contract.wfGate.values as [string, ...string[]]).optional(),
         startOn: z.enum(contract.wfStartOn.values as [string, ...string[]]).optional(),
         addIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
         removeIssueIds: z.array(z.string().min(1)).max(WORKFLOW_MAX_ISSUES).optional(),
@@ -4935,12 +4933,11 @@ export function registerExponentialTools(
         const api = caller(user, request).workflows
         const resolve = (ids: string[] | undefined) =>
           Promise.all((ids ?? []).map((id) => resolveIssueId(id, user.id, access)))
-        if (input.name || input.gate || input.startOn || input.decision) {
+        if (input.name || input.startOn || input.decision) {
           await api.update({
             id: input.id,
             name: input.name,
             decision: input.decision,
-            gate: input.gate as WfGate | undefined,
             startOn: input.startOn as WfStartOn | undefined,
           })
         }

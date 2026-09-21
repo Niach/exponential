@@ -60,7 +60,6 @@ class WorkflowEntityDecodeTest {
         assertEquals("EXP-14 +3", entity.name)
         assertEquals(DomainContract.wfStatusDraft, entity.status)
         assertEquals("dev-1", entity.deviceId)
-        assertEquals(DomainContract.wfGateHuman, entity.gate)
         assertEquals(DomainContract.wfStartOnContract, entity.startOn)
         assertEquals("exp/wf-abcd1234", entity.integrationBranch)
         assertNull(entity.finalPrNumber)

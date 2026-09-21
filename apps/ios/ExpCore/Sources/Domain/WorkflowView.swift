@@ -314,12 +314,6 @@ public enum WorkflowView {
         )
     }
 
-    /// A node lands without a person only when the workflow has no gate AND it
-    /// is not the contract (always human-gated). Mirrors the server.
-    public static func nodeNeedsApproval(gate: String, kind: String) -> Bool {
-        kind == DomainContract.wfNodeKindContract || gate != DomainContract.wfGateNone
-    }
-
     /// One node as the merge train reads it.
     public struct TrainNode: Sendable, Equatable {
         public let id: String
@@ -362,8 +356,9 @@ public enum WorkflowView {
     /// The merge train: every node whose PR is up (`in_review`, or `updating`
     /// while it merges the trunk in), in landing order (wave, then lane). The
     /// FIRST node that is cleared to land is `next`; cleared ones behind it are
-    /// `queued`; one still waiting for a person says so.
-    public static func mergeTrain(_ nodes: [TrainNode], gate: String) -> [TrainEntry] {
+    /// `queued`; one no review approved yet says so (EXP-1010: the agent review
+    /// is the only gate, a person may approve by hand).
+    public static func mergeTrain(_ nodes: [TrainNode]) -> [TrainEntry] {
         let waiting = nodes
             .filter {
                 $0.state == DomainContract.wfNodeStateInReview
@@ -375,7 +370,7 @@ public enum WorkflowView {
             if node.state == DomainContract.wfNodeStateUpdating {
                 return TrainEntry(id: node.id, step: .updating)
             }
-            if nodeNeedsApproval(gate: gate, kind: node.kind), node.approvedAt == nil {
+            if node.approvedAt == nil {
                 return TrainEntry(id: node.id, step: .needsApproval)
             }
             if nextTaken { return TrainEntry(id: node.id, step: .queued) }
@@ -385,15 +380,14 @@ public enum WorkflowView {
     }
 
     /// The synced rows as the rule reads them.
-    public static func mergeTrain(_ nodes: [WorkflowNodeEntity], gate: String) -> [TrainEntry] {
+    public static func mergeTrain(_ nodes: [WorkflowNodeEntity]) -> [TrainEntry] {
         mergeTrain(
             nodes.map {
                 TrainNode(
                     id: $0.id, kind: $0.kind, state: $0.state,
                     wave: $0.wave, lane: $0.lane, approvedAt: $0.approvedAt
                 )
-            },
-            gate: gate
+            }
         )
     }
 

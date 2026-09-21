@@ -409,8 +409,7 @@
   ],
   "trains": [
     {
-      "name": "no gate: the contract still needs a person, leaves queue in landing order",
-      "gate": "none",
+      "name": "an unreviewed node waits, approved ones queue in landing order",
       "nodes": [
         {
           "id": "l2",
@@ -418,7 +417,7 @@
           "state": "in_review",
           "wave": 1,
           "lane": 1,
-          "approvedAt": null
+          "approvedAt": "2026-09-19T00:00:00Z"
         },
         {
           "id": "c",
@@ -434,7 +433,7 @@
           "state": "in_review",
           "wave": 1,
           "lane": 0,
-          "approvedAt": null
+          "approvedAt": "2026-09-19T00:00:00Z"
         },
         {
           "id": "r",
@@ -469,8 +468,7 @@
       ]
     },
     {
-      "name": "human gate: only approved nodes are cleared, an updating node says so",
-      "gate": "human",
+      "name": "only approved nodes are cleared, an updating node says so",
       "nodes": [
         {
           "id": "a",

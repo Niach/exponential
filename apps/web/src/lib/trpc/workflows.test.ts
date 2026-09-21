@@ -97,7 +97,8 @@ vi.mock(`@/lib/steer-child-messages`, () => ({ oneLine: (text: string) => text }
 import {
   appendDecisionLine,
   mergeLaunch,
-  nodeNeedsApproval,
+  mergeBelongsToAttempt,
+  mergedNodeOutcome,
   reviewOutcome,
   workflowsRouter,
 } from "@/lib/trpc/workflows"
@@ -190,7 +191,7 @@ describe(`workflows.update`, () => {
     expect(written[0]!.values).toEqual({ name: `Renamed` })
 
     selectQueue.push([workflow({ status: `running` })])
-    const error = await rejection(caller.update({ id: WF, gate: `none` }))
+    const error = await rejection(caller.update({ id: WF, startOn: `landed` }))
     expect(error?.code).toBe(`PRECONDITION_FAILED`)
   })
 
@@ -468,7 +469,7 @@ describe(`the engine's write path`, () => {
   it(`holds an unapproved node at the gate, server-side`, async () => {
     selectQueue.push(
       [node()],
-      [workflow({ status: `running`, deviceId: `dev-1`, gate: `human` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }]
     )
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
@@ -517,7 +518,7 @@ describe(`the engine's write path`, () => {
     } as never)
     selectQueue.push(
       [node({ approvedAt: new Date() })],
-      [workflow({ status: `running`, deviceId: `dev-1`, gate: `none` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }]
     )
     expect(await caller.landNode({ nodeId: NODE })).toEqual({
@@ -536,7 +537,7 @@ describe(`the engine's write path`, () => {
     })
     selectQueue.push(
       [node({ approvedAt: new Date() })],
-      [workflow({ status: `running`, deviceId: `dev-1`, gate: `none`, integrationBranch: `exp/wf-22222222` })],
+      [workflow({ status: `running`, deviceId: `dev-1`, integrationBranch: `exp/wf-22222222` })],
       [{ id: `device-row` }],
       [{ prState: `open` }]
     )
@@ -557,7 +558,7 @@ describe(`the engine's write path`, () => {
     h.retargetReleasedDependents.mockResolvedValueOnce([`node-9`])
     selectQueue.push(
       [node({ approvedAt: new Date() })],
-      [workflow({ status: `running`, deviceId: `dev-1`, gate: `none`, integrationBranch: `exp/wf-22222222` })],
+      [workflow({ status: `running`, deviceId: `dev-1`, integrationBranch: `exp/wf-22222222` })],
       [{ id: `device-row` }],
       [{ prState: `open` }]
     )
@@ -574,7 +575,7 @@ describe(`the engine's write path`, () => {
   // node was `running`/`updating` — no approval, and the web offers Approve
   // only on `in_review`. The code is in the integration branch: the train's
   // step is done, whatever the gate or the landing order say.
-  it(`lands a node whose PR merged outside the train, past the human gate and the order`, async () => {
+  it(`lands a node whose PR merged outside the train, unapproved and past the order`, async () => {
     h.loadWorkflowEdges.mockResolvedValueOnce({
       nodes: [
         { id: `node-0`, state: `in_review` },
@@ -584,7 +585,7 @@ describe(`the engine's write path`, () => {
     } as never)
     selectQueue.push(
       [node({ state: `updating`, approvedAt: null })],
-      [workflow({ status: `running`, deviceId: `dev-1`, gate: `human` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
       [{ prState: `merged` }]
     )
@@ -599,10 +600,75 @@ describe(`the engine's write path`, () => {
     expect(h.retargetReleasedDependents).toHaveBeenCalledWith(fakeDb, WF, `node-1`, `user-1`)
   })
 
+  // EXP-1010: merged into a BLOCKER's branch (a speculative start a person
+  // merged from Reviews): the code is not in the integration branch yet.
+  const stackedOn = (state: string) =>
+    ({
+      nodes: [
+        { id: `node-0`, issueId: B, state },
+        { id: `node-1`, issueId: A, state: `in_review` },
+      ],
+      edges: [[`node-0`, `node-1`]],
+    }) as never
+  const mergedIntoBlocker = () =>
+    selectQueue.push(
+      [node({ mergedInto: `exp/APP-10` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ prState: `merged`, prMergedAt: null }],
+      [{ id: B, branch: `exp/APP-10` }]
+    )
+
+  it(`keeps the wait for a node that merged into its unlanded blocker's branch`, async () => {
+    h.loadWorkflowEdges.mockResolvedValueOnce(stackedOn(`in_review`))
+    mergedIntoBlocker()
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: false,
+      reason: `Waiting for its blockers to land`,
+      retargeted: [],
+    })
+    expect(written).toEqual([])
+  })
+
+  it(`fails that node once the blocker is skipped: the final PR would lack its code`, async () => {
+    h.loadWorkflowEdges.mockResolvedValueOnce(stackedOn(`skipped`))
+    mergedIntoBlocker()
+    expect((await caller.landNode({ nodeId: NODE })).merged).toBe(false)
+    expect(written[0]!.values).toMatchObject({
+      state: `failed`,
+      note: expect.stringContaining(`which was skipped`),
+    })
+    expect(h.retargetReleasedDependents).not.toHaveBeenCalled()
+  })
+
+  it(`a merge from before the workflow started lands nothing`, async () => {
+    selectQueue.push(
+      [node()],
+      [workflow({ status: `running`, deviceId: `dev-1`, startedAt: new Date(`2026-09-21T10:00:00Z`) })],
+      [{ id: `device-row` }],
+      [{ prState: `merged`, prMergedAt: new Date(`2026-09-01T10:00:00Z`) }]
+    )
+    expect((await caller.landNode({ nodeId: NODE })).reason).toBe(`Waiting for a person to approve`)
+    expect(written).toEqual([])
+  })
+
+  it(`a concurrent skip wins: the landed write claims nothing and counts nothing`, async () => {
+    selectQueue.push(
+      [node()],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+      [{ prState: `merged`, prMergedAt: null }]
+    )
+    updateQueue.push([])
+    expect((await caller.landNode({ nodeId: NODE })).merged).toBe(true)
+    expect(written).toHaveLength(1)
+    expect(h.retargetReleasedDependents).not.toHaveBeenCalled()
+  })
+
   it(`a paused workflow lands nothing, merged or not`, async () => {
     selectQueue.push(
       [node({ state: `updating` })],
-      [workflow({ status: `paused`, deviceId: `dev-1`, gate: `human` })],
+      [workflow({ status: `paused`, deviceId: `dev-1` })],
       [{ id: `device-row` }],
       [{ prState: `merged` }]
     )
@@ -625,6 +691,8 @@ describe(`the engine's write path`, () => {
       approvedAt: null,
       review: null,
       reviewRound: 0,
+      mergedInto: null,
+      retriedAt: expect.any(Date),
     })
     expect(h.retargetReleasedDependents).not.toHaveBeenCalled()
   })
@@ -732,12 +800,46 @@ describe(`workflows.submitReview`, () => {
   })
 })
 
-describe(`nodeNeedsApproval`, () => {
-  it(`always gates the contract, and everything under a gate`, () => {
-    expect(nodeNeedsApproval(`none`, `leaf`)).toBe(false)
-    expect(nodeNeedsApproval(`none`, `contract`)).toBe(true)
-    expect(nodeNeedsApproval(`human`, `leaf`)).toBe(true)
-    expect(nodeNeedsApproval(`agent`, `integration`)).toBe(true)
+// EXP-1010 — a PR merged outside the train: whose attempt, and into what.
+describe(`mergeBelongsToAttempt`, () => {
+  const startedAt = `2026-09-21T10:00:00Z`
+  it(`ignores a merge from before the workflow started or the node was retried`, () => {
+    expect(mergeBelongsToAttempt({ mergedAt: `2026-09-20T10:00:00Z`, startedAt, retriedAt: null })).toBe(false)
+    expect(
+      mergeBelongsToAttempt({
+        mergedAt: `2026-09-21T11:00:00Z`,
+        startedAt,
+        retriedAt: `2026-09-21T12:00:00Z`,
+      })
+    ).toBe(false)
+  })
+  it(`counts this attempt's merge, and one nobody dated`, () => {
+    expect(mergeBelongsToAttempt({ mergedAt: `2026-09-21T11:00:00Z`, startedAt, retriedAt: null })).toBe(true)
+    expect(mergeBelongsToAttempt({ mergedAt: null, startedAt, retriedAt: null })).toBe(true)
+  })
+})
+
+describe(`mergedNodeOutcome`, () => {
+  const integrationBranch = `exp/wf-22222222`
+  const on = (mergedInto: string | null, state?: string) =>
+    mergedNodeOutcome({
+      mergedInto,
+      integrationBranch,
+      carriers: new Map(state ? [[`exp/APP-6`, state]] : []),
+    })
+  it(`lands a merge into the integration branch, an unknown base or a foreign branch`, () => {
+    expect(on(null).step).toBe(`land`)
+    expect(on(integrationBranch).step).toBe(`land`)
+    expect(on(`master`, `in_review`).step).toBe(`land`)
+  })
+  it(`waits for the blocker whose branch took the merge, and lands with it`, () => {
+    expect(on(`exp/APP-6`, `in_review`).step).toBe(`wait`)
+    expect(on(`exp/APP-6`, `failed`).step).toBe(`wait`)
+    expect(on(`exp/APP-6`, `landed`).step).toBe(`land`)
+  })
+  it(`fails once that blocker is skipped, or the base was a throwaway`, () => {
+    expect(on(`exp/APP-6`, `skipped`)).toMatchObject({ step: `fail` })
+    expect(on(`${integrationBranch}-base-APP-10`)).toMatchObject({ step: `fail` })
   })
 })
 
@@ -762,28 +864,26 @@ describe(`appendDecisionLine`, () => {
 
 // EXP-984 — what a submitted review does to its node.
 describe(`reviewOutcome`, () => {
-  it(`lets a passing oracle stand in for the person, never on the contract`, () => {
-    expect(reviewOutcome({ verdict: `approve`, oraclePassed: true, kind: `leaf`, round: 1 })).toMatchObject({
+  it(`an approval clears the node, the contract included`, () => {
+    expect(reviewOutcome({ verdict: `approve`, oraclePassed: true, round: 1 })).toMatchObject({
       approve: true,
       state: `in_review`,
     })
-    expect(
-      reviewOutcome({ verdict: `approve`, oraclePassed: true, kind: `contract`, round: 1 }).approve
-    ).toBe(false)
+    expect(reviewOutcome({ verdict: `approve`, oraclePassed: null, round: 1 }).approve).toBe(true)
   })
 
-  it(`keeps an approval without evidence advisory`, () => {
-    const outcome = reviewOutcome({ verdict: `approve`, oraclePassed: null, kind: `leaf`, round: 1 })
+  it(`keeps an approval its own checks contradict advisory`, () => {
+    const outcome = reviewOutcome({ verdict: `approve`, oraclePassed: false, round: 1 })
     expect(outcome.approve).toBe(false)
-    expect(outcome.note).toContain(`advisory`)
+    expect(outcome.note).toContain(`needs a person`)
   })
 
   it(`bounces to the author up to the round cap, then waits for a person`, () => {
     expect(
-      reviewOutcome({ verdict: `request_changes`, oraclePassed: false, kind: `leaf`, round: 2 }).state
+      reviewOutcome({ verdict: `request_changes`, oraclePassed: false, round: 2 }).state
     ).toBe(`updating`)
     expect(
-      reviewOutcome({ verdict: `request_changes`, oraclePassed: null, kind: `leaf`, round: 3 })
+      reviewOutcome({ verdict: `request_changes`, oraclePassed: null, round: 3 })
     ).toMatchObject({ state: `waiting`, note: `Review did not converge after 3 rounds` })
   })
 })

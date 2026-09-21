@@ -27,12 +27,10 @@ import {
 import {
   WORKFLOW_MAX_PARALLEL_CAP,
   WORKFLOW_MAX_PARALLEL_DEFAULT,
-  wfGateValues,
   wfNodeKindValues,
   wfRiskValues,
   wfStartOnValues,
   WORKFLOW_DEFAULT_LAUNCH_BY_AGENT,
-  type WfGate,
   type WfNodeKind,
   type WfRisk,
   type WfStartOn,
@@ -80,7 +78,6 @@ import {
   workflowMergeTrain,
   workflowMetricRows,
   workflowNodeKindLabel,
-  workflowNodeNeedsApproval,
   workflowReviewLine,
   workflowShapeLine,
   workflowNodeTitle,
@@ -143,11 +140,6 @@ const ResumeIcon = conceptIcon(`run-resume`)
 const CancelIcon = conceptIcon(`ui-stop`)
 
 /** The run configuration's labels. Byte-identical ×4 (the brief's words). */
-const GATE_LABELS: Record<string, string> = {
-  none: `No gate`,
-  agent: `Agent review`,
-  human: `Human review`,
-}
 const START_ON_LABELS: Record<string, string> = {
   contract: `On contract`,
   pr_open: `On PR open`,
@@ -179,7 +171,6 @@ interface WorkflowPatch {
   name?: string
   deviceId?: string | null
   launch?: WorkflowLaunch
-  gate?: WfGate
   startOn?: WfStartOn
 }
 
@@ -279,7 +270,6 @@ export function WorkflowDetail({
       nodes={nodes}
       issueById={issueById}
       teamSlug={teamSlug}
-      gate={workflow.gate}
       workflowStatus={workflow.status}
       onError={setError}
       onClose={() => setSelectedNodeId(null)}
@@ -461,7 +451,6 @@ export function WorkflowDetail({
       {workflow.status !== `draft` && (
         <MergeTrainStrip
           nodes={nodes}
-          gate={workflow.gate}
           issueById={issueById}
           stacked={isMobile}
         />
@@ -564,17 +553,15 @@ function WorkflowNameField({
  *  says so. Hidden on a draft (nothing is up yet). */
 function MergeTrainStrip({
   nodes,
-  gate,
   issueById,
   stacked,
 }: {
   nodes: readonly WorkflowNode[]
-  gate: string
   issueById: ReadonlyMap<string, Issue>
   /** Phones read the train as a short list rather than a horizontal strip. */
   stacked: boolean
 }) {
-  const entries = workflowMergeTrain(nodes, gate)
+  const entries = workflowMergeTrain(nodes)
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   return (
     <section className="flex flex-col" data-testid="workflow-merge-train">
@@ -859,32 +846,30 @@ function HowItRunsSection({
             }}
           />
         )}
-        {/* EXP-984: only the agent gate reviews anything, so only it has a
-            model to pick. The reviewer is claude whatever the author runs on
-            (a `risk: high` node is never reviewed by its own model). */}
-        {workflow.gate === `agent` && (
-          <Combobox
-            triggerVariant="row"
-            searchable={false}
-            mobileTitle={REVIEW_MODEL_LABEL}
-            disabled={readOnly}
-            value={launch.reviewModel || CLI_DEFAULT_MODEL}
-            options={[
-              { value: CLI_DEFAULT_MODEL, label: `Default` },
-              ...contract.codingModel.values.map((value) => ({
-                value,
-                label: modelLabel(value),
-              })),
-            ]}
-            onChange={(value) => {
-              if (value !== null) {
-                patchLaunch({
-                  reviewModel: value === CLI_DEFAULT_MODEL ? null : value,
-                })
-              }
-            }}
-          />
-        )}
+        {/* EXP-1010: every node's PR gets an agent review, so the model it
+            runs on is always a question (a `risk: high` node is never
+            reviewed by its own model). */}
+        <Combobox
+          triggerVariant="row"
+          searchable={false}
+          mobileTitle={REVIEW_MODEL_LABEL}
+          disabled={readOnly}
+          value={launch.reviewModel || CLI_DEFAULT_MODEL}
+          options={[
+            { value: CLI_DEFAULT_MODEL, label: `Default` },
+            ...contract.codingModel.values.map((value) => ({
+              value,
+              label: modelLabel(value),
+            })),
+          ]}
+          onChange={(value) => {
+            if (value !== null) {
+              patchLaunch({
+                reviewModel: value === CLI_DEFAULT_MODEL ? null : value,
+              })
+            }
+          }}
+        />
         <Combobox
           triggerVariant="row"
           searchable={false}
@@ -926,20 +911,6 @@ function HowItRunsSection({
         <Combobox
           triggerVariant="row"
           searchable={false}
-          mobileTitle="Gate"
-          disabled={readOnly}
-          value={workflow.gate}
-          options={wfGateValues.map((value) => ({
-            value: value as string,
-            label: GATE_LABELS[value] ?? value,
-          }))}
-          onChange={(value) => {
-            if (value !== null) void onSave({ gate: value as WfGate })
-          }}
-        />
-        <Combobox
-          triggerVariant="row"
-          searchable={false}
           mobileTitle="Start"
           disabled={readOnly}
           value={workflow.startOn}
@@ -966,7 +937,6 @@ export function WorkflowNodePanel({
   nodes,
   issueById,
   teamSlug,
-  gate,
   workflowStatus,
   onError,
   onClose,
@@ -978,9 +948,6 @@ export function WorkflowNodePanel({
   nodes: readonly WorkflowNode[]
   issueById: ReadonlyMap<string, Issue>
   teamSlug: string
-  /** The workflow's `gate` — with the node's kind it decides whether landing
-   *  waits for a person (`workflowNodeNeedsApproval`). */
-  gate: string
   workflowStatus: string
   onError: (message: string | null) => void
   onClose: () => void
@@ -1067,13 +1034,10 @@ export function WorkflowNodePanel({
   // A proposal is not part of the run: nothing about it is approved, retried
   // or skipped until somebody admits it.
   const proposed = node.state === `proposed`
-  // The gate only ever holds an OPEN pull request; once landed there is
-  // nothing left to approve or take back.
-  const needsApproval =
-    !proposed &&
-    node.state === `in_review` &&
-    workflowNodeNeedsApproval(gate, node.kind) &&
-    !node.approvedAt
+  // An approval only ever holds an OPEN pull request; once landed there is
+  // nothing left to approve or take back. The agent review normally stamps
+  // it; a person may, by hand.
+  const needsApproval = !proposed && node.state === `in_review` && !node.approvedAt
   const canWithdraw =
     !proposed && Boolean(node.approvedAt) && node.state !== `landed`
   const review = readNodeReview(node.review)

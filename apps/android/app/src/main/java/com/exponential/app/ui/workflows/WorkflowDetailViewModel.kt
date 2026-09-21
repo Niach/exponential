@@ -273,12 +273,6 @@ class WorkflowDetailViewModel @Inject constructor(
         }
     }
 
-    fun setGate(gate: String) {
-        mutate("The review gate could not be saved") { accountId ->
-            workflowsApi.update(accountId, workflowId, gate = gate)
-        }
-    }
-
     fun setStartOn(startOn: String) {
         mutate("The start rule could not be saved") { accountId ->
             workflowsApi.update(accountId, workflowId, startOn = startOn)
@@ -331,7 +325,7 @@ class WorkflowDetailViewModel @Inject constructor(
         nodes,
         workflow,
     ) { nodeRows, row ->
-        WorkflowView.mergeTrain(nodeRows.map { it.trainNode }, row?.gate.orEmpty())
+        WorkflowView.mergeTrain(nodeRows.map { it.trainNode })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The final-PR node's caption, or null while that node is not drawn. */

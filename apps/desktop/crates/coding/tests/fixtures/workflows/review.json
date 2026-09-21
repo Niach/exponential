@@ -5,7 +5,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "startOn": "landed"
@@ -29,7 +28,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -48,7 +46,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -80,12 +77,11 @@
     "expected": []
   },
   {
-    "name": "rule 7: the agent gate reviews a node's pushed branch",
+    "name": "rule 7: a node's pushed branch is reviewed, on fable unless the workflow pins a model",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -110,7 +106,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }
+      { "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }
     ]
   },
   {
@@ -119,7 +115,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -150,7 +145,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -182,7 +176,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -213,7 +206,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -242,12 +234,11 @@
     "expected": []
   },
   {
-    "name": "rule 7: no agent gate, no review",
+    "name": "rule 7: every workflow reviews, there is no gate to switch it off",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -270,7 +261,9 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": []
+    "expected": [
+      { "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }
+    ]
   },
   {
     "name": "rule 7: a high-risk node is reviewed adversarially, never by its author's model",
@@ -278,7 +271,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -311,7 +303,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus",
@@ -345,7 +336,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "fable",
@@ -374,12 +364,11 @@
     ]
   },
   {
-    "name": "rule 7: an adversarial review with no models at all picks opus",
+    "name": "rule 7: an adversarial review with no models at all stays on fable",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -402,16 +391,15 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": true }
+      { "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": true }
     ]
   },
   {
-    "name": "rule 7: an ordinary review with no models at all runs on the device default",
+    "name": "rule 7: an ordinary review with no models at all runs on fable",
     "snapshot": {
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -432,7 +420,7 @@
       "prHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
   },
   {
     "name": "rule 7: a codex workflow's adversarial review swaps inside the codex models",
@@ -440,7 +428,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "agent": "codex",
@@ -473,7 +460,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "agent": "codex"
@@ -504,7 +490,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "agent": "codex",
@@ -536,7 +521,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -568,7 +552,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }
+      { "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }
     ]
   },
   {
@@ -577,7 +561,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -613,7 +596,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -647,7 +629,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -681,7 +662,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -714,7 +694,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -741,7 +720,7 @@
       "nowMs": 1000
     },
     "expected": [
-      { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }
+      { "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }
     ]
   },
   {
@@ -750,7 +729,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -776,7 +754,7 @@
       "reviewedHead": { "a": "sha-a1" },
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }]
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "fable", "adversarial": false }]
   },
   {
     "name": "rule 7: an approval of the current head clears the node for the train",
@@ -784,7 +762,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"
@@ -818,7 +795,6 @@
       "workflow": {
         "id": "abcdef12-3456-7890-abcd-ef1234567890",
         "status": "running",
-        "gate": "agent",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus"

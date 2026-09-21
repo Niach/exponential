@@ -18,7 +18,6 @@ import {
   commentSourceValues,
   notificationTypeValues,
   prStateValues,
-  wfGateValues,
   wfNodeKindValues,
   wfNodeStateValues,
   wfRiskValues,
@@ -184,7 +183,6 @@ describe(`domain-contract parity`, () => {
     expect([...wfStatusValues]).toEqual([...contract.wfStatus.values])
     expect([...wfNodeStateValues]).toEqual([...contract.wfNodeState.values])
     expect([...wfNodeKindValues]).toEqual([...contract.wfNodeKind.values])
-    expect([...wfGateValues]).toEqual([...contract.wfGate.values])
     expect([...wfStartOnValues]).toEqual([...contract.wfStartOn.values])
     expect([...wfRiskValues]).toEqual([...contract.wfRisk.values])
     expect(WORKFLOW_MAX_ISSUES).toBe(contract.workflow.maxIssues)

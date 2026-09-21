@@ -35,7 +35,7 @@ use sync::Store;
 
 use domain::workflow_view::{
     workflow_cycle_note, workflow_default_models, workflow_edge_style, workflow_final_pr_caption, workflow_merge_train,
-    workflow_metric_rows, workflow_node_caption, workflow_node_needs_approval, workflow_node_title,
+    workflow_metric_rows, workflow_node_caption, workflow_node_title,
     workflow_node_tone, workflow_review_line, workflow_shape_line, workflow_start_blocker,
     workflow_train_step_label, CaptionNode, EdgeNode, EdgeRelation, ReviewLine, StartableWorkflow,
     TrainNode, WorkflowNodeTone, ADMIT_NODE_LABEL, AGENT_REVIEW_TITLE, APPROVE_NODE_LABEL,
@@ -86,13 +86,6 @@ fn graph_geometry() -> GridGeometry {
 /// it can never collide with a `workflow_nodes` row id.
 const FINAL_PR_KEY: &str = "workflow-final-pr";
 
-/// The Gate picks, in contract order, with their shipped labels.
-const GATE_CHOICES: [(&str, &str); 3] = [
-    ("No gate", domain::contract::WF_GATE_NONE),
-    ("Agent review", domain::contract::WF_GATE_AGENT),
-    ("Human review", domain::contract::WF_GATE_HUMAN),
-];
-
 /// The Start picks, in contract order, with their shipped labels.
 const START_ON_CHOICES: [(&str, &str); 3] = [
     ("On contract", domain::contract::WF_START_ON_CONTRACT),
@@ -104,8 +97,8 @@ const START_ON_CHOICES: [(&str, &str); 3] = [
 const MAX_PARALLEL_CAP: usize = 8;
 
 /// EXP-984: the models an AGENT review may run on — claude's, plus the blank
-/// "the engine picks one" (which is the author's model, swapped for a
-/// high-risk node). Shown only under the Agent-review gate.
+/// "the engine picks one" (fable on claude, swapped for a high-risk node
+/// whose author ran on it). EXP-1010: every workflow reviews, so always shown.
 const REVIEW_MODEL_CHOICES: [(&str, &str); 4] = [
     ("Default", ""),
     ("Fable", "fable"),
@@ -644,7 +637,7 @@ impl WorkflowView {
                 // the two ways out of a failure. EXP-984: a proposal has
                 // none of them — it is admitted or dismissed, nothing else.
                 .children((!proposed).then(|| node_face_strip(&node, &issue_id, cx)).flatten())
-                .children((!proposed).then(|| node_gate_actions(&node, row)).unwrap_or_default())
+                .children((!proposed).then(|| node_gate_actions(&node)).unwrap_or_default())
                 .into_any_element(),
         )
     }
@@ -958,25 +951,9 @@ impl WorkflowView {
                 );
             }
         }, cx));
-        rows.push(pick_row(
-            "workflow-gate",
-            "Gate",
-            &GATE_CHOICES,
-            row.gate.as_deref().unwrap_or(domain::contract::WF_GATE_HUMAN),
-            draft,
-            {
-                let workflow_id = workflow_id.clone();
-                move |value: &str, cx: &mut App| {
-                    let mut input = api::workflows::WorkflowUpdate::new(workflow_id.clone());
-                    input.gate = Some(value.to_string());
-                    spawn_update(input, cx);
-                }
-            },
-            cx,
-        ));
-        // EXP-984: what an AGENT review runs on — only worth a row when the
-        // gate actually reviews.
-        if row.gate.as_deref() == Some(domain::contract::WF_GATE_AGENT) {
+        // EXP-1010: every node's PR gets an agent review; this is the model
+        // it runs on.
+        {
             rows.push(pick_row(
                 "workflow-review-model",
                 REVIEW_MODEL_LABEL,
@@ -1166,7 +1143,7 @@ impl Render for WorkflowView {
             .children(panel);
 
         let how = self.render_how_it_runs(&row, cx);
-        let train = (!draft).then(|| render_merge_train(&row, &nodes, cx));
+        let train = (!draft).then(|| render_merge_train(&nodes, cx));
         // EXP-984: the run's counters. A draft has run nothing to count.
         let metrics = (!draft).then(|| render_metrics(&row, cx)).flatten();
         let _ = team_id;
@@ -1284,19 +1261,15 @@ fn face_segment(
         .child(SharedString::from(label))
 }
 
-/// The human gate and the failure exits: approve (or take it back) while the
+/// The by-hand approval and the failure exits: approve (or take it back) while the
 /// PR is up, retry or skip once the node failed. Every rule is the server's;
 /// these buttons only appear where it would say yes.
-fn node_gate_actions(
-    node: &domain::rows::WorkflowNodeRow,
-    row: &domain::rows::WorkflowRow,
-) -> Vec<gpui::AnyElement> {
-    let gate = row.gate.as_deref().unwrap_or(domain::contract::WF_GATE_HUMAN);
+fn node_gate_actions(node: &domain::rows::WorkflowNodeRow) -> Vec<gpui::AnyElement> {
     let state = node.state_wire();
     let approved = node.approved_at.is_some();
     let node_id = node.id.clone();
     let mut actions: Vec<gpui::AnyElement> = Vec::new();
-    if state == "in_review" && workflow_node_needs_approval(gate, node.kind_wire()) && !approved {
+    if state == "in_review" && !approved {
         actions.push(
             Button::new("workflow-node-approve")
                 .primary()
@@ -1484,13 +1457,8 @@ fn cancel_button(id: String, name: String, _cx: &App) -> gpui::AnyElement {
 
 /// EXP-982 — the merge train under the graph: every node whose PR is up, in
 /// landing order, each with where it stands. Hidden on a draft.
-fn render_merge_train(
-    row: &domain::rows::WorkflowRow,
-    nodes: &[domain::rows::WorkflowNodeRow],
-    cx: &App,
-) -> gpui::AnyElement {
+fn render_merge_train(nodes: &[domain::rows::WorkflowNodeRow], cx: &App) -> gpui::AnyElement {
     let muted = cx.theme().muted_foreground;
-    let gate = row.gate.as_deref().unwrap_or(domain::contract::WF_GATE_HUMAN);
     let train_nodes: Vec<TrainNode<'_>> = nodes
         .iter()
         .map(|node| TrainNode {
@@ -1502,7 +1470,7 @@ fn render_merge_train(
             approved: node.approved_at.is_some(),
         })
         .collect();
-    let entries = workflow_merge_train(&train_nodes, gate);
+    let entries = workflow_merge_train(&train_nodes);
     let title = div()
         .text_xs()
         .text_color(muted)

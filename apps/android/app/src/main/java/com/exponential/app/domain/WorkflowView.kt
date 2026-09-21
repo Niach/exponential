@@ -97,14 +97,7 @@ object WorkflowView {
 
     fun nodeKindLabel(kind: String): String = KIND_LABELS[kind] ?: kind
 
-    /** The gate's three words, and the start rule's three (EXP-981). */
-    fun gateLabel(gate: String): String = when (gate) {
-        DomainContract.wfGateNone -> "No gate"
-        DomainContract.wfGateAgent -> "Agent review"
-        DomainContract.wfGateHuman -> "Human review"
-        else -> gate
-    }
-
+    /** The start rule's three words (EXP-981). */
     fun startOnLabel(startOn: String): String = when (startOn) {
         DomainContract.wfStartOnContract -> "On contract"
         DomainContract.wfStartOnPrOpen -> "On PR open"
@@ -272,13 +265,6 @@ object WorkflowView {
         return null
     }
 
-    /**
-     * A node lands without a person only when the workflow has no gate AND it
-     * is not the contract (always human-gated). Mirrors the server.
-     */
-    fun nodeNeedsApproval(gate: String, kind: String): Boolean =
-        kind == DomainContract.wfNodeKindContract || gate != DomainContract.wfGateNone
-
     /** A node as the merge train reads it. [approvedAt] null = not approved. */
     data class TrainNode(
         val id: String,
@@ -302,9 +288,10 @@ object WorkflowView {
      * The merge train: every node whose PR is up (`in_review`, or `updating`
      * while it merges the trunk in), in landing order (wave, then lane). The
      * FIRST node that is cleared to land is `next`; cleared ones behind it are
-     * `queued`; one still waiting for a person says so.
+     * `queued`; one no review approved yet says so (EXP-1010: the agent review
+     * is the only gate, a person may approve by hand).
      */
-    fun mergeTrain(nodes: List<TrainNode>, gate: String): List<TrainEntry> {
+    fun mergeTrain(nodes: List<TrainNode>): List<TrainEntry> {
         val waiting = nodes
             .filter {
                 it.state == DomainContract.wfNodeStateInReview ||
@@ -316,7 +303,7 @@ object WorkflowView {
             when {
                 node.state == DomainContract.wfNodeStateUpdating ->
                     TrainEntry(node.id, TrainStep.Updating)
-                nodeNeedsApproval(gate, node.kind) && node.approvedAt.isNullOrEmpty() ->
+                node.approvedAt.isNullOrEmpty() ->
                     TrainEntry(node.id, TrainStep.NeedsApproval)
                 nextTaken -> TrainEntry(node.id, TrainStep.Queued)
                 else -> {

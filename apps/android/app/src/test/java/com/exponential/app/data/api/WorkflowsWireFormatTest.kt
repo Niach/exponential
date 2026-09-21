@@ -40,7 +40,6 @@ class WorkflowsWireFormatTest {
                 deviceId = null,
                 clearDevice = false,
                 launch = null,
-                gate = null,
                 startOn = null,
             ),
         )
@@ -56,7 +55,6 @@ class WorkflowsWireFormatTest {
                 deviceId = "dev-1",
                 clearDevice = false,
                 launch = null,
-                gate = null,
                 startOn = null,
             ),
         )
@@ -69,7 +67,6 @@ class WorkflowsWireFormatTest {
                 deviceId = null,
                 clearDevice = true,
                 launch = null,
-                gate = null,
                 startOn = null,
             ),
         )
@@ -93,7 +90,6 @@ class WorkflowsWireFormatTest {
                     maxParallel = 5,
                     reviewModel = "fable",
                 ),
-                gate = "agent",
                 startOn = "pr_open",
             ),
         )
@@ -101,7 +97,7 @@ class WorkflowsWireFormatTest {
             """{"id":"wf-1","launch":{"agent":"claude","model":"opus","subagentModel":"fable",""" +
                 """"effort":"high","account":"profile-2","maxParallel":5,"reviewModel":"fable",""" +
                 """"contractModel":null,"integrationModel":null,"riskModel":null},""" +
-                """"gate":"agent","startOn":"pr_open"}""",
+                """"startOn":"pr_open"}""",
             full,
         )
 
@@ -112,7 +108,6 @@ class WorkflowsWireFormatTest {
                 deviceId = null,
                 clearDevice = false,
                 launch = WorkflowLaunch(maxParallel = 3),
-                gate = null,
                 startOn = null,
             ),
         )
@@ -151,7 +146,6 @@ class WorkflowsWireFormatTest {
             deviceId = null,
             clearDevice = false,
             launch = edited,
-            gate = null,
             startOn = null,
         )
         val launch = patch["launch"] as JsonObject
@@ -168,7 +162,6 @@ class WorkflowsWireFormatTest {
             deviceId = null,
             clearDevice = false,
             launch = edited.copy(agent = "codex", model = "", effort = "").withoutPhaseModels(),
-            gate = null,
             startOn = null,
         )["launch"] as JsonObject
         for (key in listOf("contractModel", "integrationModel", "riskModel")) {

@@ -562,7 +562,6 @@ fn snapshot_for(
                 workflow: WorkflowFacts {
                     id: workflow.id.clone(),
                     status: status.to_string(),
-                    gate: workflow.gate.clone().unwrap_or_else(|| "human".to_string()),
                     integration_branch,
                     final_pr_url: workflow.final_pr_url.clone(),
                     max_parallel: workflow.max_parallel(),

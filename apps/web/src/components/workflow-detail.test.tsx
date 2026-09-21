@@ -191,7 +191,6 @@ const workflow = (over: Partial<SyncedWorkflow> = {}): SyncedWorkflow =>
     teamId: `t1`,
     name: `APP-1 +2`,
     status: `draft`,
-    gate: `human`,
     startOn: `contract`,
     deviceId: null,
     repositoryId: null,
@@ -592,8 +591,8 @@ describe(`WorkflowDetail running graph`, () => {
 
   it(`lists the merge train in landing order`, () => {
     nodeRows.rows = [
-      node(`n1`, { wave: 0, lane: 0, state: `in_review` }),
-      node(`n2`, { wave: 1, lane: 0, state: `in_review` }),
+      node(`n1`, { wave: 0, lane: 0, state: `in_review`, approvedAt: new Date(`2026-09-19T00:00:00Z`) }),
+      node(`n2`, { wave: 1, lane: 0, state: `in_review`, approvedAt: new Date(`2026-09-19T00:00:00Z`) }),
       node(`n3`, { wave: 2, lane: 0, state: `in_review`, kind: `contract` }),
       node(`n4`, { wave: 3, lane: 0, state: `running` }),
     ]
@@ -604,8 +603,8 @@ describe(`WorkflowDetail running graph`, () => {
       issue(`i-n4`, `APP-4`),
     ]
     graphState.relations = []
-    // `none` gates nothing but the contract node, which always waits.
-    mount({ ...startable(), status: `running`, gate: `none` })
+    // EXP-1010: a node no review approved yet waits, whatever its kind.
+    mount({ ...startable(), status: `running` })
     expect(screen.getByTestId(`workflow-train-n1`).textContent).toBe(
       `APP-1Landing next`
     )
@@ -718,9 +717,9 @@ describe(`WorkflowDetail node panel actions`, () => {
     )
   })
 
-  it(`asks nobody to approve an ungated leaf`, () => {
+  it(`asks nobody to approve a node a review already cleared`, () => {
     graphState.issues = [issue(`i-n1`, `APP-1`)]
-    open({ state: `in_review` }, { gate: `none` })
+    open({ state: `in_review`, approvedAt: new Date(`2026-09-19T00:00:00Z`) })
     expect(screen.queryByTestId(`workflow-node-approve`)).toBeNull()
   })
 
@@ -982,11 +981,11 @@ describe(`WorkflowDetail node panel actions`, () => {
     for (const mutate of Object.values(runMutates)) mutate.mockClear()
     nodeRows.rows = [
       node(`n1`, { wave: 0, lane: 0, state: `proposed` }),
-      node(`n2`, { wave: 1, lane: 0, state: `in_review` }),
+      node(`n2`, { wave: 1, lane: 0, state: `in_review`, approvedAt: new Date(`2026-09-19T00:00:00Z`) }),
     ]
     graphState.issues = [issue(`i-n1`, `APP-1`), issue(`i-n2`, `APP-2`)]
     graphState.relations = []
-    const queued = mount({ ...startable(), status: `running`, gate: `none` })
+    const queued = mount({ ...startable(), status: `running` })
     expect(screen.queryByTestId(`workflow-train-n1`)).toBeNull()
     expect(screen.getByTestId(`workflow-train-n2`).textContent).toBe(
       `APP-2Landing next`
@@ -999,7 +998,7 @@ describe(`WorkflowDetail node panel actions`, () => {
       node(`n1`, { wave: 0, lane: 0, state: `proposed` }),
       node(`n2`, { wave: 1, lane: 0, state: `landed` }),
     ]
-    mount({ ...startable(), status: `running`, gate: `none` })
+    mount({ ...startable(), status: `running` })
     expect(screen.getByTestId(`workflow-final-pr`).textContent).toBe(
       `Final pull requestOpening the pull request`
     )
@@ -1058,25 +1057,17 @@ describe(`WorkflowDetail review model and metrics`, () => {
     expect(rowLabelled(`Model`)?.textContent).toBe(`ModelOpus`)
   })
 
-  it(`offers the review model only under the agent gate`, () => {
+  it(`always offers the review model: every workflow reviews`, () => {
     nodeRows.rows = []
     graphState.issues = []
     graphState.relations = []
-    const human = mount(startable({ gate: `human` }))
-    expect(rowLabelled(REVIEW_MODEL_LABEL)).toBeUndefined()
-    human.unmount()
-
-    const none = mount(startable({ gate: `none` }))
-    expect(rowLabelled(REVIEW_MODEL_LABEL)).toBeUndefined()
-    none.unmount()
-
-    const blank = mount(startable({ gate: `agent` }))
+    const blank = mount(startable())
     expect(rowLabelled(REVIEW_MODEL_LABEL)?.textContent).toBe(
       `${REVIEW_MODEL_LABEL}Default`
     )
     blank.unmount()
 
-    mount(startable({ gate: `agent`, launch: { reviewModel: `opus` } }))
+    mount(startable({ launch: { reviewModel: `opus` } }))
     expect(rowLabelled(REVIEW_MODEL_LABEL)?.textContent).toBe(
       `${REVIEW_MODEL_LABEL}Opus`
     )

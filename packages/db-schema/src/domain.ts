@@ -971,21 +971,18 @@ export const wfNodeStateValues = [
   `skipped`,
 ] as const
 export const wfNodeKindValues = [`contract`, `leaf`, `integration`] as const
-export const wfGateValues = [`none`, `agent`, `human`] as const
 export const wfStartOnValues = [`contract`, `pr_open`, `landed`] as const
 export const wfRiskValues = [`low`, `medium`, `high`] as const
 
 export type WfStatus = (typeof wfStatusValues)[number]
 export type WfNodeState = (typeof wfNodeStateValues)[number]
 export type WfNodeKind = (typeof wfNodeKindValues)[number]
-export type WfGate = (typeof wfGateValues)[number]
 export type WfStartOn = (typeof wfStartOnValues)[number]
 export type WfRisk = (typeof wfRiskValues)[number]
 
 export const wfStatusSchema = z.enum(wfStatusValues)
 export const wfNodeStateSchema = z.enum(wfNodeStateValues)
 export const wfNodeKindSchema = z.enum(wfNodeKindValues)
-export const wfGateSchema = z.enum(wfGateValues)
 export const wfStartOnSchema = z.enum(wfStartOnValues)
 export const wfRiskSchema = z.enum(wfRiskValues)
 

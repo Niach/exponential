@@ -1,4 +1,4 @@
-import { issueLandsInLiveWorkflow } from "@/lib/workflows"
+import { issueLandsInLiveWorkflow, stampNodeMergedInto } from "@/lib/workflows"
 import { and, eq, inArray, isNull, like, ne, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
@@ -562,6 +562,8 @@ export async function applyPrMergeState(opts: {
           // EXP-897: a REAL GitHub stack retargets its own members — our
           // child-retarget heal must keep its hands off it.
           prStackNumber: issues.prStackNumber,
+          // EXP-1010: where the PR pointed, read BEFORE the write nulls it.
+          prBaseBranch: issues.prBaseBranch,
         })
         .from(issues)
         .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -638,6 +640,12 @@ export async function applyPrMergeState(opts: {
       // then). Everything else about the merge (the event, the ended run)
       // still happens here.
       const inLiveWorkflow = await issueLandsInLiveWorkflow(tx, opts.issueId)
+      // EXP-1010: a node PR merged into a BLOCKER's branch (a speculative
+      // start a person merged) is not in the integration branch yet;
+      // `landNode` keeps the topological wait for it.
+      if (inLiveWorkflow) {
+        await stampNodeMergedInto(tx, opts.issueId, current.prBaseBranch)
+      }
       if (!inLiveWorkflow) {
         await applyPrLifecycleStatusInTx(tx, {
           issueId: opts.issueId,

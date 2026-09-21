@@ -5,7 +5,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -23,7 +22,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -55,7 +53,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 2
       },
@@ -85,7 +82,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -103,7 +99,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -138,7 +133,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -167,7 +161,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -190,12 +183,11 @@
     "expected": []
   },
   {
-    "name": "rule 4: the train holds an unapproved contract, a cleared leaf behind it lands",
+    "name": "rule 4: the train holds an unapproved node, an approved one behind it lands",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -218,7 +210,8 @@
           "wave": 1,
           "lane": 0,
           "sessionId": "s-l",
-          "attempt": 1
+          "attempt": 1,
+          "approvedAt": "2026-09-19T10:00:00.000Z"
         }
       ],
       "issues": { "i-c": { "prState": "open" }, "i-l": { "prState": "open" } },
@@ -234,7 +227,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -275,7 +267,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -315,7 +306,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "human",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -344,7 +334,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -363,7 +352,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -381,7 +369,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "finalPrUrl": "https://github.com/acme/web/pull/9",
         "maxParallel": 3
@@ -400,7 +387,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "paused",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -433,7 +419,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "cancelled",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -471,7 +456,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "cancelled",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -499,7 +483,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "cancelled",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -517,7 +500,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "draft",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3
       },
@@ -535,7 +517,6 @@
       "workflow": {
         "id": "wf-1",
         "status": "running",
-        "gate": "none",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
         "authorModel": "opus",
