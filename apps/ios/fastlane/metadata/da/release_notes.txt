@@ -1,8 +1,4 @@
-- Workflows: planlæg et sæt issues fra backloggen i ét repository som en graf over hvad der blokerer hvad, og lad en maskine køre dem parallelt; Workflows ligger bag en knap på Agent-siden
-- Et workflow lander selv sit arbejde: knuder starter, efterhånden som deres blokkere lander, pull requests flettes i afhængighedsrækkefølge ind i workflowets gren, og én sidste pull request bærer hele diffen
-- Workflows tjekker sig selv: en separat kørsel gennemgår hver pull request, et opfølgende issue kan slutte sig til undervejs, og en knude over sit budget sættes på pause og venter på dig
-- Underissues og blokkere i hver liste: et underissue ligger under sin forælder på en forbindelseslinje, og ét mærke tæller hvad der blokerer rækken og åbner afhængighedsgrafen
-- At starte et blokeret issue viser hele kæden og tilbyder Cancel, Start anyway eller en stablet pull request, og siger hvorfor en stak ikke kan lade sig gøre
-- En kørsel, der rammer en grænse, sender dig en push og en række i indbakken, der åbner den; slå det fra under notifikationsindstillinger, Blocked runs
-- På Agent-siden er tidligere kørsler flyttet bag en historik-knap, og chat- og New issue-knapperne står i fanelinjen på hver fane
-- Board-vælgeren viser kun teams og boards, og en kørsel åbnet fra et issue viser ikke længere en tom skærm, indtil du trækker i den
+- Workflows: en knude, hvis kørsel er live, bærer netop den kørsels egen statusprik, og en Running now-stribe over bølgerne åbner hver live kørsel med ét tryk
+- Workflows kan køre deres kontrakt-, integrations- og højrisikoknuder på hver deres model (valgt på nettet eller i desktop-appen), og redigerer du et workflow på telefonen, bevares de valg
+- Issue-mærket i en knudes panel åbner issuet; knudebudgetter og knudens pausetilstand er væk
+- Et workflow går ikke længere i stå, når en knudes pull request flettes uden for det, og en knude, der ikke kan starte, forsøges igen én gang i stedet for i det uendelige

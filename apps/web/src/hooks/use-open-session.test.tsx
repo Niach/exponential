@@ -136,19 +136,6 @@ describe(`useOpenSession origin`, () => {
     })
   })
 
-  // …and a legacy `issue:` token carried through the launcher reads as the
-  // board.
-  it(`reads a legacy issue token through the Agent page as its board`, () => {
-    mockState.pathname = `/t/acme/agent`
-    mockState.search = { from: `issue:web:MET-12` }
-    run({ id: `s9`, issueId: `i1` })
-    expect(mockState.navigate).toHaveBeenCalledWith({
-      to: SESSION_ROUTE,
-      params: { teamSlug: `acme`, sessionId: `s9` },
-      search: { from: `board:web` },
-    })
-  })
-
   it(`brings no list along from a full page`, () => {
     mockState.pathname = `/t/acme/devices`
     run({ id: `s1`, actionName: `Nightly triage` })

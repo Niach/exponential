@@ -265,9 +265,12 @@ final class WorkflowDetailModel {
         update(WorkflowPatch(startOn: value))
     }
 
-    /// Switching agent RESETS the per-agent vocabulary (model, subagent model,
-    /// effort) and the login profile: they are per agent and per machine, and a
-    /// stale value would hit a server refusal.
+    /// Switching agent RESETS the per-agent vocabulary (model, the EXP-1002
+    /// phase pins, subagent model, effort) and the login profile: they are per
+    /// agent and per machine, and a stale value would hit a server refusal. The
+    /// phase pins ride as explicit nulls, so the server CLEARS them rather than
+    /// carrying the other agent's models forward. Every other setter copies
+    /// `launch`, which is what preserves them.
     func setAgent(_ value: String) {
         guard value != agent else { return }
         update(WorkflowPatch(launch: WorkflowLaunch(

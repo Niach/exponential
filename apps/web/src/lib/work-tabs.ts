@@ -83,7 +83,7 @@ export type RoutePath =
   | { kind: `support`; threadId: string; from: string | null }
 
 /** The work item a pathname shows — `null` for every other screen (lists,
- * full pages, settings, the legacy redirect routes). */
+ * full pages, settings). */
 export function routePathFromLocation(
   pathname: string,
   from: string | null | undefined

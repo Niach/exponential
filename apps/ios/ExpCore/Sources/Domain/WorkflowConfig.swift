@@ -14,6 +14,13 @@ import Foundation
 public struct WorkflowLaunch: Sendable, Equatable {
     public var agent: String?
     public var model: String?
+    /// EXP-1002: the per-PHASE pins — the model `contract` nodes, `integration`
+    /// nodes and `risk: high` nodes (whatever their kind) run on. Absent =
+    /// `model`. The phone has no picker for them; it CARRIES them, so an edit
+    /// of another field never erases what web or desktop pinned.
+    public var contractModel: String?
+    public var integrationModel: String?
+    public var riskModel: String?
     /// Claude only: the model its subagents run on (EXP-981).
     public var subagentModel: String?
     public var effort: String?
@@ -30,6 +37,9 @@ public struct WorkflowLaunch: Sendable, Equatable {
     public init(
         agent: String? = nil,
         model: String? = nil,
+        contractModel: String? = nil,
+        integrationModel: String? = nil,
+        riskModel: String? = nil,
         subagentModel: String? = nil,
         effort: String? = nil,
         account: String? = nil,
@@ -38,6 +48,9 @@ public struct WorkflowLaunch: Sendable, Equatable {
     ) {
         self.agent = agent
         self.model = model
+        self.contractModel = contractModel
+        self.integrationModel = integrationModel
+        self.riskModel = riskModel
         self.subagentModel = subagentModel
         self.effort = effort
         self.account = account
@@ -48,13 +61,17 @@ public struct WorkflowLaunch: Sendable, Equatable {
 
 extension WorkflowLaunch: Codable {
     enum CodingKeys: String, CodingKey {
-        case agent, model, subagentModel, effort, account, maxParallel, reviewModel
+        case agent, model, contractModel, integrationModel, riskModel
+        case subagentModel, effort, account, maxParallel, reviewModel
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         agent = try c.decodeIfPresent(String.self, forKey: .agent)
         model = try c.decodeIfPresent(String.self, forKey: .model)
+        contractModel = try c.decodeIfPresent(String.self, forKey: .contractModel)
+        integrationModel = try c.decodeIfPresent(String.self, forKey: .integrationModel)
+        riskModel = try c.decodeIfPresent(String.self, forKey: .riskModel)
         subagentModel = try c.decodeIfPresent(String.self, forKey: .subagentModel)
         effort = try c.decodeIfPresent(String.self, forKey: .effort)
         account = try c.decodeIfPresent(String.self, forKey: .account)
@@ -63,11 +80,17 @@ extension WorkflowLaunch: Codable {
     }
 
     /// Only the set fields ride the wire — the server replaces the whole
-    /// `launch` object, so an omitted key IS "unset".
+    /// `launch` object, so an omitted key IS "unset". The three EXP-1002 phase
+    /// pins are the exception: for THEM an absent key means "keep the stored
+    /// value" (the server's carry-forward for clients that predate them), so
+    /// they always ride EXPLICITLY — `null` clears, a string sets.
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(agent, forKey: .agent)
         try c.encodeIfPresent(model, forKey: .model)
+        try c.encode(contractModel, forKey: .contractModel)
+        try c.encode(integrationModel, forKey: .integrationModel)
+        try c.encode(riskModel, forKey: .riskModel)
         try c.encodeIfPresent(subagentModel, forKey: .subagentModel)
         try c.encodeIfPresent(effort, forKey: .effort)
         try c.encodeIfPresent(account, forKey: .account)

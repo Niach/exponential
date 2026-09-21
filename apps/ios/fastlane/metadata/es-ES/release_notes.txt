@@ -1,8 +1,4 @@
-- Workflows: planifica un conjunto de issues del backlog de un repositorio como un grafo de qué bloquea a qué, y deja que una máquina las ejecute en paralelo; Workflows está tras un botón de la página Agent
-- Un workflow remata su propio trabajo: los nodos arrancan según aterrizan sus bloqueos, los pull requests se funden en orden de dependencia en la rama del workflow, y un pull request final lleva todo el diff
-- Los workflows se revisan solos: una ejecución aparte revisa cada pull request, una issue de seguimiento puede sumarse sobre la marcha, y un nodo que pasa su presupuesto se pausa y te espera
-- Subissues y bloqueos en cada lista: una subissue va bajo su padre en una línea de conexión, y una insignia cuenta qué bloquea la fila y abre el grafo de dependencias
-- Arrancar una issue bloqueada muestra toda la cadena y ofrece Cancel, Start anyway o un pull request apilado, y dice por qué no cabe un stack
-- Una ejecución que llega a su límite te manda un push y una fila en la bandeja que la abre; se apaga en los ajustes de notificaciones, Blocked runs
-- En la página Agent las ejecuciones pasadas están tras un botón de historial, y los botones de chat y New issue están en la barra de pestañas en todas
-- El selector de boards solo lista equipos y boards, y una ejecución abierta desde una issue ya no muestra una pantalla vacía hasta que la arrastras
+- Workflows: un nodo cuya ejecución está en marcha lleva el punto de estado de esa misma ejecución, y una franja Running now sobre las olas abre cada ejecución viva de un toque
+- Los workflows pueden ejecutar sus nodos de contrato, de integración y de alto riesgo con modelos propios (elegidos en la web o en la app de escritorio), y editar un workflow desde el teléfono conserva esas elecciones
+- La insignia de issue en el panel de un nodo abre la issue; los presupuestos de nodo y el estado de nodo en pausa han desaparecido
+- Un workflow ya no se atasca cuando el pull request de un nodo se funde fuera de él, y un nodo que no arranca se reintenta una vez en lugar de sin fin

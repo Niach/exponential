@@ -139,7 +139,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 
-import { WorkflowDetail } from "@/components/workflow-detail"
+import { WorkflowDetail, explicitPhasePins } from "@/components/workflow-detail"
 
 const issue = (
   id: string,
@@ -1115,5 +1115,19 @@ describe(`WorkflowDetail review model and metrics`, () => {
     )
     // A counter with nothing to say draws no row.
     expect(screen.queryByTestId(`workflow-metric-Escalations`)).toBeNull()
+  })
+})
+
+// `workflows.update` KEEPS a phase pin whose key is absent (older clients
+// never send them), so the web names all three on every launch write.
+describe(`explicitPhasePins`, () => {
+  it(`sends every phase pin, null when unset, so clearing still clears`, () => {
+    expect(explicitPhasePins({ agent: `claude`, model: `opus`, riskModel: `fable` })).toEqual({
+      agent: `claude`,
+      model: `opus`,
+      contractModel: null,
+      integrationModel: null,
+      riskModel: `fable`,
+    })
   })
 })

@@ -119,16 +119,8 @@
       "reason": "Legacy redirect to /t/$teamSlug/settings/security since EXP-862, kept for older desktop builds, bookmarks and the MCP setup card."
     },
     {
-      "route": "/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier/session",
-      "reason": "legacy redirect (EXP-870)"
-    },
-    {
       "route": "/t/$teamSlug/support/$threadId",
       "reason": "EXP-851: one helpdesk conversation on its own route. Captured by support-thread, whose openFirstThread recipe navigates here from /support; the id is whatever the seed minted, so the route is not addressable by the catalog."
-    },
-    {
-      "route": "/t/$teamSlug/sessions/$sessionId/issue",
-      "reason": "legacy redirect (EXP-870)"
     },
     {
       "route": "/t/$teamSlug/workflows/$workflowId",

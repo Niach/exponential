@@ -1,8 +1,4 @@
-- Workflows: plane eine Menge Backlog-Issues eines Repositorys als Graph dessen, was was blockiert, und lass eine Maschine sie parallel laufen; Workflows liegt hinter einem Button auf der Agent-Seite
-- Ein Workflow bringt seine Arbeit selbst nach Hause: Knoten starten, sobald ihre Blocker gelandet sind, Pull Requests laufen in Abhängigkeitsreihenfolge in den Zweig des Workflows, und ein letzter Pull Request trägt den ganzen Diff
-- Workflows prüfen sich selbst: ein eigener Lauf begutachtet jeden Pull Request, ein Folge-Issue kann noch während des Laufs dazukommen, und ein Knoten über seinem Budget pausiert und wartet auf dich
-- Unter-Issues und Blocker in jeder Liste: ein Unter-Issue sitzt an einer Verbindungslinie unter seinem Elternteil, und ein Abzeichen zählt, was die Zeile blockiert, und öffnet den Abhängigkeitsgraphen
-- Ein blockiertes Issue zu starten zeigt die ganze Kette und bietet Cancel, Start anyway oder einen gestapelten Pull Request, und sagt, warum ein Stack nicht geht
-- Ein Lauf, der an ein Limit stößt, schickt dir eine Push-Nachricht und eine Zeile im Posteingang, die ihn öffnet; abschaltbar in den Benachrichtigungen unter Blocked runs
-- Auf der Agent-Seite liegen vergangene Läufe hinter einem Verlaufs-Button, und die Buttons für Chat und New issue stehen in der Tableiste auf jedem Tab
-- Die Board-Auswahl listet nur Teams und Boards, und ein aus einem Issue geöffneter Lauf zeigt keinen leeren Bildschirm mehr, bis du ihn ziehst
+- Workflows: ein Knoten, dessen Lauf gerade läuft, trägt den Statuspunkt genau dieses Laufs, und eine Running-now-Leiste über den Wellen öffnet jeden laufenden Lauf mit einem Tipp
+- Workflows können ihre Vertrags-, Integrations- und Hochrisiko-Knoten auf eigenen Modellen laufen lassen (im Web oder in der Desktop-App gewählt), und wenn du ein Workflow am Telefon bearbeitest, bleibt diese Wahl erhalten
+- Das Issue-Abzeichen in der Detailansicht eines Knotens öffnet das Issue; Knotenbudgets und der pausierte Knotenzustand sind weg
+- Ein Workflow bleibt nicht mehr stehen, wenn der Pull Request eines Knotens außerhalb von ihm zusammengeführt wird, und ein Knoten, der nicht startet, wird einmal wiederholt statt endlos

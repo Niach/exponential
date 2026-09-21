@@ -75,7 +75,7 @@ ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336
 # checks (e.g. Better Auth's default-secret guard).
 ENV NODE_ENV=production
 # CSP, HSTS, nosniff, X-Frame-Options and Referrer-Policy from the Bun server
-# (SECURITY_HEADERS map in apps/web/src/server-bun.ts). Baked into the image
+# (buildSecurityHeaders in apps/web/src/lib/security-headers.ts). Baked into the image
 # because THIS image is cloud, staging AND the self-host distribution, and the
 # self-host stack's bundled Caddy sets no headers of its own — an opt-in flag
 # documented only in .env.example meant every default install shipped bare. A

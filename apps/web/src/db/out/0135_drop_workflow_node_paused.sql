@@ -5,5 +5,10 @@
 -- takes. There is exactly one exit that fits: `failed`, which offers Retry
 -- and Skip, the two things a paused node offered.
 --
+-- `failed` alone would NOT hold the node, though: the engine gives a failed
+-- node whose `attempt` is <= 1 one free restart (`workflows/mod.rs`), and a
+-- paused node was waiting for a person. Lifting `attempt` to at least 2 puts
+-- it past that retry, so it stays put until someone presses Retry or Skip.
+--
 -- Idempotent, and a no-op on any database where no budget ever tripped.
-UPDATE "workflow_nodes" SET "state" = 'failed' WHERE "state" = 'paused';
+UPDATE "workflow_nodes" SET "state" = 'failed', "attempt" = GREATEST("attempt", 2) WHERE "state" = 'paused';

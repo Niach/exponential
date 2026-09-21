@@ -1639,13 +1639,28 @@ impl NodeRun {
         Some(Self {
             session_id,
             live,
-            busy: live && session.agent_busy.unwrap_or(false),
+            // EXP-848: the ONE turn rule every session list keys its ping
+            // on (no in-process turn signal reaches a list, so `None` as in
+            // `RunListFacts::derive`), and only while the row DISPLAYS as
+            // running (the x4 rule): a `needs_input` / `in_review` row whose
+            // `agent_busy` went stale must not pulse.
+            busy: node_run_busy(&session, display, chrono::Utc::now().timestamp()),
             tone: queries::session_dot_tone(
                 queries::SessionDotFacts::from_display(display, !live, false),
                 cx.theme().muted_foreground,
             ),
         })
     }
+}
+
+/// Does a node's dot ping? [`NodeRun::derive`]'s rule, as a pure function.
+fn node_run_busy(
+    session: &domain::rows::CodingSession,
+    display: queries::CodingSessionDisplay,
+    now_epoch: i64,
+) -> bool {
+    display == queries::CodingSessionDisplay::Running
+        && queries::session_agent_busy(session, None, now_epoch)
 }
 
 impl NodeFacts {
@@ -2198,6 +2213,30 @@ mod tests {
             "after_node_ids": r#"["n-2","n-3"]"#,
         }))
         .expect("the row hydrates")
+    }
+
+    /// EXP-848: a node's dot pings on the ONE turn rule, and only while the
+    /// row displays as running — a stale `agent_busy` on a parked, in-review
+    /// or ended row never pulses.
+    #[test]
+    fn a_node_dot_pings_only_for_a_running_row_mid_turn() {
+        let session = |status: &str, needs_input: bool, agent_busy: bool| {
+            serde_json::from_value::<domain::rows::CodingSession>(serde_json::json!({
+                "id": "s-1",
+                "status": status,
+                "needs_input": needs_input,
+                "agent_busy": agent_busy,
+            }))
+            .expect("the row hydrates")
+        };
+        let busy = |row: &domain::rows::CodingSession| {
+            node_run_busy(row, queries::coding_session_display(row, Some("open")), 0)
+        };
+        assert!(busy(&session("running", false, true)));
+        assert!(!busy(&session("running", false, false)));
+        assert!(!busy(&session("running", true, true)), "parked on a question");
+        assert!(!busy(&session("in_review", false, true)), "its PR is up");
+        assert!(!busy(&session("ended", false, true)), "not live");
     }
 
     /// EXP-983 — the node panel's contract line: the shipped label with the

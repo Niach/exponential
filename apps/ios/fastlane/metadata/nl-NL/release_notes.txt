@@ -1,8 +1,4 @@
-- Workflows: plan een set issues uit de backlog van één repository als een graaf van wat wat blokkeert, en laat een machine ze parallel draaien; Workflows zit achter een knop op de Agent-pagina
-- Een workflow maakt zijn werk zelf af: knopen starten zodra hun blokkers landen, pull requests worden in volgorde van afhankelijkheid samengevoegd in de tak van de workflow, en één laatste pull request draagt de hele diff
-- Workflows controleren zichzelf: een aparte run leest elke pull request na, een vervolgissue kan onderweg meedoen, en een knoop over zijn budget pauzeert en wacht op jou
-- Subissues en blokkers in elke lijst: een subissue staat onder zijn ouder op een verbindingslijn, en één merk telt wat de regel blokkeert en opent de afhankelijkheidsgraaf
-- Een geblokkeerde issue starten toont de hele keten en biedt Cancel, Start anyway of een gestapelde pull request, en zegt waarom een stack niet kan
-- Een run die tegen een limiet loopt stuurt je een push en een regel in je postvak die hem opent; uit te zetten bij notificatie-instellingen, Blocked runs
-- Op de Agent-pagina staan eerdere runs achter een geschiedenisknop, en de knoppen voor chat en New issue staan op elke tab in de tabbalk
-- De boardwisselaar toont alleen teams en boards, en een run geopend vanuit een issue toont geen leeg scherm meer tot je eraan trekt
+- Workflows: een knoop waarvan de run leeft draagt de statusstip van die run zelf, en een Running now-strook boven de golven opent elke lopende run met één tik
+- Workflows kunnen hun contract-, integratie- en hoogrisicoknopen op eigen modellen draaien (gekozen op het web of in de desktop-app), en een workflow op de telefoon bewerken houdt die keuzes vast
+- Het issue-merk in het paneel van een knoop opent de issue; knoopbudgetten en de gepauzeerde knooptoestand zijn weg
+- Een workflow loopt niet meer vast wanneer de pull request van een knoop erbuiten wordt samengevoegd, en een knoop die niet wil starten wordt één keer opnieuw geprobeerd in plaats van eindeloos

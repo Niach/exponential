@@ -1,12 +1,12 @@
 import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import type { WorkflowNodeRun } from "@/components/workflow-graph"
 import type { CodingSession, Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
 import {
   codingSessionCollection,
   workflowCollection,
   workflowNodeCollection,
 } from "@/lib/collections"
+import type { WorkflowNodeRun } from "@/lib/workflow-run"
 import {
   sessionDisplayState,
   sessionRowIsWorking,

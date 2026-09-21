@@ -17,6 +17,13 @@ use crate::trpc::TrpcClient;
 
 /// `workflows.launch` — what every node's run starts with. Every field is
 /// optional; an absent one falls back to the runner device's own defaults.
+///
+/// It serializes ONLY as `workflows.update`'s `launch`, and there the three
+/// EXP-1002 phase pins are a TRI-STATE server-side: key absent = keep the
+/// stored pin (a client that predates the keys must not wipe them), `null` =
+/// clear, a string = set. This client knows them, so it ALWAYS writes all
+/// three, `null` when unset — omitting one would make a cleared pin stick.
+/// Decoding stays tolerant (`default`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowLaunch {
@@ -26,14 +33,14 @@ pub struct WorkflowLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// EXP-1002: the model `contract` nodes run on. Absent = `model`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub contract_model: Option<String>,
     /// EXP-1002: the model `integration` nodes run on. Absent = `model`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub integration_model: Option<String>,
     /// EXP-1002: the model a `risk: high` node runs on, whatever its kind.
     /// Absent = the node's phase model.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub risk_model: Option<String>,
     /// Claude only: the model its SUBAGENTS run on — never the node run's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -614,6 +621,45 @@ mod tests {
             retargeted: Vec::new(),
         };
         assert!(waiting.is_waiting());
+    }
+
+    /// EXP-1002: the three phase pins are ALWAYS on the wire, `null` when
+    /// unset — the server keeps a stored pin whose key is absent, so an
+    /// omitted key could never clear one.
+    #[test]
+    fn the_phase_pins_serialize_as_explicit_nulls() {
+        let mut input = WorkflowUpdate::new("wf-1");
+        input.launch = Some(WorkflowLaunch {
+            model: Some("opus".to_string()),
+            integration_model: Some("fable".to_string()),
+            ..WorkflowLaunch::default()
+        });
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(
+            json["launch"],
+            serde_json::json!({
+                "model": "opus",
+                "contractModel": null,
+                "integrationModel": "fable",
+                "riskModel": null,
+            }),
+            "every other unset field stays off the strict launch object"
+        );
+        // An empty launch still names all three.
+        let bare = serde_json::to_value(WorkflowLaunch::default()).unwrap();
+        assert_eq!(
+            bare,
+            serde_json::json!({
+                "contractModel": null,
+                "integrationModel": null,
+                "riskModel": null,
+            })
+        );
+        // Decoding stays tolerant: absent and null both read as unset.
+        for raw in [r#"{}"#, r#"{"contractModel":null,"riskModel":null}"#] {
+            let launch: WorkflowLaunch = serde_json::from_str(raw).unwrap();
+            assert_eq!(launch, WorkflowLaunch::default(), "{raw}");
+        }
     }
 
     /// EXP-984 — the review model rides the launch object.

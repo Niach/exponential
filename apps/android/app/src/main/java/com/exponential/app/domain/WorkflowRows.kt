@@ -31,7 +31,23 @@ data class WorkflowLaunch(
      * `risk: high` node is ALWAYS reviewed on a model other than its author's).
      */
     val reviewModel: String = "",
-)
+    /**
+     * EXP-1002: the per-PHASE model pins (`contract` nodes, `integration`
+     * nodes, any `risk: high` node). No picker here — they are CARRIED, so a
+     * phone edit of another option (the router replaces the whole `launch`)
+     * never erases what web/desktop pinned. null = no pin.
+     */
+    val contractModel: String? = null,
+    val integrationModel: String? = null,
+    val riskModel: String? = null,
+) {
+    /**
+     * The pins come out of the AGENT's model vocabulary (the server validates
+     * them against it), so an agent switch drops them like it drops `model`.
+     */
+    fun withoutPhaseModels(): WorkflowLaunch =
+        copy(contractModel = null, integrationModel = null, riskModel = null)
+}
 
 /**
  * EXP-984: an executable check the reviewer RAN. An agent's opinion is
@@ -81,6 +97,9 @@ fun workflowLaunch(raw: String?): WorkflowLaunch {
         maxParallel = obj.int("maxParallel")?.takeIf { it >= 1 }
             ?: DomainContract.workflowMaxParallelDefault,
         reviewModel = obj.string("reviewModel"),
+        contractModel = obj.string("contractModel").ifEmpty { null },
+        integrationModel = obj.string("integrationModel").ifEmpty { null },
+        riskModel = obj.string("riskModel").ifEmpty { null },
     )
 }
 

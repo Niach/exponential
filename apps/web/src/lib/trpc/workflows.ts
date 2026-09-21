@@ -9,6 +9,7 @@ import {
   workflowReviewOracleSchema,
   type WorkflowNodeReview,
   WORKFLOW_DEFAULT_LAUNCH,
+  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT,
   WORKFLOW_MAX_ISSUES,
   wfNodeStateSchema,
   workflowLaunchSchema,
@@ -99,6 +100,62 @@ function assertLaunch(launch: WorkflowLaunch): void {
       throw bad(`Unknown subagent model`)
     }
   }
+}
+
+// EXP-1002: the three pins older clients have never heard of.
+const PHASE_MODEL_KEYS = [`contractModel`, `integrationModel`, `riskModel`] as const
+
+/**
+ * The launch `workflows.update` stores. `launch` is replaced WHOLE, except the
+ * three phase pins, which follow the cross-client contract: key ABSENT → keep
+ * the stored value, `null` → clear, string → set. Cleared pins are stored as
+ * absent keys ("absent = `model`").
+ */
+export function mergeLaunch(
+  stored: WorkflowLaunch | null | undefined,
+  incoming: WorkflowLaunch
+): WorkflowLaunch {
+  const merged: WorkflowLaunch = { ...incoming }
+  // A carried pin belongs to the STORED agent's model vocabulary; across an
+  // agent switch it would only be refused, so the new agent's shipped pin
+  // stands in (what the web's Agent row does explicitly).
+  const storedAgent = stored?.agent ?? `claude`
+  const agent = incoming.agent ?? `claude`
+  for (const key of PHASE_MODEL_KEYS) {
+    // compat: iOS ≤0.14.38, Android ≤0.14.39 and desktop/CLI ≤0.14.46 send a
+    // launch WITHOUT these keys, which would erase pins a newer client set.
+    // Delete this carry-forward (absent = clear again) once
+    // CLIENT_MIN_VERSION_IOS ≥ 0.14.39, CLIENT_MIN_VERSION_ANDROID ≥ 0.14.40
+    // and CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47 — those releases always
+    // send all three keys explicitly.
+    if (!(key in incoming)) {
+      const carried =
+        agent === storedAgent
+          ? stored?.[key]
+          : WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[agent]?.[key]
+      if (carried) merged[key] = carried
+    }
+    if (merged[key] == null) delete merged[key]
+  }
+  return merged
+}
+
+/** The first agent that device can run for this caller, or null. Asks
+ *  `assertDeviceUsable` itself, so ownership/sharing stay ITS call. */
+async function firstRunnableAgent(
+  deviceId: string,
+  teamId: string,
+  userId: string
+): Promise<string | null> {
+  for (const agent of codingAgentValues) {
+    try {
+      await assertDeviceUsable(deviceId, teamId, userId, agent, WORKFLOW_DEVICE)
+      return agent
+    } catch {
+      // Not that one.
+    }
+  }
+  return null
 }
 
 const wireColumns = {
@@ -486,10 +543,49 @@ export const workflowsRouter = router({
       if (Object.values(config).some((value) => value !== undefined)) {
         assertDraft(existing.status, `Changing how a workflow runs`)
       }
-      const launch = input.launch ?? existing.launch
-      if (input.launch) assertLaunch(input.launch)
+      let nextLaunch = input.launch
+        ? mergeLaunch(existing.launch, input.launch)
+        : undefined
+      if (nextLaunch) assertLaunch(nextLaunch)
       const deviceId =
         input.deviceId === undefined ? existing.deviceId : input.deviceId
+      // `create` stamps every workflow `agent: claude`, so binding a machine
+      // that only runs another agent would be refused until the person flips
+      // the Agent row. A bare device pick instead re-seeds the launch from the
+      // first agent that machine CAN run. (Setting `deviceId` already asserted
+      // the draft above.)
+      if (input.deviceId && !input.launch && existing.launch?.agent) {
+        // Ownership and the cap first: those refusals must stay theirs.
+        await assertDeviceUsable(
+          input.deviceId,
+          existing.teamId,
+          ctx.session.user.id,
+          null,
+          WORKFLOW_DEVICE
+        )
+        const canRunStored = await assertDeviceUsable(
+          input.deviceId,
+          existing.teamId,
+          ctx.session.user.id,
+          existing.launch.agent,
+          WORKFLOW_DEVICE
+        ).then(
+          () => true,
+          () => false
+        )
+        const runnable = canRunStored
+          ? null
+          : await firstRunnableAgent(
+              input.deviceId,
+              existing.teamId,
+              ctx.session.user.id
+            )
+        // No runnable agent at all: the assert below refuses, as before.
+        if (runnable && WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[runnable]) {
+          nextLaunch = { ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[runnable] }
+        }
+      }
+      const launch = nextLaunch ?? existing.launch
       if (deviceId && (input.deviceId !== undefined || input.launch)) {
         await assertDeviceUsable(
           deviceId,
@@ -506,7 +602,7 @@ export const workflowsRouter = router({
           .set({
             ...(name !== undefined && { name }),
             ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
-            ...(input.launch !== undefined && { launch: input.launch }),
+            ...(nextLaunch !== undefined && { launch: nextLaunch }),
             ...(input.gate !== undefined && { gate: input.gate }),
             ...(input.startOn !== undefined && { startOn: input.startOn }),
             ...(decision !== undefined && {
@@ -610,6 +706,13 @@ export const workflowsRouter = router({
         kind: wfNodeKindSchema.optional(),
         risk: wfRiskSchema.optional(),
         touches: workflowTouchesSchema.optional(),
+        // compat: migration 0134 dropped node budgets, but iOS ≤0.14.38,
+        // Android ≤0.14.39 and desktop/CLI ≤0.14.46 still send a BUDGET-ONLY
+        // patch (iOS on every blur). Accepted and ignored. Delete this key and
+        // the no-op branch below once CLIENT_MIN_VERSION_IOS ≥ 0.14.39,
+        // CLIENT_MIN_VERSION_ANDROID ≥ 0.14.40 and
+        // CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47.
+        budget: z.unknown().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -631,16 +734,18 @@ export const workflowsRouter = router({
       if (input.kind !== undefined || input.touches !== undefined) {
         assertDraft(existing.status, `Re-planning a node`)
       }
+      const patch = {
+        ...(input.kind !== undefined && { kind: input.kind }),
+        ...(input.risk !== undefined && { risk: input.risk }),
+        ...(input.touches !== undefined && { touches: input.touches }),
+      }
       return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
-          .update(workflowNodes)
-          .set({
-            ...(input.kind !== undefined && { kind: input.kind }),
-            ...(input.risk !== undefined && { risk: input.risk }),
-            ...(input.touches !== undefined && { touches: input.touches }),
-          })
-          .where(eq(workflowNodes.id, node.id))
+        // compat: nothing left to write (the budget-only patch above) — an
+        // empty `.set({})` throws drizzle's "No values to set". Same return.
+        if (Object.keys(patch).length > 0) {
+          await tx.update(workflowNodes).set(patch).where(eq(workflowNodes.id, node.id))
+        }
         return { txId, nodeId: node.id }
       })
     }),
@@ -1005,7 +1110,11 @@ export const workflowsRouter = router({
     .input(
       z.object({
         nodeId: z.string().uuid(),
-        state: wfNodeStateSchema,
+        // compat: a desktop/CLI ≤0.14.46 engine can still report the dropped
+        // `paused` (a budget trip between migration 0134 and its shape
+        // refetch); it is written as `failed` below. Delete the `.or` and the
+        // mapping once CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47.
+        state: wfNodeStateSchema.or(z.literal(`paused`)),
         sessionId: z.string().uuid().nullable().optional(),
         baseBranch: z.string().max(255).nullable().optional(),
         attempt: z.number().int().min(0).max(99).optional(),
@@ -1018,26 +1127,34 @@ export const workflowsRouter = router({
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertEngine(workflow, ctx.session.user.id)
+      // compat: see the input — `paused` no longer exists; `failed` is the
+      // state that offers what it offered (Retry / Skip).
+      const state = input.state === `paused` ? `failed` : input.state
       // A landed node is final and only `landNode` makes one; a skipped one
       // is a person's call the engine never takes back.
       if (
         node.state === `landed` ||
         node.state === `skipped` ||
-        input.state === `landed` ||
-        input.state === `skipped`
+        state === `landed` ||
+        state === `skipped`
       ) {
         return { updated: false }
       }
       // EXP-1007: the read above and this write are not one transaction —
       // `landNode` can land the node in between. The WHERE repeats the
       // guard so a late report never takes a landing back.
-      await ctx.db
+      const rows = await ctx.db
         .update(workflowNodes)
         .set({
-          state: input.state,
+          state,
           ...(input.sessionId !== undefined && { sessionId: input.sessionId }),
           ...(input.baseBranch !== undefined && { baseBranch: input.baseBranch }),
           ...(input.attempt !== undefined && { attempt: input.attempt }),
+          // compat: a `paused` node was HELD for a person, and the engine
+          // restarts a `failed` one whose attempt is ≤ 1 — past the free retry.
+          ...(input.state === `paused` && {
+            attempt: sql`GREATEST(${input.attempt ?? workflowNodes.attempt}, 2)`,
+          }),
           ...(input.note !== undefined && { note: input.note }),
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
@@ -1047,7 +1164,9 @@ export const workflowsRouter = router({
             notInArray(workflowNodes.state, [`landed`, `skipped`])
           )
         )
-      return { updated: true }
+        .returning({ id: workflowNodes.id })
+      // Whether the guard let the write through, not whether it was tried.
+      return { updated: rows.length > 0 }
     }),
 
   /** ENGINE: the merge train's one step — squash-merge this node's PR into

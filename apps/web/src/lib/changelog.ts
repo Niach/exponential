@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-21-release-train`,
+    date: `2026-09-21`,
+    title: `Release train 2026-09-21`,
+    summary: `A clearer workflow graph with live-run markers, a model per workflow phase, and a workflow that no longer stalls on a merge made outside of it.`,
+    body: `- **Workflow graph**: nodes are circles in their state's ring, edges gather into one bus between the waves, a node whose run is live wears that run's own dot, and a Running now strip opens each live run in one tap on every client.
+- **A model per phase**: a workflow runs its contract, integration and high risk nodes on their own models; new workflows start on the shipped split, and an edit from a phone or an older app keeps the picks.
+- **Workflows that keep moving**: a node whose pull request was merged outside the workflow lands instead of blocking it, also while its run is still open, a failed start is retried once and then waits for you, and git network calls run under a deadline. Node budgets and the paused node state are gone.
+- **Self-hosting**: the published image sends its security headers by default, without pinning your sibling subdomains to https and with room for your identity provider's avatars.
+- **Android**: the Drafts tab shows again on Inbox and My Issues, also on devices that had already lost it.`,
+  },
+  {
     id: `2026-09-19-release-train`,
     date: `2026-09-19`,
     title: `Release train 2026-09-19`,
