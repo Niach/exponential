@@ -526,7 +526,6 @@ fn snapshot_for(
                     round: review.round,
                     head: review.head,
                 }),
-                budget: node_budget(node),
                 updated_at_ms: node
                     .updated_at
                     .as_deref()
@@ -571,11 +570,17 @@ fn snapshot_for(
                         .start_on
                         .clone()
                         .unwrap_or_else(|| workflows::START_ON_LANDED.to_string()),
+                    // The agent names the family an adversarial review swaps in.
+                    agent: launch.agent.clone(),
                     // EXP-984: what a review runs on, and what the AUTHORS
                     // run on (a high-risk node is never reviewed by its own
                     // model).
                     review_model: launch.review_model.clone(),
                     author_model: launch.model.clone(),
+                    // EXP-1002: the phases that opt out of that model.
+                    contract_model: launch.contract_model.clone(),
+                    integration_model: launch.integration_model.clone(),
+                    risk_model: launch.risk_model.clone(),
                 },
                 nodes,
                 edges,
@@ -662,25 +667,7 @@ fn session_facts(row: &domain::rows::CodingSession) -> SessionFacts {
             .and_then(|value| value.get("resetsAt"))
             .and_then(parse_resets_at),
         agent_busy: row.agent_busy.unwrap_or(false),
-        // EXP-984: the minutes budget's clock. `tokens_used` stays None —
-        // the token counter lives in the session's own feed, which this host
-        // does not read, so only minutes bound a run here.
-        started_at_ms: row
-            .started_at
-            .as_deref()
-            .or(row.created_at.as_deref())
-            .and_then(workflows::parse_wire_timestamp_ms),
-        tokens_used: None,
     }
-}
-
-/// EXP-984: the node's budget as the engine reads it.
-fn node_budget(node: &domain::rows::WorkflowNodeRow) -> Option<workflows::BudgetFacts> {
-    let (minutes, tokens) = node.budget_limits();
-    (minutes.is_some() || tokens.is_some()).then_some(workflows::BudgetFacts {
-        minutes,
-        tokens: tokens.map(|tokens| tokens as u64),
-    })
 }
 
 /// The wall's reset stamp as ms epoch — a number already, or the ISO string
@@ -836,6 +823,7 @@ fn run_pass(
                 node_id,
                 attempt,
                 base_branch,
+                model,
             } => {
                 // The base did not go up this pass: never cut from it.
                 if unbuilt.contains(&base_branch) {
@@ -882,6 +870,13 @@ fn run_pass(
                 if let Some(sha) = snapshot.tips.get(&base_branch).cloned() {
                     remember_propagated(&pass, &workflow_id, &node_id, &base_branch, &sha);
                 }
+                // EXP-1002: the node's PHASE picks the model; everything
+                // else (agent, effort, account, subagent model) is the
+                // workflow's own launch configuration — the review's rule.
+                let mut options = pass.options.clone();
+                if let Some(model) = model {
+                    options.model = model;
+                }
                 orders.starts.push(StartOrder {
                     workflow_id: workflow_id.clone(),
                     workflow_name: pass.name.clone(),
@@ -893,7 +888,7 @@ fn run_pass(
                     issue_id,
                     member_issue_ids: members,
                     repo,
-                    options: pass.options.clone(),
+                    options,
                     trpc: Arc::clone(&pass.trpc),
                     in_flight: Some(Arc::new(claim)),
                 });
@@ -1005,21 +1000,6 @@ fn run_pass(
                 update_state(&pass, &workflow_id, |state| {
                     state.findings_sent.insert(node_id.clone(), round);
                 });
-            }
-            // EXP-984: over budget — end the run, then park the node for a
-            // person (the server notifies the workflow's creator).
-            Decision::PauseNode {
-                node_id,
-                session_id,
-                note,
-            } => {
-                if let Some(engine) = pass.engines.get(&session_id) {
-                    engine.kill("ended");
-                }
-                let mut report = api::workflows::NodeReport::new(&node_id, "paused");
-                report.note = api::patch::Patch::Set(one_line(&note));
-                report_node(&pass.trpc, &report);
-                log::info!("[workflows] {workflow_id}: paused {node_id} — {note}");
             }
             // EXP-983: the collision the engine decided to serialize. The
             // state rides along unchanged — `reportNode` always takes one.
@@ -1617,7 +1597,13 @@ fn launch_node(order: StartOrder, cx: &mut App) {
             .background_executor()
             .spawn(async move { coding::prepare(&request, &deps) })
             .await;
-        let _ = window.update(cx, |_, window, cx| match prepared {
+        // EXP-1007: a window that closed between the pass and this point
+        // dropped the prepared run on the floor — the node stayed `running`
+        // with no session and was started again every grace. Now it fails
+        // with a note like every other launch error.
+        let trpc_for_lost_window = Arc::clone(&trpc);
+        let node_for_lost_window = node.clone();
+        let updated = window.update(cx, |_, window, cx| match prepared {
             Ok(coding::Prepared::Ready(ready)) => {
                 let session_id = ready.session_id.clone();
                 let subject = match subject {
@@ -1650,6 +1636,17 @@ fn launch_node(order: StartOrder, cx: &mut App) {
             }
             Err(err) => fail_node_async(&trpc, &node, &err.to_string(), cx),
         });
+        if updated.is_err() {
+            cx.background_executor()
+                .spawn(async move {
+                    fail_node(
+                        &trpc_for_lost_window,
+                        &node_for_lost_window,
+                        "The Exponential window closed before the run could start",
+                    )
+                })
+                .detach();
+        }
         drop(hold);
     })
     .detach();

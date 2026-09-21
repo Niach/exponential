@@ -3074,6 +3074,7 @@ impl AutomationHost {
                     node_id,
                     attempt,
                     base_branch,
+                    model,
                 } => {
                     // The base did not go up this pass: never cut from it.
                     if unbuilt.contains(&base_branch) {
@@ -3084,6 +3085,7 @@ impl AutomationHost {
                         &node_id,
                         attempt,
                         &base_branch,
+                        model,
                         settings,
                         settings_path,
                     );
@@ -3198,21 +3200,6 @@ impl AutomationHost {
                             state.findings_sent.insert(node_id.clone(), round);
                         },
                     );
-                }
-                // EXP-984: over budget — end the run, then park the node for
-                // a person (the server notifies the workflow's creator).
-                coding::workflows::Decision::PauseNode {
-                    node_id,
-                    session_id,
-                    note,
-                } => {
-                    if let Some(live) = workflow_session(&self.sessions, &session_id) {
-                        live.kill();
-                    }
-                    let mut report = api::workflows::NodeReport::new(&node_id, "paused");
-                    report.note = api::patch::Patch::Set(one_line_note(&note));
-                    self.report_node(&report);
-                    log::info!("workflow {workflow_id}: paused {node_id} — {note}");
                 }
                 // EXP-983: the collision the engine decided to serialize.
                 coding::workflows::Decision::SetSerialEdge {
@@ -3407,6 +3394,7 @@ impl AutomationHost {
         node_id: &str,
         attempt: i64,
         branch: &str,
+        model: Option<String>,
         settings: &coding::Settings,
         settings_path: &Path,
     ) {
@@ -3439,7 +3427,10 @@ impl AutomationHost {
             start_on: plan.snapshot.workflow.start_on.clone(),
             blockers: workflow_blocker_identifiers(&plan.snapshot, node_id),
         };
-        let options = coding::workflows::launch_options(
+        // EXP-1002: the node's PHASE picks the model; everything else
+        // (agent, effort, account, subagent model) is the workflow's own
+        // launch configuration — the review's rule.
+        let mut options = coding::workflows::launch_options(
             settings,
             plan.launch.agent.as_deref(),
             plan.launch.model.as_deref(),
@@ -3447,6 +3438,9 @@ impl AutomationHost {
             plan.launch.subagent_model.as_deref(),
             plan.launch.account.as_deref(),
         );
+        if let Some(model) = model {
+            options.model = model;
+        }
         match self.prepare_workflow_node(plan, node, run, options, branch) {
             Ok(Some(session_id)) => {
                 let mut report = api::workflows::NodeReport::new(node_id, "running");
@@ -4017,7 +4011,6 @@ fn workflow_plan(
                 round: review.round,
                 head: review.head,
             }),
-            budget: workflow_node_budget(row),
             updated_at_ms: row
                 .updated_at
                 .as_deref()
@@ -4053,10 +4046,16 @@ fn workflow_plan(
                     .start_on
                     .clone()
                     .unwrap_or_else(|| coding::workflows::START_ON_LANDED.to_string()),
+                // The agent names the family an adversarial review swaps in.
+                agent: launch.agent.clone(),
                 // EXP-984: what a review runs on, and what the AUTHORS run
                 // on (a high-risk node is never reviewed by its own model).
                 review_model: launch.review_model.clone(),
                 author_model: launch.model.clone(),
+                // EXP-1002: the phases that opt out of that model.
+                contract_model: launch.contract_model.clone(),
+                integration_model: launch.integration_model.clone(),
+                risk_model: launch.risk_model.clone(),
             },
             nodes,
             edges,
@@ -4141,25 +4140,7 @@ fn workflow_session_facts(row: &domain::rows::CodingSession) -> coding::workflow
             .and_then(|value| value.get("resetsAt"))
             .and_then(parse_resets_at),
         agent_busy: row.agent_busy.unwrap_or(false),
-        // EXP-984: the minutes budget's clock. `tokens_used` stays None —
-        // the daemon reads no per-session token counter, so only minutes
-        // bound a run here.
-        started_at_ms: row
-            .started_at
-            .as_deref()
-            .or(row.created_at.as_deref())
-            .and_then(coding::workflows::parse_wire_timestamp_ms),
-        tokens_used: None,
     }
-}
-
-/// EXP-984: the node's budget as the engine reads it.
-fn workflow_node_budget(row: &domain::rows::WorkflowNodeRow) -> Option<coding::workflows::BudgetFacts> {
-    let (minutes, tokens) = row.budget_limits();
-    (minutes.is_some() || tokens.is_some()).then_some(coding::workflows::BudgetFacts {
-        minutes,
-        tokens: tokens.map(|tokens| tokens as u64),
-    })
 }
 
 /// EXP-984: the nodes whose REVIEWER run is still up — the session this

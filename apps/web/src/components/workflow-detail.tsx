@@ -15,9 +15,9 @@ import {
   DialogTitle,
   getDeviceIcon,
   GlassGroup,
-  GlassInputRow,
   GlassSectionHeader,
   Input,
+  SegmentedControl,
   Sheet,
   SheetContent,
   SheetHeader,
@@ -31,16 +31,22 @@ import {
   wfNodeKindValues,
   wfRiskValues,
   wfStartOnValues,
+  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT,
   type WfGate,
   type WfNodeKind,
   type WfRisk,
   type WfStartOn,
   type WorkflowLaunch,
-  type WorkflowNodeBudget,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import {
+  availableFaces,
+  faceLabel,
+  type WorkFaceKind,
+} from "@/lib/work-faces"
 import type { Issue, SyncedWorkflow, WorkflowNode } from "@/db/schema"
 import { IssueChip } from "@/components/issue-chip"
+import { RunningIndicator } from "@/components/agent-session-row"
 import { WorkflowGraph } from "@/components/workflow-graph"
 import {
   CLI_DEFAULT_EFFORT,
@@ -54,7 +60,7 @@ import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { useTeamIssueGraph } from "@/hooks/use-team-issue-graph"
-import { useWorkflowNodes } from "@/hooks/use-workflows"
+import { useWorkflowNodeRuns, useWorkflowNodes } from "@/hooks/use-workflows"
 import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
@@ -78,14 +84,12 @@ import {
   workflowReviewLine,
   workflowShapeLine,
   workflowNodeTitle,
+  RUNNING_NOW_LABEL,
   workflowStartBlocker,
   workflowTrainStepLabel,
   ADMIT_NODE_LABEL,
   AGENT_REVIEW_TITLE,
   APPROVE_NODE_LABEL,
-  BUDGET_MINUTES_LABEL,
-  BUDGET_TITLE,
-  BUDGET_TOKENS_LABEL,
   CANCEL_WORKFLOW_CONFIRM,
   CANCEL_WORKFLOW_LABEL,
   CONTRACT_PUBLISHED_LABEL,
@@ -99,7 +103,11 @@ import {
   PROPOSED_NODE_NOTE,
   RESUME_WORKFLOW_LABEL,
   RETRY_NODE_LABEL,
+  CONTRACT_MODEL_LABEL,
+  INTEGRATION_MODEL_LABEL,
   REVIEW_MODEL_LABEL,
+  RISK_MODEL_LABEL,
+  SAME_AS_MODEL_LABEL,
   SKIP_NODE_CONFIRM,
   SKIP_NODE_LABEL,
   START_WORKFLOW_LABEL,
@@ -123,7 +131,7 @@ import {
 //
 // EXP-984: the run learns to judge itself and to grow. The node panel gains
 // the agent reviewer's latest verdict, the two decisions a follow-up filed
-// mid-run needs (Admit · Dismiss), and the node's own budget; the
+// mid-run needs (Admit · Dismiss); the
 // configuration gains the model reviews run on; and a started workflow
 // carries its counters under the graph.
 
@@ -152,6 +160,10 @@ const RISK_LABELS: Record<string, string> = {
 }
 /** EXP-983: the node panel's serialization line. Byte-identical ×4. */
 const MERGES_IN_FIRST_LABEL = `Merges in first`
+
+/** EXP-1002: the phase rows' blank pick — the workflow's own Model, which
+ *  is NOT `CLI_DEFAULT_MODEL` (that one means the device's default). */
+const SAME_AS_MODEL = `same-as-model`
 
 /** The four status-only mutations, and what to say when one is refused. */
 type WorkflowIntent = `start` | `pause` | `resume` | `cancel`
@@ -186,6 +198,13 @@ export function WorkflowDetail({
     () => new Map(issues.map((issue) => [issue.id, issue])),
     [issues]
   )
+  const runByNodeId = useWorkflowNodeRuns(workflow.teamId, nodes, issueById)
+  // The runs that are up right now, one tap away: a node's circle says THAT
+  // it runs, this strip is the way in. `nodes` is already in (wave, lane).
+  const liveRuns = nodes.flatMap((node) => {
+    const run = runByNodeId.get(node.id)
+    return run?.live ? [{ node, run }] : []
+  })
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -369,6 +388,32 @@ export function WorkflowDetail({
         </p>
       )}
 
+      {liveRuns.length > 0 && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-1.5"
+          data-testid="workflow-running-strip"
+        >
+          <span className="text-xs text-muted-foreground">{RUNNING_NOW_LABEL}</span>
+          {liveRuns.map(({ node, run }) => {
+            const issue = issueById.get(node.issueId)
+            return (
+              <Button key={node.id} variant="outline" size="xs" asChild>
+                <Link
+                  to="/t/$teamSlug/sessions/$sessionId"
+                  params={{ teamSlug, sessionId: run.sessionId }}
+                  data-testid={`workflow-running-${node.id}`}
+                >
+                  <RunningIndicator state={run.state} working={run.working} />
+                  {issue
+                    ? workflowNodeTitle(issue.identifier, node.memberIssueIds.length)
+                    : node.issueId.slice(0, 8)}
+                </Link>
+              </Button>
+            )
+          })}
+        </div>
+      )}
+
       {/* md+: the graph with the node panel beside it; phones get the panel as
           a sheet so the grid keeps the full width. */}
       <div className="flex min-w-0 gap-4">
@@ -388,6 +433,7 @@ export function WorkflowDetail({
             ),
             url: workflow.finalPrUrl,
           }}
+          runByNodeId={runByNodeId}
           selectedNodeId={selectedNodeId}
           onSelect={setSelectedNodeId}
           className="min-w-0 flex-1"
@@ -599,6 +645,17 @@ function MetricsSection({ metrics }: { metrics: Record<string, unknown> }) {
   )
 }
 
+/** The launch as the web sends it: every EXP-1002 phase pin explicit, `null`
+ *  when unset (the server keeps a pin whose key is absent). */
+export function explicitPhasePins(launch: WorkflowLaunch): WorkflowLaunch {
+  return {
+    ...launch,
+    contractModel: launch.contractModel ?? null,
+    integrationModel: launch.integrationModel ?? null,
+    riskModel: launch.riskModel ?? null,
+  }
+}
+
 /** The start configuration, persisted field by field with `workflows.update`.
  *  Same vocabulary as the Agent composer's options line — device, agent,
  *  model, subagent model (claude), effort, account — plus the workflow's own
@@ -621,8 +678,26 @@ function HowItRunsSection({
   )
   const launch = workflow.launch ?? {}
   const agent = launch.agent || contract.codingAgent.values[0]!
+  // `workflows.update` replaces the launch whole, EXCEPT the three phase pins:
+  // there an ABSENT key means "keep what is stored" (older clients never send
+  // them), so this sender always names all three — `null` is how one clears.
   const patchLaunch = (patch: Partial<WorkflowLaunch>) =>
-    void onSave({ launch: { ...launch, ...patch } })
+    void onSave({ launch: explicitPhasePins({ ...launch, ...patch }) })
+
+  // A different agent has a different model vocabulary, so every model pin is
+  // re-seeded from THAT agent's shipped split rather than blanked (stale
+  // values would only be refused by the router). Effort is cleared: it has no
+  // shipped default.
+  const agentSwitchPatch = (value: string): Partial<WorkflowLaunch> => ({
+    model: null,
+    contractModel: null,
+    integrationModel: null,
+    riskModel: null,
+    subagentModel: null,
+    ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[value],
+    agent: value,
+    effort: null,
+  })
 
   // EXP-872: ONE account row — the machine's flattened logins (both agents,
   // by email, the device default first); a pick implies the agent. The row
@@ -685,11 +760,8 @@ function HowItRunsSection({
               // A different agent has a different model/effort vocabulary —
               // stale values would only be refused by the router.
               patchLaunch({
-                agent: option.agent,
+                ...(option.agent !== agent ? agentSwitchPatch(option.agent) : {}),
                 account: id && id !== SYSTEM_PROFILE_ID ? id : null,
-                ...(option.agent !== agent
-                  ? { model: null, effort: null, subagentModel: null }
-                  : {}),
               })
             }}
           />
@@ -705,14 +777,7 @@ function HowItRunsSection({
               label: agentLabel(value),
             }))}
             onChange={(value) => {
-              if (value !== null) {
-                patchLaunch({
-                  agent: value,
-                  model: null,
-                  effort: null,
-                  subagentModel: null,
-                })
-              }
+              if (value !== null) patchLaunch(agentSwitchPatch(value))
             }}
           />
         )}
@@ -738,6 +803,39 @@ function HowItRunsSection({
             }
           }}
         />
+        {/* EXP-1002: the pins that may opt OUT of the model above — the two
+            phases, and the risk that outranks them on a `risk: high` node.
+            Blank reads "Same as Model", never the CLI's own default. */}
+        {(
+          [
+            [CONTRACT_MODEL_LABEL, `contractModel`],
+            [INTEGRATION_MODEL_LABEL, `integrationModel`],
+            [RISK_MODEL_LABEL, `riskModel`],
+          ] as const
+        ).map(([label, field]) => (
+          <Combobox
+            key={field}
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle={label}
+            disabled={readOnly}
+            value={launch[field] || SAME_AS_MODEL}
+            options={[
+              { value: SAME_AS_MODEL, label: SAME_AS_MODEL_LABEL },
+              ...agentModelValues(agent).map((value) => ({
+                value,
+                label: modelLabel(value),
+              })),
+            ]}
+            onChange={(value) => {
+              if (value !== null) {
+                patchLaunch({
+                  [field]: value === SAME_AS_MODEL ? null : value,
+                })
+              }
+            }}
+          />
+        ))}
         {agentSupportsSubagentModel(agent) && (
           <Combobox
             triggerVariant="row"
@@ -915,11 +1013,7 @@ export function WorkflowNodePanel({
     })
     .filter((row): row is Issue => Boolean(row))
 
-  const updateNode = async (patch: {
-    kind?: WfNodeKind
-    risk?: WfRisk
-    budget?: WorkflowNodeBudget | null
-  }) => {
+  const updateNode = async (patch: { kind?: WfNodeKind; risk?: WfRisk }) => {
     onError(null)
     try {
       await trpc.workflows.updateNode.mutate(
@@ -983,9 +1077,6 @@ export function WorkflowNodePanel({
   const canWithdraw =
     !proposed && Boolean(node.approvedAt) && node.state !== `landed`
   const review = readNodeReview(node.review)
-  // The node is history once it landed or was skipped; a budget on it would
-  // never be read again.
-  const canBudget = node.state !== `landed` && node.state !== `skipped`
 
   return (
     <div className="flex flex-col gap-3" data-testid="workflow-node-panel">
@@ -996,6 +1087,24 @@ export function WorkflowNodePanel({
             identifier: workflowNodeTitle(issue.identifier, members.length),
           }}
           preview={false}
+          // The badge IS the way into the issue.
+          link={
+            boardSlug
+              ? (props) => (
+                  <Link
+                    to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
+                    params={{
+                      teamSlug,
+                      boardSlug,
+                      issueIdentifier: issue.identifier,
+                    }}
+                    onClick={onClose}
+                    {...props}
+                  />
+                )
+              : undefined
+          }
+          testId="workflow-node-issue"
         />
       ) : (
         <p className="text-xs text-muted-foreground">
@@ -1077,14 +1186,6 @@ export function WorkflowNodePanel({
           }}
         />
       </GlassGroup>
-      {canBudget && (
-        <NodeBudgetBlock
-          key={node.id}
-          nodeId={node.id}
-          budget={node.budget}
-          onSave={(budget) => void updateNode({ budget })}
-        />
-      )}
       {node.touches.length > 0 && (
         <div
           className="flex flex-col gap-0.5"
@@ -1097,52 +1198,19 @@ export function WorkflowNodePanel({
           ))}
         </div>
       )}
-      {issue && boardSlug && (
-        <Button variant="outline" size="sm" asChild onClick={onClose}>
-          <Link
-            to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
-            params={{
-              teamSlug,
-              boardSlug,
-              issueIdentifier: issue.identifier,
-            }}
-          >
-            Open issue
-          </Link>
-        </Button>
-      )}
-      {/* The node's own run, steered on the ONE run URL (EXP-870). */}
-      {node.sessionId && (
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-          onClick={onClose}
-          data-testid="workflow-node-run"
-        >
-          <Link
-            to="/t/$teamSlug/sessions/$sessionId"
-            params={{ teamSlug, sessionId: node.sessionId }}
-          >
-            Open run
-          </Link>
-        </Button>
-      )}
-      {issue?.prNumber != null && (
-        <Button
-          variant="outline"
-          size="sm"
-          asChild
-          onClick={onClose}
-          data-testid="workflow-node-pr"
-        >
-          <Link
-            to="/t/$teamSlug/reviews/$issueIdentifier"
-            params={{ teamSlug, issueIdentifier: issue.identifier }}
-          >
-            {`PR #${issue.prNumber}`}
-          </Link>
-        </Button>
+      {/* EXP-1002: the node's surfaces read as the app's OWN face switcher —
+          same labels, same order, same `availableFaces` rule as the Work
+          screen — rather than a stack of differently-shaped buttons. Nothing
+          is selected: the reader is on the graph, not on a face, so every
+          segment is a way OUT of it. */}
+      {issue && (
+        <NodeFaceStrip
+          teamSlug={teamSlug}
+          boardSlug={boardSlug}
+          issue={issue}
+          sessionId={node.sessionId}
+          onNavigate={onClose}
+        />
       )}
       {needsApproval && (
         <Button
@@ -1183,8 +1251,8 @@ export function WorkflowNodePanel({
           </Button>
         </div>
       )}
-      {/* A budget pause (EXP-984) is resolved the same way as a failure. */}
-      {!proposed && (node.state === `failed` || node.state === `paused`) && (
+      {/* A failed node's two ways out. */}
+      {!proposed && node.state === `failed` && (
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
@@ -1263,6 +1331,90 @@ function readNodeReview(value: unknown): PanelReview | null {
   }
 }
 
+// ── The node's faces (EXP-1002) ─────────────────────────────────────────────
+
+/** The face glyphs the phone switcher already uses, so one node reads the same
+ *  wherever it is opened from. */
+const FACE_ICON: Record<WorkFaceKind, ReturnType<typeof conceptIcon>> = {
+  issue: conceptIcon(`ui-issue`),
+  run: conceptIcon(`nav-devices`),
+  changes: conceptIcon(`coding-diff`),
+  results: conceptIcon(`work-results`),
+}
+
+/**
+ * Issue · Run · Changes for the picked node, as the app's own segmented
+ * control. Which segments exist is `availableFaces` — the SAME rule the Work
+ * screen applies — so a node with no run shows no Run, and one with no pull
+ * request shows no Changes. `results` never appears: the panel has no run
+ * feed to publish from.
+ *
+ * Nothing is selected on purpose. The reader is on the graph, so the strip is
+ * a way out of it rather than a picture of where they are; a value no segment
+ * carries leaves them all inactive, which is exactly that.
+ */
+function NodeFaceStrip({
+  teamSlug,
+  boardSlug,
+  issue,
+  sessionId,
+  onNavigate,
+}: {
+  teamSlug: string
+  boardSlug: string | undefined
+  issue: Issue
+  sessionId: string | null
+  onNavigate: () => void
+}) {
+  const navigate = useNavigate()
+  const faces = availableFaces({
+    hasIssue: Boolean(boardSlug),
+    hasRun: Boolean(sessionId),
+    hasChanges: issue.prNumber != null,
+    hasResults: false,
+  })
+  if (faces.length === 0) return null
+
+  const go = (face: WorkFaceKind) => {
+    onNavigate()
+    if (face === `run` && sessionId) {
+      void navigate({
+        to: `/t/$teamSlug/sessions/$sessionId`,
+        params: { teamSlug, sessionId },
+      })
+      return
+    }
+    if (face === `changes`) {
+      void navigate({
+        to: `/t/$teamSlug/reviews/$issueIdentifier`,
+        params: { teamSlug, issueIdentifier: issue.identifier },
+      })
+      return
+    }
+    if (boardSlug) {
+      void navigate({
+        to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+        params: { teamSlug, boardSlug, issueIdentifier: issue.identifier },
+      })
+    }
+  }
+
+  return (
+    <div data-testid="workflow-node-faces">
+      <SegmentedControl
+        fill
+        value=""
+        onValueChange={(face) => go(face as WorkFaceKind)}
+        options={faces.map((face) => ({
+          value: face,
+          label: faceLabel(face),
+          icon: FACE_ICON[face],
+        }))}
+      />
+    </div>
+  )
+}
+
 /** Long findings fold behind "Show more" — the agent-session rule, on the
  *  panel's smaller budget. */
 const FINDINGS_CLAMP_LINES = 4
@@ -1319,101 +1471,5 @@ function AgentReviewBlock({ review }: { review: PanelReview }) {
         </span>
       )}
     </div>
-  )
-}
-
-// ── Budgets (EXP-984) ───────────────────────────────────────────────────────
-
-/** Both fields hold a positive integer or nothing at all; anything else reads
- *  as nothing (and normalises away the moment the field is left). */
-const budgetNumber = (value: unknown): number | null =>
-  typeof value === `number` && Number.isInteger(value) && value > 0
-    ? value
-    : null
-
-const budgetField = (raw: string): number | null => {
-  const trimmed = raw.trim()
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
-}
-
-const budgetText = (value: number | null): string =>
-  value === null ? `` : String(value)
-
-/** The node's own ceiling. The engine pauses a node that crosses either one
- *  and tells the person who started the workflow; editing it follows the issue
- *  title's rule — a plain field that saves on blur. Both fields empty means no
- *  budget at all (`budget: null`). */
-function NodeBudgetBlock({
-  nodeId,
-  budget,
-  onSave,
-}: {
-  nodeId: string
-  budget: unknown
-  onSave: (budget: WorkflowNodeBudget | null) => void
-}) {
-  const row =
-    budget && typeof budget === `object` && !Array.isArray(budget)
-      ? (budget as Record<string, unknown>)
-      : {}
-  const minutes = budgetNumber(row.minutes)
-  const tokens = budgetNumber(row.tokens)
-  const [draft, setDraft] = useState({
-    minutes: budgetText(minutes),
-    tokens: budgetText(tokens),
-  })
-  // The row is the truth: an engine write (or another member's edit) lands in
-  // the fields. Our own save echoes back identical, so nothing flickers.
-  useEffect(() => {
-    setDraft({ minutes: budgetText(minutes), tokens: budgetText(tokens) })
-  }, [minutes, tokens])
-
-  const commit = () => {
-    const nextMinutes = budgetField(draft.minutes)
-    const nextTokens = budgetField(draft.tokens)
-    setDraft({
-      minutes: budgetText(nextMinutes),
-      tokens: budgetText(nextTokens),
-    })
-    if (nextMinutes === minutes && nextTokens === tokens) return
-    onSave(
-      nextMinutes === null && nextTokens === null
-        ? null
-        : { minutes: nextMinutes, tokens: nextTokens }
-    )
-  }
-
-  const field = (which: `minutes` | `tokens`, label: string) => (
-    <GlassInputRow
-      id={`workflow-node-budget-${which}-${nodeId}`}
-      label={label}
-      inputMode="numeric"
-      placeholder="None"
-      data-testid={`workflow-node-budget-${which}`}
-      value={draft[which]}
-      onChange={(event) =>
-        setDraft((previous) => ({ ...previous, [which]: event.target.value }))
-      }
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === `Enter`) event.currentTarget.blur()
-        if (event.key === `Escape`) {
-          setDraft({ minutes: budgetText(minutes), tokens: budgetText(tokens) })
-          event.currentTarget.blur()
-        }
-      }}
-    />
-  )
-
-  return (
-    <section className="flex flex-col" data-testid="workflow-node-budget-block">
-      <GlassSectionHeader label={BUDGET_TITLE} />
-      <GlassGroup>
-        {field(`minutes`, BUDGET_MINUTES_LABEL)}
-        {field(`tokens`, BUDGET_TOKENS_LABEL)}
-      </GlassGroup>
-    </section>
   )
 }

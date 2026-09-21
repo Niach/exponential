@@ -51,13 +51,11 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.WorkflowLaunch
-import com.exponential.app.domain.WorkflowNodeBudget
 import com.exponential.app.domain.WorkflowNodeReview
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.captionNode
 import com.exponential.app.domain.line
 import com.exponential.app.domain.shape
-import com.exponential.app.domain.workflowNodeBudget
 import com.exponential.app.domain.workflowNodeReview
 import com.exponential.app.ui.components.AccountPickerPill
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
@@ -244,6 +242,7 @@ fun WorkflowDetailScreen(
                     workflowStatus = row.status,
                     cycleNote = null,
                     onSelectNode = { selectedNode = it },
+                    onOpenRun = onOpenSession,
                     finalPrCaption = finalPrCaption,
                     finalPrUrl = row.finalPrUrl,
                 )
@@ -378,9 +377,6 @@ fun WorkflowDetailScreen(
             onApprove = { approved -> viewModel.approveNode(node.id, approved) },
             onResolve = { action -> viewModel.resolveNode(node.id, action) },
             onAdmit = { admit -> viewModel.admitNode(node.id, admit) },
-            onBudgetChange = { minutes, tokens ->
-                viewModel.setNodeBudget(node.issueId, minutes = minutes, tokens = tokens)
-            },
             onOpenIssue = { issueId ->
                 selectedNode = null
                 onOpenIssue(issueId)
@@ -600,71 +596,6 @@ private const val REVIEW_FINDINGS_CHARS = 600
 private const val REVIEW_FINDINGS_LINES = 6
 
 /**
- * EXP-984: what one node may spend before the engine pauses it and tells the
- * workflow's creator. Two optional positive integers, written on blur as ONE
- * `workflows.updateNode({budget})`; emptying both clears the budget.
- */
-@Composable
-private fun WorkflowBudgetBlock(
-    budget: WorkflowNodeBudget?,
-    enabled: Boolean,
-    /** Re-keys the drafts so the sheet cannot carry one node's typing to another. */
-    nodeId: String,
-    onSave: (Int?, Int?) -> Unit,
-) {
-    var minutesDraft by remember(nodeId) { mutableStateOf<String?>(null) }
-    var tokensDraft by remember(nodeId) { mutableStateOf<String?>(null) }
-    val minutesText = minutesDraft ?: budget?.minutes?.toString().orEmpty()
-    val tokensText = tokensDraft ?: budget?.tokens?.toString().orEmpty()
-    val commit = {
-        val minutes = minutesText.trim().toIntOrNull()?.takeIf { it > 0 }
-        val tokens = tokensText.trim().toIntOrNull()?.takeIf { it > 0 }
-        if (minutes != budget?.minutes || tokens != budget?.tokens) onSave(minutes, tokens)
-        minutesDraft = null
-        tokensDraft = null
-    }
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-        Text(
-            WorkflowView.BUDGET_TITLE,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            GlassTextField(
-                value = minutesText,
-                onValueChange = { minutesDraft = it.filter(Char::isDigit) },
-                placeholder = WorkflowView.BUDGET_MINUTES_LABEL,
-                singleLine = true,
-                enabled = enabled,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("workflow-node-budget-minutes")
-                    .onFocusChanged { if (!it.isFocused && minutesDraft != null) commit() },
-            )
-            GlassTextField(
-                value = tokensText,
-                onValueChange = { tokensDraft = it.filter(Char::isDigit) },
-                placeholder = WorkflowView.BUDGET_TOKENS_LABEL,
-                singleLine = true,
-                enabled = enabled,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("workflow-node-budget-tokens")
-                    .onFocusChanged { if (!it.isFocused && tokensDraft != null) commit() },
-            )
-        }
-    }
-}
-
-/**
  * EXP-984: the run's counters ([WorkflowView.metricRows]) as flat label/value
  * rows — the LAST section of a started workflow's detail. A draft has run
  * nothing, so the caller hands over an empty list and nothing is drawn.
@@ -783,7 +714,9 @@ private fun HowItRunsSection(
                         // model, subagent model and effort exactly as picked.
                         val agentChanged =
                             option.agent != current.agent.ifEmpty { DEFAULT_AGENT }
-                        current.copy(
+                        // EXP-1002: the phase pins are models of the OLD
+                        // agent too.
+                        (if (agentChanged) current.withoutPhaseModels() else current).copy(
                             agent = option.agent,
                             // "" is the machine's ACTIVE login, never an id on
                             // the wire (`workflows.update` omits the key).
@@ -903,8 +836,6 @@ private fun WorkflowNodeSheet(
     onResolve: (String) -> Unit,
     /** EXP-984: `workflows.admitNode` — take the proposal, or throw it away. */
     onAdmit: (Boolean) -> Unit,
-    /** EXP-984: minutes, tokens; both null CLEARS the node's budget. */
-    onBudgetChange: (Int?, Int?) -> Unit,
     onOpenIssue: (String) -> Unit,
     onOpenSession: (String) -> Unit,
     onOpenChanges: (String) -> Unit,
@@ -927,8 +858,14 @@ private fun WorkflowNodeSheet(
                 .testTag("workflow-node-sheet"),
         ) {
             if (issue != null) {
+                // The BADGE is the way into the issue — tapping the subject
+                // opens it, so the sheet needs no "Open issue" pill.
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenIssue(issue.id) }
+                        .padding(horizontal = 16.dp)
+                        .testTag("workflow-node-issue"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     StatusIcon(IssueStatus.fromWire(issue.status), size = 14.dp)
@@ -1086,16 +1023,6 @@ private fun WorkflowNodeSheet(
                     onSelect = onRiskChange,
                 )
             }
-            // EXP-984: what this node may spend before the engine pauses it.
-            WorkflowBudgetBlock(
-                budget = remember(node.budget) { workflowNodeBudget(node.budget) },
-                // Nothing left to spend once the node is done with.
-                enabled = !busy &&
-                    node.state != DomainContract.wfNodeStateLanded &&
-                    node.state != DomainContract.wfNodeStateSkipped,
-                nodeId = node.id,
-                onSave = onBudgetChange,
-            )
             // What the plan says this node changes — read-only, mono, one per
             // line: they are globs, not prose.
             if (node.touches.isNotEmpty()) {
@@ -1173,14 +1100,8 @@ private fun WorkflowNodeSheet(
                         modifier = Modifier.testTag("workflow-node-withdraw"),
                     )
                 }
-                // EXP-984: a node the engine paused over its budget resumes on
-                // the same Retry a failed one takes.
-                if (!isProposed &&
-                    (
-                        node.state == DomainContract.wfNodeStateFailed ||
-                            node.state == DomainContract.wfNodeStatePaused
-                        )
-                ) {
+                // A failed node's two ways out.
+                if (!isProposed && node.state == DomainContract.wfNodeStateFailed) {
                     GlassPill(
                         WorkflowView.RETRY_NODE_LABEL,
                         icon = ExpIcons.uiRefresh,
@@ -1213,13 +1134,6 @@ private fun WorkflowNodeSheet(
                         icon = ExpIcons.prOpen,
                         onClick = { onOpenChanges(issue.id) },
                         modifier = Modifier.testTag("workflow-node-pr"),
-                    )
-                }
-                if (issue != null) {
-                    GlassPill(
-                        "Open issue",
-                        icon = ExpIcons.navIssues,
-                        onClick = { onOpenIssue(issue.id) },
                     )
                 }
             }

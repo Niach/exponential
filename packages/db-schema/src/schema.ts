@@ -27,7 +27,6 @@ import {
   type AutomationTrigger,
   type WorkflowLaunch,
   type WorkflowMetricsJson,
-  type WorkflowNodeBudget,
   type WorkflowNodeReview,
   type CodingSessionBlocked,
   type CodingSessionResult,
@@ -2410,7 +2409,6 @@ export const workflowNodes = pgTable(
     review: jsonb().$type<WorkflowNodeReview>(),
     // Why the node is `failed` or `waiting`, one line, engine-written.
     note: varchar({ length: 500 }),
-    budget: jsonb().$type<WorkflowNodeBudget>(),
     touches: text().array().notNull().default(sql`'{}'::text[]`),
     ...timestamps,
   },

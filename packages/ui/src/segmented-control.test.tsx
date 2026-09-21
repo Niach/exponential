@@ -112,4 +112,24 @@ describe(`SegmentedControl`, () => {
     expect(list.className).toContain(`bg-transparent`)
     expect(screen.getAllByRole(`tab`)).toHaveLength(2)
   })
+
+  // EXP-1002: in a side panel the natural `w-fit` capsule runs past the column
+  // and clips its last label. `fill` spans the container instead; the segments
+  // are `flex-1` either way, so spanning is all it takes to share it.
+  it(`spans its container when filled`, () => {
+    const { rerender } = render(
+      <SegmentedControl value="inbox" onValueChange={vi.fn()} options={OPTIONS} />
+    )
+    const natural = screen.getByRole(`tablist`).className
+    expect(natural).toContain(`w-fit`)
+    expect(natural).not.toContain(`w-full`)
+
+    rerender(
+      <SegmentedControl value="inbox" onValueChange={vi.fn()} options={OPTIONS} fill />
+    )
+    expect(screen.getByRole(`tablist`).className).toContain(`w-full`)
+    for (const tab of screen.getAllByRole(`tab`)) {
+      expect(tab.className).toContain(`flex-1`)
+    }
+  })
 })

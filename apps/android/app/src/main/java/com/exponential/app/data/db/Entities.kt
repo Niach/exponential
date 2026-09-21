@@ -582,7 +582,6 @@ data class WorkflowNodeEntity(
     @Serializable(with = JsonAsStringSerializer::class) val review: String? = null,
     // EXP-982: why the node is `failed` / `waiting`, in the engine's own words.
     val note: String? = null,
-    @Serializable(with = JsonAsStringSerializer::class) val budget: String? = null,
     // A Postgres `text[]` of globs: what this node expects to change.
     @Serializable(with = PgUuidArraySerializer::class) val touches: List<String> = emptyList(),
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",

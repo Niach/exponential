@@ -1,8 +1,4 @@
-- Workflows: planeie um conjunto de issues do backlog de um repositório como um grafo do que bloqueia o quê, e deixe uma máquina executá-los em paralelo; Workflows fica atrás de um botão na página Agent
-- Um workflow remata o próprio trabalho: os nós arrancam à medida que os seus bloqueios aterram, os pull requests juntam-se por ordem de dependência no ramo do workflow, e um pull request final leva todo o diff
-- Os workflows verificam-se a si mesmos: uma execução à parte revê cada pull request, um issue de seguimento pode juntar-se a meio, e um nó acima do seu orçamento fica em pausa à sua espera
-- Subissues e bloqueios em cada lista: um subissue fica sob o seu pai numa linha de ligação, e um distintivo conta o que bloqueia a linha e abre o grafo de dependências
-- Começar um issue bloqueado mostra toda a cadeia e oferece Cancel, Start anyway ou um pull request empilhado, e diz porque não dá um stack
-- Uma execução que bate no limite envia-lhe um push e uma linha na caixa que a abre; desliga-se nas definições de notificações, em Blocked runs
-- Na página Agent as execuções passadas ficaram atrás de um botão de histórico, e os botões de conversa e New issue ficam na barra de separadores em todos
-- O seletor de quadros lista apenas equipas e quadros, e uma execução aberta a partir de um issue já não mostra um ecrã vazio até a arrastar
+- Workflows: um nó cuja execução está em curso usa o ponto de estado dessa mesma execução, e uma faixa Running now por cima das ondas abre cada execução viva com um toque
+- Os workflows podem correr os seus nós de contrato, de integração e de alto risco em modelos próprios (escolhidos na web ou na aplicação para computador), e editar um workflow no telemóvel mantém essas escolhas
+- O distintivo do issue no painel de um nó abre o issue; os orçamentos de nó e o estado de nó em pausa desapareceram
+- Um workflow deixa de encravar quando o pull request de um nó é fundido fora dele, e um nó que não arranca é repetido uma vez em vez de infinitamente

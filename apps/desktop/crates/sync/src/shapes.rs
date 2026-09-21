@@ -742,7 +742,6 @@ pub const SHAPES: [ShapeSpec; 24] = [
             "review_round",
             "review",
             "note",
-            "budget",
             "touches",
             "created_at",
             "updated_at",
@@ -1167,10 +1166,9 @@ mod tests {
             // EXP-983: speculative starts read both.
             "checkpoint_at",
             "after_node_ids",
-            // EXP-984: the agent review gate and the node's budget.
+            // EXP-984: the agent review gate.
             "review_round",
             "review",
-            "budget",
         ] {
             assert!(spec.columns.contains(&column), "workflow_nodes needs {column}");
         }

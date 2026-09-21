@@ -1,8 +1,4 @@
-- Workflows: planlegg et sett issues fra backloggen i ett repository som en graf over hva som blokkerer hva, og la en maskin kjøre dem parallelt; Workflows ligger bak en knapp på Agent-siden
-- En workflow lander arbeidet sitt selv: noder starter etter hvert som blokkererne lander, pull requests flettes i avhengighetsrekkefølge inn i workflowens gren, og én siste pull request bærer hele diffen
-- Workflows sjekker seg selv: en egen kjøring går gjennom hver pull request, et oppfølgingsissue kan bli med underveis, og en node over budsjettet sitt settes på pause og venter på deg
-- Underissuer og blokkere i hver liste: et underissue ligger under forelderen sin på en forbindelseslinje, og ett merke teller hva som blokkerer raden og åpner avhengighetsgrafen
-- Å starte et blokkert issue viser hele kjeden og tilbyr Cancel, Start anyway eller en stablet pull request, og sier hvorfor en stabel ikke går
-- En kjøring som treffer en grense, sender deg en push og en rad i innboksen som åpner den; slå det av under varslingsinnstillinger, Blocked runs
-- På Agent-siden ligger tidligere kjøringer bak en historikk-knapp, og knappene for chat og New issue står i fanelinjen på hver fane
-- Board-velgeren viser bare team og boards, og en kjøring åpnet fra et issue viser ikke lenger en tom skjerm til du drar i den
+- Workflows: en node hvis kjøring er live, bærer statusprikken til nettopp den kjøringen, og en Running now-stripe over bølgene åpner hver live kjøring med ett trykk
+- Workflows kan kjøre kontrakt-, integrasjons- og høyrisikonodene sine på egne modeller (valgt på nettet eller i skrivebordsappen), og redigerer du et workflow på telefonen, beholdes valgene
+- Issue-merket i panelet til en node åpner issuet; nodebudsjetter og den pausede nodetilstanden er borte
+- Et workflow står ikke lenger fast når en nodes pull request flettes utenfor det, og en node som ikke klarer å starte, prøves på nytt én gang i stedet for i det uendelige

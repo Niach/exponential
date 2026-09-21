@@ -435,6 +435,102 @@
     "expected": [{ "kind": "startReview", "nodeId": "a", "adversarial": false }]
   },
   {
+    "name": "rule 7: a codex workflow's adversarial review swaps inside the codex models",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "agent": "codex",
+        "authorModel": "gpt-5.6-sol",
+        "riskModel": "gpt-5.6-luna"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-sol", "adversarial": true }]
+  },
+  {
+    "name": "rule 7: a codex workflow's adversarial review with no models at all picks a codex one",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "agent": "codex"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-sol", "adversarial": true }]
+  },
+  {
+    "name": "rule 7: a codex author on sol is reviewed on luna",
+    "snapshot": {
+      "workflow": {
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "status": "running",
+        "gate": "agent",
+        "integrationBranch": "exp/wf-abcdef12",
+        "maxParallel": 3,
+        "agent": "codex",
+        "authorModel": "gpt-5.6-sol"
+      },
+      "nodes": [
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "in_review",
+          "risk": "high",
+          "wave": 0,
+          "lane": 0,
+          "sessionId": "s-a"
+        }
+      ],
+      "issues": { "i-a": { "prState": "open" } },
+      "sessions": { "s-a": { "live": true } },
+      "integrationBranchExists": true,
+      "prHead": { "a": "sha-a1" },
+      "nowMs": 1000
+    },
+    "expected": [{ "kind": "startReview", "nodeId": "a", "model": "gpt-5.6-luna", "adversarial": true }]
+  },
+  {
     "name": "rule 7: ONE review start per pass, in landing order",
     "snapshot": {
       "workflow": {
@@ -647,138 +743,6 @@
     "expected": [
       { "kind": "startReview", "nodeId": "a", "model": "opus", "adversarial": false }
     ]
-  },
-  {
-    "name": "rule 8: a run over its minute budget is paused",
-    "snapshot": {
-      "workflow": {
-        "id": "abcdef12-3456-7890-abcd-ef1234567890",
-        "status": "running",
-        "gate": "none",
-        "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
-      },
-      "nodes": [
-        {
-          "id": "a",
-          "issueId": "i-a",
-          "kind": "leaf",
-          "state": "running",
-          "wave": 0,
-          "lane": 0,
-          "sessionId": "s-a",
-          "budget": { "minutes": 30 }
-        }
-      ],
-      "sessions": { "s-a": { "live": true, "startedAtMs": 998140000 } },
-      "integrationBranchExists": true,
-      "nowMs": 1000000000
-    },
-    "expected": [
-      {
-        "kind": "pauseNode",
-        "nodeId": "a",
-        "sessionId": "s-a",
-        "note": "Over budget: 31 of 30 minutes"
-      }
-    ]
-  },
-  {
-    "name": "rule 8: a run over its token budget is paused",
-    "snapshot": {
-      "workflow": {
-        "id": "abcdef12-3456-7890-abcd-ef1234567890",
-        "status": "running",
-        "gate": "none",
-        "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
-      },
-      "nodes": [
-        {
-          "id": "a",
-          "issueId": "i-a",
-          "kind": "leaf",
-          "state": "updating",
-          "wave": 0,
-          "lane": 0,
-          "sessionId": "s-a",
-          "budget": { "minutes": 600, "tokens": 500000 }
-        }
-      ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": {
-        "s-a": { "live": true, "agentBusy": true, "startedAtMs": 999400000, "tokensUsed": 750000 }
-      },
-      "integrationBranchExists": true,
-      "nowMs": 1000000000
-    },
-    "expected": [
-      {
-        "kind": "pauseNode",
-        "nodeId": "a",
-        "sessionId": "s-a",
-        "note": "Over budget: 750000 of 500000 tokens"
-      }
-    ]
-  },
-  {
-    "name": "rule 8: a run still inside its budget is left alone",
-    "snapshot": {
-      "workflow": {
-        "id": "abcdef12-3456-7890-abcd-ef1234567890",
-        "status": "running",
-        "gate": "none",
-        "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
-      },
-      "nodes": [
-        {
-          "id": "a",
-          "issueId": "i-a",
-          "kind": "leaf",
-          "state": "running",
-          "wave": 0,
-          "lane": 0,
-          "sessionId": "s-a",
-          "budget": { "minutes": 30, "tokens": 500000 }
-        }
-      ],
-      "sessions": {
-        "s-a": { "live": true, "startedAtMs": 999400000, "tokensUsed": 120000 }
-      },
-      "integrationBranchExists": true,
-      "nowMs": 1000000000
-    },
-    "expected": []
-  },
-  {
-    "name": "rule 8: a paused node is left exactly where a person left it",
-    "snapshot": {
-      "workflow": {
-        "id": "abcdef12-3456-7890-abcd-ef1234567890",
-        "status": "running",
-        "gate": "none",
-        "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
-      },
-      "nodes": [
-        {
-          "id": "a",
-          "issueId": "i-a",
-          "kind": "leaf",
-          "state": "paused",
-          "wave": 0,
-          "lane": 0,
-          "sessionId": "s-a",
-          "budget": { "minutes": 30 }
-        }
-      ],
-      "issues": { "i-a": { "prState": "open" } },
-      "sessions": { "s-a": { "live": true, "startedAtMs": 998140000 } },
-      "integrationBranchExists": true,
-      "nowMs": 1000000000
-    },
-    "expected": []
   },
   {
     "name": "rule 7: an approval of an older head is stale, the current head is reviewed instead of landed",

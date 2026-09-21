@@ -96,6 +96,7 @@ vi.mock(`@/lib/steer-child-messages`, () => ({ oneLine: (text: string) => text }
 
 import {
   appendDecisionLine,
+  mergeLaunch,
   nodeNeedsApproval,
   reviewOutcome,
   workflowsRouter,
@@ -147,6 +148,17 @@ describe(`workflows.create`, () => {
     const result = await caller.create({ teamId: TEAM, issueIds: [B, A] })
     expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
     expect(written[0]!.values).toMatchObject({ name: `APP-6 +1`, repositoryId: `repo-1` })
+    // EXP-1002: the draft opens on the shipped split, every field explicit.
+    expect(written[0]!.values).toMatchObject({
+      launch: {
+        agent: `claude`,
+        model: `opus`,
+        contractModel: `fable`,
+        integrationModel: `fable`,
+        riskModel: `fable`,
+        subagentModel: `opus`,
+      },
+    })
     expect(h.replanWorkflow).toHaveBeenCalledTimes(1)
     expect(result.workflow.metrics).toMatchObject({ nodes: 2 })
   })
@@ -204,6 +216,134 @@ describe(`workflows.update`, () => {
       `claude`,
       expect.objectContaining({ cap: `workflows` })
     )
+  })
+
+  // compat: older clients send a launch WITHOUT the EXP-1002 phase pins.
+  describe(`the phase pins' cross-client contract`, () => {
+    const stored = {
+      agent: `claude`,
+      model: `opus`,
+      contractModel: `fable`,
+      integrationModel: `fable`,
+      riskModel: `fable`,
+    }
+
+    it(`keeps a stored pin whose key is ABSENT`, async () => {
+      selectQueue.push([workflow({ launch: stored })])
+      await caller.update({ id: WF, launch: { agent: `claude`, model: `sonnet` } })
+      expect(written[0]!.values).toEqual({
+        launch: {
+          agent: `claude`,
+          model: `sonnet`,
+          contractModel: `fable`,
+          integrationModel: `fable`,
+          riskModel: `fable`,
+        },
+      })
+    })
+
+    it(`clears on null and sets on a string, storing no null pins`, async () => {
+      selectQueue.push([workflow({ launch: stored })])
+      await caller.update({
+        id: WF,
+        launch: {
+          agent: `claude`,
+          model: `opus`,
+          contractModel: null,
+          integrationModel: `sonnet`,
+          riskModel: null,
+        },
+      })
+      expect(written[0]!.values).toEqual({
+        launch: { agent: `claude`, model: `opus`, integrationModel: `sonnet` },
+      })
+    })
+
+    it(`carries no pin across an agent switch: the new agent's shipped ones stand in`, () => {
+      expect(mergeLaunch(stored, { agent: `codex`, model: `gpt-5.6-sol` })).toEqual({
+        agent: `codex`,
+        model: `gpt-5.6-sol`,
+        contractModel: `gpt-5.6-luna`,
+        integrationModel: `gpt-5.6-luna`,
+        riskModel: `gpt-5.6-luna`,
+      })
+    })
+  })
+
+  describe(`binding a device that cannot run the stored agent`, () => {
+    const claudeLaunch = { agent: `claude`, model: `opus`, contractModel: `fable` }
+    const codexOnly = async (...args: unknown[]) => {
+      if (args[3] === `claude`) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `claude is not available on that device` })
+      }
+    }
+
+    it(`re-seeds a DRAFT's launch from the first agent the device runs`, async () => {
+      h.assertDeviceUsable.mockImplementation(codexOnly)
+      selectQueue.push([workflow({ launch: claudeLaunch })])
+      await caller.update({ id: WF, deviceId: `dev-codex` })
+      expect(written[0]!.values).toEqual({
+        deviceId: `dev-codex`,
+        launch: expect.objectContaining({ agent: `codex`, model: `gpt-5.6-sol` }),
+      })
+      h.assertDeviceUsable.mockReset()
+    })
+
+    it(`leaves the launch alone when the device runs the stored agent`, async () => {
+      selectQueue.push([workflow({ launch: claudeLaunch })])
+      await caller.update({ id: WF, deviceId: `dev-1` })
+      expect(written[0]!.values).toEqual({ deviceId: `dev-1` })
+    })
+
+    it(`still refuses a device that runs no agent at all`, async () => {
+      h.assertDeviceUsable.mockImplementation(async (...args: unknown[]) => {
+        if (args[3]) throw new TRPCError({ code: `BAD_REQUEST`, message: `${String(args[3])} is not available on that device` })
+      })
+      selectQueue.push([workflow({ launch: claudeLaunch })])
+      const error = await rejection(caller.update({ id: WF, deviceId: `dev-none` }))
+      expect(error?.message).toBe(`claude is not available on that device`)
+      expect(fakeDb.transaction).not.toHaveBeenCalled()
+      h.assertDeviceUsable.mockReset()
+    })
+
+    it(`never re-seeds when the caller sent a launch of their own`, async () => {
+      h.assertDeviceUsable.mockImplementation(codexOnly)
+      selectQueue.push([workflow({ launch: claudeLaunch })])
+      const error = await rejection(
+        caller.update({ id: WF, deviceId: `dev-codex`, launch: { agent: `claude` } })
+      )
+      expect(error?.message).toBe(`claude is not available on that device`)
+      h.assertDeviceUsable.mockReset()
+    })
+  })
+})
+
+describe(`workflows.updateNode`, () => {
+  // compat: iOS ≤0.14.38, Android ≤0.14.39, desktop/CLI ≤0.14.46.
+  it(`accepts a BUDGET-ONLY patch and writes nothing`, async () => {
+    selectQueue.push([workflow()], [{ id: `node-1`, issueId: A, members: [] }])
+    const result = await caller.updateNode({
+      workflowId: WF,
+      issueId: A,
+      budget: { maxTurns: 40 },
+    } as never)
+    expect(result).toEqual({ txId: expect.anything(), nodeId: `node-1` })
+    expect(fakeDb.update).not.toHaveBeenCalled()
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, TEAM)
+  })
+
+  it(`still refuses a budget-only patch for an issue outside the workflow`, async () => {
+    selectQueue.push([workflow()], [{ id: `node-1`, issueId: A, members: [] }])
+    const error = await rejection(
+      caller.updateNode({ workflowId: WF, issueId: B, budget: 1 } as never)
+    )
+    expect(error?.message).toBe(`That issue is not part of the workflow`)
+  })
+
+  it(`writes the fields it still knows, budget dropped`, async () => {
+    selectQueue.push([workflow()], [{ id: `node-1`, issueId: A, members: [] }])
+    await caller.updateNode({ workflowId: WF, issueId: A, risk: `high`, budget: 3 } as never)
+    expect(written[0]!.values).toEqual({ risk: `high` })
   })
 })
 
@@ -294,6 +434,35 @@ describe(`the engine's write path`, () => {
     expect(await caller.reportNode({ nodeId: NODE, state: `failed` })).toEqual({
       updated: false,
     })
+  })
+
+  it(`says whether the guarded write matched a row`, async () => {
+    const live = [
+      [node()],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }],
+    ]
+    selectQueue.push(...live)
+    updateQueue.push([{ id: `node-1` }])
+    expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: true })
+
+    // `landNode` landed it between the read and the write: no row matched.
+    selectQueue.push(...live)
+    updateQueue.push([])
+    expect(await caller.reportNode({ nodeId: NODE, state: `running` })).toEqual({ updated: false })
+  })
+
+  // compat: desktop/CLI ≤0.14.46 engines.
+  it(`writes a legacy \`paused\` report as a held \`failed\``, async () => {
+    selectQueue.push(
+      [node({ state: `running` })],
+      [workflow({ status: `running`, deviceId: `dev-1` })],
+      [{ id: `device-row` }]
+    )
+    await caller.reportNode({ nodeId: NODE, state: `paused` as never, note: `Budget` })
+    expect(written[0]!.values).toMatchObject({ state: `failed`, note: `Budget` })
+    // Past the engine's one free restart.
+    expect((written[0]!.values as { attempt?: unknown }).attempt).toBeDefined()
   })
 
   it(`holds an unapproved node at the gate, server-side`, async () => {
@@ -399,6 +568,50 @@ describe(`the engine's write path`, () => {
     })
     expect(h.mergePr).toHaveBeenCalledWith({ issueId: A, endSessions: true })
     expect(written[0]!.values).toEqual({ state: `landed`, note: null })
+  })
+
+  // EXP-1007: a person merged the node's PR from Reviews or GitHub while the
+  // node was `running`/`updating` — no approval, and the web offers Approve
+  // only on `in_review`. The code is in the integration branch: the train's
+  // step is done, whatever the gate or the landing order say.
+  it(`lands a node whose PR merged outside the train, past the human gate and the order`, async () => {
+    h.loadWorkflowEdges.mockResolvedValueOnce({
+      nodes: [
+        { id: `node-0`, state: `in_review` },
+        { id: `node-1`, state: `updating` },
+      ],
+      edges: [[`node-0`, `node-1`]],
+    } as never)
+    selectQueue.push(
+      [node({ state: `updating`, approvedAt: null })],
+      [workflow({ status: `running`, deviceId: `dev-1`, gate: `human` })],
+      [{ id: `device-row` }],
+      [{ prState: `merged` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: true,
+      reason: null,
+      retargeted: [],
+    })
+    expect(h.mergePr).not.toHaveBeenCalled()
+    expect(h.ensureNodePrOnIntegrationBranch).not.toHaveBeenCalled()
+    expect(written[0]!.values).toEqual({ state: `landed`, note: null })
+    expect(h.retargetReleasedDependents).toHaveBeenCalledWith(fakeDb, WF, `node-1`, `user-1`)
+  })
+
+  it(`a paused workflow lands nothing, merged or not`, async () => {
+    selectQueue.push(
+      [node({ state: `updating` })],
+      [workflow({ status: `paused`, deviceId: `dev-1`, gate: `human` })],
+      [{ id: `device-row` }],
+      [{ prState: `merged` }]
+    )
+    expect(await caller.landNode({ nodeId: NODE })).toEqual({
+      merged: false,
+      reason: `The workflow is not running`,
+      retargeted: [],
+    })
+    expect(written).toEqual([])
   })
 
   it(`a retry forgets the old approval and review with the old attempt`, async () => {

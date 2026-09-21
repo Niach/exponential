@@ -24,7 +24,7 @@ public enum DomainContract {
     public static let notificationTypeValues: [String] = ["issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message", "session_blocked"]
     public static let prStateValues: [String] = ["open", "closed", "merged", "draft"]
     public static let wfStatusValues: [String] = ["draft", "running", "paused", "done", "cancelled"]
-    public static let wfNodeStateValues: [String] = ["proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped", "paused"]
+    public static let wfNodeStateValues: [String] = ["proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped"]
     public static let wfNodeKindValues: [String] = ["contract", "leaf", "integration"]
     public static let wfGateValues: [String] = ["none", "agent", "human"]
     public static let wfStartOnValues: [String] = ["contract", "pr_open", "landed"]
@@ -171,7 +171,6 @@ public enum DomainContract {
     public static let wfNodeStateLanded: String = "landed"
     public static let wfNodeStateFailed: String = "failed"
     public static let wfNodeStateSkipped: String = "skipped"
-    public static let wfNodeStatePaused: String = "paused"
     public static let wfNodeKindContract: String = "contract"
     public static let wfNodeKindLeaf: String = "leaf"
     public static let wfNodeKindIntegration: String = "integration"

@@ -113,6 +113,8 @@ pub(crate) struct RunEntry {
     pub live: bool,
 }
 
+/// Byte-identical with the web (`ISSUE_FACE_LABEL`, `work-faces.ts`).
+pub(crate) const ISSUE_FACE_LABEL: &str = "Issue";
 /// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
 pub(crate) const RUN_FACE_LABEL: &str = "Run";
 pub(crate) const RUNS_FACE_LABEL: &str = "Runs";

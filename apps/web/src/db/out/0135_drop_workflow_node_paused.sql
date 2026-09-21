@@ -1,0 +1,14 @@
+-- `wfNodeState: paused` is gone with the node budgets that were its only
+-- producer (0134). The column is a documented varchar, so nothing in the
+-- schema pins the vocabulary — but a row left saying `paused` would render
+-- its raw wire word on every client and take none of the exits a failed node
+-- takes. There is exactly one exit that fits: `failed`, which offers Retry
+-- and Skip, the two things a paused node offered.
+--
+-- `failed` alone would NOT hold the node, though: the engine gives a failed
+-- node whose `attempt` is <= 1 one free restart (`workflows/mod.rs`), and a
+-- paused node was waiting for a person. Lifting `attempt` to at least 2 puts
+-- it past that retry, so it stays put until someone presses Retry or Skip.
+--
+-- Idempotent, and a no-op on any database where no budget ever tripped.
+UPDATE "workflow_nodes" SET "state" = 'failed', "attempt" = GREATEST("attempt", 2) WHERE "state" = 'paused';

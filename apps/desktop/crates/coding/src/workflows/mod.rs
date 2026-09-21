@@ -26,9 +26,8 @@
 //! EXP-984 closes the loop: under the `agent` gate every node's pushed branch
 //! gets a REVIEWER run (adversarial, and never on the author's own model, for
 //! a `risk: high` node) whose `request_changes` findings go back to the author
-//! at most three rounds; a node that spends more than its budget is paused for
-//! a person; and a follow-up node nobody admitted (`proposed`) is treated as
-//! absent from the run entirely.
+//! at most three rounds; and a follow-up node nobody admitted (`proposed`) is
+//! treated as absent from the run entirely.
 //!
 //! The rule order in [`evaluate`] IS the contract, and it is fixture-tested
 //! as DATA: `crates/coding/tests/fixtures/workflows/*.json`, each
@@ -91,6 +90,9 @@ pub const NOTE_NEEDS_ANSWER: &str = "Needs an answer";
 pub const NOTE_RATE_LIMITED: &str = "Rate limited";
 /// The note a node carries when its run ended with nothing to review.
 pub const NOTE_NO_PULL_REQUEST: &str = "The run ended without a pull request";
+/// EXP-1007: the note a node carries when its start never came up on the
+/// runner twice (the host reported `running`, no run ever named itself).
+pub const NOTE_START_NEVER_CAME_UP: &str = "The run never came up on the runner";
 /// The note a node carries while its run merges the integration branch in
 /// after GitHub refused to land its pull request (the host's own note, the
 /// refusal's reason, wins when it is already on the row).
@@ -126,14 +128,33 @@ pub struct WorkflowFacts {
     pub final_pr_url: Option<String>,
     /// `launch.maxParallel`, or the contract default.
     pub max_parallel: usize,
+    /// `launch.agent` (contract `codingAgent`) — the agent EVERY run of this
+    /// workflow spawns on, its reviews included. Absent = claude. It names
+    /// the model family an adversarial review swaps inside.
+    #[serde(default)]
+    pub agent: Option<String>,
     /// EXP-984: `launch.reviewModel` — what an agent review runs on. Absent
     /// = the author's own model, unless the node is adversarial.
     #[serde(default)]
     pub review_model: Option<String>,
-    /// EXP-984: `launch.model` — what the node's AUTHOR runs on. A high-risk
-    /// node is never reviewed by the same model that wrote it.
+    /// EXP-984: `launch.model` — the model a node's run spawns on unless its
+    /// PHASE overrides it. A high-risk node is never reviewed by the same
+    /// model that wrote it.
     #[serde(default)]
     pub author_model: Option<String>,
+    /// EXP-1002: `launch.contractModel` — what a `contract` node runs on.
+    /// Absent = `author_model`.
+    #[serde(default)]
+    pub contract_model: Option<String>,
+    /// EXP-1002: `launch.integrationModel` — what an `integration` node runs
+    /// on. Absent = `author_model`.
+    #[serde(default)]
+    pub integration_model: Option<String>,
+    /// EXP-1002: `launch.riskModel` — what a `risk: high` node runs on,
+    /// WHATEVER its kind. The most specific pin there is, so it wins over the
+    /// phase ones. Absent = the node's phase model.
+    #[serde(default)]
+    pub risk_model: Option<String>,
     /// contract `wfStartOn` (`contract|pr_open|landed`). An absent or unknown
     /// word reads as `landed`: the conservative mode, which never starts a
     /// node on work that is not in yet.
@@ -155,8 +176,12 @@ impl Default for WorkflowFacts {
             final_pr_url: None,
             max_parallel: 0,
             start_on: start_on_landed(),
+            agent: None,
             review_model: None,
             author_model: None,
+            contract_model: None,
+            integration_model: None,
+            risk_model: None,
         }
     }
 }
@@ -222,9 +247,6 @@ pub struct NodeFacts {
     /// on (the findings themselves are the host's to deliver).
     #[serde(default)]
     pub review: Option<ReviewFacts>,
-    /// EXP-984: what this node may spend before it is paused for a person.
-    #[serde(default)]
-    pub budget: Option<BudgetFacts>,
     /// The row's `updated_at` as ms epoch — a `running` node with no session
     /// is the host's in-flight start for [`START_GRACE_MS`] after it. `None`
     /// = unknown, which holds.
@@ -247,16 +269,6 @@ pub struct ReviewFacts {
     /// stale: it clears nothing, and the new head gets its own review.
     #[serde(default)]
     pub head: Option<String>,
-}
-
-/// `workflow_nodes.budget` — whole minutes and whole tokens, each optional.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct BudgetFacts {
-    #[serde(default)]
-    pub minutes: Option<i64>,
-    #[serde(default)]
-    pub tokens: Option<u64>,
 }
 
 /// What the engine reads off a node's representative issue.
@@ -286,14 +298,6 @@ pub struct SessionFacts {
     /// EXP-848: mid-turn right now.
     #[serde(default)]
     pub agent_busy: bool,
-    /// EXP-984: when the run started, as ms epoch — the minutes budget's
-    /// clock. `None` = unknown, and then minutes bound nothing.
-    #[serde(default)]
-    pub started_at_ms: Option<i64>,
-    /// EXP-984: the tokens the run has spent, when the host can see a
-    /// counter at all. `None` = unknown, and then tokens bound nothing.
-    #[serde(default)]
-    pub tokens_used: Option<u64>,
 }
 
 /// One evaluation pass's inputs — everything, including the clock.
@@ -404,6 +408,10 @@ pub enum Decision {
         node_id: String,
         attempt: i64,
         base_branch: String,
+        /// EXP-1002: the model this node's PHASE runs on ([`node_model`]).
+        /// `None` = the device's own default, as for a review.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     /// EXP-983: tell a live (or resume an ended) run that the branch it
     /// builds on moved to `sha`, so it merges it in. The host writes the
@@ -444,14 +452,6 @@ pub enum Decision {
         node_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
-    },
-    /// EXP-984: the node spent more than its budget — end the run and report
-    /// it `paused`, which notifies the workflow's creator.
-    #[serde(rename_all = "camelCase")]
-    PauseNode {
-        node_id: String,
-        session_id: String,
-        note: String,
     },
     /// The merge train's one step: `workflows.landNode`.
     #[serde(rename_all = "camelCase")]
@@ -553,9 +553,9 @@ fn is_unlanded(state: &str) -> bool {
 ///    branch under it moved; 5. serialize two siblings whose work collided;
 /// 6. nudge a run whose rate limit reset; 7. the agent review gate — ONE
 ///    review start per pass, and a round's findings said exactly once;
-/// 8. pause a node that went over its budget; 9. land ONE cleared node in
-///    TOPOLOGICAL order (the merge train); 10. open the final PR once
-///    everything is in; 11. drop a synthetic base nothing builds on any more.
+/// 8. land ONE cleared node in TOPOLOGICAL order (the merge train); 9. open
+///    the final PR once everything is in; 10. drop a synthetic base nothing
+///    builds on any more.
 /// A `cancelled` workflow ends its runs and drops its branches;
 /// `draft`/`done` decide nothing.
 ///
@@ -606,13 +606,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
     // already resolved, are both left exactly where they are.
     let mut mirrored: Vec<Mirrored<'_>> = Vec::with_capacity(order.len());
     for node in &order {
-        // EXP-984: a node PAUSED over its budget is settled until a person
-        // retries it — the mirror would otherwise read its still-open pull
-        // request and put it straight back into the run.
-        if is_final(&node.state)
-            || node.state == STATE_PAUSED
-            || snapshot.in_flight.contains(&node.id)
-        {
+        if is_final(&node.state) || snapshot.in_flight.contains(&node.id) {
             mirrored.push(Mirrored {
                 node,
                 state: node.state.clone(),
@@ -699,6 +693,7 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
             node_id: entry.node.id.clone(),
             attempt: entry.node.attempt + 1,
             base_branch: base,
+            model: node_model(&snapshot.workflow, &entry.node.kind, &entry.node.risk),
         });
         active += 1;
     }
@@ -812,16 +807,21 @@ fn evaluate_admitted(snapshot: &Snapshot) -> Vec<Decision> {
 
     // (8) EXP-984: a node that spent more than it was given stops there and
     // waits for a person (`resolveNode retry` puts it back in the run).
-    decisions.extend(budget_decisions(snapshot, &mirrored));
 
     // (9) The merge train: ONE land per pass, and only while the host is not
     // already landing one. The train is strict order among LANDABLE nodes —
     // a node still waiting for a person, for a blocker or for the sibling it
     // has to merge in never blocks a landable one behind it.
-    let landing = mirrored.iter().any(|entry| {
-        snapshot.in_flight.contains(&entry.node.id)
-            && (entry.state == "in_review" || entry.state == "updating")
-    });
+    // A land the mirror already asked for (a pull request merged behind our
+    // back) IS this pass's land: its node still reads `in_review` here, and
+    // the train would otherwise ask for the same one twice.
+    let landing = decisions
+        .iter()
+        .any(|decision| matches!(decision, Decision::LandNode { .. }))
+        || mirrored.iter().any(|entry| {
+            snapshot.in_flight.contains(&entry.node.id)
+                && (entry.state == "in_review" || entry.state == "updating")
+        });
     if !landing {
         let state_of: HashMap<&str, &str> = mirrored
             .iter()
@@ -1135,8 +1135,6 @@ fn is_ancestor(blockers: &HashMap<&str, Vec<&str>>, ancestor: &str, node: &str) 
     false
 }
 
-/// contract `wfNodeState` — a node held over its budget.
-const STATE_PAUSED: &str = "paused";
 /// contract `wfGate` — every node's pull request gets an AGENT review.
 const GATE_AGENT: &str = "agent";
 /// contract `wfReviewVerdict`.
@@ -1146,6 +1144,37 @@ const RISK_HIGH: &str = "high";
 /// The two contract claude models an adversarial review swaps between.
 const MODEL_OPUS: &str = "opus";
 const MODEL_FABLE: &str = "fable";
+/// contract `codingAgent` — the agent whose reviews swap inside `codexModel`.
+const AGENT_CODEX: &str = "codex";
+/// The two contract codex models an adversarial review swaps between.
+const MODEL_CODEX_SOL: &str = "gpt-5.6-sol";
+const MODEL_CODEX_LUNA: &str = "gpt-5.6-luna";
+/// contract `wfNodeKind` — the two phases that may pin their own model.
+const KIND_CONTRACT: &str = "contract";
+const KIND_INTEGRATION: &str = "integration";
+
+/// EXP-1002: the model a node's run spawns on, most specific pin first —
+/// its RISK, then its PHASE, then the workflow's own `launch.model`. `None` =
+/// the device's default. A `risk: high` node is the one the person called
+/// hard, so that pin outranks the phase it happens to sit in; a `leaf` (and
+/// any kind this build does not know) has no phase pin at all. The pins opt
+/// OUT of the workflow's model, they never replace it.
+pub fn node_model(workflow: &WorkflowFacts, kind: &str, risk: &str) -> Option<String> {
+    let risk_pin = (risk == RISK_HIGH)
+        .then(|| workflow.risk_model.as_deref())
+        .flatten();
+    let phase = match kind {
+        KIND_CONTRACT => workflow.contract_model.as_deref(),
+        KIND_INTEGRATION => workflow.integration_model.as_deref(),
+        _ => None,
+    };
+    risk_pin
+        .filter(|model| !model.is_empty())
+        .or(phase.filter(|model| !model.is_empty()))
+        .or(workflow.author_model.as_deref())
+        .filter(|model| !model.is_empty())
+        .map(str::to_string)
+}
 
 /// EXP-984 rule 7 — the agent review gate. ONE review start per pass, in
 /// (wave, lane, id) order, and the findings of a round said exactly once.
@@ -1194,7 +1223,7 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
         let adversarial = node.risk == RISK_HIGH;
         decisions.push(Decision::StartReview {
             node_id: node.id.clone(),
-            model: review_model(snapshot, adversarial),
+            model: review_model(snapshot, node, adversarial),
             adversarial,
         });
         break;
@@ -1265,76 +1294,34 @@ fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool
 
 /// The model a review runs on: the workflow's pin, else the author's own.
 /// An ADVERSARIAL review must never be the author's model, so an equal pick
-/// swaps deterministically (`opus` ↔ `fable`; anything else → `opus`).
-fn review_model(snapshot: &Snapshot, adversarial: bool) -> Option<String> {
-    let author = snapshot.workflow.author_model.as_deref();
-    let picked = snapshot.workflow.review_model.as_deref().or(author);
+/// swaps deterministically INSIDE the workflow agent's own family — the
+/// review keeps that agent, and a codex reviewer handed `opus` cannot start
+/// (claude: `opus` ↔ `fable`, anything else → `opus`; codex: `gpt-5.6-sol` ↔
+/// `gpt-5.6-luna`, anything else → `gpt-5.6-sol`).
+/// EXP-1002: "the author's" is the model THIS node ran on, phase pin and all
+/// — a high-risk contract node on its own model would otherwise be reviewed
+/// by the very model that wrote it.
+fn review_model(snapshot: &Snapshot, node: &NodeFacts, adversarial: bool) -> Option<String> {
+    let author = node_model(&snapshot.workflow, &node.kind, &node.risk);
+    let picked = snapshot
+        .workflow
+        .review_model
+        .as_deref()
+        .map(str::to_string)
+        .or_else(|| author.clone());
     if !adversarial || picked != author {
-        return picked.map(str::to_string);
+        return picked;
     }
+    let codex = snapshot.workflow.agent.as_deref() == Some(AGENT_CODEX);
     Some(
-        match author {
-            Some(MODEL_OPUS) => MODEL_FABLE,
-            Some(MODEL_FABLE) => MODEL_OPUS,
-            _ => MODEL_OPUS,
+        match (codex, author.as_deref()) {
+            (false, Some(MODEL_OPUS)) => MODEL_FABLE,
+            (false, _) => MODEL_OPUS,
+            (true, Some(MODEL_CODEX_SOL)) => MODEL_CODEX_LUNA,
+            (true, _) => MODEL_CODEX_SOL,
         }
         .to_string(),
     )
-}
-
-/// EXP-984 rule 8 — the budget. A live run that spent more minutes (or more
-/// tokens, where the host can count them) than the node was given is ended
-/// and the node parked for a person.
-fn budget_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decision> {
-    let mut decisions = Vec::new();
-    for entry in mirrored {
-        let node = entry.node;
-        if !matches!(entry.state.as_str(), "running" | "updating") {
-            continue;
-        }
-        if snapshot.in_flight.contains(&node.id) {
-            continue;
-        }
-        let Some(budget) = node.budget.as_ref() else {
-            continue;
-        };
-        let Some(session_id) = node.session_id.as_deref() else {
-            continue;
-        };
-        let Some(session) = snapshot.sessions.get(session_id) else {
-            continue;
-        };
-        if !session.live {
-            continue;
-        }
-        let Some(note) = over_budget(budget, session, snapshot.now_ms) else {
-            continue;
-        };
-        decisions.push(Decision::PauseNode {
-            node_id: node.id.clone(),
-            session_id: session_id.to_string(),
-            note,
-        });
-    }
-    decisions
-}
-
-/// The note a run that went over its budget carries, or `None` while it is
-/// still inside it. Minutes are read first: they always apply, while tokens
-/// only do where the host can see a counter at all.
-fn over_budget(budget: &BudgetFacts, session: &SessionFacts, now_ms: i64) -> Option<String> {
-    if let (Some(limit), Some(started_at)) = (budget.minutes, session.started_at_ms) {
-        let minutes = (now_ms - started_at) / 60_000;
-        if limit > 0 && minutes > limit {
-            return Some(format!("Over budget: {minutes} of {limit} minutes"));
-        }
-    }
-    if let (Some(limit), Some(used)) = (budget.tokens, session.tokens_used) {
-        if limit > 0 && used > limit {
-            return Some(format!("Over budget: {used} of {limit} tokens"));
-        }
-    }
-    None
 }
 
 /// EXP-983 rule 6 — the train's topological gate: a node lands only once
@@ -1427,6 +1414,21 @@ fn desired_state(
         if node.state == "running" && start_in_grace(snapshot, node) {
             return Some(state("running"));
         }
+        // EXP-1007: a start that never produced a run gets ONE free retry,
+        // like a run that ended with nothing to review — `attempt` counts
+        // the host's `running` reports, so the retry is the second. Past
+        // that the node stops and says so, instead of a fresh start every
+        // grace (each wiping the previous failure's note) until the
+        // server's attempt bound rejects the report and it stalls mute. A
+        // person's `retry` resets the count.
+        if node.state == "running" && node.attempt > 1 {
+            return Some(state_with_note("failed", NOTE_START_NEVER_CAME_UP));
+        }
+        if node.state == "failed" && node.attempt > 1 {
+            // Its note (the host's launch error, or the one above) stays:
+            // the mirror never rewrites an unchanged state.
+            return Some(state("failed"));
+        }
         // Not started yet: the blockers decide, read through the workflow's
         // START MODE (EXP-983 — `landed` waits for the merge, `pr_open` for
         // the pull request, `contract` for the announcement).
@@ -1464,6 +1466,16 @@ fn desired_state(
         .issues
         .get(node.issue_id.as_str())
         .and_then(|issue| issue.pr_state.as_deref());
+    // EXP-1007: a merged pull request lands the node WHATEVER its run is
+    // doing. A merge does not always end the run (the team's
+    // `endSessionsOnMerge` off, `pr_merge({endSessions: false})`, a run that
+    // merged its OWN pull request), and a node that waited for the run to end
+    // first sat `running` / `waiting` for ever with its code already in. The
+    // server's `landNode` reads the merged state before its gate, and a
+    // landed node is final, so the mirror never looks at it again.
+    if pr_state == Some(domain::contract::PR_STATE_MERGED) {
+        return Some(Desired::Land);
+    }
     // GitHub refused to land this head and the run is merging the trunk in:
     // the node stays `updating` until its pull request MOVES (live or not —
     // the host's resume of an ended run is what moves it), and the train
@@ -1499,7 +1511,6 @@ fn desired_state(
     }
     match pr_state {
         Some("open") => Some(state("in_review")),
-        Some("merged") => Some(Desired::Land),
         // The run ended with nothing to review: one free retry, then a
         // person's call. `attempt` counts the starts so far (the first run
         // is attempt 1), so the retry is the second start.
@@ -1761,8 +1772,12 @@ mod tests {
                 final_pr_url: None,
                 max_parallel: 3,
                 start_on: START_ON_LANDED.to_string(),
+                agent: None,
                 review_model: None,
                 author_model: None,
+                contract_model: None,
+                integration_model: None,
+                risk_model: None,
             },
             nodes,
             integration_branch_exists: true,
@@ -1809,6 +1824,82 @@ mod tests {
         // Both are final, at least one landed: the pass goes straight to the
         // final pull request without touching either row.
         assert_eq!(evaluate(&snapshot), vec![Decision::OpenFinalPr]);
+    }
+
+    /// EXP-1007: a merge that left the run UP (`endSessionsOnMerge` off,
+    /// `endSessions: false`, a run that merged its own pull request) still
+    /// lands the node — whatever the live run looks like, in every state a
+    /// run can hold a node in.
+    #[test]
+    fn a_merged_pull_request_lands_the_node_while_its_run_is_live() {
+        let sessions = [
+            SessionFacts { live: true, ..SessionFacts::default() },
+            SessionFacts { live: true, agent_busy: true, ..SessionFacts::default() },
+            SessionFacts { live: true, needs_input: true, ..SessionFacts::default() },
+            SessionFacts { live: true, blocked: true, ..SessionFacts::default() },
+            SessionFacts::default(),
+        ];
+        for state in ["running", "waiting", "in_review", "updating"] {
+            for session in &sessions {
+                let mut a = node("a", state, 0, 0);
+                a.session_id = Some("s-a".to_string());
+                a.attempt = 1;
+                let mut snapshot = running(vec![a, node("b", "ready", 0, 1)]);
+                snapshot.sessions.insert("s-a".to_string(), session.clone());
+                snapshot.issues.insert(
+                    "issue-a".to_string(),
+                    IssueFacts { pr_state: Some("merged".to_string()) },
+                );
+                let decisions = evaluate(&snapshot);
+                let lands: Vec<&Decision> = decisions
+                    .iter()
+                    .filter(|decision| matches!(decision, Decision::LandNode { .. }))
+                    .collect();
+                assert_eq!(
+                    lands,
+                    vec![&Decision::LandNode { node_id: "a".to_string() }],
+                    "{state} {session:?}: {decisions:?}"
+                );
+                assert!(
+                    !decisions.iter().any(|decision| matches!(
+                        decision,
+                        Decision::SetNodeState { node_id, .. } if node_id == "a"
+                    )),
+                    "a merged node is landed, never re-mirrored: {decisions:?}"
+                );
+            }
+        }
+    }
+
+    /// The land is asked for ONCE: not while the host is already on it, and
+    /// never again once the node is `landed` — its run may well still be up.
+    #[test]
+    fn a_merged_node_with_a_live_run_lands_once() {
+        let build = |state: &str| {
+            let mut a = node("a", state, 0, 0);
+            a.session_id = Some("s-a".to_string());
+            let mut snapshot = running(vec![a]);
+            snapshot.sessions.insert(
+                "s-a".to_string(),
+                SessionFacts { live: true, agent_busy: true, ..SessionFacts::default() },
+            );
+            snapshot.issues.insert(
+                "issue-a".to_string(),
+                IssueFacts { pr_state: Some("merged".to_string()) },
+            );
+            snapshot
+        };
+        let mut landing = build("running");
+        landing.in_flight.insert("a".to_string());
+        assert!(
+            !evaluate(&landing)
+                .iter()
+                .any(|decision| matches!(decision, Decision::LandNode { .. })),
+            "the host is mid-land"
+        );
+        // Landed: final. The live run changes nothing, the pass moves on to
+        // the final pull request.
+        assert_eq!(evaluate(&build("landed")), vec![Decision::OpenFinalPr]);
     }
 
     /// EXP-984 — a review branch is this workflow's, names its node's issue
@@ -1867,9 +1958,233 @@ mod tests {
                 node_id: "a".to_string(),
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
+                model: None,
             }),
             "past the grace the start is retried: {decisions:?}"
         );
+    }
+
+    /// EXP-1007: the second start that never came up is the last automatic
+    /// one — the node fails with a note instead of a start every grace.
+    #[test]
+    fn a_start_that_never_came_up_twice_fails_instead_of_retrying_for_ever() {
+        let mut stale = node("a", "running", 0, 0);
+        stale.attempt = 2;
+        stale.updated_at_ms = Some(1_000);
+        let mut snapshot = running(vec![stale]);
+        snapshot.now_ms = 1_000 + START_GRACE_MS;
+        let decisions = evaluate(&snapshot);
+        assert_eq!(
+            decisions,
+            vec![Decision::SetNodeState {
+                node_id: "a".to_string(),
+                state: "failed".to_string(),
+                note: Some(NOTE_START_NEVER_CAME_UP.to_string()),
+            }],
+            "no third start: {decisions:?}"
+        );
+    }
+
+    /// EXP-1007: a launch the host could not make (`failed`, no run) is
+    /// retried once; a second failure stays, note and all, for a person.
+    #[test]
+    fn a_failed_launch_is_retried_once_then_left_for_a_person() {
+        let mut first = node("a", "failed", 0, 0);
+        first.attempt = 1;
+        let snapshot = running(vec![first]);
+        let decisions = evaluate(&snapshot);
+        assert!(
+            decisions.contains(&Decision::StartNode {
+                node_id: "a".to_string(),
+                attempt: 2,
+                base_branch: "exp/wf-abcdef12".to_string(),
+                model: None,
+            }),
+            "one free retry: {decisions:?}"
+        );
+
+        let mut second = node("a", "failed", 0, 0);
+        second.attempt = 2;
+        let snapshot = running(vec![second]);
+        assert!(
+            evaluate(&snapshot).is_empty(),
+            "the second failure is final until a person retries"
+        );
+    }
+
+    /// EXP-1002: a PHASE pin moves that kind of node and nothing else — the
+    /// leaves beside it keep the workflow's own model.
+    #[test]
+    fn a_phase_model_only_moves_its_own_kind() {
+        let mut contract_node = node("a", "ready", 0, 0);
+        contract_node.kind = KIND_CONTRACT.to_string();
+        let mut snapshot = running(vec![contract_node, node("b", "ready", 0, 1)]);
+        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
+        let decisions = evaluate(&snapshot);
+        let started: Vec<(&str, Option<&str>)> = decisions
+            .iter()
+            .filter_map(|decision| match decision {
+                Decision::StartNode { node_id, model, .. } => {
+                    Some((node_id.as_str(), model.as_deref()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            started,
+            vec![("a", Some(MODEL_FABLE)), ("b", Some(MODEL_OPUS))],
+            "{decisions:?}"
+        );
+
+        // Nothing pinned anywhere = the device's own default, as before.
+        let mut bare = running(vec![node("a", "ready", 0, 0)]);
+        bare.workflow.contract_model = Some(String::new());
+        assert_eq!(node_model(&bare.workflow, KIND_CONTRACT, ""), None);
+        assert_eq!(node_model(&bare.workflow, KIND_INTEGRATION, ""), None);
+    }
+
+    /// EXP-1002: the risk pin is the most specific one — it outranks the
+    /// phase a hard node happens to sit in, and only a `risk: high` node
+    /// takes it.
+    #[test]
+    fn the_risk_pin_outranks_the_phase_pin() {
+        let mut snapshot = running(vec![]);
+        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
+        snapshot.workflow.risk_model = Some("sonnet".to_string());
+        let facts = &snapshot.workflow;
+
+        assert_eq!(
+            node_model(facts, KIND_CONTRACT, RISK_HIGH).as_deref(),
+            Some("sonnet"),
+            "a hard contract node takes the risk pin, not the phase's"
+        );
+        assert_eq!(
+            node_model(facts, "leaf", RISK_HIGH).as_deref(),
+            Some("sonnet"),
+            "so does a hard leaf, which has no phase pin at all"
+        );
+        assert_eq!(
+            node_model(facts, KIND_CONTRACT, "medium").as_deref(),
+            Some(MODEL_FABLE),
+            "an ordinary contract node is untouched by it"
+        );
+        assert_eq!(
+            node_model(facts, "leaf", "low").as_deref(),
+            Some(MODEL_OPUS),
+            "and an ordinary leaf keeps the workflow's model"
+        );
+    }
+
+    /// EXP-1002: "never the author's model" reads the model the NODE ran on,
+    /// so a high-risk node on a phase pin is not reviewed by its own writer.
+    #[test]
+    fn an_adversarial_review_dodges_the_phase_model() {
+        let mut snapshot = running(vec![]);
+        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
+
+        let mut risky = node("a", "in_review", 0, 0);
+        risky.kind = KIND_CONTRACT.to_string();
+        risky.risk = RISK_HIGH.to_string();
+        // It wrote on fable, so its adversarial review is opus — the
+        // workflow's `model` would have been the WRONG dodge here.
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_OPUS)
+        );
+
+        let leaf = node("b", "in_review", 0, 1);
+        assert_eq!(
+            review_model(&snapshot, &leaf, true).as_deref(),
+            Some(MODEL_FABLE),
+            "the leaf wrote on opus"
+        );
+        // Not adversarial: the node's own model, phase pin and all.
+        assert_eq!(
+            review_model(&snapshot, &risky, false).as_deref(),
+            Some(MODEL_FABLE)
+        );
+        // An explicit review pin still wins over both.
+        snapshot.workflow.review_model = Some("sonnet".to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some("sonnet")
+        );
+        // And with a RISK pin the dodge follows that instead: the node wrote
+        // on opus, so its adversarial review is fable.
+        snapshot.workflow.review_model = None;
+        snapshot.workflow.risk_model = Some(MODEL_OPUS.to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_FABLE)
+        );
+    }
+
+    /// A codex workflow's review runs on codex too (`launch_review` keeps the
+    /// workflow's agent), so its adversarial swap stays inside `codexModel`:
+    /// a claude alias there is a reviewer that cannot start.
+    #[test]
+    fn an_adversarial_review_swaps_inside_the_agents_own_models() {
+        let mut snapshot = running(vec![]);
+        snapshot.workflow.agent = Some(AGENT_CODEX.to_string());
+        snapshot.workflow.author_model = Some(MODEL_CODEX_SOL.to_string());
+        snapshot.workflow.risk_model = Some(MODEL_CODEX_LUNA.to_string());
+
+        let mut risky = node("a", "in_review", 0, 0);
+        risky.risk = RISK_HIGH.to_string();
+        // The codex defaults: a high-risk node wrote on luna, no review pin.
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_CODEX_SOL)
+        );
+        // Written on sol, reviewed on luna.
+        snapshot.workflow.risk_model = None;
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some(MODEL_CODEX_LUNA)
+        );
+        // No model at all (the device default), or one this build does not
+        // know: still a codex model, never a claude alias.
+        for author in [None, Some("gpt-5.6-terra"), Some("gpt-9")] {
+            snapshot.workflow.author_model = author.map(str::to_string);
+            assert_eq!(
+                review_model(&snapshot, &risky, true).as_deref(),
+                Some(MODEL_CODEX_SOL),
+                "{author:?}"
+            );
+        }
+        // A review that is not adversarial keeps the author's model, and an
+        // explicit pin that differs from it is left alone.
+        snapshot.workflow.author_model = Some(MODEL_CODEX_SOL.to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, false).as_deref(),
+            Some(MODEL_CODEX_SOL)
+        );
+        snapshot.workflow.review_model = Some("gpt-5.6-terra".to_string());
+        assert_eq!(
+            review_model(&snapshot, &risky, true).as_deref(),
+            Some("gpt-5.6-terra")
+        );
+        // The swap words ARE contract `codexModel` / `codingModel` values.
+        for model in [MODEL_CODEX_SOL, MODEL_CODEX_LUNA] {
+            assert!(domain::contract::CODEX_MODEL_VALUES.contains(&model));
+        }
+        for model in [MODEL_OPUS, MODEL_FABLE] {
+            assert!(domain::contract::CODING_MODEL_VALUES.contains(&model));
+        }
+        assert!(domain::contract::CODING_AGENT_VALUES.contains(&AGENT_CODEX));
+        // And claude (named or absent) keeps its own pair.
+        snapshot.workflow.review_model = None;
+        for agent in [None, Some("claude")] {
+            snapshot.workflow.agent = agent.map(str::to_string);
+            snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
+            assert_eq!(
+                review_model(&snapshot, &risky, true).as_deref(),
+                Some(MODEL_FABLE)
+            );
+        }
     }
 
     /// The DAG relation rule 5 skips: an ancestor through any chain of

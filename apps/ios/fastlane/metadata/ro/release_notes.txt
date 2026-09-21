@@ -1,8 +1,4 @@
-- Workflows: planifici un set de issue-uri din backlogul unui repository ca un graf al a ceea ce blochează ce și lași un dispozitiv să le ruleze în paralel; Workflows stă în spatele unui buton din pagina Agent
-- Un workflow își duce singur munca la capăt: nodurile pornesc pe măsură ce aterizează blocajele lor, pull request-urile se unesc în ordinea dependențelor în ramura workflow-ului, iar un pull request final poartă tot diff-ul
-- Workflow-urile se verifică singure: o rulare separată recitește fiecare pull request, un issue de continuare se poate alătura din mers, iar un nod peste bugetul lui se oprește și te așteaptă
-- Sub-issue-uri și blocaje în fiecare listă: un sub-issue stă sub părintele lui pe o linie de legătură, iar o insignă numără ce blochează rândul și deschide graful dependențelor
-- Pornirea unui issue blocat arată tot lanțul și oferă Cancel, Start anyway sau un pull request stivuit, și spune de ce nu se poate un stack
-- O rulare care atinge o limită îți trimite un push și un rând în inbox care o deschide; îl închizi din setările de notificări, la Blocked runs
-- În pagina Agent rulările trecute au trecut în spatele unui buton de istoric, iar butoanele de chat și New issue stau în bara de file pe fiecare filă
-- Selectorul de boarduri listează doar echipe și boarduri, iar o rulare deschisă dintr-un issue nu mai arată un ecran gol până nu tragi de el
+- Workflows: un nod a cărui rulare este live poartă punctul de stare chiar al acelei rulări, iar o bandă Running now deasupra valurilor deschide fiecare rulare live dintr-o atingere
+- Workflow-urile își pot rula nodurile de contract, de integrare și cele cu risc ridicat pe modele proprii (alese pe web sau în aplicația de desktop), iar editarea unui workflow pe telefon păstrează acele alegeri
+- Insigna issue-ului din panoul unui nod deschide issue-ul; bugetele de nod și starea de nod în pauză au dispărut
+- Un workflow nu mai rămâne blocat când pull request-ul unui nod este unit în afara lui, iar un nod care nu reușește să pornească este reîncercat o dată în loc de la nesfârșit

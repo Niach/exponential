@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm"
 import {
   WORKFLOW_DECISIONS_MAX,
   WORKFLOW_MAX_REVIEW_ROUNDS,
@@ -8,10 +8,11 @@ import {
   workflowReviewHeadSchema,
   workflowReviewOracleSchema,
   type WorkflowNodeReview,
+  WORKFLOW_DEFAULT_LAUNCH,
+  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT,
   WORKFLOW_MAX_ISSUES,
   wfNodeStateSchema,
   workflowLaunchSchema,
-  workflowNodeBudgetSchema,
   workflowTouchesSchema,
   wfGateSchema,
   wfNodeKindSchema,
@@ -79,6 +80,17 @@ function assertLaunch(launch: WorkflowLaunch): void {
   if (launch.model && !agentModelValues[agent]!.includes(launch.model)) {
     throw bad(`Unknown ${agent} model`)
   }
+  // EXP-1002: the per-PHASE and risk overrides come out of the SAME closed set
+  // as the workflow's own model — they only say which nodes take which.
+  for (const phase of [
+    launch.contractModel,
+    launch.integrationModel,
+    launch.riskModel,
+  ]) {
+    if (phase && !agentModelValues[agent]!.includes(phase)) {
+      throw bad(`Unknown ${agent} model`)
+    }
+  }
   if (launch.effort && !agentEffortValues[agent]!.includes(launch.effort)) {
     throw bad(`Unknown ${agent} effort`)
   }
@@ -88,6 +100,62 @@ function assertLaunch(launch: WorkflowLaunch): void {
       throw bad(`Unknown subagent model`)
     }
   }
+}
+
+// EXP-1002: the three pins older clients have never heard of.
+const PHASE_MODEL_KEYS = [`contractModel`, `integrationModel`, `riskModel`] as const
+
+/**
+ * The launch `workflows.update` stores. `launch` is replaced WHOLE, except the
+ * three phase pins, which follow the cross-client contract: key ABSENT → keep
+ * the stored value, `null` → clear, string → set. Cleared pins are stored as
+ * absent keys ("absent = `model`").
+ */
+export function mergeLaunch(
+  stored: WorkflowLaunch | null | undefined,
+  incoming: WorkflowLaunch
+): WorkflowLaunch {
+  const merged: WorkflowLaunch = { ...incoming }
+  // A carried pin belongs to the STORED agent's model vocabulary; across an
+  // agent switch it would only be refused, so the new agent's shipped pin
+  // stands in (what the web's Agent row does explicitly).
+  const storedAgent = stored?.agent ?? `claude`
+  const agent = incoming.agent ?? `claude`
+  for (const key of PHASE_MODEL_KEYS) {
+    // compat: iOS ≤0.14.38, Android ≤0.14.39 and desktop/CLI ≤0.14.46 send a
+    // launch WITHOUT these keys, which would erase pins a newer client set.
+    // Delete this carry-forward (absent = clear again) once
+    // CLIENT_MIN_VERSION_IOS ≥ 0.14.39, CLIENT_MIN_VERSION_ANDROID ≥ 0.14.40
+    // and CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47 — those releases always
+    // send all three keys explicitly.
+    if (!(key in incoming)) {
+      const carried =
+        agent === storedAgent
+          ? stored?.[key]
+          : WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[agent]?.[key]
+      if (carried) merged[key] = carried
+    }
+    if (merged[key] == null) delete merged[key]
+  }
+  return merged
+}
+
+/** The first agent that device can run for this caller, or null. Asks
+ *  `assertDeviceUsable` itself, so ownership/sharing stay ITS call. */
+async function firstRunnableAgent(
+  deviceId: string,
+  teamId: string,
+  userId: string
+): Promise<string | null> {
+  for (const agent of codingAgentValues) {
+    try {
+      await assertDeviceUsable(deviceId, teamId, userId, agent, WORKFLOW_DEVICE)
+      return agent
+    } catch {
+      // Not that one.
+    }
+  }
+  return null
 }
 
 const wireColumns = {
@@ -245,35 +313,6 @@ export function appendDecisionLine(log: string, text: string, now: Date): string
   return out.slice(-WORKFLOW_DECISIONS_MAX)
 }
 
-/** A budget pause reaches the person who started the workflow (inbox row +
- *  push). Best-effort. */
-async function notifyNodePaused(
-  workflow: { id: string; teamId: string; name: string },
-  issueId: string,
-  note: string | null
-): Promise<void> {
-  try {
-    const { db } = await import(`@/db/connection`)
-    const [row] = await db
-      .select({ creatorId: workflows.creatorId, identifier: issues.identifier })
-      .from(workflows)
-      .innerJoin(issues, eq(issues.id, issueId))
-      .where(eq(workflows.id, workflow.id))
-      .limit(1)
-    if (!row?.creatorId) return
-    const { sendAgentMessage } = await import(`@/lib/integrations/notifications`)
-    await sendAgentMessage({
-      teamId: workflow.teamId,
-      senderUserId: row.creatorId,
-      recipientIds: [row.creatorId],
-      title: `${row.identifier} paused in ${workflow.name}`,
-      body: note ?? `The node went over its budget.`,
-    })
-  } catch (err) {
-    console.error(`[workflows] pause notice failed:`, err)
-  }
-}
-
 /** A recorded decision reaches every run of the workflow that is parked on a
  *  question (the sibling that asked the same thing included). Best-effort. */
 async function relayDecision(workflowId: string, text: string): Promise<void> {
@@ -330,7 +369,6 @@ export const WORKFLOW_COUNTERS = [
   `defectsByOracle`,
   `defectsByAgentReview`,
   `admitted`,
-  `budgetPauses`,
 ] as const
 
 /**
@@ -405,7 +443,6 @@ export const workflowsRouter = router({
           sessionId: workflowNodes.sessionId,
           attempt: workflowNodes.attempt,
           baseBranch: workflowNodes.baseBranch,
-          budget: workflowNodes.budget,
           touches: workflowNodes.touches,
         })
         .from(workflowNodes)
@@ -462,6 +499,9 @@ export const workflowsRouter = router({
             repositoryId: picked.repositoryId,
             creatorId: ctx.session.user.id,
             name,
+            // EXP-1002: a draft opens on the shipped split (opus implements,
+            // fable scaffolds and merges) rather than four blank rows.
+            launch: WORKFLOW_DEFAULT_LAUNCH,
             integrationBranch: workflowIntegrationBranch(id),
           })
           .returning(wireColumns)
@@ -503,10 +543,49 @@ export const workflowsRouter = router({
       if (Object.values(config).some((value) => value !== undefined)) {
         assertDraft(existing.status, `Changing how a workflow runs`)
       }
-      const launch = input.launch ?? existing.launch
-      if (input.launch) assertLaunch(input.launch)
+      let nextLaunch = input.launch
+        ? mergeLaunch(existing.launch, input.launch)
+        : undefined
+      if (nextLaunch) assertLaunch(nextLaunch)
       const deviceId =
         input.deviceId === undefined ? existing.deviceId : input.deviceId
+      // `create` stamps every workflow `agent: claude`, so binding a machine
+      // that only runs another agent would be refused until the person flips
+      // the Agent row. A bare device pick instead re-seeds the launch from the
+      // first agent that machine CAN run. (Setting `deviceId` already asserted
+      // the draft above.)
+      if (input.deviceId && !input.launch && existing.launch?.agent) {
+        // Ownership and the cap first: those refusals must stay theirs.
+        await assertDeviceUsable(
+          input.deviceId,
+          existing.teamId,
+          ctx.session.user.id,
+          null,
+          WORKFLOW_DEVICE
+        )
+        const canRunStored = await assertDeviceUsable(
+          input.deviceId,
+          existing.teamId,
+          ctx.session.user.id,
+          existing.launch.agent,
+          WORKFLOW_DEVICE
+        ).then(
+          () => true,
+          () => false
+        )
+        const runnable = canRunStored
+          ? null
+          : await firstRunnableAgent(
+              input.deviceId,
+              existing.teamId,
+              ctx.session.user.id
+            )
+        // No runnable agent at all: the assert below refuses, as before.
+        if (runnable && WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[runnable]) {
+          nextLaunch = { ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[runnable] }
+        }
+      }
+      const launch = nextLaunch ?? existing.launch
       if (deviceId && (input.deviceId !== undefined || input.launch)) {
         await assertDeviceUsable(
           deviceId,
@@ -523,7 +602,7 @@ export const workflowsRouter = router({
           .set({
             ...(name !== undefined && { name }),
             ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
-            ...(input.launch !== undefined && { launch: input.launch }),
+            ...(nextLaunch !== undefined && { launch: nextLaunch }),
             ...(input.gate !== undefined && { gate: input.gate }),
             ...(input.startOn !== undefined && { startOn: input.startOn }),
             ...(decision !== undefined && {
@@ -627,7 +706,13 @@ export const workflowsRouter = router({
         kind: wfNodeKindSchema.optional(),
         risk: wfRiskSchema.optional(),
         touches: workflowTouchesSchema.optional(),
-        budget: workflowNodeBudgetSchema.nullable().optional(),
+        // compat: migration 0134 dropped node budgets, but iOS ≤0.14.38,
+        // Android ≤0.14.39 and desktop/CLI ≤0.14.46 still send a BUDGET-ONLY
+        // patch (iOS on every blur). Accepted and ignored. Delete this key and
+        // the no-op branch below once CLIENT_MIN_VERSION_IOS ≥ 0.14.39,
+        // CLIENT_MIN_VERSION_ANDROID ≥ 0.14.40 and
+        // CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47.
+        budget: z.unknown().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -645,21 +730,22 @@ export const workflowsRouter = router({
         (row) => row.issueId === input.issueId || row.members.includes(input.issueId)
       )
       if (!node) throw bad(`That issue is not part of the workflow`)
-      // Kind and touches shape the PLAN; risk and budget stay adjustable.
+      // Kind and touches shape the PLAN; risk stays adjustable.
       if (input.kind !== undefined || input.touches !== undefined) {
         assertDraft(existing.status, `Re-planning a node`)
       }
+      const patch = {
+        ...(input.kind !== undefined && { kind: input.kind }),
+        ...(input.risk !== undefined && { risk: input.risk }),
+        ...(input.touches !== undefined && { touches: input.touches }),
+      }
       return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx
-          .update(workflowNodes)
-          .set({
-            ...(input.kind !== undefined && { kind: input.kind }),
-            ...(input.risk !== undefined && { risk: input.risk }),
-            ...(input.touches !== undefined && { touches: input.touches }),
-            ...(input.budget !== undefined && { budget: input.budget }),
-          })
-          .where(eq(workflowNodes.id, node.id))
+        // compat: nothing left to write (the budget-only patch above) — an
+        // empty `.set({})` throws drizzle's "No values to set". Same return.
+        if (Object.keys(patch).length > 0) {
+          await tx.update(workflowNodes).set(patch).where(eq(workflowNodes.id, node.id))
+        }
         return { txId, nodeId: node.id }
       })
     }),
@@ -1024,7 +1110,11 @@ export const workflowsRouter = router({
     .input(
       z.object({
         nodeId: z.string().uuid(),
-        state: wfNodeStateSchema,
+        // compat: a desktop/CLI ≤0.14.46 engine can still report the dropped
+        // `paused` (a budget trip between migration 0134 and its shape
+        // refetch); it is written as `failed` below. Delete the `.or` and the
+        // mapping once CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47.
+        state: wfNodeStateSchema.or(z.literal(`paused`)),
         sessionId: z.string().uuid().nullable().optional(),
         baseBranch: z.string().max(255).nullable().optional(),
         attempt: z.number().int().min(0).max(99).optional(),
@@ -1037,37 +1127,46 @@ export const workflowsRouter = router({
       const node = await loadNode(input.nodeId)
       const workflow = await loadWorkflow(node.workflowId)
       await assertEngine(workflow, ctx.session.user.id)
+      // compat: see the input — `paused` no longer exists; `failed` is the
+      // state that offers what it offered (Retry / Skip).
+      const state = input.state === `paused` ? `failed` : input.state
       // A landed node is final and only `landNode` makes one; a skipped one
       // is a person's call the engine never takes back.
       if (
         node.state === `landed` ||
         node.state === `skipped` ||
-        input.state === `landed` ||
-        input.state === `skipped`
+        state === `landed` ||
+        state === `skipped`
       ) {
         return { updated: false }
       }
-      await ctx.db
+      // EXP-1007: the read above and this write are not one transaction —
+      // `landNode` can land the node in between. The WHERE repeats the
+      // guard so a late report never takes a landing back.
+      const rows = await ctx.db
         .update(workflowNodes)
         .set({
-          state: input.state,
+          state,
           ...(input.sessionId !== undefined && { sessionId: input.sessionId }),
           ...(input.baseBranch !== undefined && { baseBranch: input.baseBranch }),
           ...(input.attempt !== undefined && { attempt: input.attempt }),
+          // compat: a `paused` node was HELD for a person, and the engine
+          // restarts a `failed` one whose attempt is ≤ 1 — past the free retry.
+          ...(input.state === `paused` && {
+            attempt: sql`GREATEST(${input.attempt ?? workflowNodes.attempt}, 2)`,
+          }),
           ...(input.note !== undefined && { note: input.note }),
           ...(input.afterNodeIds !== undefined && { afterNodeIds: input.afterNodeIds }),
         })
-        .where(eq(workflowNodes.id, input.nodeId))
-      // EXP-984: the engine paused the node over its budget. A paused node
-      // does nothing until a person looks, so it says so ONCE, on the edge.
-      if (input.state === `paused` && node.state !== `paused`) {
-        await ctx.db
-          .update(workflows)
-          .set({ metrics: bumpMetrics({ budgetPauses: 1 }) })
-          .where(eq(workflows.id, workflow.id))
-        await notifyNodePaused(workflow, node.issueId, input.note ?? null)
-      }
-      return { updated: true }
+        .where(
+          and(
+            eq(workflowNodes.id, input.nodeId),
+            notInArray(workflowNodes.state, [`landed`, `skipped`])
+          )
+        )
+        .returning({ id: workflowNodes.id })
+      // Whether the guard let the write through, not whether it was tried.
+      return { updated: rows.length > 0 }
     }),
 
   /** ENGINE: the merge train's one step — squash-merge this node's PR into
@@ -1084,37 +1183,44 @@ export const workflowsRouter = router({
       if (workflow.status !== `running`) {
         return { merged: false, reason: `The workflow is not running`, retargeted: [] as string[] }
       }
-      if (nodeNeedsApproval(workflow.gate, node.kind) && !node.approvedAt) {
-        return { merged: false, reason: `Waiting for a person to approve`, retargeted: [] as string[] }
-      }
-      // EXP-983: with speculative starts a dependent's PR can be up before
-      // its blocker landed. The train lands in TOPOLOGICAL order, always.
-      const graph = await loadWorkflowEdges(ctx.db, workflow.id)
-      const stateOf = new Map(graph.nodes.map((row) => [row.id, row.state]))
-      const waitsOn = graph.edges
-        .filter(([, to]) => to === node.id)
-        .some(([from]) => {
-          const state = stateOf.get(from)
-          return state !== `landed` && state !== `skipped`
-        })
-      if (waitsOn) {
-        return {
-          merged: false,
-          reason: `Waiting for its blockers to land`,
-          retargeted: [] as string[],
-        }
-      }
-      // Merged already (a person pressed Merge on GitHub, or the webhook
-      // beat this call): the train's step is done.
+      // Merged already (a person pressed Merge on GitHub or in Reviews, or
+      // the webhook beat this call): the train's step is done. EXP-1007:
+      // this is read BEFORE the gate and the landing order — both guard a
+      // merge that has not happened yet, and a node whose code is in the
+      // integration branch but can never be approved (the web offers Approve
+      // only while it is `in_review`) would otherwise sit there for ever.
       const [issue] = await ctx.db
         .select({ prState: issues.prState })
         .from(issues)
         .where(eq(issues.id, node.issueId))
         .limit(1)
+      const merged = issue?.prState === `merged`
+      if (!merged && nodeNeedsApproval(workflow.gate, node.kind) && !node.approvedAt) {
+        return { merged: false, reason: `Waiting for a person to approve`, retargeted: [] as string[] }
+      }
+      // EXP-983: with speculative starts a dependent's PR can be up before
+      // its blocker landed. The train lands in TOPOLOGICAL order, always.
+      if (!merged) {
+        const graph = await loadWorkflowEdges(ctx.db, workflow.id)
+        const stateOf = new Map(graph.nodes.map((row) => [row.id, row.state]))
+        const waitsOn = graph.edges
+          .filter(([, to]) => to === node.id)
+          .some(([from]) => {
+            const state = stateOf.get(from)
+            return state !== `landed` && state !== `skipped`
+          })
+        if (waitsOn) {
+          return {
+            merged: false,
+            reason: `Waiting for its blockers to land`,
+            retargeted: [] as string[],
+          }
+        }
+      }
       const { issuesRouter } = await import(`@/lib/trpc/issues`)
       const { ensureNodePrOnIntegrationBranch } = await import(`@/lib/workflow-final-pr`)
       try {
-        if (issue?.prState === `merged`) {
+        if (merged) {
           // fall through to the landed write below
         } else {
           // The PR must be based on the integration branch, or the squash

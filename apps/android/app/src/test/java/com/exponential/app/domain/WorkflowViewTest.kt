@@ -340,6 +340,7 @@ class WorkflowViewTest {
         assertEquals("Merge train", WorkflowView.MERGE_TRAIN_TITLE)
         assertEquals("Nothing is waiting to land.", WorkflowView.MERGE_TRAIN_EMPTY)
         assertEquals("Final pull request", WorkflowView.FINAL_PR_TITLE)
+        assertEquals("Running now", WorkflowView.RUNNING_NOW_LABEL)
         assertEquals("Retry", WorkflowView.RETRY_NODE_LABEL)
         assertEquals("Skip", WorkflowView.SKIP_NODE_LABEL)
         assertEquals(
@@ -420,10 +421,11 @@ class WorkflowViewTest {
         )
         assertEquals("Agent review", WorkflowView.AGENT_REVIEW_TITLE)
         assertEquals("Review model", WorkflowView.REVIEW_MODEL_LABEL)
-        assertEquals("Budget", WorkflowView.BUDGET_TITLE)
-        assertEquals("Minutes", WorkflowView.BUDGET_MINUTES_LABEL)
-        assertEquals("Tokens", WorkflowView.BUDGET_TOKENS_LABEL)
         assertEquals("Metrics", WorkflowView.METRICS_TITLE)
+        assertEquals("Contract model", WorkflowView.CONTRACT_MODEL_LABEL)
+        assertEquals("Integration model", WorkflowView.INTEGRATION_MODEL_LABEL)
+        assertEquals("High-risk model", WorkflowView.RISK_MODEL_LABEL)
+        assertEquals("Same as Model", WorkflowView.SAME_AS_MODEL_LABEL)
     }
 
     @Test

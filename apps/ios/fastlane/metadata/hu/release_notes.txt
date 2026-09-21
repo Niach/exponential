@@ -1,8 +1,4 @@
-- Workflows: egy tároló backlog-issue-it egyetlen gráfként tervezed meg, ki mit blokkol, és egy géppel párhuzamosan futtatod; a Workflows az Agent oldal egyik gombja mögött ül
-- A workflow maga viszi végig a munkát: a csomópontok akkor indulnak, amikor a blokkolóik beérkeznek, a pull requestek függőségi sorrendben olvadnak a workflow ágába, és egy záró pull request viszi az egész diffet
-- A workflow ellenőrzi magát: külön futás nézi át minden pull requestjét, egy követő issue menet közben is csatlakozhat, a keretét túllépő csomópont pedig megáll és rád vár
-- Al-issue-k és blokkolók minden listában: az al-issue a szülője alatt ül egy összekötő vonalon, egy jelvény pedig számolja, mi blokkolja a sort, és megnyitja a függőségi gráfot
-- Egy blokkolt issue indítása a teljes láncot mutatja, és felkínálja a Cancel, a Start anyway vagy az egymásra épülő pull request lehetőséget, és megmondja, miért nem megy a stack
-- A korlátjába ütköző futás push üzenetet és egy postaláda-sort küld, ami megnyitja; az értesítési beállításokban, a Blocked runs alatt kapcsolható ki
-- Az Agent oldalon a korábbi futások egy előzmények gomb mögé kerültek, a csevegés és a New issue gomb pedig minden fülön ott van a fülsávban
-- A boardváltó csak csapatokat és boardokat sorol, és az issue-ból nyitott futás már nem mutat üres képernyőt, amíg meg nem húzod
+- Workflows: az a csomópont, amelynek a futása él, annak a futásnak a saját állapotpontját viseli, a hullámok fölötti Running now sáv pedig egy koppintással megnyit minden élő futást
+- A workflow-ok a szerződéses, az integrációs és a magas kockázatú csomópontjaikat saját modellen futtathatják (a weben vagy az asztali alkalmazásban választod ki), és ha telefonon szerkeszted a workflow-t, ezek a választások megmaradnak
+- A csomópont paneljén az issue jelvénye megnyitja az issue-t; a csomópontkeretek és a szüneteltetett csomópont állapota megszűntek
+- A workflow már nem akad el, ha egy csomópont pull requestjét rajta kívül olvasztják be, és az indulásban elbukó csomópontot egyszer próbálja újra, nem végtelenül

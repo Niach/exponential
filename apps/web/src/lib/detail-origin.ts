@@ -12,10 +12,8 @@
 // EXP-851 made the token the only input: `?from=` decides the sidebar occupant
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
 // `board:<slug>`, `inbox`, `inbox:my-issues`, `support`, `agent`, `reviews`,
-// `automations` (EXP-862) — plus two legacy spellings that still parse:
-// `sessions` (the old `agent`) and `issue:<board>:<identifier>`, which reads
-// as its board's list since EXP-870 made a run ONE URL (`/sessions/$id`) and
-// retired the issue-scoped session route that origin existed for.
+// `automations` (EXP-862) — plus one legacy spelling that still parses:
+// `sessions` (the old `agent`).
 // Pure, so every combination is a test.
 
 /** The list a detail sits beside / returns to. */
@@ -174,8 +172,7 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
 
 /** The inverse. Anything unrecognised is "no origin" — a link is a shortcut,
  * not a guarantee (`lib/launch-seed.ts`'s rule). `sessions` is the legacy
- * spelling of `agent` (EXP-818 links still in the wild), and EXP-870 reads a
- * legacy `issue:<board>:<identifier>` as that board's list. */
+ * spelling of `agent` (EXP-818 links still in the wild). */
 export function parseOrigin(
   value: string | null | undefined
 ): DetailOrigin | null {
@@ -189,8 +186,6 @@ export function parseOrigin(
   if (value === `running`) return { kind: `running` }
   const board = value.match(/^board:([^:]+)$/)
   if (board) return { kind: `board`, boardSlug: board[1] }
-  const issue = value.match(/^issue:([^:]+):([^:]+)$/)
-  if (issue) return { kind: `board`, boardSlug: issue[1] }
   return null
 }
 

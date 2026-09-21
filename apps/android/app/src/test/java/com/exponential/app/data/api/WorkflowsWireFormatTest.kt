@@ -1,11 +1,14 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.domain.WorkflowLaunch
-import com.exponential.app.domain.WorkflowNodeBudget
+import com.exponential.app.domain.workflowLaunch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -96,7 +99,8 @@ class WorkflowsWireFormatTest {
         )
         assertEquals(
             """{"id":"wf-1","launch":{"agent":"claude","model":"opus","subagentModel":"fable",""" +
-                """"effort":"high","account":"profile-2","maxParallel":5,"reviewModel":"fable"},""" +
+                """"effort":"high","account":"profile-2","maxParallel":5,"reviewModel":"fable",""" +
+                """"contractModel":null,"integrationModel":null,"riskModel":null},""" +
                 """"gate":"agent","startOn":"pr_open"}""",
             full,
         )
@@ -112,11 +116,79 @@ class WorkflowsWireFormatTest {
                 startOn = null,
             ),
         )
-        assertEquals("""{"id":"wf-1","launch":{"maxParallel":3}}""", bare)
+        assertEquals(
+            """{"id":"wf-1","launch":{"maxParallel":3,"contractModel":null,""" +
+                """"integrationModel":null,"riskModel":null}}""",
+            bare,
+        )
         assertFalse(bare.contains("subagentModel"))
         // EXP-984: "" means "the engine picks the review model", which is the
         // ABSENT key — the server checks it against the model vocabulary.
         assertFalse(bare.contains("reviewModel"))
+    }
+
+    /**
+     * EXP-1002: the router replaces the WHOLE `launch`, and for the three phase
+     * pins it reads absent = keep, null = clear, string = set. This client
+     * always states all three, so a phone edit of another option carries the
+     * pins web/desktop set, and "no pin" arrives as an explicit null.
+     */
+    @Test
+    fun `launch always states the three phase models, null when unpinned`() {
+        val stored = workflowLaunch(
+            """{"agent":"claude","model":"opus","maxParallel":2,""" +
+                """"contractModel":"fable","riskModel":"opus","someFutureKey":1}""",
+        )
+        // The edit the phone makes: one OTHER option.
+        val edited = stored.copy(effort = "high", maxParallel = 4)
+        assertEquals("fable", edited.contractModel)
+        assertNull(edited.integrationModel)
+        assertEquals("opus", edited.riskModel)
+
+        val patch = updateWorkflowInput(
+            id = "wf-1",
+            name = null,
+            deviceId = null,
+            clearDevice = false,
+            launch = edited,
+            gate = null,
+            startOn = null,
+        )
+        val launch = patch["launch"] as JsonObject
+        assertEquals(JsonPrimitive("fable"), launch["contractModel"])
+        assertTrue(launch.containsKey("integrationModel"))
+        assertEquals(JsonNull, launch["integrationModel"])
+        assertEquals(JsonPrimitive("opus"), launch["riskModel"])
+
+        // An agent switch drops the pins (they are the OLD agent's models) —
+        // as explicit nulls, never as absent keys the server would "keep".
+        val switched = updateWorkflowInput(
+            id = "wf-1",
+            name = null,
+            deviceId = null,
+            clearDevice = false,
+            launch = edited.copy(agent = "codex", model = "", effort = "").withoutPhaseModels(),
+            gate = null,
+            startOn = null,
+        )["launch"] as JsonObject
+        for (key in listOf("contractModel", "integrationModel", "riskModel")) {
+            assertEquals(JsonNull, switched[key])
+        }
+    }
+
+    @Test
+    fun `launch decodes with and without the phase models`() {
+        val without = workflowLaunch("""{"agent":"claude","model":"opus"}""")
+        assertNull(without.contractModel)
+        assertNull(without.integrationModel)
+        assertNull(without.riskModel)
+
+        val with = workflowLaunch(
+            """{"contractModel":"fable","integrationModel":null,"riskModel":""}""",
+        )
+        assertEquals("fable", with.contractModel)
+        assertNull(with.integrationModel)
+        assertNull(with.riskModel)
     }
 
     @Test
@@ -149,66 +221,7 @@ class WorkflowsWireFormatTest {
         assertTrue(plan.indexOf("\"touches\"") > plan.indexOf("\"kind\""))
     }
 
-    // ── Review gate, dynamic graphs, budgets (EXP-984) ──────────────────────
-
-    @Test
-    fun `a budget patch omits an empty bound and clears with an explicit null`() {
-        val both = encode(
-            updateWorkflowNodeInput(
-                workflowId = "wf-1",
-                issueId = "issue-1",
-                kind = null,
-                risk = null,
-                touches = null,
-                budget = WorkflowNodeBudget(tokens = 120_000, minutes = 30),
-            ),
-        )
-        assertEquals(
-            """{"workflowId":"wf-1","issueId":"issue-1","budget":{"tokens":120000,"minutes":30}}""",
-            both,
-        )
-
-        val minutesOnly = encode(
-            updateWorkflowNodeInput(
-                workflowId = "wf-1",
-                issueId = "issue-1",
-                kind = null,
-                risk = null,
-                touches = null,
-                budget = WorkflowNodeBudget(minutes = 45),
-            ),
-        )
-        assertEquals(
-            """{"workflowId":"wf-1","issueId":"issue-1","budget":{"minutes":45}}""",
-            minutesOnly,
-        )
-
-        // Both fields emptied: `budget` is the ONE key whose explicit null
-        // clears, exactly like `deviceId` unbinds the runner.
-        val cleared = encode(
-            updateWorkflowNodeInput(
-                workflowId = "wf-1",
-                issueId = "issue-1",
-                kind = null,
-                risk = null,
-                touches = null,
-                clearBudget = true,
-            ),
-        )
-        assertEquals("""{"workflowId":"wf-1","issueId":"issue-1","budget":null}""", cleared)
-
-        // Nothing said about the budget leaves it alone.
-        val untouched = encode(
-            updateWorkflowNodeInput(
-                workflowId = "wf-1",
-                issueId = "issue-1",
-                kind = null,
-                risk = "low",
-                touches = null,
-            ),
-        )
-        assertFalse(untouched.contains("budget"))
-    }
+    // ── Review gate, dynamic graphs (EXP-984) ───────────────────────────────
 
     @Test
     fun `admitting and dismissing a proposal differ only in the boolean`() {

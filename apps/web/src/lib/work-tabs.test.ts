@@ -50,13 +50,11 @@ describe(`routePathFromLocation`, () => {
     })
   })
 
-  it(`is null everywhere else, legacy redirects included`, () => {
+  it(`is null everywhere else`, () => {
     for (const path of [
       `/t/acme`,
       `/t/acme/inbox`,
       `/t/acme/boards/web`,
-      `/t/acme/boards/web/issues/MET-1/session`,
-      `/t/acme/sessions/s1/issue`,
       `/t/acme/settings/general`,
       `/onboarding`,
     ]) {

@@ -943,8 +943,22 @@
     {
       "idx": 134,
       "version": "7",
-      "when": 1789841773786,
-      "tag": "0134_device_mcp_servers",
+      "when": 1789915720551,
+      "tag": "0134_drop_workflow_node_budget",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1789915721551,
+      "tag": "0135_drop_workflow_node_paused",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1790015877336,
+      "tag": "0136_device_mcp_servers",
       "breakpoints": true
     }
   ]

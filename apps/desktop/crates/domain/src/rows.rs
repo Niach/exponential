@@ -1264,9 +1264,6 @@ pub struct WorkflowNodeRow {
     /// EXP-982: why the node is `failed` / `waiting`, in one sentence.
     #[serde(default)]
     pub note: Option<String>,
-    /// jsonb `WorkflowNodeBudget` (`tokens`/`minutes`); `None` = unbounded.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub budget: Option<serde_json::Value>,
     /// The path globs this node expects to change — a Postgres `text[]` cell,
     /// parsed like `IssueDraftRow::label_ids`.
     #[serde(default, deserialize_with = "tolerant_id_list")]
@@ -1357,22 +1354,6 @@ impl WorkflowNodeRow {
                 .filter(|head| !head.is_empty())
                 .map(str::to_string),
         })
-    }
-
-    /// EXP-984: the node's budget, in whole minutes and tokens. Either half
-    /// may be absent, and a blob that is neither reads as no budget at all.
-    pub fn budget_limits(&self) -> (Option<i64>, Option<i64>) {
-        let budget = match self.budget.as_ref() {
-            Some(budget) if budget.is_object() => budget,
-            _ => return (None, None),
-        };
-        let read = |key: &str| {
-            budget
-                .get(key)
-                .and_then(serde_json::Value::as_i64)
-                .filter(|value| *value > 0)
-        };
-        (read("minutes"), read("tokens"))
     }
 }
 

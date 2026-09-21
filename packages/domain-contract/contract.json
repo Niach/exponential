@@ -239,8 +239,7 @@
       "updating",
       "landed",
       "failed",
-      "skipped",
-      "paused"
+      "skipped"
     ]
   },
   "wfNodeKind": {

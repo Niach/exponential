@@ -23,7 +23,7 @@ object DomainContract {
     val notificationTypeValues: List<String> = listOf("issue_assigned", "issue_comment", "issue_status_changed", "issue_mention", "issue_created", "pr_opened", "pr_merged", "support_reply", "agent_message", "session_blocked")
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val wfStatusValues: List<String> = listOf("draft", "running", "paused", "done", "cancelled")
-    val wfNodeStateValues: List<String> = listOf("proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped", "paused")
+    val wfNodeStateValues: List<String> = listOf("proposed", "blocked", "ready", "running", "waiting", "in_review", "updating", "landed", "failed", "skipped")
     val wfNodeKindValues: List<String> = listOf("contract", "leaf", "integration")
     val wfGateValues: List<String> = listOf("none", "agent", "human")
     val wfStartOnValues: List<String> = listOf("contract", "pr_open", "landed")
@@ -170,7 +170,6 @@ object DomainContract {
     const val wfNodeStateLanded: String = "landed"
     const val wfNodeStateFailed: String = "failed"
     const val wfNodeStateSkipped: String = "skipped"
-    const val wfNodeStatePaused: String = "paused"
     const val wfNodeKindContract: String = "contract"
     const val wfNodeKindLeaf: String = "leaf"
     const val wfNodeKindIntegration: String = "integration"

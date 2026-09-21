@@ -750,7 +750,7 @@ pub(crate) fn git_output(
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    command.output().map_err(|e| GitError {
+    let spawn_error = |e: std::io::Error| GitError {
         op: op.to_string(),
         detail: if e.kind() == std::io::ErrorKind::NotFound {
             "git not found on PATH".to_string()
@@ -760,7 +760,117 @@ pub(crate) fn git_output(
                 None => e.to_string(),
             }
         },
+    };
+    let Some(limit) = network_timeout(args) else {
+        return command.output().map_err(spawn_error);
+    };
+    output_within(command, limit).map_err(spawn_error)?.ok_or_else(|| GitError {
+        op: op.to_string(),
+        detail: format!("timed out after {}s", limit.as_secs()),
     })
+}
+
+/// How long one NETWORK git op may take, `None` for everything local (and for
+/// `clone`, whose size nobody bounds). A git that already died can hang for
+/// ever in its exit handler waiting on a `git-remote-https` whose socket is
+/// long closed; with no bound that froze the workflow engine, which awaits
+/// its passes one after the other.
+fn network_timeout(args: &[&str]) -> Option<std::time::Duration> {
+    let seconds = match git_subcommand(args)? {
+        "ls-remote" => 120,
+        "fetch" | "push" | "pull" => 600,
+        _ => return None,
+    };
+    Some(std::time::Duration::from_secs(seconds))
+}
+
+/// The git SUBCOMMAND of an argv: the first word that is neither a global
+/// option nor the value of one. `-c k=v`, `-C <dir>` and the long options
+/// spelled with a separate value take the next word along; `--git-dir=<p>`
+/// is one token and needs nothing. Without this `["-c", "k=v", "fetch"]`
+/// read `k=v` as the subcommand and ran unbounded.
+fn git_subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+    const TAKES_VALUE: [&str; 6] = [
+        "-c",
+        "-C",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--config-env",
+    ];
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        if !arg.starts_with('-') {
+            return Some(arg);
+        }
+        if TAKES_VALUE.contains(arg) {
+            args.next();
+        }
+    }
+    None
+}
+
+/// `Command::output` with a deadline: `Ok(None)` = killed at `limit`. The
+/// child leads its own process group (unix), so the kill takes the transport
+/// helper with it; the pipes are drained on threads that are NOT joined after
+/// a kill, because an orphan could still hold their write end.
+fn output_within(
+    mut command: std::process::Command,
+    limit: std::time::Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        command.process_group(0);
+    }
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            let _ = sender.send(bytes);
+        });
+        receiver
+    };
+    let stdout = drain(child.stdout.take().map(|pipe| Box::new(pipe) as _));
+    let stderr = drain(child.stderr.take().map(|pipe| Box::new(pipe) as _));
+
+    let deadline = std::time::Instant::now() + limit;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            #[cfg(unix)]
+            // SAFETY: a plain signal send; the pid is our own live child's,
+            // which leads the group `process_group(0)` created.
+            unsafe {
+                libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+    // The child exited: its pipes close with it, bar a lingering helper —
+    // which is why even this read is bounded.
+    let grace = std::time::Duration::from_secs(5);
+    Ok(Some(std::process::Output {
+        status,
+        stdout: stdout.recv_timeout(grace).unwrap_or_default(),
+        stderr: stderr.recv_timeout(grace).unwrap_or_default(),
+    }))
 }
 
 /// A failed git command's diagnostic: stderr, falling back to stdout, falling
@@ -784,6 +894,51 @@ mod tests {
     use super::*;
     use std::process::Command;
     use std::fs;
+
+    // ---- the network deadline ----
+
+    #[test]
+    fn only_network_ops_are_bounded() {
+        assert!(network_timeout(&["fetch", "origin", "master"]).is_some());
+        assert!(network_timeout(&["ls-remote", "--heads", "origin", "exp/*"]).is_some());
+        assert!(network_timeout(&["push", "origin", "exp/EXP-1"]).is_some());
+        assert!(network_timeout(&["clone", "url", "dir"]).is_none());
+        assert!(network_timeout(&["rev-parse", "HEAD"]).is_none());
+    }
+
+    #[test]
+    fn a_global_options_value_is_not_the_subcommand() {
+        let bounded = |args: &[&str]| network_timeout(args).is_some();
+        assert!(bounded(&["-c", "credential.helper=", "fetch", "origin"]));
+        assert!(bounded(&["-C", "/repo", "-c", "k=v", "push", "origin", "exp/EXP-1"]));
+        assert!(bounded(&["--git-dir=/repo/.git", "ls-remote", "origin"]));
+        assert!(bounded(&["--git-dir", "/repo/.git", "pull"]));
+        assert!(bounded(&["--no-pager", "fetch"]));
+        // A value that merely NAMES a network op is still a value.
+        assert!(!bounded(&["-C", "fetch", "rev-parse", "HEAD"]));
+        assert!(!bounded(&["-c", "k=v", "rev-parse", "HEAD"]));
+        assert!(!bounded(&["-c", "k=v"]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hung_command_is_killed_at_the_deadline() {
+        let mut hung = Command::new("sh");
+        hung.args(["-c", "sleep 30 & wait"]);
+        let started = std::time::Instant::now();
+        let output = output_within(hung, std::time::Duration::from_millis(200)).unwrap();
+        assert!(output.is_none());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+
+        let mut quick = Command::new("sh");
+        quick.args(["-c", "echo out; echo err >&2; exit 3"]);
+        let output = output_within(quick, std::time::Duration::from_secs(10))
+            .unwrap()
+            .expect("finished");
+        assert_eq!(output.status.code(), Some(3));
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "out");
+        assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), "err");
+    }
 
     // ---- pure composition ----
 

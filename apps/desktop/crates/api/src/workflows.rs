@@ -17,14 +17,32 @@ use crate::trpc::TrpcClient;
 
 /// `workflows.launch` — what every node's run starts with. Every field is
 /// optional; an absent one falls back to the runner device's own defaults.
+///
+/// It serializes ONLY as `workflows.update`'s `launch`, and there the three
+/// EXP-1002 phase pins are a TRI-STATE server-side: key absent = keep the
+/// stored pin (a client that predates the keys must not wipe them), `null` =
+/// clear, a string = set. This client knows them, so it ALWAYS writes all
+/// three, `null` when unset — omitting one would make a cleared pin stick.
+/// Decoding stays tolerant (`default`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// The model every node's run spawns on, unless its PHASE overrides it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Claude only: the model its subagents run on.
+    /// EXP-1002: the model `contract` nodes run on. Absent = `model`.
+    #[serde(default)]
+    pub contract_model: Option<String>,
+    /// EXP-1002: the model `integration` nodes run on. Absent = `model`.
+    #[serde(default)]
+    pub integration_model: Option<String>,
+    /// EXP-1002: the model a `risk: high` node runs on, whatever its kind.
+    /// Absent = the node's phase model.
+    #[serde(default)]
+    pub risk_model: Option<String>,
+    /// Claude only: the model its SUBAGENTS run on — never the node run's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,23 +201,6 @@ pub struct WorkflowNodeUpdate {
     /// A whole-array replace; `Some(vec![])` deliberately CLEARS the globs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub touches: Option<Vec<String>>,
-    /// EXP-984: the node's budget, editable at ANY status ([`Patch::Null`]
-    /// clears it). Crossing either half pauses the node and notifies the
-    /// workflow's creator.
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub budget: Patch<NodeBudget>,
-}
-
-/// `workflow_nodes.budget` — whole minutes and whole tokens, each optional.
-/// Both absent is written as `budget: null` (a [`Patch::Null`]), never as an
-/// empty object the server would store as a budget of nothing.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct NodeBudget {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minutes: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tokens: Option<u32>,
 }
 
 /// The `workflows` cap a device advertises once it can run the engine
@@ -622,10 +623,48 @@ mod tests {
         assert!(waiting.is_waiting());
     }
 
-    /// EXP-984 — the review model rides the launch object, and a budget is a
-    /// TRI-STATE: omitted leaves it, `null` clears it, an object sets it.
+    /// EXP-1002: the three phase pins are ALWAYS on the wire, `null` when
+    /// unset — the server keeps a stored pin whose key is absent, so an
+    /// omitted key could never clear one.
     #[test]
-    fn the_review_model_and_the_budget_tristate_serialize() {
+    fn the_phase_pins_serialize_as_explicit_nulls() {
+        let mut input = WorkflowUpdate::new("wf-1");
+        input.launch = Some(WorkflowLaunch {
+            model: Some("opus".to_string()),
+            integration_model: Some("fable".to_string()),
+            ..WorkflowLaunch::default()
+        });
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(
+            json["launch"],
+            serde_json::json!({
+                "model": "opus",
+                "contractModel": null,
+                "integrationModel": "fable",
+                "riskModel": null,
+            }),
+            "every other unset field stays off the strict launch object"
+        );
+        // An empty launch still names all three.
+        let bare = serde_json::to_value(WorkflowLaunch::default()).unwrap();
+        assert_eq!(
+            bare,
+            serde_json::json!({
+                "contractModel": null,
+                "integrationModel": null,
+                "riskModel": null,
+            })
+        );
+        // Decoding stays tolerant: absent and null both read as unset.
+        for raw in [r#"{}"#, r#"{"contractModel":null,"riskModel":null}"#] {
+            let launch: WorkflowLaunch = serde_json::from_str(raw).unwrap();
+            assert_eq!(launch, WorkflowLaunch::default(), "{raw}");
+        }
+    }
+
+    /// EXP-984 — the review model rides the launch object.
+    #[test]
+    fn the_review_model_serializes() {
         let mut input = WorkflowUpdate::new("wf-1");
         input.launch = Some(WorkflowLaunch {
             model: Some("opus".to_string()),
@@ -634,21 +673,6 @@ mod tests {
         });
         let json = serde_json::to_string(&input).unwrap();
         assert!(json.contains(r#""reviewModel":"fable""#));
-
-        let untouched = WorkflowNodeUpdate::new("wf-1", "i-1");
-        assert!(!serde_json::to_string(&untouched).unwrap().contains("budget"));
-        let mut cleared = WorkflowNodeUpdate::new("wf-1", "i-1");
-        cleared.budget = crate::patch::Patch::Null;
-        assert!(serde_json::to_string(&cleared)
-            .unwrap()
-            .contains(r#""budget":null"#));
-        let mut set = WorkflowNodeUpdate::new("wf-1", "i-1");
-        set.budget = crate::patch::Patch::Set(NodeBudget {
-            minutes: Some(45),
-            tokens: None,
-        });
-        let json = serde_json::to_string(&set).unwrap();
-        assert!(json.contains(r#""budget":{"minutes":45}"#), "{json}");
     }
 
     #[test]
@@ -715,7 +739,6 @@ mod tests {
             "review": r#"{"verdict":"request_changes","findings":"src/a.rs:4 off by one",
                 "oracle":{"command":"cargo test -p coding","passed":false},
                 "model":"fable","round":2,"head":"0123abc","at":"2026-09-19T11:00:00.000Z"}"#,
-            "budget": r#"{"minutes":45,"tokens":0}"#,
         }))
         .unwrap();
         assert_eq!(row.review_count(), 2);
@@ -728,9 +751,6 @@ mod tests {
         // The commit the verdict is tied to; a row from before the field
         // simply carries none.
         assert_eq!(review.head.as_deref(), Some("0123abc"));
-        // A zero token budget is no budget at all (the server's schema is
-        // positive-only), so only the minutes survive.
-        assert_eq!(row.budget_limits(), (Some(45), None));
         assert_eq!(row.member_ids(), vec!["i-2", "i-3"]);
         assert_eq!(row.after_ids(), vec!["n-2"]);
         assert!(row.checkpoint_at.is_some());
@@ -750,9 +770,8 @@ mod tests {
         assert!(bare.touches.is_empty());
         assert!(bare.after_ids().is_empty());
         assert_eq!(bare.checkpoint_at, None);
-        // EXP-984: no review and no budget read as exactly that.
+        // EXP-984: no review reads as exactly that.
         assert_eq!(bare.review_count(), 0);
         assert_eq!(bare.review_facts(), None);
-        assert_eq!(bare.budget_limits(), (None, None));
     }
 }

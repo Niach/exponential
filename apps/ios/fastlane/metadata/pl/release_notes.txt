@@ -1,8 +1,4 @@
-- Workflows: zestaw issues z backlogu jednego repozytorium planujesz jako graf tego, co co blokuje, i pozwalasz maszynie puścić je równolegle; Workflows siedzi za przyciskiem na stronie Agent
-- Workflow sam domyka swoją pracę: węzły ruszają, gdy tylko wylądują ich blokady, pull requesty scalają się w kolejności zależności do gałęzi workflow, a jeden końcowy pull request niesie cały diff
-- Workflow sam się sprawdza: osobny przebieg przegląda każdy pull request, kolejne issue może dołączyć w biegu, a węzeł ponad swój budżet wstrzymuje się i czeka na ciebie
-- Podissues i blokady w każdej liście: podissue stoi pod swoim rodzicem na linii łączącej, a jedna plakietka liczy, co blokuje wiersz, i otwiera graf zależności
-- Uruchomienie zablokowanego issue pokazuje cały łańcuch i proponuje Cancel, Start anyway albo ułożony pull request, i mówi, czemu stack się nie da
-- Przebieg, który trafi na limit, wysyła ci push i wiersz w skrzynce, który go otwiera; wyłączysz to w ustawieniach powiadomień przy Blocked runs
-- Na stronie Agent minione przebiegi przeniosły się za przycisk historii, a przyciski czatu i New issue siedzą na pasku kart na każdej karcie
-- Przełącznik boardów wypisuje tylko zespoły i boardy, a przebieg otwarty z issue nie pokazuje już pustego ekranu, póki go nie pociągniesz
+- Workflows: węzeł, którego przebieg trwa, nosi kropkę stanu właśnie tego przebiegu, a pasek Running now nad falami otwiera każdy żywy przebieg jednym dotknięciem
+- Workflows potrafią puścić swoje węzły kontraktowe, integracyjne i wysokiego ryzyka na własnych modelach (wybierasz je w wersji webowej albo w aplikacji desktopowej), a edycja workflow na telefonie zachowuje te wybory
+- Plakietka issue w panelu węzła otwiera issue; budżety węzłów i wstrzymany stan węzła zniknęły
+- Workflow już się nie zacina, gdy pull request węzła zostanie scalony poza nim, a węzeł, któremu nie uda się wystartować, ponawia próbę raz zamiast bez końca

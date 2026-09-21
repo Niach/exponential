@@ -63,7 +63,6 @@ const STATE_LABELS: Record<string, string> = {
   landed: `Landed`,
   failed: `Failed`,
   skipped: `Skipped`,
-  paused: `Paused`,
 }
 
 const KIND_LABELS: Record<string, string> = {
@@ -202,6 +201,8 @@ export const WITHDRAW_APPROVAL_LABEL = `Withdraw approval`
 export const MERGE_TRAIN_TITLE = `Merge train`
 export const MERGE_TRAIN_EMPTY = `Nothing is waiting to land.`
 export const FINAL_PR_TITLE = `Final pull request`
+/** The strip over the graph that lists the runs that are up, one tap away. */
+export const RUNNING_NOW_LABEL = `Running now`
 
 export interface StartableWorkflow {
   status: string
@@ -354,16 +355,24 @@ export const CONTRACT_PUBLISHED_LABEL = `Contract published`
 export const MERGES_IN_FIRST_LABEL = `Merges in first`
 
 
-// ── Review gate, dynamic graphs, budgets, metrics (EXP-984) ─────────────────
+// ── Review gate, dynamic graphs, metrics (EXP-984) ─────────────────────────
 
 export const ADMIT_NODE_LABEL = `Admit`
 export const DISMISS_NODE_LABEL = `Dismiss`
 export const PROPOSED_NODE_NOTE = `Filed during the run. Admit it into the workflow or dismiss it.`
 export const AGENT_REVIEW_TITLE = `Agent review`
 export const REVIEW_MODEL_LABEL = `Review model`
-export const BUDGET_TITLE = `Budget`
-export const BUDGET_MINUTES_LABEL = `Minutes`
-export const BUDGET_TOKENS_LABEL = `Tokens`
+
+// ── Per-phase models (EXP-1002) ────────────────────────────────────────────
+
+/** The settings row pinning what a `contract` node runs on. */
+export const CONTRACT_MODEL_LABEL = `Contract model`
+/** The settings row pinning what an `integration` node runs on. */
+export const INTEGRATION_MODEL_LABEL = `Integration model`
+/** The settings row pinning what a `risk: high` node runs on, any kind. */
+export const RISK_MODEL_LABEL = `High-risk model`
+/** Both phase rows' blank pick: the workflow's own Model, not the CLI's. */
+export const SAME_AS_MODEL_LABEL = `Same as Model`
 export const METRICS_TITLE = `Metrics`
 
 export interface ReviewLine {
@@ -440,7 +449,5 @@ export function workflowMetricRows(metrics: Record<string, unknown>): MetricRow[
       value: `${byOracle} by checks · ${byAgent} by agent review`,
     })
   }
-  const pauses = count(metrics, `budgetPauses`)
-  if (pauses > 0) rows.push({ label: `Budget pauses`, value: `${pauses}` })
   return rows
 }

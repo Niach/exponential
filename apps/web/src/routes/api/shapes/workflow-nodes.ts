@@ -30,7 +30,6 @@ export const WORKFLOW_NODE_COLUMNS = [
   `review_round`,
   `review`,
   `note`,
-  `budget`,
   `touches`,
   `created_at`,
   `updated_at`,

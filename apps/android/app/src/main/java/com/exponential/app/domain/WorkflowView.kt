@@ -85,7 +85,6 @@ object WorkflowView {
         DomainContract.wfNodeStateLanded to "Landed",
         DomainContract.wfNodeStateFailed to "Failed",
         DomainContract.wfNodeStateSkipped to "Skipped",
-        DomainContract.wfNodeStatePaused to "Paused",
     )
 
     private val KIND_LABELS = mapOf(
@@ -247,6 +246,9 @@ object WorkflowView {
     const val MERGE_TRAIN_TITLE = "Merge train"
     const val MERGE_TRAIN_EMPTY = "Nothing is waiting to land."
     const val FINAL_PR_TITLE = "Final pull request"
+
+    /** The strip over the graph that lists the runs that are up, one tap away. */
+    const val RUNNING_NOW_LABEL = "Running now"
 
     /** The four fields Start is judged on, off the synced workflow row. */
     data class Startable(
@@ -422,10 +424,16 @@ object WorkflowView {
         "Filed during the run. Admit it into the workflow or dismiss it."
     const val AGENT_REVIEW_TITLE = "Agent review"
     const val REVIEW_MODEL_LABEL = "Review model"
-    const val BUDGET_TITLE = "Budget"
-    const val BUDGET_MINUTES_LABEL = "Minutes"
-    const val BUDGET_TOKENS_LABEL = "Tokens"
     const val METRICS_TITLE = "Metrics"
+
+    // ── Per-phase models (EXP-1002) ─────────────────────────────────
+
+    /** What a `contract` / `integration` node runs on, and the blank pick
+     * both rows carry: the workflow's own Model, never the CLI's default. */
+    const val CONTRACT_MODEL_LABEL = "Contract model"
+    const val INTEGRATION_MODEL_LABEL = "Integration model"
+    const val RISK_MODEL_LABEL = "High-risk model"
+    const val SAME_AS_MODEL_LABEL = "Same as Model"
 
     /**
      * The three fields [reviewLine] reads off `workflow_nodes.review`.
@@ -518,8 +526,6 @@ object WorkflowView {
                 ),
             )
         }
-        val pauses = count("budgetPauses")
-        if (pauses > 0) rows.add(MetricRow("Budget pauses", "$pauses"))
         return rows
     }
 

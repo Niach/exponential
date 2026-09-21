@@ -7,6 +7,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.WorkflowsApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
@@ -14,11 +15,13 @@ import com.exponential.app.data.db.WorkflowEntity
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkflowLaunch
-import com.exponential.app.domain.WorkflowNodeBudget
 import com.exponential.app.domain.WorkflowView
+import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.edgeNode
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.metricCounters
@@ -52,12 +55,34 @@ import kotlinx.coroutines.launch
 // server's layout, and the edges come from the shared rule
 // ([WorkflowView.edges]) over the synced relations.
 
+/**
+ * EXP-982 — one node's coding run as the graph and the sheet read it: where a
+ * tap goes, and what the dot says (the ONE session tone table every session
+ * list paints with). `live` is the row's status alone — a run the engine lost
+ * is reported by the NODE's own state, never by a stale dot.
+ */
+data class WorkflowNodeRun(
+    val sessionId: String,
+    val live: Boolean,
+    val tone: SessionDotTone,
+    /** The agent is mid-turn: the dot pulses (EXP-848). */
+    val busy: Boolean,
+)
+
 /** The graph as the screen draws it: nodes in layout order plus their edges. */
 data class WorkflowGraph(
     val nodes: List<WorkflowNodeEntity> = emptyList(),
     val edges: List<WorkflowView.Edge> = emptyList(),
     val issuesById: Map<String, IssueEntity> = emptyMap(),
-)
+    /** `node id → its run`, for every node whose session row has synced. */
+    val runsByNodeId: Map<String, WorkflowNodeRun> = emptyMap(),
+) {
+    /** The runs that are UP, in the graph's own (wave, lane) order. */
+    val liveRuns: List<Pair<WorkflowNodeEntity, WorkflowNodeRun>>
+        get() = nodes.mapNotNull { node ->
+            runsByNodeId[node.id]?.takeIf { it.live }?.let { node to it }
+        }
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -102,18 +127,53 @@ class WorkflowDetailViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // EXP-982: the run each started node is in — a node that is up wears its
+    // session's own dot, and the Running strip opens it. Every synced row: a
+    // node's run can be a batch session, which is scoped to no single issue.
+    private val sessions: StateFlow<List<CodingSessionEntity>> =
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     val graph: StateFlow<WorkflowGraph> = combine(
         nodes,
         relations,
         allIssues,
         workflow,
-    ) { nodeRows, relationRows, issues, row ->
+        sessions,
+    ) { nodeRows, relationRows, issues, row, sessionRows ->
         // The covered issues of THIS workflow; a relation with an end outside
         // them is somebody else's edge.
         val covered = HashSet<String>()
         nodeRows.forEach { node ->
             covered.add(node.issueId)
             covered.addAll(node.memberIssueIds)
+        }
+        val issuesById = issues.filter { it.id in covered }.associateBy { it.id }
+        val sessionsById = sessionRows.associateBy { it.id }
+        val runs = HashMap<String, WorkflowNodeRun>()
+        nodeRows.forEach { node ->
+            val session = node.sessionId?.takeIf { it.isNotBlank() }?.let { sessionsById[it] }
+                ?: return@forEach
+            val live = session.status == DomainContract.codingSessionStatusRunning ||
+                session.status == DomainContract.codingSessionStatusInReview
+            val state = codingSessionDisplayState(session, issuesById[node.issueId]?.prState)
+            runs[node.id] = WorkflowNodeRun(
+                sessionId = session.id,
+                live = live,
+                // An ended run keeps its row (Open run still works) but never a
+                // live tone: the strip lists what is up, nothing else.
+                tone = if (!live) {
+                    SessionDotTone.Muted
+                } else {
+                    when (state) {
+                        CodingSessionDisplayState.Running -> SessionDotTone.Running
+                        CodingSessionDisplayState.NeedsInput -> SessionDotTone.NeedsInput
+                        CodingSessionDisplayState.Review -> SessionDotTone.Review
+                        CodingSessionDisplayState.Done -> SessionDotTone.Done
+                    }
+                },
+                busy = live && state == CodingSessionDisplayState.Running && session.agentBusy,
+            )
         }
         WorkflowGraph(
             nodes = nodeRows,
@@ -130,7 +190,8 @@ class WorkflowDetailViewModel @Inject constructor(
                     },
                 cycleEdges = row?.shape?.cycleEdges.orEmpty(),
             ),
-            issuesById = issues.filter { it.id in covered }.associateBy { it.id },
+            issuesById = issuesById,
+            runsByNodeId = runs,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowGraph())
 
@@ -228,26 +289,6 @@ class WorkflowDetailViewModel @Inject constructor(
     fun updateNode(issueId: String, kind: String? = null, risk: String? = null) {
         mutate("The node could not be updated") { accountId ->
             workflowsApi.updateNode(accountId, workflowId, issueId, kind = kind, risk = risk)
-        }
-    }
-
-    /**
-     * EXP-984: the node's budget — crossing either bound pauses the run and
-     * notifies the workflow's creator. Both fields empty CLEARS it (the
-     * explicit null the router reads as "no budget"), and it stays editable at
-     * any status.
-     */
-    fun setNodeBudget(issueId: String, minutes: Int?, tokens: Int?) {
-        val budget = WorkflowNodeBudget(tokens = tokens, minutes = minutes)
-        val empty = budget.tokens == null && budget.minutes == null
-        mutate("The budget could not be saved") { accountId ->
-            workflowsApi.updateNode(
-                accountId,
-                workflowId,
-                issueId,
-                budget = budget.takeUnless { empty },
-                clearBudget = empty,
-            )
         }
     }
 

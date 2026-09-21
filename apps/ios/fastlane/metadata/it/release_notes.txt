@@ -1,8 +1,4 @@
-- Workflows: pianifica un insieme di issue del backlog di un repository come un grafo di cosa blocca cosa, e lascia che una macchina le esegua in parallelo; Workflows sta dietro un pulsante nella pagina Agent
-- Un workflow porta a termine il proprio lavoro: i nodi partono appena atterrano i loro bloccanti, le pull request si fondono in ordine di dipendenza nel ramo del workflow, e una pull request finale porta tutto il diff
-- I workflow si controllano da soli: un'esecuzione a parte rivede ogni pull request, un issue di seguito può unirsi in corsa, e un nodo oltre il suo budget si mette in pausa e ti aspetta
-- Sotto-issue e bloccanti in ogni elenco: un sotto-issue sta sotto il suo genitore su una linea di collegamento, e un distintivo conta cosa blocca la riga e apre il grafo delle dipendenze
-- Avviare un issue bloccato mostra tutta la catena e offre Cancel, Start anyway o una pull request impilata, e dice perché uno stack non è possibile
-- Un'esecuzione che tocca il limite ti manda una push e una riga in posta che la apre; si spegne nelle impostazioni delle notifiche, Blocked runs
-- Nella pagina Agent le esecuzioni passate stanno dietro un pulsante di cronologia, e i pulsanti chat e New issue stanno nella barra delle schede su ogni scheda
-- Il selettore di board elenca solo team e board, e un'esecuzione aperta da un issue non mostra più una schermata vuota finché non la trascini
+- Workflows: un nodo la cui esecuzione è in corso porta il punto di stato di quella stessa esecuzione, e una striscia Running now sopra le onde apre ogni esecuzione viva con un tocco
+- I workflow possono far girare i loro nodi di contratto, di integrazione e ad alto rischio su modelli propri (scelti sul web o nell'app desktop), e modificare un workflow dal telefono conserva quelle scelte
+- Il distintivo dell'issue nel pannello di un nodo apre l'issue; i budget dei nodi e lo stato di nodo in pausa non ci sono più
+- Un workflow non si blocca più quando la pull request di un nodo viene fusa al di fuori di esso, e un nodo che non riesce a partire viene ritentato una volta invece che all'infinito

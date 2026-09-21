@@ -74,6 +74,15 @@ ENV BUN_CONFIG_MAX_HTTP_REQUESTS=65336
 # (src/lib/production-build.ts); this is belt-and-braces for library-internal
 # checks (e.g. Better Auth's default-secret guard).
 ENV NODE_ENV=production
+# CSP, HSTS, nosniff, X-Frame-Options and Referrer-Policy from the Bun server
+# (buildSecurityHeaders in apps/web/src/lib/security-headers.ts). Baked into the image
+# because THIS image is cloud, staging AND the self-host distribution, and the
+# self-host stack's bundled Caddy sets no headers of its own — an opt-in flag
+# documented only in .env.example meant every default install shipped bare. A
+# proxy that REPLACES headers (Caddy `header`) still wins; one that APPENDS
+# (nginx `add_header`) would emit two CSPs and browsers enforce the
+# intersection — such a deploy passes SECURITY_HEADERS_ENABLED=false.
+ENV SECURITY_HEADERS_ENABLED=true
 EXPOSE 3000
 # start-period covers the migrate step before the server begins listening.
 # REV2-68: probe whatever the server actually binds — server-bun.ts reads
