@@ -36,6 +36,7 @@
 //! next heartbeat by itself.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -56,6 +57,7 @@ use terminal::{TabId, TerminalManager, TerminalManagerEvent};
 use coding::agent_login::{self, LoginProgress, LoginTarget};
 use coding::CodingAgent;
 
+use crate::agent_login_outcome::{EnterCode, LoginOutcome};
 use crate::coding_flow::CodingHub;
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
@@ -84,7 +86,8 @@ const CODEX_SWITCH_OK: &str = "Sign out and sign in";
 /// about a machine finishing something. It is the ×4 `SIGNING_IN` string
 /// (web `agent-login-dialog.tsx`), so a client that does print the wire text
 /// prints exactly what its own spinner says.
-const CODE_ENTERED: &str = "Signing in…";
+const SIGNING_IN: &str = "Signing in…";
+const CODE_ENTERED: &str = SIGNING_IN;
 const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
 
 /// EXP-765: the login tabs currently open, by agent id — where a handed-back
@@ -908,8 +911,14 @@ enum LoginDialogState {
     Queueing,
     /// Queued — the machine has not handed anything back yet.
     Waiting,
-    /// The CLI's sign-in link (plus codex's device code).
+    /// The CLI's sign-in link (plus codex's device code) — rendered by the
+    /// shared [`LoginOutcome`] in [`LoginDialogView::outcome`], claude's code
+    /// field included (EXP-1000).
     Link { url: String, code: Option<String> },
+    /// EXP-1000: claude's code went back to the machine (web `signing` /
+    /// `codePending`). The machine types it, finishes the login on its own and
+    /// reports it on its next heartbeat, which is what lands [`Self::SignedIn`].
+    SigningIn,
     /// EXP-940: the machine reported the login. The dialog SAYS so for a beat
     /// and then closes itself, instead of vanishing mid-sentence.
     SignedIn,
@@ -929,6 +938,12 @@ impl LoginDialogState {
 /// machine reports the login on its synced row. Web parity
 /// (`agent-login-dialog.tsx`), minus the stacked pending/result/error blocks
 /// that used to say the same thing three times.
+///
+/// EXP-1000: the link line IS the shared [`LoginOutcome`] — the same block
+/// the web, iOS and Android sheets render — so claude's "Code from the
+/// browser" field is here too. The EXP-862 rewrite drew the link inline and
+/// dropped that field, which left a claude re-login on another machine with a
+/// link and nowhere to type the code the browser showed.
 pub(crate) fn open_login_dialog(
     device_id: String,
     device_label: SharedString,
@@ -972,6 +987,10 @@ struct LoginDialogView {
     /// opened. The report MOVING is the success this dialog waits for — a new
     /// profile appearing, or an expired one going healthy again.
     baseline: Vec<(String, bool, coding::agent_accounts::Health)>,
+    /// EXP-1000: the published link, rendered by the SHARED outcome block
+    /// (link · device code · claude's code field · caption). Built when the
+    /// login's command lands its URL, dropped by a retry.
+    outcome: Option<Entity<LoginOutcome>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1025,19 +1044,27 @@ impl LoginDialogView {
             attempt: 0,
             poll: None,
             baseline,
+            outcome: None,
             _subscriptions: subscriptions,
         };
-        view.request(cx);
+        view.request(window, cx);
         view
     }
 
     /// The sign-in request itself: queue the `agent_login` command, poll the
     /// row until the machine answers, and bound the wait. The dialog OPENING
     /// runs it (web parity), and EXP-940's "Try again" runs it again.
-    fn request(&mut self, cx: &mut gpui::Context<Self>) {
+    ///
+    /// Window-bound (`spawn_in`): the link's arrival builds the shared
+    /// [`LoginOutcome`], whose code field is an `InputState` and needs the
+    /// window it lives in.
+    fn request(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.attempt = self.attempt.wrapping_add(1);
         let attempt = self.attempt;
         self.state = LoginDialogState::Queueing;
+        // A fresh login supersedes whatever the last one handed back (web
+        // `queueLogin` drops the code round trip's state the same way).
+        self.outcome = None;
         // The baseline is re-read: a retry must not treat the report the LAST
         // attempt already moved as this one's success.
         self.baseline = login_fingerprint(&self.device_id, self.agent, cx);
@@ -1049,7 +1076,7 @@ impl LoginDialogView {
         let device_id = self.device_id.clone();
         let agent = self.agent;
         let target = self.target.clone();
-        self.poll = Some(cx.spawn(async move |this, cx| {
+        self.poll = Some(cx.spawn_in(window, async move |this, cx| {
             // A fresh client per call: `TrpcClient` is not shareable, and
             // building one is a token-provider lookup, not a connection.
             let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
@@ -1104,7 +1131,17 @@ impl LoginDialogView {
                     continue;
                 }
                 let state = login_dialog_result(&row);
-                let _ = this.update(cx, |this, cx| this.settle(attempt, state, cx));
+                let _ = this.update_in(cx, |this, window, cx| {
+                    let link = match &state {
+                        LoginDialogState::Link { url, code } => Some((url.clone(), code.clone())),
+                        _ => None,
+                    };
+                    if this.settle(attempt, state, cx) {
+                        if let Some((url, code)) = link {
+                            this.show_link(url, code, window, cx);
+                        }
+                    }
+                });
                 return;
             }
         }));
@@ -1124,13 +1161,138 @@ impl LoginDialogView {
     }
 
     /// Write a phase that belongs to the LIVE attempt; an abandoned one (a
-    /// retry ran, or the login already landed) writes nothing.
-    fn settle(&mut self, attempt: u64, state: LoginDialogState, cx: &mut gpui::Context<Self>) {
+    /// retry ran, or the login already landed) writes nothing. Returns
+    /// whether it wrote.
+    fn settle(&mut self, attempt: u64, state: LoginDialogState, cx: &mut gpui::Context<Self>) -> bool {
         if self.attempt != attempt {
-            return;
+            return false;
         }
         self.state = state;
         cx.notify();
+        true
+    }
+
+    /// EXP-1000: the machine handed back its link — build the SHARED outcome
+    /// block for it. Its code field calls back into [`Self::enter_code`]; the
+    /// callback runs inside the outcome's own update, so it only touches this
+    /// view (never the outcome entity, which is leased at that moment).
+    fn show_link(
+        &mut self,
+        url: String,
+        code: Option<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let dialog = cx.entity().downgrade();
+        let on_enter_code: EnterCode = Rc::new(move |code, _window, cx| {
+            let _ = dialog.update(cx, |this, cx| this.enter_code(code, cx));
+        });
+        let agent = self.agent;
+        self.outcome = Some(cx.new(|cx| {
+            LoginOutcome::new(agent, url, code, on_enter_code, window, cx)
+        }));
+        cx.notify();
+    }
+
+    /// EXP-1000 (EXP-765's round trip, in this dialog): hand the code claude's
+    /// browser page showed back to the machine as an `agent_login_code`
+    /// command. The machine types it into its waiting login tab and completes
+    /// the command at once; the dialog spins on "Signing in…" until the
+    /// machine's re-probe lands the login on its synced row (→ "Signed in"),
+    /// a refusal ("No sign-in is waiting…") ends in the error + "Try again",
+    /// and silence past [`SIGN_IN_TIMEOUT`] is the same failure as a link
+    /// that never came (web `signing` + `SIGN_IN_TIMEOUT_MS`).
+    fn enter_code(&mut self, code: String, cx: &mut gpui::Context<Self>) {
+        if !matches!(self.state, LoginDialogState::Link { .. }) {
+            return;
+        }
+        // A new generation: the link poll is long done (the row was terminal),
+        // and the link wait's timeout must not count this phase as its own.
+        self.attempt = self.attempt.wrapping_add(1);
+        let attempt = self.attempt;
+        self.state = LoginDialogState::SigningIn;
+        cx.notify();
+        if queries::trpc_client(cx).is_none() {
+            self.state = LoginDialogState::Failed("Not signed in.".into());
+            return;
+        }
+        let device_id = self.device_id.clone();
+        let agent = self.agent;
+        self.poll = Some(cx.spawn(async move |this, cx| {
+            let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
+                return;
+            };
+            let queued = cx
+                .background_executor()
+                .spawn({
+                    let device_id = device_id.clone();
+                    async move {
+                        api::devices::create_agent_login_code_command(
+                            &trpc,
+                            &device_id,
+                            agent.id(),
+                            &code,
+                        )
+                    }
+                })
+                .await;
+            let command_id = match queued {
+                Ok(created) => created.id,
+                Err(err) => {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settle(attempt, LoginDialogState::Failed(err.user_message().into()), cx)
+                    });
+                    return;
+                }
+            };
+            loop {
+                cx.background_executor().timer(LOGIN_DIALOG_POLL).await;
+                let Ok(live) = this.read_with(cx, |this, _| this.attempt == attempt) else {
+                    return;
+                };
+                if !live {
+                    return;
+                }
+                let Ok(Some(trpc)) = this.update(cx, |_, cx| queries::trpc_client(cx)) else {
+                    return;
+                };
+                let row = cx
+                    .background_executor()
+                    .spawn({
+                        let command_id = command_id.clone();
+                        async move { api::devices::get_command(&trpc, &command_id) }
+                    })
+                    .await;
+                let Ok(row) = row else {
+                    continue; // transient — the next tick asks again
+                };
+                if !row.is_terminal() {
+                    continue;
+                }
+                if row.status == "failed" {
+                    let message = row
+                        .result
+                        .clone()
+                        .unwrap_or_else(|| "The device reported a failure.".to_string());
+                    let _ = this.update(cx, |this, cx| {
+                        this.settle(attempt, LoginDialogState::Failed(message.into()), cx)
+                    });
+                }
+                // `done` = the code went in. Nothing to say yet: the login
+                // itself lands on the synced row, which flips SignedIn.
+                return;
+            }
+        }));
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SIGN_IN_TIMEOUT).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.attempt == attempt && this.state == LoginDialogState::SigningIn {
+                    this.state = LoginDialogState::Failed(SIGN_IN_TIMED_OUT.into());
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 }
 
@@ -1232,6 +1394,21 @@ impl Render for LoginDialogView {
                     self.device_label
                 )))
                 .into_any_element(),
+            // EXP-1000: the code is in; the machine finishes on its own and
+            // reports the login on its next heartbeat (web `SIGNING_IN`).
+            LoginDialogState::SigningIn => h_flex()
+                .w_full()
+                .items_center()
+                .gap_2()
+                .text_sm()
+                .text_color(muted)
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .child(Spinner::new().icon(crate::icons::registry::UI_LOADING)),
+                )
+                .child(SIGNING_IN)
+                .into_any_element(),
             // EXP-940: the landing SAYS so before the dialog goes.
             LoginDialogState::SignedIn => h_flex()
                 .w_full()
@@ -1259,46 +1436,24 @@ impl Render for LoginDialogView {
                         Button::new("agent-login-retry")
                             .outline()
                             .label("Try again")
-                            .on_click(cx.listener(|this, _, _window, cx| this.request(cx))),
+                            .on_click(cx.listener(|this, _, window, cx| this.request(window, cx))),
                     ),
                 )
                 .into_any_element(),
-            LoginDialogState::Link { url, code } => {
-                let copy = url.clone();
-                h_flex()
+            // EXP-1000: the SHARED outcome block — link, device code, claude's
+            // code field, caption — never a link drawn by hand here again.
+            LoginDialogState::Link { url, .. } => match self.outcome.clone() {
+                Some(outcome) => outcome.into_any_element(),
+                // Unreachable in practice (`show_link` runs with `settle`);
+                // the bare link beats an empty dialog if it ever is.
+                None => div()
                     .w_full()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(url.clone())),
-                    )
-                    .children(code.clone().map(|code| {
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(muted)
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(format!("· code {code}")))
-                    }))
-                    .child(
-                        crate::controls::ghost_icon_button(
-                            "agent-login-copy",
-                            Icon::new(crate::icons::registry::UI_COPY),
-                            cx,
-                        )
-                        .tooltip("Copy link")
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                        }),
-                    )
-                    .into_any_element()
-            }
+                    .truncate()
+                    .text_xs()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .child(SharedString::from(url.clone()))
+                    .into_any_element(),
+            },
         };
         // EXP-862: a title and ONE status line. The dialog used to stack a
         // pending line, the link, an error line and a caption that all said
@@ -1493,6 +1648,46 @@ impl Render for AddAccountDialogView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1000: what the machine hands back for each agent, as the dialog
+    /// reads it. Claude's link carries NO device code — the browser shows one
+    /// at the end, and the outcome block has to offer the field that returns
+    /// it; codex's link carries its code and needs nothing back.
+    #[test]
+    fn a_claude_link_wants_its_code_back_and_a_codex_link_does_not() {
+        let row = |progress: LoginProgress| api::devices::CommandRow {
+            id: "cmd".into(),
+            kind: "agent_login".into(),
+            payload: serde_json::Value::Null,
+            status: "done".into(),
+            result: Some(serde_json::to_string(&progress).unwrap()),
+            completed_at: None,
+            created_at: None,
+        };
+        let claude = login_dialog_result(&row(LoginProgress::url(
+            CodingAgent::Claude,
+            "https://claude.ai/oauth/authorize?code=true",
+            None,
+        )));
+        match claude {
+            LoginDialogState::Link { url, code } => {
+                assert!(url.contains("code=true"));
+                assert!(crate::agent_login_outcome::wants_code_back(code.as_deref()));
+            }
+            other => panic!("claude's link did not parse: {other:?}"),
+        }
+        let codex = login_dialog_result(&row(LoginProgress::url(
+            CodingAgent::Codex,
+            "https://auth.openai.com/device",
+            Some("WXYZ-ABCD".into()),
+        )));
+        match codex {
+            LoginDialogState::Link { code, .. } => {
+                assert!(!crate::agent_login_outcome::wants_code_back(code.as_deref()));
+            }
+            other => panic!("codex's link did not parse: {other:?}"),
+        }
+    }
 
     /// EXP-862: every chip on the Devices and Accounts pages hands
     /// [`sign_in_on_device`] the row's RAW `profile_id`, and the ambient
