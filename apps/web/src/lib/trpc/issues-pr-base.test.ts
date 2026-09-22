@@ -746,6 +746,63 @@ describe(`issues.mergePr on a stack (EXP-897)`, () => {
     expect(takePrMergeClaim(`owner/repo`, 241)).toMatchObject({ userId: `actor` })
   })
 
+  // FEED-48: the stack note belongs to a merge that actually took PRs below
+  // with it — never to a plain PR whose `prBaseBranch` is just the default.
+  it(`notes the PRs below only when the stack walk merged them`, async () => {
+    _clearPrActorClaims()
+    h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
+    h.selectQueue.push([]) // completeStackCohort's member rows
+    h.findStackForPull.mockResolvedValueOnce({
+      number: 7,
+      members: [{ number: 240 }, { number: 241 }],
+    } as never)
+    h.mergePullRequestSmart.mockResolvedValueOnce({
+      merged: true,
+      queued: false,
+      sha: `abc`,
+      viaStack: true,
+      stackNumber: 7,
+      stackMemberNumbers: [240, 241],
+    })
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
+      merged: true,
+      mergedPrUrls: [
+        `https://github.com/owner/repo/pull/240`,
+        `https://github.com/owner/repo/pull/241`,
+      ],
+      note: `Merging stacked PR #241 also merged every unmerged PR below it: #240.`,
+    })
+  })
+
+  it(`keeps the stack note off a stack walk that merged nothing below`, async () => {
+    _clearPrActorClaims()
+    h.selectQueue.push([entryRow])
+    h.selectQueue.push([]) // completeStackCohort's member rows
+    h.mergePullRequestSmart.mockResolvedValueOnce({
+      merged: true,
+      queued: false,
+      sha: `abc`,
+      viaStack: true,
+      stackNumber: null,
+      stackMemberNumbers: [241],
+    })
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
+      merged: true,
+      mergedPrUrls: [`https://github.com/owner/repo/pull/241`],
+    })
+  })
+
+  it(`sends no stack note for a plain merge of a PR based on the default branch`, async () => {
+    h.selectQueue.push([{ ...entryRow, prBaseBranch: `master` }])
+    h.selectQueue.push([{ id: ISSUE_ID }]) // the PR's linked issues
+
+    await expect(caller.mergePr({ issueId: ISSUE_ID })).resolves.toEqual({
+      merged: true,
+    })
+  })
+
   it(`releases every member claim when the merge fails`, async () => {
     _clearPrActorClaims()
     h.selectQueue.push([{ ...entryRow, prStackNumber: 7 }])
