@@ -51,7 +51,10 @@ pub use facts::{
     confine_branches_to_tips, conflict_candidates, conventional_branch, detect_conflicts,
     prune_conflict_cache, NodeGit,
 };
-pub use state::{read_states, write_states, WorkflowState, WORKFLOW_ENGINE_KEY};
+pub use state::{
+    hold_resume, merge_resuming, read_states, release_resume, write_states, WorkflowState,
+    WORKFLOW_ENGINE_KEY,
+};
 
 /// The `exp/*` branches one workflow's tips call covers — every branch the
 /// engine can name lives under it (issue branches, batch branches, the
