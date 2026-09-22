@@ -64,6 +64,11 @@ const ROW_HEIGHT: f32 = 28.;
 const ROW_PAD: f32 = 12.;
 /// The list stacks its rows with no gap, so the connector bridges nothing.
 const ROW_GAP: f32 = 0.;
+/// EXP-998: the gutters start under the PRIORITY glyph, not at the row's
+/// edge — past the 20px select cell, plus the 5 that put a 14px gutter's
+/// centre (7) under a 24px cell's glyph (12). The web's `GUIDE_INSET` on top
+/// of its checkbox column.
+const GUIDE_INSET: f32 = 20. + 5.;
 /// Group header height (web py-1.5 + text-sm, compacted).
 const HEADER_HEIGHT: f32 = 28.;
 /// The row's hover group (web `group/row`) — reveals the bulk-select
@@ -661,7 +666,11 @@ impl IssueListView {
             // The connector layer is absolute, so the row must be relative.
             .relative()
             .pl(px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
-            .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
+            .children(crate::tree_guides::guide_layer(
+                guides,
+                ROW_PAD + GUIDE_INSET,
+                ROW_GAP,
+            ))
             .flex()
             .items_center()
             // Bounded clip at the extreme-narrow floor — cells carry min

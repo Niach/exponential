@@ -280,7 +280,6 @@ export function PrGraphOverlay({
       <IssueChip
         key={row.id}
         issue={row}
-        preview={false}
         link={
           boardSlug
             ? (props) => (

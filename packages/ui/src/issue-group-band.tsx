@@ -37,6 +37,7 @@ export function IssueGroupBand({
   wash,
   density = `list`,
   className,
+  overlay,
 }: {
   /** The group's status glyph, already resolved against the team's rows. */
   glyph: StatusGlyphProps
@@ -55,13 +56,17 @@ export function IssueGroupBand({
   wash?: IssueGroupWash
   density?: `list` | `compact`
   className?: string
+  /** EXP-998: a paint-only layer over the band (the blocks rail's lanes
+   *  crossing a group header). Positioned against the band, which is what a
+   *  sticky header needs — a wrapper would un-stick it. */
+  overlay?: ReactNode
 }) {
   const compact = density === `compact`
   return (
     <div
       data-slot="issue-group-header"
       className={cn(
-        `group flex items-center justify-between`,
+        `group relative flex items-center justify-between`,
         compact
           ? `mb-1 rounded-md px-2 py-1`
           : // md+: backdrop-blur is load-bearing — the tint is translucent and
@@ -93,6 +98,7 @@ export function IssueGroupBand({
         </span>
       </button>
       {trailing}
+      {overlay}
     </div>
   )
 }

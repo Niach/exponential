@@ -340,7 +340,6 @@ export function TeamIssueGraph({
         return (
           <IssueChip
             issue={issue}
-            preview={false}
             className="w-full"
             link={
               teamSlug && boardSlug

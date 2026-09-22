@@ -55,6 +55,6 @@ final class TreeGuidesTests: XCTestCase {
 
     func testTheIndentIsTheSharedFourteenPointMeasure() {
         XCTAssertEqual(TreeGuides.indentPerLevel, 14)
-        XCTAssertEqual(TreeGuides.elbowRadius, 5)
+        XCTAssertEqual(TreeGuides.elbowRadius, 3)
     }
 }

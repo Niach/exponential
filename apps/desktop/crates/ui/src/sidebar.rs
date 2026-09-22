@@ -546,8 +546,12 @@ const NAV_HEADER_HEIGHT: f32 = 24.;
 const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
 const NAV_ROW_GAP: f32 = 2.;
 /// EXP-980: the `ListNav` row's own left padding (`flat_row_compact`'s
-/// `px_2`) — the base the sub-issue gutters are measured off.
+/// `px_2`) — the base the sub-issue indent is measured off.
 const NAV_ROW_PAD: f32 = 8.;
+/// EXP-998: the gutters start under the STATUS glyph — past the 16px select
+/// cell and its 4px gap, plus the 5 that put a 14px gutter's centre (7) under
+/// a 24px cell's glyph (12).
+const NAV_GUIDE_INSET: f32 = 16. + 4. + 5.;
 
 /// EXP-923/EXP-965: the space between two rows of the rail's Running section
 /// — the rail's own `gap_1`, as a number, because the connector has to BRIDGE
@@ -4281,7 +4285,11 @@ impl ListPanel {
         // column's 8px gutter (the rail's running rows' geometry).
         .relative()
         .pl(px(NAV_ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
-        .children(crate::tree_guides::guide_layer(guides, NAV_ROW_PAD, NAV_ROW_GAP))
+        .children(crate::tree_guides::guide_layer(
+            guides,
+            NAV_ROW_PAD + NAV_GUIDE_INSET,
+            NAV_ROW_GAP,
+        ))
         .children(crate::issue_graph::blocks_badge(
             SharedString::from(format!("nav-blocks-{}", issue.id)),
             &issue.id,

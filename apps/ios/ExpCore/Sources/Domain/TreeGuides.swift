@@ -45,8 +45,9 @@ public enum TreeGuides {
     /// used to type their own).
     public static let indentPerLevel: CGFloat = 14
 
-    /// The rounded turn at the elbow.
-    public static let elbowRadius: CGFloat = 5
+    /// The rounded turn at the elbow — a tight one (EXP-998: 5 read as a
+    /// bulge on a 28pt row), the ×4 number.
+    public static let elbowRadius: CGFloat = 3
 
     /// The guides for a list of VISIBLE rows, in order, keyed only by their
     /// depths — the tree's shape is already in them (a child follows its
