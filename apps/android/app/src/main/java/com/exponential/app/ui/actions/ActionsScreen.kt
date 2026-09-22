@@ -312,7 +312,7 @@ fun ActionsScreen(
             busy = automationBusy,
             error = automationError,
             editing = editing,
-            onSubmit = { actionId, deviceId, trigger, agent, model, effort ->
+            onSubmit = { actionId, deviceId, trigger, agent, account, model, effort ->
                 val close = {
                     automationForm = false
                     automationEditTarget = null
@@ -323,6 +323,7 @@ fun ActionsScreen(
                         deviceId = deviceId,
                         trigger = trigger,
                         agent = agent,
+                        account = account,
                         model = model,
                         effort = effort,
                         onDone = close,
@@ -334,6 +335,7 @@ fun ActionsScreen(
                         deviceId = deviceId,
                         trigger = trigger,
                         agent = agent,
+                        account = account,
                         model = model,
                         effort = effort,
                         onDone = close,

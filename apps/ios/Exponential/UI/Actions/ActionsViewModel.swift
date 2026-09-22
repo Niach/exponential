@@ -242,6 +242,7 @@ final class ActionsViewModel {
                         deviceId: deviceId,
                         trigger: trigger,
                         agent: launch.agent,
+                        account: launch.account,
                         model: launch.model,
                         effort: launch.effort
                     )

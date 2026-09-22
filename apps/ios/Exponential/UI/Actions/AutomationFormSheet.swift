@@ -5,18 +5,18 @@ import SwiftUI
 
 // EXP-583: the "+ New automation" / "Edit automation" form — the mobile twin
 // of the web's automation dialog. An automation binds ONE action to ONE
-// device with a schedule/event trigger and its own agent/model/effort — the
-// agent seeds from the bound machine's own default (EXP-615: there is no
-// "Device default" pill any more), a blank model/effort stores NULL. Owner-
-// only: the list hides the entry points for everyone else, and the server
-// refuses anyway.
+// device with a schedule/event trigger and its own account/model/effort —
+// EXP-995: the pin is picked off THE account picker (brand mark + email over
+// the bound machine's logins, its default first) and the agent rides the
+// pick; a blank model/effort stores NULL. Owner-only: the list hides the
+// entry points for everyone else, and the server refuses anyway.
 //
 // The action pool is deliberately narrow: custom actions only (builtins never
 // automate) that declare NO required input — an automated run has nobody to
 // type one in, so the server refuses to enable such a binding.
 //
 // EXP-615: the trigger rows are the shared `AutomationTriggerForm` and the
-// machine/agent/model/effort rows the shared `LaunchOptionsSection` in its
+// machine/account/model/effort rows the shared `LaunchOptionsSection` in its
 // automation variant, so this sheet and the create-action sheet's Automation
 // detail cannot drift apart.
 struct AutomationFormSheet: View {
@@ -40,6 +40,9 @@ struct AutomationFormSheet: View {
     @State private var deviceId = ""
     @State private var draft = AutomationDraft()
     @State private var agent = ""
+    /// EXP-995: the agent profile id the run spends; "" = the bound
+    /// machine's default login for `agent` (stores NULL).
+    @State private var account = ""
     @State private var model = LaunchVocabulary.cliDefault
     @State private var effort = LaunchVocabulary.cliDefault
     @State private var filterOptions = AutomationFilterOptions()
@@ -66,6 +69,41 @@ struct AutomationFormSheet: View {
         LaunchVocabulary.agents(of: selectedDevice)
     }
 
+    /// EXP-995: the ONE account list — every signed-in login the bound
+    /// machine reports, across agents, its default first
+    /// (`AccountOptions.flatten`, the composer's list). A machine that reports
+    /// no login (or none bound yet) still offers a row per runnable agent,
+    /// named by the agent, so the pin can be made before the heartbeat lands.
+    private var accountOptions: [AccountOption] {
+        let device = selectedDevice
+        let options = AccountOptions.flatten(
+            accounts: device?.agentAccounts,
+            usage: device?.agentUsage,
+            launchDefaults: device?.launchDefaults
+        )
+        if !options.isEmpty { return options }
+        let preferred = LaunchVocabulary.defaultAgent(of: device)
+        return availableAgents.map { value in
+            AccountOption(
+                id: AgentAccountsRows.systemProfileId,
+                agent: value,
+                email: LaunchVocabulary.agentLabel(value),
+                isDeviceDefault: value == preferred
+            )
+        }
+    }
+
+    /// Which option the row reads back as: the stored (agent, account) pair,
+    /// else that agent's first login (a profile the machine no longer
+    /// reports), else the first row.
+    private var selectedAccount: AccountOption? {
+        let options = accountOptions
+        let id = account.isEmpty ? AgentAccountsRows.systemProfileId : account
+        return options.first { $0.agent == agent && $0.id == id }
+            ?? options.first { $0.agent == agent }
+            ?? options.first
+    }
+
     private var canSave: Bool {
         !actionId.isEmpty && !deviceId.isEmpty
     }
@@ -86,6 +124,9 @@ struct AutomationFormSheet: View {
                         availableAgents: availableAgents,
                         agent: agent,
                         onAgentChange: selectAgent,
+                        accountOptions: accountOptions,
+                        selectedAccount: selectedAccount,
+                        onAccountSelect: selectAccount,
                         model: $model,
                         effort: $effort
                     )
@@ -173,16 +214,24 @@ struct AutomationFormSheet: View {
         )
     }
 
-    /// Seed (and re-seed) the agent off the bound machine: an unset pin — a
+    /// Seed (and re-seed) the pin off the bound machine: an unset pin — a
     /// row saved before EXP-615 carries a NULL agent — or one the newly picked
-    /// machine cannot run falls back to that machine's default launch agent,
-    /// clamped to what it advertises. A pin it CAN run is left alone, so a
-    /// manual pick sticks. Model/effort vocabularies are per-agent, so a
-    /// re-seed clears them to the "CLI default" blank.
+    /// machine cannot run falls back to that machine's DEFAULT ACCOUNT, which
+    /// names the agent (EXP-995: the composer's seed), clamped to what it
+    /// advertises. A pin it CAN run is left alone, so a manual pick sticks.
+    /// Model/effort vocabularies are per-agent, so a re-seed clears them to
+    /// the "CLI default" blank.
     private func seedAgentFromDevice() {
         guard selectedDevice != nil else { return }
         guard agent.isEmpty || !availableAgents.contains(agent) else { return }
-        agent = LaunchVocabulary.defaultAgent(of: selectedDevice)
+        let options = accountOptions
+        if let fallback = options.first(where: \.isDeviceDefault) ?? options.first {
+            agent = fallback.agent
+            account = fallback.id == AgentAccountsRows.systemProfileId ? "" : fallback.id
+        } else {
+            agent = LaunchVocabulary.defaultAgent(of: selectedDevice)
+            account = ""
+        }
         model = LaunchVocabulary.cliDefault
         effort = LaunchVocabulary.cliDefault
     }
@@ -190,10 +239,20 @@ struct AutomationFormSheet: View {
     private func selectAgent(_ value: String) {
         guard value != agent else { return }
         agent = value
-        // The model/effort vocabularies are per agent — a switch has to reset
-        // them, or a stale value hits a server refusal.
+        // A profile belongs to ONE agent, and the model/effort vocabularies
+        // are per agent — a switch has to reset them, or a stale value hits a
+        // server refusal.
+        account = ""
         model = LaunchVocabulary.cliDefault
         effort = LaunchVocabulary.cliDefault
+    }
+
+    /// EXP-995: take BOTH halves of a picked option — the agent first (which
+    /// clears the per-agent pins), then the login on top. `system` is the
+    /// machine's ambient login, which stores as NULL.
+    private func selectAccount(_ option: AccountOption) {
+        selectAgent(option.agent)
+        account = option.id == AgentAccountsRows.systemProfileId ? "" : option.id
     }
 
     // MARK: - Seed / submit
@@ -205,6 +264,7 @@ struct AutomationFormSheet: View {
             actionId = editing.actionId
             deviceId = editing.deviceId
             agent = editing.agent ?? ""
+            account = editing.account ?? ""
             model = editing.model ?? LaunchVocabulary.cliDefault
             effort = editing.effort ?? LaunchVocabulary.cliDefault
             draft = AutomationDraft(trigger: editing.parsedTrigger)
@@ -227,6 +287,7 @@ struct AutomationFormSheet: View {
         // "CLI default" that stores NULL.
         let launch = AutomationLaunchPatch(
             agent: agent.isEmpty ? nil : agent,
+            account: agent.isEmpty || account.isEmpty ? nil : account,
             model: model.isEmpty || model == LaunchVocabulary.cliDefault ? nil : model,
             effort: effort.isEmpty || effort == LaunchVocabulary.cliDefault ? nil : effort
         )

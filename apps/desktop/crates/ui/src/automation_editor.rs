@@ -9,7 +9,7 @@
 //! things: the **trigger** (EXP-698 — ONE glass group whose first row is the
 //! embedded Schedule · On event strip, over that kind's own field rows), the
 //! **device** that evaluates and fires it (automations
-//! are local-only — no server scheduler), and the optional **agent / model /
+//! are local-only — no server scheduler), and the optional **account / model /
 //! effort** pins (every unpinned field falls back to that device's launch
 //! defaults). The device picker is ALWAYS shown: an automation can target any
 //! automation-capable machine, not just the one authoring it.
@@ -44,8 +44,9 @@ use coding::automations::{
 
 use crate::coding_selects::{effort_choices_for, model_choices_for};
 use crate::surface;
-// EXP-615: the agent/model/effort pins render through the ONE shared launch
-// cluster (its Automation variant leads with the "Device default" pill).
+// EXP-615: the model/effort pins render through the ONE shared launch
+// cluster; EXP-995: the agent strip above them became THE account picker
+// (`coding_selects::account_picker`), fed by the bound machine's logins.
 use crate::launch_options;
 use crate::controls::glass_input;
 
@@ -112,12 +113,23 @@ pub(crate) struct DeviceOption {
     /// exactly these (the server re-checks the pin against the same list).
     pub(crate) agents: Vec<String>,
     /// The machine's configured default launch agent (EXP-437), clamped to
-    /// [`Self::agents`] — the strip seeds to it (EXP-615: no "Device
-    /// default" pill, same tabs as the launch dialogs).
+    /// [`Self::agents`] — the account row seeds to its default login
+    /// (EXP-615: no "Device default" pill; EXP-995: no agent strip at all).
     pub(crate) default_agent: Option<String>,
     /// EXP-622: this is the signed-in user's DEFAULT machine — the binding
     /// seeds to it. False on a teammate's shared row (their preference).
     pub(crate) is_default: bool,
+    /// EXP-995: the machine's `agent_accounts` payload off its synced row —
+    /// which login each agent CLI runs as there and its profiles. Empty for
+    /// a row that never reported: the account picker then offers one ambient
+    /// row per runnable agent.
+    pub(crate) accounts: coding::agent_accounts::AgentAccounts,
+    /// EXP-992: its `agent_usage` payload, the picker's limit bars.
+    pub(crate) usage: coding::agent_usage::AgentUsageMap,
+    /// Its published launch defaults clamped onto a default `Settings` — what
+    /// names the machine's DEFAULT ACCOUNT (`default_agent` +
+    /// `default_account`), the first row of the picker.
+    pub(crate) settings: coding::Settings,
 }
 
 pub(crate) struct AutomationEditorState {
@@ -141,6 +153,9 @@ pub(crate) struct AutomationEditorState {
     pub(crate) device_id: Option<String>,
     /// The pinned launch overrides; every `None` = the device's own defaults.
     pub(crate) agent: Option<String>,
+    /// EXP-995: the agent PROFILE the run spends, picked with its agent off
+    /// the account row; `None` = the machine's default login for `agent`.
+    pub(crate) account: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) effort: Option<String>,
 }
@@ -151,6 +166,7 @@ pub(crate) struct AutomationSpec {
     pub(crate) trigger: Value,
     pub(crate) device_id: String,
     pub(crate) agent: Option<String>,
+    pub(crate) account: Option<String>,
     pub(crate) model: Option<String>,
     pub(crate) effort: Option<String>,
 }
@@ -202,6 +218,7 @@ pub(crate) fn suggestion_automation_block(trigger: Value, cx: &App) -> String {
             trigger,
             device_id,
             agent: None,
+            account: None,
             model: None,
             effort: None,
         }),
@@ -231,6 +248,7 @@ impl AutomationEditorState {
             to_status_ids: Vec::new(),
             device_id: None,
             agent: None,
+            account: None,
             model: None,
             effort: None,
         }
@@ -282,11 +300,63 @@ impl AutomationEditorState {
             global_default,
         );
         if self.agent != next {
-            // A model/effort belongs to ONE agent — they never survive it.
+            // A model/effort belongs to ONE agent — they never survive it,
+            // and neither does an account (EXP-995: a profile is ONE agent's).
             self.model = None;
             self.effort = None;
             self.agent = next;
+            // The seeded agent takes the machine's DEFAULT ACCOUNT when that
+            // is its login — the composer's seed, `settle_account`.
+            let options = self.account_options(cx);
+            let seeded = coding::default_account_option(&options)
+                .filter(|option| Some(option.agent.id()) == self.agent.as_deref())
+                .and_then(|option| option.wire_account());
+            self.account = seeded;
         }
+    }
+
+    /// EXP-995: every signed-in login the BOUND machine reports, across
+    /// agents, its default first ([`launch_options::machine_account_options`]);
+    /// a machine that reports none (or none bound yet) offers one ambient row
+    /// per runnable agent, named by the agent, so the row never goes empty.
+    fn account_options(&self, cx: &mut App) -> Vec<coding::AccountOption> {
+        let available: Vec<coding::CodingAgent> = self
+            .device_agents(cx)
+            .iter()
+            .filter_map(|id| coding::CodingAgent::parse(id))
+            .collect();
+        let device = self.device_id.as_deref().and_then(|device_id| {
+            automation_devices(cx)
+                .into_iter()
+                .find(|device| device.device_id == device_id)
+        });
+        match device {
+            Some(device) => launch_options::machine_account_options(
+                &device.accounts,
+                &device.usage,
+                &device.settings,
+                &available,
+            ),
+            None => launch_options::machine_account_options(
+                &Default::default(),
+                &Default::default(),
+                &crate::coding_flow::CodingHub::global(cx).read(cx).settings,
+                &available,
+            ),
+        }
+    }
+
+    /// EXP-995: a pick off the account row — the agent rides the option, so
+    /// this IS the agent switch too (model/effort re-clamp on a different
+    /// agent; another login of the same agent keeps them).
+    fn set_account(&mut self, option: &coding::AccountOption) {
+        let agent = option.agent.id().to_string();
+        if self.agent.as_deref() != Some(agent.as_str()) {
+            self.model = None;
+            self.effort = None;
+            self.agent = Some(agent);
+        }
+        self.account = option.wire_account();
     }
 
     /// Seed the TRIGGER half from a row's (or a suggestion's) `trigger` JSON.
@@ -334,11 +404,13 @@ impl AutomationEditorState {
         &mut self,
         device_id: Option<&str>,
         agent: Option<&str>,
+        account: Option<&str>,
         model: Option<&str>,
         effort: Option<&str>,
     ) {
         self.device_id = device_id.filter(|id| !id.is_empty()).map(str::to_string);
         self.agent = agent.filter(|value| !value.is_empty()).map(str::to_string);
+        self.account = account.filter(|value| !value.is_empty()).map(str::to_string);
         self.model = model.filter(|value| !value.is_empty()).map(str::to_string);
         self.effort = effort.filter(|value| !value.is_empty()).map(str::to_string);
     }
@@ -419,8 +491,10 @@ impl AutomationEditorState {
             trigger,
             device_id,
             agent: self.agent.clone(),
-            // A model/effort is only meaningful against a pinned agent (the
-            // server validates the pair) — drop them with the agent.
+            // A model/effort (and EXP-995 the account) is only meaningful
+            // against a pinned agent (the server validates the pair) — drop
+            // them with the agent.
+            account: self.agent.as_ref().and(self.account.clone()),
             model: self.agent.as_ref().and(self.model.clone()),
             effort: self.agent.as_ref().and(self.effort.clone()),
         })
@@ -869,52 +943,58 @@ impl AutomationEditorState {
         )])
     }
 
-    /// Agent / Model / Effort — the optional pins, rendered by the SHARED
-    /// [`crate::launch_options`] cluster in its Automation variant (EXP-615):
-    /// the same pill strip the launch dialogs use, led by a "Device default"
-    /// pill. The agent list is exactly what the BOUND device advertises (the
-    /// server re-checks it), and model/effort only appear once an agent is
-    /// pinned: they are validated per agent, and "the device's default agent
-    /// with a foreign model" is not a state the server accepts.
+    /// Account / Model / Effort — the optional pins. EXP-995: the agent strip
+    /// is gone — the group's FIRST ROW is THE account picker every launch
+    /// surface shares ([`crate::coding_selects::account_picker`]): brand mark
+    /// + email over every login the BOUND machine reports, its default first,
+    /// and a pick implies the agent (the server re-checks it against what the
+    /// machine advertises). Model/effort below it are the same rows the launch
+    /// dialogs draw and only unlock once an agent is pinned: they are
+    /// validated per agent, and "the device's default agent with a foreign
+    /// model" is not a state the server accepts.
     fn render_launch_pins<V: Render>(
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
         cx: &mut Context<V>,
     ) -> Div {
-        let agents = self.device_agents(cx);
-        // EXP-721: the strip is a RADIO — one segment is always lit. An
-        // unseeded (or no-longer-runnable) pick falls back to the first pill
-        // exactly like the launch dialogs' `active_ix`, never to "nothing
-        // selected".
-        let active = Some(
-            self.agent
-                .as_deref()
-                .and_then(|picked| agents.iter().position(|id| id == picked))
-                .unwrap_or(0),
-        );
-        let click_agents = agents.clone();
-        // EXP-694: the strip is the group's FIRST ROW, not a capsule above a
-        // labeled column — the same embedded tabs the launch and device
-        // pickers lead with.
-        let strip = launch_options::agent_tabs_row(
-            prefix,
-            launch_options::agent_id_pills(&agents),
-            active,
-            move |view: &mut V, ix, _window, cx| {
-                let picked = click_agents.get(ix).cloned();
-                let state = access(view);
-                // A model/effort belongs to ONE agent — switching agents
-                // clears both back to the CLI defaults.
-                if state.agent != picked {
-                    state.model = None;
-                    state.effort = None;
-                }
-                state.agent = picked;
-                cx.notify();
+        let options = self.account_options(cx);
+        let current = self.agent.as_deref().map(|agent| {
+            format!(
+                "{agent}:{}",
+                self.account.as_deref().unwrap_or(coding::SYSTEM_PROFILE)
+            )
+        });
+        // The stored pair, else that agent's first login (a profile the
+        // machine no longer reports), else the picker's own default.
+        let current_key = current
+            .filter(|key| options.iter().any(|option| &option.account_option_key() == key))
+            .or_else(|| {
+                let agent = self.agent.as_deref()?;
+                options
+                    .iter()
+                    .find(|option| option.agent.id() == agent)
+                    .map(|option| option.account_option_key())
+            });
+        let view = cx.entity().downgrade();
+        let picker = crate::coding_selects::account_picker(
+            SharedString::from(format!("{prefix}-account")),
+            &options,
+            current_key.as_deref(),
+            crate::coding_selects::AccountTrigger::Row,
+            move |option: &coding::AccountOption, _window, cx| {
+                let Some(view) = view.upgrade() else {
+                    return;
+                };
+                let option = option.clone();
+                view.update(cx, |view, cx| {
+                    access(view).set_account(&option);
+                    cx.notify();
+                });
             },
             cx,
         );
+        let strip = surface::glass_picker_row("Account", None, picker, cx);
 
         // Model/Effort stay VISIBLE while nothing is pinned (web parity,
         // EXP-615): dimmed rows reading "CLI default" — a model belongs to
@@ -1078,13 +1158,12 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
             let agents = row.agent_ids();
             // `launch_defaults` syncs as JSON that may itself be a JSON
             // string; the default agent only counts when runnable there.
-            let default_agent = row
-                .launch_defaults
+            let launch_defaults = row.launch_defaults.as_ref().and_then(|value| match value {
+                Value::String(raw) => serde_json::from_str::<Value>(raw).ok(),
+                other => Some(other.clone()),
+            });
+            let default_agent = launch_defaults
                 .as_ref()
-                .and_then(|value| match value {
-                    Value::String(raw) => serde_json::from_str::<Value>(raw).ok(),
-                    other => Some(other.clone()),
-                })
                 .and_then(|value| {
                     value
                         .get("defaultAgent")
@@ -1092,6 +1171,19 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
                         .map(str::to_string)
                 })
                 .filter(|agent| agents.contains(agent));
+            // EXP-995: the published defaults clamped onto a default
+            // Settings (the same clamp `device_settings::baseline_for` runs
+            // for a remote row) — what names the machine's default account.
+            let mut settings = coding::Settings::default();
+            if let Some(patch) = launch_defaults
+                .as_ref()
+                .and_then(|value| serde_json::from_value::<coding::DefaultsPatch>(value.clone()).ok())
+            {
+                coding::apply_defaults_patch(&mut settings, &patch);
+            }
+            if let Some(agent) = default_agent.as_deref().and_then(coding::CodingAgent::parse) {
+                settings.default_agent = agent;
+            }
             Some(DeviceOption {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
@@ -1101,6 +1193,9 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
                     .as_deref()
                     .is_some_and(|me| row.user_id.as_deref() == Some(me))
                     && row.is_default.unwrap_or(false),
+                accounts: crate::device_settings::parse_agent_map(row.agent_accounts.as_ref()),
+                usage: crate::device_settings::parse_agent_map(row.agent_usage.as_ref()),
+                settings,
                 device_id,
             })
         })
@@ -1279,6 +1374,7 @@ mod tests {
             }),
             device_id: "d".to_string(),
             agent: None,
+            account: None,
             model: None,
             effort: None,
         });
@@ -1297,6 +1393,7 @@ mod tests {
             trigger: serde_json::json!({"kind": "event", "event": "created"}),
             device_id: "d".to_string(),
             agent: Some("codex".to_string()),
+            account: None,
             model: None,
             effort: Some("high".to_string()),
         });

@@ -116,7 +116,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v47_workflows",
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
-             "v50_workflow_node_review"]
+             "v50_workflow_node_review",
+             "v51_automation_account"]
         )
     }
 
@@ -159,8 +160,43 @@ final class DatabaseMigrationTests: XCTestCase {
              "v47_workflows",
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
-             "v50_workflow_node_review"]
+             "v50_workflow_node_review",
+             "v51_automation_account"]
         )
+    }
+
+    // v51 (EXP-995): a store migrated through v50 carries an `automations`
+    // table without `account`; the guarded ALTER adds it and the automations
+    // shape offset resets so already-synced rows re-arrive carrying the pin.
+    func testAutomationAccountAddedToExistingStore() throws {
+        let pool = try makePool("automation-account")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v50_workflow_node_review")
+        try pool.write { db in
+            XCTAssertFalse(try db.columns(in: "automations").contains { $0.name == "account" })
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('automations', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try columnNames(pool, "automations").contains("account"))
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch"
+                    FROM "electric_offsets" WHERE "shape" = 'automations'
+                    """
+            )
+        }
+        XCTAssertEqual(offset?["handle"] as String?, "")
+        XCTAssertEqual(offset?["offset"] as String?, "-1")
+        XCTAssertEqual(offset?["needs_refetch"] as Int?, 1)
+        // Idempotent: a second pass is a no-op, never a duplicate column.
+        XCTAssertNoThrow(try migrator.migrate(pool))
     }
 
     // v2 (EXP-180 helpdesk follow-up): a `-v5` store created before
@@ -230,7 +266,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v47_workflows",
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
-             "v50_workflow_node_review"]
+             "v50_workflow_node_review",
+             "v51_automation_account"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -321,7 +358,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v47_workflows",
              "v48_workflow_node_approval",
              "v49_workflow_node_checkpoint",
-             "v50_workflow_node_review"]
+             "v50_workflow_node_review",
+             "v51_automation_account"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -648,7 +686,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "automations"),
             ["id", "team_id", "action_id", "device_id", "enabled", "trigger",
-             "agent", "model", "effort", "sort_order", "created_at", "updated_at"]
+             "agent", "model", "effort", "sort_order", "created_at", "updated_at",
+             // v51 (EXP-995) adds the account pin on top.
+             "account"]
         )
         XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("automation_id"))
         let automationIdColumn = try pool.read { db in

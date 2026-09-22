@@ -55,28 +55,41 @@ pub use trigger::{
 };
 
 /// The launch options an automation runs with — the ONE resolution both
-/// hosts use (EXP-583). An automation may PIN an agent/model/effort; every
-/// unpinned field falls back to the device's own launch defaults, exactly
-/// like a dialog start with untouched options. Plan mode is forced OFF (F7):
-/// an unattended run must never park at the plan-approval card waiting for a
-/// human who is not watching.
+/// hosts use (EXP-583). An automation may PIN an agent/account/model/effort;
+/// every unpinned field falls back to the device's own launch defaults,
+/// exactly like a dialog start with untouched options. Plan mode is forced
+/// OFF (F7): an unattended run must never park at the plan-approval card
+/// waiting for a human who is not watching.
+///
+/// EXP-995: `account` is the agent PROFILE the run spends
+/// ([`crate::agent_profiles`]); it belongs to the pinned agent, so it only
+/// applies when that agent is one this build knows — a profile id names a
+/// directory under ONE agent's config root. The launcher itself falls back to
+/// the ambient login for a profile this machine no longer holds.
 pub fn launch_options(
     settings: &crate::Settings,
     agent: Option<&str>,
     model: Option<&str>,
     effort: Option<&str>,
+    account: Option<&str>,
 ) -> crate::LaunchOptions {
     // An agent this build does not know (a newer contract value) falls back
     // to the device default rather than refusing to run.
-    let agent = agent
-        .and_then(crate::CodingAgent::parse)
-        .unwrap_or(settings.default_agent);
+    let pinned = agent.and_then(crate::CodingAgent::parse);
+    let agent = pinned.unwrap_or(settings.default_agent);
     let mut options = crate::LaunchOptions::defaults_for(settings, agent);
     if let Some(model) = model.filter(|value| !value.is_empty()) {
         options.model = model.to_string();
     }
     if let Some(effort) = effort.filter(|value| !value.is_empty()) {
         options.effort = effort.to_string();
+    }
+    if pinned.is_some() {
+        if let Some(account) = account.map(str::trim).filter(|value| !value.is_empty()) {
+            // The ambient `system` login rides as `None`, like every launch.
+            options.account = (!crate::agent_profiles::is_system(Some(account)))
+                .then(|| account.to_string());
+        }
     }
     options.plan_mode = false;
     options
@@ -451,7 +464,7 @@ mod tests {
         );
 
         // Nothing pinned = the device's own defaults, plan mode off.
-        let bare = launch_options(&settings, None, None, None);
+        let bare = launch_options(&settings, None, None, None, None);
         let device = crate::LaunchOptions::defaults(&settings);
         assert_eq!(bare.agent, device.agent);
         assert_eq!(bare.model, device.model);
@@ -459,7 +472,7 @@ mod tests {
         assert!(!bare.plan_mode);
 
         // A pinned agent brings ITS defaults, then the explicit overrides.
-        let pinned = launch_options(&settings, Some("codex"), Some("gpt-5.1-codex"), None);
+        let pinned = launch_options(&settings, Some("codex"), Some("gpt-5.1-codex"), None, None);
         assert_eq!(pinned.agent, crate::CodingAgent::Codex);
         assert_eq!(pinned.model, "gpt-5.1-codex");
         assert_eq!(
@@ -471,11 +484,40 @@ mod tests {
         // An agent this build predates degrades to the device default —
         // never a refused run.
         assert_eq!(
-            launch_options(&settings, Some("moonshot"), None, None).agent,
+            launch_options(&settings, Some("moonshot"), None, None, None).agent,
             settings.default_agent
         );
         // Empty strings are "unset", not a blank model.
-        assert_eq!(launch_options(&settings, None, Some(""), Some("")).model, device.model);
+        assert_eq!(
+            launch_options(&settings, None, Some(""), Some(""), None).model,
+            device.model
+        );
+    }
+
+    /// EXP-995: the account pin is a PROFILE of the pinned agent — it rides
+    /// only beside an agent this build knows, and the ambient login stays
+    /// `None` on the launch like every other start.
+    #[test]
+    fn launch_options_take_the_account_pin_beside_its_agent() {
+        let mut settings = crate::Settings::default();
+        settings.default_agent = crate::CodingAgent::Claude;
+        settings.default_account = Some("deflt123".to_string());
+
+        let pinned = launch_options(&settings, Some("codex"), None, None, Some("0a1b2c3d"));
+        assert_eq!(pinned.agent, crate::CodingAgent::Codex);
+        assert_eq!(pinned.account.as_deref(), Some("0a1b2c3d"));
+
+        // No agent pinned = the device default agent AND its default account,
+        // whatever the row says (a profile belongs to one agent).
+        let bare = launch_options(&settings, None, None, None, Some("0a1b2c3d"));
+        assert_eq!(bare.agent, crate::CodingAgent::Claude);
+        assert_eq!(bare.account.as_deref(), Some("deflt123"));
+
+        // `system` / blank = the ambient login, never a named profile.
+        let ambient = launch_options(&settings, Some("claude"), None, None, Some("system"));
+        assert_eq!(ambient.account, None);
+        let blank = launch_options(&settings, Some("codex"), None, None, Some(" "));
+        assert_eq!(blank.account, None);
     }
 
     /// The evaluation truth table (the reconcile_truth_table idiom): one

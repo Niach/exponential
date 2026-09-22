@@ -1892,6 +1892,28 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v51 (EXP-995): automations.account — the agent profile id the run
+        // spends on the bound device (the automation editor picks an ACCOUNT
+        // now, the agent riding the pick). Nullable, new on the automations
+        // shape allowlist. Same guarded additive ALTER + offset reset as v50.
+        migrator.registerMigration("v51_automation_account") { db in
+            guard try db.tableExists("automations") else { return }
+            let existing = Set(try db.columns(in: "automations").map(\.name))
+            if !existing.contains("account") {
+                try db.alter(table: "automations") { t in
+                    t.add(column: "account", .text)
+                }
+            }
+            // Force a re-snapshot so already-synced rows pick up the column.
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'automations'
+                    """)
+            }
+        }
+
         return migrator
     }
 

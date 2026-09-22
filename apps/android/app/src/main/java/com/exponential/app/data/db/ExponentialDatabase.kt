@@ -327,9 +327,14 @@ import androidx.room.TypeConverters
     //      latest submitted verdict (jsonb kept as raw text, read tolerantly).
     //      Both new on the workflow-nodes shape allowlist; destructive
     //      fallback wipes + resyncs so every node row arrives carrying them.
+    // v70 (EXP-995): automations.account — the agent profile id the run spends
+    //      on the bound device (the automation editor picks an ACCOUNT now, the
+    //      agent riding the pick). Nullable, new on the automations shape
+    //      allowlist; destructive fallback wipes + resyncs so every row arrives
+    //      carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 70,
+    version = 71,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

@@ -4529,7 +4529,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_automations_create`,
     {
-      description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}.`,
+      description: `Create an automation (owner only) running actionId on deviceId; pass provided values verbatim. trigger = {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id on that device (needs agent).`,
       inputSchema: strictInput({
         teamId: uuidString,
         actionId: uuidString,
@@ -4538,6 +4538,9 @@ export function registerExponentialTools(
         // Null and absent both mean the device's launch defaults — the same
         // nullability contract as automations_update (EXP-707 theme F).
         agent: z.enum(codingAgentValues).nullable().optional(),
+        // EXP-995: the agent profile the run spends (`devices.agent_accounts`
+        // lists them); the agent rides beside it.
+        account: z.string().max(64).nullable().optional(),
         model: z.string().max(64).nullable().optional(),
         effort: z.string().max(32).nullable().optional(),
       }),
@@ -4566,7 +4569,7 @@ export function registerExponentialTools(
     `exponential_automations_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/model/effort and whether it is enabled. Team members only.`,
+      description: `List a team's automations: which action runs on which device, its trigger (schedule or issue event), launch agent/account/model/effort and whether it is enabled. Team members only.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {
@@ -4585,7 +4588,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_automations_update`,
     {
-      description: `Update an automation (owner only); pass only the fields to change. trigger takes the same shape as exponential_automations_create; null agent/model/effort clears the pin. An enabled automation needs every action input optional.`,
+      description: `Update an automation (owner only); pass only the fields to change. trigger takes the same shape as exponential_automations_create; null agent/account/model/effort clears the pin. An enabled automation needs every action input optional.`,
       inputSchema: strictInput({
         id: uuidString,
         actionId: uuidString.optional(),
@@ -4594,6 +4597,7 @@ export function registerExponentialTools(
         enabled: z.boolean().optional(),
         sortOrder: z.number().finite().optional(),
         agent: z.enum(codingAgentValues).nullable().optional(),
+        account: z.string().max(64).nullable().optional(),
         model: z.string().max(64).nullable().optional(),
         effort: z.string().max(32).nullable().optional(),
       }),

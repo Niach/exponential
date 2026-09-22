@@ -29,6 +29,8 @@ data class AutomationDto(
     @SerialName("enabled") val enabled: Boolean = true,
     @SerialName("trigger") val trigger: JsonObject? = null,
     @SerialName("agent") val agent: String? = null,
+    /** EXP-995: the agent profile id on the bound device (belongs to `agent`). */
+    @SerialName("account") val account: String? = null,
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
     @SerialName("sortOrder") val sortOrder: Double = 0.0,
@@ -51,6 +53,7 @@ private data class CreateAutomationInput(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("trigger") val trigger: JsonObject,
     @SerialName("agent") val agent: String? = null,
+    @SerialName("account") val account: String? = null,
     @SerialName("model") val model: String? = null,
     @SerialName("effort") val effort: String? = null,
 )
@@ -65,9 +68,9 @@ private data class SetAutomationEnabledInput(
     @SerialName("enabled") val enabled: Boolean,
 )
 
-// The edit form's patch: every field is written, and agent/model/effort ride
-// as EXPLICIT nulls meaning "back to the device's launch defaults" (iOS
-// AutomationLaunchPatch parity).
+// The edit form's patch: every field is written, and agent/account/model/
+// effort ride as EXPLICIT nulls meaning "back to the device's launch
+// defaults" (iOS AutomationLaunchPatch parity).
 @Serializable
 private data class UpdateAutomationInput(
     @SerialName("id") val id: String,
@@ -75,6 +78,7 @@ private data class UpdateAutomationInput(
     @SerialName("deviceId") val deviceId: String,
     @SerialName("trigger") val trigger: JsonObject,
     @SerialName("agent") val agent: String?,
+    @SerialName("account") val account: String?,
     @SerialName("model") val model: String?,
     @SerialName("effort") val effort: String?,
 )
@@ -87,8 +91,10 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * `automations.create` — bind [actionId] to [deviceId] with [trigger].
-     * Null [agent]/[model]/[effort] mean "the device's own launch defaults";
-     * the server validates the pins against what that machine advertises.
+     * Null [agent]/[account]/[model]/[effort] mean "the device's own launch
+     * defaults"; the server validates the pins against what that machine
+     * advertises (EXP-995: an [account] is a profile of [agent], so it needs
+     * the agent pinned beside it).
      */
     suspend fun create(
         accountId: String,
@@ -97,6 +103,7 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         trigger: AutomationTrigger,
         agent: String? = null,
+        account: String? = null,
         model: String? = null,
         effort: String? = null,
     ): AutomationDto = trpc.mutation(
@@ -108,6 +115,7 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
             deviceId = deviceId,
             trigger = trigger.toWireJson(),
             agent = agent?.takeIf { it.isNotEmpty() },
+            account = account?.takeIf { it.isNotEmpty() },
             model = model?.takeIf { it.isNotEmpty() },
             effort = effort?.takeIf { it.isNotEmpty() },
         ),
@@ -134,8 +142,8 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
     /**
      * `automations.update` from the edit form (EXP-615): the target action,
      * the bound machine, the when-part and the launch pins. Null
-     * [agent]/[model]/[effort] travel as explicit nulls — "back to the
-     * device's own launch defaults".
+     * [agent]/[account]/[model]/[effort] travel as explicit nulls — "back to
+     * the device's own launch defaults".
      */
     suspend fun update(
         accountId: String,
@@ -144,6 +152,7 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         trigger: AutomationTrigger,
         agent: String? = null,
+        account: String? = null,
         model: String? = null,
         effort: String? = null,
     ): AutomationDto = trpc.mutation(
@@ -155,6 +164,7 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
             deviceId = deviceId,
             trigger = trigger.toWireJson(),
             agent = agent?.takeIf { it.isNotEmpty() },
+            account = account?.takeIf { it.isNotEmpty() },
             model = model?.takeIf { it.isNotEmpty() },
             effort = effort?.takeIf { it.isNotEmpty() },
         ),

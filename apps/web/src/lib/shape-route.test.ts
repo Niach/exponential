@@ -525,6 +525,7 @@ describe(`shape column + trash contracts`, () => {
       `enabled`,
       `trigger`,
       `agent`,
+      `account`,
       `model`,
       `effort`,
       `sort_order`,

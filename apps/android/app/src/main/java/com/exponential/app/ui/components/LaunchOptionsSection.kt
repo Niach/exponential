@@ -115,6 +115,13 @@ internal fun LaunchOptionsSection(
     onPlanModeChange: (Boolean) -> Unit = {},
     planModeHidden: Boolean = false,
     resumeSlot: (@Composable () -> Unit)? = null,
+    /**
+     * EXP-995: when set, the card's FIRST row is this account picker row
+     * instead of the agent tabs — the automation editor's pin, where a pick
+     * names the agent too (the composer and the device sheet draw theirs
+     * elsewhere).
+     */
+    accountRow: (@Composable () -> Unit)? = null,
 ) {
     val automation = variant == LaunchOptionsVariant.Automation
     val deviceVariant = variant == LaunchOptionsVariant.Device
@@ -162,8 +169,14 @@ internal fun LaunchOptionsSection(
     // card on all four clients.
     val showsPlanMode = !automation && supportsPlanMode(agent) && !planModeHidden
     OptionGroup {
-        // A lone option is not a choice — every variant hides the strip then.
-        if (availableAgents.size > 1) {
+        if (accountRow != null) {
+            // EXP-995: THE account picker leads the card; a pick implies the
+            // agent, so no strip.
+            accountRow()
+            GroupDivider()
+        } else if (availableAgents.size > 1) {
+            // A lone option is not a choice — every variant hides the strip
+            // then.
             AgentSegmentedTabs(
                 agents = availableAgents,
                 selected = agent,

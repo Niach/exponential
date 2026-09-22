@@ -2,7 +2,9 @@ import Foundation
 
 // Mirrors apps/web/src/lib/trpc/automations.ts (EXP-583). An automation binds
 // ONE action to ONE device with a schedule/event trigger and its own
-// agent/model/effort (NULL = the device's launch defaults). Rows SYNC as the
+// agent/account/model/effort (NULL = the device's launch defaults; EXP-995:
+// `account` = the agent profile the run spends, picked WITH its agent off the
+// shared account picker). Rows SYNC as the
 // 19th Electric shape — this router is the write path (team-owner-only) plus a
 // member-gated `list` kept for parity with the other clients; mobile reads the
 // synced store and writes through here.
@@ -18,8 +20,10 @@ public struct AutomationDto: Identifiable, Sendable, Equatable {
     public let deviceId: String
     public let enabled: Bool
     public let trigger: String?
-    /// nil = the device's launch defaults (all three travel together).
+    /// nil = the device's launch defaults (all four travel together).
     public let agent: String?
+    /// EXP-995: the agent profile id on the bound device (belongs to `agent`).
+    public let account: String?
     public let model: String?
     public let effort: String?
     public let sortOrder: Double
@@ -34,6 +38,7 @@ public struct AutomationDto: Identifiable, Sendable, Equatable {
         enabled: Bool,
         trigger: String?,
         agent: String? = nil,
+        account: String? = nil,
         model: String? = nil,
         effort: String? = nil,
         sortOrder: Double = 0,
@@ -47,6 +52,7 @@ public struct AutomationDto: Identifiable, Sendable, Equatable {
         self.enabled = enabled
         self.trigger = trigger
         self.agent = agent
+        self.account = account
         self.model = model
         self.effort = effort
         self.sortOrder = sortOrder
@@ -60,7 +66,7 @@ public struct AutomationDto: Identifiable, Sendable, Equatable {
 
 extension AutomationDto: Decodable {
     enum CodingKeys: String, CodingKey {
-        case id, enabled, trigger, agent, model, effort
+        case id, enabled, trigger, agent, account, model, effort
         case teamId, actionId, deviceId, sortOrder, createdAt, updatedAt
     }
 
@@ -74,6 +80,7 @@ extension AutomationDto: Decodable {
         // jsonb: an object over tRPC, a pre-stringified value from fixtures.
         trigger = c.decodeWireJsonString(forKey: .trigger)
         agent = try c.decodeIfPresent(String.self, forKey: .agent)
+        account = try c.decodeIfPresent(String.self, forKey: .account)
         model = try c.decodeIfPresent(String.self, forKey: .model)
         effort = try c.decodeIfPresent(String.self, forKey: .effort)
         sortOrder = (try c.decodeWireDouble(forKey: .sortOrder)) ?? 0
@@ -93,6 +100,7 @@ public extension AutomationDto {
             enabled: entity.enabled,
             trigger: entity.trigger,
             agent: entity.agent,
+            account: entity.account,
             model: entity.model,
             effort: entity.effort,
             sortOrder: entity.sortOrder ?? 0,
@@ -127,21 +135,26 @@ private struct CreateInput: Encodable {
     let trigger: AutomationTrigger
     let enabled: Bool?
     let agent: String?
+    let account: String?
     let model: String?
     let effort: String?
 }
 
-/// The three launch fields move together and are TRI-STATE on the wire: an
+/// The four launch fields move together and are TRI-STATE on the wire: an
 /// absent key keeps what the row has, an explicit null resets that field to
 /// the device's launch defaults. Pass the patch only when the form actually
 /// edited them (the enable toggle never does).
 public struct AutomationLaunchPatch: Sendable, Equatable {
     public let agent: String?
+    /// EXP-995: the agent profile id (belongs to `agent`); nil = the
+    /// machine's default login.
+    public let account: String?
     public let model: String?
     public let effort: String?
 
-    public init(agent: String?, model: String?, effort: String?) {
+    public init(agent: String?, account: String? = nil, model: String?, effort: String?) {
         self.agent = agent
+        self.account = account
         self.model = model
         self.effort = effort
     }
@@ -158,7 +171,7 @@ private struct UpdateInput: Encodable {
     var launch: AutomationLaunchPatch?
 
     enum CodingKeys: String, CodingKey {
-        case id, actionId, deviceId, trigger, enabled, agent, model, effort
+        case id, actionId, deviceId, trigger, enabled, agent, account, model, effort
     }
 
     func encode(to encoder: Encoder) throws {
@@ -171,6 +184,7 @@ private struct UpdateInput: Encodable {
         // Explicit nulls: "back to the device's launch defaults".
         if let launch {
             try c.encode(launch.agent, forKey: .agent)
+            try c.encode(launch.account, forKey: .account)
             try c.encode(launch.model, forKey: .model)
             try c.encode(launch.effort, forKey: .effort)
         }
@@ -202,8 +216,8 @@ public final class AutomationsApi: Sendable {
 
     /// Owner-gated `automations.create`. The server refuses a builtin or
     /// foreign action, an action with required inputs while enabled, a device
-    /// that is not yours/team-shared or lacks the `automations` cap, and an
-    /// agent the device doesn't advertise.
+    /// that is not yours/team-shared or lacks the `automations` cap, an
+    /// agent the device doesn't advertise, and an account pinned without one.
     @discardableResult
     public func create(
         accountId: String,
@@ -213,6 +227,7 @@ public final class AutomationsApi: Sendable {
         trigger: AutomationTrigger,
         enabled: Bool? = nil,
         agent: String? = nil,
+        account: String? = nil,
         model: String? = nil,
         effort: String? = nil
     ) async throws -> AutomationDto {
@@ -226,6 +241,7 @@ public final class AutomationsApi: Sendable {
                 trigger: trigger,
                 enabled: enabled,
                 agent: agent,
+                account: account,
                 model: model,
                 effort: effort
             )

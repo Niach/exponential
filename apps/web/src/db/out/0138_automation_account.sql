@@ -1,0 +1,1 @@
+ALTER TABLE "automations" ADD COLUMN "account" varchar(64);

@@ -2620,9 +2620,11 @@ struct AutomationAction {
     team_id: String,
     /// The target action's display name — the log line's handle.
     name: String,
-    /// The automation's pinned agent/model/effort; every `None` falls back
-    /// to this machine's launch defaults.
+    /// The automation's pinned agent/account/model/effort; every `None`
+    /// falls back to this machine's launch defaults.
     agent: Option<String>,
+    /// EXP-995: the agent profile the run spends (belongs to `agent`).
+    account: Option<String>,
     model: Option<String>,
     effort: Option<String>,
 }
@@ -2840,6 +2842,7 @@ impl AutomationHost {
             action.agent.as_deref(),
             action.model.as_deref(),
             action.effort.as_deref(),
+            action.account.as_deref(),
         );
         let request = launch::resolve_action_request(
             &self.ctx,
@@ -4392,6 +4395,7 @@ fn triggered_actions(
                 team_id,
                 name,
                 agent: row.agent.clone(),
+                account: row.account.clone(),
                 model: row.model.clone(),
                 effort: row.effort.clone(),
             })

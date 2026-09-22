@@ -2,6 +2,7 @@ package com.exponential.app.ui.actions
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.domain.AutomationTriggerFilters
@@ -29,6 +32,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.triggerEventLabel
 import com.exponential.app.domain.triggerWeekdayName
+import com.exponential.app.ui.components.AccountPickerPill
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.GlassSegmentedControl
@@ -37,6 +41,8 @@ import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
+import com.exponential.app.ui.components.accountOptionsFor
+import com.exponential.app.ui.components.ambientAccountOptions
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.icons.ExpIcons
@@ -66,8 +72,10 @@ internal const val AUTOMATION_KIND_EVENT = "event"
  * SINGLE-select with an "Any" default — the mobile simplification of the web's
  * multi-selects; the wire lists carry one-or-none entries from here.
  * [agent] is seeded from the bound machine's default (EXP-615 — empty only
- * before one is bound); an empty [model]/[effort] is the "CLI default" that
- * saves as NULL.
+ * before one is bound); EXP-995: [account] is the agent profile the run
+ * spends, picked WITH its agent off the account row ("" = the machine's
+ * default login, saved as NULL); an empty [model]/[effort] is the "CLI
+ * default" that saves as NULL.
  */
 internal data class AutomationDraft(
     val kind: String = AUTOMATION_KIND_SCHEDULE,
@@ -84,6 +92,7 @@ internal data class AutomationDraft(
     val priority: String = "",
     val toStatusId: String = "",
     val agent: String = "",
+    val account: String = "",
     val model: String = CLI_DEFAULT_MODEL,
     val effort: String = CLI_DEFAULT_EFFORT,
 )
@@ -304,12 +313,14 @@ internal fun AutomationTriggerFields(
 }
 
 /**
- * The binding half: which machine runs the automation, and the agent pin with
- * its model/effort. EXP-615 retired the "Device default" agent option — the
- * strip seeds to the bound machine's own default launch agent (the same
- * [defaultAgentFor] the Start-coding sheet uses) and the row saves that
- * concrete agent. Model/Effort speak the launch "CLI default" sentinel, which
- * is what writes NULL.
+ * The binding half: which machine runs the automation, and the account pin
+ * with its model/effort. EXP-615 retired the "Device default" agent option;
+ * EXP-995 retired the agent strip itself — the card's first row is THE
+ * account picker ([AccountPickerPill], brand mark + email over the bound
+ * machine's logins, its default first) and a pick names the agent too. The
+ * pin seeds to the bound machine's DEFAULT ACCOUNT (the composer's seed) and
+ * the row saves that concrete agent + profile. Model/Effort speak the launch
+ * "CLI default" sentinel, which is what writes NULL.
  */
 @Composable
 internal fun AutomationBindingFields(
@@ -318,25 +329,38 @@ internal fun AutomationBindingFields(
     onChange: (AutomationDraft) -> Unit,
 ) {
     val device = devices.firstOrNull { it.deviceId == draft.deviceId }
-    // Seed (and re-seed) the agent off the bound machine: an unset pin — a row
+    // EXP-995: every signed-in login the bound machine reports, across
+    // agents; a machine that reports none (or none bound yet) offers one
+    // ambient row per runnable agent so the pin can be made before the
+    // heartbeat lands (the workflow runner block's rule).
+    val accountOptions = if (device == null) {
+        ambientAccountOptions(DomainContract.codingAgentValues, draft.agent.takeIf { it.isNotEmpty() })
+    } else {
+        accountOptionsFor(device, availableAgentsFor(device))
+    }
+    // Seed (and re-seed) the pin off the bound machine: an unset pin — a row
     // saved before EXP-615 carries a NULL agent — or one the newly picked
-    // machine cannot run falls back to that machine's default, clamped to what
-    // it advertises. A pin it CAN run is left alone, so a manual pick sticks.
+    // machine cannot run falls back to that machine's default ACCOUNT (which
+    // names the agent), clamped to what it advertises. A pin it CAN run is
+    // left alone, so a manual pick sticks.
     LaunchedEffect(device?.deviceId, devices) {
         val bound = device ?: return@LaunchedEffect
         if (draft.agent.isNotEmpty() && draft.agent in availableAgentsFor(bound)) {
             return@LaunchedEffect
         }
+        val options = accountOptionsFor(bound, availableAgentsFor(bound))
+        val fallback = options.firstOrNull { it.isDeviceDefault } ?: options.firstOrNull()
         onChange(
             draft.copy(
-                agent = defaultAgentFor(bound),
+                agent = fallback?.agent ?: defaultAgentFor(bound),
+                account = fallback?.id?.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
                 model = CLI_DEFAULT_MODEL,
                 effort = CLI_DEFAULT_EFFORT,
             ),
         )
     }
     // EXP-615: the same block the launch dialogs render, in its Automation
-    // variant — identical agent capsule, no launch toggles.
+    // variant — no launch toggles; EXP-995: the account row leads it.
     LaunchOptionsSection(
         variant = LaunchOptionsVariant.Automation,
         devices = devices,
@@ -346,15 +370,58 @@ internal fun AutomationBindingFields(
         agent = draft.agent,
         availableAgents = device?.runnableAgents.orEmpty(),
         onAgentChange = { next ->
-            // The model/effort vocabularies are per agent — a switch has to
-            // reset them, or a stale value hits a server refusal.
+            // A profile is ONE agent's, and the model/effort vocabularies are
+            // per agent — a switch has to reset them, or a stale value hits a
+            // server refusal.
             onChange(
                 draft.copy(
                     agent = next,
+                    account = "",
                     model = CLI_DEFAULT_MODEL,
                     effort = CLI_DEFAULT_EFFORT,
                 ),
             )
+        },
+        accountRow = if (accountOptions.isEmpty()) {
+            null
+        } else {
+            {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Account",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Primary,
+                        ),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    AccountPickerPill(
+                        options = accountOptions,
+                        selectedKey = "${draft.agent}:${draft.account.ifEmpty { SYSTEM_PROFILE_ID }}",
+                        onSelect = { option ->
+                            // Only an AGENT change invalidates the vocabularies
+                            // below; another login of the same agent keeps
+                            // model and effort exactly as picked. "" is the
+                            // machine's ambient login, never an id on the wire.
+                            val agentChanged = option.agent != draft.agent
+                            onChange(
+                                draft.copy(
+                                    agent = option.agent,
+                                    account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+                                    model = if (agentChanged) CLI_DEFAULT_MODEL else draft.model,
+                                    effort = if (agentChanged) CLI_DEFAULT_EFFORT else draft.effort,
+                                ),
+                            )
+                        },
+                        modifier = Modifier.testTag("automation-account-pill"),
+                    )
+                }
+            }
         },
         model = draft.model,
         onModelChange = { onChange(draft.copy(model = it)) },

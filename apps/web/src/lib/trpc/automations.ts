@@ -26,7 +26,7 @@ import {
 
 // Automations (EXP-583, split out of actions.trigger from EXP-530): a schedule
 // or issue-event trigger that runs ONE action on ONE device with its own
-// agent/model/effort. Rows sync via the `automations` shape; this router is
+// agent/account/model/effort. Rows sync via the `automations` shape; this router is
 // the write path (team-owner-only) plus a member-gated `list` for MCP.
 // There is NO server scheduler — the bound device
 // selects its enabled rows off Electric and self-starts the run
@@ -50,6 +50,7 @@ const wireColumns = {
   enabled: automations.enabled,
   trigger: automations.trigger,
   agent: automations.agent,
+  account: automations.account,
   model: automations.model,
   effort: automations.effort,
   sortOrder: automations.sortOrder,
@@ -60,19 +61,39 @@ const wireColumns = {
 // Agent/model/effort: NULL = the device's launch defaults. A model/effort is
 // only meaningful against an agent, so both are validated against the
 // (agent ?? claude) contract lists, mirroring steer.startSession.
+// EXP-995: `account` = the agent PROFILE id on the bound device
+// (`agent_profiles`, what a start passes as `account`). It names a directory
+// under ONE agent's config root, so it needs the agent pinned beside it; the
+// ambient `system` login and NULL both mean "that machine's default login".
+// Which profiles a machine holds is device-local (the heartbeat's
+// `agent_accounts` may lag), so the id itself is not checked here — the
+// runner falls back to the ambient login for a profile it no longer has.
 const launchFieldsSchema = z.object({
   agent: z.enum(codingAgentValues).nullable().optional(),
+  account: z.string().max(64).nullable().optional(),
   model: z.string().max(64).nullable().optional(),
   effort: z.string().max(32).nullable().optional(),
 })
 
+/** The web/desktop `SYSTEM_PROFILE_ID`: the ambient login, stored as NULL. */
+const SYSTEM_ACCOUNT = `system`
+
+function normalizeAccount(account: string | null | undefined): string | null {
+  const trimmed = account?.trim() ?? ``
+  return trimmed === `` || trimmed === SYSTEM_ACCOUNT ? null : trimmed
+}
+
 function assertLaunchFields(fields: {
   agent?: string | null
+  account?: string | null
   model?: string | null
   effort?: string | null
 }): void {
   const agent = fields.agent ?? `claude`
   const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
+  if (fields.account && !fields.agent) {
+    throw bad(`An account pin needs its agent pinned`)
+  }
   if (fields.model && !agentModelValues[agent]!.includes(fields.model)) {
     throw bad(`Unknown ${agent} model`)
   }
@@ -249,7 +270,8 @@ export const automationsRouter = router({
       const enabled = input.enabled ?? true
       const action = await loadTargetAction(input.actionId, input.teamId)
       assertRunnable(action.inputs, enabled)
-      assertLaunchFields(input)
+      const account = normalizeAccount(input.account)
+      assertLaunchFields({ ...input, account })
       await assertDeviceUsable(
         input.deviceId,
         input.teamId,
@@ -275,6 +297,7 @@ export const automationsRouter = router({
             enabled,
             trigger: input.trigger,
             agent: input.agent ?? null,
+            account,
             model: input.model || null,
             effort: input.effort || null,
             sortOrder: (last?.sortOrder ?? 0) + 1,
@@ -301,12 +324,21 @@ export const automationsRouter = router({
       const existing = await loadAutomation(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
 
+      const agent = input.agent === undefined ? existing.agent : input.agent
       const next = {
         actionId: input.actionId ?? existing.actionId,
         deviceId: input.deviceId ?? existing.deviceId,
         trigger: input.trigger ?? existing.trigger,
         enabled: input.enabled ?? existing.enabled,
-        agent: input.agent === undefined ? existing.agent : input.agent,
+        agent,
+        // A profile belongs to ONE agent: an agent switch that names no
+        // account drops the old agent's, never carries it across.
+        account:
+          input.account === undefined
+            ? agent === existing.agent
+              ? existing.account
+              : null
+            : normalizeAccount(input.account),
         model: input.model === undefined ? existing.model : input.model || null,
         effort:
           input.effort === undefined ? existing.effort : input.effort || null,

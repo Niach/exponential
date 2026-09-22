@@ -464,6 +464,9 @@ data class AutomationEntity(
     // consumer (AutomationTrigger.parse — unknown kinds read as null).
     @Serializable(with = JsonAsStringSerializer::class) val trigger: String? = null,
     val agent: String? = null,
+    // EXP-995: the agent profile id the run spends on the bound device — it
+    // belongs to `agent`; null = that machine's default login for it.
+    val account: String? = null,
     val model: String? = null,
     val effort: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
