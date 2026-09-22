@@ -40,6 +40,11 @@ export interface RailLane {
   into: boolean
   /** The lane leaves this row's node (this row blocks the other end). */
   out: boolean
+  /** The edge whose other end sits ABOVE this row joins the node here: the
+   *  line from the top edge bends into the node. */
+  joinAbove: boolean
+  /** The edge whose other end sits BELOW this row joins the node here. */
+  joinBelow: boolean
   /** Part of a blocking cycle — drawn red. */
   cycle: boolean
   /** The edges (`from:to` id keys + `EXP-1 blocks EXP-2` labels) using this
@@ -72,13 +77,11 @@ export interface IssueRail {
   hasNodes: boolean
 }
 
-/** The node column's width: an 8px gutter off the cell before it (the due
+/** The node column's width: a 10px gutter off the cell before it (the due
  *  date), then the dot centred in the remaining 16. */
-export const RAIL_NODE_WIDTH = 24
+export const RAIL_NODE_WIDTH = 26
 /** One lane's width. */
-export const RAIL_LANE_PITCH = 8
-/** The arrow's corner radius — the tree connector's (`TREE_RADIUS`). */
-export const RAIL_RADIUS = 3
+export const RAIL_LANE_PITCH = 10
 
 /** The rail column's width for a lane count. */
 export function railWidth(rail: Pick<IssueRail, `laneCount` | `hasNodes`>): number {
@@ -251,6 +254,8 @@ export function issueRail(
         bottom: false,
         into: false,
         out: false,
+        joinAbove: false,
+        joinBelow: false,
         cycle: false,
         edges: [],
       }
@@ -269,6 +274,8 @@ export function issueRail(
       if (entry < span.hi) slot.bottom = true
       if (entry === span.from) slot.out = true
       if (entry === span.to) slot.into = true
+      if (entry === span.lo && span.lo !== span.hi) slot.joinBelow = true
+      if (entry === span.hi && span.lo !== span.hi) slot.joinAbove = true
     }
   })
 

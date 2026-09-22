@@ -1,8 +1,8 @@
 import { fireEvent, render } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { IssueRailGap, IssueRailLayer, RAIL_ROOT_ATTR } from "./issue-rail"
-import { issueRail, railLaneX, railWidth, RAIL_NODE_X } from "@/lib/issue-rail"
+import { IssueRailGap, IssueRailLayer, RAIL_ROOT_ATTR, railCurve } from "./issue-rail"
+import { issueRail, railLaneX, railWidth } from "@/lib/issue-rail"
 import type { GraphIssue, GraphRelation } from "@/lib/issue-graph"
 
 // EXP-998: the rail's painter. The RULE is `lib/issue-rail.test.ts`; what is
@@ -61,11 +61,10 @@ describe(`IssueRailLayer`, () => {
     expect(a.querySelector(`[data-testid="issue-rail-node"]`)!.getAttribute(`aria-label`)).toBe(
       `Blocking 1`
     )
-    // The blocker's slice: from the centre down, out of the node.
+    // The blocker's slice: one curve out of the node to the lane at the
+    // row's bottom edge, nothing above.
     const aLane = a.querySelector(`path[data-testid="issue-rail-lane"]`)!
-    expect(aLane.getAttribute(`d`)).toBe(
-      `M ${railLaneX(0)} 1000 V 3 Q ${railLaneX(0)} 0 ${railLaneX(0) - 3} 0 H ${RAIL_NODE_X + 4}`
-    )
+    expect(aLane.getAttribute(`d`)).toBe(railCurve(railLaneX(0), 20))
     expect(a.querySelector(`[data-testid="issue-rail-arrow"]`)).toBeNull()
 
     const gap = getByTestId(`gap`)
@@ -79,6 +78,10 @@ describe(`IssueRailLayer`, () => {
     expect(node.getAttribute(`data-kind`)).toBe(`blocked`)
     expect(node.getAttribute(`aria-label`)).toBe(`Blocked by 1`)
     expect(b.querySelector(`[data-testid="issue-rail-arrow"]`)).toBeTruthy()
+    // …and the blocked row's: the curve in from the top edge.
+    expect(b.querySelector(`path[data-testid="issue-rail-lane"]`)!.getAttribute(`d`)).toBe(
+      railCurve(railLaneX(0), -20)
+    )
     expect(b.querySelector(`title`)!.textContent).toBe(`EXP-1 blocks EXP-2`)
   })
 

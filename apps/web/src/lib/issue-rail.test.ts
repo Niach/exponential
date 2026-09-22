@@ -109,9 +109,14 @@ describe(`issueRail`, () => {
       [issue(`a`), issue(`b`), issue(`c`)]
     )
     expect(rail.laneCount).toBe(1)
-    const [, b] = rail.entries
+    const [a, b, c] = rail.entries
     expect(b!.node).toBe(`blocked`)
     expect(b!.lanes.map(shape)).toEqual([[0, true, true, true, true]])
+    // Both edges bend into b's node: one from above, one from below — no
+    // straight pass-through.
+    expect([b!.lanes[0]!.joinAbove, b!.lanes[0]!.joinBelow]).toEqual([true, true])
+    expect([a!.lanes[0]!.joinAbove, a!.lanes[0]!.joinBelow]).toEqual([false, true])
+    expect([c!.lanes[0]!.joinAbove, c!.lanes[0]!.joinBelow]).toEqual([true, false])
     expect(b!.lanes[0]!.edges.map((edge) => edge.key)).toEqual([`a:b`, `b:c`])
   })
 
