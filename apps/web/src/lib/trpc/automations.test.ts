@@ -224,6 +224,49 @@ describe(`automations.create`, () => {
     expect((error as TRPCError).message).toBe(`codex is not available on that device`)
   })
 
+  // EXP-995: an account is a profile of ONE agent, so it pins beside one;
+  // the ambient `system` login stores as NULL like a blank.
+  it(`stores an account pin beside its agent and refuses one without`, async () => {
+    selectResults.push([action])
+    selectResults.push([ownDevice])
+    selectResults.push([])
+    const { automation } = await caller.create({
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      deviceId: `device-1`,
+      trigger: schedule,
+      agent: `codex`,
+      account: `0a1b2c3d`,
+    })
+    expect(automation).toMatchObject({ agent: `codex`, account: `0a1b2c3d` })
+
+    selectResults.push([action])
+    selectResults.push([ownDevice])
+    selectResults.push([])
+    const ambient = await caller.create({
+      teamId: TEAM_ID,
+      actionId: ACTION_ID,
+      deviceId: `device-1`,
+      trigger: schedule,
+      agent: `claude`,
+      account: `system`,
+    })
+    expect(ambient.automation).toMatchObject({ agent: `claude`, account: null })
+
+    selectResults.push([action])
+    const error = await rejectionOf(
+      caller.create({
+        teamId: TEAM_ID,
+        actionId: ACTION_ID,
+        deviceId: `device-1`,
+        trigger: schedule,
+        account: `0a1b2c3d`,
+      })
+    )
+    expect((error as TRPCError).message).toBe(`An account pin needs its agent pinned`)
+    expect(inserts).toHaveLength(2)
+  })
+
   it(`validates model/effort against the agent's contract lists`, async () => {
     selectResults.push([action])
     const error = await rejectionOf(
@@ -286,6 +329,7 @@ describe(`automations.update`, () => {
     enabled: true,
     trigger: schedule,
     agent: null,
+    account: null,
     model: null,
     effort: null,
   }
@@ -296,6 +340,26 @@ describe(`automations.update`, () => {
     const { automation } = await caller.update({ id: AUTOMATION_ID, enabled: false })
     expect(automation).toMatchObject({ enabled: false, deviceId: `device-1` })
     expect(updates).toHaveLength(1)
+  })
+
+  // EXP-995: a profile belongs to ONE agent — switching the agent without
+  // naming an account drops the old one; naming one keeps it beside its agent.
+  it(`drops the account pin on an agent switch that names none`, async () => {
+    const pinned = { ...existing, agent: `claude`, account: `0a1b2c3d` }
+    selectResults.push([pinned])
+    selectResults.push([action])
+    selectResults.push([ownDevice])
+    const switched = await caller.update({ id: AUTOMATION_ID, agent: `codex` })
+    expect(switched.automation).toMatchObject({ agent: `codex`, account: null })
+
+    selectResults.push([pinned])
+    selectResults.push([action])
+    const same = await caller.update({ id: AUTOMATION_ID, model: `opus` })
+    expect(same.automation).toMatchObject({
+      agent: `claude`,
+      account: `0a1b2c3d`,
+      model: `opus`,
+    })
   })
 
   it(`re-checks the device when it changes`, async () => {

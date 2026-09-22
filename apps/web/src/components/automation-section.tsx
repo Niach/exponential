@@ -14,11 +14,15 @@ import { TRIGGER_EVENT_LABELS, weekdayName } from "@/lib/action-triggers"
 import { issuePriorityOptions } from "@/lib/domain"
 import { agentEffortValues, agentModelValues } from "@/lib/coding-launch-prefs"
 import { AgentOptionsFields } from "@/components/launch-dialog/launch-options-pane"
+import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import {
-  deviceAgentIds,
-  deviceCanRunAutomations,
-  type SteerDevice,
-} from "@/lib/steer-devices"
+  accountOptionKey,
+  defaultAccountOption,
+  type AccountOption,
+} from "@/lib/accounts/account-option"
+import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
+import { deviceCanRunAutomations, type SteerDevice } from "@/lib/steer-devices"
+import { contract } from "@exp/domain-contract"
 import {
   boardCollection,
   issueStatusCollection,
@@ -27,6 +31,8 @@ import {
 import { buildStatusOptions } from "@/lib/team-statuses"
 import type { Board, IssueStatusRow, Label as TeamLabel } from "@/db/schema"
 import {
+  AccountPicker,
+  agentLabel,
   Combobox,
   Button,
   Label,
@@ -41,7 +47,7 @@ import { cn } from "@/lib/utils"
 
 // The reusable Automation editing PIECES (EXP-530, reshaped in EXP-583 when
 // automations became their own rows): the trigger panes + event filters, the
-// "Runs on" device picker, and the agent/model/effort picker. The automation
+// "Runs on" device picker, and the account/model/effort picker. The automation
 // dialog composes all three (EXP-825: a suggestion seed no longer has an
 // "Automation" block of its own — it rides the create-action request as the
 // `formatAutomationBlock` text instead). Everything is CONTROLLED — the parent holds an `AutomationDraft` (the when-part only,
@@ -341,49 +347,155 @@ export function AutomationDevicePicker({
   )
 }
 
-/** Agent + Model + Effort for an automated run — the launch dialog's own
- * cluster in its `automation` variant (EXP-615), so the strip, the selects and
- * their labels can never drift between the two surfaces. Blank on every
- * control means "whatever the device is configured to launch with" (the row
- * stores NULL). Only the agent list is automation-specific: it is bounded by
- * what the bound device advertises. */
-export function AutomationAgentFields({
+/** EXP-995: the launch pin of an automated run, keyed the way every picker
+ * keys it (`accountOptionKey`): the pinned agent + its profile, the ambient
+ * login as `system`. */
+export interface AutomationAccountPin {
+  /** `` = no agent pinned yet (only while no device is bound). */
+  agent: string
+  /** `` = the machine's default login for `agent` (stored NULL). */
+  account: string
+}
+
+export function automationAccountKey(pin: AutomationAccountPin): string {
+  return accountOptionKey({
+    agent: pin.agent as AccountOption[`agent`],
+    id: pin.account === `` ? SYSTEM_PROFILE_ID : pin.account,
+  })
+}
+
+/** The pin an `AccountOption` stores: the agent, and the profile id unless it
+ * is the ambient `system` login (which stores as NULL). */
+export function accountPinOf(option: AccountOption): AutomationAccountPin {
+  return {
+    agent: option.agent,
+    account: option.id === SYSTEM_PROFILE_ID ? `` : option.id,
+  }
+}
+
+/** EXP-995: which option the Account row reads back for a stored pin — the
+ * exact (agent, profile) pair, else that agent's first login (a profile the
+ * machine no longer reports), else nothing. */
+export function pickedAccountOption(
+  options: readonly AccountOption[],
+  pin: AutomationAccountPin
+): AccountOption | undefined {
+  if (pin.agent === ``) return undefined
+  const key = automationAccountKey(pin)
+  return (
+    options.find((option) => accountOptionKey(option) === key) ??
+    options.find((option) => option.agent === pin.agent)
+  )
+}
+
+/** EXP-995: the pin a bound machine seeds — the row's own when that machine
+ * still runs its agent, else the machine's DEFAULT account (which names the
+ * agent). `undefined` = leave the pin alone. */
+export function seedAccountPin(
+  device: SteerDevice | undefined,
+  current: AutomationAccountPin
+): AutomationAccountPin | undefined {
+  if (!device) return undefined
+  const options = accountOptionsOf(device)
+  if (
+    current.agent !== `` &&
+    options.some((option) => option.agent === current.agent)
+  ) {
+    return undefined
+  }
+  const fallback = defaultAccountOption(options)
+  return fallback ? accountPinOf(fallback) : undefined
+}
+
+/** Account + Model + Effort for an automated run. EXP-995: the agent strip
+ * is gone — the FIRST row is THE account picker every launch surface shares
+ * (`@exp/ui` `AccountPicker`: brand mark + email, the bound machine's default
+ * first), and a pick implies the agent. Model/Effort below it are the launch
+ * dialog's own cluster in its `automation` variant (EXP-615), fed a single
+ * agent so it draws no strip. Blank on Model/Effort means "whatever the
+ * device is configured to launch with" (the row stores NULL).
+ *
+ * A machine that reports no login at all offers one ambient row per runnable
+ * agent, named by the agent (`accountOptionsOf`); a binding to a machine the
+ * viewer cannot see (a teammate's private device) keeps its stored agent on a
+ * plain Agent row, so editing another field never silently rebinds it. */
+export function AutomationLaunchFields({
   device,
-  agent,
-  onAgentChange,
+  pin,
+  onPinChange,
   model,
   onModelChange,
   effort,
   onEffortChange,
   idPrefix = `automation`,
 }: {
-  /** The bound device — its advertisement bounds the agent list. */
+  /** The bound device — its logins are the Account rows. */
   device: SteerDevice | undefined
-  /** `` = device default. */
-  agent: string
-  onAgentChange: (agent: string) => void
+  pin: AutomationAccountPin
+  onPinChange: (pin: AutomationAccountPin) => void
   model: string
   onModelChange: (model: string) => void
   effort: string
   onEffortChange: (effort: string) => void
   idPrefix?: string
 }) {
-  // A pin the bound device doesn't advertise (an unseen teammate machine, or
-  // an agent signed out since) stays listed so editing another field never
-  // silently blanks the select.
-  const availableAgents = useMemo(() => {
-    const ids = device ? deviceAgentIds(device) : []
-    return agent !== `` && !ids.includes(agent) ? [...ids, agent] : ids
-  }, [device, agent])
+  const options = useMemo(() => accountOptionsOf(device), [device])
+  const pickerOptions = useMemo(
+    () =>
+      options.map((option) => ({
+        key: accountOptionKey(option),
+        agent: option.agent,
+        email: option.email,
+        // EXP-849: an expired credential is the one thing worth knowing
+        // BEFORE the run starts on it.
+        hint: healthBadgeLabel(option.health) ?? undefined,
+        limits: option.limits,
+      })),
+    [options]
+  )
+  const picked = pickedAccountOption(options, pin)
   return (
     <div className="space-y-3">
+      <GlassGroup>
+        {pickerOptions.length > 0 ? (
+          <AccountPicker
+            variant="row"
+            mobileTitle="Account"
+            value={picked ? accountOptionKey(picked) : null}
+            options={pickerOptions}
+            onChange={(key) => {
+              const option = options.find(
+                (candidate) => accountOptionKey(candidate) === key
+              )
+              if (option) onPinChange(accountPinOf(option))
+            }}
+            data-testid={`${idPrefix}-account`}
+          />
+        ) : (
+          <Combobox
+            triggerVariant="row"
+            searchable={false}
+            mobileTitle="Agent"
+            value={pin.agent === `` ? null : pin.agent}
+            triggerLabel="Select an agent"
+            options={contract.codingAgent.values.map((value) => ({
+              value,
+              label: agentLabel(value),
+            }))}
+            onChange={(value) => {
+              if (value !== null) onPinChange({ agent: value, account: `` })
+            }}
+            data-testid={`${idPrefix}-agent`}
+          />
+        )}
+      </GlassGroup>
       <AgentOptionsFields
         variant="automation"
         idPrefix={idPrefix}
         device={device}
-        agent={agent}
-        availableAgents={availableAgents}
-        onAgentChange={onAgentChange}
+        agent={pin.agent}
+        availableAgents={pin.agent === `` ? [] : [pin.agent]}
+        onAgentChange={(agent) => onPinChange({ agent, account: `` })}
         model={model}
         onModelChange={onModelChange}
         effortValue={effort}

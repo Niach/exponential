@@ -785,8 +785,11 @@ public struct AutomationEntity: FetchableRecord, PersistableRecord, Identifiable
     /// it as a JSON value; stored as stringified JSON, tolerant-parsed lazily
     /// via `AutomationTrigger.parse`.
     public let trigger: String?
-    /// nil = the device's launch defaults (all three travel together).
+    /// nil = the device's launch defaults (all four travel together).
     public let agent: String?
+    /// EXP-995: the agent profile id the run spends on the bound device — it
+    /// belongs to `agent`; nil = that machine's default login for it.
+    public let account: String?
     public let model: String?
     public let effort: String?
     public let sortOrder: Double?
@@ -801,6 +804,7 @@ public struct AutomationEntity: FetchableRecord, PersistableRecord, Identifiable
         enabled: Bool = true,
         trigger: String?,
         agent: String? = nil,
+        account: String? = nil,
         model: String? = nil,
         effort: String? = nil,
         sortOrder: Double?,
@@ -814,6 +818,7 @@ public struct AutomationEntity: FetchableRecord, PersistableRecord, Identifiable
         self.enabled = enabled
         self.trigger = trigger
         self.agent = agent
+        self.account = account
         self.model = model
         self.effort = effort
         self.sortOrder = sortOrder
@@ -822,7 +827,7 @@ public struct AutomationEntity: FetchableRecord, PersistableRecord, Identifiable
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, enabled, trigger, agent, model, effort
+        case id, enabled, trigger, agent, account, model, effort
         case teamId = "team_id"
         case actionId = "action_id"
         case deviceId = "device_id"
@@ -846,6 +851,7 @@ extension AutomationEntity: Codable {
         enabled = c.decodeWireBool(forKey: .enabled, default: true)
         trigger = c.decodeWireJsonString(forKey: .trigger)
         agent = try c.decodeIfPresent(String.self, forKey: .agent)
+        account = try c.decodeIfPresent(String.self, forKey: .account)
         model = try c.decodeIfPresent(String.self, forKey: .model)
         effort = try c.decodeIfPresent(String.self, forKey: .effort)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder)

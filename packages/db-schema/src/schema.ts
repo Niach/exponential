@@ -2270,6 +2270,10 @@ export const actions = pgTable(
 // whose desktop/daemon watches its own sync and fires the run; there is no
 // server scheduler. CASCADE on the action: an automation without its target
 // is meaningless. Agent/model/effort NULL = the device's launch defaults.
+// EXP-995: `account` = the agent PROFILE id on the bound device the run
+// spends (`agent_profiles`, like `coding_sessions.agent_account`); it belongs
+// to the pinned `agent` and NULL = that machine's default login. Every editor
+// picks an ACCOUNT (brand mark + email) and the agent rides the pick.
 export const automations = pgTable(
   `automations`,
   {
@@ -2284,6 +2288,7 @@ export const automations = pgTable(
     enabled: boolean().notNull().default(true),
     trigger: jsonb().$type<AutomationTrigger>().notNull(),
     agent: varchar({ length: 16 }),
+    account: varchar({ length: 64 }),
     model: varchar({ length: 64 }),
     effort: varchar({ length: 32 }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),

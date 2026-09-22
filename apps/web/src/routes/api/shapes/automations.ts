@@ -18,6 +18,8 @@ const AUTOMATION_COLUMNS = [
   `enabled`,
   `trigger`,
   `agent`,
+  // EXP-995: the agent profile id the run spends on the bound device.
+  `account`,
   `model`,
   `effort`,
   `sort_order`,

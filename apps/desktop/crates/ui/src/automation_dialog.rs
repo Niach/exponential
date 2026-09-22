@@ -116,6 +116,7 @@ impl AutomationDialogView {
                 automation.seed_runner(
                     Some(&row.device_id),
                     row.agent.as_deref(),
+                    row.account.as_deref(),
                     row.model.as_deref(),
                     row.effort.as_deref(),
                 );
@@ -211,6 +212,7 @@ impl AutomationDialogView {
                             // Tri-state: clearing a pin means "follow the
                             // device's launch defaults" — never "unchanged".
                             input.agent = api::Patch::set_or_null(spec.agent);
+                            input.account = api::Patch::set_or_null(spec.account);
                             input.model = api::Patch::set_or_null(spec.model);
                             input.effort = api::Patch::set_or_null(spec.effort);
                             api::automations::update(&trpc, &input).map(|_| ())
@@ -226,6 +228,7 @@ impl AutomationDialogView {
                                 // exists to fire.
                                 enabled: None,
                                 agent: spec.agent,
+                                account: spec.account,
                                 model: spec.model,
                                 effort: spec.effort,
                             },

@@ -19,15 +19,10 @@ import {
   Combobox,
   GlassGroup,
 } from "@exp/ui"
-import {
-  defaultDeviceId,
-  deviceAgentIds,
-  deviceDefaultAgent,
-  type SteerDevice,
-} from "@/lib/steer-devices"
+import { defaultDeviceId, type SteerDevice } from "@/lib/steer-devices"
 import { trpc } from "@/lib/trpc-client"
 import {
-  AutomationAgentFields,
+  AutomationLaunchFields,
   AutomationDevicePicker,
   AutomationTriggerFields,
   automationDevices,
@@ -35,14 +30,17 @@ import {
   draftFromTrigger,
   draftToTrigger,
   emptyAutomationDraft,
+  seedAccountPin,
+  type AutomationAccountPin,
   type AutomationDraft,
 } from "@/components/automation-section"
 
 // The "New automation" / "Edit automation" form (EXP-583). Automations are
 // their own rows now, so this is a plain owner-only tRPC form: pick the
 // action, the when-part, the machine that runs it, and optionally pin the
-// agent/model/effort. No action editing happens here, and no run is started —
-// the bound device watches its own synced rows and fires by itself.
+// account (EXP-995: the agent rides the pick)/model/effort. No action editing
+// happens here, and no run is started — the bound device watches its own
+// synced rows and fires by itself.
 
 // Same sentence the Automations tab shows on a locked row — one reason, one
 // wording, wherever a required input blocks automating an action.
@@ -72,7 +70,8 @@ export function AutomationDialog({
   const [actionId, setActionId] = useState(``)
   const [draft, setDraft] = useState<AutomationDraft>(emptyAutomationDraft)
   const [deviceId, setDeviceId] = useState<string | null>(null)
-  const [agent, setAgent] = useState(``)
+  // EXP-995: ONE pin — the agent and its profile — off the account picker.
+  const [pin, setPin] = useState<AutomationAccountPin>({ agent: ``, account: `` })
   const [model, setModel] = useState(``)
   const [effort, setEffort] = useState(``)
   const [submitting, setSubmitting] = useState(false)
@@ -112,7 +111,7 @@ export function AutomationDialog({
         capableDevices[0]?.deviceId ??
         null
     )
-    setAgent(automation?.agent ?? ``)
+    setPin({ agent: automation?.agent ?? ``, account: automation?.account ?? `` })
     setModel(automation?.model ?? ``)
     setEffort(automation?.effort ?? ``)
     setSubmitting(false)
@@ -123,16 +122,14 @@ export function AutomationDialog({
   const device = capableDevices.find(
     (candidate) => candidate.deviceId === deviceId
   )
-  // EXP-615: no "Device default" agent pill — the strip seeds to the bound
-  // device's default launch agent, exactly like the start-coding dialog.
+  // EXP-615/995: no "Device default" pill — a bound machine that cannot run
+  // the pinned agent (or none pinned yet) seeds the pin to that machine's
+  // DEFAULT ACCOUNT, which names the agent, exactly like the composer.
   useEffect(() => {
-    if (!open || !device) return
-    if (agent !== `` && deviceAgentIds(device).includes(agent)) return
-    const next = deviceDefaultAgent(device) ?? deviceAgentIds(device)[0] ?? ``
-    setAgent(next)
-    const clamped = clampAgentFields(next, model, effort)
-    setModel(clamped.model)
-    setEffort(clamped.effort)
+    if (!open) return
+    const next = seedAccountPin(device, pin)
+    if (!next) return
+    switchPin(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device])
   const selectedAction = actionOptions.find((action) => action.id === actionId)
@@ -140,9 +137,11 @@ export function AutomationDialog({
     ? hasRequiredInputs(selectedAction)
     : false
 
-  const switchAgent = (next: string) => {
-    setAgent(next)
-    const clamped = clampAgentFields(next, model, effort)
+  // A model/effort belongs to ONE agent — another login of the same agent
+  // keeps them, a different agent re-clamps them.
+  const switchPin = (next: AutomationAccountPin) => {
+    setPin(next)
+    const clamped = clampAgentFields(next.agent, model, effort)
     setModel(clamped.model)
     setEffort(clamped.effort)
   }
@@ -164,7 +163,8 @@ export function AutomationDialog({
               actionId,
               deviceId,
               trigger,
-              agent: agent === `` ? null : agent,
+              agent: pin.agent === `` ? null : pin.agent,
+              account: pin.account === `` ? null : pin.account,
               model: model === `` ? null : model,
               effort: effort === `` ? null : effort,
             },
@@ -176,7 +176,8 @@ export function AutomationDialog({
               actionId,
               deviceId,
               trigger,
-              agent: agent === `` ? null : agent,
+              agent: pin.agent === `` ? null : pin.agent,
+              account: pin.account === `` ? null : pin.account,
               model: model === `` ? null : model,
               effort: effort === `` ? null : effort,
             },
@@ -261,10 +262,10 @@ export function AutomationDialog({
               onChange={setDeviceId}
             />
 
-            <AutomationAgentFields
+            <AutomationLaunchFields
               device={device}
-              agent={agent}
-              onAgentChange={switchAgent}
+              pin={pin}
+              onPinChange={switchPin}
               model={model}
               onModelChange={setModel}
               effort={effort}

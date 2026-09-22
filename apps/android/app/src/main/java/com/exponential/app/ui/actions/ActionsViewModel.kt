@@ -225,8 +225,8 @@ class ActionsViewModel @Inject constructor(
 
     /**
      * Save an edited automation (EXP-615) — the same form as create, on an
-     * existing row. Null [agent]/[model]/[effort] clear the pins back to the
-     * bound machine's own launch defaults.
+     * existing row. Null [agent]/[account]/[model]/[effort] clear the pins
+     * back to the bound machine's own launch defaults.
      */
     fun updateAutomation(
         automationId: String,
@@ -234,6 +234,7 @@ class ActionsViewModel @Inject constructor(
         deviceId: String,
         trigger: AutomationTrigger,
         agent: String?,
+        account: String?,
         model: String?,
         effort: String?,
         onDone: () -> Unit,
@@ -246,6 +247,7 @@ class ActionsViewModel @Inject constructor(
                 deviceId = deviceId,
                 trigger = trigger,
                 agent = agent,
+                account = account,
                 model = model,
                 effort = effort,
             )
@@ -260,15 +262,17 @@ class ActionsViewModel @Inject constructor(
     }
 
     /**
-     * Create an automation from the form sheet. Null [agent]/[model]/[effort]
-     * mean the bound machine's own launch defaults; [onDone] fires only on
-     * success, so the sheet stays open (with the error) on a refusal.
+     * Create an automation from the form sheet. Null [agent]/[account]/
+     * [model]/[effort] mean the bound machine's own launch defaults; [onDone]
+     * fires only on success, so the sheet stays open (with the error) on a
+     * refusal.
      */
     fun createAutomation(
         actionId: String,
         deviceId: String,
         trigger: AutomationTrigger,
         agent: String?,
+        account: String?,
         model: String?,
         effort: String?,
         onDone: () -> Unit,
@@ -282,6 +286,7 @@ class ActionsViewModel @Inject constructor(
                 deviceId = deviceId,
                 trigger = trigger,
                 agent = agent,
+                account = account,
                 model = model,
                 effort = effort,
             )

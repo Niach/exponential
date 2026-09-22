@@ -74,7 +74,7 @@ pub fn launch_options(
     subagent_model: Option<&str>,
     account: Option<&str>,
 ) -> crate::LaunchOptions {
-    let mut options = crate::automations::launch_options(settings, agent, model, effort);
+    let mut options = crate::automations::launch_options(settings, agent, model, effort, None);
     if let Some(subagent_model) = subagent_model.filter(|value| !value.is_empty()) {
         options.subagent_model = subagent_model.to_string();
     }

@@ -784,6 +784,11 @@ pub struct AutomationRow {
     /// Pinned launch overrides; `None` = the device's own launch defaults.
     #[serde(default)]
     pub agent: Option<String>,
+    /// EXP-995: the agent PROFILE id (`agent_profiles`) the run spends on the
+    /// bound device — it belongs to `agent`; `None` = that machine's default
+    /// login for it.
+    #[serde(default)]
+    pub account: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]

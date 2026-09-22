@@ -305,8 +305,8 @@ struct EvalSnapshot {
     /// This device's enabled, parseable automations, each carrying its team
     /// (the event fence AND the runner's up-front team).
     automations: Vec<TriggeredAutomation>,
-    /// Per-automation launch pins (`automation id → (agent, model, effort)`)
-    /// — every `None` falls back to this machine's launch defaults.
+    /// Per-automation launch pins (`automation id → (agent, account, model,
+    /// effort)`) — every `None` falls back to this machine's launch defaults.
     pins: HashMap<String, LaunchPins>,
     /// Shared with [`EventCache`] — the pass only reads it.
     events: Arc<Vec<EventRow>>,
@@ -319,10 +319,12 @@ struct EvalSnapshot {
     settings: coding::Settings,
 }
 
-/// One automation's optional agent/model/effort pins.
+/// One automation's optional agent/account/model/effort pins.
 #[derive(Clone, Debug, Default)]
 struct LaunchPins {
     agent: Option<String>,
+    /// EXP-995: the agent profile the run spends (belongs to `agent`).
+    account: Option<String>,
     model: Option<String>,
     effort: Option<String>,
 }
@@ -511,6 +513,7 @@ fn triggered_automations<'a>(
             row.id.clone(),
             LaunchPins {
                 agent: row.agent.clone(),
+                account: row.account.clone(),
                 model: row.model.clone(),
                 effort: row.effort.clone(),
             },
@@ -600,6 +603,7 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
                         pins.agent.as_deref(),
                         pins.model.as_deref(),
                         pins.effort.as_deref(),
+                        pins.account.as_deref(),
                     ),
                     automation_id,
                     new_state,
@@ -952,6 +956,7 @@ mod tests {
             pin.agent.as_deref(),
             pin.model.as_deref(),
             pin.effort.as_deref(),
+            pin.account.as_deref(),
         );
         assert_eq!(options.agent, coding::CodingAgent::Codex);
         assert_eq!(options.model, "gpt-5.1-codex");
@@ -959,7 +964,7 @@ mod tests {
 
         // Unpinned: this machine's own defaults, exactly like a dialog start
         // with untouched options.
-        let bare = automations::launch_options(&settings, None, None, None);
+        let bare = automations::launch_options(&settings, None, None, None, None);
         let dialog = LaunchOptions::defaults(&settings);
         assert_eq!(bare.agent, dialog.agent);
         assert_eq!(bare.model, dialog.model);

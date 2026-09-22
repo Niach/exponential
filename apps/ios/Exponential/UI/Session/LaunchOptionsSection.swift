@@ -14,11 +14,12 @@ import SwiftUI
 // "Runs on" and lists every automation-capable machine plainly (offline
 // included: a sleeping box still owns the binding and fires the missed
 // schedule when it comes back), and there are no toggles (an automated run
-// takes the machine's own). Everything else is IDENTICAL: EXP-615 retired the
-// automation-only "Device default" agent segment, so both variants render the
-// same brand-marked capsule over the machine's runnable agents, and
-// Model/Effort speak the launch "CLI default" sentinel — blank is what stores
-// NULL on the row and lets the machine decide.
+// takes the machine's own). EXP-995: its first row is THE account picker
+// (`AccountPickerMenu`, brand mark + email over the bound machine's logins,
+// the agent riding the pick) where the launch variant draws the agent
+// capsule — the caller hands it `accountOptions`. Model/Effort speak the
+// launch "CLI default" sentinel on both — blank is what stores NULL on the
+// row and lets the machine decide.
 //
 // `Variant.device` (EXP-694) is a MACHINE's stored launch defaults — the
 // device-settings sheet used to hand-roll the same rows. It has no device
@@ -57,6 +58,12 @@ struct LaunchOptionsSection: View {
     /// resolved machine's own default (EXP-615).
     let agent: String
     let onAgentChange: (String) -> Void
+    /// EXP-995: when set, the card's first row is the account picker over
+    /// these logins instead of the agent capsule — the automation editor's
+    /// pin, where a pick names the agent too.
+    var accountOptions: [AccountOption]? = nil
+    var selectedAccount: AccountOption? = nil
+    var onAccountSelect: ((AccountOption) -> Void)? = nil
     @Binding var model: String
     /// EXP-981: claude's SUBAGENT model, bound only where it is editable (a
     /// machine's launch defaults); an automation row has no such field.
@@ -158,10 +165,26 @@ struct LaunchOptionsSection: View {
     /// is deliberately left visible so it reads as a row of the card.
     private var optionsSection: some View {
         Section {
-            // A lone option is not a choice, on any variant. No container
-            // accessibility label: it would merge the segment buttons into one
-            // VoiceOver element.
-            if availableAgents.count > 1 {
+            if let accountOptions, let onAccountSelect, !accountOptions.isEmpty {
+                // EXP-995: the SHARED account picker leads the card — the
+                // same row the device sheet's "Default account" wears.
+                HStack(spacing: 8) {
+                    Text("Account")
+                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    Spacer(minLength: 8)
+                    AccountPickerMenu(
+                        options: accountOptions,
+                        selection: selectedAccount,
+                        mark: { AgentBrandMark.image($0) },
+                        onSelect: onAccountSelect
+                    )
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("automation-account-row")
+            } else if availableAgents.count > 1 {
+                // A lone option is not a choice, on any variant. No container
+                // accessibility label: it would merge the segment buttons into
+                // one VoiceOver element.
                 GlassSegmentedControl(
                     options: availableAgents,
                     selection: agent,

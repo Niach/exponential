@@ -33,6 +33,10 @@ pub struct Automation {
     /// `None` = the bound device's own launch defaults.
     #[serde(default)]
     pub agent: Option<String>,
+    /// EXP-995: the agent profile id the run spends on the bound device
+    /// (belongs to `agent`); `None` = that machine's default login.
+    #[serde(default)]
+    pub account: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
@@ -68,8 +72,8 @@ pub fn list(trpc: &TrpcClient, team_id: &str) -> Result<Vec<Automation>, ApiErro
     Ok(response.automations)
 }
 
-/// `automations.create` input. `agent`/`model`/`effort` are omitted when
-/// `None` — the server reads an omitted field as "the device's defaults".
+/// `automations.create` input. `agent`/`account`/`model`/`effort` are omitted
+/// when `None` — the server reads an omitted field as "the device's defaults".
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutomationCreate {
@@ -82,6 +86,8 @@ pub struct AutomationCreate {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
@@ -93,7 +99,7 @@ pub fn create(trpc: &TrpcClient, input: &AutomationCreate) -> Result<Automation,
     Ok(response.automation)
 }
 
-/// `automations.update` input. Omitted fields stay unchanged; the three
+/// `automations.update` input. Omitted fields stay unchanged; the four
 /// launch fields are the server's `.nullable().optional()` tri-state
 /// ([`Patch`]): `Null` clears the pin back to the device's launch defaults.
 #[derive(Default, Serialize)]
@@ -110,6 +116,8 @@ pub struct AutomationUpdate {
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub agent: Patch<String>,
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub account: Patch<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub model: Patch<String>,
     #[serde(skip_serializing_if = "Patch::is_omit")]
@@ -168,6 +176,7 @@ pub fn from_row(row: &domain::rows::AutomationRow) -> Automation {
         enabled: row.is_enabled(),
         trigger: row.trigger.clone(),
         agent: row.agent.clone(),
+        account: row.account.clone(),
         model: row.model.clone(),
         effort: row.effort.clone(),
         sort_order: row.sort_order.unwrap_or_default(),
@@ -227,6 +236,7 @@ mod tests {
                 trigger: serde_json::json!({"kind": "event", "event": "created"}),
                 enabled: None,
                 agent: Some("codex".to_string()),
+                account: Some("0a1b2c3d".to_string()),
                 model: None,
                 effort: None,
             },
@@ -237,6 +247,8 @@ mod tests {
         assert!(request.starts_with("POST /api/trpc/automations.create HTTP/1.1"));
         assert!(request.contains(r#""actionId":"act-1""#));
         assert!(request.contains(r#""agent":"codex""#));
+        // EXP-995: the account pin rides beside its agent.
+        assert!(request.contains(r#""account":"0a1b2c3d""#));
         // Omitted optionals stay off the wire (zod .optional()).
         assert!(!request.contains(r#""model""#));
         assert!(!request.contains(r#""enabled""#));
@@ -256,9 +268,11 @@ mod tests {
         // Null clears a pin back to the device defaults; Omit leaves it.
         let mut cleared = AutomationUpdate::new("auto-1");
         cleared.agent = Patch::Null;
+        cleared.account = Patch::Null;
         cleared.model = Patch::Set("opus".to_string());
         let json = serde_json::to_string(&cleared).unwrap();
         assert!(json.contains(r#""agent":null"#));
+        assert!(json.contains(r#""account":null"#));
         assert!(json.contains(r#""model":"opus""#));
         assert!(!json.contains("effort"));
     }
@@ -281,5 +295,6 @@ mod tests {
         assert_eq!(automation.trigger.as_ref().unwrap()["minuteOfDay"], 420);
         assert_eq!(automation.sort_order, 2.0);
         assert_eq!(automation.agent, None);
+        assert_eq!(automation.account, None);
     }
 }

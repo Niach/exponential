@@ -597,6 +597,8 @@ pub const SHAPES: [ShapeSpec; 24] = [
             "enabled",
             "trigger",
             "agent",
+            // EXP-995: the agent profile the run spends on the bound device.
+            "account",
             "model",
             "effort",
             "sort_order",

@@ -51,7 +51,7 @@ fun AutomationFormSheet(
     devices: List<SteerDevice>,
     busy: Boolean,
     error: String?,
-    onSubmit: (actionId: String, deviceId: String, trigger: AutomationTrigger, agent: String?, model: String?, effort: String?) -> Unit,
+    onSubmit: (actionId: String, deviceId: String, trigger: AutomationTrigger, agent: String?, account: String?, model: String?, effort: String?) -> Unit,
     onDismiss: () -> Unit,
     /** The row being edited; null = create a new automation. */
     editing: AutomationEntity? = null,
@@ -77,6 +77,7 @@ fun AutomationFormSheet(
                     deviceId = editing.deviceId,
                 ).copy(
                     agent = editing.agent.orEmpty(),
+                    account = editing.account.orEmpty(),
                     model = editing.model.orEmpty(),
                     effort = editing.effort.orEmpty(),
                 )
@@ -123,6 +124,9 @@ fun AutomationFormSheet(
                     device,
                     picked,
                     draft.agent.takeIf { it.isNotEmpty() },
+                    // EXP-995: a profile is ONE agent's — it rides only beside
+                    // its agent.
+                    draft.account.takeIf { it.isNotEmpty() && draft.agent.isNotEmpty() },
                     draft.model.takeIf { it.isNotEmpty() },
                     draft.effort.takeIf { it.isNotEmpty() },
                 )
