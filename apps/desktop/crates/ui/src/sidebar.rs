@@ -838,7 +838,8 @@ impl RailView {
             // EXP-878: the conditional Drafts entry and its count.
             cx.observe(&collections.issue_drafts, |_, _, cx| cx.notify()),
             cx.observe(&collections.actions, |_, _, cx| cx.notify()),
-            // The Agent dot is a live read over my coding_sessions rows.
+            // The Running section (EXP-923) and the pinned session rows are
+            // live reads over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
             // The pinned session rows' dots read the runs THIS process hosts
             // (and their paused edge the devices rows below).
@@ -1448,18 +1449,18 @@ impl RailView {
     /// current row and two highlights would be a lie about where you are.
     fn rail_agent_entry(
         &self,
-        badge: Option<RailBadge>,
         active_chat_action: Option<&str>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let active = matches!(resolved_screen(&self.nav, cx), Some(Screen::Chat))
             && active_chat_action.is_none();
+        // EXP-1001: no badge — the Running section below IS the live signal.
         self.rail_screen_entry_active(
             "rail-agent",
             Icon::from(registry::ACTION_CHAT),
             "Agent",
             Screen::Chat,
-            badge,
+            None,
             active,
             cx,
         )
@@ -1974,21 +1975,10 @@ impl Render for RailView {
         // primary-tinted dot the mobile tab bars show.
         let inbox_badge = queries::inbox_unread(cx)
             .then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()));
-        // Agent badge (EXP-699): any of MY live coding sessions in the
-        // team — green, amber while one waits on a plan approval / question.
-        // It sat on Devices until the sessions list moved to the Agent tool
-        // (EXP-818); the dot followed the list.
-        let agents = active_team_id(&self.nav, cx)
-            .map(|id| queries::agents_running(cx, &id))
-            .unwrap_or_default();
-        // EXP-880: a dot again, never a count (web parity).
-        let agent_badge = agents.running.then(|| {
-            RailBadge::Dot(if agents.needs_input {
-                theme::tokens::YELLOW.to_hsla()
-            } else {
-                theme::tokens::GREEN.to_hsla()
-            })
-        });
+        // EXP-1001: the Agent entry carries NO live dot. My live runs are
+        // rows in the rail's Running section (EXP-923) right below, each
+        // with its own state dot — a second signal on the entry above them
+        // was noise. (It was the EXP-699 Devices dot, moved by EXP-818.)
         // Support tool (EXP-180): rendered ONLY while the active team's
         // synced row carries helpdesk_enabled = true. The badge lights on
         // unread helpdesk activity in that team (EXP-182); primary dot like
@@ -2238,11 +2228,7 @@ impl Render for RailView {
                             has_reviews.then(|| RailBadge::Dot(theme::tokens::GREEN.to_hsla())),
                             cx,
                         ))
-                        .child(self.rail_agent_entry(
-                            agent_badge,
-                            active_chat_action.as_deref(),
-                            cx,
-                        ))
+                        .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
                         .children(pinned_section)
                         .child(self.divider(cx))
                         .children(board_icons)
@@ -2375,11 +2361,7 @@ impl Render for RailView {
                     // page (EXP-772). EXP-818: it is a TOOL now — the sessions
                     // list on the left, the Chat prompt in the center until a
                     // row is clicked (the Support master-detail shape).
-                    .child(self.rail_agent_entry(
-                        agent_badge,
-                        active_chat_action.as_deref(),
-                        cx,
-                    ))
+                    .child(self.rail_agent_entry(active_chat_action.as_deref(), cx))
                     // EXP-778: Pinned sits between the nav entries and the
                     // boards (rail order: entries / Pinned / boards / Sessions).
                     .children(pinned_section)
