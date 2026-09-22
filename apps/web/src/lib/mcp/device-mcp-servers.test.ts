@@ -95,6 +95,42 @@ describe(`validateDeviceMcpServerInput`, () => {
       validateDeviceMcpServerInput({ ...base, name: `x`.repeat(65), transport: `stdio`, command: `x` })
     ).toMatch(/at most/)
   })
+  it(`matches loopback on the exact hostname`, () => {
+    for (const url of [
+      `http://localhost.corp/mcp`,
+      `http://127.0.0.1.evil.example/mcp`,
+      `http://localhost@evil.example/mcp`,
+      `http://192.168.1.10:3000/mcp`,
+    ]) {
+      expect(
+        validateDeviceMcpServerInput({ ...base, name: `a`, transport: `http`, url })
+      ).toMatch(/must be https/)
+    }
+  })
+  // Review B1: teammates read these rows, so no credential rides in a URL.
+  it(`refuses a username, a password or a query string in the URL`, () => {
+    for (const url of [
+      `https://user:pass@mcp.example.com/mcp`,
+      `https://token@mcp.example.com/mcp`,
+      `https://:pass@mcp.example.com/mcp`,
+      `https://mcp.example.com/mcp?api_key=sk-123`,
+      `http://localhost:3000/mcp?token=abc`,
+    ]) {
+      expect(
+        validateDeviceMcpServerInput({ ...base, name: `leaky`, transport: `http`, url })
+      ).toBe(
+        `leaky: the URL must not carry a username, a password or a query string (they would be shared with your team)`
+      )
+    }
+    expect(
+      validateDeviceMcpServerInput({
+        ...base,
+        name: `ok`,
+        transport: `http`,
+        url: `https://mcp.example.com/mcp#section`,
+      })
+    ).toBeNull()
+  })
 })
 
 describe(`configKey`, () => {

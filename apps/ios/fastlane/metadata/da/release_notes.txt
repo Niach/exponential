@@ -1,4 +1,6 @@
-- Workflows: en knude, hvis kørsel er live, bærer netop den kørsels egen statusprik, og en Running now-stribe over bølgerne åbner hver live kørsel med ét tryk
-- Workflows kan køre deres kontrakt-, integrations- og højrisikoknuder på hver deres model (valgt på nettet eller i desktop-appen), og redigerer du et workflow på telefonen, bevares de valg
-- Issue-mærket i en knudes panel åbner issuet; knudebudgetter og knudens pausetilstand er væk
-- Et workflow går ikke længere i stå, når en knudes pull request flettes uden for det, og en knude, der ikke kan starte, forsøges igen én gang i stedet for i det uendelige
+- Én kontovælger til Claude og Codex i skrivefeltet, med hvert logins grænser lige ved siden af og en standardkonto per maskine; logins hedder det samme som deres e-mail
+- Et issues aktivitet folder hurtige frem og tilbage-rettelser sammen til deres nettoændring, og Show all henter hver hændelse frem igen
+- Værktøjskald til Exponential viser de issues, kørsler og pull requests, de rørte, som chips du kan trykke på for et smugkig
+- Genoptagne kørsler ligger bag én kørselsmenu, GitHub-knappen bor på Changes, og Changes-siden viser antallet af ændrede linjer
+- Søgningen sætter åbent arbejde over færdigt
+- Workflows: hver knude bliver gennemgået af en agent, før den lander, og indstillingen for gennemgangsporten er væk

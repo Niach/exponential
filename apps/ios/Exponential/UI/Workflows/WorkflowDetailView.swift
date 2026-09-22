@@ -778,7 +778,7 @@ struct WorkflowNodeSheet: View {
                 Text(WorkflowView.agentReviewTitle)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Text(WorkflowView.reviewLine(review))
+                Text(WorkflowView.reviewLine(review, nodeApproved: node.approvedAt != nil))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(
                         approved

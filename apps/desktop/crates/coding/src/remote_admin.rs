@@ -55,8 +55,11 @@ pub struct DefaultsPatch {
     pub default_agent: Option<String>,
     /// EXP-872: the profile id of `default_agent`'s logins the machine
     /// launches as by default — "default agent" became "default account", so
-    /// the pair travels together. Absent = the ambient login; an explicitly
-    /// BLANK value clears a stored pick.
+    /// the PAIR travels together. Beside a `default_agent`, absent = the
+    /// ambient login, so applying such a patch CLEARS a stored pick (the
+    /// server carries the pin forward for clients that never send the key,
+    /// so its copy is authoritative for the pair); a blank value clears too.
+    /// Absent with no `default_agent` either says nothing and leaves it alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_account: Option<String>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
@@ -82,17 +85,25 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
         }
     }
     let mut changed = false;
-    if let Some(agent) = patch.default_agent.as_deref().and_then(CodingAgent::parse) {
+    let patch_agent = patch.default_agent.as_deref().and_then(CodingAgent::parse);
+    if let Some(agent) = patch_agent {
         if settings.default_agent != agent {
             settings.default_agent = agent;
             changed = true;
         }
     }
-    // EXP-872: a PRESENT blank clears the pinned account (back to the
-    // agent's ambient login); an absent one leaves it alone, like every
-    // other field of a patch.
-    if let Some(account) = patch.default_account.as_deref() {
-        let next = (!account.trim().is_empty()).then(|| account.trim().to_string());
+    // EXP-872: the account is one of the default agent's logins, so the PAIR
+    // is what a patch names. A present value sets it (blank = clear). An
+    // ABSENT one beside a valid default agent is the cleared state too: the
+    // server can never deliver a blank (zod `min(1)`, null-free jsonb) and
+    // carries the stored pin forward for key-less older clients, so "agent,
+    // no account" in its copy means the ambient login, whether the agent
+    // stayed or switched. Only a patch naming NEITHER leaves the pin alone.
+    let next_account = match patch.default_account.as_deref() {
+        Some(account) => Some((!account.trim().is_empty()).then(|| account.trim().to_string())),
+        None => patch_agent.map(|_| None),
+    };
+    if let Some(next) = next_account {
         if settings.default_account != next {
             settings.default_account = next;
             changed = true;
@@ -392,6 +403,89 @@ mod tests {
         assert!(apply_defaults_patch(&mut settings, &patch));
         assert_eq!(settings.codex_model, "", "blank = CLI default for codex");
         assert_eq!(settings.claude_model, "fable", "claude is explicit-always");
+    }
+
+    fn pinned(agent: CodingAgent, account: &str) -> Settings {
+        let mut settings = Settings::default();
+        settings.default_agent = agent;
+        settings.default_account = Some(account.to_string());
+        settings
+    }
+
+    fn patch(value: serde_json::Value) -> DefaultsPatch {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn an_agent_without_an_account_clears_the_local_pin() {
+        // The server's cleared state: same agent, no `defaultAccount` key.
+        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
+        assert!(apply_defaults_patch(
+            &mut settings,
+            &patch(serde_json::json!({ "defaultAgent": "claude" }))
+        ));
+        assert_eq!(settings.default_account, None);
+        // Already clear: nothing changed.
+        assert!(!apply_defaults_patch(
+            &mut settings,
+            &patch(serde_json::json!({ "defaultAgent": "claude" }))
+        ));
+    }
+
+    #[test]
+    fn switching_the_agent_without_an_account_clears_the_local_pin() {
+        // The old agent's profile names nothing under the new one.
+        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
+        assert!(apply_defaults_patch(
+            &mut settings,
+            &patch(serde_json::json!({ "defaultAgent": "codex" }))
+        ));
+        assert_eq!(settings.default_agent, CodingAgent::Codex);
+        assert_eq!(settings.default_account, None);
+    }
+
+    #[test]
+    fn a_named_account_sets_and_a_blank_one_clears() {
+        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
+        assert!(apply_defaults_patch(
+            &mut settings,
+            &patch(serde_json::json!({ "defaultAgent": "codex", "defaultAccount": " 9f8e7d6c " }))
+        ));
+        assert_eq!(settings.default_agent, CodingAgent::Codex);
+        assert_eq!(settings.default_account.as_deref(), Some("9f8e7d6c"));
+        assert!(apply_defaults_patch(
+            &mut settings,
+            &patch(serde_json::json!({ "defaultAgent": "codex", "defaultAccount": "" }))
+        ));
+        assert_eq!(settings.default_account, None);
+    }
+
+    #[test]
+    fn a_patch_naming_no_valid_agent_leaves_the_pin_alone() {
+        // Neither half of the pair: a per-agent edit says nothing about it.
+        let mut settings = pinned(CodingAgent::Claude, "0a1b2c3d");
+        apply_defaults_patch(
+            &mut settings,
+            &patch(serde_json::json!({ "agents": { "claude": { "model": "sonnet" } } })),
+        );
+        assert_eq!(settings.default_account.as_deref(), Some("0a1b2c3d"));
+        // An agent this build cannot parse is ignored, and so is its pair.
+        assert!(!apply_defaults_patch(
+            &mut settings,
+            &patch(serde_json::json!({ "defaultAgent": "cursor" }))
+        ));
+        assert_eq!(settings.default_agent, CodingAgent::Claude);
+        assert_eq!(settings.default_account.as_deref(), Some("0a1b2c3d"));
+    }
+
+    #[test]
+    fn a_pinned_account_round_trips_through_the_wire() {
+        let source = pinned(CodingAgent::Codex, "0a1b2c3d");
+        let mut target = Settings::default();
+        assert!(apply_defaults_patch(&mut target, &defaults_wire(&source)));
+        assert_eq!(target.default_agent, CodingAgent::Codex);
+        assert_eq!(target.default_account.as_deref(), Some("0a1b2c3d"));
+        assert!(!apply_defaults_patch(&mut target, &defaults_wire(&source)));
     }
 
     #[test]

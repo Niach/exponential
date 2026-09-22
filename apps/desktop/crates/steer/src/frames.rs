@@ -884,18 +884,39 @@ impl ToolPreview {
         fields
     }
 
-    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] and the refs at
+    /// Cap every string at [`TOOL_PREVIEW_TEXT_MAX`] UTF-16 code units (the
+    /// unit the relay's zod `max` counts) and the refs at
     /// [`TOOL_PREVIEW_MAX_REFS`] (the relay drops a frame whose preview is
     /// wider, so the producer cuts first).
     pub fn clamp(mut self) -> Self {
         self.refs.truncate(TOOL_PREVIEW_MAX_REFS);
         for field in self.text_fields_mut() {
-            if field.chars().count() > TOOL_PREVIEW_TEXT_MAX {
-                *field = crate::activity::truncate(field, TOOL_PREVIEW_TEXT_MAX);
-            }
+            truncate_utf16_in_place(field, TOOL_PREVIEW_TEXT_MAX);
         }
         self
     }
+}
+
+/// The longest prefix of `text` that is at most `max` UTF-16 code units,
+/// cut on a char boundary so a surrogate pair is never split. The relay's
+/// zod string caps count JS string length (UTF-16 units), where an astral
+/// char (most emoji) weighs 2: a cap counted in `chars` lets a 200-char
+/// title with one emoji through at 201 units, and the relay drops the WHOLE
+/// frame.
+pub fn truncate_utf16(text: &str, max: usize) -> &str {
+    let mut units = 0;
+    for (at, c) in text.char_indices() {
+        units += c.len_utf16();
+        if units > max {
+            return &text[..at];
+        }
+    }
+    text
+}
+
+fn truncate_utf16_in_place(text: &mut String, max: usize) {
+    let keep = truncate_utf16(text, max).len();
+    text.truncate(keep);
 }
 
 /// EXP-785: ACP's tool-call kind on the wire — the contract's `toolKind`
@@ -2394,6 +2415,47 @@ mod tests {
             clamped.title.as_deref().map(|title| title.chars().count()),
             Some(TOOL_PREVIEW_TEXT_MAX)
         );
+    }
+
+    /// The relay caps by UTF-16 code units, so the clamp must too: an astral
+    /// emoji weighs 2, and a cut never splits its surrogate pair.
+    #[test]
+    fn tool_preview_clamps_by_utf16_units() {
+        let units = |text: &str| text.encode_utf16().count();
+        // 199 ASCII + one emoji = 200 chars but 201 units: the emoji goes.
+        let straddling = format!("{}\u{1F600}tail", "x".repeat(TOOL_PREVIEW_TEXT_MAX - 1));
+        // 198 ASCII + one emoji = exactly 200 units: kept whole.
+        let fitting = format!("{}\u{1F600}tail", "x".repeat(TOOL_PREVIEW_TEXT_MAX - 2));
+        let mut entity = EntityRef::new("comment", straddling.clone());
+        entity.identifier = Some(fitting.clone());
+        entity.title = Some("\u{1F600}".repeat(TOOL_PREVIEW_TEXT_MAX));
+        let clamped = ToolPreview {
+            id: Some(straddling.clone()),
+            identifier: Some(straddling.clone()),
+            title: Some(fitting.clone()),
+            url: Some(straddling.clone()),
+            status: Some(straddling.clone()),
+            refs: vec![entity],
+            ..ToolPreview::default()
+        }
+        .clamp();
+        let cut = "x".repeat(TOOL_PREVIEW_TEXT_MAX - 1);
+        for field in [&clamped.id, &clamped.identifier, &clamped.url, &clamped.status] {
+            assert_eq!(field.as_deref(), Some(cut.as_str()));
+        }
+        let kept = format!("{}\u{1F600}", "x".repeat(TOOL_PREVIEW_TEXT_MAX - 2));
+        assert_eq!(clamped.title.as_deref(), Some(kept.as_str()));
+        let entity = &clamped.refs[0];
+        assert_eq!(entity.id, cut);
+        assert_eq!(entity.identifier.as_deref(), Some(kept.as_str()));
+        // All emoji: 100 of them = 200 units, never an odd half.
+        let title = entity.title.as_deref().unwrap();
+        assert_eq!(units(title), TOOL_PREVIEW_TEXT_MAX);
+        assert_eq!(title.chars().count(), TOOL_PREVIEW_TEXT_MAX / 2);
+        // Short strings pass untouched.
+        assert_eq!(truncate_utf16("a\u{1F600}", 3), "a\u{1F600}");
+        assert_eq!(truncate_utf16("a\u{1F600}", 2), "a");
+        assert_eq!(truncate_utf16("", 0), "");
     }
 
     /// EXP-848: the turn slot's wire shape — `{kind, state, at?}` — and the

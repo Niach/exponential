@@ -118,6 +118,17 @@ function clampLaunchDefaults(
     // it is one of that agent's profile ids, so alone it names nothing.
     if (typeof input.defaultAccount === `string` && input.defaultAccount) {
       out.defaultAccount = input.defaultAccount
+    } else if (
+      input.defaultAccount === undefined &&
+      typeof existing?.defaultAccount === `string` &&
+      existing.defaultAgent === input.defaultAgent
+    ) {
+      // compat: iOS <= 0.14.39, Android <= 0.14.40 and desktop/CLI <= 0.14.47
+      // never send defaultAccount; delete once CLIENT_MIN_VERSION_IOS >=
+      // 0.14.40, _ANDROID >= 0.14.41 and _DESKTOP/_CLI >= 0.14.48. The KEY is
+      // absent (an explicit null is a clear) and the agent it belongs to is
+      // unchanged, so the stored pin rides along under a full-object save.
+      out.defaultAccount = existing.defaultAccount
     }
   }
   if (input.agents) {
@@ -150,8 +161,8 @@ function clampLaunchDefaults(
         d.subagentModel === undefined &&
         typeof existing?.agents?.[agent]?.subagentModel === `string`
       ) {
-        // compat: clients before 0.14.46 never send subagentModel; delete once
-        // CLIENT_MIN_VERSION_* >= 0.14.46 on every platform. The KEY is
+        // compat: iOS before 0.14.38 never sends subagentModel; delete once
+        // CLIENT_MIN_VERSION_IOS >= 0.14.38 (the other floors pass). The KEY is
         // absent (an explicit null is a clear), so the stored value rides
         // along instead of vanishing under an older client's full-object save.
         entry.subagentModel = existing.agents[agent].subagentModel

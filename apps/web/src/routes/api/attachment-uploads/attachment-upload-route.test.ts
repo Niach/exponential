@@ -207,6 +207,7 @@ describe(`PUT /api/attachment-uploads/$token`, () => {
       request: {
         headers: new Headers({
           "content-type": `multipart/form-data; boundary=x`,
+          "content-length": String(BYTES.byteLength + 200),
         }),
         formData: async () => form,
       } as unknown as Request,
@@ -215,6 +216,32 @@ describe(`PUT /api/attachment-uploads/$token`, () => {
     expect(h.uploadObject).toHaveBeenCalledWith(
       expect.objectContaining({ contentLength: BYTES.byteLength })
     )
+  })
+
+  it(`never buffers a multipart body it cannot bound: 411 without a Content-Length, 413 past the cap`, async () => {
+    const formData = vi.fn(async () => new FormData())
+    const multipart = (headers: Record<string, string>) =>
+      handlers.POST({
+        params: { token: token() },
+        request: {
+          headers: new Headers({
+            "content-type": `multipart/form-data; boundary=x`,
+            ...headers,
+          }),
+          formData,
+        } as unknown as Request,
+      })
+    expect((await multipart({})).status).toBe(411)
+    h.selects.queue = [[], [{ id: ISSUE }]]
+    expect((await multipart({ "content-length": `nope` })).status).toBe(411)
+    h.selects.queue = [[], [{ id: ISSUE }]]
+    const tooLarge = await multipart({
+      "content-length": String(11 * 1024 * 1024),
+    })
+    expect(tooLarge.status).toBe(413)
+    expect((await tooLarge.json()).error).toMatch(/10 MB/)
+    expect(formData).not.toHaveBeenCalled()
+    expect(h.uploadObject).not.toHaveBeenCalled()
   })
 
   it(`rejects an empty body`, async () => {
@@ -258,6 +285,23 @@ describe(`PUT /api/attachment-uploads/$token`, () => {
     const response = await put(token(), BYTES)
     expect(response.status).toBe(404)
     expect(h.uploadObject).not.toHaveBeenCalled()
+  })
+
+  it(`409s a concurrent duplicate PUT that loses the insert, and leaves the winner's object alone`, async () => {
+    // Both PUTs passed the existence check and wrote the SAME key; the loser's
+    // insert hits the primary key (drizzle wraps pg's error in a cause).
+    h.insertValues.mockRejectedValueOnce(
+      Object.assign(new Error(`Failed query`), {
+        cause: Object.assign(new Error(`duplicate key`), {
+          code: `23505`,
+          constraint: `attachments_pkey`,
+        }),
+      })
+    )
+    const response = await put(token(), BYTES)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toContain(`attachmentId: "${ATTACHMENT}"`)
+    expect(h.deleteObject).not.toHaveBeenCalled()
   })
 
   it(`rolls the object back when the row insert fails`, async () => {

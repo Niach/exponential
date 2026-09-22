@@ -126,8 +126,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === `object` && value !== null && !Array.isArray(value)
 }
 
+// Capped in UTF-16 code units, the unit the relay's zod counts, cut on a
+// code point so no surrogate pair is split (the engine's `truncate_utf16`).
 function clamp(text: string): string {
-  return Array.from(text.trim()).slice(0, PREVIEW_TEXT_MAX).join(``)
+  let out = ``
+  for (const ch of text.trim()) {
+    if (out.length + ch.length > PREVIEW_TEXT_MAX) break
+    out += ch
+  }
+  return out
 }
 
 /** The display string an entity row carries, in the order a row is known

@@ -1,4 +1,6 @@
-- Workflows: solmu, jonka ajo on käynnissä, kantaa juuri sen ajon omaa tilapistettä, ja aaltojen yläpuolinen Running now -palkki avaa jokaisen elävän ajon yhdellä napautuksella
-- Workflow voi ajaa sopimus-, integraatio- ja korkean riskin solmunsa omilla malleillaan (valitset ne webissä tai työpöytäsovelluksessa), ja workflow'n muokkaus puhelimella säilyttää nuo valinnat
-- Solmun paneelissa oleva issue-merkki avaa issuen; solmubudjetit ja solmun pysäytetty tila ovat poissa
-- Workflow ei enää jumitu, kun solmun pull request yhdistetään sen ulkopuolella, ja solmu, jonka käynnistys epäonnistuu, yritetään uudelleen kerran loputtoman sijaan
+- Yksi tilin valitsin Claudelle ja Codexille kirjoituskentässä, jokaisen kirjautumisen rajat vieressä ja oletustili konetta kohden; kirjautumiset on nimetty sähköpostinsa mukaan
+- Issuen aktiivisuus taittaa nopeat edestakaiset muokkaukset yhdeksi nettomuutokseksi, ja Show all tuo jokaisen tapahtuman takaisin
+- Exponentialille tehdyt työkalukutsut näyttävät koskemansa issuet, ajot ja pull requestit chipseinä, joita napauttamalla saat esikatselun
+- Jatketut ajot ovat yhden ajovalikon takana, GitHub-painike asuu Changes-sivulla, ja Changes näyttää muuttuneiden rivien määrät
+- Haku nostaa avoimen työn valmiin edelle
+- Workflows: jokaisen solmun tarkistaa agentti ennen laskeutumista, ja tarkistusportin asetus on poissa

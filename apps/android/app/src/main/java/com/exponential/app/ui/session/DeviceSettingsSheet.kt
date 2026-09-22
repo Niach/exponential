@@ -812,8 +812,9 @@ internal fun buildDefaults(
     defaultAgent: String,
     /**
      * EXP-872: the profile id of [defaultAgent]'s login the machine should
-     * start on; "" (nothing picked yet) writes no key at all, and the agent's
-     * ACTIVE login stays the default.
+     * start on; "" (nothing picked yet) builds a null, which the request
+     * sends as an explicit `defaultAccount: null` (the clear), and the
+     * agent's ACTIVE login stays the default.
      */
     defaultAccount: String,
     agents: List<String>,

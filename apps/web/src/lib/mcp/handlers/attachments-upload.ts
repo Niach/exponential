@@ -13,7 +13,9 @@
 //     the real size and the inline path's probes, so an abandoned mint leaves
 //     no 0-byte phantom in the issue's Files list (the token simply expires).
 //  2. `finalizeSignedAttachmentUpload` — a second call with `attachmentId`
-//     ALONE. It checks the row is the caller's, runs `finalizeAttachmentUpload`
+//     ALONE. It checks the row is the caller's, reruns the mint's access
+//     checks on the row's issue (`assertAttachmentUploadAccess`), runs
+//     `finalizeAttachmentUpload`
 //     (lib/attachments/finalize.ts, owner EXP-955: HEADs the stored object and
 //     confirms size/type on the row, idempotent) and returns the finished
 //     attachment (id + the markdown the inline path would have returned).
@@ -25,6 +27,8 @@ import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { attachments, comments, type Attachment } from "@/db/schema"
 import { finalizeAttachmentUpload } from "@/lib/attachments/finalize"
+import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
+import { assertBoardGranted, type McpAccess } from "@/lib/mcp/scope"
 import { mintAttachmentUploadToken } from "@/lib/storage/attachment-upload-token"
 import {
   isAcceptedImageContentType,
@@ -67,6 +71,24 @@ export interface FinalizedAttachmentResult {
   width: number | null
   height: number | null
   durationMs: number | null
+}
+
+/**
+ * The access gate of BOTH calls, on a resolved issue UUID: the issue resolves
+ * (a trashed/archived board 404s), the connection's OAuth grant covers its
+ * board, and the caller is a member of its team. The mint runs it before
+ * signing; the finalize reruns it on the row's issue, so a token confined to
+ * another board, or a user who has since left the team, cannot finalize.
+ */
+export async function assertAttachmentUploadAccess(input: {
+  issueId: string
+  userId: string
+  access: McpAccess
+}) {
+  const issueCtx = await getIssueTeamContext(input.issueId)
+  assertBoardGranted(input.access, issueCtx.boardId, issueCtx.teamId)
+  await assertTeamMember(input.userId, issueCtx.teamId)
+  return issueCtx
 }
 
 /** POSIX single-quoting: safe for any filename `sanitizeUploadFilename` lets
@@ -156,9 +178,14 @@ export function finalizedAttachmentResult(
 export async function finalizeSignedAttachmentUpload(input: {
   attachmentId: string
   userId: string
+  access: McpAccess
 }): Promise<FinalizedAttachmentResult> {
   const [row] = await db
-    .select({ id: attachments.id, uploaderId: attachments.uploaderId })
+    .select({
+      id: attachments.id,
+      uploaderId: attachments.uploaderId,
+      issueId: attachments.issueId,
+    })
     .from(attachments)
     .where(eq(attachments.id, input.attachmentId))
     .limit(1)
@@ -172,6 +199,16 @@ export async function finalizeSignedAttachmentUpload(input: {
   if (row.uploaderId !== input.userId) {
     throw new Error(`This attachment was not uploaded by you.`)
   }
+  // A signed upload always has an issue; a draft attachment (issue_id NULL)
+  // is not this tool's to finalize.
+  if (!row.issueId) {
+    throw new Error(`This attachment is not on an issue.`)
+  }
+  await assertAttachmentUploadAccess({
+    issueId: row.issueId,
+    userId: input.userId,
+    access: input.access,
+  })
   const finalized = await finalizeAttachmentUpload(input.attachmentId)
   return finalizedAttachmentResult(finalized)
 }

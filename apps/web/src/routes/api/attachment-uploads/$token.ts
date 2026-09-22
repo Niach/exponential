@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { attachments, issues } from "@/db/schema"
 import { errorToResponse } from "@/lib/http-errors"
+import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { deleteObject, uploadObject } from "@/lib/storage"
 import { verifyAttachmentUploadToken } from "@/lib/storage/attachment-upload-token"
@@ -44,17 +45,53 @@ import {
 // Body: PUT (or POST) the raw bytes; a multipart `file` part is accepted too
 // so a `curl -F file=@…` line copied from sessions_results still works.
 
+/** The statuses `errorToResponse` has no tRPC code for (411, 413). */
+class UploadStatusError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
+// A multipart envelope adds its boundary lines and part headers on top of the
+// file; generous, and still a hard bound on what `formData()` may buffer.
+const MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+function alreadyLanded(attachmentId: string) {
+  return new TRPCError({
+    code: `CONFLICT`,
+    message: `This upload already landed. Finalize it with exponential_attachments_upload({ attachmentId: "${attachmentId}" }).`,
+  })
+}
+
 async function readUploadBody(
   request: Request,
   maxBytes: number,
   tooLarge: string
 ): Promise<Uint8Array> {
-  const declared = Number(request.headers.get(`content-length`))
-  if (Number.isFinite(declared) && declared > maxBytes) {
+  const requestType = request.headers.get(`content-type`) ?? ``
+  const isMultipart = requestType.toLowerCase().startsWith(`multipart/form-data`)
+  const declaredHeader = request.headers.get(`content-length`)
+  const declared = declaredHeader === null ? Number.NaN : Number(declaredHeader)
+  if (isMultipart) {
+    // `formData()` buffers the WHOLE body before any part can be measured, so
+    // this branch takes no chunked body: a Content-Length within the token's
+    // cap comes first (curl -F always sends one).
+    if (!Number.isInteger(declared) || declared < 0) {
+      throw new UploadStatusError(
+        411,
+        `A multipart upload needs a Content-Length; send the bytes as the request body instead (curl -T).`
+      )
+    }
+    if (declared > maxBytes + MULTIPART_OVERHEAD_BYTES) {
+      throw new UploadStatusError(413, tooLarge)
+    }
+  } else if (Number.isFinite(declared) && declared > maxBytes) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: tooLarge })
   }
-  const requestType = request.headers.get(`content-type`) ?? ``
-  if (requestType.toLowerCase().startsWith(`multipart/form-data`)) {
+  if (isMultipart) {
     const formData = await request.formData()
     const file = formData.get(`file`)
     if (!(file instanceof File)) {
@@ -114,12 +151,7 @@ async function uploadSignedAttachment({
     .from(attachments)
     .where(eq(attachments.id, payload.a))
     .limit(1)
-  if (existing) {
-    throw new TRPCError({
-      code: `CONFLICT`,
-      message: `This upload already landed. Finalize it with exponential_attachments_upload({ attachmentId: "${payload.a}" }).`,
-    })
-  }
+  if (existing) throw alreadyLanded(payload.a)
 
   // The issue may have gone (trash purge, delete) inside the token's window;
   // a 404 beats the FK violation the insert would otherwise surface as a 500.
@@ -183,6 +215,10 @@ async function uploadSignedAttachment({
       durationMs: media?.durationMs ?? null,
     })
   } catch (error) {
+    // A duplicate PUT of the same token that raced past the existence check
+    // above: the WINNER's row points at this very key (deterministic from the
+    // token), so the object is live. Never delete it; same 409 as a retry.
+    if (isUniqueViolation(error)) throw alreadyLanded(payload.a)
     // The row never landed, so the object it points at is garbage.
     try {
       await deleteObject(storageKey)
@@ -210,6 +246,9 @@ async function handle(context: { params: { token: string }; request: Request }) 
   try {
     return await uploadSignedAttachment(context)
   } catch (error) {
+    if (error instanceof UploadStatusError) {
+      return Response.json({ error: error.message }, { status: error.status })
+    }
     return errorToResponse(error)
   }
 }

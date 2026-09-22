@@ -600,11 +600,15 @@ pub struct ReviewLine<'a> {
     pub round: i64,
     /// `Some(passed)` when the reviewer RAN a check; `None` = opinion only.
     pub oracle: Option<bool>,
+    /// The node's `approved_at` is set: the verdict cleared it (EXP-1010).
+    pub approved: bool,
 }
 
 /// The node panel's one line about the latest agent review:
-/// `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+/// `Approved · round 1 · checks passed`, `Approved · round 1`,
 /// `Changes requested · round 2 · checks failed`, `Changes requested · round 3`.
+/// EXP-1010: an approval with no oracle CLEARS the node, so `advisory` shows
+/// only when it did not (`approved` false).
 pub fn workflow_review_line(review: ReviewLine<'_>) -> String {
     let verdict = if review.verdict == "approve" {
         "Approved"
@@ -615,9 +619,11 @@ pub fn workflow_review_line(review: ReviewLine<'_>) -> String {
     match review.oracle {
         Some(true) => parts.push("checks passed".to_string()),
         Some(false) => parts.push("checks failed".to_string()),
-        // An approval nobody could back with a command is advisory; a
-        // request for changes needs no such word.
-        None if review.verdict == "approve" => parts.push("advisory".to_string()),
+        // An approval that did not clear the node is advisory; a request
+        // for changes needs no such word.
+        None if review.verdict == "approve" && !review.approved => {
+            parts.push("advisory".to_string())
+        }
         None => {}
     }
     parts.join(" · ")
@@ -922,6 +928,7 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct FixtureReviewLine {
         review: FixtureReview,
+        approved: bool,
         line: String,
     }
 
@@ -1146,6 +1153,7 @@ mod tests {
                     verdict: &case.review.verdict,
                     round: case.review.round,
                     oracle: case.review.oracle.as_ref().map(|oracle| oracle.passed),
+                    approved: case.approved,
                 }),
                 case.line,
                 "reviewLines[{index}]"

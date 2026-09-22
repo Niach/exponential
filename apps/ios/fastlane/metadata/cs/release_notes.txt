@@ -1,4 +1,6 @@
-- Workflows: uzel, jehož běh právě jede, nosí stavovou tečku toho běhu a pruh Running now nad vlnami otevře každý živý běh jedním ťuknutím
-- Workflows umí pustit své kontraktové, integrační a vysoce rizikové uzly na vlastních modelech (vybereš je na webu nebo v desktopové aplikaci) a úprava workflow na telefonu ti tyhle volby zachová
-- Odznak issue v panelu uzlu otevře issue; rozpočty uzlů a pozastavený stav uzlu jsou pryč
-- Workflow se už nezasekne, když se pull request uzlu sloučí mimo něj, a uzel, který se nepodaří nastartovat, se zkusí ještě jednou místo donekonečna
+- Jeden výběr účtu pro Claude a Codex v poli pro psaní, s limity každého přihlášení hned vedle a s výchozím účtem pro každý stroj; přihlášení se jmenují podle své e-mailové adresy
+- Aktivita issue složí rychlé úpravy sem a tam do jejich čisté změny a Show all vrátí zpátky každou událost
+- Volání nástrojů do Exponential ukazují issues, běhy a pull requesty, kterých se dotkly, jako chipy, na které ťukneš pro náhled
+- Obnovené běhy sedí pod jedinou nabídkou běhu, tlačítko GitHub bydlí na Changes a stránka Changes ukazuje počty změněných řádků
+- Vyhledávání řadí otevřenou práci před hotovou
+- Workflows: každý uzel prověří agent, než přistane, a nastavení kontrolní brány je pryč

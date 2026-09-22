@@ -219,6 +219,21 @@ describe(`workflows.update`, () => {
     )
   })
 
+  // compat: iOS 0.14.39, Android 0.14.40 and desktop 0.14.47 still send the
+  // removed `gate` (EXP-1010); strip mode leaves nothing to set.
+  it(`answers a gate-only patch with the row as it is, writing nothing`, async () => {
+    for (const status of [`draft`, `running`]) {
+      const row = workflow({ status })
+      // loadWorkflow, then the guard's own read.
+      selectQueue.push([row], [row])
+      const result = await caller.update({ id: WF, gate: `human` } as never)
+      expect(result.workflow).toEqual(row)
+      expect(result.txId).toBeDefined()
+    }
+    expect(fakeDb.update).not.toHaveBeenCalled()
+    expect(written).toEqual([])
+  })
+
   // compat: older clients send a launch WITHOUT the EXP-1002 phase pins.
   describe(`the phase pins' cross-client contract`, () => {
     const stored = {

@@ -1,4 +1,6 @@
-- Workflows: a node whose run is live wears that run's own status dot, and a Running now strip above the waves opens each live run in one tap
-- Workflows can run their contract, integration and high risk nodes on their own models (picked on the web or the desktop app), and editing a workflow on the phone keeps those picks
-- The issue badge in a node's sheet opens the issue; node budgets and the paused node state are gone
-- A workflow no longer stalls when a node's pull request is merged outside of it, and a node that fails to start is retried once instead of endlessly
+- One account picker for Claude and Codex in the composer, with each login's limits inline and a default account per machine; logins are named by their email
+- Issue activity folds quick back and forth edits into their net change, and Show all brings every event back
+- Tool calls to Exponential show the issues, runs and pull requests they touched as chips you can tap for a preview
+- Resumed runs sit behind one run menu, the GitHub button lives on Changes, and the Changes face shows changed line counts
+- Search ranks open work above done work
+- Workflows: every node is reviewed by an agent before it lands, and the review gate setting is gone

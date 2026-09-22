@@ -662,8 +662,9 @@ struct DeviceSettingsSheet: View {
         // later edit re-arms the debounce on its own.
         let payload = DeviceLaunchDefaultsInput(
             defaultAgent: defaultAgent,
-            // EXP-872: omitted while nothing is stored — the machine then
-            // falls back to its active login, exactly as flatten does.
+            // EXP-872: nil while nothing is picked; the input encodes it as
+            // an explicit null (the clear), and the machine then falls back
+            // to its active login, exactly as flatten does.
             defaultAccount: defaultAccount.isEmpty ? nil : defaultAccount,
             agents: agents
         )

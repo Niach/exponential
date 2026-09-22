@@ -375,14 +375,16 @@ export interface ReviewLine {
 
 /**
  * The node panel's one line about the latest agent review:
- * `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+ * `Approved · round 1 · checks passed`, `Approved · round 1`,
  * `Changes requested · round 2 · checks failed`, `Changes requested · round 2`.
+ * `approved` = the node's `approvedAt` is set. EXP-1010: an approval with no
+ * oracle CLEARS the node, so `advisory` shows only when it did not.
  */
-export function workflowReviewLine(review: ReviewLine): string {
+export function workflowReviewLine(review: ReviewLine, approved: boolean): string {
   const verdict = review.verdict === `approve` ? `Approved` : `Changes requested`
   const parts = [verdict, `round ${review.round}`]
   if (review.oracle) parts.push(review.oracle.passed ? `checks passed` : `checks failed`)
-  else if (review.verdict === `approve`) parts.push(`advisory`)
+  else if (review.verdict === `approve` && !approved) parts.push(`advisory`)
   return parts.join(` · `)
 }
 

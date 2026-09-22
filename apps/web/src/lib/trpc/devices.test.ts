@@ -992,6 +992,70 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(result.launchDefaults).toEqual({ agents: { claude: { model: `fable` } } })
   })
 
+  // compat: iOS <= 0.14.39, Android <= 0.14.40 and desktop/CLI <= 0.14.47
+  // never send defaultAccount; delete with the shim in clampLaunchDefaults.
+  it(`carries a stored defaultAccount forward when the save omits the KEY`, async () => {
+    h.state.selectQueue = deviceRow({
+      launchDefaults: { defaultAgent: `claude`, defaultAccount: `0a1b2c3d` },
+    })
+    // An older client's whole-object save: same default agent, no key at all.
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        defaultAgent: `claude`,
+        agents: { claude: { model: `opus` } },
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `claude`,
+      defaultAccount: `0a1b2c3d`,
+      agents: { claude: { model: `opus` } },
+    })
+    expect(h.state.updates[0]?.set).toMatchObject({
+      launchDefaults: result.launchDefaults,
+    })
+  })
+
+  it(`drops a stored defaultAccount when the key-less save CHANGES the default agent`, async () => {
+    // The pin is one of the OLD agent's logins: under another agent it names
+    // nothing, so it must not ride along.
+    h.state.selectQueue = deviceRow({
+      launchDefaults: { defaultAgent: `claude`, defaultAccount: `0a1b2c3d` },
+    })
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { defaultAgent: `codex` },
+    })
+    expect(result.launchDefaults).toEqual({ defaultAgent: `codex` })
+  })
+
+  it(`lets a newer client clear or replace defaultAccount explicitly`, async () => {
+    const stored = { defaultAgent: `claude`, defaultAccount: `0a1b2c3d` }
+    // An explicit null (the key is PRESENT) is a clear, not an omission: the
+    // stored pin does not ride along and the jsonb stays null-free.
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    let result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { defaultAgent: `claude`, defaultAccount: null },
+    })
+    expect(result.launchDefaults).toEqual({ defaultAgent: `claude` })
+    expect(h.state.updates[0]?.set).toMatchObject({
+      launchDefaults: { defaultAgent: `claude` },
+    })
+
+    // An explicit string replaces it.
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { defaultAgent: `claude`, defaultAccount: `9f8e7d6c` },
+    })
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `claude`,
+      defaultAccount: `9f8e7d6c`,
+    })
+  })
+
   it(`nudges regardless of registered caps (pre-EXP-481 frame parsers retired)`, async () => {
     h.state.selectQueue = deviceRow({ caps: [`actions`] })
     const result = await caller.setLaunchDefaults({

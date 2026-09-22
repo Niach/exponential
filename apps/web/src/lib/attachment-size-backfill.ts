@@ -13,8 +13,15 @@
 // storage/bun-s3-cleanup.ts). Backfill mode never refuses or deletes: a HEAD
 // miss just leaves the row for the next pass (the mint's own expiry is what
 // eventually reaps an upload that never happened).
+//
+// Fairness: rows whose object is gone for good stay due forever, so a pass
+// walks the due set in `id` order and a cursor kept in process memory carries
+// on where the last FULL batch stopped. More than MAX_BATCH permanently
+// missing rows can therefore never starve the healable ones behind them; a
+// short batch means the end was reached and the next pass starts over. The
+// cursor is per process and lost on restart, which only restarts the walk.
 
-import { and, eq, lte } from "drizzle-orm"
+import { and, asc, eq, gt, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { attachments } from "@/db/schema"
 import {
@@ -34,6 +41,18 @@ const SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000
 // object is missing stay due, so the cap also bounds how much HEAD traffic a
 // pile of abandoned mints can cause per interval.
 const MAX_BATCH = 1000
+
+// The id the last full batch ended on; null = start from the lowest id.
+let sweepCursor: string | null = null
+
+/** Test seam: where the next pass resumes (null = from the start). */
+export function sizeBackfillCursor(): string | null {
+  return sweepCursor
+}
+
+export function resetSizeBackfillCursor(): void {
+  sweepCursor = null
+}
 
 /** Pure due predicate: a 0-size row older than the grace window. */
 export function isSizeBackfillDue(
@@ -64,16 +83,26 @@ export interface SizeBackfillResult {
  */
 export async function runAttachmentSizeBackfill(
   probe: AttachmentObjectProbe,
-  now: Date = new Date()
+  now: Date = new Date(),
+  batchSize: number = MAX_BATCH
 ): Promise<SizeBackfillResult> {
   const cutoff = new Date(now.getTime() - SIZE_BACKFILL_GRACE_MS)
   const due = await db
     .select({ id: attachments.id })
     .from(attachments)
     .where(
-      and(eq(attachments.sizeBytes, 0), lte(attachments.createdAt, cutoff))
+      and(
+        eq(attachments.sizeBytes, 0),
+        lte(attachments.createdAt, cutoff),
+        sweepCursor === null ? undefined : gt(attachments.id, sweepCursor)
+      )
     )
-    .limit(MAX_BATCH)
+    // The primary key: deterministic, exact as a cursor (no timestamp
+    // precision to lose) and index-backed.
+    .orderBy(asc(attachments.id))
+    .limit(batchSize)
+  // A full batch may have more behind it; a short one reached the end.
+  sweepCursor = due.length >= batchSize ? due[due.length - 1].id : null
 
   const result: SizeBackfillResult = {
     candidates: due.length,

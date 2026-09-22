@@ -1,4 +1,6 @@
-- Workflows: ein Knoten, dessen Lauf gerade läuft, trägt den Statuspunkt genau dieses Laufs, und eine Running-now-Leiste über den Wellen öffnet jeden laufenden Lauf mit einem Tipp
-- Workflows können ihre Vertrags-, Integrations- und Hochrisiko-Knoten auf eigenen Modellen laufen lassen (im Web oder in der Desktop-App gewählt), und wenn du ein Workflow am Telefon bearbeitest, bleibt diese Wahl erhalten
-- Das Issue-Abzeichen in der Detailansicht eines Knotens öffnet das Issue; Knotenbudgets und der pausierte Knotenzustand sind weg
-- Ein Workflow bleibt nicht mehr stehen, wenn der Pull Request eines Knotens außerhalb von ihm zusammengeführt wird, und ein Knoten, der nicht startet, wird einmal wiederholt statt endlos
+- Eine Kontoauswahl für Claude und Codex im Eingabefeld, mit den Limits jedes Logins direkt daneben und einem Standardkonto pro Maschine; Logins tragen den Namen ihrer E-Mail-Adresse
+- Die Aktivität eines Issues faltet schnelle Hin-und-her-Änderungen zu ihrer Nettoänderung zusammen, und Show all holt jedes Ereignis zurück
+- Werkzeugaufrufe an Exponential zeigen die Issues, Läufe und Pull Requests, die sie berührt haben, als Chips, die du für eine Vorschau antippst
+- Fortgesetzte Läufe liegen hinter einem einzigen Lauf-Menü, der GitHub-Button steht auf Changes, und die Changes-Seite zeigt die Zahl der geänderten Zeilen
+- Die Suche reiht offene Arbeit vor erledigte
+- Workflows: jeder Knoten wird von einem Agenten begutachtet, bevor er landet, und die Einstellung für das Review-Gate ist weg
