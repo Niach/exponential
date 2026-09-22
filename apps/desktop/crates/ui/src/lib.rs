@@ -79,6 +79,7 @@ mod issue_files;
 mod issue_graph;
 mod issue_header;
 mod issue_list;
+mod issue_rail;
 mod issue_chip;
 mod issue_composer;
 mod issue_draft;

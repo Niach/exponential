@@ -24,17 +24,15 @@ use gpui::{
     canvas, div, point, px, App, Bounds, ClickEvent, Hsla, InteractiveElement as _, IntoElement,
     ParentElement, Pixels, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::issue_graph::{
-    block_graph, blocks_badge_label, open_blockers_of_set, BlockCounts, GraphIssue, GraphRelation,
+    block_graph, open_blockers_of_set, BlockCounts, GraphIssue, GraphRelation,
     IssueGraph, ISSUE_GRAPH_CYCLE_NOTE, ISSUE_GRAPH_TRUNCATED_NOTE,
 };
 use domain::workflow_view::WorkflowEdgeStyle;
 
-use crate::icons::registry;
 use crate::issue_chip::issue_chip;
-use crate::surface::{glass_pill_button, PillSize};
 
 /// One node's box. Wide enough for an identifier and a clipped title.
 const NODE_W: f32 = 176.;
@@ -567,78 +565,6 @@ fn node_chip(
         .border_color(outline.unwrap_or_else(gpui::transparent_black))
         .child(chip)
         .into_any_element()
-}
-
-/// EXP-980 — the list row's blocks pill: the blocked-by count in the
-/// destructive tone, the blocking count muted, and the two together when a
-/// row is in both directions. `None` when nothing blocks and nothing is
-/// blocked. Clicking it opens the mini-graph for that issue; the click never
-/// reaches the row underneath.
-pub(crate) fn blocks_badge(
-    id: SharedString,
-    issue_id: &str,
-    counts: BlockCounts,
-    cx: &App,
-) -> Option<gpui::AnyElement> {
-    if counts.blocked_by == 0 && counts.blocking == 0 {
-        return None;
-    }
-    let theme = cx.theme();
-    let label = blocks_badge_label(counts);
-    let mut pill = glass_pill_button(id.clone(), PillSize::Sm, cx).tooltip(SharedString::from(
-        label.clone(),
-    ));
-    if counts.blocked_by > 0 {
-        pill = pill
-            .icon(
-                Icon::new(registry::RELATION_BLOCKED_BY)
-                    .with_size(px(PillSize::Sm.glyph()))
-                    .text_color(theme.danger),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.danger)
-                    .child(SharedString::from(counts.blocked_by.to_string()))
-                    .into_any_element(),
-            );
-    }
-    if counts.blocking > 0 {
-        let glyph = Icon::new(registry::RELATION_BLOCKS)
-            .with_size(px(PillSize::Sm.glyph()))
-            .text_color(theme.muted_foreground);
-        pill = if counts.blocked_by > 0 {
-            pill.child(glyph.into_any_element())
-        } else {
-            pill.icon(glyph)
-        };
-        pill = pill.child(
-            div()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child(SharedString::from(counts.blocking.to_string()))
-                .into_any_element(),
-        );
-    }
-    let subject = issue_id.to_string();
-    Some(
-        // The pill is a control inside a clickable row: swallow the click so
-        // opening the graph never opens the issue as well.
-        div()
-            .id(SharedString::from(format!("{id}-cell")))
-            .flex_shrink_0()
-            .on_click(|_, _, cx| cx.stop_propagation())
-            .child(
-                gpui_component::popover::Popover::new(SharedString::from(format!("{id}-popover")))
-                    .p_2()
-                    .trigger(pill)
-                    .content(move |_, _, cx| {
-                        let graph = graph_for(&[subject.as_str()], cx);
-                        graph_overlay(&graph, VIEW_W, cx)
-                    }),
-            )
-            .into_any_element(),
-    )
 }
 
 /// The popover body: the graph, navigating in the window it is drawn in.
