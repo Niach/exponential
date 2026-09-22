@@ -500,10 +500,13 @@ export function DeviceSettingsDialog({
         deviceId: snapshot.deviceId,
         launchDefaults: {
           defaultAgent: snapshot.defaultAgentDraft,
-          ...(snapshot.defaultAccountDraft &&
-          snapshot.defaultAccountDraft !== SYSTEM_PROFILE_ID
-            ? { defaultAccount: snapshot.defaultAccountDraft }
-            : {}),
+          // An explicit null CLEARS the stored pin (the system login); an
+          // absent key means "an older client, keep it" to the server.
+          defaultAccount:
+            snapshot.defaultAccountDraft &&
+            snapshot.defaultAccountDraft !== SYSTEM_PROFILE_ID
+              ? snapshot.defaultAccountDraft
+              : null,
           agents,
         },
       })

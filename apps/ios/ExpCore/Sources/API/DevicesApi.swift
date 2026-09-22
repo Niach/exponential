@@ -89,8 +89,8 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let defaultAgent: String?
     /// EXP-872: the default ACCOUNT — a login profile id of `defaultAgent`
-    /// (`system` = its ambient login). Omitted when nil (the synthesized
-    /// `encodeIfPresent`), which is what an unset default account means.
+    /// (`system` = its ambient login). nil beside a default agent rides as an
+    /// explicit JSON null (see `encode(to:)`): the clear.
     public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaultsInput]?
 
@@ -102,6 +102,26 @@ public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
         self.defaultAgent = defaultAgent
         self.defaultAccount = defaultAccount
         self.agents = agents
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case defaultAgent, defaultAccount, agents
+    }
+
+    /// Hand-written for ONE key: an unset default account beside a default
+    /// agent must reach the server as `"defaultAccount": null`. The server
+    /// reads an ABSENT key as "an older client that never sends it" and keeps
+    /// the stored pin, so the synthesized `encodeIfPresent` could never clear
+    /// it. Every other field still rides only when set.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(defaultAgent, forKey: .defaultAgent)
+        if let defaultAccount {
+            try c.encode(defaultAccount, forKey: .defaultAccount)
+        } else if defaultAgent != nil {
+            try c.encodeNil(forKey: .defaultAccount)
+        }
+        try c.encodeIfPresent(agents, forKey: .agents)
     }
 }
 

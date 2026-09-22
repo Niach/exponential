@@ -500,15 +500,17 @@ public enum WorkflowView {
     public static let sameAsModelLabel = "Same as Model"
 
     /// The node panel's one line about the latest agent review:
-    /// `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+    /// `Approved · round 1 · checks passed`, `Approved · round 1`,
     /// `Changes requested · round 2 · checks failed`,
     /// `Changes requested · round 2`.
-    public static func reviewLine(_ review: WorkflowNodeReview) -> String {
+    /// `nodeApproved` = the node's `approvedAt` is set. EXP-1010: an approval
+    /// with no oracle CLEARS the node, so `advisory` shows only when it did not.
+    public static func reviewLine(_ review: WorkflowNodeReview, nodeApproved: Bool) -> String {
         let approved = review.verdict == DomainContract.wfReviewVerdictApprove
         var parts = [approved ? "Approved" : "Changes requested", "round \(review.round)"]
         if let oracle = review.oracle {
             parts.append(oracle.passed ? "checks passed" : "checks failed")
-        } else if approved {
+        } else if approved && !nodeApproved {
             parts.append("advisory")
         }
         return parts.joined(separator: " · ")

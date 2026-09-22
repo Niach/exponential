@@ -4,8 +4,12 @@ import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -160,12 +164,12 @@ class DeviceSettingsDefaultsTest {
     }
 
     /**
-     * EXP-872: nothing picked writes NO `defaultAccount` key at all — the
-     * agent's ACTIVE login stays the machine's default, which is what every
-     * row written before the rename means.
+     * EXP-872: nothing picked (the agent's ACTIVE login) is an unset
+     * `defaultAccount`, and the REQUEST spells it as an explicit null: the
+     * server reads an absent key as an older client and keeps the stored pin.
      */
     @Test
-    fun `an unpicked default account writes no key`() {
+    fun `an unpicked default account clears with an explicit null`() {
         val built = buildDefaults(
             defaultAgent = "claude",
             defaultAccount = "",
@@ -173,11 +177,28 @@ class DeviceSettingsDefaultsTest {
             drafts = emptyMap(),
         )
         assertNull(built.defaultAccount)
-        // The app's own encoder drops nulls (`explicitNulls = false`), so an
-        // unpicked default never reaches `devices.setLaunchDefaults` at all.
-        val encoded = Json { explicitNulls = false; encodeDefaults = true }
-            .encodeToString(DeviceLaunchDefaults.serializer(), built)
-        assertFalse(encoded.contains("defaultAccount"))
+        val input = setLaunchDefaultsInput(deviceId = "dev-1", defaults = built)
+        assertEquals(JsonPrimitive("dev-1"), input["deviceId"])
+        val sent = input.getValue("launchDefaults").jsonObject
+        assertEquals(JsonPrimitive("claude"), sent["defaultAgent"])
+        assertTrue(sent.containsKey("defaultAccount"))
+        assertEquals(JsonNull, sent["defaultAccount"])
+        // The rest of the object still drops its nulls, as it always did.
+        assertFalse(sent.getValue("agents").jsonObject.getValue("claude").jsonObject.containsValue(JsonNull))
+    }
+
+    @Test
+    fun `a picked default account rides as itself, and none without an agent`() {
+        val pinned = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = DeviceLaunchDefaults(defaultAgent = "claude", defaultAccount = "work"),
+        ).getValue("launchDefaults").jsonObject
+        assertEquals(JsonPrimitive("work"), pinned["defaultAccount"])
+        val agentless = setLaunchDefaultsInput(
+            deviceId = "dev-1",
+            defaults = DeviceLaunchDefaults(),
+        ).getValue("launchDefaults").jsonObject
+        assertFalse(agentless.containsKey("defaultAccount"))
     }
 
     /** EXP-773 deleted the "Start in terminal" preference. An older server

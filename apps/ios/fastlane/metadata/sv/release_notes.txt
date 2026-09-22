@@ -1,4 +1,6 @@
-- Workflows: en nod vars körning är live bär just den körningens statusprick, och en Running now-remsa ovanför vågorna öppnar varje levande körning med en tryckning
-- Workflows kan köra sina kontrakts-, integrations- och högrisknoder på egna modeller (valda på webben eller i skrivbordsappen), och att redigera ett workflow i telefonen behåller de valen
-- Issue-märket i en nods panel öppnar issuet; nodbudgetar och det pausade nodläget är borta
-- Ett workflow fastnar inte längre när en nods pull request slås ihop utanför det, och en nod som inte kan starta försöks om en gång i stället för i all oändlighet
+- En enda kontoväljare för Claude och Codex i skrivfältet, med varje inloggnings gränser intill och ett standardkonto per maskin; inloggningarna heter samma sak som sin e-post
+- Ett issues aktivitet viker ihop snabba fram och tillbaka-ändringar till sin nettoändring, och Show all tar fram varje händelse igen
+- Verktygsanrop till Exponential visar de issues, körningar och pull requests de rörde som chips du kan trycka på för en förhandsvisning
+- Återupptagna körningar ligger bakom en enda körningsmeny, GitHub-knappen bor på Changes, och Changes-vyn visar antalet ändrade rader
+- Sökningen sätter öppet arbete före avklarat
+- Workflows: varje nod granskas av en agent innan den landar, och inställningen för granskningsgrinden är borta

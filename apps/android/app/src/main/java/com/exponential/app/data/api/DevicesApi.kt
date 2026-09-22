@@ -4,10 +4,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 // Mirrors apps/web/src/lib/trpc/devices.ts. The EXP-403 registry is the
@@ -96,11 +98,37 @@ internal data class SetSharedInput(
     @SerialName("shared") val shared: Boolean,
 )
 
-@Serializable
-private data class SetLaunchDefaultsInput(
-    @SerialName("deviceId") val deviceId: String,
-    @SerialName("launchDefaults") val launchDefaults: DeviceLaunchDefaults,
-)
+/** The shared Json's encode half (`HttpClientModule.provideJson`). */
+private val launchDefaultsJson = Json {
+    explicitNulls = false
+    encodeDefaults = true
+}
+
+/**
+ * `devices.setLaunchDefaults` input. Hand-built because an UNSET default
+ * account beside a default agent must ride as a literal `defaultAccount: null`
+ * (the clear), which the shared Json's `explicitNulls = false` would drop off
+ * a `@Serializable` class: the server reads an ABSENT key as "an older client
+ * that never sends it" and keeps the stored pin. Every other field encodes
+ * exactly as [DeviceLaunchDefaults] always did; decoding is untouched.
+ */
+internal fun setLaunchDefaultsInput(
+    deviceId: String,
+    defaults: DeviceLaunchDefaults,
+): JsonObject {
+    val encoded = launchDefaultsJson
+        .encodeToJsonElement(DeviceLaunchDefaults.serializer(), defaults)
+        .jsonObject
+    val launchDefaults = if (defaults.defaultAgent != null && defaults.defaultAccount == null) {
+        JsonObject(encoded + ("defaultAccount" to JsonNull))
+    } else {
+        encoded
+    }
+    return buildJsonObject {
+        put("deviceId", deviceId)
+        put("launchDefaults", launchDefaults)
+    }
+}
 
 @Singleton
 class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
@@ -216,8 +244,8 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.mutationUnit(
             accountId,
             path = "devices.setLaunchDefaults",
-            input = SetLaunchDefaultsInput(deviceId = deviceId, launchDefaults = defaults),
-            inputSerializer = SetLaunchDefaultsInput.serializer(),
+            input = setLaunchDefaultsInput(deviceId = deviceId, defaults = defaults),
+            inputSerializer = JsonObject.serializer(),
         )
     }
 

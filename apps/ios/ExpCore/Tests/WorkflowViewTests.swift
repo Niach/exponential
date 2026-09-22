@@ -145,6 +145,7 @@ final class WorkflowViewTests: XCTestCase {
 
     private struct ReviewLineCase: Decodable {
         let review: WorkflowNodeReview
+        let approved: Bool
         let line: String
     }
 
@@ -273,9 +274,9 @@ final class WorkflowViewTests: XCTestCase {
         XCTAssertFalse(fixture.reviewLines.isEmpty)
         for testCase in fixture.reviewLines {
             XCTAssertEqual(
-                WorkflowView.reviewLine(testCase.review),
+                WorkflowView.reviewLine(testCase.review, nodeApproved: testCase.approved),
                 testCase.line,
-                "\(testCase.review.verdict) round \(testCase.review.round)"
+                "\(testCase.review.verdict) round \(testCase.review.round) approved \(testCase.approved)"
             )
         }
 

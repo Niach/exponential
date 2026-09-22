@@ -319,9 +319,13 @@ fn is_issue_identifier(text: &str) -> bool {
         && number.chars().all(|c| c.is_ascii_digit())
 }
 
-/// Trim, then cut to `textMax` code points — web `clamp`.
+/// Trim, then cut to `textMax` UTF-16 code units on a char boundary. The
+/// relay's zod caps count JS string length, where an astral emoji weighs 2:
+/// a cut by code points (web `clamp`) let a 200-char comment body with one
+/// emoji through at 201 units and the relay dropped the whole settle frame.
+/// Identical to the web rule for any string without astral chars.
 fn clamp(text: &str) -> String {
-    text.trim().chars().take(TEXT_MAX).collect()
+    steer::frames::truncate_utf16(text.trim(), TEXT_MAX).to_string()
 }
 
 #[cfg(test)]
@@ -389,6 +393,25 @@ mod tests {
         assert_eq!(tool_result_payload(&json!("{\"a\":1}")), Some(json!({"a": 1})));
         assert_eq!(tool_result_payload(&json!(7)), None);
         assert_eq!(tool_result_payload(&json!({"content": "text"})), Some(json!({"content": "text"})));
+    }
+
+    /// The relay caps a ref string by UTF-16 code units: an astral emoji
+    /// inside the first `textMax` chars must not push the ref past the cap,
+    /// and a cut never splits its surrogate pair.
+    #[test]
+    fn clamp_cuts_by_utf16_units_on_a_char_boundary() {
+        let units = |text: &str| text.encode_utf16().count();
+        // 199 ASCII + emoji: 200 chars, 201 units. The emoji goes whole.
+        let straddling = format!("  {}\u{1F600}tail  ", "x".repeat(TEXT_MAX - 1));
+        assert_eq!(clamp(&straddling), "x".repeat(TEXT_MAX - 1));
+        // 198 ASCII + emoji: exactly the cap, kept whole.
+        let fitting = format!("{}\u{1F600}tail", "x".repeat(TEXT_MAX - 2));
+        assert_eq!(clamp(&fitting), format!("{}\u{1F600}", "x".repeat(TEXT_MAX - 2)));
+        // An emoji early in a long body still leaves the result within the cap.
+        let body = format!("\u{1F600}{}", "y".repeat(TEXT_MAX * 2));
+        assert_eq!(units(&clamp(&body)), TEXT_MAX);
+        assert_eq!(units(&clamp(&"\u{1F600}".repeat(TEXT_MAX))), TEXT_MAX);
+        assert_eq!(clamp(" short \u{1F600} "), "short \u{1F600}");
     }
 
     /// The plural noun: `+s`, with the two irregulars.

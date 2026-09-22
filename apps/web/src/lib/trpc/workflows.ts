@@ -636,6 +636,27 @@ export const workflowsRouter = router({
           WORKFLOW_DEVICE
         )
       }
+      // compat: iOS 0.14.39, Android 0.14.40 and desktop 0.14.47 still send
+      // the removed `gate` (EXP-1010); strip mode drops it, and a gate-only
+      // patch leaves nothing to set, which drizzle refuses with a 500. Answer
+      // with the row as it is. Delete once CLIENT_MIN_VERSION_IOS >= 0.14.40,
+      // _ANDROID >= 0.14.41 and _DESKTOP/_CLI >= 0.14.48.
+      if (
+        name === undefined &&
+        input.deviceId === undefined &&
+        nextLaunch === undefined &&
+        input.startOn === undefined &&
+        decision === undefined
+      ) {
+        return ctx.db.transaction(async (tx) => {
+          const txId = await generateTxId(tx)
+          const [workflow] = await tx
+            .select(wireColumns)
+            .from(workflows)
+            .where(eq(workflows.id, id))
+          return { txId, workflow: workflow! }
+        })
+      }
       return ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [workflow] = await tx

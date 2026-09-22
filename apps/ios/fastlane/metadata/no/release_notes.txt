@@ -1,4 +1,6 @@
-- Workflows: en node hvis kjøring er live, bærer statusprikken til nettopp den kjøringen, og en Running now-stripe over bølgene åpner hver live kjøring med ett trykk
-- Workflows kan kjøre kontrakt-, integrasjons- og høyrisikonodene sine på egne modeller (valgt på nettet eller i skrivebordsappen), og redigerer du et workflow på telefonen, beholdes valgene
-- Issue-merket i panelet til en node åpner issuet; nodebudsjetter og den pausede nodetilstanden er borte
-- Et workflow står ikke lenger fast når en nodes pull request flettes utenfor det, og en node som ikke klarer å starte, prøves på nytt én gang i stedet for i det uendelige
+- Én kontovelger for Claude og Codex i skrivefeltet, med grensene til hver innlogging ved siden av og en standardkonto per maskin; innloggingene heter det samme som e-posten sin
+- Aktiviteten til et issue folder raske fram og tilbake-endringer sammen til nettoendringen, og Show all henter fram hver hendelse igjen
+- Verktøykall til Exponential viser issuene, kjøringene og pull requestene de rørte som chips du kan trykke på for en forhåndsvisning
+- Gjenopptatte kjøringer ligger bak én kjøringsmeny, GitHub-knappen bor på Changes, og Changes-siden viser antall endrede linjer
+- Søket setter åpent arbeid foran ferdig arbeid
+- Workflows: hver node blir gjennomgått av en agent før den lander, og innstillingen for gjennomgangsporten er borte

@@ -12,7 +12,15 @@ const h = vi.hoisted(() => {
   const rows: { current: unknown[] } = { current: [] }
   const select = vi.fn()
   const finalizeAttachmentUpload = vi.fn()
-  return { rows, select, finalizeAttachmentUpload }
+  const getIssueTeamContext = vi.fn()
+  const assertTeamMember = vi.fn()
+  return {
+    rows,
+    select,
+    finalizeAttachmentUpload,
+    getIssueTeamContext,
+    assertTeamMember,
+  }
 })
 
 function builder(rows: () => unknown[]) {
@@ -41,11 +49,17 @@ vi.mock(`@/lib/attachments/finalize`, () => ({
   finalizeAttachmentUpload: h.finalizeAttachmentUpload,
 }))
 
+vi.mock(`@/lib/team-membership`, () => ({
+  getIssueTeamContext: h.getIssueTeamContext,
+  assertTeamMember: h.assertTeamMember,
+}))
+
 import {
   finalizeSignedAttachmentUpload,
   finalizedAttachmentResult,
   mintSignedAttachmentUpload,
 } from "./attachments-upload"
+import { FULL_ACCESS, type McpAccess } from "@/lib/mcp/scope"
 import { verifyAttachmentUploadToken } from "@/lib/storage/attachment-upload-token"
 
 const ISSUE = `00000000-0000-4000-8000-000000000001`
@@ -71,6 +85,7 @@ function attachmentRow(overrides: Record<string, unknown> = {}) {
     height: 600,
     durationMs: null,
     uploaderId: `user-1`,
+    issueId: ISSUE,
     ...overrides,
   }
 }
@@ -79,7 +94,24 @@ beforeEach(() => {
   h.rows.current = []
   h.select.mockClear()
   h.finalizeAttachmentUpload.mockReset()
+  h.getIssueTeamContext.mockReset()
+  h.getIssueTeamContext.mockResolvedValue({
+    issueId: ISSUE,
+    boardId: `board-1`,
+    teamId: `team-1`,
+  })
+  h.assertTeamMember.mockReset()
+  h.assertTeamMember.mockResolvedValue({ role: `member` })
 })
+
+function boardGrant(boardId: string, teamId: string): McpAccess {
+  return {
+    full: false,
+    fullTeamIds: new Set(),
+    grantedBoardIds: new Set([boardId]),
+    visibleTeamIds: new Set([teamId]),
+  }
+}
 
 describe(`mintSignedAttachmentUpload (EXP-929)`, () => {
   it(`returns the sessions_results grant shape: a scoped 10-minute URL and a ready curl line, and writes nothing`, async () => {
@@ -158,7 +190,10 @@ describe(`finalizeSignedAttachmentUpload (EXP-929)`, () => {
     const result = await finalizeSignedAttachmentUpload({
       attachmentId: ATTACHMENT,
       userId: `user-1`,
+      access: FULL_ACCESS,
     })
+    expect(h.getIssueTeamContext).toHaveBeenCalledWith(ISSUE)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`user-1`, `team-1`)
     expect(h.finalizeAttachmentUpload).toHaveBeenCalledWith(ATTACHMENT)
     expect(result).toEqual({
       id: ATTACHMENT,
@@ -181,13 +216,18 @@ describe(`finalizeSignedAttachmentUpload (EXP-929)`, () => {
     const result = await finalizeSignedAttachmentUpload({
       attachmentId: ATTACHMENT,
       userId: `user-1`,
+      access: FULL_ACCESS,
     })
     expect(result.sizeBytes).toBe(22_000)
   })
 
   it(`tells the agent to run the curl line when nothing has landed yet`, async () => {
     await expect(
-      finalizeSignedAttachmentUpload({ attachmentId: ATTACHMENT, userId: `user-1` })
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: FULL_ACCESS,
+      })
     ).rejects.toThrow(/No upload has landed/)
     expect(h.finalizeAttachmentUpload).not.toHaveBeenCalled()
   })
@@ -195,8 +235,55 @@ describe(`finalizeSignedAttachmentUpload (EXP-929)`, () => {
   it(`refuses a row uploaded by someone else`, async () => {
     h.rows.current = [attachmentRow({ uploaderId: `user-2` })]
     await expect(
-      finalizeSignedAttachmentUpload({ attachmentId: ATTACHMENT, userId: `user-1` })
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: FULL_ACCESS,
+      })
     ).rejects.toThrow(/not uploaded by you/)
+    expect(h.finalizeAttachmentUpload).not.toHaveBeenCalled()
+  })
+
+  it(`reruns the mint's access checks: an OAuth grant confined to another board cannot finalize`, async () => {
+    h.rows.current = [attachmentRow()]
+    await expect(
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: boardGrant(`board-other`, `team-1`),
+      })
+    ).rejects.toThrow()
+    expect(h.assertTeamMember).not.toHaveBeenCalled()
+    expect(h.finalizeAttachmentUpload).not.toHaveBeenCalled()
+    // The grant that covers the row's board passes.
+    h.finalizeAttachmentUpload.mockResolvedValue(attachmentRow())
+    await expect(
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: boardGrant(`board-1`, `team-1`),
+      })
+    ).resolves.toMatchObject({ id: ATTACHMENT })
+  })
+
+  it(`refuses an uploader who has left the team, or whose issue no longer resolves`, async () => {
+    h.rows.current = [attachmentRow()]
+    h.assertTeamMember.mockRejectedValueOnce(new Error(`Not a team member`))
+    await expect(
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: FULL_ACCESS,
+      })
+    ).rejects.toThrow(/Not a team member/)
+    h.getIssueTeamContext.mockRejectedValueOnce(new Error(`Issue not found`))
+    await expect(
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: FULL_ACCESS,
+      })
+    ).rejects.toThrow(/Issue not found/)
     expect(h.finalizeAttachmentUpload).not.toHaveBeenCalled()
   })
 
@@ -206,7 +293,11 @@ describe(`finalizeSignedAttachmentUpload (EXP-929)`, () => {
       new Error(`object not in storage yet`)
     )
     await expect(
-      finalizeSignedAttachmentUpload({ attachmentId: ATTACHMENT, userId: `user-1` })
+      finalizeSignedAttachmentUpload({
+        attachmentId: ATTACHMENT,
+        userId: `user-1`,
+        access: FULL_ACCESS,
+      })
     ).rejects.toThrow(/not in storage/)
   })
 })

@@ -527,7 +527,7 @@ private fun MergeTrainSection(
  * mono: the check the reviewer actually RAN is the evidence its prose is not.
  */
 @Composable
-private fun WorkflowReviewBlock(review: WorkflowNodeReview) {
+private fun WorkflowReviewBlock(review: WorkflowNodeReview, nodeApproved: Boolean) {
     var expanded by remember(review) { mutableStateOf(false) }
     val findings = review.findings.trim()
     val folded = findings.length > REVIEW_FINDINGS_CHARS ||
@@ -544,7 +544,7 @@ private fun WorkflowReviewBlock(review: WorkflowNodeReview) {
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         )
         Text(
-            WorkflowView.reviewLine(review.line),
+            WorkflowView.reviewLine(review.line, nodeApproved),
             style = MaterialTheme.typography.labelSmall,
             color = if (review.verdict == DomainContract.wfReviewVerdictApprove) {
                 DesignTokens.Semantic.Green
@@ -976,11 +976,9 @@ private fun WorkflowNodeSheet(
                     }
                 }
             }
-            // EXP-984: the reviewer agent's latest verdict. An approval counts
-            // as THE approval only with a passing oracle (and never on the
-            // contract node); otherwise it is advisory and a person still
-            // approves — which is exactly what the line says.
-            review?.let { WorkflowReviewBlock(it) }
+            // EXP-984: the reviewer agent's latest verdict. EXP-1010: the line
+            // says advisory only while the verdict did not clear the node.
+            review?.let { WorkflowReviewBlock(it, nodeApproved = !node.approvedAt.isNullOrEmpty()) }
             Spacer(Modifier.height(8.dp))
             OptionGroup {
                 PickerRow(

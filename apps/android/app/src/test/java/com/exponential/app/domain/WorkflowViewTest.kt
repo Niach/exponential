@@ -354,7 +354,7 @@ class WorkflowViewTest {
     @Test
     fun `every agent review reads as the fixture's one line`() {
         val cases = fixture.getValue("reviewLines").jsonArray
-        assertTrue(cases.size >= 4)
+        assertTrue(cases.size >= 5)
         cases.forEach { element ->
             val case = element.jsonObject
             val review = case.getValue("review").jsonObject
@@ -364,11 +364,12 @@ class WorkflowViewTest {
                     WorkflowView.ReviewLine(
                         verdict = review.getValue("verdict").jsonPrimitive.content,
                         round = review.getValue("round").jsonPrimitive.int,
-                        // A null oracle = the reviewer ran no check, which is
-                        // what makes an approval advisory.
+                        // A null oracle = the reviewer ran no check.
                         oraclePassed = (review.getValue("oracle") as? kotlinx.serialization.json.JsonObject)
                             ?.getValue("passed")?.jsonPrimitive?.boolean,
                     ),
+                    // Advisory only while the verdict did not clear the node.
+                    nodeApproved = case.getValue("approved").jsonPrimitive.boolean,
                 ),
             )
         }
@@ -427,7 +428,7 @@ class WorkflowViewTest {
                 }
             """.trimIndent(),
         )
-        assertEquals("Approved · round 1 · checks passed", WorkflowView.reviewLine(review!!.line))
+        assertEquals("Approved · round 1 · checks passed", WorkflowView.reviewLine(review!!.line, nodeApproved = true))
         // A cell with no verdict is nothing to show, never an empty card.
         assertNull(workflowNodeReview("""{"round": 2}"""))
         assertNull(workflowNodeReview(null))

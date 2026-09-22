@@ -1,4 +1,6 @@
-- Workflows: un nod a cărui rulare este live poartă punctul de stare chiar al acelei rulări, iar o bandă Running now deasupra valurilor deschide fiecare rulare live dintr-o atingere
-- Workflow-urile își pot rula nodurile de contract, de integrare și cele cu risc ridicat pe modele proprii (alese pe web sau în aplicația de desktop), iar editarea unui workflow pe telefon păstrează acele alegeri
-- Insigna issue-ului din panoul unui nod deschide issue-ul; bugetele de nod și starea de nod în pauză au dispărut
-- Un workflow nu mai rămâne blocat când pull request-ul unui nod este unit în afara lui, iar un nod care nu reușește să pornească este reîncercat o dată în loc de la nesfârșit
+- Un singur selector de cont pentru Claude și Codex în câmpul de scriere, cu limitele fiecărui cont alături și un cont implicit pentru fiecare mașină; conturile poartă numele adresei lor de e-mail
+- Activitatea unui issue pliază editările rapide dus-întors în schimbarea lor netă, iar Show all aduce înapoi fiecare eveniment
+- Apelurile de unelte către Exponential arată issue-urile, rulările și pull request-urile pe care le-au atins ca niște chipsuri pe care le atingi pentru o previzualizare
+- Rulările reluate stau în spatele unui singur meniu de rulare, butonul GitHub se află pe Changes, iar pagina Changes arată numărul de linii schimbate
+- Căutarea pune munca deschisă înaintea celei terminate
+- Workflows: fiecare nod este verificat de un agent înainte să aterizeze, iar setarea porții de verificare a dispărut

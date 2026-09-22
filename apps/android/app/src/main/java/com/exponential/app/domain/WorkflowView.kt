@@ -424,8 +424,7 @@ object WorkflowView {
 
     /**
      * The three fields [reviewLine] reads off `workflow_nodes.review`.
-     * [oraclePassed] null = the reviewer ran no executable check, which is
-     * what makes an approval merely advisory.
+     * [oraclePassed] null = the reviewer ran no executable check.
      */
     data class ReviewLine(
         val verdict: String,
@@ -435,11 +434,13 @@ object WorkflowView {
 
     /**
      * The node panel's one line about the latest agent review:
-     * `Approved · round 1 · checks passed`, `Approved · round 1 · advisory`,
+     * `Approved · round 1 · checks passed`, `Approved · round 1`,
      * `Changes requested · round 2 · checks failed`,
      * `Changes requested · round 2`.
+     * [nodeApproved] = the node's `approvedAt` is set. EXP-1010: an approval
+     * with no oracle CLEARS the node, so `advisory` shows only when it did not.
      */
-    fun reviewLine(review: ReviewLine): String {
+    fun reviewLine(review: ReviewLine, nodeApproved: Boolean): String {
         val verdict = if (review.verdict == DomainContract.wfReviewVerdictApprove) {
             "Approved"
         } else {
@@ -451,7 +452,8 @@ object WorkflowView {
         when {
             review.oraclePassed != null ->
                 parts.add(if (review.oraclePassed) "checks passed" else "checks failed")
-            review.verdict == DomainContract.wfReviewVerdictApprove -> parts.add("advisory")
+            review.verdict == DomainContract.wfReviewVerdictApprove && !nodeApproved ->
+                parts.add("advisory")
         }
         return parts.joinToString(" · ")
     }

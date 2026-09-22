@@ -190,6 +190,7 @@ import {
   listIssueAttachments,
 } from "./handlers/attachments-list"
 import {
+  assertAttachmentUploadAccess,
   finalizeSignedAttachmentUpload,
   mintSignedAttachmentUpload,
 } from "./handlers/attachments-upload"
@@ -5224,6 +5225,7 @@ export function registerExponentialTools(
             await finalizeSignedAttachmentUpload({
               attachmentId: finalizeId,
               userId: user.id,
+              access,
             })
           )
         }
@@ -5247,9 +5249,11 @@ export function registerExponentialTools(
           isImage ? `image` : `file`
         )
         const issueId = await resolveIssueId(issueIdInput, user.id, access)
-        const issueCtx = await getIssueTeamContext(issueId)
-        assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
-        await assertTeamMember(user.id, issueCtx.teamId)
+        const issueCtx = await assertAttachmentUploadAccess({
+          issueId,
+          userId: user.id,
+          access,
+        })
 
         // The signed path: no bytes in context, an upload URL instead.
         if (dataBase64 === undefined) {

@@ -1,4 +1,6 @@
-- Workflows: un nodo cuya ejecución está en marcha lleva el punto de estado de esa misma ejecución, y una franja Running now sobre las olas abre cada ejecución viva de un toque
-- Los workflows pueden ejecutar sus nodos de contrato, de integración y de alto riesgo con modelos propios (elegidos en la web o en la app de escritorio), y editar un workflow desde el teléfono conserva esas elecciones
-- La insignia de issue en el panel de un nodo abre la issue; los presupuestos de nodo y el estado de nodo en pausa han desaparecido
-- Un workflow ya no se atasca cuando el pull request de un nodo se funde fuera de él, y un nodo que no arranca se reintenta una vez en lugar de sin fin
+- Un único selector de cuenta para Claude y Codex en el compositor, con los límites de cada cuenta al lado y una cuenta por defecto en cada máquina; las cuentas llevan el nombre de su correo
+- La actividad de una issue pliega los cambios rápidos de ida y vuelta en su cambio neto, y Show all devuelve todos los eventos
+- Las llamadas de herramienta a Exponential muestran las issues, las ejecuciones y las pull requests que tocaron como chips que puedes tocar para una vista previa
+- Las ejecuciones reanudadas quedan tras un único menú de ejecución, el botón de GitHub vive en Changes y la vista Changes muestra cuántas líneas cambiaron
+- La búsqueda pone el trabajo abierto por delante del terminado
+- Workflows: cada nodo lo revisa un agente antes de aterrizar, y el ajuste de la puerta de revisión ha desaparecido

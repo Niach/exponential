@@ -151,7 +151,8 @@ export function groupDeviceMcpServers(
 
 /** The row rules `deviceMcpServers.sync` enforces, shared with the input
  * schema so a refusal names the field: an http row needs a URL (https, or
- * http on the machine's own loopback — a local dev MCP never leaves it), a
+ * http on the machine's own loopback — a local dev MCP never leaves it; no
+ * userinfo and no query string, which is where a token would ride), a
  * stdio row a command, and no row may fold to the launcher's reserved
  * `exponential` config key. Returns null for a valid row. */
 export function validateDeviceMcpServerInput(
@@ -179,6 +180,12 @@ export function validateDeviceMcpServerInput(
       !(parsed.protocol === `http:` && loopback)
     ) {
       return `${name}: the URL must be https:// (http:// only for localhost)`
+    }
+    // The row is readable by every teammate the device is shared with, so
+    // a credential riding IN the URL (userinfo, `?api_key=`) never lands
+    // here; the desktop `validate` refuses it string for string.
+    if (parsed.username !== `` || parsed.password !== `` || parsed.search !== ``) {
+      return `${name}: the URL must not carry a username, a password or a query string (they would be shared with your team)`
     }
   } else if ((input.command ?? ``).trim().length === 0) {
     return `${name}: a stdio server needs a command`

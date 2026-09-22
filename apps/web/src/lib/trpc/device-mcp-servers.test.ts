@@ -187,6 +187,27 @@ describe(`deviceMcpServers.sync`, () => {
     expect(clash.message).toMatch(/config key linear/)
     expect(db.rows(`device_mcp_servers`)).toHaveLength(0)
   })
+
+  // Review B1: the row is readable by teammates the device is shared with,
+  // so a credential riding in the URL never gets stored.
+  it(`refuses a URL carrying credentials or a query string, storing nothing`, async () => {
+    for (const url of [
+      `https://user:pass@mcp.example.com/mcp`,
+      `https://mcp.example.com/mcp?api_key=sk-123`,
+    ]) {
+      const error = await rejectionOf(
+        callerFor().sync({
+          deviceId: `dev-1`,
+          servers: [linear, { ...linear, name: `leaky`, url }],
+        })
+      )
+      expect(error.code).toBe(`BAD_REQUEST`)
+      expect(error.message).toMatch(
+        /leaky: the URL must not carry a username, a password or a query string/
+      )
+    }
+    expect(db.rows(`device_mcp_servers`)).toHaveLength(0)
+  })
 })
 
 describe(`deviceMcpServers.list`, () => {

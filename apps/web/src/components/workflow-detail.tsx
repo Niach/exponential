@@ -1118,7 +1118,9 @@ export function WorkflowNodePanel({
           {PROPOSED_NODE_NOTE}
         </p>
       )}
-      {review && <AgentReviewBlock review={review} />}
+      {review && (
+        <AgentReviewBlock review={review} nodeApproved={Boolean(node.approvedAt)} />
+      )}
       <GlassGroup>
         <Combobox
           triggerVariant="row"
@@ -1386,7 +1388,13 @@ const FINDINGS_CLAMP_CHARS = 280
 
 /** The reviewer's latest verdict: the one line (green for an approval, red for
  *  requested changes), its findings, and the check it actually ran. */
-function AgentReviewBlock({ review }: { review: PanelReview }) {
+function AgentReviewBlock({
+  review,
+  nodeApproved,
+}: {
+  review: PanelReview
+  nodeApproved: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
   const approved = review.verdict === `approve`
   const long =
@@ -1402,7 +1410,7 @@ function AgentReviewBlock({ review }: { review: PanelReview }) {
         )}
         data-testid="workflow-node-review-line"
       >
-        {workflowReviewLine(review)}
+        {workflowReviewLine(review, nodeApproved)}
       </span>
       {review.findings && (
         <p

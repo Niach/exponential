@@ -700,6 +700,7 @@
           "passed": true
         }
       },
+      "approved": true,
       "line": "Approved · round 1 · checks passed"
     },
     {
@@ -708,6 +709,16 @@
         "round": 1,
         "oracle": null
       },
+      "approved": true,
+      "line": "Approved · round 1"
+    },
+    {
+      "review": {
+        "verdict": "approve",
+        "round": 1,
+        "oracle": null
+      },
+      "approved": false,
       "line": "Approved · round 1 · advisory"
     },
     {
@@ -718,6 +729,7 @@
           "passed": false
         }
       },
+      "approved": false,
       "line": "Changes requested · round 2 · checks failed"
     },
     {
@@ -726,6 +738,7 @@
         "round": 3,
         "oracle": null
       },
+      "approved": false,
       "line": "Changes requested · round 3"
     }
   ],

@@ -1,4 +1,6 @@
-- Workflows: węzeł, którego przebieg trwa, nosi kropkę stanu właśnie tego przebiegu, a pasek Running now nad falami otwiera każdy żywy przebieg jednym dotknięciem
-- Workflows potrafią puścić swoje węzły kontraktowe, integracyjne i wysokiego ryzyka na własnych modelach (wybierasz je w wersji webowej albo w aplikacji desktopowej), a edycja workflow na telefonie zachowuje te wybory
-- Plakietka issue w panelu węzła otwiera issue; budżety węzłów i wstrzymany stan węzła zniknęły
-- Workflow już się nie zacina, gdy pull request węzła zostanie scalony poza nim, a węzeł, któremu nie uda się wystartować, ponawia próbę raz zamiast bez końca
+- Jeden wybór konta dla Claude i Codex w polu pisania, z limitami każdego logowania obok i domyślnym kontem na każdą maszynę; logowania noszą nazwę swojego adresu e-mail
+- Aktywność issue składa szybkie poprawki tam i z powrotem w ich zmianę netto, a Show all przywraca każde zdarzenie
+- Wywołania narzędzi do Exponential pokazują issues, przebiegi i pull requesty, których dotknęły, jako plakietki otwierające podgląd po dotknięciu
+- Wznowione przebiegi siedzą za jednym menu przebiegu, przycisk GitHub mieszka na Changes, a widok Changes pokazuje liczbę zmienionych linii
+- Wyszukiwanie stawia otwartą pracę przed zakończoną
+- Workflows: każdy węzeł przegląda agent, zanim wyląduje, a ustawienie bramki przeglądu zniknęło

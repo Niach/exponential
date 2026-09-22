@@ -1,4 +1,6 @@
-- Workflows: um nó cuja execução está em curso usa o ponto de estado dessa mesma execução, e uma faixa Running now por cima das ondas abre cada execução viva com um toque
-- Os workflows podem correr os seus nós de contrato, de integração e de alto risco em modelos próprios (escolhidos na web ou na aplicação para computador), e editar um workflow no telemóvel mantém essas escolhas
-- O distintivo do issue no painel de um nó abre o issue; os orçamentos de nó e o estado de nó em pausa desapareceram
-- Um workflow deixa de encravar quando o pull request de um nó é fundido fora dele, e um nó que não arranca é repetido uma vez em vez de infinitamente
+- Um único seletor de conta para o Claude e o Codex no campo de escrita, com os limites de cada conta ao lado e uma conta predefinida por máquina; as contas têm o nome do seu e-mail
+- A atividade de um issue dobra as edições rápidas de ida e volta na sua alteração líquida, e o Show all traz de volta cada evento
+- As chamadas de ferramenta ao Exponential mostram os issues, as execuções e os pull requests que tocaram como chips que podes tocar para uma pré-visualização
+- As execuções retomadas ficam atrás de um único menu de execução, o botão do GitHub vive em Changes, e a página Changes mostra a contagem de linhas alteradas
+- A pesquisa coloca o trabalho em aberto à frente do concluído
+- Workflows: cada nó é revisto por um agente antes de aterrar, e a definição do portão de revisão desapareceu

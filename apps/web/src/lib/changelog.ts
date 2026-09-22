@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-22-release-train`,
+    date: `2026-09-22`,
+    title: `Release train 2026-09-22`,
+    summary: `One account picker with live limits, a calmer issue activity, MCP servers per machine, and workflows that are always reviewed by an agent.`,
+    body: `- **Accounts**: the composer has one account picker across Claude and Codex with each login's limits inline, a default account per machine, and every login is named by its email, signed out ones included.
+- **Activity**: an issue's activity folds quick back and forth edits into their net change, and Show all brings every event back.
+- **Runs**: tool calls to Exponential show the issues, runs and pull requests they touched as chips with a preview, resumed runs sit behind one run menu, the GitHub button lives on Changes, and phones show the changed line counts.
+- **Search**: open work ranks above done work, the same way on every client and over MCP.
+- **MCP servers per machine**: a machine can carry its own MCP servers, picked up from your Claude and Codex config in the desktop app or the CLI, and they ride every run there. Entries that carry a secret are never imported.
+- **MCP tools**: agents can list an issue's attachments, upload large files through a signed link, and compact their own session.
+- **Workflows**: every node is reviewed by an agent before it lands, the review gate setting is gone, and a pull request merged outside the workflow lands where its code actually is.
+- **Fixes**: the link field in the create issue dialog takes focus again, uploaded files no longer show zero bytes, markdown attachments preview in the app, and the comment edit button has its icon back.`,
+  },
+  {
     id: `2026-09-21-release-train`,
     date: `2026-09-21`,
     title: `Release train 2026-09-21`,

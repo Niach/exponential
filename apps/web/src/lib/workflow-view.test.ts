@@ -96,7 +96,7 @@ describe(`workflow view (contract fixture)`, () => {
   })
 
   it(`says the latest agent review in one line`, () => {
-    for (const c of fixture.reviewLines) expect(workflowReviewLine(c.review)).toBe(c.line)
+    for (const c of fixture.reviewLines) expect(workflowReviewLine(c.review, c.approved)).toBe(c.line)
   })
 
   it(`lists the metrics that have something to say`, () => {

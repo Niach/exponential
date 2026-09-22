@@ -46,15 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-21-release-train",
-    date: "2026-09-21",
-    title: "Release train 2026-09-21",
-    summary: "A clearer workflow graph with live-run markers, a model per workflow phase, and a workflow that no longer stalls on a merge made outside of it.",
-    body: r#"- **Workflow graph**: nodes are circles in their state's ring, edges gather into one bus between the waves, a node whose run is live wears that run's own dot, and a Running now strip opens each live run in one tap on every client.
-- **A model per phase**: a workflow runs its contract, integration and high risk nodes on their own models; new workflows start on the shipped split, and an edit from a phone or an older app keeps the picks.
-- **Workflows that keep moving**: a node whose pull request was merged outside the workflow lands instead of blocking it, also while its run is still open, a failed start is retried once and then waits for you, and git network calls run under a deadline. Node budgets and the paused node state are gone.
-- **Self-hosting**: the published image sends its security headers by default, without pinning your sibling subdomains to https and with room for your identity provider's avatars.
-- **Android**: the Drafts tab shows again on Inbox and My Issues, also on devices that had already lost it."#,
+    id: "2026-09-22-release-train",
+    date: "2026-09-22",
+    title: "Release train 2026-09-22",
+    summary: "One account picker with live limits, a calmer issue activity, MCP servers per machine, and workflows that are always reviewed by an agent.",
+    body: r#"- **Accounts**: the composer has one account picker across Claude and Codex with each login's limits inline, a default account per machine, and every login is named by its email, signed out ones included.
+- **Activity**: an issue's activity folds quick back and forth edits into their net change, and Show all brings every event back.
+- **Runs**: tool calls to Exponential show the issues, runs and pull requests they touched as chips with a preview, resumed runs sit behind one run menu, the GitHub button lives on Changes, and phones show the changed line counts.
+- **Search**: open work ranks above done work, the same way on every client and over MCP.
+- **MCP servers per machine**: a machine can carry its own MCP servers, picked up from your Claude and Codex config in the desktop app or the CLI, and they ride every run there. Entries that carry a secret are never imported.
+- **MCP tools**: agents can list an issue's attachments, upload large files through a signed link, and compact their own session.
+- **Workflows**: every node is reviewed by an agent before it lands, the review gate setting is gone, and a pull request merged outside the workflow lands where its code actually is.
+- **Fixes**: the link field in the create issue dialog takes focus again, uploaded files no longer show zero bytes, markdown attachments preview in the app, and the comment edit button has its icon back."#,
 };
 
 /// The previous head entry, kept so the mirror's history reads in place.

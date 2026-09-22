@@ -1,4 +1,6 @@
-- Workflows: čvor čije izvođenje traje nosi statusnu točku baš tog izvođenja, a traka Running now iznad valova otvara svako živo izvođenje jednim dodirom
-- Workflows mogu vrtjeti svoje ugovorne, integracijske i visokorizične čvorove na vlastitim modelima (biraš ih na webu ili u desktop aplikaciji), a uređivanje workflowa na telefonu čuva te izbore
-- Oznaka issuea u panelu čvora otvara issue; proračuni čvorova i pauzirano stanje čvora nestali su
-- Workflow se više ne zaglavi kad se pull request čvora spoji izvan njega, a čvor koji se ne uspije pokrenuti pokuša se ponovno jednom umjesto beskonačno
+- Jedan birač računa za Claude i Codex u polju za pisanje, s ograničenjima svake prijave odmah uz njih i zadanim računom po stroju; prijave nose ime svoje e-mail adrese
+- Aktivnost issuea sklapa brze izmjene naprijed-natrag u njihovu neto promjenu, a Show all vraća svaki događaj
+- Pozivi alata prema Exponentialu pokazuju issuee, izvođenja i pull requestove kojih su se dotakli kao čipove koje dodirneš za pregled
+- Nastavljena izvođenja stoje iza jednog izbornika izvođenja, GitHub gumb živi na Changes, a prikaz Changes pokazuje broj promijenjenih redaka
+- Pretraga stavlja otvoreni posao ispred gotovog
+- Workflows: svaki čvor pregleda agent prije nego što sleti, a postavka kontrolnih vrata nestala je

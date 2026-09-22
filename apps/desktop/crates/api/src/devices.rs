@@ -439,6 +439,23 @@ pub enum ExpectedStamp<'a> {
     Expect(Option<&'a str>),
 }
 
+/// The REQUEST form of a launch-defaults object: an unset default account
+/// rides as an explicit `"defaultAccount": null`. The server reads an ABSENT
+/// key as "an older client that never sends it, keep the stored pin", so a
+/// clear (back to the agent's ambient login) has to be spelled out. Request
+/// only: the local settings file and the sync fingerprint keep the key
+/// omitted.
+fn launch_defaults_request(launch_defaults: &serde_json::Value) -> serde_json::Value {
+    let mut request = launch_defaults.clone();
+    if let Some(object) = request.as_object_mut() {
+        let has_agent = object.get("defaultAgent").is_some_and(|v| v.is_string());
+        if has_agent && !object.contains_key("defaultAccount") {
+            object.insert("defaultAccount".to_string(), serde_json::Value::Null);
+        }
+    }
+    request
+}
+
 /// `devices.setLaunchDefaults` — write the server-authoritative launch
 /// defaults. `launch_defaults` is the `coding::remote_admin::defaults_wire`
 /// JSON (raw value — `api` does not depend on `coding`).
@@ -450,7 +467,7 @@ pub fn set_launch_defaults(
 ) -> Result<SetLaunchDefaultsResult, ApiError> {
     let mut input = serde_json::json!({
         "deviceId": device_id,
-        "launchDefaults": launch_defaults,
+        "launchDefaults": launch_defaults_request(launch_defaults),
     });
     if let ExpectedStamp::Expect(stamp) = expected {
         input["expectedUpdatedAt"] = match stamp {
@@ -1167,6 +1184,50 @@ mod tests {
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.contains(r#""expectedUpdatedAt":null"#));
+    }
+
+    #[test]
+    fn launch_defaults_request_spells_out_an_unset_default_account() {
+        // Unset beside a default agent: an explicit null, the server's clear.
+        assert_eq!(
+            launch_defaults_request(&serde_json::json!({
+                "defaultAgent": "claude",
+                "agents": {"claude": {"model": "opus"}},
+            })),
+            serde_json::json!({
+                "defaultAgent": "claude",
+                "defaultAccount": null,
+                "agents": {"claude": {"model": "opus"}},
+            })
+        );
+        // A pinned account rides untouched.
+        let pinned = serde_json::json!({"defaultAgent": "claude", "defaultAccount": "0a1b2c3d"});
+        assert_eq!(launch_defaults_request(&pinned), pinned);
+        // No default agent, nothing for the account to belong to: left alone.
+        let agentless = serde_json::json!({"agents": {}});
+        assert_eq!(launch_defaults_request(&agentless), agentless);
+    }
+
+    #[test]
+    fn set_launch_defaults_sends_the_explicit_null() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        set_launch_defaults(
+            &client(&base),
+            "dev-1",
+            &serde_json::json!({"defaultAgent": "codex"}),
+            ExpectedStamp::Unconditional,
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        let body = &request[request.find("\r\n\r\n").unwrap() + 4..];
+        let sent: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            sent,
+            serde_json::json!({
+                "deviceId": "dev-1",
+                "launchDefaults": {"defaultAgent": "codex", "defaultAccount": null},
+            })
+        );
     }
 
     #[test]

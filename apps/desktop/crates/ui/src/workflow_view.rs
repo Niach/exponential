@@ -662,6 +662,7 @@ impl WorkflowView {
             verdict: &review.verdict,
             round: review.round,
             oracle: review.oracle_passed,
+            approved: node.approved_at.is_some(),
         });
         let findings = review.findings.trim().to_string();
         let lines = findings.lines().count();
@@ -2257,6 +2258,7 @@ mod tests {
                 verdict: &review.verdict,
                 round: review.round,
                 oracle: review.oracle_passed,
+                approved: row.approved_at.is_some(),
             }),
             "Changes requested · round 2 · checks failed"
         );
