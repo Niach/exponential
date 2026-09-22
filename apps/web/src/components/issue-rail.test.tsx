@@ -1,13 +1,21 @@
 import { fireEvent, render } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { IssueRailGap, IssueRailLayer, RAIL_ROOT_ATTR, railCurve } from "./issue-rail"
-import { issueRail, railLaneX, railWidth } from "@/lib/issue-rail"
+import {
+  IssueRailGap,
+  IssueRailLayer,
+  RAIL_OPEN_ATTR,
+  RAIL_ROOT_ATTR,
+  railCurve,
+} from "./issue-rail"
+import { issueRail, railLaneX, railNodeX, railWidth } from "@/lib/issue-rail"
 import type { GraphIssue, GraphRelation } from "@/lib/issue-graph"
 
 // EXP-998: the rail's painter. The RULE is `lib/issue-rail.test.ts`; what is
 // checked here is that a row paints its lanes + node, a gap its lanes only,
-// and that hovering a segment lights the whole edge up across rows.
+// that a hover opens the rail (the arrows are hidden at rest) and lights
+// the whole edge up across rows, and that the rail closes again after the
+// pointer leaves.
 
 vi.mock(`@/components/issue-blocks-badge`, () => ({
   IssueBlocksPopover: ({ trigger }: { trigger: React.ReactElement }) => trigger,
@@ -29,7 +37,7 @@ function List() {
   )
   const width = railWidth(rail)
   return (
-    <div {...{ [RAIL_ROOT_ATTR]: `` }}>
+    <div {...{ [RAIL_ROOT_ATTR]: `` }} data-testid="root">
       <div className="relative" data-testid="row-a">
         <IssueRailLayer row={rail.entries[0]} width={width} issueId="a" teamId="t" />
       </div>
@@ -54,6 +62,7 @@ describe(`IssueRailLayer`, () => {
 
   it(`paints the blocker's dot, the gap's pass-through and the blocked row's ring + arrow`, () => {
     const { getByTestId } = render(<List />)
+    const width = railWidth(issueRail([{ kind: `row`, id: `a` }, { kind: `row`, id: `b` }], relations, issues))
     const a = getByTestId(`row-a`)
     expect(a.querySelector(`[data-testid="issue-rail-node"]`)!.getAttribute(`data-kind`)).toBe(
       `blocking`
@@ -64,13 +73,13 @@ describe(`IssueRailLayer`, () => {
     // The blocker's slice: one curve out of the node to the lane at the
     // row's bottom edge, nothing above.
     const aLane = a.querySelector(`path[data-testid="issue-rail-lane"]`)!
-    expect(aLane.getAttribute(`d`)).toBe(railCurve(railLaneX(0), 20))
+    expect(aLane.getAttribute(`d`)).toBe(railCurve(railLaneX(0, width), railNodeX(width), 20))
     expect(a.querySelector(`[data-testid="issue-rail-arrow"]`)).toBeNull()
 
     const gap = getByTestId(`gap`)
     expect(gap.querySelector(`[data-testid="issue-rail-node"]`)).toBeNull()
     expect(gap.querySelector(`path[data-testid="issue-rail-lane"]`)!.getAttribute(`d`)).toBe(
-      `M ${railLaneX(0)} -1000 V 1000`
+      `M ${railLaneX(0, width)} -1000 V 1000`
     )
 
     const b = getByTestId(`row-b`)
@@ -80,25 +89,52 @@ describe(`IssueRailLayer`, () => {
     expect(b.querySelector(`[data-testid="issue-rail-arrow"]`)).toBeTruthy()
     // …and the blocked row's: the curve in from the top edge.
     expect(b.querySelector(`path[data-testid="issue-rail-lane"]`)!.getAttribute(`d`)).toBe(
-      railCurve(railLaneX(0), -20)
+      railCurve(railLaneX(0, width), railNodeX(width), -20)
     )
     expect(b.querySelector(`title`)!.textContent).toBe(`EXP-1 blocks EXP-2`)
   })
 
-  it(`lights the whole edge up while a segment or a node is hovered`, () => {
-    const { container, getByTestId } = render(<List />)
-    const segments = () => [...container.querySelectorAll(`[data-rail-edge~="a:b"]`)]
-    expect(segments().length).toBeGreaterThan(2)
-    expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
+  describe(`hover`, () => {
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
 
-    const group = getByTestId(`gap`).querySelector(`g`)!
-    fireEvent.mouseEnter(group)
-    expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
-    fireEvent.mouseLeave(group)
-    expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
+    it(`opens the rail and lights the whole edge up while a segment or a node is hovered`, () => {
+      const { container, getByTestId } = render(<List />)
+      const root = getByTestId(`root`)
+      const segments = () => [...container.querySelectorAll(`[data-rail-edge~="a:b"]`)]
+      expect(segments().length).toBeGreaterThan(2)
+      expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(false)
 
-    const node = getByTestId(`row-b`).querySelector(`[data-testid="issue-rail-node"]`)!
-    fireEvent.mouseEnter(node)
-    expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
+      const group = getByTestId(`gap`).querySelector(`g`)!
+      fireEvent.mouseEnter(group)
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
+      expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
+      fireEvent.mouseLeave(group)
+      expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
+      // The arrows linger a beat, so a move from one dot to the next never
+      // flickers them away.
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
+      vi.advanceTimersByTime(200)
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(false)
+
+      const node = getByTestId(`row-b`).querySelector(`[data-testid="issue-rail-node"]`)!
+      fireEvent.mouseEnter(node)
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
+      expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
+    })
+
+    it(`keeps the rail open across a move from one hover target to the next`, () => {
+      const { getByTestId } = render(<List />)
+      const root = getByTestId(`root`)
+      const a = getByTestId(`row-a`).querySelector(`[data-testid="issue-rail-node"]`)!
+      const b = getByTestId(`row-b`).querySelector(`[data-testid="issue-rail-node"]`)!
+      fireEvent.mouseEnter(a)
+      fireEvent.mouseLeave(a)
+      vi.advanceTimersByTime(50)
+      fireEvent.mouseEnter(b)
+      vi.advanceTimersByTime(500)
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
+    })
   })
 })

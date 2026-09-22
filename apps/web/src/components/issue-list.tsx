@@ -792,9 +792,10 @@ export function IssueList({
     // stays a flush, edge-to-edge table.
     <div
       ref={listRef}
-      className="max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
-      // EXP-998: the rail's column width, read by every row's grid template;
-      // the root attribute is what an arrow's hover highlight looks up under.
+      // EXP-998: `group/rail` + the root attribute = what the rail's hover
+      // reveal and edge highlight key off; the column width is read by every
+      // row's grid template.
+      className="group/rail max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
       style={{ "--issue-rail": `${railW}px` } as React.CSSProperties}
       {...{ [RAIL_ROOT_ATTR]: `` }}
     >

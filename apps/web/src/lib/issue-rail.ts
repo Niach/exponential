@@ -4,6 +4,11 @@
 // per-row counts badge at md+ (a phone keeps the badge: its rows are too
 // narrow for a rail, and the natives draw the badge too).
 //
+// At rest the rail shows only its NODES — a small dot flush with the row's
+// right edge, the hint that the issue is in a blocks relation; the arrows
+// fade in to the LEFT of the dots while a dot or the rail is hovered, and a
+// click on a dot opens the mini-graph.
+//
 // The rule is pure over the list's VISIBLE ENTRIES in order — issue rows,
 // group headers and "Show more" buttons alike — because, like the tree
 // connector (EXP-965), every entry can only paint inside itself: an edge that
@@ -77,23 +82,28 @@ export interface IssueRail {
   hasNodes: boolean
 }
 
-/** The node column's width: a 10px gutter off the cell before it (the due
- *  date), then the dot centred in the remaining 16. */
-export const RAIL_NODE_WIDTH = 26
-/** One lane's width. */
+/** The node column, at the rail's RIGHT edge: the dot centred in it. */
+export const RAIL_NODE_WIDTH = 24
+/** One lane's width; lanes run leftwards from the node column, lane 0
+ *  nearest the nodes. */
 export const RAIL_LANE_PITCH = 10
+/** The blank between the cell before the rail (the due date) and lane 0 —
+ *  at rest, the space between the date and the dot. */
+export const RAIL_GUTTER = 8
 
 /** The rail column's width for a lane count. */
 export function railWidth(rail: Pick<IssueRail, `laneCount` | `hasNodes`>): number {
   if (!rail.hasNodes) return 0
-  return RAIL_NODE_WIDTH + RAIL_LANE_PITCH * rail.laneCount
+  return RAIL_GUTTER + RAIL_LANE_PITCH * rail.laneCount + RAIL_NODE_WIDTH
 }
 
-/** The x of the node dot's centre inside the rail. */
-export const RAIL_NODE_X = RAIL_NODE_WIDTH - 8
-/** The x of lane `lane`'s centre inside the rail. */
-export function railLaneX(lane: number): number {
-  return RAIL_NODE_WIDTH + RAIL_LANE_PITCH * lane + RAIL_LANE_PITCH / 2
+/** The x of the node dot's centre inside a rail `width` wide. */
+export function railNodeX(width: number): number {
+  return width - RAIL_NODE_WIDTH / 2
+}
+/** The x of lane `lane`'s centre inside a rail `width` wide. */
+export function railLaneX(lane: number, width: number): number {
+  return width - RAIL_NODE_WIDTH - RAIL_LANE_PITCH * lane - RAIL_LANE_PITCH / 2
 }
 
 export const edgeKey = (from: string, to: string) => `${from}:${to}`

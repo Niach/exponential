@@ -3,8 +3,10 @@ import {
   issueRail,
   railEdgeLabel,
   railLaneX,
+  railNodeX,
   railRowIsEmpty,
   railWidth,
+  RAIL_GUTTER,
   RAIL_LANE_PITCH,
   RAIL_NODE_WIDTH,
   type RailEntry,
@@ -58,7 +60,7 @@ describe(`issueRail`, () => {
     )
     expect(rail.laneCount).toBe(1)
     expect(rail.hasNodes).toBe(true)
-    expect(railWidth(rail)).toBe(RAIL_NODE_WIDTH + RAIL_LANE_PITCH)
+    expect(railWidth(rail)).toBe(RAIL_GUTTER + RAIL_LANE_PITCH + RAIL_NODE_WIDTH)
     const [a, header, b] = rail.entries
     expect(a!.node).toBe(`blocking`)
     expect(a!.lanes.map(shape)).toEqual([[0, false, true, false, true]])
@@ -128,7 +130,7 @@ describe(`issueRail`, () => {
     )
     expect(rail.laneCount).toBe(0)
     expect(rail.hasNodes).toBe(true)
-    expect(railWidth(rail)).toBe(RAIL_NODE_WIDTH)
+    expect(railWidth(rail)).toBe(RAIL_GUTTER + RAIL_NODE_WIDTH)
     expect(rail.entries[0]!.node).toBe(`blocked`)
     expect(rail.entries[0]!.counts).toEqual({ blockedBy: 1, blocking: 1 })
     expect(rail.entries[0]!.lanes).toEqual([])
@@ -156,9 +158,11 @@ describe(`issueRail`, () => {
     expect(c!.lanes.map((lane) => lane.cycle)).toEqual([false])
   })
 
-  it(`lays the lanes out beside the node column`, () => {
-    expect(railLaneX(0)).toBe(RAIL_NODE_WIDTH + RAIL_LANE_PITCH / 2)
-    expect(railLaneX(2)).toBe(RAIL_NODE_WIDTH + RAIL_LANE_PITCH * 2.5)
+  it(`lays the lanes out leftwards from the node column`, () => {
+    const width = RAIL_GUTTER + RAIL_LANE_PITCH * 3 + RAIL_NODE_WIDTH
+    expect(railNodeX(width)).toBe(width - RAIL_NODE_WIDTH / 2)
+    expect(railLaneX(0, width)).toBe(width - RAIL_NODE_WIDTH - RAIL_LANE_PITCH / 2)
+    expect(railLaneX(2, width)).toBe(RAIL_GUTTER + RAIL_LANE_PITCH / 2)
     expect(railEdgeLabel(`EXP-1`, `EXP-2`)).toBe(`EXP-1 blocks EXP-2`)
   })
 })

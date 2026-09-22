@@ -34,12 +34,16 @@ export function IssueBlocksPopover({
   teamId,
   label,
   trigger,
+  openOnHover = true,
 }: {
   issueId: string
   teamId: string
   /** The overlay's sheet title on a phone. */
   label: string
   trigger: ReactElement
+  /** Pointer hover opens it (the badge); `false` = click only (the rail's
+   *  node, whose hover already reveals the arrows). */
+  openOnHover?: boolean
 }) {
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
@@ -49,7 +53,7 @@ export function IssueBlocksPopover({
       <MobilePopoverTrigger
         asChild
         onMouseEnter={() => {
-          if (!isMobile) setOpen(true)
+          if (!isMobile && openOnHover) setOpen(true)
         }}
       >
         {trigger}
