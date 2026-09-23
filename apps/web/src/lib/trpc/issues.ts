@@ -2036,7 +2036,25 @@ export const issuesRouter = router({
           actorViaAgent: ctx.viaMcp === true,
           endSessions: input.endSessions,
         })
-        return { merged: true }
+        // FEED-48: say so ONLY when the walk actually took PRs below with it
+        // (a caller would otherwise re-merge what is already in). The row's
+        // `prBaseBranch` is no signal: pr_open stamps it for every PR, the
+        // default branch included.
+        const below = smart.stackMemberNumbers.filter(
+          (prNumber) => prNumber !== row.prNumber
+        )
+        const mergedPrUrls = smart.stackMemberNumbers.map(
+          (prNumber) => `https://github.com/${repoFullName}/pull/${prNumber}`
+        )
+        return {
+          merged: true,
+          mergedPrUrls,
+          ...(below.length > 0
+            ? {
+                note: `Merging stacked PR #${row.prNumber} also merged every unmerged PR below it: ${below.map((n) => `#${n}`).join(`, `)}.`,
+              }
+            : {}),
+        }
       }
 
       // Complete every issue the PR is linked to — not just the clicked one —

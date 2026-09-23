@@ -4497,7 +4497,7 @@ describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
     expect(result.content[0].text).toContain(`issue PRs only`)
   })
 
-  it(`tells a plain merge of a stacked PR that it also landed everything below`, async () => {
+  it(`forwards the mutation's note when a plain merge walked a stack`, async () => {
     dbRows.current = [
       {
         id: UUID,
@@ -4507,11 +4507,36 @@ describe(`exponential_pr_merge — mergeStack (EXP-897)`, () => {
         prBaseBranch: `exp/EXP-11`,
       },
     ]
+    caller.issues.mergePr.mockResolvedValue({
+      merged: true,
+      note: `Merging stacked PR #242 also merged every unmerged PR below it: #241.`,
+    })
     const result = await tool(`exponential_pr_merge`)({ issueId: UUID })
     const ok = parseOk(result) as { results: Array<{ note?: string }> }
     expect(ok.results[0]!.note).toBe(
-      `Merging a stacked PR also merged every unmerged PR below it.`
+      `Merging stacked PR #242 also merged every unmerged PR below it: #241.`
     )
+  })
+
+  // FEED-48: pr_open stamps `prBaseBranch` for EVERY PR, the default branch
+  // included — a plain PR on master is not a stack and gets no stack note.
+  it(`says nothing about a stack for a plain PR based on the default branch`, async () => {
+    dbRows.current = [
+      {
+        id: UUID,
+        identifier: `EXP-1007`,
+        prUrl: `https://github.com/acme/app/pull/791`,
+        branch: `exp/chat-0f819649`,
+        prBaseBranch: `master`,
+      },
+    ]
+    caller.issues.mergePr.mockResolvedValue({ merged: true })
+    const result = await tool(`exponential_pr_merge`)({ issueId: UUID })
+    const ok = parseOk(result) as {
+      results: Array<{ merged: boolean; note?: string }>
+    }
+    expect(ok.results[0]!.merged).toBe(true)
+    expect(ok.results[0]!.note).toBeUndefined()
   })
 })
 

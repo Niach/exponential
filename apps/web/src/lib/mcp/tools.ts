@@ -2782,8 +2782,6 @@ export function registerExponentialTools(
             // EXP-639: the own-PR test below — a batch/chore run's row carries
             // the head branch, its issues carry the same one.
             branch: issues.branch,
-            // EXP-897: non-null = this PR is stacked on another one.
-            prBaseBranch: issues.prBaseBranch,
           })
           .from(issues)
           .where(inArray(issues.id, ids))
@@ -2936,14 +2934,10 @@ export function registerExponentialTools(
               merged: !queued,
               ...(queued ? { queued: true } : {}),
               // EXP-897: merging a stack member lands every unmerged PR below
-              // it too — say so, or the caller re-merges what is already in.
-              ...(outcome.note
-                ? { note: outcome.note }
-                : !queued && rowById.get(target.id)?.prBaseBranch
-                  ? {
-                      note: `Merging a stacked PR also merged every unmerged PR below it.`,
-                    }
-                  : {}),
+              // it too; the mutation says so when its walk actually did
+              // (FEED-48: `prBaseBranch` alone is no stack signal — pr_open
+              // stamps it for every PR, the default branch included).
+              ...(outcome.note ? { note: outcome.note } : {}),
             })
           } catch (e) {
             results.push({
