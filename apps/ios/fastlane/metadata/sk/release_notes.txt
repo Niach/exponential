@@ -1,6 +1,2 @@
-- Jeden výber účtu pre Claude a Codex v poli na písanie, s limitmi každého prihlásenia hneď vedľa a s predvoleným účtom pre každý stroj; prihlásenia sa volajú podľa svojej e-mailovej adresy
-- Aktivita issue poskladá rýchle úpravy sem a tam do ich čistej zmeny a Show all vráti späť každú udalosť
-- Volania nástrojov do Exponential ukazujú issues, behy a pull requesty, ktorých sa dotkli, ako čipy, na ktoré ťukneš pre náhľad
-- Obnovené behy sedia pod jedinou ponukou behu, tlačidlo GitHub býva na Changes a stránka Changes ukazuje počty zmenených riadkov
-- Vyhľadávanie radí otvorenú prácu pred hotovou
-- Workflows: každý uzol preverí agent, kým pristane, a nastavenie kontrolnej brány je preč
+- Automations vyberajú účet, nielen agenta: zvoľ prihlásenie na priradenom počítači, zobrazené so značkou a e-mailom
+- Vnorené zoznamy issues kreslia tesnejšie stromové čiary, s jednou neprerušenou zvislicou tam, kde sa vetvia pod-issues

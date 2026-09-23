@@ -124,6 +124,34 @@ describe(`IssueRailLayer`, () => {
       expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
     })
 
+    it(`opens the rail on keyboard focus of a dot and closes it a beat after blur`, () => {
+      const { container, getByTestId } = render(<List />)
+      const root = getByTestId(`root`)
+      const segments = () => [...container.querySelectorAll(`[data-rail-edge~="a:b"]`)]
+      const node = getByTestId(`row-b`).querySelector(`[data-testid="issue-rail-node"]`)!
+      fireEvent.focus(node)
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
+      expect(segments().every((node) => node.hasAttribute(`data-hot`))).toBe(true)
+      fireEvent.blur(node)
+      expect(segments().every((node) => !node.hasAttribute(`data-hot`))).toBe(true)
+      // The same linger as a pointer leaving.
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(true)
+      vi.advanceTimersByTime(200)
+      expect(root.hasAttribute(RAIL_OPEN_ATTR)).toBe(false)
+    })
+
+    it(`never lets the lanes' svg box take the pointer, open or not`, () => {
+      // Hit testing lives on each slice's hit stroke alone, so a group
+      // header's "+" button under the node column stays clickable while the
+      // arrows linger.
+      const { getByTestId } = render(<List />)
+      const svg = getByTestId(`gap`).querySelector(`[data-testid="issue-rail-lanes"]`)!
+      expect(svg.classList.contains(`pointer-events-none`)).toBe(true)
+      expect(svg.getAttribute(`class`)).not.toContain(`rail-open]/rail:pointer-events-auto`)
+      const hit = getByTestId(`gap`).querySelector(`g > path`) as SVGPathElement
+      expect(hit.style.pointerEvents).toBe(`stroke`)
+    })
+
     it(`keeps the rail open across a move from one hover target to the next`, () => {
       const { getByTestId } = render(<List />)
       const root = getByTestId(`root`)

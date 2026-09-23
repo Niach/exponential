@@ -1214,6 +1214,7 @@ impl LoginDialogView {
         cx.notify();
         if queries::trpc_client(cx).is_none() {
             self.state = LoginDialogState::Failed("Not signed in.".into());
+            cx.notify();
             return;
         }
         let device_id = self.device_id.clone();
@@ -1288,6 +1289,10 @@ impl LoginDialogView {
             let _ = this.update(cx, |this, cx| {
                 if this.attempt == attempt && this.state == LoginDialogState::SigningIn {
                     this.state = LoginDialogState::Failed(SIGN_IN_TIMED_OUT.into());
+                    // EXP-1000: the generation moves on, so the
+                    // `get_command` poll above stops ticking (the devices
+                    // observer's landing does the same).
+                    this.attempt = this.attempt.wrapping_add(1);
                     cx.notify();
                 }
             });

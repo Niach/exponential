@@ -1805,10 +1805,10 @@ impl Render for IssueListView {
         // `EXP_DEV_SELECT`): `EXP_DEV_RAIL_HOT=<issue uuid>` photographs the
         // rail open with that node's edges lit — pinned every render, since
         // the prune above drops the marker index.
-        if let Ok(hot) = std::env::var("EXP_DEV_RAIL_HOT") {
+        if let Some(hot) = dev_rail_hot() {
             if rows.iter().any(|row| matches!(row, ListRow::Issue { issue, .. } if issue.id == hot)) {
                 self.rail_hovered.insert(usize::MAX);
-                self.rail_hot = Some(hot);
+                self.rail_hot = Some(hot.to_string());
             }
         }
 
@@ -1834,6 +1834,18 @@ impl Render for IssueListView {
                     .id("issue-list-scroll")
                     .relative()
                     .size_full()
+                    // EXP-998: gpui's `on_hover` only fires on a mouse MOVE,
+                    // so a strip that scrolls out from under the pointer (or
+                    // out of the virtual window entirely) never reports
+                    // `false` — the rail stuck open. A wheel scroll closes
+                    // it; the next move over a strip re-opens it.
+                    .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                        if !this.rail_hovered.is_empty() || this.rail_hot.is_some() {
+                            this.rail_hovered.clear();
+                            this.rail_hot = None;
+                            cx.notify();
+                        }
+                    }))
                     .child(
                         v_virtual_list(
                             cx.entity().clone(),
@@ -1855,6 +1867,14 @@ impl Render for IssueListView {
         )
         .into_any_element()
     }
+}
+
+/// EXP-998 DEV-ONLY: `EXP_DEV_RAIL_HOT=<issue uuid>` (the big list's and the
+/// sidebar's capture hook), read ONCE — the environment never changes under a
+/// running process, and a release build pays one lookup, not one per render.
+pub(crate) fn dev_rail_hot() -> Option<&'static str> {
+    static HOT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    HOT.get_or_init(|| std::env::var("EXP_DEV_RAIL_HOT").ok()).as_deref()
 }
 
 // ---------------------------------------------------------------------------

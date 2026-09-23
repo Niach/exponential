@@ -1570,6 +1570,12 @@ impl ChatScreenView {
                             // resumable issue continues it there.
                             account: same_agent.then(|| options.account.clone()).flatten(),
                         };
+                        // FEED-49: a workflow node's run is held for the
+                        // engine before the resume relaunches it (the same
+                        // hold `action_run::resume_run` takes) — a pass in
+                        // between would re-decide the node off the ended
+                        // row and orphan the continuation.
+                        crate::workflow_host::hold_person_resume(&request.record.session_id, cx);
                         return self.run_prepare(
                             PrepareRequest::ResumeRun(request),
                             deps,

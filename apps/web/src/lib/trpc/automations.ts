@@ -325,17 +325,21 @@ export const automationsRouter = router({
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
 
       const agent = input.agent === undefined ? existing.agent : input.agent
+      const deviceId = input.deviceId ?? existing.deviceId
       const next = {
         actionId: input.actionId ?? existing.actionId,
-        deviceId: input.deviceId ?? existing.deviceId,
+        deviceId,
         trigger: input.trigger ?? existing.trigger,
         enabled: input.enabled ?? existing.enabled,
         agent,
-        // A profile belongs to ONE agent: an agent switch that names no
-        // account drops the old agent's, never carries it across.
+        // EXP-995: a profile belongs to ONE agent AND ONE machine (the
+        // `agent_profiles` dir lives on the device that reported it): an
+        // agent OR device switch that names no account drops the old pin,
+        // never carries it across. Additive: a client that never sends
+        // `account` still lands on the machine's default login.
         account:
           input.account === undefined
-            ? agent === existing.agent
+            ? agent === existing.agent && deviceId === existing.deviceId
               ? existing.account
               : null
             : normalizeAccount(input.account),

@@ -122,9 +122,12 @@ export function AutomationDialog({
   const device = capableDevices.find(
     (candidate) => candidate.deviceId === deviceId
   )
-  // EXP-615/995: no "Device default" pill — a bound machine that cannot run
-  // the pinned agent (or none pinned yet) seeds the pin to that machine's
-  // DEFAULT ACCOUNT, which names the agent, exactly like the composer.
+  // EXP-615/995: no "Device default" pill — whenever the bound machine
+  // changes (a pick, or its rows refreshing) the pin re-seeds to a login THAT
+  // machine reports: the same agent's default when it runs it, else the
+  // machine's DEFAULT ACCOUNT, which names the agent, exactly like the
+  // composer. A pin the machine reports as-is is left alone, so what the
+  // Account row shows is what Save stores (profile ids are device-local).
   useEffect(() => {
     if (!open) return
     const next = seedAccountPin(device, pin)

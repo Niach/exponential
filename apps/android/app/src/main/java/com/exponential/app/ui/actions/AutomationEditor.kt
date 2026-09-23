@@ -313,6 +313,45 @@ internal fun AutomationTriggerFields(
 }
 
 /**
+ * Seed (and re-seed) the pin off the bound machine — what the editor SHOWS is
+ * what Save STORES. Null = leave the draft alone.
+ *
+ *  - An unset pin (a row saved before EXP-615 carries a NULL agent) or one
+ *    [bound] cannot run falls back to that machine's default ACCOUNT, which
+ *    names the agent, clamped to what it advertises; model/effort reset to
+ *    the "CLI default" blank since their vocabularies are per agent.
+ *  - A runnable pin on the SAME machine is left alone, so a manual pick sticks.
+ *  - EXP-995: a profile id is DEVICE-LOCAL, so on a switch ([deviceSwitched])
+ *    a runnable pin moves onto the new machine's default login of the SAME
+ *    agent (its stored default account, else that agent's active login —
+ *    [accountOptionsFor] lists it first), keeping model/effort; an agent the
+ *    new machine reports no login for falls back to its default account.
+ */
+internal fun seedAutomationPin(
+    draft: AutomationDraft,
+    bound: SteerDevice,
+    deviceSwitched: Boolean,
+): AutomationDraft? {
+    val agents = availableAgentsFor(bound)
+    val options = accountOptionsFor(bound, agents)
+    val runnable = draft.agent.isNotEmpty() && draft.agent in agents
+    if (runnable && !deviceSwitched) return null
+    if (runnable) {
+        val sameAgent = options.firstOrNull { it.agent == draft.agent }
+        if (sameAgent != null) {
+            return draft.copy(account = sameAgent.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty())
+        }
+    }
+    val fallback = options.firstOrNull { it.isDeviceDefault } ?: options.firstOrNull()
+    return draft.copy(
+        agent = fallback?.agent ?: defaultAgentFor(bound),
+        account = fallback?.id?.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+        model = CLI_DEFAULT_MODEL,
+        effort = CLI_DEFAULT_EFFORT,
+    )
+}
+
+/**
  * The binding half: which machine runs the automation, and the account pin
  * with its model/effort. EXP-615 retired the "Device default" agent option;
  * EXP-995 retired the agent strip itself — the card's first row is THE
@@ -338,26 +377,17 @@ internal fun AutomationBindingFields(
     } else {
         accountOptionsFor(device, availableAgentsFor(device))
     }
-    // Seed (and re-seed) the pin off the bound machine: an unset pin — a row
-    // saved before EXP-615 carries a NULL agent — or one the newly picked
-    // machine cannot run falls back to that machine's default ACCOUNT (which
-    // names the agent), clamped to what it advertises. A pin it CAN run is
-    // left alone, so a manual pick sticks.
+    // The machine the draft's pin was made on: an edited row's stored pin
+    // belongs to its stored machine (never re-seeded on open), a fresh draft's
+    // to nothing yet. Only a REAL switch away from it re-seeds a runnable pin —
+    // the pool arriving late, or a heartbeat re-listing the same machine, is
+    // not a switch.
+    var pinDeviceId by remember { mutableStateOf(draft.deviceId) }
     LaunchedEffect(device?.deviceId, devices) {
         val bound = device ?: return@LaunchedEffect
-        if (draft.agent.isNotEmpty() && draft.agent in availableAgentsFor(bound)) {
-            return@LaunchedEffect
-        }
-        val options = accountOptionsFor(bound, availableAgentsFor(bound))
-        val fallback = options.firstOrNull { it.isDeviceDefault } ?: options.firstOrNull()
-        onChange(
-            draft.copy(
-                agent = fallback?.agent ?: defaultAgentFor(bound),
-                account = fallback?.id?.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
-                model = CLI_DEFAULT_MODEL,
-                effort = CLI_DEFAULT_EFFORT,
-            ),
-        )
+        val switched = pinDeviceId != null && pinDeviceId != bound.deviceId
+        pinDeviceId = bound.deviceId
+        seedAutomationPin(draft, bound, deviceSwitched = switched)?.let(onChange)
     }
     // EXP-615: the same block the launch dialogs render, in its Automation
     // variant — no launch toggles; EXP-995: the account row leads it.
@@ -365,7 +395,8 @@ internal fun AutomationBindingFields(
         variant = LaunchOptionsVariant.Automation,
         devices = devices,
         device = device,
-        // The re-seed above handles a pin the new machine cannot run.
+        // The re-seed above moves the pin onto the new machine (its own
+        // profile for the same agent, else its default account).
         onDeviceChange = { id -> onChange(draft.copy(deviceId = id)) },
         agent = draft.agent,
         availableAgents = device?.runnableAgents.orEmpty(),

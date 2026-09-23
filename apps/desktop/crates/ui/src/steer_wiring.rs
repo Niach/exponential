@@ -820,6 +820,14 @@ fn remote_issue_start(
         log::warn!("steer: remote start for {issue_id} — no shell window open");
         return;
     };
+    // FEED-49: a workflow node's run is held for the engine BEFORE the
+    // resume relaunches it (`action_run::resume_run`'s and the account
+    // switch's hold, mirrored on the relay's issue-resume arm): a pass
+    // between the recorded run's end and the resumed row would otherwise
+    // re-decide the node off the ended row. A fresh start holds nothing.
+    if let PrepareRequest::ResumeRun(request) = &prepare_request {
+        crate::workflow_host::hold_person_resume(&request.record.session_id, cx);
+    }
 
     cx.spawn(async move |cx| {
         let prepared = cx

@@ -1,6 +1,2 @@
-- Un singur selector de cont pentru Claude și Codex în câmpul de scriere, cu limitele fiecărui cont alături și un cont implicit pentru fiecare mașină; conturile poartă numele adresei lor de e-mail
-- Activitatea unui issue pliază editările rapide dus-întors în schimbarea lor netă, iar Show all aduce înapoi fiecare eveniment
-- Apelurile de unelte către Exponential arată issue-urile, rulările și pull request-urile pe care le-au atins ca niște chipsuri pe care le atingi pentru o previzualizare
-- Rulările reluate stau în spatele unui singur meniu de rulare, butonul GitHub se află pe Changes, iar pagina Changes arată numărul de linii schimbate
-- Căutarea pune munca deschisă înaintea celei terminate
-- Workflows: fiecare nod este verificat de un agent înainte să aterizeze, iar setarea porții de verificare a dispărut
+- Automations aleg un cont, nu doar un agent: alege autentificarea de pe mașina asociată, afișată cu marca și adresa ei de e-mail
+- Listele de issue imbricate desenează linii de arbore mai strânse, cu o verticală neîntreruptă acolo unde se ramifică sub-issue-urile

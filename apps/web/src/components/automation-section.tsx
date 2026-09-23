@@ -389,21 +389,31 @@ export function pickedAccountOption(
 }
 
 /** EXP-995: the pin a bound machine seeds — the row's own when that machine
- * still runs its agent, else the machine's DEFAULT account (which names the
- * agent). `undefined` = leave the pin alone. */
+ * reports EXACTLY that login (a manual pick sticks), else that machine's
+ * default account for the same agent when it runs it (its first login of
+ * that agent, the device default first), else the machine's DEFAULT account
+ * (which names the agent). Profile ids are device-LOCAL, so a device switch
+ * always lands on a login the new machine reports: what the Account row
+ * shows (`pickedAccountOption`) IS what Save stores. `undefined` = leave the
+ * pin alone (no machine bound, or one reporting no login at all). */
 export function seedAccountPin(
   device: SteerDevice | undefined,
   current: AutomationAccountPin
 ): AutomationAccountPin | undefined {
   if (!device) return undefined
   const options = accountOptionsOf(device)
-  if (
-    current.agent !== `` &&
-    options.some((option) => option.agent === current.agent)
-  ) {
-    return undefined
+  if (current.agent !== ``) {
+    const key = automationAccountKey(current)
+    if (options.some((option) => accountOptionKey(option) === key)) {
+      return undefined
+    }
   }
-  const fallback = defaultAccountOption(options)
+  // Options run device default first, so the agent's first row IS the
+  // device default whenever that is the agent.
+  const fallback =
+    (current.agent !== ``
+      ? options.find((option) => option.agent === current.agent)
+      : undefined) ?? defaultAccountOption(options)
   return fallback ? accountPinOf(fallback) : undefined
 }
 

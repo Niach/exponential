@@ -1,6 +1,2 @@
-- Eine Kontoauswahl für Claude und Codex im Eingabefeld, mit den Limits jedes Logins direkt daneben und einem Standardkonto pro Maschine; Logins tragen den Namen ihrer E-Mail-Adresse
-- Die Aktivität eines Issues faltet schnelle Hin-und-her-Änderungen zu ihrer Nettoänderung zusammen, und Show all holt jedes Ereignis zurück
-- Werkzeugaufrufe an Exponential zeigen die Issues, Läufe und Pull Requests, die sie berührt haben, als Chips, die du für eine Vorschau antippst
-- Fortgesetzte Läufe liegen hinter einem einzigen Lauf-Menü, der GitHub-Button steht auf Changes, und die Changes-Seite zeigt die Zahl der geänderten Zeilen
-- Die Suche reiht offene Arbeit vor erledigte
-- Workflows: jeder Knoten wird von einem Agenten begutachtet, bevor er landet, und die Einstellung für das Review-Gate ist weg
+- Automations wählen ein Konto, nicht nur einen Agenten: nimm das Login auf der verbundenen Maschine, angezeigt mit Markenzeichen und E-Mail-Adresse
+- Verschachtelte Issue-Listen zeichnen engere Baumlinien, mit einer durchgehenden Senkrechten dort, wo Unter-Issues abzweigen

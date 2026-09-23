@@ -315,6 +315,24 @@ impl AutomationEditorState {
         }
     }
 
+    /// EXP-995: the bound device CHANGED. A pin the new machine cannot run
+    /// would be refused server-side, so the agent settles first
+    /// ([`Self::ensure_agent_seeded`]); and a profile id is DEVICE-LOCAL
+    /// (`agent_profiles` dirs live on one machine), so even a still-runnable
+    /// agent's pin named the OLD machine's login — the account re-seeds from
+    /// the new device ([`settle_device_account`]) to the row the picker
+    /// displays, so Save stores what is shown. Re-picking the bound device
+    /// disturbs nothing.
+    pub(crate) fn rebind_device(&mut self, device_id: String, cx: &mut App) {
+        if self.device_id.as_deref() == Some(device_id.as_str()) {
+            return;
+        }
+        self.device_id = Some(device_id);
+        self.ensure_agent_seeded(cx);
+        let options = self.account_options(cx);
+        self.account = settle_device_account(self.agent.as_deref(), &options);
+    }
+
     /// EXP-995: every signed-in login the BOUND machine reports, across
     /// agents, its default first ([`launch_options::machine_account_options`]);
     /// a machine that reports none (or none bound yet) offers one ambient row
@@ -921,12 +939,7 @@ impl AutomationEditorState {
                             if let Some(view) = view.upgrade() {
                                 let device_id = device_id.clone();
                                 view.update(cx, |view, cx| {
-                                    let state = access(view);
-                                    state.device_id = Some(device_id);
-                                    // A pin the NEW machine cannot run
-                                    // would be refused server-side —
-                                    // re-seed to its default agent.
-                                    state.ensure_agent_seeded(cx);
+                                    access(view).rebind_device(device_id, cx);
                                     cx.notify();
                                 });
                             }
@@ -1139,6 +1152,24 @@ fn settle_seed_agent(
     available.first().cloned()
 }
 
+/// EXP-995: the account pin for `agent` on a NEWLY bound device: the
+/// machine's default login when it is `agent`'s, else `agent`'s first login
+/// there — exactly the row the account picker would DISPLAY for that agent
+/// ([`AutomationEditorState::render_launch_pins`]'s fallback), on the
+/// wire (the ambient login = `None`). `None` too when nothing of `agent`'s
+/// is runnable there.
+fn settle_device_account(
+    agent: Option<&str>,
+    options: &[coding::AccountOption],
+) -> Option<String> {
+    let agent = agent?;
+    let of_agent = |option: &&coding::AccountOption| option.agent.id() == agent;
+    coding::default_account_option(options)
+        .filter(of_agent)
+        .or_else(|| options.iter().find(of_agent))
+        .and_then(|option| option.wire_account())
+}
+
 /// The synced devices that advertise the `automations` cap — own rows plus
 /// team-shared ones (the shape's scope). Offline rows are INCLUDED: a missed
 /// schedule fires once when the machine comes back.
@@ -1256,6 +1287,35 @@ mod tests {
         // Nothing runnable is the only NULL — unreachable through
         // `device_agents`, which always offers the contract list.
         assert_eq!(settle_seed_agent(None, None, &[], "codex"), None);
+    }
+
+    /// EXP-995: a profile id is device-local — a device switch re-seeds the
+    /// pin from the NEW machine, to the row the picker would display.
+    #[test]
+    fn a_device_switch_reseeds_the_account_from_the_new_machine() {
+        let option = |agent: &str, id: &str, is_device_default: bool| coding::AccountOption {
+            id: id.to_string(),
+            agent: coding::CodingAgent::parse(agent).expect("contract agent"),
+            email: id.to_string(),
+            is_device_default,
+            health: coding::Health::Ok,
+            limits: None,
+        };
+        let options = vec![
+            option("codex", "work", true),
+            option("claude", "home", false),
+            option("claude", "side", false),
+        ];
+        // The new machine's default login is the agent's own: the pin.
+        assert_eq!(settle_device_account(Some("codex"), &options), Some("work".to_string()));
+        // Another agent: its FIRST login there — what the picker shows.
+        assert_eq!(settle_device_account(Some("claude"), &options), Some("home".to_string()));
+        // The ambient login rides the wire as `None`.
+        let ambient = vec![option("claude", coding::SYSTEM_PROFILE, true)];
+        assert_eq!(settle_device_account(Some("claude"), &ambient), None);
+        // Nothing of the agent's runnable there, or no agent: no pin.
+        assert_eq!(settle_device_account(Some("codex"), &ambient), None);
+        assert_eq!(settle_device_account(None, &options), None);
     }
 
     #[test]

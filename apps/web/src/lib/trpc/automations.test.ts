@@ -362,6 +362,42 @@ describe(`automations.update`, () => {
     })
   })
 
+  // EXP-995: a profile id is device-LOCAL, so a device switch that names no
+  // account drops it too (an old client never sends `account`); naming one
+  // beside the new device keeps it.
+  it(`drops the account pin on a device switch that names none`, async () => {
+    const pinned = { ...existing, agent: `claude`, account: `0a1b2c3d` }
+    selectResults.push([pinned])
+    selectResults.push([action])
+    selectResults.push([ownDevice])
+    const moved = await caller.update({ id: AUTOMATION_ID, deviceId: `device-2` })
+    expect(moved.automation).toMatchObject({
+      deviceId: `device-2`,
+      agent: `claude`,
+      account: null,
+    })
+
+    selectResults.push([pinned])
+    selectResults.push([action])
+    selectResults.push([ownDevice])
+    const named = await caller.update({
+      id: AUTOMATION_ID,
+      deviceId: `device-2`,
+      account: `9f8e7d6c`,
+    })
+    expect(named.automation).toMatchObject({
+      deviceId: `device-2`,
+      agent: `claude`,
+      account: `9f8e7d6c`,
+    })
+
+    // The SAME device named again is no switch.
+    selectResults.push([pinned])
+    selectResults.push([action])
+    const same = await caller.update({ id: AUTOMATION_ID, deviceId: `device-1` })
+    expect(same.automation).toMatchObject({ deviceId: `device-1`, account: `0a1b2c3d` })
+  })
+
   it(`re-checks the device when it changes`, async () => {
     selectResults.push([existing])
     selectResults.push([action])
