@@ -80,6 +80,11 @@ class MemoryPorts implements ApplyPorts {
   async archiveBoard(boardId: string) {
     this.archived.push(boardId)
   }
+  estimation: string[] = []
+  async setEstimation(type: string) {
+    this.estimation.push(type)
+    this.state = { ...this.state, estimationType: type as ApplyTeamState[`estimationType`] }
+  }
   async fetchAsset(ref: string): Promise<FetchedAsset | null> {
     this.fetched.push(ref)
     if (this.failFetches > 0) {
@@ -174,6 +179,9 @@ describe(`applyBundle`, () => {
     })
     expect(ports.fetched).toEqual([`https://files.example.com/a.png`])
     expect(ports.archived).toEqual([])
+    // The fixture's t-shirt estimates switch the (off) team scale on once.
+    expect(ports.estimation).toEqual([`tshirt`])
+    expect(result.warnings.join(`\n`)).toMatch(/Estimates switched on for this team with the tshirt scale/)
   })
 
   it(`writes issues ascending by number in batches and links in a second pass`, async () => {
@@ -375,6 +383,18 @@ describe(`applyBundle`, () => {
     await expect(applyBundle(bundleFixture(), plan(), lost, options)).rejects.toMatchObject({
       reason: `claim_lost`,
     })
+  })
+
+  it(`leaves the estimate scale alone when the team already has one or nothing is estimated`, async () => {
+    const fibonacci = new MemoryPorts()
+    fibonacci.state = { ...fibonacci.state, estimationType: `fibonacci` }
+    await applyBundle(bundleFixture(), plan(), fibonacci, options)
+    expect(fibonacci.estimation).toEqual([])
+
+    const unestimated = new MemoryPorts()
+    const bare = { ...bundleFixture(), issues: bundleFixture().issues.map((issue) => ({ ...issue, estimate: null })) }
+    await applyBundle(bare, plan(), unestimated, options)
+    expect(unestimated.estimation).toEqual([])
   })
 
   it(`retries a failed asset download and keeps the original link when it stays down`, async () => {

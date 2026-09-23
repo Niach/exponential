@@ -11,7 +11,7 @@
 // archive board per team (`archive:<teamId>`, flagged `archive` so the
 // applier archives it at the end) under either routing, keeping their
 // project as a label; `importArchived: false` drops them altogether.
-import type { IssuePriority, IssueStatusCategory } from "@exp/db-schema/domain"
+import type { IssueEstimation, IssuePriority, IssueStatusCategory } from "@exp/db-schema/domain"
 import {
   IMPORT_BUNDLE_VERSION,
   type BundleAsset,
@@ -79,6 +79,14 @@ export function archivePrefix(teamKey: string): string {
 export function linearEstimate(value: number | null | undefined): number | null {
   if (value === null || value === undefined || !Number.isFinite(value)) return null
   return Math.max(0, Math.round(value))
+}
+
+export const LINEAR_ESTIMATION: Record<string, IssueEstimation> = {
+  notUsed: `none`,
+  exponential: `exponential`,
+  fibonacci: `fibonacci`,
+  linear: `linear`,
+  tShirt: `tshirt`,
 }
 
 // A Linear bot/integration account: no real person to map.
@@ -324,6 +332,18 @@ export function toLinearBundle(
     }
   })
 
+  // The scale of the first team whose issues carry estimates (one
+  // Exponential team = one scale; Linear teams that disagree keep their
+  // point values, which read on the adopted scale).
+  const estimatedTeamIds = new Set(
+    sourceIssues.filter((issue) => issue.estimate !== null).map((issue) => issue.teamId)
+  )
+  const estimation =
+    teams
+      .filter((team) => estimatedTeamIds.has(team.id))
+      .map((team) => LINEAR_ESTIMATION[team.estimationType ?? ``] ?? null)
+      .find((scale) => scale !== null && scale !== `none`) ?? null
+
   return {
     version: IMPORT_BUNDLE_VERSION,
     source: LINEAR_SOURCE,
@@ -333,6 +353,7 @@ export function toLinearBundle(
     labels,
     users,
     issues,
+    estimation,
   }
 }
 

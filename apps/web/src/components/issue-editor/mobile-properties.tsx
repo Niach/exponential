@@ -2,7 +2,7 @@ import type { ReactNode } from "react"
 import { forwardRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import type { Label as LabelRow, User } from "@/db/schema"
-import type { IssuePriority } from "@/lib/domain"
+import type { IssuePriority, IssueEstimation } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
   creatableStatusOptions,
@@ -92,6 +92,7 @@ export interface IssueEditorMobilePropertiesProps {
   /** EXP-630 (the issue detail's phone sheet only): an Estimate row after Due
    * date. Absent on the create form. */
   estimate?: number | null
+  estimation?: IssueEstimation
   onEstimateChange?: (estimate: number | null) => void | Promise<void>
   /** EXP-698 r5 (the issue detail's phone sheet only): a Board row after Due
    * date, moving the issue through the same confirm dialog the desktop chip
@@ -130,6 +131,7 @@ export function IssueEditorMobileProperties({
   hideAssignee,
   hideDueDateChip,
   estimate,
+  estimation,
   onEstimateChange,
   board,
   relations,
@@ -300,12 +302,12 @@ export function IssueEditorMobileProperties({
           />
         )}
 
-        {onEstimateChange && (
+        {onEstimateChange && estimation && estimation !== `none` && (
           <Combobox
             searchable={false}
             value={estimate == null ? `` : String(estimate)}
             disabled={disabled}
-            options={estimatePickerOptions(estimate ?? null)}
+            options={estimatePickerOptions(estimate ?? null, estimation)}
             onChange={(next) => void onEstimateChange(parseEstimatePick(next))}
             mobileTitle="Estimate"
             renderTrigger={() => (
@@ -315,7 +317,7 @@ export function IssueEditorMobileProperties({
                 value={
                   <>
                     <EstimateGlyph className="size-3.5" />
-                    {estimateLabel(estimate)}
+                    {estimateLabel(estimate, estimation)}
                   </>
                 }
               />

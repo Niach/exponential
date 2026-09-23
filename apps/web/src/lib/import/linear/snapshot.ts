@@ -28,7 +28,16 @@ export const linearSnapshotSchema = z.object({
   fetchedAt: z.string(),
   organization: z.object({ id: idSchema, name: z.string(), urlKey: z.string() }),
   viewer: z.object({ id: idSchema, name: z.string(), email: z.string() }),
-  teams: z.array(z.object({ id: idSchema, key: z.string(), name: z.string() })),
+  teams: z.array(
+    z.object({
+      id: idSchema,
+      key: z.string(),
+      name: z.string(),
+      // Linear's issueEstimationType: notUsed | exponential | fibonacci |
+      // linear | tShirt (older snapshots carry none).
+      estimationType: z.string().nullish(),
+    })
+  ),
   states: z.array(
     z.object({
       id: idSchema,
@@ -133,7 +142,7 @@ export const VIEWER_QUERY = `{
 }`
 
 export const METADATA_QUERY = `{
-  teams(first: 100) { nodes { id key name } }
+  teams(first: 100) { nodes { id key name issueEstimationType } }
   workflowStates(first: 250) { nodes { id name type color position team { id } } }
   users(first: 250) { nodes { id name displayName email active } }
   projects(first: 250) { nodes { id name teams(first: 50) { nodes { id } } } }
@@ -284,7 +293,7 @@ export async function fetchLinearSnapshot(
   }>(VIEWER_QUERY)
 
   const meta = await client.query<{
-    teams: { nodes: { id: string; key: string; name: string }[] }
+    teams: { nodes: { id: string; key: string; name: string; issueEstimationType?: string | null }[] }
     workflowStates: {
       nodes: {
         id: string
@@ -466,7 +475,12 @@ export async function fetchLinearSnapshot(
     fetchedAt: (options.now?.() ?? new Date()).toISOString(),
     organization: who.organization,
     viewer: who.viewer,
-    teams: meta.teams.nodes,
+    teams: meta.teams.nodes.map((node) => ({
+      id: node.id,
+      key: node.key,
+      name: node.name,
+      estimationType: node.issueEstimationType ?? null,
+    })),
     states: meta.workflowStates.nodes.map((node) => ({
       id: node.id,
       name: node.name,

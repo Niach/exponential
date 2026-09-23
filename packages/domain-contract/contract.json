@@ -89,6 +89,9 @@
   "issueSource": {
     "values": ["user", "widget", "agent"]
   },
+  "issueEstimation": {
+    "values": ["none", "exponential", "fibonacci", "linear", "tshirt"]
+  },
   "teamRole": {
     "values": ["owner", "member"]
   },

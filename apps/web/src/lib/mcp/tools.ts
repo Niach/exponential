@@ -18,6 +18,7 @@ import {
   DEFAULT_ACCENT_COLOR,
   hexColorSchema,
   issueEstimateSchema,
+  issueEstimationValues,
   MAX_ISSUE_DESCRIPTION,
   MAX_START_PROMPT,
   SESSION_RESULT_TEXT_MAX,
@@ -5080,11 +5081,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_update`,
     {
-      description: `Update a team's name or icon (by its UUID). Team owner only. Teams are always private.`,
+      description: `Update a team's name, icon or estimate scale (by its UUID). Team owner only. Teams are always private.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
         iconUrl: z.string().url().max(2048).nullable().optional(),
+        estimationType: z.enum(issueEstimationValues).optional(),
       }),
     },
     async ({ id, ...rest }) => {

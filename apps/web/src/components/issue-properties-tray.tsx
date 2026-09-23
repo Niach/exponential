@@ -1,5 +1,7 @@
 import type { Board, Issue, User } from "@/db/schema"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { useTeamById } from "@/hooks/use-team-data"
+import type { IssueEstimation } from "@/lib/domain"
 import { mergeTargetProps } from "@/hooks/use-agents-data"
 import type { IssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 import { useSteerConfig } from "@/components/agent-session"
@@ -47,6 +49,7 @@ export function IssuePropertiesTray({
   // whether the relay is configured at all. The pill self-hides unless the
   // linked PR is open.
   const isMember = useIsTeamMember(teamId, currentUserId ?? ``)
+  const team = useTeamById(teamId)
   const steerConfig = useSteerConfig()
   const prOpen = issue.prState === `open`
   const dueDate = issue.dueDate ?? null
@@ -90,6 +93,7 @@ export function IssuePropertiesTray({
             dueDate={dueDate}
             onDueDateSelect={handlers.handleDueDateSelect}
             estimate={issue.estimate ?? null}
+            estimation={(team?.estimationType as IssueEstimation | undefined) ?? `none`}
             onEstimateChange={handlers.handleEstimateChange}
             source={issue.source}
             boardColor={board.color}

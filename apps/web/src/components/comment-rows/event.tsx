@@ -4,10 +4,12 @@ import { conceptIcon } from "@exp/ui"
 import { relationEventParts } from "@/lib/issue-relations"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
 import { estimateLabel } from "@/lib/issue-estimate"
+import type { IssueEstimation } from "@/lib/domain"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { useTeamById } from "@/hooks/use-team-data"
 import { TimelineRow } from "@/components/comment-rows/timeline-row"
 import { relativeTime } from "./format"
 
@@ -98,6 +100,7 @@ export function EventRow({
 }) {
   const { resolve: resolveStatus } = useTeamStatusesContext()
   const issueRefs = useIssueRefs()
+  const team = useTeamById(event.teamId)
   const actor = event.actorUserId ? userMap.get(event.actorUserId) : undefined
   const actorName = displayUserName(actor, event.actorUserId)
   const payload = (event.payload ?? {}) as Record<string, unknown>
@@ -226,7 +229,7 @@ export function EventRow({
           <>
             set the estimate to{` `}
             <span className="font-medium text-foreground">
-              {estimateLabel(Number(payload.to))}
+              {estimateLabel(Number(payload.to), (team?.estimationType as IssueEstimation | undefined) ?? `fibonacci`)}
             </span>
           </>
         )

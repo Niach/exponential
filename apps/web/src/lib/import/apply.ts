@@ -7,7 +7,7 @@
 // archiving (the boards holding the source's archived issues). The drizzle
 // implementation of the ports lives in apply-db.ts; apply.test.ts runs this
 // file against in-memory ports.
-import type { IssueStatusCategory } from "@exp/db-schema/domain"
+import type { IssueEstimation, IssueStatusCategory } from "@exp/db-schema/domain"
 import {
   emptyImportCounts,
   pushWarning,
@@ -29,6 +29,7 @@ import {
 
 export interface ApplyTeamState {
   boards: { id: string; name: string; prefix: string; archived?: boolean }[]
+  estimationType?: IssueEstimation
   statuses: ResolvedStatus[]
   labels: { id: string; name: string }[]
   members: { userId: string; email: string; name: string }[]
@@ -76,6 +77,8 @@ export interface ApplyPorts {
   createInvite(email: string): Promise<void>
   // Idempotent: an already archived board is left alone.
   archiveBoard(boardId: string): Promise<void>
+  // Switches the team's estimate scale on (only ever called when it is off).
+  setEstimation(type: IssueEstimation): Promise<void>
   fetchAsset(ref: string): Promise<FetchedAsset | null>
   // Uploads the batch's assets, then inserts every row in ONE transaction
   // (issues, attachments, labels, comments, events, subscribers, map rows)
@@ -378,6 +381,19 @@ export async function applyBundle(
     .sort(compareIssues)
   const total = pending.length
   let done = 0
+  // Estimates come along only when the team shows them: a team with
+  // estimates off adopts the source's scale before the first batch.
+  const estimation = bundle.estimation ?? null
+  if (
+    estimation &&
+    estimation !== `none` &&
+    (state.estimationType ?? `none`) === `none` &&
+    pending.some((issue) => issue.estimate !== null && issue.estimate !== undefined)
+  ) {
+    await ports.setEstimation(estimation)
+    warn(`Estimates switched on for this team with the ${estimation} scale.`)
+    state = await ports.loadTeamState()
+  }
   await report(`issues`, done, total)
   for (let index = 0; index < pending.length; index += batchSize) {
     const slice = pending.slice(index, index + batchSize)

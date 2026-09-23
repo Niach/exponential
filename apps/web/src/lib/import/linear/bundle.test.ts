@@ -142,6 +142,13 @@ describe(`toLinearBundle (team routing)`, () => {
     expect(bundle.issues.find((issue) => issue.key === `issue:is-2`)!.estimate).toBeNull()
   })
 
+  it(`names the source's estimate scale from the team that uses estimates`, () => {
+    expect(bundle.estimation).toBe(`tshirt`)
+    const snapshot = linearSnapshotFixture()
+    snapshot.teams[0]!.estimationType = `notUsed`
+    expect(toLinearBundle(snapshot, { routing: `team` }).estimation).toBeNull()
+  })
+
   it(`leaves a sub-issue a root when its parent is left out`, () => {
     const snapshot = linearSnapshotFixture()
     snapshot.issues[0]!.archivedAt = `2024-10-01T10:00:00.000Z`

@@ -39,6 +39,8 @@ import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { useTeamById } from "@/hooks/use-team-data"
+import type { IssueEstimation } from "@/lib/domain"
 import { useIssuePropertyHandlers } from "@/hooks/use-issue-property-handlers"
 import {
   MarkdownEditor,
@@ -201,6 +203,8 @@ export function IssueDetailView({
   // written — the keyboard formatting rail owns the bottom edge then.
   const [descriptionFocused, setDescriptionFocused] = useState(false)
   const { resolve: resolveStatus } = useTeamStatusesContext()
+  // EXP-630: the estimate scale rides the synced team row.
+  const team = useTeamById(teamId)
   const statusOption = resolveStatus(issue)
 
   // EXP-877: ONE definition per property mutation, shared with the session
@@ -502,6 +506,7 @@ export function IssueDetailView({
       users={users}
       dueDate={dueDate}
       estimate={issue.estimate ?? null}
+      estimation={(team?.estimationType as IssueEstimation | undefined) ?? `none`}
       onEstimateChange={handlers.handleEstimateChange}
       disabled={readOnly}
       board={{

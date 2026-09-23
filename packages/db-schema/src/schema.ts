@@ -206,6 +206,11 @@ export const teams = pgTable(`teams`, {
   // `endSessions` override sit on top. Synced so every client renders the
   // toggle and the desktop's batch self-close honours it.
   endSessionsOnMerge: boolean(`end_sessions_on_merge`).notNull().default(true),
+  // EXP-630 — the estimate scale (contract `issueEstimation`, a documented
+  // varchar): `none` (default) hides estimates everywhere; the other values
+  // pick the ladder the picker offers and how a value reads (t-shirt).
+  // Synced so every client renders the chip the same way.
+  estimationType: varchar(`estimation_type`, { length: 16 }).notNull().default(`none`),
   ...timestamps,
 })
 

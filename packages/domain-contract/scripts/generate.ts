@@ -33,6 +33,7 @@ interface Contract {
   }[]
   issuePriority: Section
   issueSource: Section
+  issueEstimation: Section
   teamRole: Section
   boardIcon: Section
   deviceIcon: Section
@@ -377,6 +378,7 @@ ${swiftIntArray("issueStatusDefaultSortOrders", statusDefaultSortOrders)}
 ${swiftStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${swiftStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${swiftStringArray("issueSourceValues", contract.issueSource.values)}
+${swiftStringArray("issueEstimationValues", contract.issueEstimation.values)}
 ${swiftStringArray("teamRoleValues", contract.teamRole.values)}
 ${swiftStringArray("boardIconValues", contract.boardIcon.values)}
 ${swiftStringArray("deviceIconValues", contract.deviceIcon.values)}
@@ -476,6 +478,7 @@ ${swiftDiffUi}
 
 ${swiftNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${swiftNamedValues("issueSource", contract.issueSource.values)}
+${swiftNamedValues("issueEstimation", contract.issueEstimation.values)}
 ${swiftNamedValues("teamRole", contract.teamRole.values)}
 ${swiftNamedValues("commentKind", contract.commentKind.values)}
 ${swiftNamedValues("commentSource", contract.commentSource.values)}
@@ -512,6 +515,7 @@ ${kotlinIntArray("issueStatusDefaultSortOrders", statusDefaultSortOrders)}
 ${kotlinStringArray("issuePriorityValues", contract.issuePriority.values)}
 ${kotlinStringArray("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${kotlinStringArray("issueSourceValues", contract.issueSource.values)}
+${kotlinStringArray("issueEstimationValues", contract.issueEstimation.values)}
 ${kotlinStringArray("teamRoleValues", contract.teamRole.values)}
 ${kotlinStringArray("boardIconValues", contract.boardIcon.values)}
 ${kotlinStringArray("deviceIconValues", contract.deviceIcon.values)}
@@ -611,6 +615,7 @@ ${kotlinDiffUi}
 
 ${kotlinNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${kotlinNamedValues("issueSource", contract.issueSource.values)}
+${kotlinNamedValues("issueEstimation", contract.issueEstimation.values)}
 ${kotlinNamedValues("teamRole", contract.teamRole.values)}
 ${kotlinNamedValues("commentKind", contract.commentKind.values)}
 ${kotlinNamedValues("commentSource", contract.commentSource.values)}
@@ -649,6 +654,7 @@ ${rustIntSlice("issueStatusDefaultSortOrders", statusDefaultSortOrders)}
 ${rustStrSlice("issuePriorityValues", contract.issuePriority.values)}
 ${rustStrSlice("issuePriorityDisplayOrder", contract.issuePriority.displayOrder ?? contract.issuePriority.values)}
 ${rustStrSlice("issueSourceValues", contract.issueSource.values)}
+${rustStrSlice("issueEstimationValues", contract.issueEstimation.values)}
 ${rustStrSlice("teamRoleValues", contract.teamRole.values)}
 ${rustStrSlice("boardIconValues", contract.boardIcon.values)}
 ${rustStrSlice("deviceIconValues", contract.deviceIcon.values)}
@@ -750,6 +756,7 @@ ${rustDiffUi}
 
 ${rustNamedValues("issueStatusCategory", contract.issueStatusCategory.values)}
 ${rustNamedValues("issueSource", contract.issueSource.values)}
+${rustNamedValues("issueEstimation", contract.issueEstimation.values)}
 ${rustNamedValues("teamRole", contract.teamRole.values)}
 ${rustNamedValues("commentKind", contract.commentKind.values)}
 ${rustNamedValues("commentSource", contract.commentSource.values)}

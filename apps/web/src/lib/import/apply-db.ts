@@ -30,6 +30,7 @@ import { boardsRouter } from "@/lib/trpc/boards"
 import { statusesRouter } from "@/lib/trpc/statuses"
 import { labelsRouter } from "@/lib/trpc/labels"
 import { teamInvitesRouter } from "@/lib/trpc/team-invites"
+import { teamsRouter } from "@/lib/trpc/teams"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { deleteObject, uploadObject } from "@/lib/storage"
 import {
@@ -107,6 +108,7 @@ const importCaller = router({
   statuses: statusesRouter,
   labels: labelsRouter,
   teamInvites: teamInvitesRouter,
+  teams: teamsRouter,
 })
 
 // The preserve-timestamps guard (0001_triggers.sql): transaction-local, so a
@@ -170,6 +172,7 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
           prefix,
           archived: archived === true,
         })),
+        estimationType: state.estimationType,
         statuses: state.statuses,
         labels: state.labels,
         members: state.members,
@@ -250,6 +253,10 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
     // vanishes from every list until an owner restores it.
     async archiveBoard(boardId) {
       await caller.boards.archive({ boardId })
+    },
+
+    async setEstimation(type) {
+      await caller.teams.update({ teamId: job.teamId, estimationType: type })
     },
 
     fetchAsset(ref) {

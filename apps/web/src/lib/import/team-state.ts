@@ -10,11 +10,12 @@ import {
   labels,
   teamInvites,
   teamMembers,
+  teams,
   users,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { assertCanInviteMember, getTeamPlan, getTeamUsage } from "@/lib/billing"
-import type { IssueStatus, IssueStatusCategory } from "@/lib/domain"
+import type { IssueEstimation, IssueStatus, IssueStatusCategory } from "@/lib/domain"
 import type { TeamState } from "@/lib/import/plan"
 
 export async function loadImportTeamState(
@@ -72,6 +73,11 @@ export async function loadImportTeamState(
     .select({ id: labels.id, name: labels.name, color: labels.color })
     .from(labels)
     .where(eq(labels.teamId, teamId))
+
+  const [teamRow] = await db
+    .select({ estimationType: teams.estimationType })
+    .from(teams)
+    .where(eq(teams.id, teamId))
 
   const memberRows = await db
     .select({ userId: teamMembers.userId, email: users.email, name: users.name })
@@ -158,5 +164,6 @@ export async function loadImportTeamState(
     storage,
     importedIssueKeys,
     importedBoards,
+    estimationType: (teamRow?.estimationType ?? `none`) as IssueEstimation,
   }
 }

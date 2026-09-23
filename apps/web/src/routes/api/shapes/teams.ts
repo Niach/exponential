@@ -24,6 +24,8 @@ const TEAM_COLUMNS = [
   `pr_merged_automation`,
   // EXP-711 — merge-ends-sessions toggle (default true).
   `end_sessions_on_merge`,
+  // EXP-630 — the estimate scale (`none` = off).
+  `estimation_type`,
   `created_at`,
   `updated_at`,
 ]

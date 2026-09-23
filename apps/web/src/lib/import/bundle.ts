@@ -11,6 +11,7 @@
 import { z } from "zod"
 import {
   hexColorSchema,
+  issueEstimationSchema,
   issuePrioritySchema,
   issueStatusCategorySchema,
   issueStatusSchema,
@@ -202,6 +203,9 @@ export const importBundleSchema = z.object({
   labels: z.array(bundleLabelSchema),
   users: z.array(bundleUserSchema),
   issues: z.array(bundleIssueSchema),
+  // The scale the source's estimates are on; a team with estimates off
+  // adopts it when any imported issue carries one.
+  estimation: issueEstimationSchema.nullish(),
 })
 
 export type ImportBundle = z.infer<typeof importBundleSchema>

@@ -23,7 +23,7 @@ export function linearSnapshotFixture(): LinearSnapshot {
     organization: { id: `org`, name: `Methode 5`, urlKey: `methode5` },
     viewer: { id: U_DENNIS, name: `Dennis`, email: `dennis@straehhuber.com` },
     teams: [
-      { id: T_MET, key: `MET`, name: `Methode 5` },
+      { id: T_MET, key: `MET`, name: `Methode 5`, estimationType: `tShirt` },
       { id: T_SOV, key: `SOV`, name: `soverius-ai` },
     ],
     states: [
@@ -239,6 +239,7 @@ export function teamStateFixture(overrides: Partial<TeamState> = {}): TeamState 
     storage: { limitBytes: null, usedBytes: 0 },
     importedIssueKeys: new Set(),
     importedBoards: new Map(),
+    estimationType: `none`,
     ...overrides,
   }
 }
@@ -249,6 +250,7 @@ export function bundleFixture(): ImportBundle {
     version: 1,
     source: `test`,
     sourceLabel: `Test Tracker`,
+    estimation: `tshirt`,
     boards: [{ key: `b-main`, name: `Main`, prefix: `MAIN` }],
     statuses: [
       { key: `st-open`, category: `backlog`, name: `Backlog`, color: `#aaaaaa` },

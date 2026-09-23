@@ -163,6 +163,17 @@ describe(`evaluatePlan`, () => {
     expect(result.warnings.join(`\n`)).toMatch(/Archived issues go to "Methode 5 Archive", archived after the import/)
   })
 
+  it(`says when estimates switch the team's scale on, and when they stay hidden`, () => {
+    expect(evaluatePlan(bundle, plan, state).warnings.join(`\n`)).toMatch(
+      /2 issue\(s\) carry an estimate; estimates are switched on for this team with the tshirt scale/
+    )
+    const scaleless = { ...bundle, estimation: null }
+    expect(evaluatePlan(scaleless, plan, state).warnings.join(`\n`)).toMatch(/pick an estimate scale under Settings/)
+    expect(
+      evaluatePlan(bundle, plan, teamStateFixture({ estimationType: `linear` })).warnings.join(`\n`)
+    ).not.toMatch(/estimate/)
+  })
+
   it(`leaves archived issues out (and their board) when the plan says so`, () => {
     const withoutArchived = toLinearBundle(linearSnapshotFixture(), { routing: `team`, importArchived: false })
     const result = evaluatePlan(withoutArchived, { ...plan, importArchived: false }, state)

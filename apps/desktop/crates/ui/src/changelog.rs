@@ -53,7 +53,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     body: r#"- **Import from Linear**: a new owner-only Settings section connects to Linear with a personal API key, previews what it found, lets you map teams to boards, statuses onto yours, labels and members, dry-runs the plan and then imports. Issues keep their identifiers, timestamps, priorities, assignees and comments; inline images are rehosted; activity history is optional.
 - **Relations come along**: sub-issues, blocking, duplicate and related links are recreated between imported issues.
 - **Archived issues**: an option puts a source's archived issues on a separate board per team, archived once the import is through, or leaves them out.
-- **Estimates**: issues now carry story points. Set them from the properties row on an issue, over the API and the agent tools; imports bring Linear's estimates with them.
+- **Estimates**: a team setting picks an estimate scale (exponential, fibonacci, linear or t-shirt sizes), off by default. With one on, issues take an estimate from their properties row, over the API and the agent tools; a Linear import brings its estimates and switches the matching scale on.
 - **Resumable and repeatable**: an import that stops resumes where it left off, and running it again adds nothing twice.
 - **Bundles**: the same importer accepts a provider-neutral bundle over the API, so other trackers can follow without a new code path."#,
 };

@@ -14,7 +14,13 @@ vi.mock(`@/lib/trpc-client`, () => ({
   },
 }))
 // Importing the real collections module opens Electric shapes.
-vi.mock(`@/lib/collections`, () => ({ issueCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ issueCollection: {}, teamCollection: {} }))
+// EXP-630: the estimate scale rides the team row; no team here.
+vi.mock(`@/hooks/use-team-data`, async (importOriginal) => ({
+  // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
+  ...(await importOriginal<typeof import("@/hooks/use-team-data")>()),
+  useTeamById: () => null,
+}))
 vi.mock(`@/hooks/use-session`, () => ({
   useSession: () => ({ data: { user: { id: `u1` } } }),
 }))

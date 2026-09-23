@@ -12,6 +12,7 @@
 import {
   BUILTIN_STATUS_DEFAULTS,
   ISSUE_STATUS_STARTED_MAX,
+  type IssueEstimation,
   type IssueStatus,
   type IssueStatusCategory,
 } from "@exp/db-schema/domain"
@@ -76,6 +77,8 @@ export interface TeamState {
   // Bundle board keys an earlier run created, with the board they became:
   // a `create` entry for one of them is a resume, not a prefix collision.
   importedBoards: ReadonlyMap<string, string>
+  // The team's estimate scale (`none` = estimates off).
+  estimationType: IssueEstimation
 }
 
 function norm(value: string | null | undefined): string {
@@ -612,6 +615,24 @@ export function evaluatePlan(
   }
   if (!plan.importArchived) {
     warnings.push(`Archived issues are not imported.`)
+  }
+  const estimatedIssues = bundle.issues.filter(
+    (issue) =>
+      issue.estimate !== null &&
+      issue.estimate !== undefined &&
+      !skippedBoardKeys.has(issue.boardKey) &&
+      !state.importedIssueKeys.has(issue.key)
+  ).length
+  if (estimatedIssues > 0) {
+    if (state.estimationType === `none` && bundle.estimation && bundle.estimation !== `none`) {
+      warnings.push(
+        `${estimatedIssues} issue(s) carry an estimate; estimates are switched on for this team with the ${bundle.estimation} scale.`
+      )
+    } else if (state.estimationType === `none`) {
+      warnings.push(
+        `${estimatedIssues} issue(s) carry an estimate; pick an estimate scale under Settings → General to show them.`
+      )
+    }
   }
   const archiveBoards = bundle.boards.filter(
     (board) => board.archive && boardKeysInUse.has(board.key) && !skippedBoardKeys.has(board.key)
