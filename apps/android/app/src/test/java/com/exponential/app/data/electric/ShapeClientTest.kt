@@ -872,7 +872,16 @@ class ShapeClientTest {
               {"headers":{"control":"up-to-date"}}
             ]
         """.trimIndent()
-        val engine = MockEngine { respond(body, HttpStatusCode.OK, shapeHeaders()) }
+        // EXP-999: only the FIRST poll carries the data; the live polls that follow
+        // up-to-date answer a bare up-to-date so the cancel race can't re-deliver the insert.
+        val requests = java.util.concurrent.atomic.AtomicInteger(0)
+        val engine = MockEngine {
+            if (requests.incrementAndGet() == 1) {
+                respond(body, HttpStatusCode.OK, shapeHeaders())
+            } else {
+                respond("""[{"headers":{"control":"up-to-date"}}]""", HttpStatusCode.OK, shapeHeaders())
+            }
+        }
         val http = HttpClient(engine) { install(HttpTimeout) }
         val shapeClient = ShapeClient(
             client = http,
