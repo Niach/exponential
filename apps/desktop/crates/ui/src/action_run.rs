@@ -654,6 +654,13 @@ history setting.",
         // EXP-849: `None` keeps the recorded login; a switch names the target.
         account,
     });
+    // FEED-49: a workflow node's ended run reads live to the engine until
+    // the node names its continuation (the server re-points it on
+    // `codingSessions.start`), so no pass meanwhile starts the node afresh.
+    // The engine's own resumes took this hold already; a person's (Resume,
+    // a relay resume, an account switch) did not. Past every refusal above:
+    // a resume that never launches holds nothing.
+    crate::workflow_host::hold_person_resume(&session_id, cx);
     // EXP-761: a resume re-enters its RECORDED transport, and `prepare`
     // binds the PTY sidecars only on its Terminal arm.
     cx.spawn(async move |cx| {

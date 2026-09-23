@@ -106,6 +106,62 @@ pub fn conflict_key(left: (&str, &str), right: (&str, &str)) -> String {
     format!("{}|{}|{}|{}", first.0, second.0, first.1, second.1)
 }
 
+/// FEED-49: a PERSON's resume of a node run — the desktop Resume button, a
+/// relay resume frame, an account switch — takes the same hold the engine's
+/// own resumes take ([`super::apply_resuming`]). The run is ENDED before the
+/// server re-points the node at its successor (`codingSessions.start`), and
+/// a pass in between read the ended row and re-decided the node: a fresh
+/// start that then took the node's `session_id` (the resumed run answered
+/// "not a workflow node" to every node tool), or `failed`. Held, the ended
+/// row reads live until the node names the new run, or the grace passes.
+///
+/// `nodes` = every synced `(workflow id, session id)` pair. Returns the
+/// workflow held; `None` when no node names the run (not a node run:
+/// nothing to hold, nothing to write).
+pub fn hold_resume(
+    states: &mut HashMap<String, WorkflowState>,
+    nodes: impl IntoIterator<Item = (String, String)>,
+    session_id: &str,
+    now_ms: i64,
+) -> Option<String> {
+    let workflow_id = nodes
+        .into_iter()
+        .find(|(_, named)| named == session_id)
+        .map(|(workflow_id, _)| workflow_id)?;
+    states
+        .entry(workflow_id.clone())
+        .or_default()
+        .resuming
+        .insert(session_id.to_string(), now_ms);
+    Some(workflow_id)
+}
+
+/// The hold [`hold_resume`] took, released: the resume was refused after the
+/// run ended (it did not stop in time), so the engine may decide the node
+/// now rather than after the grace. `true` when a hold was there.
+pub fn release_resume(states: &mut HashMap<String, WorkflowState>, session_id: &str) -> bool {
+    let mut released = false;
+    for state in states.values_mut() {
+        released |= state.resuming.remove(session_id).is_some();
+    }
+    released
+}
+
+/// The pass's write-back of its settled `resuming` map, merged rather than
+/// assigned: a hold a person's resume took ([`hold_resume`], off the
+/// foreground) between the pass's read (`before`) and this write is KEPT,
+/// while every entry the pass dropped (past the grace, or no node names it)
+/// goes. Assigning `settled` lost the hold exactly when the pass was busy
+/// with git.
+pub fn merge_resuming(
+    persisted: &mut HashMap<String, i64>,
+    before: &HashMap<String, i64>,
+    settled: HashMap<String, i64>,
+) {
+    persisted.retain(|session_id, _| !before.contains_key(session_id));
+    persisted.extend(settled);
+}
+
 /// Read `device_id`'s whole state map. Missing/corrupt file or key → empty,
 /// which can only re-send a nudge, never skip one.
 pub fn read_states(settings_path: &Path, device_id: &str) -> HashMap<String, WorkflowState> {
@@ -388,6 +444,52 @@ mod tests {
         write_states(&path, "cli-dev", &replaced).unwrap();
         assert_eq!(read_states(&path, "cli-dev"), replaced);
         assert_eq!(read_states(&path, "desk-dev"), sibling);
+    }
+
+    /// FEED-49: a person's resume holds the node's workflow exactly as the
+    /// engine's own resume does — under the workflow whose node names the
+    /// run, and only then.
+    #[test]
+    fn a_person_resume_holds_the_workflow_whose_node_names_the_run() {
+        let mut states: HashMap<String, WorkflowState> = HashMap::new();
+        let nodes = vec![
+            ("wf-1".to_string(), "s-other".to_string()),
+            ("wf-2".to_string(), "s-old".to_string()),
+        ];
+        assert_eq!(
+            hold_resume(&mut states, nodes.clone(), "s-old", 1_000),
+            Some("wf-2".to_string())
+        );
+        assert_eq!(states["wf-2"].resuming.get("s-old"), Some(&1_000));
+        assert!(!states.contains_key("wf-1"));
+        // Not a node run: nothing held, nothing to write.
+        assert_eq!(hold_resume(&mut states, nodes, "s-plain", 2_000), None);
+        assert_eq!(states.len(), 1);
+        // A refused resume releases it; a second release finds nothing.
+        assert!(release_resume(&mut states, "s-old"));
+        assert!(states["wf-2"].resuming.is_empty());
+        assert!(!release_resume(&mut states, "s-old"));
+    }
+
+    /// FEED-49: the pass's write-back keeps a hold taken while it ran, and
+    /// drops what the pass dropped.
+    #[test]
+    fn the_pass_write_back_keeps_holds_taken_meanwhile() {
+        let before: HashMap<String, i64> =
+            [("s-kept".to_string(), 10), ("s-expired".to_string(), 5)].into_iter().collect();
+        // What the file holds at write time: the read state plus a hold a
+        // person's resume added since.
+        let mut persisted = before.clone();
+        persisted.insert("s-switched".to_string(), 42);
+        // What the pass settled: the expired one dropped.
+        let settled: HashMap<String, i64> = [("s-kept".to_string(), 10)].into_iter().collect();
+        merge_resuming(&mut persisted, &before, settled);
+        assert_eq!(
+            persisted,
+            [("s-kept".to_string(), 10), ("s-switched".to_string(), 42)]
+                .into_iter()
+                .collect::<HashMap<_, _>>()
+        );
     }
 
     #[test]

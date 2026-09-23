@@ -567,6 +567,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     let sessions = Arc::clone(&sessions);
                     let personal_key = personal_key.clone();
                     let device_id = device_id.clone();
+                    // FEED-49: the shape store, so a resume of a workflow
+                    // node's run can hold the node for the engine.
+                    let store = sync_manager
+                        .as_ref()
+                        .and_then(|manager| manager.store(&ctx.account.id));
                     std::thread::spawn(move || {
                         let _reservation = reservation;
                         handle_remote_start(
@@ -575,6 +580,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                             &sessions,
                             personal_key,
                             &device_id,
+                            store.as_deref(),
                             start,
                         );
                     });
@@ -1260,12 +1266,14 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
 // Remote-start dispatch (steer_wiring's handle_remote_start, headless)
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn handle_remote_start(
     ctx: &Ctx,
     runtime: Option<&Arc<steer::SteerRuntime>>,
     sessions: &Sessions,
     personal_key: Option<String>,
     device_id: &str,
+    store: Option<&sync::store::ShapeStore>,
     start: RemoteStart,
 ) {
     // Frame options over settings defaults, capability-masked; plan mode
@@ -1308,6 +1316,7 @@ fn handle_remote_start(
             start.prompt.clone(),
             // EXP-897: the server-resolved stack, in the launcher's own types.
             steer::stack_launch(start.stack.as_ref()),
+            NodeHold { store, device_id },
         ),
         RemoteStartSubject::Batch { issue_ids, team_id, repo } => remote_batch_start(
             ctx, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,
@@ -1325,6 +1334,7 @@ fn handle_remote_start(
         RemoteStartSubject::Resume { session_id } => remote_resume_start(
             ctx, runtime, sessions, personal_key, origin, session_id,
             start.account.clone(),
+            NodeHold { store, device_id },
         ),
     };
     if let Err(err) = outcome {
@@ -1414,6 +1424,7 @@ fn remote_issue_start(
     start_resume: bool,
     prompt: Option<String>,
     stack: Option<coding::StackLaunch>,
+    hold: NodeHold<'_>,
 ) -> anyhow::Result<()> {
     if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
         log::info!("{reason}");
@@ -1430,7 +1441,8 @@ fn remote_issue_start(
     let request = match issue_resume_record(&ctx.data_dir, &ctx.account.id, &issue.id, start_resume)
     {
         Some(record) => PrepareRequest::ResumeRun(coding::ResumeRunRequest {
-            record,
+            // FEED-49: a node run's continuation keeps its node.
+            record: hold.take(ctx, record),
             device_label: coding::default_device_label(),
             origin,
             model: None,
@@ -1629,6 +1641,68 @@ fn remote_action_start(
     spawn_prepared(ctx, runtime, sessions, personal_key, prepared, None, is_fix_run)
 }
 
+/// FEED-49: the engine's resume hold, taken for a PERSON's resume of a
+/// workflow node's run (a relay resume, a remote account switch, the
+/// composer's issue resume). The engine's own resumes take it in
+/// [`AutomationHost::resume_workflow_node`]; without it a beat between the
+/// run's end and the resumed row (which the server re-points the node at,
+/// EXP-906) read the ended row and started the node afresh — the fresh run
+/// took the node's `session_id`, and the continuation answered "not a
+/// workflow node" to checkpoint, request_upstream and the derived PR base.
+/// A run no node names is not a node run: nothing is written.
+#[derive(Clone, Copy)]
+struct NodeHold<'a> {
+    /// The daemon's own shape store; `None` = sync did not open, nothing
+    /// can be held (the engine is dormant then too).
+    store: Option<&'a sync::store::ShapeStore>,
+    device_id: &'a str,
+}
+
+impl NodeHold<'_> {
+    /// Hold `record`'s run, and hand the record back for the resume.
+    fn take(
+        &self,
+        ctx: &Ctx,
+        record: coding::run_registry::RunRecord,
+    ) -> coding::run_registry::RunRecord {
+        let Some(store) = self.store else {
+            return record;
+        };
+        let nodes = read_shape_rows::<domain::rows::WorkflowNodeRow>(store, "workflow_nodes")
+            .into_iter()
+            .filter_map(|row| Some((row.workflow_id?, row.session_id?)));
+        let settings_path = coding::Settings::default_path(&ctx.data_dir);
+        let mut states = coding::workflows::read_states(&settings_path, self.device_id);
+        let now_ms = chrono::Local::now().timestamp_millis();
+        let Some(workflow_id) =
+            coding::workflows::hold_resume(&mut states, nodes, &record.session_id, now_ms)
+        else {
+            return record;
+        };
+        log::info!(
+            "workflow {workflow_id}: holding node run {} for a person's resume",
+            record.session_id
+        );
+        if let Err(err) = coding::workflows::write_states(&settings_path, self.device_id, &states) {
+            log::warn!("workflow state write failed: {err}");
+        }
+        record
+    }
+
+    /// The hold released: the resume was refused after the run ended, so the
+    /// engine decides the node now, not after the grace.
+    fn release(&self, ctx: &Ctx, session_id: &str) {
+        let settings_path = coding::Settings::default_path(&ctx.data_dir);
+        let mut states = coding::workflows::read_states(&settings_path, self.device_id);
+        if !coding::workflows::release_resume(&mut states, session_id) {
+            return;
+        }
+        if let Err(err) = coding::workflows::write_states(&settings_path, self.device_id, &states) {
+            log::warn!("workflow state write failed: {err}");
+        }
+    }
+}
+
 /// EXP-849 — end the live run an account switch is taking over, so the resume
 /// can re-enter it under the other login: the agent cannot be in two processes
 /// in one worktree.
@@ -1681,6 +1755,7 @@ fn remote_resume_start(
     origin: coding::LaunchOrigin,
     session_id: String,
     account: Option<String>,
+    hold: NodeHold<'_>,
 ) -> anyhow::Result<()> {
     let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
         anyhow::bail!(
@@ -1696,8 +1771,16 @@ run (purged when it ends), or was removed by this machine's session history sett
     // machine is the one that ends it. Mid-turn it is refused instead: a switch
     // then would truncate exactly the output the requester is watching.
     let switching = account.as_deref().is_some_and(|id| !id.trim().is_empty());
+    // FEED-49: a workflow node's run is held for the engine BEFORE it ends —
+    // a beat between the end and the resumed row would otherwise re-decide
+    // the node off the ended row and start it afresh, orphaning the
+    // continuation from its node.
+    let record = hold.take(ctx, record);
     if switching {
-        end_for_account_switch(sessions, &session_id)?;
+        if let Err(err) = end_for_account_switch(sessions, &session_id) {
+            hold.release(ctx, &session_id);
+            return Err(err);
+        }
     }
     // The run being continued never blocks its own continuation.
     let except = switching.then(|| session_id.clone());
@@ -3019,6 +3102,10 @@ impl AutomationHost {
                 }
             }
             plan.snapshot.reviewed_head = state.reviewed_head.clone();
+            // FEED-49: the map as this pass READ it — a person's resume on
+            // the remote-start thread may have taken a hold since, and the
+            // write-back below must keep it.
+            let resuming_before = state.resuming.clone();
             coding::workflows::apply_resuming(&mut plan.snapshot, &mut state.resuming);
             coding::workflows::prune_land_refused(&mut state.land_refused, &plan.snapshot.pr_head);
             plan.snapshot.land_refused = state.land_refused.clone();
@@ -3027,7 +3114,11 @@ impl AutomationHost {
                 persisted.review_runs = state.review_runs;
                 persisted.review_rounds = state.review_rounds;
                 persisted.review_failures = state.review_failures;
-                persisted.resuming = state.resuming;
+                coding::workflows::merge_resuming(
+                    &mut persisted.resuming,
+                    &resuming_before,
+                    state.resuming,
+                );
                 persisted.land_refused = state.land_refused;
             });
         }

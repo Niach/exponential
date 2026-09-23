@@ -759,6 +759,10 @@ fn run_pass(
         }
     }
     snapshot.reviewed_head = state.reviewed_head.clone();
+    // FEED-49: the map as this pass READ it — a person's resume may have
+    // taken a hold since (off the foreground, while the git calls above
+    // ran), and the write-back below must keep it.
+    let resuming_before = state.resuming.clone();
     workflows::apply_resuming(&mut snapshot, &mut state.resuming);
     workflows::prune_land_refused(&mut state.land_refused, &snapshot.pr_head);
     snapshot.land_refused = state.land_refused.clone();
@@ -770,7 +774,7 @@ fn run_pass(
             persisted.review_runs = settled.review_runs;
             persisted.review_rounds = settled.review_rounds;
             persisted.review_failures = settled.review_failures;
-            persisted.resuming = settled.resuming;
+            workflows::merge_resuming(&mut persisted.resuming, &resuming_before, settled.resuming);
             persisted.land_refused = settled.land_refused;
         });
     }
@@ -1469,6 +1473,62 @@ fn remember_resuming(pass: &Pass, workflow_id: &str, session_id: &str, now_ms: i
     update_state(pass, workflow_id, move |state| {
         state.resuming.insert(session_id, now_ms);
     });
+}
+
+/// FEED-49: the same hold for a PERSON's resume of a node run — the Resume
+/// button, a relay resume, an account switch (`account_switch`,
+/// `action_run::resume_run_on_account`). The run is ended before the server
+/// re-points the node at its successor (`codingSessions.start`, EXP-906),
+/// and a pass in between read the ended row and re-decided the node: a
+/// fresh start took the node's `session_id`, and the resumed run answered
+/// "not a workflow node" to every node tool. Take it BEFORE the run is
+/// ended. A run no node names is not a node run: nothing is written.
+pub(crate) fn hold_person_resume(session_id: &str, cx: &App) {
+    let Some((settings_path, device_id, nodes)) = person_resume_context(cx) else {
+        return;
+    };
+    let mut states = workflows::read_states(&settings_path, &device_id);
+    let now_ms = chrono::Local::now().timestamp_millis();
+    let Some(workflow_id) = workflows::hold_resume(&mut states, nodes, session_id, now_ms) else {
+        return;
+    };
+    log::info!("[workflows] {workflow_id}: holding node run {session_id} for a person's resume");
+    if let Err(err) = workflows::write_states(&settings_path, &device_id, &states) {
+        log::warn!("[workflows] state write failed: {err}");
+    }
+}
+
+/// The hold [`hold_person_resume`] took, released: the resume was refused
+/// after the run ended, so the engine decides the node now, not after the
+/// grace.
+pub(crate) fn release_person_resume(session_id: &str, cx: &App) {
+    let Some((settings_path, device_id, _)) = person_resume_context(cx) else {
+        return;
+    };
+    let mut states = workflows::read_states(&settings_path, &device_id);
+    if !workflows::release_resume(&mut states, session_id) {
+        return;
+    }
+    if let Err(err) = workflows::write_states(&settings_path, &device_id, &states) {
+        log::warn!("[workflows] state write failed: {err}");
+    }
+}
+
+/// Where the engine state lives on this machine, plus every synced
+/// `(workflow id, session id)` node pair. `None` before sign-in/sync.
+fn person_resume_context(cx: &App) -> Option<(PathBuf, String, Vec<(String, String)>)> {
+    let store = sync::Store::try_global(cx)?;
+    let nodes: Vec<(String, String)> = store
+        .collections()
+        .workflow_nodes
+        .read(cx)
+        .iter()
+        .filter_map(|row| Some((row.workflow_id.clone()?, row.session_id.clone()?)))
+        .collect();
+    let auth = crate::session::AuthContext::global(cx);
+    let device_id = steer::persistent_device_id(&auth.data_dir);
+    let settings_path = coding::Settings::default_path(&auth.data_dir);
+    Some((settings_path, device_id, nodes))
 }
 
 fn remember_nudge(pass: &Pass, workflow_id: &str, session_id: &str, key: &str) {
