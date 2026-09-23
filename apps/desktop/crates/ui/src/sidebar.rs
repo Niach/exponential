@@ -546,8 +546,12 @@ const NAV_HEADER_HEIGHT: f32 = 24.;
 const NAV_ISSUE_ROW_HEIGHT: f32 = 28.;
 const NAV_ROW_GAP: f32 = 2.;
 /// EXP-980: the `ListNav` row's own left padding (`flat_row_compact`'s
-/// `px_2`) — the base the sub-issue gutters are measured off.
+/// `px_2`) — the base the sub-issue indent is measured off.
 const NAV_ROW_PAD: f32 = 8.;
+/// EXP-998: the gutters start under the STATUS glyph — past the 16px select
+/// cell and its 4px gap, plus the 5 that put a 14px gutter's centre (7) under
+/// a 24px cell's glyph (12).
+const NAV_GUIDE_INSET: f32 = 16. + 4. + 5.;
 
 /// EXP-923/EXP-965: the space between two rows of the rail's Running section
 /// — the rail's own `gap_1`, as a number, because the connector has to BRIDGE
@@ -564,6 +568,8 @@ enum NavRow {
         status: Box<ResolvedStatus>,
         count: usize,
         collapsed: bool,
+        /// EXP-998: the blocks rail's lanes crossing this band.
+        rail: domain::issue_rail::RailRow,
     },
     Issue {
         /// The issue's ordinal across the WHOLE list, folded groups included
@@ -574,8 +580,9 @@ enum NavRow {
         /// EXP-980: the sub-issue connector (the big list's `ListRow::Issue`
         /// carries the same), off the group's visible depth sequence.
         guides: domain::tree_guides::Guides,
-        /// EXP-980: the row's `blocks` badge numbers.
-        counts: domain::issue_graph::BlockCounts,
+        /// EXP-998: the row's slice of the blocks rail — its node (labelled
+        /// by the query's `blocks` numbers) and lanes.
+        rail: domain::issue_rail::RailRow,
     },
 }
 
@@ -2505,6 +2512,13 @@ pub struct ListPanel {
     /// EXP-915: the flattened rows of the CURRENT render, read by the virtual
     /// list's range closure afterwards (the big list's `rows`).
     nav_rows: Rc<Vec<NavRow>>,
+    /// EXP-998: the `ListNav` issue list's blocks rail — the column width
+    /// (0 = none), the open edges its lanes name, the row indices whose
+    /// rail strip is hovered (any = the arrows show) and the hovered node.
+    nav_rail_width: f32,
+    nav_block_edges: Rc<Vec<domain::issue_rail::BlockEdge>>,
+    nav_rail_hovered: HashSet<usize>,
+    nav_rail_hot: Option<String>,
     /// Per-render snapshots the row builders read instead of re-resolving
     /// navigation once per row: the vocabulary, the open detail's issue and
     /// the origin a row pins.
@@ -2647,6 +2661,10 @@ impl ListPanel {
             nav_data: queries::Memo::default(),
             nav_statuses: queries::Memo::default(),
             nav_rows: Rc::new(Vec::new()),
+            nav_rail_width: 0.,
+            nav_block_edges: Rc::new(Vec::new()),
+            nav_rail_hovered: HashSet::new(),
+            nav_rail_hot: None,
             nav_row_statuses: Rc::new(Vec::new()),
             nav_active_issue_id: None,
             nav_row_origin: None,
@@ -4035,18 +4053,18 @@ impl ListPanel {
                 status,
                 count,
                 collapsed,
-            } => self.nav_group_header(status, *count, *collapsed, cx),
+                rail,
+            } => self.nav_group_header(status, *count, *collapsed, rail, cx),
             NavRow::Issue {
                 index,
                 issue,
                 guides,
-                counts,
+                rail,
             } => {
                 let statuses = self.nav_row_statuses.clone();
                 let any_selected = !self.nav_selected.is_empty();
                 let guides = guides.clone();
-                let counts = *counts;
-                self.nav_issue_row(*index, issue, &statuses, any_selected, &guides, counts, cx)
+                self.nav_issue_row(*index, ix, issue, &statuses, any_selected, &guides, rail, cx)
             }
         };
         div()
@@ -4107,6 +4125,7 @@ impl ListPanel {
                 status: Box::new(group.status.clone()),
                 count: group.issues.len(),
                 collapsed,
+                rail: domain::issue_rail::RailRow::default(),
             });
             if collapsed {
                 index += group.issues.len();
@@ -4119,15 +4138,59 @@ impl ListPanel {
                     index,
                     issue: issue.clone(),
                     guides: guides.get(position).cloned().unwrap_or_default(),
-                    counts: counts
-                        .get(issue.id.as_str())
-                        .copied()
-                        .unwrap_or_default(),
+                    rail: domain::issue_rail::RailRow::default(),
                 });
                 index += 1;
             }
         }
+        // EXP-998: the blocks rail over the visible entries (the big list's
+        // `render` does the same).
+        let entries: Vec<domain::issue_rail::RailEntry<'_>> = rows
+            .iter()
+            .map(|row| match row {
+                NavRow::Header { .. } => domain::issue_rail::RailEntry::Gap,
+                NavRow::Issue { issue, .. } => domain::issue_rail::RailEntry::Row(issue.id.as_str()),
+            })
+            .collect();
+        let rail = domain::issue_rail::issue_rail(&entries, &data.block_edges, counts);
+        self.nav_rail_width = rail.width();
+        for (row, slice) in rows.iter_mut().zip(rail.entries) {
+            match row {
+                NavRow::Header { rail, .. } | NavRow::Issue { rail, .. } => *rail = slice,
+            }
+        }
+        self.nav_block_edges = data.block_edges.clone();
+        self.nav_rail_hovered.retain(|&ix| ix < rows.len());
+        // DEV-ONLY: `EXP_DEV_RAIL_HOT=<issue uuid>` photographs the rail open
+        // (the big list's hook, for the column) — pinned every render.
+        if let Ok(hot) = std::env::var("EXP_DEV_RAIL_HOT") {
+            if rows.iter().any(|row| matches!(row, NavRow::Issue { issue, .. } if issue.id == hot)) {
+                self.nav_rail_hovered.insert(usize::MAX);
+                self.nav_rail_hot = Some(hot);
+            }
+        }
         self.nav_rows = Rc::new(rows);
+    }
+
+    /// EXP-998: one `ListNav` entry's lanes of the rail, painted only while
+    /// the pointer is on the rail.
+    fn nav_rail_lanes(
+        &self,
+        rail: &domain::issue_rail::RailRow,
+        cx: &App,
+    ) -> Option<gpui::AnyElement> {
+        crate::issue_rail::rail_lanes_layer(
+            &crate::issue_rail::RailPaint {
+                row: rail,
+                edges: &self.nav_block_edges,
+                width: self.nav_rail_width,
+                right_pad: NAV_ROW_PAD,
+                gap: NAV_ROW_GAP,
+                open: !self.nav_rail_hovered.is_empty(),
+                hot: self.nav_rail_hot.as_deref(),
+            },
+            cx,
+        )
     }
 
     /// One `ListNav` status band — the big list's group header
@@ -4140,6 +4203,7 @@ impl ListPanel {
         status: &domain::statuses::ResolvedStatus,
         count: usize,
         collapsed: bool,
+        rail: &domain::issue_rail::RailRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let group_key = status.group_key.clone();
@@ -4149,6 +4213,21 @@ impl ListPanel {
             .w_full()
             .h(px(24.))
             .px_1p5()
+            // EXP-998: the rail's lanes cross the band (the band's own 6px
+            // side padding is what the layer sits inside).
+            .relative()
+            .children({
+                let paint = crate::issue_rail::RailPaint {
+                    row: rail,
+                    edges: &self.nav_block_edges,
+                    width: self.nav_rail_width,
+                    right_pad: 6.,
+                    gap: NAV_ROW_GAP,
+                    open: !self.nav_rail_hovered.is_empty(),
+                    hot: self.nav_rail_hot.as_deref(),
+                };
+                crate::issue_rail::rail_lanes_layer(&paint, cx)
+            })
             .gap_1p5()
             .items_center()
             .rounded(cx.theme().radius)
@@ -4204,14 +4283,16 @@ impl ListPanel {
     /// picking a status never navigates), Cmd/Ctrl-click toggles, Shift-click
     /// extends, and the right-click menu is the main list's
     /// (`build_row_context_menu`).
+    #[allow(clippy::too_many_arguments)]
     fn nav_issue_row(
         &self,
         index: usize,
+        ix: usize,
         issue: &Rc<Issue>,
         statuses: &Rc<Vec<ResolvedStatus>>,
         any_selected: bool,
         guides: &domain::tree_guides::Guides,
-        counts: domain::issue_graph::BlockCounts,
+        rail: &domain::issue_rail::RailRow,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let screen = Screen::IssueDetail {
@@ -4281,13 +4362,49 @@ impl ListPanel {
         // column's 8px gutter (the rail's running rows' geometry).
         .relative()
         .pl(px(NAV_ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
-        .children(crate::tree_guides::guide_layer(guides, NAV_ROW_PAD, NAV_ROW_GAP))
-        .children(crate::issue_graph::blocks_badge(
-            SharedString::from(format!("nav-blocks-{}", issue.id)),
-            &issue.id,
-            counts,
-            cx,
+        .children(crate::tree_guides::guide_layer(
+            guides,
+            NAV_ROW_PAD + NAV_GUIDE_INSET,
+            NAV_ROW_GAP,
         ))
+        // EXP-998: the blocks rail (the pill's successor) — the reserved
+        // column, the hover strip, the lanes and the node.
+        .when(self.nav_rail_width > 0., |row| {
+            row.child(div().flex_shrink_0().w(px(self.nav_rail_width)))
+        })
+        .children(crate::issue_rail::rail_strip(
+            row_id("nav-rail-strip", &issue.id),
+            self.nav_rail_width,
+            NAV_ROW_PAD,
+            cx.listener(move |this, hovered: &bool, _, cx| {
+                let changed = if *hovered {
+                    this.nav_rail_hovered.insert(ix)
+                } else {
+                    this.nav_rail_hovered.remove(&ix)
+                };
+                if changed {
+                    cx.notify();
+                }
+            }),
+        ))
+        .children(self.nav_rail_lanes(rail, cx))
+        .children({
+            let hot_id = issue.id.clone();
+            crate::issue_rail::rail_node(
+                format!("nav-rail-node-{}", issue.id),
+                &issue.id,
+                rail,
+                NAV_ROW_PAD,
+                cx.listener(move |this, hovered: &bool, _, cx| {
+                    let next = hovered.then(|| hot_id.clone());
+                    if this.nav_rail_hot != next {
+                        this.nav_rail_hot = next;
+                        cx.notify();
+                    }
+                }),
+                cx,
+            )
+        })
         .group(NAV_ROW_GROUP)
         .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
             let modifiers = event.modifiers();

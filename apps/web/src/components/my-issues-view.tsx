@@ -38,7 +38,7 @@ export function MyIssuesView({
     users,
     userMap,
     visibleGroups,
-    blockCounts,
+    issueGraph,
     team,
   } = useMyIssuesData({ userId, teamSlug })
 
@@ -95,7 +95,7 @@ export function MyIssuesView({
         ) : (
           <IssueList
             groups={visibleGroups}
-            blockCounts={blockCounts}
+            issueGraph={issueGraph}
             graphTeamId={team?.id}
             issueLabelMap={issueLabelMap}
             labels={labelList}

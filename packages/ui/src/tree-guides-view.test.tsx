@@ -53,6 +53,28 @@ describe(`TreeGuides`, () => {
     expect(xs(bridge(container)!)).toEqual([treeGuideCentre(0)])
   })
 
+  it(`runs one unbroken vertical through a tee row`, () => {
+    // EXP-998: the tee's vertical spans the whole row, and the corner below
+    // starts at the vertical rather than far above it — no notch.
+    const { container } = render(<TreeGuides guide={guideAt([0, 1, 1], 1)} />)
+    const tee = container.querySelector(`[data-testid="tree-guides-tee"]`)!
+    expect(tee.getAttribute(`y1`)).toBe(`0`)
+    expect(tee.getAttribute(`y2`)).toBe(`100%`)
+    const elbow = container.querySelector(`[data-testid="tree-guides-elbow"]`)!
+    expect(elbow.getAttribute(`d`)!.startsWith(`M ${treeGuideCentre(0)} -3 V -3`)).toBe(
+      true
+    )
+    // The last child's vertical comes from the top edge instead.
+    const last = render(<TreeGuides guide={guideAt([0, 1, 1], 2)} />).container
+    expect(last.querySelector(`[data-testid="tree-guides-tee"]`)).toBeNull()
+    expect(
+      last
+        .querySelector(`[data-testid="tree-guides-elbow"]`)!
+        .getAttribute(`d`)!
+        .startsWith(`M ${treeGuideCentre(0)} -1000 V -3`)
+    ).toBe(true)
+  })
+
   it(`follows the base offset the list nests from`, () => {
     const { container } = render(
       <TreeGuides guide={guideAt([0, 1], 1)} base={0} gap={6} />

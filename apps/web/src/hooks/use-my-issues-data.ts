@@ -109,7 +109,7 @@ export function useMyIssuesData({
         buildVisibleIssueGroups(issueList, statusOptions, resolveStatus),
         issueGraph.relations
       ),
-      blockCounts: issueGraph.counts,
+      issueGraph,
       statusOptions,
       team,
     }

@@ -104,6 +104,15 @@ function openEdges(
   return edges
 }
 
+/** EXP-998: every open `blocks` edge, blocker → blocked, deduplicated — what
+ *  the list's rail draws (`lib/issue-rail.ts`). */
+export function openBlockEdges(
+  relations: readonly GraphRelation[],
+  issues: readonly GraphIssue[]
+): Array<{ from: string; to: string }> {
+  return openEdges(relations, issues, new Set()).map(([from, to]) => ({ from, to }))
+}
+
 /** The badge numbers of every issue that has any; an issue with neither count
  *  is absent. */
 export function blockCounts(

@@ -30,8 +30,9 @@ pub(crate) const LEVEL_PITCH: f32 = 14.;
 /// The connector's stroke width.
 const LINE: f32 = 1.;
 
-/// The elbow's corner radius.
-const RADIUS: f32 = 5.;
+/// The elbow's corner radius — a tight turn (EXP-998: 5 read as a bulge on a
+/// 28px row), the ×4 number.
+const RADIUS: f32 = 3.;
 
 /// Where a row's top-edge segments START, given the row's own top and the
 /// list's row gap: one gap higher, so the line bridges the space above the

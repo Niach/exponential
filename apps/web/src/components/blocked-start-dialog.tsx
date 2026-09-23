@@ -107,7 +107,6 @@ function BlockedStartBody({
                 <IssueChip
                   key={blocker.id}
                   issue={blocker}
-                  preview={false}
                   testId={`blocked-start-chip-${blocker.identifier}`}
                 />
               ))}

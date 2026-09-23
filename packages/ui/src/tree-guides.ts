@@ -13,11 +13,14 @@
 //     leading glyph box of a row AT that depth — so a child's elbow hangs off
 //     its parent's glyph;
 //   * a row at depth `d ≥ 1` draws the ELBOW in gutter level `d - 1`: a 1px
-//     vertical from the row's top edge down to its vertical centre, a 5px
+//     vertical from the row's top edge down to its vertical centre, a 3px
 //     rounded corner turning right, and a 1px stub out to the gutter's right
 //     edge (just before the child's own glyph);
 //   * that vertical continues to the row's BOTTOM edge (a tee) when the row is
-//     not the LAST child of its parent among the visible rows;
+//     not the LAST child of its parent among the visible rows — ONE unbroken
+//     line from top to bottom with the corner branching off it (EXP-998: a
+//     vertical that stopped at the corner and resumed at the centre left a
+//     notch where the arc bowed out);
 //   * for every ancestor level whose subtree continues after this row, a
 //     straight full-height vertical at that level's gutter centre;
 //   * a parent row draws nothing of its own; a folded subtree draws nothing.
@@ -36,8 +39,9 @@ export interface TreeGuide {
 export const TREE_INDENT = 14
 /** The first gutter starts here: `ListRow`'s own 12px left padding. */
 export const TREE_BASE = 12
-/** The elbow's corner radius. */
-export const TREE_RADIUS = 5
+/** The elbow's corner radius — a tight, "edgy" turn (EXP-998: 5 read as a
+ *  bulge on a 28px row), the ×4 number. */
+export const TREE_RADIUS = 3
 
 /** The x centre of gutter level `level`. `base` is the list's own left
  * padding — `TREE_BASE` for every list row, `0` for the few nestings that

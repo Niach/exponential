@@ -119,19 +119,24 @@ export function TreeGuides({
         />
       ))}
       {elbowAt !== null && tee && (
+        // A later sibling follows: the vertical runs the WHOLE row, unbroken
+        // (EXP-998), and the corner below branches off it.
         <line
           x1={elbowX}
-          y1="50%"
+          y1="0"
           x2={elbowX}
           y2="100%"
           stroke={stroke}
           strokeWidth={1}
+          data-testid="tree-guides-tee"
         />
       )}
       {elbowAt !== null && (
         // The nested viewport's origin is the row's vertical CENTRE, so the
         // elbow is plain pixel geometry from there: up (clipped by the outer
-        // viewport at the row's top edge), round the corner, out right.
+        // viewport at the row's top edge), round the corner, out right. On a
+        // tee the vertical above is already drawn, so only the corner and
+        // the stub are added.
         <svg
           x="0"
           y="50%"
@@ -140,12 +145,13 @@ export function TreeGuides({
           style={{ overflow: `visible` }}
         >
           <path
-            d={`M ${elbowX} -1000 V ${-TREE_RADIUS} A ${TREE_RADIUS} ${TREE_RADIUS} 0 0 0 ${
+            d={`M ${elbowX} ${tee ? -TREE_RADIUS : -1000} V ${-TREE_RADIUS} A ${TREE_RADIUS} ${TREE_RADIUS} 0 0 0 ${
               elbowX + TREE_RADIUS
             } 0 H ${stubEnd}`}
             fill="none"
             stroke={stroke}
             strokeWidth={1}
+            data-testid="tree-guides-elbow"
           />
         </svg>
       )}

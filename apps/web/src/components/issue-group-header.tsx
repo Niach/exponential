@@ -54,6 +54,7 @@ export function IssueGroupHeader({
   tinted = true,
   density = `list`,
   className,
+  overlay,
 }: {
   status: StatusRowOption
   /** The group's full size — NOT the rendered row count (REV-46 windows the
@@ -69,9 +70,12 @@ export function IssueGroupHeader({
   tinted?: boolean
   density?: `list` | `compact`
   className?: string
+  /** EXP-998: a paint-only layer over the band (the blocks rail's lanes). */
+  overlay?: ReactNode
 }) {
   return (
     <IssueGroupBand
+      overlay={overlay}
       glyph={{
         icon: status.icon,
         colorClass: statusColorClass(status),

@@ -1050,7 +1050,6 @@ export function WorkflowNodePanel({
             ...issue,
             identifier: workflowNodeTitle(issue.identifier, members.length),
           }}
-          preview={false}
           // The badge IS the way into the issue.
           link={
             boardSlug
@@ -1078,7 +1077,7 @@ export function WorkflowNodePanel({
       {members.length > 0 && (
         <div className="flex flex-wrap gap-1.5" data-testid="workflow-node-members">
           {members.map((member) => (
-            <IssueChip key={member.id} issue={member} preview={false} />
+            <IssueChip key={member.id} issue={member} />
           ))}
         </div>
       )}
@@ -1099,7 +1098,7 @@ export function WorkflowNodePanel({
           </span>
           <div className="flex flex-wrap gap-1.5">
             {mergesFirst.map((row) => (
-              <IssueChip key={row.id} issue={row} preview={false} />
+              <IssueChip key={row.id} issue={row} />
             ))}
           </div>
         </div>

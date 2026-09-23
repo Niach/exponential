@@ -40,6 +40,8 @@
 //! * [`issue_graph`] — EXP-980's `blocks` graph (per-row counts, a picked
 //!   set's outside blockers, the laid-out mini-graph), byte-locked ×4 by
 //!   `fixtures/issue-graph.json`;
+//! * [`issue_rail`] — EXP-998's blocks RAIL: the git-graph lanes an issue
+//!   list draws between its visible rows (web `lib/issue-rail.ts` twin);
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
 //!   `lib/steer-image-message.ts`'s byte-identical twin;
 //! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
@@ -84,6 +86,7 @@ pub mod hydrate;
 pub mod image_message;
 pub mod issue_graph;
 pub mod issue_nesting;
+pub mod issue_rail;
 pub mod issue_search;
 pub mod options;
 pub mod pr_graph;

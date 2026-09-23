@@ -27,6 +27,20 @@ import type { IssueGroup } from "@/lib/board-view"
 import type { BlockCounts } from "@/lib/issue-graph"
 import { IssueBlocksBadge } from "@/components/issue-blocks-badge"
 import {
+  issueRail,
+  railRowIsEmpty,
+  railWidth,
+  type IssueRail,
+  type RailEntry,
+  type RailRow,
+} from "@/lib/issue-rail"
+import {
+  IssueRailGap,
+  IssueRailLayer,
+  RAIL_ROOT_ATTR,
+} from "@/components/issue-rail"
+import type { TeamIssueGraph } from "@/hooks/use-team-issue-graph"
+import {
   TREE_INDENT,
   TreeGuides,
   treeGuideIsEmpty,
@@ -54,6 +68,9 @@ const GUIDE_INSET = 5
 const NO_COUNTS: ReadonlyMap<string, BlockCounts> = new Map()
 const NO_DEPTHS: readonly number[] = []
 const NO_GUIDE_KEYS: readonly string[] = []
+const NO_RAIL: IssueRail = { entries: [], laneCount: 0, hasNodes: false }
+/** EXP-998: the rail sits in the row's right padding column (`md:px-6`). */
+const RAIL_LAYER_CLASS = `right-6 max-md:hidden`
 
 const GROUP_ROW_CAP = 100
 // Every "Show more" click reveals this many additional rows.
@@ -84,10 +101,10 @@ interface IssueListProps {
   // must be a function of the issue row alone — external state it closes
   // over won't re-render untouched rows.
   renderRowAction?: (issue: Issue) => React.ReactNode
-  // EXP-980: per-issue blocks badge counts (`useTeamIssueGraph`), computed
-  // once per list.
-  blockCounts?: ReadonlyMap<string, BlockCounts>
-  // The team those counts (and the badge's graph) belong to.
+  // EXP-980/998: the team's relation graph (`useTeamIssueGraph`), queried
+  // once per list: the phone badge's counts and the md+ rail's edges.
+  issueGraph?: TeamIssueGraph
+  // The team the graph (and the mini-graph behind a node) belongs to.
   graphTeamId?: string
   // Enables bulk selection (hover checkboxes on md+, shift-click ranges,
   // Cmd/Ctrl+A, Esc). Undefined = bulk select off. Selection also requires
@@ -211,6 +228,11 @@ interface IssueRowProps {
   blocking: number
   /** The badge's graph scope. An issue row carries no team id itself. */
   graphTeamId: string | undefined
+  /** EXP-998: the row's `RailRow` as JSON, `` for none — a STRING, so the
+   *  memo still compares primitives. */
+  railKey: string
+  /** The rail column's width; 0 = no rail in this list. */
+  railWidth: number
 }
 
 // REV-46: memoized so a selection toggle reconciles only the toggled row —
@@ -241,10 +263,16 @@ const IssueRow = memo(function IssueRow({
   blockedBy,
   blocking,
   graphTeamId,
+  railKey,
+  railWidth: rail,
 }: IssueRowProps) {
   const guide = useMemo(
     () => (guideKey ? (JSON.parse(guideKey) as TreeGuide) : null),
     [guideKey]
+  )
+  const railRow = useMemo(
+    () => (railKey ? (JSON.parse(railKey) as RailRow) : null),
+    [railKey]
   )
   const indent = depth * TREE_INDENT
   return (
@@ -304,6 +332,13 @@ const IssueRow = memo(function IssueRow({
             />
           </>
         )}
+        <IssueRailLayer
+          row={railRow}
+          width={rail}
+          issueId={issue.id}
+          teamId={graphTeamId}
+          className={RAIL_LAYER_CLASS}
+        />
         {bulkEnabled && (
           <div
             // self-stretch + the padding bleed grow the toggle
@@ -358,12 +393,16 @@ const IssueRow = memo(function IssueRow({
         </div>
         <span className="flex items-center gap-1.5 text-sm truncate md:ml-2 min-w-0 max-md:flex-1">
           <span className="truncate">{issue.title}</span>
+          {/* EXP-998: the counts pill is the PHONE's affordance (the natives'
+              too); at md+ the rail at the row's right edge draws the
+              relations as arrows and its node opens the same mini-graph. */}
           {(blockedBy > 0 || blocking > 0) && graphTeamId && (
             <IssueBlocksBadge
               issueId={issue.id}
               teamId={graphTeamId}
               blockedBy={blockedBy}
               blocking={blocking}
+              className="md:hidden"
             />
           )}
         </span>
@@ -453,7 +492,7 @@ export function IssueList({
   isLoading = false,
   emptyStateExtra,
   renderRowAction,
-  blockCounts: counts = NO_COUNTS,
+  issueGraph,
   graphTeamId,
   bulkTeamId,
   selectedIds = EMPTY_SELECTION,
@@ -663,18 +702,53 @@ export function IssueList({
   const rowGridClass = bulkEnabled
     ? renderRowAction
       ? isSolo
-        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
-        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem_var(--issue-rail,0px)]`
+        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem_var(--issue-rail,0px)]`
       : isSolo
-        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem]`
-        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_var(--issue-rail,0px)]`
+        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_var(--issue-rail,0px)]`
     : renderRowAction
       ? isSolo
-        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem]`
-        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem]`
+        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem_var(--issue-rail,0px)]`
+        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem_var(--issue-rail,0px)]`
       : isSolo
-        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem]`
-        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]`
+        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_var(--issue-rail,0px)]`
+        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_var(--issue-rail,0px)]`
+
+  // EXP-998: the blocks rail over the VISIBLE entries — every rendered row,
+  // every group header (folded or not) and every "Show more" button, in
+  // order — so an arrow between two rows crosses whatever sits between them
+  // and stops short of a row that is folded away or behind the cap.
+  const counts = issueGraph?.counts ?? NO_COUNTS
+  const { rail, railAt } = useMemo(() => {
+    if (!issueGraph) return { rail: NO_RAIL, railAt: new Map<string, number>() }
+    const entries: RailEntry[] = []
+    const at = new Map<string, number>()
+    for (const group of visibleGroups) {
+      at.set(`header:${group.status.id}`, entries.length)
+      entries.push({ kind: `gap` })
+      if (collapsedGroups.has(group.status.id)) continue
+      const limit = GROUP_ROW_CAP + (extraRows.get(group.status.id) ?? 0)
+      const rendered = group.issues.slice(0, limit)
+      for (const issue of rendered) {
+        at.set(issue.id, entries.length)
+        entries.push({ kind: `row`, id: issue.id })
+      }
+      if (group.issues.length > rendered.length) {
+        at.set(`more:${group.status.id}`, entries.length)
+        entries.push({ kind: `gap` })
+      }
+    }
+    return {
+      rail: issueRail(entries, issueGraph.relations, issueGraph.issues),
+      railAt: at,
+    }
+  }, [issueGraph, visibleGroups, collapsedGroups, extraRows])
+  const railW = railWidth(rail)
+  const railRowAt = (key: string): RailRow | undefined => {
+    const index = railAt.get(key)
+    return index === undefined ? undefined : rail.entries[index]
+  }
 
   const toggleGroup = (groupKey: string) => {
     setCollapsedGroups((prev) => {
@@ -718,7 +792,12 @@ export function IssueList({
     // stays a flush, edge-to-edge table.
     <div
       ref={listRef}
-      className="max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
+      // EXP-998: `group/rail` + the root attribute = what the rail's hover
+      // reveal and edge highlight key off; the column width is read by every
+      // row's grid template.
+      className="group/rail max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
+      style={{ "--issue-rail": `${railW}px` } as React.CSSProperties}
+      {...{ [RAIL_ROOT_ATTR]: `` }}
     >
       {visibleGroups.map((group) => {
         const option = group.status
@@ -760,6 +839,13 @@ export function IssueList({
               open={isOpen}
               onToggle={() => toggleGroup(option.id)}
               tinted={!isMobile}
+              overlay={
+                <IssueRailGap
+                  row={railRowAt(`header:${option.id}`)}
+                  width={railW}
+                  className={RAIL_LAYER_CLASS}
+                />
+              }
               trailing={
                 canCreate ? (
                   <Button
@@ -819,26 +905,40 @@ export function IssueList({
                     blockedBy={counts.get(issue.id)?.blockedBy ?? 0}
                     blocking={counts.get(issue.id)?.blocking ?? 0}
                     graphTeamId={graphTeamId}
+                    railKey={(() => {
+                      const row = railRowAt(issue.id)
+                      return railRowIsEmpty(row) ? `` : JSON.stringify(row)
+                    })()}
+                    railWidth={railW}
                   />
                 )
               })}
               {hiddenCount > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-xs text-muted-foreground md:rounded-none md:border-b md:border-border/30 max-md:rounded-md max-md:border max-md:border-glass-stroke max-md:bg-glass-row"
-                  onClick={() =>
-                    setExtraRows((prev) =>
-                      new Map(prev).set(
-                        option.id,
-                        (prev.get(option.id) ?? 0) + GROUP_ROW_CHUNK
+                // EXP-998: `relative`, so an arrow crossing the button (to a
+                // row in a later group) keeps its line through it.
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-xs text-muted-foreground md:rounded-none md:border-b md:border-border/30 max-md:rounded-md max-md:border max-md:border-glass-stroke max-md:bg-glass-row"
+                    onClick={() =>
+                      setExtraRows((prev) =>
+                        new Map(prev).set(
+                          option.id,
+                          (prev.get(option.id) ?? 0) + GROUP_ROW_CHUNK
+                        )
                       )
-                    )
-                  }
-                >
-                  Show {Math.min(GROUP_ROW_CHUNK, hiddenCount)} more (
-                  {hiddenCount} hidden)
-                </Button>
+                    }
+                  >
+                    Show {Math.min(GROUP_ROW_CHUNK, hiddenCount)} more (
+                    {hiddenCount} hidden)
+                  </Button>
+                  <IssueRailGap
+                    row={railRowAt(`more:${option.id}`)}
+                    width={railW}
+                    className={RAIL_LAYER_CLASS}
+                  />
+                </div>
               )}
             </CollapsiblePrimitive.Content>
           </CollapsiblePrimitive.Root>

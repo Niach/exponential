@@ -23,8 +23,9 @@ import com.exponential.app.ui.theme.GlassTokens
 /** The connector's stroke — the shared hairline, never a literal colour. */
 private val GuideWidth = 1.dp
 
-/** The elbow's turn radius — the ×4 number. */
-private val GuideRadius = 5.dp
+/** The elbow's turn radius — a tight one (EXP-998: 5 read as a bulge on a
+ *  28dp row), the ×4 number. */
+private val GuideRadius = 3.dp
 
 /**
  * Draw [guide] in the gutter bands to the LEFT of this row's content. Apply it
@@ -63,23 +64,23 @@ fun Modifier.treeGuides(guide: TreeGuide?, gap: Dp = 0.dp): Modifier {
         val right = indent * (elbow + 1)
         val path = Path().apply {
             if (guide.tee) {
-                // A later sibling follows: the vertical runs the whole height
-                // and the stub branches off it square.
+                // A later sibling follows: the vertical runs the whole height,
+                // unbroken, and the corner below branches off it (EXP-998:
+                // the same rounded branch as the last child, ×4).
                 moveTo(x, top)
                 lineTo(x, size.height)
-                moveTo(x, midY)
-                lineTo(right, midY)
+                moveTo(x, midY - radius)
             } else {
                 moveTo(x, top)
                 lineTo(x, midY - radius)
-                arcTo(
-                    rect = Rect(x, midY - 2f * radius, x + 2f * radius, midY),
-                    startAngleDegrees = 180f,
-                    sweepAngleDegrees = -90f,
-                    forceMoveTo = false,
-                )
-                lineTo(right, midY)
             }
+            arcTo(
+                rect = Rect(x, midY - 2f * radius, x + 2f * radius, midY),
+                startAngleDegrees = 180f,
+                sweepAngleDegrees = -90f,
+                forceMoveTo = false,
+            )
+            lineTo(right, midY)
         }
         drawPath(path, GlassTokens.StrokeStrong, style = stroke)
     }

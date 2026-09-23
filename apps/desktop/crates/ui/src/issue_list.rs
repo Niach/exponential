@@ -42,7 +42,7 @@ use sync::Store;
 use theme::tokens as t;
 
 use domain::board::format_short_date;
-use domain::issue_graph::BlockCounts;
+use domain::issue_rail::{issue_rail, BlockEdge, RailEntry, RailRow};
 use domain::options::{get_issue_priority_config, ColorToken, ISSUE_PRIORITY_OPTIONS};
 use domain::rows::{Issue, Label, Board, User};
 use domain::statuses::{ResolvedStatus, StatusTint};
@@ -64,6 +64,11 @@ const ROW_HEIGHT: f32 = 28.;
 const ROW_PAD: f32 = 12.;
 /// The list stacks its rows with no gap, so the connector bridges nothing.
 const ROW_GAP: f32 = 0.;
+/// EXP-998: the gutters start under the PRIORITY glyph, not at the row's
+/// edge — past the 20px select cell, plus the 5 that put a 14px gutter's
+/// centre (7) under a 24px cell's glyph (12). The web's `GUIDE_INSET` on top
+/// of its checkbox column.
+const GUIDE_INSET: f32 = 20. + 5.;
 /// Group header height (web py-1.5 + text-sm, compacted).
 const HEADER_HEIGHT: f32 = 28.;
 /// The row's hover group (web `group/row`) — reveals the bulk-select
@@ -184,6 +189,7 @@ impl IssueQuery {
                 groups: Vec::new(),
                 labels_by_issue: HashMap::new(),
                 block_counts: HashMap::new(),
+                block_edges: Rc::new(Vec::new()),
             },
             IssueQuery::Board { board_id } => queries::board_board(cx, board_id),
             IssueQuery::MyIssues { team_id, user_id } => {
@@ -239,6 +245,8 @@ enum ListRow {
         status: Box<ResolvedStatus>,
         count: usize,
         collapsed: bool,
+        /// EXP-998: the blocks rail's lanes crossing this header.
+        rail: RailRow,
     },
     Issue {
         issue: Rc<Issue>,
@@ -247,9 +255,9 @@ enum ListRow {
         /// two can never disagree (EXP-965's `guides_for` over the group's
         /// visible depth sequence).
         guides: Guides,
-        /// EXP-980: the row's `blocks` badge numbers, off the query's ONE
-        /// pass over the synced relations.
-        counts: BlockCounts,
+        /// EXP-998: the row's slice of the blocks rail — its node (labelled
+        /// by the query's `blocks` numbers) and lanes.
+        rail: RailRow,
     },
 }
 
@@ -297,6 +305,14 @@ pub struct IssueListView {
     /// Rows of the CURRENT render — rebuilt in `render`, read by the
     /// virtual-list range closure afterwards.
     rows: Rc<Vec<ListRow>>,
+    /// EXP-998: the blocks rail of the CURRENT render — its column width
+    /// (0 = no rail), the open edges its lanes name, and the hover state:
+    /// the row indices whose rail strip the pointer is on (any = the arrows
+    /// show) and the issue whose node is hovered (its edges go foreground).
+    rail_width: f32,
+    block_edges: Rc<Vec<BlockEdge>>,
+    rail_hovered: HashSet<usize>,
+    rail_hot: Option<String>,
     /// EXP-314: the scope team's resolved status vocabulary for the CURRENT
     /// render — the row dropdowns and the context menu read it instead of
     /// re-querying the collections once per row.
@@ -360,6 +376,10 @@ impl IssueListView {
             bulk_label_min_w: bulk_bar_label_min_width(true),
             focus_handle: cx.focus_handle(),
             rows: Rc::new(Vec::new()),
+            rail_width: 0.,
+            block_edges: Rc::new(Vec::new()),
+            rail_hovered: HashSet::new(),
+            rail_hot: None,
             team_statuses: Rc::new(Vec::new()),
             data: queries::Memo::default(),
             scroll_handle: VirtualListScrollHandle::new(),
@@ -537,16 +557,17 @@ impl IssueListView {
                 status,
                 count,
                 collapsed,
+                rail,
             } => self
-                .render_group_header(status, *count, *collapsed, cx)
+                .render_group_header(status, *count, *collapsed, rail, cx)
                 .into_any_element(),
             ListRow::Issue {
                 issue,
                 labels,
                 guides,
-                counts,
+                rail,
             } => self
-                .render_issue_row(issue, labels, guides, *counts, cx)
+                .render_issue_row(ix, issue, labels, guides, rail, cx)
                 .into_any_element(),
         }) else {
             return div().into_any_element();
@@ -563,6 +584,7 @@ impl IssueListView {
         status: &ResolvedStatus,
         count: usize,
         collapsed: bool,
+        rail: &RailRow,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let chevron = if collapsed {
@@ -578,6 +600,9 @@ impl IssueListView {
             .px_3()
             .gap_1p5()
             .items_center()
+            // EXP-998: the rail's lanes cross the band; a paint-only layer.
+            .relative()
+            .children(self.rail_lanes(rail, cx))
             // EXP-293: a wash in the status' hue so the header reads as a group
             // divider and not as one more issue row (the hairline alone was too
             // little). Web parity — `statusHeaderBg` in issue-list.tsx.
@@ -626,10 +651,11 @@ impl IssueListView {
     /// `grid-cols-[1.5rem_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem]` template).
     fn render_issue_row(
         &self,
+        ix: usize,
         issue: &Rc<Issue>,
         labels: &[Label],
         guides: &Guides,
-        counts: BlockCounts,
+        rail: &RailRow,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let issue_id = issue.id.clone();
@@ -661,7 +687,11 @@ impl IssueListView {
             // The connector layer is absolute, so the row must be relative.
             .relative()
             .pl(px(ROW_PAD + crate::tree_guides::LEVEL_PITCH * guides.depth() as f32))
-            .children(crate::tree_guides::guide_layer(guides, ROW_PAD, ROW_GAP))
+            .children(crate::tree_guides::guide_layer(
+                guides,
+                ROW_PAD + GUIDE_INSET,
+                ROW_GAP,
+            ))
             .flex()
             .items_center()
             // Bounded clip at the extreme-narrow floor — cells carry min
@@ -761,14 +791,6 @@ impl IssueListView {
                             .text_ellipsis()
                             .child(SharedString::from(issue.title.clone())),
                     )
-                    // EXP-980: the blocks pill, right after the title. Its
-                    // click opens the mini-graph, never the issue.
-                    .children(crate::issue_graph::blocks_badge(
-                        SharedString::from(format!("blocks-{}", issue.id)),
-                        &issue.id,
-                        counts,
-                        cx,
-                    )),
             )
             // auto labels — the web rounded-full chips, collapsed to bare
             // color dots when the panel is narrow (EXP-439: full chips ate
@@ -800,6 +822,45 @@ impl IssueListView {
             // parity; presets edit via the context menu's "Set due date"
             // submenu, mirroring `due-date-presets.tsx`.
             .child(due_cell(issue, cx))
+            // EXP-998: the blocks rail — the column the row reserves for it,
+            // the hover strip, the lanes and the node (the pill's successor:
+            // the dot's click opens the mini-graph).
+            .when(self.rail_width > 0., |row| {
+                row.child(div().flex_shrink_0().w(px(self.rail_width)))
+            })
+            .children(crate::issue_rail::rail_strip(
+                row_id("rail-strip", &issue.id),
+                self.rail_width,
+                ROW_PAD,
+                cx.listener(move |this, hovered: &bool, _, cx| {
+                    let changed = if *hovered {
+                        this.rail_hovered.insert(ix)
+                    } else {
+                        this.rail_hovered.remove(&ix)
+                    };
+                    if changed {
+                        cx.notify();
+                    }
+                }),
+            ))
+            .children(self.rail_lanes(rail, cx))
+            .children({
+                let hot_id = issue.id.clone();
+                crate::issue_rail::rail_node(
+                    format!("rail-node-{}", issue.id),
+                    &issue.id,
+                    rail,
+                    ROW_PAD,
+                    cx.listener(move |this, hovered: &bool, _, cx| {
+                        let next = hovered.then(|| hot_id.clone());
+                        if this.rail_hot != next {
+                            this.rail_hot = next;
+                            cx.notify();
+                        }
+                    }),
+                    cx,
+                )
+            })
             // Right-click context menu (web `IssueRowContextMenu`, §4.2/§4.6).
             .context_menu(move |menu, window, cx| {
                 build_row_context_menu(
@@ -811,6 +872,23 @@ impl IssueListView {
                     cx,
                 )
             })
+    }
+
+    /// EXP-998: one entry's lanes of the rail, painted only while the pointer
+    /// is on the rail.
+    fn rail_lanes(&self, rail: &RailRow, cx: &App) -> Option<gpui::AnyElement> {
+        crate::issue_rail::rail_lanes_layer(
+            &crate::issue_rail::RailPaint {
+                row: rail,
+                edges: &self.block_edges,
+                width: self.rail_width,
+                right_pad: ROW_PAD,
+                gap: ROW_GAP,
+                open: !self.rail_hovered.is_empty(),
+                hot: self.rail_hot.as_deref(),
+            },
+            cx,
+        )
     }
 
     // -- bulk action bar -------------------------------------------------------
@@ -1677,6 +1755,7 @@ impl Render for IssueListView {
                 status: Box::new(group.status.clone()),
                 count: group.issues.len(),
                 collapsed,
+                rail: RailRow::default(),
             });
             if collapsed {
                 continue;
@@ -1697,12 +1776,39 @@ impl Render for IssueListView {
                     issue: issue.clone(),
                     labels,
                     guides: guides.get(index).cloned().unwrap_or_default(),
-                    counts: data
-                        .block_counts
-                        .get(issue.id.as_str())
-                        .copied()
-                        .unwrap_or_default(),
+                    rail: RailRow::default(),
                 });
+            }
+        }
+
+        // EXP-998: the blocks rail over the VISIBLE entries — every row and
+        // every header (folded or not), in order — so an arrow between two
+        // rows crosses whatever sits between them and stops short of a row
+        // folded away.
+        let entries: Vec<RailEntry<'_>> = rows
+            .iter()
+            .map(|row| match row {
+                ListRow::Header { .. } => RailEntry::Gap,
+                ListRow::Issue { issue, .. } => RailEntry::Row(issue.id.as_str()),
+            })
+            .collect();
+        let rail = issue_rail(&entries, &data.block_edges, &data.block_counts);
+        self.rail_width = rail.width();
+        for (row, slice) in rows.iter_mut().zip(rail.entries) {
+            match row {
+                ListRow::Header { rail, .. } | ListRow::Issue { rail, .. } => *rail = slice,
+            }
+        }
+        self.block_edges = data.block_edges.clone();
+        self.rail_hovered.retain(|&ix| ix < rows.len());
+        // DEV-ONLY (the capture pipeline's no-synthetic-input rule, like
+        // `EXP_DEV_SELECT`): `EXP_DEV_RAIL_HOT=<issue uuid>` photographs the
+        // rail open with that node's edges lit — pinned every render, since
+        // the prune above drops the marker index.
+        if let Ok(hot) = std::env::var("EXP_DEV_RAIL_HOT") {
+            if rows.iter().any(|row| matches!(row, ListRow::Issue { issue, .. } if issue.id == hot)) {
+                self.rail_hovered.insert(usize::MAX);
+                self.rail_hot = Some(hot);
             }
         }
 
