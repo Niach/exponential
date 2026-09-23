@@ -532,6 +532,9 @@ export const issueEventTypeValues = [
   // Payload: { type, relatedIssueId, relatedIdentifier, direction, source }.
   `relation_added`,
   `relation_removed`,
+  // EXP-630 estimates: { from, to } point values (null = unset). Renders as
+  // a plain line; never folds (mirrors treat it like any unknown kind).
+  `estimate_changed`,
 ] as const
 
 // EXP-736 issue relations (issue_relations.type, pg enum). ONE row per pair,
@@ -850,6 +853,11 @@ export const automationTriggerSchema = z.discriminatedUnion(`kind`, [
 export const automationDeviceIdSchema = z.string().min(1).max(128)
 
 export const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+// EXP-630: story points — a non-negative integer (issues.estimate). No
+// per-team scale; the web picker offers a fibonacci ladder, any value fits.
+export const ISSUE_ESTIMATE_MAX = 1000
+export const issueEstimateSchema = z.number().int().min(0).max(ISSUE_ESTIMATE_MAX)
 
 // EXP-707: the ONE #rrggbb write schema (labels, statuses, boards, widget
 // theme) and the accent every color column defaults to (schema.ts varchar

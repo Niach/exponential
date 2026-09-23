@@ -29,10 +29,12 @@ class MemoryPorts implements ApplyPorts {
   }
   map = new Map<string, Map<string, string>>()
   created = { boards: [] as string[], statuses: [] as string[], labels: [] as string[], invites: [] as string[] }
+  archived: string[] = []
   batches: PlannedIssueWrite[][] = []
   links: PlannedLink[] = []
   progress: ImportProgress[] = []
   fetched: string[] = []
+  failFetches = 0
   failOnBatch: number | null = null
   cancelled = false
   claimLost = false
@@ -75,8 +77,15 @@ class MemoryPorts implements ApplyPorts {
   async createInvite(email: string) {
     this.created.invites.push(email)
   }
+  async archiveBoard(boardId: string) {
+    this.archived.push(boardId)
+  }
   async fetchAsset(ref: string): Promise<FetchedAsset | null> {
     this.fetched.push(ref)
+    if (this.failFetches > 0) {
+      this.failFetches -= 1
+      throw new TypeError(`fetch failed`)
+    }
     return { bytes: new Uint8Array([1, 2, 3]), contentType: `image/png`, filename: null }
   }
   async writeBatch({ writes }: { writes: PlannedIssueWrite[] }) {
@@ -107,6 +116,7 @@ function plan(overrides: Partial<ImportPlan> = {}): ImportPlan {
   return {
     routing: `team`,
     importHistory: true,
+    importArchived: true,
     boards: { "b-main": { mode: `create`, name: `Main`, prefix: `MAIN`, numbering: `preserve` } },
     statuses: {
       "st-open": { mode: `builtin`, builtinKey: `backlog` },
@@ -120,7 +130,11 @@ function plan(overrides: Partial<ImportPlan> = {}): ImportPlan {
   }
 }
 
-const options = { teamId: `team-1`, importerId: IMPORTER, batchSize: 2 }
+const options = { teamId: `team-1`, importerId: IMPORTER, batchSize: 2, fetchRetryDelaysMs: [0, 0] }
+
+function tenWriteEstimate(ports: MemoryPorts): number | null {
+  return ports.batches[0]![1]!.issue.estimate
+}
 
 describe(`applyBundle`, () => {
   it(`runs the phases in order and creates only what the plan asks for`, async () => {
@@ -137,6 +151,7 @@ describe(`applyBundle`, () => {
       `issues`,
       `issues`,
       `links`,
+      `archiving`,
       `done`,
     ])
     expect(ports.created).toEqual({
@@ -154,10 +169,11 @@ describe(`applyBundle`, () => {
       comments: 2,
       attachments: 1,
       events: 4,
-      relations: 3,
+      relations: 4,
       skippedIssues: 0,
     })
     expect(ports.fetched).toEqual([`https://files.example.com/a.png`])
+    expect(ports.archived).toEqual([])
   })
 
   it(`writes issues ascending by number in batches and links in a second pass`, async () => {
@@ -169,9 +185,13 @@ describe(`applyBundle`, () => {
     const eleven = ports.map.get(`issue`)!.get(`i-2`)!
     expect(ports.links).toEqual([
       { type: `duplicate`, issueId: eleven, relatedIssueId: ten, externalRef: `MAIN-11` },
+      // Canonical `parent` direction: the PARENT is issueId (EXP-736).
+      { type: `parent`, issueId: ten, relatedIssueId: five, externalRef: `MAIN-5` },
       { type: `blocks`, issueId: five, relatedIssueId: ten, externalRef: `MAIN-5` },
       { type: `related`, issueId: five, relatedIssueId: ten, externalRef: `MAIN-5` },
     ])
+    expect(ports.batches[0]![0]!.issue.estimate).toBe(3)
+    expect(tenWriteEstimate(ports)).toBeNull()
     // The mapped member is the assignee; the invited stranger left the
     // creator empty and their comment carries the attribution line.
     const tenWrite = ports.batches[0]![1]!
@@ -195,7 +215,7 @@ describe(`applyBundle`, () => {
     })
     expect(result.counts).toMatchObject({ boards: 0, statuses: 0, labels: 0, invites: 0, issues: 0 })
     // The links pass is idempotent on the executor side; here it just runs again.
-    expect(result.counts.relations).toBe(3)
+    expect(result.counts.relations).toBe(4)
   })
 
   it(`creates no board on a re-run whose issues all exist, even under a new routing`, async () => {
@@ -213,7 +233,89 @@ describe(`applyBundle`, () => {
       options
     )
     expect(ports.created.boards).toEqual([`MAIN`])
-    expect(result.counts).toMatchObject({ boards: 0, issues: 0, skippedIssues: 0, relations: 3 })
+    expect(result.counts).toMatchObject({ boards: 0, issues: 0, skippedIssues: 0, relations: 4 })
+  })
+
+  it(`archives the boards it created for archived issues, after the links, and never a picked board`, async () => {
+    const withArchive = () => {
+      const base = bundleFixture()
+      return {
+        ...base,
+        boards: [...base.boards, { key: `b-arch`, name: `Main Archive`, prefix: `MAIA`, archive: true }],
+        issues: [
+          ...base.issues,
+          {
+            ...base.issues[2]!,
+            key: `i-4`,
+            boardKey: `b-arch`,
+            number: 2,
+            externalRef: `MAIN-2`,
+            parentKey: null,
+            relatedKeys: [],
+            blocksKeys: [],
+            archived: true,
+          },
+        ],
+      }
+    }
+    const created = new MemoryPorts()
+    const result = await applyBundle(
+      withArchive(),
+      plan({
+        boards: {
+          "b-main": { mode: `create`, name: `Main`, prefix: `MAIN`, numbering: `preserve` },
+          "b-arch": { mode: `create`, name: `Main Archive`, prefix: `MAIA`, numbering: `preserve` },
+        },
+      }),
+      created,
+      options
+    )
+    expect(created.created.boards).toEqual([`MAIN`, `MAIA`])
+    expect(created.archived).toEqual([`board-MAIA`])
+    expect(result.counts.issues).toBe(4)
+    const phases = created.progress.map((entry) => entry.phase)
+    expect(phases.indexOf(`archiving`)).toBeGreaterThan(phases.lastIndexOf(`links`))
+
+    // A resume: every issue is mapped already, the board too, and the first
+    // run died before archiving it — this run archives it and nothing else.
+    const resumed = new MemoryPorts()
+    resumed.map = created.map
+    resumed.state = { ...created.state }
+    const again = await applyBundle(
+      withArchive(),
+      plan({
+        boards: {
+          "b-main": { mode: `create`, name: `Main`, prefix: `MAIN`, numbering: `preserve` },
+          "b-arch": { mode: `create`, name: `Main Archive`, prefix: `MAIA`, numbering: `preserve` },
+        },
+      }),
+      resumed,
+      options
+    )
+    expect(again.counts.issues).toBe(0)
+    expect(resumed.archived).toEqual([`board-MAIA`])
+    resumed.state = {
+      ...resumed.state,
+      boards: resumed.state.boards.map((board) => (board.id === `board-MAIA` ? { ...board, archived: true } : board)),
+    }
+    resumed.archived = []
+    await applyBundle(withArchive(), plan({ boards: { "b-main": { mode: `create`, name: `Main`, prefix: `MAIN`, numbering: `preserve` }, "b-arch": { mode: `create`, name: `Main Archive`, prefix: `MAIA`, numbering: `preserve` } } }), resumed, options)
+    expect(resumed.archived).toEqual([])
+
+    const picked = new MemoryPorts()
+    picked.state = { ...picked.state, boards: [{ id: `board-old`, name: `Old`, prefix: `OLD` }] }
+    await applyBundle(
+      withArchive(),
+      plan({
+        boards: {
+          "b-main": { mode: `create`, name: `Main`, prefix: `MAIN`, numbering: `preserve` },
+          "b-arch": { mode: `existing`, boardId: `board-old`, numbering: `allocate` },
+        },
+      }),
+      picked,
+      options
+    )
+    expect(picked.archived).toEqual([])
   })
 
   it(`resumes past what committed after a mid-run failure`, async () => {
@@ -273,6 +375,23 @@ describe(`applyBundle`, () => {
     await expect(applyBundle(bundleFixture(), plan(), lost, options)).rejects.toMatchObject({
       reason: `claim_lost`,
     })
+  })
+
+  it(`retries a failed asset download and keeps the original link when it stays down`, async () => {
+    const flaky = new MemoryPorts()
+    flaky.failFetches = 1
+    const recovered = await applyBundle(bundleFixture(), plan(), flaky, options)
+    expect(flaky.fetched).toEqual([`https://files.example.com/a.png`, `https://files.example.com/a.png`])
+    expect(recovered.counts.attachments).toBe(1)
+    expect(recovered.warnings.join(`\n`)).not.toMatch(/could not be downloaded/)
+
+    const down = new MemoryPorts()
+    down.failFetches = 3
+    const result = await applyBundle(bundleFixture(), plan(), down, options)
+    expect(down.fetched).toHaveLength(3)
+    expect(result.counts.issues).toBe(3)
+    expect(result.counts.attachments).toBe(0)
+    expect(result.warnings.join(`\n`)).toMatch(/MAIN-10: a\.png could not be downloaded \(fetch failed\)/)
   })
 
   it(`falls back to the importer when a mapped member left the team`, async () => {

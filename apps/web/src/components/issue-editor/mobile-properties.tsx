@@ -39,8 +39,14 @@ import {
   UserAvatar,
   BoardGlyph,
 } from "@exp/ui"
+import {
+  estimateLabel,
+  estimatePickerOptions,
+  parseEstimatePick,
+} from "@/lib/issue-estimate"
 
 const DueDateGlyph = conceptIcon(`ui-due-date`)
+const EstimateGlyph = conceptIcon(`ui-estimate`)
 const AddGlyph = conceptIcon(`ui-add`)
 const UnassignedGlyph = conceptIcon(`ui-unassigned`)
 
@@ -83,6 +89,10 @@ export interface IssueEditorMobilePropertiesProps {
   dueDate: string | null
   hideAssignee?: boolean
   hideDueDateChip?: boolean
+  /** EXP-630 (the issue detail's phone sheet only): an Estimate row after Due
+   * date. Absent on the create form. */
+  estimate?: number | null
+  onEstimateChange?: (estimate: number | null) => void | Promise<void>
   /** EXP-698 r5 (the issue detail's phone sheet only): a Board row after Due
    * date, moving the issue through the same confirm dialog the desktop chip
    * uses. Absent on the create form — a new issue is already ON its board. */
@@ -119,6 +129,8 @@ export function IssueEditorMobileProperties({
   dueDate,
   hideAssignee,
   hideDueDateChip,
+  estimate,
+  onEstimateChange,
   board,
   relations,
   disableStatus,
@@ -281,6 +293,29 @@ export function IssueEditorMobileProperties({
                   <>
                     <DueDateGlyph className="size-3.5" />
                     {label}
+                  </>
+                }
+              />
+            )}
+          />
+        )}
+
+        {onEstimateChange && (
+          <Combobox
+            searchable={false}
+            value={estimate == null ? `` : String(estimate)}
+            disabled={disabled}
+            options={estimatePickerOptions(estimate ?? null)}
+            onChange={(next) => void onEstimateChange(parseEstimatePick(next))}
+            mobileTitle="Estimate"
+            renderTrigger={() => (
+              <PropertyRow
+                label="Estimate"
+                disabled={disabled}
+                value={
+                  <>
+                    <EstimateGlyph className="size-3.5" />
+                    {estimateLabel(estimate)}
                   </>
                 }
               />

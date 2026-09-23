@@ -89,6 +89,8 @@ export function IssuePropertiesTray({
             onToggleLabel={handlers.handleToggleLabel}
             dueDate={dueDate}
             onDueDateSelect={handlers.handleDueDateSelect}
+            estimate={issue.estimate ?? null}
+            onEstimateChange={handlers.handleEstimateChange}
             source={issue.source}
             boardColor={board.color}
             boardPrefix={board.prefix}

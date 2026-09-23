@@ -164,7 +164,12 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
     async loadTeamState(): Promise<ApplyTeamState> {
       const state = await loadImportTeamState(job.teamId, { namespace })
       return {
-        boards: state.boards.map(({ id, name, prefix }) => ({ id, name, prefix })),
+        boards: state.boards.map(({ id, name, prefix, archived }) => ({
+          id,
+          name,
+          prefix,
+          archived: archived === true,
+        })),
         statuses: state.statuses,
         labels: state.labels,
         members: state.members,
@@ -239,6 +244,12 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
 
     async createInvite(email) {
       await caller.teamInvites.create({ teamId: job.teamId, email })
+    },
+
+    // EXP-500 archive (idempotent in the router): the archived-issues board
+    // vanishes from every list until an owner restores it.
+    async archiveBoard(boardId) {
+      await caller.boards.archive({ boardId })
     },
 
     fetchAsset(ref) {
@@ -353,12 +364,13 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
               if (rows.length > 0) written += 1
               return
             }
+            // `parent` links arrive canonical already (parent → child).
             const canonical = canonicalizeRelation(link.issueId, link.relatedIssueId, link.type)
-            if (canonical.type === `blocks`) {
+            if (canonical.type === `blocks` || canonical.type === `parent`) {
               await assertNoRelationCycle(tx, {
                 issueId: canonical.issueId,
                 relatedIssueId: canonical.relatedIssueId,
-                type: `blocks`,
+                type: canonical.type,
               })
             }
             const row = await insertRelationInTx(tx, {
@@ -426,6 +438,7 @@ async function insertPlannedIssue(
     creatorId: row.creatorId,
     source: `user`,
     dueDate: row.dueDate,
+    estimate: row.estimate,
     completedAt: row.completedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

@@ -92,6 +92,7 @@ function caller() {
 const PLAN = {
   routing: `team`,
   importHistory: true,
+  importArchived: true,
   boards: { "team:a": { mode: `create`, name: `A`, prefix: `A`, numbering: `preserve` } },
   statuses: {},
   labels: {},

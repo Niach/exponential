@@ -30,13 +30,24 @@ export function previewFromBundle(bundle: ImportBundle): ImportPreview {
   return {
     sourceLabel: bundle.sourceLabel,
     workspace: { name: bundle.sourceLabel, url: null },
-    teams: bundle.boards.map((board) => ({
-      key: board.key,
-      name: board.name,
-      prefix: board.prefix,
-      issueCount: issueCountByBoard.get(board.key) ?? 0,
-    })),
+    teams: bundle.boards
+      .filter((board) => !board.archive)
+      .map((board) => ({
+        key: board.key,
+        name: board.name,
+        prefix: board.prefix,
+        issueCount: issueCountByBoard.get(board.key) ?? 0,
+      })),
     projects: [],
+    archives: bundle.boards
+      .filter((board) => board.archive)
+      .map((board) => ({
+        key: board.key,
+        teamKey: null,
+        name: board.name,
+        prefix: board.prefix,
+        issueCount: issueCountByBoard.get(board.key) ?? 0,
+      })),
     statuses: bundle.statuses.map((status) => ({
       key: status.key,
       teamKey: null,

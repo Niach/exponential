@@ -12,7 +12,6 @@ import {
   teamMembers,
   users,
 } from "@/db/schema"
-import { boardVisible } from "@/lib/board-visibility"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { assertCanInviteMember, getTeamPlan, getTeamUsage } from "@/lib/billing"
 import type { IssueStatus, IssueStatusCategory } from "@/lib/domain"
@@ -27,15 +26,20 @@ export async function loadImportTeamState(
     boardIdsForNumbers?: string[]
   }
 ): Promise<TeamState> {
+  // Archived boards (EXP-500) are included with their flag: they keep the
+  // prefix reservation (a collision the dry run must name) and an earlier
+  // run's archive board is a legitimate target for more archived issues.
+  // Trashed boards stay out.
   const boardRows = await db
     .select({
       id: boards.id,
       name: boards.name,
       prefix: boards.prefix,
+      archivedAt: boards.archivedAt,
       issueCount: sql<number>`(select count(*)::int from ${issues} where ${issues.boardId} = ${boards.id})`,
     })
     .from(boards)
-    .where(and(eq(boards.teamId, teamId), boardVisible()))
+    .where(and(eq(boards.teamId, teamId), isNull(boards.deletedAt)))
 
   const numbersByBoard = new Map<string, number[]>()
   const wanted = (options.boardIdsForNumbers ?? []).filter((id) =>
@@ -104,18 +108,26 @@ export async function loadImportTeamState(
   }
 
   const importedIssueKeys = new Set<string>()
+  const importedBoards = new Map<string, string>()
   if (options.namespace) {
     const rows = await db
-      .select({ externalId: importEntityMap.externalId })
+      .select({
+        kind: importEntityMap.externalKind,
+        externalId: importEntityMap.externalId,
+        localId: importEntityMap.localId,
+      })
       .from(importEntityMap)
       .where(
         and(
           eq(importEntityMap.teamId, teamId),
           eq(importEntityMap.source, options.namespace),
-          eq(importEntityMap.externalKind, `issue`)
+          inArray(importEntityMap.externalKind, [`issue`, `board`])
         )
       )
-    for (const row of rows) importedIssueKeys.add(row.externalId)
+    for (const row of rows) {
+      if (row.kind === `issue`) importedIssueKeys.add(row.externalId)
+      else importedBoards.set(row.externalId, row.localId)
+    }
   }
 
   return {
@@ -124,6 +136,7 @@ export async function loadImportTeamState(
       id: row.id,
       name: row.name,
       prefix: row.prefix,
+      archived: row.archivedAt !== null,
       issueCount: Number(row.issueCount),
       numbers: numbersByBoard.get(row.id),
     })),
@@ -144,5 +157,6 @@ export async function loadImportTeamState(
     canInvite,
     storage,
     importedIssueKeys,
+    importedBoards,
   }
 }

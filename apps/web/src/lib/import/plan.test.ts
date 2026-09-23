@@ -35,6 +35,38 @@ describe(`buildDefaultPlan`, () => {
     }
   })
 
+  it(`creates an archive board per team with archived issues, adopting an earlier run's archived one`, () => {
+    expect(plan.boards[`archive:${T_MET}`]).toEqual({
+      mode: `create`,
+      name: `Methode 5 Archive`,
+      prefix: `META`,
+      numbering: `preserve`,
+    })
+    expect(plan.importArchived).toBe(true)
+    const rerun = buildDefaultPlan(
+      previewFixture(),
+      teamStateFixture({
+        boards: [
+          { id: `board-met`, name: `Methode 5`, prefix: `MET`, issueCount: 3 },
+          { id: `board-meta`, name: `Methode 5 Archive`, prefix: `META`, issueCount: 1, archived: true },
+        ],
+      })
+    )
+    expect(rerun.boards[`archive:${T_MET}`]).toEqual({ mode: `existing`, boardId: `board-meta`, numbering: `allocate` })
+  })
+
+  it(`never routes live issues into an archived board that holds their prefix`, () => {
+    const archivedMet = buildDefaultPlan(
+      previewFixture(),
+      teamStateFixture({
+        boards: [{ id: `board-met`, name: `Methode 5`, prefix: `MET`, issueCount: 3, archived: true }],
+      })
+    )
+    const entry = archivedMet.boards[`team:${T_MET}`]!
+    expect(entry.mode).toBe(`create`)
+    if (entry.mode === `create`) expect(entry.prefix).not.toBe(`MET`)
+  })
+
   it(`reuses an existing board with the same prefix, allocating numbers when it has issues`, () => {
     const withBoard = buildDefaultPlan(
       previewFixture(),
@@ -113,11 +145,13 @@ describe(`evaluatePlan`, () => {
     expect(result.blockers).toEqual([])
     // Icebox (an issue) and Todo (history) are referenced; Rückfrage and
     // Nicht reproduzierbar are not.
+    // Two boards: the team's and its archive (the fixture has one archived
+    // issue).
     expect(result.counts).toMatchObject({
-      boardsToCreate: 1,
+      boardsToCreate: 2,
       statusesToCreate: 2,
       labelsToCreate: 2,
-      issues: 3,
+      issues: 4,
       comments: 3,
       attachments: 2,
       assetBytes: 85_285,
@@ -126,6 +160,54 @@ describe(`evaluatePlan`, () => {
       skippedIssues: 0,
     })
     expect(result.warnings.join(`\n`)).toMatch(/attributed to you/)
+    expect(result.warnings.join(`\n`)).toMatch(/Archived issues go to "Methode 5 Archive", archived after the import/)
+  })
+
+  it(`leaves archived issues out (and their board) when the plan says so`, () => {
+    const withoutArchived = toLinearBundle(linearSnapshotFixture(), { routing: `team`, importArchived: false })
+    const result = evaluatePlan(withoutArchived, { ...plan, importArchived: false }, state)
+    expect(result.blockers).toEqual([])
+    expect(result.counts).toMatchObject({ boardsToCreate: 1, issues: 3 })
+    expect(result.warnings.join(`\n`)).toMatch(/Archived issues are not imported/)
+  })
+
+  it(`lets a resume keep its "create" entries for boards the failed run already made`, () => {
+    const resumed = teamStateFixture({
+      boards: [{ id: `board-met`, name: `Methode 5`, prefix: `MET`, issueCount: 900 }],
+      importedBoards: new Map([[`team:${T_MET}`, `board-met`]]),
+      importedIssueKeys: new Set([`issue:is-1`]),
+    })
+    const result = evaluatePlan(bundle, plan, resumed)
+    expect(result.blockers).toEqual([])
+    expect(result.counts).toMatchObject({ boardsToCreate: 1, issues: 3, alreadyImported: 1 })
+  })
+
+  it(`reuses a same-named status of the same category and blocks another category`, () => {
+    const withIcebox = teamStateFixture({
+      statuses: [
+        ...teamStateFixture().statuses,
+        { id: `s-icebox`, name: `icebox`, category: `unstarted`, builtinKey: null, color: `#000000` },
+      ],
+    })
+    const reused = evaluatePlan(bundle, plan, withIcebox)
+    expect(reused.blockers).toEqual([])
+    expect(reused.warnings.join(`\n`)).toMatch(/Status "icebox" already exists in this team and will be reused/)
+    expect(reused.counts.statusesToCreate).toBe(1)
+    const clash = teamStateFixture({
+      statuses: [
+        ...teamStateFixture().statuses,
+        { id: `s-icebox`, name: `Icebox`, category: `started`, builtinKey: null, color: `#000000` },
+      ],
+    })
+    expect(evaluatePlan(bundle, plan, clash).blockers.join(`\n`)).toMatch(/with another category/)
+  })
+
+  it(`names an archived board holding a prefix a new board wants`, () => {
+    const archivedHolder = teamStateFixture({
+      boards: [{ id: `board-old`, name: `Old archive`, prefix: `META`, issueCount: 3, archived: true }],
+    })
+    const result = evaluatePlan(bundle, plan, archivedHolder)
+    expect(result.blockers.join(`\n`)).toMatch(/belongs to the archived board "Old archive"/)
   })
 
   it(`counts one fewer status to create without history`, () => {
@@ -214,14 +296,15 @@ describe(`evaluatePlan`, () => {
     const skipped: ImportPlan = { ...plan, boards: { ...plan.boards, [`team:${T_MET}`]: { mode: `skip` } } }
     const result = evaluatePlan(bundle, skipped, state)
     expect(result.blockers).toEqual([])
-    expect(result.counts).toMatchObject({ issues: 0, skippedIssues: 3, statusesToCreate: 0 })
+    // The archived issue stays: it lives on the archive board, not the team's.
+    expect(result.counts).toMatchObject({ issues: 1, skippedIssues: 3, statusesToCreate: 0 })
 
     const resumed = evaluatePlan(
       bundle,
       plan,
       teamStateFixture({ importedIssueKeys: new Set([`issue:is-1`]) })
     )
-    expect(resumed.counts).toMatchObject({ issues: 2, alreadyImported: 1 })
+    expect(resumed.counts).toMatchObject({ issues: 3, alreadyImported: 1 })
 
     // Everything imported already: no board is created, whatever the plan says.
     const done = evaluatePlan(
@@ -229,7 +312,7 @@ describe(`evaluatePlan`, () => {
       plan,
       teamStateFixture({ importedIssueKeys: new Set(bundle.issues.map((issue) => issue.key)) })
     )
-    expect(done.counts).toMatchObject({ issues: 0, alreadyImported: 3, boardsToCreate: 0, statusesToCreate: 0 })
+    expect(done.counts).toMatchObject({ issues: 0, alreadyImported: 4, boardsToCreate: 0, statusesToCreate: 0 })
   })
 
   it(`blocks a missing decision and a custom status in the duplicate category`, () => {

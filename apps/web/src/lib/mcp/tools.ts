@@ -17,6 +17,7 @@ import {
   dateOnlySchema,
   DEFAULT_ACCENT_COLOR,
   hexColorSchema,
+  issueEstimateSchema,
   MAX_ISSUE_DESCRIPTION,
   MAX_START_PROMPT,
   SESSION_RESULT_TEXT_MAX,
@@ -613,6 +614,7 @@ const boardIconEnumSchema = z
   .transform((v) => v as (typeof boardIconValues)[number])
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 const dateOnly = dateOnlySchema
+const issueEstimate = issueEstimateSchema
 // Same contract, no inline pattern (budget, see looseEnum below).
 const dateOnlyLoose = z
   .string()
@@ -1362,6 +1364,7 @@ export function registerExponentialTools(
           .optional()
           .describe(`Plain GFM text; no embedded images on creation`),
         dueDate: dateOnly.nullable().optional(),
+        estimate: issueEstimate.nullable().optional(),
         labelIds: z.array(uuidString).optional(),
       }),
     },
@@ -1408,6 +1411,7 @@ export function registerExponentialTools(
           .optional()
           .describe(`Plain GFM text; null clears`),
         dueDate: dateOnly.nullable().optional(),
+        estimate: issueEstimate.nullable().optional(),
       }),
     },
     async ({ id: idOrIdentifier, ...rest }) => {

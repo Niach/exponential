@@ -501,6 +501,8 @@ export function IssueDetailView({
       teamId={teamId}
       users={users}
       dueDate={dueDate}
+      estimate={issue.estimate ?? null}
+      onEstimateChange={handlers.handleEstimateChange}
       disabled={readOnly}
       board={{
         boardId: issue.boardId,

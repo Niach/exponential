@@ -351,7 +351,8 @@
       "created",
       "priority_changed",
       "relation_added",
-      "relation_removed"
+      "relation_removed",
+      "estimate_changed"
     ]
   },
   "issueRelationType": {

@@ -70,6 +70,9 @@ describe(`planIssueWrite`, () => {
     expect(planned.issue.createdAt.toISOString()).toBe(`2025-01-01T00:00:00.000Z`)
     expect(planned.issue.updatedAt.toISOString()).toBe(`2025-02-01T00:00:00.000Z`)
     expect(planned.issue.completedAt?.toISOString()).toBe(`2025-02-01T00:00:00.000Z`)
+    expect(planned.issue.estimate).toBeNull()
+    const five = bundleFixture().issues[2]!
+    expect(planIssueWrite(five, context(), ids(`i-3`), { availableAssetKeys: new Set(), canonicalAvailable: false }).issue.estimate).toBe(3)
   })
 
   it(`drops the number under allocate and clears completedAt for a non-terminal target`, () => {

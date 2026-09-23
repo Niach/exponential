@@ -232,6 +232,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "folder-kanban" => ExpIcon::FolderKanban,
         "folder-open" => ExpIcon::FolderOpen,
         "gamepad-2" => ExpIcon::Gamepad2,
+        "gauge" => ExpIcon::Gauge,
         "gem" => ExpIcon::Gem,
         "gift" => ExpIcon::Gift,
         "git-branch" => ExpIcon::GitBranch,
@@ -467,6 +468,8 @@ pub const EDITOR_UNLINK: ExpIcon = ExpIcon::Unlink;
 pub const EVENT_ASSIGNEE_CHANGED: ExpIcon = ExpIcon::UserPlus;
 /// Registry concept `event-board-moved` -> Lucide `move`.
 pub const EVENT_BOARD_MOVED: ExpIcon = ExpIcon::Move;
+/// Registry concept `event-estimate-changed` -> Lucide `gauge`.
+pub const EVENT_ESTIMATE_CHANGED: ExpIcon = ExpIcon::Gauge;
 /// Registry concept `event-label-added` -> Lucide `tag`.
 pub const EVENT_LABEL_ADDED: ExpIcon = ExpIcon::Tag;
 /// Registry concept `event-label-removed` -> Lucide `tag`.
@@ -727,6 +730,8 @@ pub const UI_EDIT: ExpIcon = ExpIcon::Pencil;
 pub const UI_EMPTY_SEARCH: ExpIcon = ExpIcon::SearchX;
 /// Registry concept `ui-error` -> Lucide `circle-x`.
 pub const UI_ERROR: ExpIcon = ExpIcon::CircleX;
+/// Registry concept `ui-estimate` -> Lucide `gauge`.
+pub const UI_ESTIMATE: ExpIcon = ExpIcon::Gauge;
 /// Registry concept `ui-external-link` -> Lucide `external-link`.
 pub const UI_EXTERNAL_LINK: ExpIcon = ExpIcon::ExternalLink;
 /// Registry concept `ui-file` -> Lucide `file`.

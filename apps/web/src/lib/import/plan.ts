@@ -31,6 +31,8 @@ export interface TeamStateBoard {
   id: string
   name: string
   prefix: string
+  // EXP-500 archived: hidden from every list, prefix still reserved.
+  archived?: boolean
   // Issue numbers already taken on the board — only loaded for boards the
   // plan targets (the overlap rule needs the exact set).
   numbers?: number[]
@@ -71,6 +73,9 @@ export interface TeamState {
   storage: { limitBytes: number | null; usedBytes: number }
   // Bundle issue keys the entity map already holds (a resume / re-run).
   importedIssueKeys: ReadonlySet<string>
+  // Bundle board keys an earlier run created, with the board they became:
+  // a `create` entry for one of them is a resume, not a prefix collision.
+  importedBoards: ReadonlyMap<string, string>
 }
 
 function norm(value: string | null | undefined): string {
@@ -135,10 +140,16 @@ export function derivePrefix(name: string, taken: ReadonlySet<string>): string {
 function defaultBoardPlan(
   target: { name: string; prefix: string },
   state: TeamState,
-  takenPrefixes: Set<string>
+  takenPrefixes: Set<string>,
+  options: { allowArchived: boolean } = { allowArchived: false }
 ): BoardPlan {
+  // A live board with the same prefix is the obvious target; an ARCHIVED one
+  // only for an archive target (an earlier run's archive board), never for
+  // live issues — importing into a hidden board would surprise.
   const existing = state.boards.find(
-    (board) => norm(board.prefix) === norm(target.prefix)
+    (board) =>
+      norm(board.prefix) === norm(target.prefix) &&
+      (options.allowArchived || !board.archived)
   )
   if (existing) {
     return {
@@ -159,7 +170,7 @@ function defaultBoardPlan(
 export function buildDefaultPlan(
   preview: ImportPreview,
   state: TeamState,
-  options: { routing?: ImportRouting; importHistory?: boolean } = {}
+  options: { routing?: ImportRouting; importHistory?: boolean; importArchived?: boolean } = {}
 ): ImportPlan {
   const takenPrefixes = new Set(state.boards.map((board) => board.prefix.toUpperCase()))
   const boards: ImportPlan[`boards`] = {}
@@ -181,6 +192,13 @@ export function buildDefaultPlan(
       prefix,
       numbering: `preserve`,
     }
+  }
+  for (const archive of preview.archives) {
+    // The archive board of an earlier run is archived by now: adopt it.
+    boards[archive.key] =
+      archive.issueCount === 0
+        ? { mode: `skip` }
+        : defaultBoardPlan(archive, state, takenPrefixes, { allowArchived: true })
   }
 
   const statuses: ImportPlan[`statuses`] = {}
@@ -229,6 +247,7 @@ export function buildDefaultPlan(
   return {
     routing: options.routing ?? `team`,
     importHistory: options.importHistory ?? true,
+    importArchived: options.importArchived ?? true,
     boards,
     statuses,
     labels,
@@ -309,6 +328,12 @@ export function evaluatePlan(
       targetBoardIds.set(board.key, target.id)
       continue
     }
+    const adopted = state.importedBoards.get(board.key)
+    if (adopted && state.boards.some((row) => row.id === adopted)) {
+      // Created by the run this one resumes; the applier reuses it.
+      targetBoardIds.set(board.key, adopted)
+      continue
+    }
     boardsToCreate += 1
     const prefix = entry.prefix.toUpperCase()
     if (!BOARD_PREFIX_PATTERN.test(prefix)) {
@@ -316,9 +341,12 @@ export function evaluatePlan(
         `Prefix "${entry.prefix}" for "${entry.name}" must be 1-4 letters or digits and start with a letter.`
       )
     }
-    if (state.boards.some((row) => row.prefix.toUpperCase() === prefix)) {
+    const holder = state.boards.find((row) => row.prefix.toUpperCase() === prefix)
+    if (holder) {
       blockers.push(
-        `Prefix "${prefix}" is already used by a board in this team. Pick that board as the target or choose another prefix.`
+        holder.archived
+          ? `Prefix "${prefix}" belongs to the archived board "${holder.name}". Unarchive it and pick it as the target, or choose another prefix.`
+          : `Prefix "${prefix}" is already used by a board in this team. Pick that board as the target or choose another prefix.`
       )
     }
     const clash = createPrefixes.get(prefix)
@@ -372,10 +400,18 @@ export function evaluatePlan(
       continue
     }
     const name = norm(entry.name)
-    if (state.statuses.some((row) => norm(row.name) === name)) {
-      blockers.push(
-        `A status named "${entry.name}" already exists in this team. Map "${status.name}" onto it instead of creating a new one.`
-      )
+    const sameName = state.statuses.find((row) => norm(row.name) === name)
+    if (sameName) {
+      // The applier adopts a same-named row of the same category (a resume
+      // finds its own statuses this way); another category is a real clash.
+      if (sameName.category === entry.category) {
+        warnings.push(`Status "${sameName.name}" already exists in this team and will be reused.`)
+      } else {
+        blockers.push(
+          `A status named "${entry.name}" already exists in this team with another category. Map "${status.name}" onto it instead of creating a new one.`
+        )
+      }
+      continue
     }
     const sharedCategory = createStatusNames.get(name)
     if (sharedCategory !== undefined) {
@@ -573,6 +609,17 @@ export function evaluatePlan(
   }
   if (!plan.importHistory) {
     warnings.push(`Activity history is not imported.`)
+  }
+  if (!plan.importArchived) {
+    warnings.push(`Archived issues are not imported.`)
+  }
+  const archiveBoards = bundle.boards.filter(
+    (board) => board.archive && boardKeysInUse.has(board.key) && !skippedBoardKeys.has(board.key)
+  )
+  if (archiveBoards.length > 0) {
+    warnings.push(
+      `Archived issues go to ${archiveBoards.map((board) => `"${board.name}"`).join(`, `)}, archived after the import (restore under Settings → Archived boards).`
+    )
   }
 
   return {

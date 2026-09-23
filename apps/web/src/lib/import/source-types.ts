@@ -17,6 +17,6 @@ export interface ImportSource {
     payload: unknown
     onProgress?: (done: number, total: number) => Promise<void>
   }): Promise<{ payload: unknown; preview: ImportPreview }>
-  toBundle(payload: unknown, plan: Pick<ImportPlan, `routing`>): ImportBundle
+  toBundle(payload: unknown, plan: Pick<ImportPlan, `routing` | `importArchived`>): ImportBundle
   fetchAsset(args: { credential: string | null; ref: string }): Promise<FetchedAsset | null>
 }

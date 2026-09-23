@@ -440,6 +440,10 @@ export const issues = pgTable(
     // origin off this.
     source: issueSourceEnum().notNull().default(`user`),
     dueDate: date(`due_date`),
+    // EXP-630: story points. A plain non-negative integer (Linear's
+    // fibonacci/linear/t-shirt scales all import as their point value);
+    // NULL = not estimated. SYNCED (appended to the issues shape allowlist).
+    estimate: integer(),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     completedAt: timestamp(`completed_at`, { withTimezone: true }),
     // Duplicate resolution: this issue is a duplicate of the canonical issue.

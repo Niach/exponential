@@ -49,8 +49,11 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     id: "2026-09-23-linear-import",
     date: "2026-09-23",
     title: "Import from Linear",
-    summary: "Bring a Linear workspace into a team from Settings, with its issues, comments, images, labels and statuses, keeping identifiers and dates.",
+    summary: "Bring a Linear workspace into a team from Settings, with its issues, comments, images, labels, statuses, relations and estimates, keeping identifiers and dates.",
     body: r#"- **Import from Linear**: a new owner-only Settings section connects to Linear with a personal API key, previews what it found, lets you map teams to boards, statuses onto yours, labels and members, dry-runs the plan and then imports. Issues keep their identifiers, timestamps, priorities, assignees and comments; inline images are rehosted; activity history is optional.
+- **Relations come along**: sub-issues, blocking, duplicate and related links are recreated between imported issues.
+- **Archived issues**: an option puts a source's archived issues on a separate board per team, archived once the import is through, or leaves them out.
+- **Estimates**: issues now carry story points. Set them from the properties row on an issue, over the API and the agent tools; imports bring Linear's estimates with them.
 - **Resumable and repeatable**: an import that stops resumes where it left off, and running it again adds nothing twice.
 - **Bundles**: the same importer accepts a provider-neutral bundle over the API, so other trackers can follow without a new code path."#,
 };

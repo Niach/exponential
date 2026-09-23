@@ -37,7 +37,7 @@ public enum DomainContract {
     public static let toolKindEditValues: [String] = ["edit", "delete", "move"]
     public static let subscriberSourceValues: [String] = ["creator", "assignee", "commenter", "manual", "mention", "widget_reporter"]
     public static let pinKindValues: [String] = ["issue", "session", "action"]
-    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed"]
+    public static let issueEventTypeValues: [String] = ["status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed"]
     public static let issueRelationTypeValues: [String] = ["blocks", "parent", "duplicate", "related"]
     public static let issueRelationTypeForwardLabels: [String] = ["blocks", "parent of", "duplicate of", "related to"]
     public static let issueRelationTypeInverseLabels: [String] = ["blocked by", "sub-issue of", "duplicated by", "related to"]
@@ -210,6 +210,7 @@ public enum DomainContract {
     public static let issueEventTypePriorityChanged: String = "priority_changed"
     public static let issueEventTypeRelationAdded: String = "relation_added"
     public static let issueEventTypeRelationRemoved: String = "relation_removed"
+    public static let issueEventTypeEstimateChanged: String = "estimate_changed"
     public static let issueRelationTypeBlocks: String = "blocks"
     public static let issueRelationTypeParent: String = "parent"
     public static let issueRelationTypeDuplicate: String = "duplicate"

@@ -6,6 +6,11 @@
 // (`project:<id>`); under `project` an issue lands on its project's board
 // (`project:<id>`), project-less issues on the team's fallback board
 // (`team:<id>`), and no project label is written — the board already says it.
+//
+// Archived issues (Linear auto-archives old completed work) route to ONE
+// archive board per team (`archive:<teamId>`, flagged `archive` so the
+// applier archives it at the end) under either routing, keeping their
+// project as a label; `importArchived: false` drops them altogether.
 import type { IssuePriority, IssueStatusCategory } from "@exp/db-schema/domain"
 import {
   IMPORT_BUNDLE_VERSION,
@@ -44,6 +49,7 @@ const PROJECT_LABEL_COLOR = `#6366f1`
 
 export const teamBoardKey = (teamId: string) => `team:${teamId}`
 export const projectBoardKey = (projectId: string) => `project:${projectId}`
+export const archiveBoardKey = (teamId: string) => `archive:${teamId}`
 export const stateKey = (stateId: string) => `state:${stateId}`
 export const labelKey = (labelId: string) => `label:${labelId}`
 export const projectLabelKey = (projectId: string) => `project:${projectId}`
@@ -58,6 +64,21 @@ function normalizeColor(color: string): string {
     return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`.toLowerCase()
   }
   return PROJECT_LABEL_COLOR
+}
+
+// The archive board's prefix: the team key plus an A, clipped to our
+// 4-char cap ("MET" → "META", "SOVA" → "SOVA"); the plan builder derives
+// another one when it is taken.
+export function archivePrefix(teamKey: string): string {
+  const base = teamKey.replace(/[^A-Za-z0-9]/g, ``).toUpperCase()
+  return `${base.slice(0, 3)}A`
+}
+
+// Linear's estimate is a float on whichever scale the team picked
+// (exponential/fibonacci/linear/t-shirt all store the point value).
+export function linearEstimate(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null
+  return Math.max(0, Math.round(value))
 }
 
 // A Linear bot/integration account: no real person to map.
@@ -78,13 +99,25 @@ function assetFilename(text: string, url: string): string | null {
 
 export function toLinearBundle(
   snapshot: LinearSnapshot,
-  options: { routing: ImportRouting }
+  options: { routing: ImportRouting; importArchived?: boolean }
 ): ImportBundle {
   const routing = options.routing
+  const importArchived = options.importArchived ?? true
   const teams = snapshot.teams
   const projectsById = new Map(snapshot.projects.map((project) => [project.id, project]))
   const labelsById = new Map(snapshot.labels.map((label) => [label.id, label]))
   const statesById = new Map(snapshot.states.map((state) => [state.id, state]))
+  const sourceIssues = importArchived
+    ? snapshot.issues
+    : snapshot.issues.filter((issue) => !issue.archivedAt)
+  const archivedTeamIds = new Set(
+    sourceIssues.filter((issue) => issue.archivedAt).map((issue) => issue.teamId)
+  )
+  // Archived issues keep their project as a label under either routing: the
+  // archive board says nothing about it.
+  const projectLabelsNeeded =
+    routing === `team` ||
+    sourceIssues.some((issue) => issue.archivedAt && issue.projectId)
 
   const boards: ImportBundle[`boards`] = teams.map((team) => ({
     key: teamBoardKey(team.id),
@@ -95,6 +128,16 @@ export function toLinearBundle(
     for (const project of snapshot.projects) {
       boards.push({ key: projectBoardKey(project.id), name: project.name, prefix: `` })
     }
+  }
+  for (const team of teams) {
+    if (!archivedTeamIds.has(team.id)) continue
+    boards.push({
+      key: archiveBoardKey(team.id),
+      name: `${team.name} Archive`,
+      prefix: archivePrefix(team.key),
+      icon: `archive`,
+      archive: true,
+    })
   }
 
   const statuses: ImportBundle[`statuses`] = snapshot.states.map((state) => ({
@@ -113,7 +156,7 @@ export function toLinearBundle(
       color: normalizeColor(label.color),
     }
   })
-  if (routing === `team`) {
+  if (projectLabelsNeeded) {
     for (const project of snapshot.projects) {
       labels.push({
         key: projectLabelKey(project.id),
@@ -136,7 +179,7 @@ export function toLinearBundle(
     list.push(comment)
     commentsByIssue.set(comment.issueId, list)
   }
-  const issueIds = new Set(snapshot.issues.map((issue) => issue.id))
+  const issueIds = new Set(sourceIssues.map((issue) => issue.id))
   const duplicateOf = new Map<string, string>()
   const blocks = new Map<string, string[]>()
   const related = new Map<string, string[]>()
@@ -149,21 +192,24 @@ export function toLinearBundle(
     }
     if (relation.type === `duplicate`) duplicateOf.set(relation.issueId, relation.relatedIssueId)
     else if (relation.type === `blocks`) push(blocks)
-    else if (relation.type === `related`) push(related)
+    // Linear's `similar` is a weaker `related`; we have one symmetric kind.
+    else if (relation.type === `related` || relation.type === `similar`) push(related)
   }
 
-  const issues: ImportBundle[`issues`] = snapshot.issues.map((issue) => {
+  const issues: ImportBundle[`issues`] = sourceIssues.map((issue) => {
     const state = statesById.get(issue.stateId)
     const category = state ? (LINEAR_STATE_CATEGORIES[state.type] ?? `backlog`) : `backlog`
     const project = issue.projectId ? projectsById.get(issue.projectId) : undefined
-    const boardKey =
-      routing === `project` && project
+    const archived = issue.archivedAt !== null
+    const boardKey = archived
+      ? archiveBoardKey(issue.teamId)
+      : routing === `project` && project
         ? projectBoardKey(project.id)
         : teamBoardKey(issue.teamId)
     const labelKeys = issue.labelIds
       .filter((id) => labelsById.has(id))
       .map((id) => labelKey(id))
-    if (routing === `team` && project) labelKeys.push(projectLabelKey(project.id))
+    if ((routing === `team` || archived) && project) labelKeys.push(projectLabelKey(project.id))
 
     const comments = (commentsByIssue.get(issue.id) ?? []).map((comment) => ({
       key: commentKey(comment.id),
@@ -260,12 +306,18 @@ export function toLinearBundle(
       updatedAt: issue.updatedAt,
       completedAt: issue.completedAt ?? issue.canceledAt ?? null,
       dueDate: issue.dueDate,
+      estimate: linearEstimate(issue.estimate),
       labelKeys,
       duplicateOfKey: isDuplicate ? issueKey(duplicateTarget) : null,
+      // A sub-issue whose parent is in the import becomes a `parent`
+      // relation; a parent outside it (skipped, or archived while archived
+      // issues are left out) leaves it a root.
+      parentKey: issue.parentId && issueIds.has(issue.parentId) ? issueKey(issue.parentId) : null,
       relatedKeys: (related.get(issue.id) ?? [])
         .filter((id) => !(isDuplicate && id === duplicateTarget))
         .map(issueKey),
       blocksKeys: (blocks.get(issue.id) ?? []).map(issueKey),
+      archived,
       comments,
       events,
       assets,
@@ -288,29 +340,23 @@ export function toLinearBundle(
 // bundle (the default); the projects list carries its own counts so the
 // routing choice can show where issues would go.
 export function linearPreview(snapshot: LinearSnapshot): ImportPreview {
-  const bundle = toLinearBundle(snapshot, { routing: `team` })
+  const bundle = toLinearBundle(snapshot, { routing: `team`, importArchived: true })
   const base = previewFromBundle(bundle)
   const projectCounts = new Map<string, number>()
-  let estimates = 0
-  let subIssues = 0
-  let archived = 0
+  let orphanSubIssues = 0
+  const issueIds = new Set(snapshot.issues.map((issue) => issue.id))
   for (const issue of snapshot.issues) {
-    if (issue.projectId) {
+    // Projects count their LIVE issues: archived ones never route by project.
+    if (issue.projectId && !issue.archivedAt) {
       projectCounts.set(issue.projectId, (projectCounts.get(issue.projectId) ?? 0) + 1)
     }
-    if (issue.estimate !== null) estimates += 1
-    if (issue.parentId) subIssues += 1
-    if (issue.archivedAt) archived += 1
+    if (issue.parentId && !issueIds.has(issue.parentId)) orphanSubIssues += 1
   }
   const warnings: string[] = []
-  if (estimates > 0) {
-    warnings.push(`${estimates} issue(s) carry an estimate; Exponential has no estimates, so they are dropped.`)
-  }
-  if (subIssues > 0) {
-    warnings.push(`${subIssues} sub-issue(s) are imported as plain issues; parent links are not carried over.`)
-  }
-  if (archived > 0) {
-    warnings.push(`${archived} archived issue(s) are imported like any other (Exponential has no issue archive).`)
+  if (orphanSubIssues > 0) {
+    warnings.push(
+      `${orphanSubIssues} sub-issue(s) have a parent outside this workspace export; they are imported as top-level issues.`
+    )
   }
   const bots = snapshot.users.filter(isLinearBotUser)
   if (bots.length > 0) {
@@ -340,6 +386,10 @@ export function linearPreview(snapshot: LinearSnapshot): ImportPreview {
       name: project.name,
       teamKey: teamByProject.get(project.id) ? teamBoardKey(teamByProject.get(project.id)!) : null,
       issueCount: projectCounts.get(project.id) ?? 0,
+    })),
+    archives: base.archives.map((archive) => ({
+      ...archive,
+      teamKey: teamBoardKey(archive.key.replace(/^archive:/, ``)),
     })),
     supportsProjectRouting: snapshot.projects.length > 0,
     warnings,

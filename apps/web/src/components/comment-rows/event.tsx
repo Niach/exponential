@@ -3,6 +3,7 @@ import { displayUserName } from "@/lib/user-display"
 import { conceptIcon } from "@exp/ui"
 import { relationEventParts } from "@/lib/issue-relations"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
+import { estimateLabel } from "@/lib/issue-estimate"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { StatusIcon } from "@/components/issue-properties/status-dropdown"
@@ -19,6 +20,7 @@ const BoardMovedIcon = conceptIcon(`event-board-moved`)
 const PrOpenedIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PriorityChangedIcon = conceptIcon(`event-priority-changed`)
+const EstimateChangedIcon = conceptIcon(`event-estimate-changed`)
 const RelationAddedIcon = conceptIcon(`event-relation-added`)
 const RelationRemovedIcon = conceptIcon(`event-relation-removed`)
 
@@ -211,6 +213,23 @@ export function EventRow({
           </span>
         </>
       )
+      break
+    }
+    // EXP-630: story points; the natives read the same row through their
+    // generic "<type> changed" fallback until they grow a phrase of their own.
+    case `estimate_changed`: {
+      Icon = EstimateChangedIcon
+      text =
+        payload.to === null || payload.to === undefined ? (
+          <>removed the estimate</>
+        ) : (
+          <>
+            set the estimate to{` `}
+            <span className="font-medium text-foreground">
+              {estimateLabel(Number(payload.to))}
+            </span>
+          </>
+        )
       break
     }
     // EXP-736: one phrase table (lib/issue-relations.ts) drives web, IDE and

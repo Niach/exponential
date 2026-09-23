@@ -3,7 +3,8 @@
 // commits before the next, so a job that dies anywhere resumes at the next
 // unmapped entity: users → boards → statuses → labels → issues (batched,
 // ascending by number so counters clamp monotonically) → links (duplicate /
-// blocks / related, a second pass because both ends must exist). The drizzle
+// parent / blocks / related, a second pass because both ends must exist) →
+// archiving (the boards holding the source's archived issues). The drizzle
 // implementation of the ports lives in apply-db.ts; apply.test.ts runs this
 // file against in-memory ports.
 import type { IssueStatusCategory } from "@exp/db-schema/domain"
@@ -27,7 +28,7 @@ import {
 } from "@/lib/import/issue-write"
 
 export interface ApplyTeamState {
-  boards: { id: string; name: string; prefix: string }[]
+  boards: { id: string; name: string; prefix: string; archived?: boolean }[]
   statuses: ResolvedStatus[]
   labels: { id: string; name: string }[]
   members: { userId: string; email: string; name: string }[]
@@ -41,7 +42,9 @@ export interface FetchedAsset {
 }
 
 export interface PlannedLink {
-  type: `duplicate` | `blocks` | `related`
+  type: `duplicate` | `parent` | `blocks` | `related`
+  // Canonical direction (lib/issue-relations.ts): for `parent` the PARENT is
+  // `issueId` and the sub-issue `relatedIssueId`.
   issueId: string
   relatedIssueId: string
   // For the warning when a link is refused (a cycle, a missing end).
@@ -71,6 +74,8 @@ export interface ApplyPorts {
   }): Promise<{ id: string; name: string }>
   createLabel(input: { name: string; color: string }): Promise<{ id: string }>
   createInvite(email: string): Promise<void>
+  // Idempotent: an already archived board is left alone.
+  archiveBoard(boardId: string): Promise<void>
   fetchAsset(ref: string): Promise<FetchedAsset | null>
   // Uploads the batch's assets, then inserts every row in ONE transaction
   // (issues, attachments, labels, comments, events, subscribers, map rows)
@@ -100,6 +105,32 @@ export interface ApplyOptions {
   batchSize?: number
   // Warnings carried over from discovery so the final progress keeps them.
   initialWarnings?: string[]
+  // Back-off between asset fetch attempts (tests pass zeros).
+  fetchRetryDelaysMs?: number[]
+}
+
+const DEFAULT_FETCH_RETRY_DELAYS_MS = [1_000, 4_000]
+
+// A source's file store drops connections now and then (an ECONNRESET
+// 900 issues into a 1400-issue run, seen against uploads.linear.app); one
+// bad download must cost the file, never the job. Retries, then null.
+async function fetchAssetResilient(
+  ports: ApplyPorts,
+  ref: string,
+  delays: number[]
+): Promise<{ asset: FetchedAsset | null; error: string | null }> {
+  let lastError: unknown = null
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      return { asset: await ports.fetchAsset(ref), error: null }
+    } catch (err) {
+      lastError = err
+      const delay = delays[attempt]
+      if (delay === undefined) break
+      if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
+  return { asset: null, error: errorMessage(lastError) }
 }
 
 export interface ApplyResult {
@@ -118,6 +149,7 @@ export async function applyBundle(
   options: ApplyOptions
 ): Promise<ApplyResult> {
   const batchSize = Math.max(1, options.batchSize ?? 25)
+  const fetchDelays = options.fetchRetryDelaysMs ?? DEFAULT_FETCH_RETRY_DELAYS_MS
   const counts = emptyImportCounts()
   const warnings = [...(options.initialWarnings ?? [])]
   const warn = (message: string) => pushWarning(warnings, message)
@@ -359,7 +391,10 @@ export async function applyBundle(
       }
       const available = new Set<string>()
       for (const asset of issue.assets) {
-        const fetched = await ports.fetchAsset(asset.ref)
+        const { asset: fetched, error } = await fetchAssetResilient(ports, asset.ref, fetchDelays)
+        if (error) {
+          warn(`${issue.externalRef}: ${asset.filename ?? asset.ref} could not be downloaded (${error}); the original link is kept.`)
+        }
         if (!fetched) continue
         const attachmentId = ids.attachmentIds.get(asset.key)!
         assets.set(attachmentId, {
@@ -402,6 +437,12 @@ export async function applyBundle(
       links.push({ type, issueId, relatedIssueId, externalRef: issue.externalRef })
     }
     if (issue.duplicateOfKey) push(`duplicate`, issue.duplicateOfKey)
+    if (issue.parentKey) {
+      const parentId = issueIds.get(issue.parentKey)
+      if (parentId && parentId !== issueId) {
+        links.push({ type: `parent`, issueId: parentId, relatedIssueId: issueId, externalRef: issue.externalRef })
+      }
+    }
     for (const key of issue.blocksKeys) push(`blocks`, key)
     for (const key of issue.relatedKeys) push(`related`, key)
   }
@@ -410,6 +451,31 @@ export async function applyBundle(
     const result = await ports.linkRelations(links)
     counts.relations += result.written
     for (const warning of result.warnings) warn(warning)
+  }
+
+  // --- archiving ----------------------------------------------------------
+  // Boards this plan CREATED for the source's archived issues are archived
+  // now that every issue and link is in — including one an earlier run of
+  // this job created (the entity map names it) and never got to archive; an
+  // existing board the operator picked stays as it is (they chose a live
+  // board on purpose).
+  const toArchive: { name: string; boardId: string }[] = []
+  for (const board of bundle.boards) {
+    if (!board.archive || plan.boards[board.key]?.mode !== `create`) continue
+    const boardId = boards.get(board.key)?.boardId ?? mappedBoards.get(board.key)
+    if (!boardId) continue
+    const row = state.boards.find((candidate) => candidate.id === boardId)
+    if (!row || row.archived) continue
+    toArchive.push({ name: board.name, boardId })
+  }
+  await report(`archiving`, 0, toArchive.length)
+  for (const [index, board] of toArchive.entries()) {
+    try {
+      await ports.archiveBoard(board.boardId)
+    } catch (err) {
+      warn(`Could not archive "${board.name}": ${errorMessage(err)}`)
+    }
+    await report(`archiving`, index + 1, toArchive.length)
   }
   await report(`done`, links.length, links.length)
 

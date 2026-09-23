@@ -218,6 +218,7 @@
     "event-label-removed": "tag",
     "event-board-moved": "move",
     "event-priority-changed": "signal-high",
+    "event-estimate-changed": "gauge",
     "event-relation-added": "link",
     "event-relation-removed": "unlink",
 
@@ -290,6 +291,7 @@
     "ui-watch": "eye",
     "ui-send": "send",
     "ui-due-date": "calendar-days",
+    "ui-estimate": "gauge",
     "ui-pin": "pin",
     "ui-unpin": "pin-off",
     "ui-subscribe": "bell",

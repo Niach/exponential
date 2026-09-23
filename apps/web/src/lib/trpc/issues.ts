@@ -82,6 +82,7 @@ import {
   dateOnlySchema,
   getIssueDescriptionText,
   issueDescriptionSchema,
+  issueEstimateSchema,
   issuePrioritySchema,
   type IssueStatus,
   issueStatusSchema,
@@ -209,6 +210,8 @@ async function finalizeIssueUpdateInTx(
       title: string
       priority: string
       assigneeId: string | null
+      // EXP-630: story points, for the estimate_changed event.
+      estimate: number | null
       // EXP-736: the from-side of the issue_relations duplicate mirror. Both
       // callers already read it for applyStatusDerivations.
       duplicateOfId: string | null
@@ -311,6 +314,17 @@ async function finalizeIssueUpdateInTx(
       actorUserId,
       type: `priority_changed`,
       payload: { from: current.priority, to: issue.priority },
+    })
+  }
+  // EXP-630: estimates follow the priority pattern — a timeline row, no
+  // notification, no fold (the natives render it as a plain line).
+  if (current.estimate !== issue.estimate) {
+    await recordIssueEvent(tx, {
+      issueId,
+      teamId,
+      actorUserId,
+      type: `estimate_changed`,
+      payload: { from: current.estimate, to: issue.estimate },
     })
   }
 
@@ -711,6 +725,8 @@ export const issuesRouter = router({
           assigneeId: z.string().nullable().optional(),
           description: issueDescriptionSchema.optional(),
           dueDate: dateOnlySchema.nullable().optional(),
+          // EXP-630: story points (null = not estimated).
+          estimate: issueEstimateSchema.nullable().optional(),
           labelIds: z.array(z.string().uuid()).optional(),
           // EXP-760: file the issue as a sub-issue of `parentId` in the same
           // transaction (the inline sub-issue composer, MCP issues_create).
@@ -870,6 +886,7 @@ export const issuesRouter = router({
             assigneeId,
             description: draftDescription ?? input.description ?? null,
             dueDate: input.dueDate ?? null,
+            estimate: input.estimate ?? null,
             completedAt,
             creatorId: ctx.session.user.id,
           })
@@ -1056,6 +1073,8 @@ export const issuesRouter = router({
           assigneeId: z.string().nullable().optional(),
           description: issueDescriptionSchema.nullable().optional(),
           dueDate: dateOnlySchema.nullable().optional(),
+          // EXP-630: story points; null clears.
+          estimate: issueEstimateSchema.nullable().optional(),
           // Canonical issue this one duplicates. Kept in lockstep with the
           // 'duplicate' status inside the transaction below: marking forces
           // status='duplicate'; unmarking (null) restores backlog; moving to
@@ -1105,6 +1124,7 @@ export const issuesRouter = router({
             title: issues.title,
             priority: issues.priority,
             assigneeId: issues.assigneeId,
+            estimate: issues.estimate,
             duplicateOfId: issues.duplicateOfId,
           })
           .from(issues)
@@ -1650,6 +1670,7 @@ export const issuesRouter = router({
             title: issues.title,
             priority: issues.priority,
             assigneeId: issues.assigneeId,
+            estimate: issues.estimate,
             duplicateOfId: issues.duplicateOfId,
           })
           .from(issues)

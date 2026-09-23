@@ -2908,6 +2908,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `gauge`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "gauge",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("m12 14 4-4"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M3.34 19a10 10 0 1 1 17.32 0"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `gem`: ImageVector by lazy {
         ImageVector.Builder(
             name = "gem",
@@ -7821,6 +7846,7 @@ public object ExpIcons {
         "folder-kanban" -> `folder-kanban`
         "folder-open" -> `folder-open`
         "gamepad-2" -> `gamepad-2`
+        "gauge" -> `gauge`
         "gem" -> `gem`
         "gift" -> `gift`
         "git-branch" -> `git-branch`
@@ -8055,6 +8081,8 @@ public object ExpIcons {
     public val eventAssigneeChanged: ImageVector get() = `user-plus`
     /** Concept `event-board-moved`. */
     public val eventBoardMoved: ImageVector get() = `move`
+    /** Concept `event-estimate-changed`. */
+    public val eventEstimateChanged: ImageVector get() = `gauge`
     /** Concept `event-label-added`. */
     public val eventLabelAdded: ImageVector get() = `tag`
     /** Concept `event-label-removed`. */
@@ -8315,6 +8343,8 @@ public object ExpIcons {
     public val uiEmptySearch: ImageVector get() = `search-x`
     /** Concept `ui-error`. */
     public val uiError: ImageVector get() = `circle-x`
+    /** Concept `ui-estimate`. */
+    public val uiEstimate: ImageVector get() = `gauge`
     /** Concept `ui-external-link`. */
     public val uiExternalLink: ImageVector get() = `external-link`
     /** Concept `ui-file`. */

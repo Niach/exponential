@@ -58,6 +58,10 @@ export const bundleBoardSchema = z.object({
   // cap is fine here — the plan carries the prefix the board is created with.
   prefix: z.string().min(1).max(20),
   icon: z.string().max(64).nullish(),
+  // The board holds the source's ARCHIVED issues: the applier archives it
+  // (EXP-500) once the import is through, so they stay out of the way but
+  // come back with one click under Settings → Archived boards.
+  archive: z.boolean().optional(),
 })
 
 export const bundleStatusSchema = z.object({
@@ -171,10 +175,16 @@ export const bundleIssueSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullish(),
+  // Story points (issues.estimate); null = not estimated.
+  estimate: z.number().int().nonnegative().nullish(),
   labelKeys: z.array(keySchema).default([]),
   duplicateOfKey: keySchema.nullish(),
+  // The source's parent issue (a `parent` relation, parent → this issue).
+  parentKey: keySchema.nullish(),
   relatedKeys: z.array(keySchema).default([]),
   blocksKeys: z.array(keySchema).default([]),
+  // Archived at the source; the adapter routes it to an `archive` board.
+  archived: z.boolean().optional(),
   comments: z.array(bundleCommentSchema).default([]),
   events: z.array(bundleEventSchema).default([]),
   assets: z.array(bundleAssetSchema).default([]),
@@ -234,6 +244,19 @@ export const importPreviewSchema = z.object({
       issueCount: z.number().int().nonnegative(),
     })
   ),
+  // The per-team boards ARCHIVED issues route to when the plan imports them
+  // (`importArchived`); one per team that has any.
+  archives: z
+    .array(
+      z.object({
+        key: keySchema,
+        teamKey: keySchema.nullish(),
+        name: z.string(),
+        prefix: z.string(),
+        issueCount: z.number().int().nonnegative(),
+      })
+    )
+    .default([]),
   statuses: z.array(
     z.object({
       key: keySchema,
@@ -332,6 +355,9 @@ export const userPlanSchema = z.discriminatedUnion(`mode`, [
 export const importPlanSchema = z.object({
   routing: z.enum(importRoutingValues),
   importHistory: z.boolean(),
+  // Archived source issues land on a separate, archived board per team
+  // (`preview.archives`); off = they are left out entirely.
+  importArchived: z.boolean().default(true),
   boards: z.record(keySchema, boardPlanSchema),
   statuses: z.record(keySchema, statusPlanSchema),
   labels: z.record(keySchema, labelPlanSchema),
@@ -355,6 +381,7 @@ export const importPhaseValues = [
   `labels`,
   `issues`,
   `links`,
+  `archiving`,
   `done`,
 ] as const
 export type ImportPhase = (typeof importPhaseValues)[number]

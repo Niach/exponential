@@ -5,8 +5,9 @@
 //
 // The pasted credential lives on the job row ONLY while the job is live: it
 // is never part of any selection here (`jobSelection`, the
-// `inviteListSelection` pattern), nulled by the same UPDATE that reaches a
-// terminal state, and swept after 24 h regardless.
+// `inviteListSelection` pattern), nulled by the UPDATE that completes or
+// cancels the job (a `failed` job keeps it so a resume can still download
+// files), and swept after 24 h regardless.
 import { z } from "zod"
 import { and, desc, eq, inArray } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"

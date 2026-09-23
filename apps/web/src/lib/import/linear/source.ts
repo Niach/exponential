@@ -60,7 +60,10 @@ export const linearImportSource: ImportSource = {
 
   toBundle(payload, plan) {
     const snapshot = linearSnapshotSchema.parse(payload)
-    return toLinearBundle(snapshot, { routing: plan.routing })
+    return toLinearBundle(snapshot, {
+      routing: plan.routing,
+      importArchived: plan.importArchived,
+    })
   },
 
   async fetchAsset({ credential, ref }) {

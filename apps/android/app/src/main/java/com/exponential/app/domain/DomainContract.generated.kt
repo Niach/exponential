@@ -36,7 +36,7 @@ object DomainContract {
     val toolKindEditValues: List<String> = listOf("edit", "delete", "move")
     val subscriberSourceValues: List<String> = listOf("creator", "assignee", "commenter", "manual", "mention", "widget_reporter")
     val pinKindValues: List<String> = listOf("issue", "session", "action")
-    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed")
+    val issueEventTypeValues: List<String> = listOf("status_changed", "assignee_changed", "label_added", "label_removed", "pr_opened", "pr_merged", "board_moved", "created", "priority_changed", "relation_added", "relation_removed", "estimate_changed")
     val issueRelationTypeValues: List<String> = listOf("blocks", "parent", "duplicate", "related")
     val issueRelationTypeForwardLabels: List<String> = listOf("blocks", "parent of", "duplicate of", "related to")
     val issueRelationTypeInverseLabels: List<String> = listOf("blocked by", "sub-issue of", "duplicated by", "related to")
@@ -209,6 +209,7 @@ object DomainContract {
     const val issueEventTypePriorityChanged: String = "priority_changed"
     const val issueEventTypeRelationAdded: String = "relation_added"
     const val issueEventTypeRelationRemoved: String = "relation_removed"
+    const val issueEventTypeEstimateChanged: String = "estimate_changed"
     const val issueRelationTypeBlocks: String = "blocks"
     const val issueRelationTypeParent: String = "parent"
     const val issueRelationTypeDuplicate: String = "duplicate"

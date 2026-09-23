@@ -117,11 +117,13 @@ async function fencedUpdate(
   return rows.length > 0
 }
 
+// A failed job is RESUMABLE, so its credential stays (a resume without it
+// would skip every remaining file download); the 24 h sweep still bounds
+// its life, and cancel / completion wipe it at once.
 async function failJob(job: JobRow, error: string): Promise<void> {
   await fencedUpdate(job, {
     status: `failed`,
     error: error.slice(0, 2000),
-    credential: null,
     claimToken: null,
     finishedAt: new Date(),
   })
@@ -147,7 +149,7 @@ async function runDiscovery(job: JobRow): Promise<void> {
       payload: job.payload,
       onProgress: progress,
     })
-    const bundle = source.toBundle(payload, { routing: `team` })
+    const bundle = source.toBundle(payload, { routing: `team`, importArchived: true })
     const state = await loadImportTeamState(job.teamId, { namespace: bundle.source })
     const plan = buildDefaultPlan(preview, state)
     await fencedUpdate(job, {

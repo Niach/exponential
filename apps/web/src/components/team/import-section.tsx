@@ -480,6 +480,19 @@ function MapStep({
           name: team.name,
           hint: `${team.issueCount.toLocaleString()} issues · ${team.prefix}`,
         }))
+  // EXP-500 archive boards for the source's archived issues, only while the
+  // option is on (the plan keeps their entries either way).
+  const archivedIssueCount = preview.archives.reduce((sum, archive) => sum + archive.issueCount, 0)
+  if (plan.importArchived) {
+    for (const archive of preview.archives) {
+      const team = preview.teams.find((row) => row.key === archive.teamKey)
+      boardTargets.push({
+        key: archive.key,
+        name: archive.name,
+        hint: `${archive.issueCount.toLocaleString()} archived issues${team ? ` · ${team.name}` : ``} · archived after the import`,
+      })
+    }
+  }
 
   const builtinOptions = statuses.options.filter((option) => option.builtinKey)
   const customOptions = statuses.options.filter((option) => !option.builtinKey && !option.id.startsWith(`builtin:`))
@@ -562,6 +575,14 @@ function MapStep({
                           {board.name} ({board.prefix})
                         </SelectItem>
                       ))}
+                      {/* An archived board (an earlier run's archive) never
+                          syncs, so the pick the plan made needs its own row. */}
+                      {entry.mode === `existing` &&
+                        !boards.some((board) => board.id === entry.boardId) && (
+                          <SelectItem value={`existing:${entry.boardId}`}>
+                            Archived board from an earlier import
+                          </SelectItem>
+                        )}
                       <SelectItem value="skip">Skip these issues</SelectItem>
                     </SelectContent>
                   </Select>
@@ -816,6 +837,22 @@ function MapStep({
               </span>
             </span>
           </label>
+          {preview.archives.length > 0 && (
+            <label className="flex items-center gap-3 p-4 text-sm">
+              <Checkbox
+                checked={plan.importArchived}
+                onCheckedChange={(checked) => update({ importArchived: checked === true })}
+              />
+              <span>
+                Import archived issues
+                <span className="block text-xs text-muted-foreground">
+                  {archivedIssueCount.toLocaleString()} archived issues go to a
+                  separate board per team, which is archived once the import is
+                  through. Restore it any time under Archived boards.
+                </span>
+              </span>
+            </label>
+          )}
         </GlassGroup>
       </section>
 

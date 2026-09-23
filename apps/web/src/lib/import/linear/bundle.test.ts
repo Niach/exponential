@@ -25,7 +25,11 @@ describe(`toLinearBundle (team routing)`, () => {
   })
 
   it(`routes every issue to its team's board and turns the project into a label`, () => {
-    expect(bundle.boards.map((board) => board.key)).toEqual([`team:${T_MET}`, `team:${T_SOV}`])
+    expect(bundle.boards.map((board) => board.key)).toEqual([
+      `team:${T_MET}`,
+      `team:${T_SOV}`,
+      `archive:${T_MET}`,
+    ])
     expect(bundle.boards[0]).toMatchObject({ name: `Methode 5`, prefix: `MET` })
     const first = bundle.issues.find((issue) => issue.key === `issue:is-1`)!
     expect(first.boardKey).toBe(`team:${T_MET}`)
@@ -106,6 +110,45 @@ describe(`toLinearBundle (team routing)`, () => {
     expect(first.relatedKeys).toEqual([`issue:is-3`])
   })
 
+  it(`routes archived issues to the team's archive board, keeping the project as a label`, () => {
+    expect(bundle.boards[2]).toEqual({
+      key: `archive:${T_MET}`,
+      name: `Methode 5 Archive`,
+      prefix: `META`,
+      icon: `archive`,
+      archive: true,
+    })
+    const fourth = bundle.issues.find((issue) => issue.key === `issue:is-4`)!
+    expect(fourth.boardKey).toBe(`archive:${T_MET}`)
+    expect(fourth.archived).toBe(true)
+    expect(fourth.labelKeys).toEqual([`label:lb-bug`, `project:${P_MAINT}`])
+    // Linear's `similar` is our `related`.
+    expect(fourth.relatedKeys).toEqual([`issue:is-1`])
+  })
+
+  it(`drops archived issues, their board and their relations with importArchived off`, () => {
+    const live = toLinearBundle(linearSnapshotFixture(), { routing: `team`, importArchived: false })
+    expect(live.boards.map((board) => board.key)).toEqual([`team:${T_MET}`, `team:${T_SOV}`])
+    expect(live.issues.map((issue) => issue.key)).toEqual([`issue:is-1`, `issue:is-2`, `issue:is-3`])
+  })
+
+  it(`carries the parent link and the rounded estimate`, () => {
+    const third = bundle.issues.find((issue) => issue.key === `issue:is-3`)!
+    expect(third.parentKey).toBe(`issue:is-1`)
+    const first = bundle.issues.find((issue) => issue.key === `issue:is-1`)!
+    expect(first.parentKey).toBeNull()
+    expect(first.estimate).toBe(3)
+    expect(bundle.issues.find((issue) => issue.key === `issue:is-4`)!.estimate).toBe(2)
+    expect(bundle.issues.find((issue) => issue.key === `issue:is-2`)!.estimate).toBeNull()
+  })
+
+  it(`leaves a sub-issue a root when its parent is left out`, () => {
+    const snapshot = linearSnapshotFixture()
+    snapshot.issues[0]!.archivedAt = `2024-10-01T10:00:00.000Z`
+    const live = toLinearBundle(snapshot, { routing: `team`, importArchived: false })
+    expect(live.issues.find((issue) => issue.key === `issue:is-3`)!.parentKey).toBeNull()
+  })
+
   it(`ignores a duplicate relation on an issue that is not canceled`, () => {
     const snapshot = linearSnapshotFixture()
     snapshot.issues[1]!.stateId = `st-progress`
@@ -123,13 +166,24 @@ describe(`toLinearBundle (project routing)`, () => {
       `team:${T_MET}`,
       `team:${T_SOV}`,
       `project:${P_MAINT}`,
+      `archive:${T_MET}`,
     ])
     const first = bundle.issues.find((issue) => issue.key === `issue:is-1`)!
     expect(first.boardKey).toBe(`project:${P_MAINT}`)
     expect(first.labelKeys).not.toContain(`project:${P_MAINT}`)
     const second = bundle.issues.find((issue) => issue.key === `issue:is-2`)!
     expect(second.boardKey).toBe(`team:${T_MET}`)
-    expect(bundle.labels.some((label) => label.key.startsWith(`project:`))).toBe(false)
+    // Only the archived issue keeps its project label: the archive board
+    // says nothing about it.
+    const fourth = bundle.issues.find((issue) => issue.key === `issue:is-4`)!
+    expect(fourth.boardKey).toBe(`archive:${T_MET}`)
+    expect(fourth.labelKeys).toContain(`project:${P_MAINT}`)
+    expect(bundle.labels.filter((label) => label.key.startsWith(`project:`))).toHaveLength(1)
+  })
+
+  it(`has no project labels at all without archived issues in projects`, () => {
+    const live = toLinearBundle(linearSnapshotFixture(), { routing: `project`, importArchived: false })
+    expect(live.labels.some((label) => label.key.startsWith(`project:`))).toBe(false)
   })
 })
 
@@ -147,16 +201,22 @@ describe(`linearPreview`, () => {
     ])
     expect(preview.supportsProjectRouting).toBe(true)
     expect(preview.labels.some((label) => label.key.startsWith(`project:`))).toBe(false)
-    expect(preview.counts).toEqual({ issues: 3, comments: 3, assets: 2, assetBytes: 85_285, events: 5 })
+    expect(preview.counts).toEqual({ issues: 4, comments: 3, assets: 2, assetBytes: 85_285, events: 5 })
+    expect(preview.archives).toEqual([
+      { key: `archive:${T_MET}`, teamKey: `team:${T_MET}`, name: `Methode 5 Archive`, prefix: `META`, issueCount: 1 },
+    ])
     expect(preview.statuses.find((status) => status.key === `state:st-done`)).toMatchObject({
       teamKey: `team:${T_MET}`,
-      issueCount: 1,
+      issueCount: 2,
     })
   })
 
-  it(`warns about what is dropped`, () => {
-    expect(preview.warnings.join(`\n`)).toMatch(/1 issue\(s\) carry an estimate/)
-    expect(preview.warnings.join(`\n`)).toMatch(/1 sub-issue\(s\)/)
+  it(`warns about what is dropped, and estimates and sub-issues are not`, () => {
+    expect(preview.warnings.join(`\n`)).not.toMatch(/estimate/)
+    expect(preview.warnings.join(`\n`)).not.toMatch(/sub-issue/)
     expect(preview.warnings.join(`\n`)).toMatch(/integration account/)
+    const snapshot = linearSnapshotFixture()
+    snapshot.issues[2]!.parentId = `is-gone`
+    expect(linearPreview(snapshot).warnings.join(`\n`)).toMatch(/1 sub-issue\(s\) have a parent outside/)
   })
 })

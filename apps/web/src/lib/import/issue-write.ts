@@ -75,6 +75,7 @@ export interface PlannedIssueRow {
   assigneeId: string | null
   creatorId: string | null
   dueDate: string | null
+  estimate: number | null
   completedAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -287,6 +288,7 @@ export function planIssueWrite(
     assigneeId: userId(issue.assigneeKey),
     creatorId: userId(issue.creatorKey),
     dueDate: issue.dueDate ?? null,
+    estimate: issue.estimate ?? null,
     completedAt,
     createdAt: date(issue.createdAt),
     updatedAt: date(issue.updatedAt),
