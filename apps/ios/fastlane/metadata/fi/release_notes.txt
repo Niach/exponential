@@ -1,6 +1,2 @@
-- Yksi tilin valitsin Claudelle ja Codexille kirjoituskentässä, jokaisen kirjautumisen rajat vieressä ja oletustili konetta kohden; kirjautumiset on nimetty sähköpostinsa mukaan
-- Issuen aktiivisuus taittaa nopeat edestakaiset muokkaukset yhdeksi nettomuutokseksi, ja Show all tuo jokaisen tapahtuman takaisin
-- Exponentialille tehdyt työkalukutsut näyttävät koskemansa issuet, ajot ja pull requestit chipseinä, joita napauttamalla saat esikatselun
-- Jatketut ajot ovat yhden ajovalikon takana, GitHub-painike asuu Changes-sivulla, ja Changes näyttää muuttuneiden rivien määrät
-- Haku nostaa avoimen työn valmiin edelle
-- Workflows: jokaisen solmun tarkistaa agentti ennen laskeutumista, ja tarkistusportin asetus on poissa
+- Automations valitsee tilin, ei pelkkää agenttia: valitse kirjautuminen sidotulla koneella, tunnuksen merkin ja sähköpostin kanssa
+- Sisäkkäiset issue-listat piirtävät tiiviimmät puuviivat, ja haarautumiskohdassa pystyviiva kulkee yhtenäisenä

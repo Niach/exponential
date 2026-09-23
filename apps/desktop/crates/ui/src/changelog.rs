@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-09-23-release-train",
+    date: "2026-09-23",
+    title: "Release train 2026-09-23",
+    summary: "Automations pick an account, the issue list shows its blocking arrows as a rail, and a round of fixes for the desktop app and the CLI.",
+    body: r#"- **Automations**: the editor picks an account on the bound machine, with its brand mark and email, instead of an agent alone, on every client. A machine switch re-seeds the pick from the new machine.
+- **Blocking arrows**: on wide screens the issue list draws its blocks relations as a rail at the right edge, with a dot per node at rest, the arrows on hover or keyboard focus, and the mini graph on click. Phones keep the badge.
+- **Tree lines**: nested issues draw a tighter corner and one unbroken vertical where a later sibling follows, on every client.
+- **Desktop and CLI**: a workflow node keeps its identity across an account switch or a resume, the remote sign-in dialog takes the code from the browser again, and the Agent entry no longer duplicates the Running section's dot.
+- **MCP**: merging a plain pull request based on your default branch no longer reports it as a stacked merge."#,
+};
+
+/// The previous head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS: ChangelogEntry = ChangelogEntry {
     id: "2026-09-22-release-train",
     date: "2026-09-22",
     title: "Release train 2026-09-22",
@@ -62,7 +76,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
-const PREVIOUS: ChangelogEntry = ChangelogEntry {
+const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
     id: "2026-09-19-release-train",
     date: "2026-09-19",
     title: "Release train 2026-09-19",
@@ -73,19 +87,6 @@ const PREVIOUS: ChangelogEntry = ChangelogEntry {
 - **Cleanup**: batch runs are named from their stored issue list on every client (older runs were backfilled), the staleness sweep only deletes runs whose machine is gone, and retired external-agent run records are dropped when the desktop app or CLI loads them."#,
 };
 
-/// The previous head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_2: ChangelogEntry = ChangelogEntry {
-    id: "2026-09-19-workflows-run",
-    date: "2026-09-19",
-    title: "Workflows run: parallel coding runs with a merge train",
-    summary: "Start a planned workflow and your device runs its issues in parallel, lands reviewed pull requests in order and opens one final pull request with the whole diff.",
-    body: r#"- **Start a workflow**: a draft with a runner device and no loop can be started. The device's engine, not an agent, starts every unblocked issue as its own coding run (up to your max parallel), and starts the next ones as their blockers land. Pause, resume and cancel are on the workflow; cancelling ends its runs and deletes its one branch, and nothing reached your default branch.
-- **Merge train**: pull requests land into the workflow's own branch in order. The contract always waits for a person, and with a review gate every node does: open the node and choose Approve and land. A pull request that no longer merges is sent back to its run to merge the branch in, never rebased and never force-pushed.
-- **Final pull request**: once everything landed, one pull request from the workflow's branch to your default branch carries the whole diff, lists every node and names a few at random to audit in full. Your issues move to done when that pull request merges, not before.
-- **When a run needs you**: a node that waits for an answer or hit a rate limit turns amber, the only amber state, and resumes on its own after a reset. A run's question must come with a proposal you can answer with yes or no, the same question is asked once per workflow, and every decision is kept and given to the runs that start later.
-- **Stuck nodes**: a node whose run ended without a pull request is retried once, then marked failed with Retry and Skip."#,
-};
 
 /// The previous head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]

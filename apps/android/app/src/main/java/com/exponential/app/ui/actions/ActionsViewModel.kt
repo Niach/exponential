@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.data.api.AutomationLaunchPatch
 import com.exponential.app.data.api.AutomationsApi
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
@@ -246,10 +247,14 @@ class ActionsViewModel @Inject constructor(
                 actionId = actionId,
                 deviceId = deviceId,
                 trigger = trigger,
-                agent = agent,
-                account = account,
-                model = model,
-                effort = effort,
+                // Every pin rides — a null one as an explicit JSON null, so a
+                // cleared account/model/effort really clears (EXP-995).
+                launch = AutomationLaunchPatch(
+                    agent = agent,
+                    account = account,
+                    model = model,
+                    effort = effort,
+                ),
             )
         }
     }

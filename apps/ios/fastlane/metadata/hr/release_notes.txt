@@ -1,6 +1,2 @@
-- Jedan birač računa za Claude i Codex u polju za pisanje, s ograničenjima svake prijave odmah uz njih i zadanim računom po stroju; prijave nose ime svoje e-mail adrese
-- Aktivnost issuea sklapa brze izmjene naprijed-natrag u njihovu neto promjenu, a Show all vraća svaki događaj
-- Pozivi alata prema Exponentialu pokazuju issuee, izvođenja i pull requestove kojih su se dotakli kao čipove koje dodirneš za pregled
-- Nastavljena izvođenja stoje iza jednog izbornika izvođenja, GitHub gumb živi na Changes, a prikaz Changes pokazuje broj promijenjenih redaka
-- Pretraga stavlja otvoreni posao ispred gotovog
-- Workflows: svaki čvor pregleda agent prije nego što sleti, a postavka kontrolnih vrata nestala je
+- Automations biraju račun, ne samo agenta: odaberi prijavu na povezanom računalu, prikazanu sa znakom marke i e-poštom
+- Ugniježđeni popisi issuea crtaju uže linije stabla, s jednom neprekinutom okomicom ondje gdje se granaju pod-issuei

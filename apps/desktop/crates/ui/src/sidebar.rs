@@ -4015,6 +4015,16 @@ impl ListPanel {
                     .id(scroll_id)
                     .relative()
                     .size_full()
+                    // EXP-998: a strip scrolled out from under the pointer
+                    // never reports `hovered=false` (gpui fires `on_hover`
+                    // on a mouse MOVE only) — a wheel scroll closes the rail.
+                    .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                        if !this.nav_rail_hovered.is_empty() || this.nav_rail_hot.is_some() {
+                            this.nav_rail_hovered.clear();
+                            this.nav_rail_hot = None;
+                            cx.notify();
+                        }
+                    }))
                     .child(
                         v_virtual_list(
                             cx.entity().clone(),
@@ -4163,10 +4173,10 @@ impl ListPanel {
         self.nav_rail_hovered.retain(|&ix| ix < rows.len());
         // DEV-ONLY: `EXP_DEV_RAIL_HOT=<issue uuid>` photographs the rail open
         // (the big list's hook, for the column) — pinned every render.
-        if let Ok(hot) = std::env::var("EXP_DEV_RAIL_HOT") {
+        if let Some(hot) = crate::issue_list::dev_rail_hot() {
             if rows.iter().any(|row| matches!(row, NavRow::Issue { issue, .. } if issue.id == hot)) {
                 self.nav_rail_hovered.insert(usize::MAX);
-                self.nav_rail_hot = Some(hot);
+                self.nav_rail_hot = Some(hot.to_string());
             }
         }
         self.nav_rows = Rc::new(rows);

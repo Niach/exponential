@@ -1,6 +1,2 @@
-- Jeden wybór konta dla Claude i Codex w polu pisania, z limitami każdego logowania obok i domyślnym kontem na każdą maszynę; logowania noszą nazwę swojego adresu e-mail
-- Aktywność issue składa szybkie poprawki tam i z powrotem w ich zmianę netto, a Show all przywraca każde zdarzenie
-- Wywołania narzędzi do Exponential pokazują issues, przebiegi i pull requesty, których dotknęły, jako plakietki otwierające podgląd po dotknięciu
-- Wznowione przebiegi siedzą za jednym menu przebiegu, przycisk GitHub mieszka na Changes, a widok Changes pokazuje liczbę zmienionych linii
-- Wyszukiwanie stawia otwartą pracę przed zakończoną
-- Workflows: każdy węzeł przegląda agent, zanim wyląduje, a ustawienie bramki przeglądu zniknęło
+- Automations wybierają konto, a nie tylko agenta: wskaż logowanie na powiązanej maszynie, pokazane ze znakiem marki i adresem e-mail
+- Zagnieżdżone listy issue rysują ciaśniejsze linie drzewa, z jedną nieprzerwaną pionową kreską tam, gdzie odgałęziają się podissue

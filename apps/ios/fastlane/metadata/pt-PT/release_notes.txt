@@ -1,6 +1,2 @@
-- Um único seletor de conta para o Claude e o Codex no campo de escrita, com os limites de cada conta ao lado e uma conta predefinida por máquina; as contas têm o nome do seu e-mail
-- A atividade de um issue dobra as edições rápidas de ida e volta na sua alteração líquida, e o Show all traz de volta cada evento
-- As chamadas de ferramenta ao Exponential mostram os issues, as execuções e os pull requests que tocaram como chips que podes tocar para uma pré-visualização
-- As execuções retomadas ficam atrás de um único menu de execução, o botão do GitHub vive em Changes, e a página Changes mostra a contagem de linhas alteradas
-- A pesquisa coloca o trabalho em aberto à frente do concluído
-- Workflows: cada nó é revisto por um agente antes de aterrar, e a definição do portão de revisão desapareceu
+- O Automations escolhe uma conta, não apenas um agente: seleciona o início de sessão na máquina associada, com a sua marca e o seu e-mail
+- As listas de issues aninhadas desenham linhas de árvore mais justas, com uma vertical ininterrupta onde as subissues se ramificam

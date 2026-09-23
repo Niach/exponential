@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-09-23-release-train`,
+    date: `2026-09-23`,
+    title: `Release train 2026-09-23`,
+    summary: `Automations pick an account, the issue list shows its blocking arrows as a rail, and a round of fixes for the desktop app and the CLI.`,
+    body: `- **Automations**: the editor picks an account on the bound machine, with its brand mark and email, instead of an agent alone, on every client. A machine switch re-seeds the pick from the new machine.
+- **Blocking arrows**: on wide screens the issue list draws its blocks relations as a rail at the right edge, with a dot per node at rest, the arrows on hover or keyboard focus, and the mini graph on click. Phones keep the badge.
+- **Tree lines**: nested issues draw a tighter corner and one unbroken vertical where a later sibling follows, on every client.
+- **Desktop and CLI**: a workflow node keeps its identity across an account switch or a resume, the remote sign-in dialog takes the code from the browser again, and the Agent entry no longer duplicates the Running section's dot.
+- **MCP**: merging a plain pull request based on your default branch no longer reports it as a stacked merge.`,
+  },
+  {
     id: `2026-09-22-release-train`,
     date: `2026-09-22`,
     title: `Release train 2026-09-22`,

@@ -152,13 +152,14 @@ pub fn release_resume(states: &mut HashMap<String, WorkflowState>, session_id: &
 /// foreground) between the pass's read (`before`) and this write is KEPT,
 /// while every entry the pass dropped (past the grace, or no node names it)
 /// goes. Assigning `settled` lost the hold exactly when the pass was busy
-/// with git.
+/// with git. FEED-49: an entry is dropped by VALUE, not by key, so a hold
+/// re-taken meanwhile on a session id the pass read (and aged out) stays.
 pub fn merge_resuming(
     persisted: &mut HashMap<String, i64>,
     before: &HashMap<String, i64>,
     settled: HashMap<String, i64>,
 ) {
-    persisted.retain(|session_id, _| !before.contains_key(session_id));
+    persisted.retain(|session_id, held_at| before.get(session_id) != Some(held_at));
     persisted.extend(settled);
 }
 
@@ -490,6 +491,17 @@ mod tests {
                 .into_iter()
                 .collect::<HashMap<_, _>>()
         );
+    }
+
+    // FEED-49: the pass read `s` at 5 and aged it out; a resume re-took the
+    // hold at 42 meanwhile. The write-back drops what the pass SAW, not the
+    // key, so the fresh hold survives.
+    #[test]
+    fn the_pass_write_back_keeps_a_hold_retaken_on_an_aged_out_id() {
+        let before: HashMap<String, i64> = [("s".to_string(), 5)].into_iter().collect();
+        let mut persisted: HashMap<String, i64> = [("s".to_string(), 42)].into_iter().collect();
+        merge_resuming(&mut persisted, &before, HashMap::new());
+        assert_eq!(persisted, [("s".to_string(), 42)].into_iter().collect::<HashMap<_, _>>());
     }
 
     #[test]

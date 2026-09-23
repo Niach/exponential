@@ -1,0 +1,1 @@
+Automations pick an account, not just an agent: choose the login on the bound machine, shown with its brand mark and email. Nested issue lists draw tighter tree lines, with one unbroken vertical where sub-issues branch off.

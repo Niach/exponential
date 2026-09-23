@@ -6,7 +6,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // Mirrors apps/web/src/lib/trpc/automations.ts (EXP-583). The rows themselves
 // arrive over the `automations` shape (AutomationEntity) — this API carries
@@ -58,30 +63,55 @@ private data class CreateAutomationInput(
     @SerialName("effort") val effort: String? = null,
 )
 
-// The enable toggle's patch: ONLY these two keys travel. The shared Json
-// encodes defaults, so a wider input class would send `"trigger": null` —
-// which the server's schema (optional, NOT nullable) refuses outright, and
-// `"agent": null`, which would silently clear the row's pins.
-@Serializable
-private data class SetAutomationEnabledInput(
-    @SerialName("id") val id: String,
-    @SerialName("enabled") val enabled: Boolean,
+/**
+ * EXP-995: the four launch pins the edit form writes as ONE unit (iOS
+ * `AutomationLaunchPatch` parity). Each null travels as an EXPLICIT JSON null
+ * — "back to the device's launch defaults" — which the server reads as a
+ * clear, where an ABSENT key would mean "keep the stored value".
+ */
+data class AutomationLaunchPatch(
+    val agent: String? = null,
+    /** The agent profile id on the bound device (belongs to [agent]). */
+    val account: String? = null,
+    val model: String? = null,
+    val effort: String? = null,
 )
 
-// The edit form's patch: every field is written, and agent/account/model/
-// effort ride as EXPLICIT nulls meaning "back to the device's launch
-// defaults" (iOS AutomationLaunchPatch parity).
-@Serializable
-private data class UpdateAutomationInput(
-    @SerialName("id") val id: String,
-    @SerialName("actionId") val actionId: String,
-    @SerialName("deviceId") val deviceId: String,
-    @SerialName("trigger") val trigger: JsonObject,
-    @SerialName("agent") val agent: String?,
-    @SerialName("account") val account: String?,
-    @SerialName("model") val model: String?,
-    @SerialName("effort") val effort: String?,
-)
+/**
+ * `automations.update`'s TRI-STATE input (iOS `UpdateInput` parity): `id`
+ * always; every other key OMITTED when the caller did not touch it — the
+ * server reads an absent key as "keep", so the enable toggle really sends
+ * only `{id, enabled}` (a wider class would send `"trigger": null`, which the
+ * server's optional-not-nullable schema refuses outright); and the launch
+ * pins as literal nulls when [launch] clears them. A [JsonObject] rather
+ * than a `@Serializable` class on purpose: the shared Json drops null
+ * properties (`explicitNulls = false`), which collapsed "clear the account
+ * pin" into "keep the old profile" (the `devices.setIcon` reset story).
+ */
+internal fun updateAutomationInput(
+    id: String,
+    actionId: String? = null,
+    deviceId: String? = null,
+    trigger: JsonObject? = null,
+    enabled: Boolean? = null,
+    launch: AutomationLaunchPatch? = null,
+): JsonObject = buildJsonObject {
+    put("id", id)
+    actionId?.let { put("actionId", it) }
+    deviceId?.let { put("deviceId", it) }
+    trigger?.let { put("trigger", it) }
+    enabled?.let { put("enabled", it) }
+    if (launch != null) {
+        put("agent", nullableString(launch.agent))
+        put("account", nullableString(launch.account))
+        put("model", nullableString(launch.model))
+        put("effort", nullableString(launch.effort))
+    }
+}
+
+/** A pin value, or the literal `null` that clears it (blank clears too). */
+private fun nullableString(value: String?): JsonElement =
+    value?.takeIf { it.isNotEmpty() }?.let(::JsonPrimitive) ?: JsonNull
 
 @Serializable
 private data class AutomationIdInput(@SerialName("id") val id: String)
@@ -134,16 +164,17 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
     ): AutomationDto = trpc.mutation(
         accountId,
         path = "automations.update",
-        input = SetAutomationEnabledInput(id = id, enabled = enabled),
-        inputSerializer = SetAutomationEnabledInput.serializer(),
+        input = updateAutomationInput(id = id, enabled = enabled),
+        inputSerializer = JsonObject.serializer(),
         outputSerializer = AutomationMutationResult.serializer(),
     ).automation
 
     /**
      * `automations.update` from the edit form (EXP-615): the target action,
-     * the bound machine, the when-part and the launch pins. Null
-     * [agent]/[account]/[model]/[effort] travel as explicit nulls — "back to
-     * the device's own launch defaults".
+     * the bound machine, the when-part and the launch pins. Every null (or
+     * blank) in [launch] travels as an explicit null — "back to the device's
+     * own launch defaults" — never as an omitted key, which would keep the
+     * stored value (EXP-995: the account pin could not be cleared).
      */
     suspend fun update(
         accountId: String,
@@ -151,24 +182,18 @@ class AutomationsApi @Inject constructor(private val trpc: TrpcClient) {
         actionId: String,
         deviceId: String,
         trigger: AutomationTrigger,
-        agent: String? = null,
-        account: String? = null,
-        model: String? = null,
-        effort: String? = null,
+        launch: AutomationLaunchPatch,
     ): AutomationDto = trpc.mutation(
         accountId,
         path = "automations.update",
-        input = UpdateAutomationInput(
+        input = updateAutomationInput(
             id = id,
             actionId = actionId,
             deviceId = deviceId,
             trigger = trigger.toWireJson(),
-            agent = agent?.takeIf { it.isNotEmpty() },
-            account = account?.takeIf { it.isNotEmpty() },
-            model = model?.takeIf { it.isNotEmpty() },
-            effort = effort?.takeIf { it.isNotEmpty() },
+            launch = launch,
         ),
-        inputSerializer = UpdateAutomationInput.serializer(),
+        inputSerializer = JsonObject.serializer(),
         outputSerializer = AutomationMutationResult.serializer(),
     ).automation
 

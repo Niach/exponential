@@ -199,7 +199,7 @@ export function truncateUtf16(text: string, max: number): string {
   return text.slice(0, splitsPair ? max - 1 : max)
 }
 
-// compat: desktop/CLI <= 0.14.48 clamp preview strings by code POINTS, so a
+// compat: desktop/CLI <= 0.14.47 clamp preview strings by code POINTS, so a
 // 200-char title holding one astral emoji arrives as 201 units. Rejecting it
 // dropped the WHOLE settle frame (remote tool rows never settled), so an
 // over-long string DEGRADES: accepted up to the hard cap, cut to the display

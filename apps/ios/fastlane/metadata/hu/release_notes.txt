@@ -1,6 +1,2 @@
-- Egy fiókválasztó a Claude-hoz és a Codexhez a beviteli mezőben, minden bejelentkezés korlátaival egy helyen és géponként egy alapértelmezett fiókkal; a bejelentkezések az e-mail-címük nevét viselik
-- Egy issue tevékenysége az oda-vissza gyors szerkesztéseket a nettó változásukká fogja össze, a Show all pedig minden eseményt visszahoz
-- Az Exponential felé indított eszközhívások az érintett issue-kat, futásokat és pull requesteket chipként mutatják, amelyekre koppintva előnézet nyílik
-- A folytatott futások egyetlen futásmenü mögé kerülnek, a GitHub gomb a Changes lapon lakik, és a Changes lap megmutatja a változott sorok számát
-- A keresés a nyitott munkát a kész elé sorolja
-- Workflows: minden csomópontot ügynök néz át, mielőtt landolna, és az ellenőrzőkapu beállítása megszűnt
+- Az Automations fiókot választ, nem csak ügynököt: válaszd ki a bejelentkezést a társított gépen, a védjegyével és e-mail-címével együtt
+- A beágyazott issue-listák szorosabb faágvonalakat rajzolnak, elágazásnál egyetlen megszakítatlan függőlegessel

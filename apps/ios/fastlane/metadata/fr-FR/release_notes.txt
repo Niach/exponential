@@ -1,6 +1,2 @@
-- Un seul sélecteur de compte pour Claude et Codex dans le champ de saisie, avec les limites de chaque connexion juste à côté et un compte par défaut par machine ; les connexions portent le nom de leur adresse e-mail
-- L'activité d'une issue replie les allers-retours rapides en leur changement net, et Show all ramène chaque événement
-- Les appels d'outil vers Exponential affichent les issues, les runs et les pull requests qu'ils ont touchés sous forme de pastilles à toucher pour un aperçu
-- Les runs repris tiennent dans un seul menu de run, le bouton GitHub se trouve sur Changes, et la page Changes indique le nombre de lignes modifiées
-- La recherche classe le travail ouvert avant le travail terminé
-- Workflows : chaque nœud est relu par un agent avant d'atterrir, et le réglage du garde-fou de revue a disparu
+- Automations choisit un compte, pas seulement un agent : prends la connexion sur la machine liée, avec sa marque et son adresse e-mail
+- Les listes d'issues imbriquées tracent des lignes d'arbre plus serrées, avec une verticale ininterrompue là où les sous-issues se ramifient

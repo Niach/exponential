@@ -98,7 +98,7 @@ struct AutomationFormSheet: View {
     /// reports), else the first row.
     private var selectedAccount: AccountOption? {
         let options = accountOptions
-        let id = account.isEmpty ? AgentAccountsRows.systemProfileId : account
+        let id = storedProfileId
         return options.first { $0.agent == agent && $0.id == id }
             ?? options.first { $0.agent == agent }
             ?? options.first
@@ -201,39 +201,58 @@ struct AutomationFormSheet: View {
 
     // MARK: - Bindings
 
-    /// Switching machines re-seeds the agent (EXP-615) rather than dropping
-    /// the pin — a binding always names a concrete agent now.
+    /// Switching machines re-seeds the pin (EXP-615) rather than dropping
+    /// it — a binding always names a concrete agent now.
     private var deviceBinding: Binding<String> {
         Binding(
             get: { deviceId },
             set: { value in
                 guard value != deviceId else { return }
                 deviceId = value
-                seedAgentFromDevice()
+                seedAgentFromDevice(rebound: true)
             }
         )
     }
 
     /// Seed (and re-seed) the pin off the bound machine: an unset pin — a
-    /// row saved before EXP-615 carries a NULL agent — or one the newly picked
+    /// row saved before EXP-615 carries a NULL agent — or one the bound
     /// machine cannot run falls back to that machine's DEFAULT ACCOUNT, which
     /// names the agent (EXP-995: the composer's seed), clamped to what it
-    /// advertises. A pin it CAN run is left alone, so a manual pick sticks.
-    /// Model/effort vocabularies are per-agent, so a re-seed clears them to
-    /// the "CLI default" blank.
-    private func seedAgentFromDevice() {
+    /// advertises. Model/effort vocabularies are per-agent, so an agent
+    /// change clears them to the "CLI default" blank.
+    ///
+    /// A pin the machine CAN run is left alone on the first bind, so a manual
+    /// pick sticks — but a profile id (`agent_profiles`) is DEVICE-LOCAL, so
+    /// `rebound` (the machine row just switched) re-seeds it from the NEW
+    /// machine: the same agent's login there (its active one first, exactly
+    /// the row `selectedAccount` would read back), so what the sheet shows is
+    /// what Save stores rather than a stale id from the previous machine.
+    private func seedAgentFromDevice(rebound: Bool = false) {
         guard selectedDevice != nil else { return }
-        guard agent.isEmpty || !availableAgents.contains(agent) else { return }
+        let runsPinnedAgent = !agent.isEmpty && availableAgents.contains(agent)
+        guard rebound || !runsPinnedAgent else { return }
         let options = accountOptions
-        if let fallback = options.first(where: \.isDeviceDefault) ?? options.first {
+        let fallback: AccountOption? = runsPinnedAgent
+            ? options.first { $0.agent == agent && $0.id == storedProfileId }
+                ?? options.first { $0.agent == agent }
+            : options.first(where: \.isDeviceDefault) ?? options.first
+        let previousAgent = agent
+        if let fallback {
             agent = fallback.agent
             account = fallback.id == AgentAccountsRows.systemProfileId ? "" : fallback.id
         } else {
             agent = LaunchVocabulary.defaultAgent(of: selectedDevice)
             account = ""
         }
+        guard agent != previousAgent else { return }
         model = LaunchVocabulary.cliDefault
         effort = LaunchVocabulary.cliDefault
+    }
+
+    /// The pin's profile id as an option row carries it (`system` = the
+    /// ambient login the blank stores as NULL).
+    private var storedProfileId: String {
+        account.isEmpty ? AgentAccountsRows.systemProfileId : account
     }
 
     private func selectAgent(_ value: String) {

@@ -1,6 +1,2 @@
-- Én kontovelger for Claude og Codex i skrivefeltet, med grensene til hver innlogging ved siden av og en standardkonto per maskin; innloggingene heter det samme som e-posten sin
-- Aktiviteten til et issue folder raske fram og tilbake-endringer sammen til nettoendringen, og Show all henter fram hver hendelse igjen
-- Verktøykall til Exponential viser issuene, kjøringene og pull requestene de rørte som chips du kan trykke på for en forhåndsvisning
-- Gjenopptatte kjøringer ligger bak én kjøringsmeny, GitHub-knappen bor på Changes, og Changes-siden viser antall endrede linjer
-- Søket setter åpent arbeid foran ferdig arbeid
-- Workflows: hver node blir gjennomgått av en agent før den lander, og innstillingen for gjennomgangsporten er borte
+- Automations velger en konto, ikke bare en agent: velg innloggingen på den tilknyttede maskinen, vist med merket og e-postadressen sin
+- Nestede issue-lister tegner tettere trelinjer, med én ubrutt loddrett strek der underissues greiner seg av

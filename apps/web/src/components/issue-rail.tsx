@@ -18,9 +18,10 @@ import { IssueBlocksPopover } from "@/components/issue-blocks-badge"
 //
 // AT REST only the nodes show: a small dot flush with the row's right edge —
 // a ring in red when something open is in the issue's way, a filled dot when
-// the issue only blocks others. That is the hint. Hovering a dot (or the
-// rail) marks the list `data-rail-open` and the arrows fade in to the LEFT
-// of the dots: every edge leaves its blocker's node on a smooth S-curve out
+// the issue only blocks others. That is the hint. Hovering or focusing a dot
+// (or hovering the rail) marks the list `data-rail-open` and the arrows fade
+// in to the LEFT of the dots: every edge leaves its blocker's node on a
+// smooth S-curve out
 // to its lane, runs the lane straight, and curves back into the blocked node
 // under an arrowhead, the hovered node's own edges in the foreground. The
 // list collapses again a beat after the pointer leaves. A CLICK on a dot
@@ -178,7 +179,10 @@ function LaneSlice({ lane, width }: { lane: RailLane; width: number }) {
 
 /** The lanes of one entry — the SVG shared by rows and gaps. Hidden until
  *  the list is `data-rail-open`, then fading in with a slide out of the
- *  node column. */
+ *  node column. The svg's own box NEVER takes the pointer: hit testing lives
+ *  on each slice's wide hit stroke alone, so what sits under the layer (a
+ *  group header's "+" button under the node column) stays clickable while
+ *  the arrows linger. */
 function RailLanes({ lanes, width }: { lanes: RailLane[]; width: number }) {
   if (lanes.length === 0) return null
   return (
@@ -186,7 +190,7 @@ function RailLanes({ lanes, width }: { lanes: RailLane[]; width: number }) {
       aria-hidden
       focusable="false"
       width={width}
-      className="pointer-events-none absolute inset-y-0 left-0 h-full translate-x-1.5 opacity-0 transition-[opacity,transform] duration-fast ease-standard group-data-[rail-open]/rail:translate-x-0 group-data-[rail-open]/rail:opacity-100 group-data-[rail-open]/rail:pointer-events-auto motion-reduce:transition-none"
+      className="pointer-events-none absolute inset-y-0 left-0 h-full translate-x-1.5 opacity-0 transition-[opacity,transform] duration-fast ease-standard group-data-[rail-open]/rail:translate-x-0 group-data-[rail-open]/rail:opacity-100 motion-reduce:transition-none"
       data-testid="issue-rail-lanes"
     >
       <svg x="0" y="50%" width={width} height="100%" style={{ overflow: `visible` }}>
@@ -199,8 +203,9 @@ function RailLanes({ lanes, width }: { lanes: RailLane[]; width: number }) {
 }
 
 /** The node dot, the popover's trigger: forwards Radix's props onto the
- *  button. Hover reveals the arrows and lights this node's own edges; the
- *  click (Radix's) opens the graph. */
+ *  button. Hover OR keyboard focus reveals the arrows and lights this node's
+ *  own edges (a tabbing user sees the same rail a pointer does); the click
+ *  (Radix's) opens the graph. */
 const RailNodeButton = forwardRef<
   HTMLButtonElement,
   {
@@ -209,9 +214,17 @@ const RailNodeButton = forwardRef<
     edgeKeys: string[]
   } & Omit<ComponentProps<`button`>, `children`>
 >(function RailNodeButton(
-  { kind, label, edgeKeys, onMouseEnter, onMouseLeave, ...rest },
+  { kind, label, edgeKeys, onMouseEnter, onMouseLeave, onFocus, onBlur, ...rest },
   ref
 ) {
+  const enter = (el: Element) => {
+    setRailOpen(el, true)
+    setHot(el, edgeKeys, true)
+  }
+  const leave = (el: Element) => {
+    setHot(el, edgeKeys, false)
+    setRailOpen(el, false)
+  }
   return (
     <button
       ref={ref}
@@ -226,14 +239,20 @@ const RailNodeButton = forwardRef<
       // underneath (which would open the issue).
       onClick={(event) => event.stopPropagation()}
       onMouseEnter={(event) => {
-        setRailOpen(event.currentTarget, true)
-        setHot(event.currentTarget, edgeKeys, true)
+        enter(event.currentTarget)
         onMouseEnter?.(event)
       }}
       onMouseLeave={(event) => {
-        setHot(event.currentTarget, edgeKeys, false)
-        setRailOpen(event.currentTarget, false)
+        leave(event.currentTarget)
         onMouseLeave?.(event)
+      }}
+      onFocus={(event) => {
+        enter(event.currentTarget)
+        onFocus?.(event)
+      }}
+      onBlur={(event) => {
+        leave(event.currentTarget)
+        onBlur?.(event)
       }}
       {...rest}
     >

@@ -1,6 +1,2 @@
-- Eén accountkiezer voor Claude en Codex in het schrijfveld, met de limieten van elke login ernaast en een standaardaccount per machine; logins dragen de naam van hun e-mailadres
-- De activiteit van een issue vouwt snelle heen-en-weerbewerkingen samen tot hun nettowijziging, en Show all haalt elke gebeurtenis terug
-- Toolaanroepen naar Exponential tonen de issues, runs en pull requests die ze raakten als chips die je aantikt voor een voorbeeld
-- Hervatte runs zitten achter één runmenu, de GitHub-knop woont op Changes, en het Changes-scherm toont het aantal gewijzigde regels
-- De zoekfunctie zet open werk boven afgerond werk
-- Workflows: elke knoop wordt door een agent nagekeken voordat hij landt, en de instelling voor de beoordelingspoort is weg
+- Automations kiest een account, niet alleen een agent: neem de login op de gekoppelde machine, met zijn merkteken en e-mailadres
+- Geneste issuelijsten tekenen strakkere boomlijnen, met één ononderbroken verticaal waar subissues aftakken
