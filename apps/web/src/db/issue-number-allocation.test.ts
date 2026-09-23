@@ -56,6 +56,29 @@ describe(`issue number allocation`, () => {
     expect(triggersSql).not.toMatch(/COALESCE\(MAX\(number\), 0\) \+ 1/)
   })
 
+  // EXP-630: a tracker import supplies the source number so identifiers
+  // survive migration. The explicit branch must still go through the counter
+  // upsert (same row lock as ordinary inserts) and clamp the counter PAST the
+  // supplied number so later allocations can never collide with it — and the
+  // ordinary allocation must remain for every insert that leaves number at
+  // its drizzle default of 0.
+  it(`generate_issue_number honours an explicitly supplied number and clamps the counter past it`, () => {
+    const body = triggersSql.slice(
+      triggersSql.indexOf(`CREATE OR REPLACE FUNCTION generate_issue_number()`),
+      triggersSql.indexOf(`CREATE OR REPLACE TRIGGER generate_issue_number`)
+    )
+    expect(body).toContain(`IF NEW.number IS NOT NULL AND NEW.number > 0 THEN`)
+    expect(body).toContain(
+      `SET counter = GREATEST(c.counter, current_max, NEW.number)`
+    )
+    expect(body).toContain(`next_number := NEW.number;`)
+    // The ordinary path is untouched behind the ELSE.
+    expect(body).toContain(`SET counter = GREATEST(c.counter, current_max) + 1`)
+    expect(body).toContain(`RETURNING counter INTO next_number`)
+    // Both branches still derive the identifier from the board prefix.
+    expect(body).toContain(`NEW.identifier := board_prefix || '-' || next_number;`)
+  })
+
   it(`issue_number_counters gets the shared update_updated_at trigger`, () => {
     expect(triggersSql).toContain(
       `CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON issue_number_counters`

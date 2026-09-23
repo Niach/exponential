@@ -58,6 +58,29 @@ describe(`SETTINGS_NAV Statuses entry`, () => {
   })
 })
 
+// EXP-630: Import (the tracker migration wizard) closes the Team group after
+// Storage and is owner-only — it creates boards, statuses and issues.
+describe(`SETTINGS_NAV Import entry (EXP-630)`, () => {
+  const team: SettingsNavContext = { isCloud: false }
+
+  it(`follows Storage at the end of the Team group`, () => {
+    const teamGroup = SETTINGS_NAV.find((group) => group.group === `Team`)!
+    const storage = teamGroup.items.findIndex((item) => item.label === `Storage`)
+    const importIndex = teamGroup.items.findIndex(
+      (item) => item.label === `Import`
+    )
+    expect(importIndex).toBe(storage + 1)
+    expect(importIndex).toBe(teamGroup.items.length - 1)
+    expect(teamGroup.items[importIndex].to).toBe(`/t/$teamSlug/settings/import`)
+  })
+
+  it(`is owner-only`, () => {
+    const entry = items.find((item) => item.label === `Import`)!
+    expect(entry.visible(permissionsFor(`owner`), team)).toBe(true)
+    expect(entry.visible(permissionsFor(`member`), team)).toBe(false)
+  })
+})
+
 // EXP-238: the Personal group merges account settings into the one settings
 // surface. Always visible, and LAST — the index redirect must keep landing
 // on a team section, never a personal one.

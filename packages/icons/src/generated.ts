@@ -505,6 +505,7 @@ export const SEMANTIC_ICONS = {
   "settings-boards": `square-kanban`,
   "settings-general": `building-2`,
   "settings-helpdesk": `life-buoy`,
+  "settings-import": `download`,
   "settings-labels": `tag`,
   "settings-licenses": `scale`,
   "settings-local-repos": `hard-drive`,

@@ -144,6 +144,7 @@
     "settings-boards": "square-kanban",
     "settings-billing": "credit-card",
     "settings-storage": "hard-drive",
+    "settings-import": "download",
     "settings-widget": "message-square-plus",
     "settings-helpdesk": "life-buoy",
     "settings-repositories": "github",

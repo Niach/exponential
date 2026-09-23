@@ -615,6 +615,8 @@ pub const SETTINGS_BOARDS: ExpIcon = ExpIcon::SquareKanban;
 pub const SETTINGS_GENERAL: ExpIcon = ExpIcon::Building2;
 /// Registry concept `settings-helpdesk` -> Lucide `life-buoy`.
 pub const SETTINGS_HELPDESK: ExpIcon = ExpIcon::LifeBuoy;
+/// Registry concept `settings-import` -> Lucide `download`.
+pub const SETTINGS_IMPORT: ExpIcon = ExpIcon::Download;
 /// Registry concept `settings-labels` -> Lucide `tag`.
 pub const SETTINGS_LABELS: ExpIcon = ExpIcon::Tag;
 /// Registry concept `settings-licenses` -> Lucide `scale`.

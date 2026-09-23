@@ -427,6 +427,7 @@ const SCHEDULER_LABELS: Record<string, string> = {
   "session-attachment-sweep": `Steer image reclaim`,
   "fcm-token-sweep": `FCM token sweep`,
   "device-code-sweep": `Device code sweep`,
+  "import-worker": `Tracker imports`,
 }
 
 function GraphCard({

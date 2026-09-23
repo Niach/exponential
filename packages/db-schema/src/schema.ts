@@ -2839,6 +2839,87 @@ export const mcpGrants = pgTable(
   (table) => [unique().on(table.userId, table.clientId)]
 )
 
+// EXP-630: tracker imports (Linear today; any adapter that produces an
+// ImportBundle tomorrow). SERVER-ONLY, tRPC-managed — never an Electric
+// shape. One row per wizard run: the pasted credential lives here ONLY while
+// the job is live (nulled by the same UPDATE that reaches a terminal state
+// and by the worker's 24h sweep), `payload` holds the adapter's snapshot (or
+// the raw bundle for `source='bundle'`), `preview`/`plan`/`progress`/`counts`
+// are the wizard's read model. `status` is a documented varchar (draft |
+// previewing | ready | running | completed | failed | cancelled) — zod-typed
+// in apps/web/src/lib/import/bundle.ts, no pg enum (nothing syncs it).
+// `claim_token` fences the worker: every write while running carries it, so a
+// replica that lost its claim (stale heartbeat, reclaimed elsewhere) aborts
+// instead of writing over the new owner.
+export const importJobs = pgTable(
+  `import_jobs`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    createdByUserId: text(`created_by_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    source: varchar({ length: 32 }).notNull(),
+    status: varchar({ length: 16 }).notNull().default(`draft`),
+    credential: text(),
+    payload: jsonb(),
+    preview: jsonb(),
+    plan: jsonb(),
+    progress: jsonb(),
+    counts: jsonb(),
+    error: text(),
+    claimToken: uuid(`claim_token`),
+    claimedAt: timestamp(`claimed_at`, { withTimezone: true }),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    finishedAt: timestamp(`finished_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_import_jobs_team`).on(table.teamId, table.createdAt),
+    index(`idx_import_jobs_live`)
+      .on(table.status)
+      .where(sql`status in ('previewing', 'ready', 'running')`),
+  ]
+)
+
+// EXP-630: external id → local id, one row per imported entity. The unique
+// index IS the idempotency key: a crashed job resumes past what it already
+// wrote, a re-run of the same source creates nothing new, and a later
+// incremental re-sync would key on it. `external_ref` keeps the human handle
+// (e.g. `MET-1092`) for boards that had to renumber.
+export const importEntityMap = pgTable(
+  `import_entity_map`,
+  {
+    id: uuidPk(),
+    jobId: uuid(`job_id`)
+      .notNull()
+      .references(() => importJobs.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    source: varchar({ length: 32 }).notNull(),
+    // board | status | label | user | issue | comment | attachment
+    externalKind: varchar(`external_kind`, { length: 16 }).notNull(),
+    externalId: text(`external_id`).notNull(),
+    externalRef: text(`external_ref`),
+    localId: text(`local_id`).notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex(`uniq_import_entity_map_external`).on(
+      table.teamId,
+      table.source,
+      table.externalKind,
+      table.externalId
+    ),
+    index(`idx_import_entity_map_job`).on(table.jobId),
+  ]
+)
+
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------

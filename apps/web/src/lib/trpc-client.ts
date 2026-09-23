@@ -23,6 +23,7 @@ const ROUTER_NOUNS: Record<string, string> = {
   teamInvites: `the invite`,
   notifications: `notifications`,
   subscriptions: `the subscription`,
+  imports: `the import`,
 }
 
 const METHOD_VERBS: Record<string, string> = {

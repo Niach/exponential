@@ -613,6 +613,8 @@ public enum AppIcons {
     public static let settingsGeneral: String = "building-2"
     /// Concept `settings-helpdesk`.
     public static let settingsHelpdesk: String = "life-buoy"
+    /// Concept `settings-import`.
+    public static let settingsImport: String = "download"
     /// Concept `settings-labels`.
     public static let settingsLabels: String = "tag"
     /// Concept `settings-licenses`.

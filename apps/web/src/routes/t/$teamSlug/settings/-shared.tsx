@@ -26,6 +26,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/statuses`
   | `/t/$teamSlug/settings/billing`
   | `/t/$teamSlug/settings/storage`
+  | `/t/$teamSlug/settings/import`
   | `/t/$teamSlug/settings/boards/archived`
   | `/t/$teamSlug/settings/repositories`
   | `/t/$teamSlug/settings/widget`
@@ -95,6 +96,15 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
         label: `Storage`,
         to: `/t/$teamSlug/settings/storage`,
         icon: conceptIcon(`settings-storage`),
+        visible: (permissions) => permissions.isOwner,
+      },
+      // EXP-630: the tracker-import wizard (Linear today). Owner-only and
+      // web-only, like Billing: it creates boards, statuses and hundreds of
+      // issues under the owner's name.
+      {
+        label: `Import`,
+        to: `/t/$teamSlug/settings/import`,
+        icon: conceptIcon(`settings-import`),
         visible: (permissions) => permissions.isOwner,
       },
     ],
