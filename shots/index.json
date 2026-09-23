@@ -179,8 +179,8 @@
         "file": "shots/automations/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22762,
-        "sha256": "a55080f31bb9a701001bbf7a353eac64bcc22f01f75c53931fd81950887104cc"
+        "bytes": 23984,
+        "sha256": "966e6c38d13f716e7aeae529272fb0b564602be42f5b6cf9da081a78d5c540f0"
       },
       "desktop": {
         "file": "shots/automations/desktop.webp",
@@ -193,8 +193,8 @@
         "file": "shots/automations/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 27254,
-        "sha256": "f6e8f0ee8d892241f537b4ee03368c8426bacd6002c854128219642dc7c4f879"
+        "bytes": 27768,
+        "sha256": "b0f9fe18f6c10fad47cecc8635304e1715a4d1c5c4cfb908f172fe9a0c2d9365"
       },
       "web": {
         "file": "shots/automations/web.webp",
