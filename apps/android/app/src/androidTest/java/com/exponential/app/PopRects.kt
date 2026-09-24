@@ -51,7 +51,9 @@ object PopRects {
      * pop-out.
      *
      * The tags live on the product composables (`issue-description`,
-     * `agent-composer` + `agent-options-row`, `agent-feed-question`,
+     * `agent-composer-headline` (EXP-1038: the run's subject moved out of the
+     * card, so the pop-out has to take it in) + `agent-composer` +
+     * `agent-options-row`, `agent-feed-question`,
      * `pr-merge-bar`, `notification-row`, plus the pre-existing `action-row`,
      * `support-thread-row` and the EXP-642 `issue-row-<identifier>`) and are
      * mirrored 1:1 as iOS accessibility identifiers.
@@ -59,7 +61,7 @@ object PopRects {
     val IDENTIFIERS: Map<String, List<String>> = mapOf(
         "1_board" to listOf("issue-row-APP-5"),
         "2_issue-detail" to listOf("issue-description"),
-        "3_start-coding" to listOf("agent-composer", "agent-options-row"),
+        "3_start-coding" to listOf("agent-composer-headline", "agent-composer", "agent-options-row"),
         "4_steering" to listOf("agent-feed-question"),
         "5_review" to listOf("pr-merge-bar"),
         "6_actions" to listOf("action-row"),

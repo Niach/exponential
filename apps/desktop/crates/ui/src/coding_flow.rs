@@ -1629,7 +1629,10 @@ pub(crate) fn follow_remote_start(
     cx: &mut App,
 ) {
     let known: HashSet<String> = session_ids(cx);
-    let handle = window.window_handle();
+    // EXP-1037: the run opens SECONDS from now, in a window that still
+    // exists then — a composer DIALOG has closed itself by that point, so the
+    // wait is pinned to the window that opened it.
+    let handle = crate::navigation::deferred_open_window(window, cx);
     cx.spawn(async move |cx| {
         let deadline = std::time::Instant::now() + REMOTE_OPEN_WAIT;
         loop {

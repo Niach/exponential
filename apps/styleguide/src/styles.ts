@@ -135,7 +135,7 @@ body {
 code, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
 a { color: inherit; text-decoration: none; }
 
-.layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 100vh; }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; }
 
 /* Sidebar */
 .sidebar {
@@ -152,7 +152,7 @@ a { color: inherit; text-decoration: none; }
 .brand h1 { font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; color: var(--muted-fg); }
 .brand p { margin: 4px 0 0; font-size: 12px; color: var(--muted-fg); }
 .filter-wrap { position: sticky; top: 0; z-index: 2; padding: 8px 12px 10px; background: var(--sidebar); }
-/* EXP-941 — the three modes, as the product's own segmented capsule: 36 tall,
+/* EXP-941/EXP-1019 — the four sections, as the product's own segmented capsule: 36 tall,
    padding 3, the section fill under the section stroke, and the picked segment
    taking the active fill. It rides the sticky block with the filter, because
    the two are one control: pick a mode, then narrow it. */
@@ -167,9 +167,9 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--stroke-section);
 }
 .mode-btn {
-  /* Grow from the LABEL, never from an equal third: a third of the sidebar is
-     narrower than the word Components, and a mode bar that ellipsises its own
-     mode names is worse than an uneven one. */
+  /* Grow from the LABEL, never from an equal quarter: a quarter of the sidebar
+     is narrower than the words it holds, and a section bar that ellipsises its
+     own section names is worse than an uneven one. */
   flex: 1 1 auto;
   min-width: 0;
   display: inline-flex;
@@ -192,12 +192,21 @@ a { color: inherit; text-decoration: none; }
 .mode-btn .count { flex: none; font-size: 11px; color: var(--muted-fg); }
 .mode-btn[aria-pressed="true"] .count { color: var(--fg-70); }
 
-/* One mode's nav at a time — and one mode's sections, since a .view is already
-   hidden unless it is the active entry. */
+/* One section's nav at a time — and one section's entries, since a .view is
+   already hidden unless it is the active one. The four ids are the contract's
+   (sections/sections.json). */
 .mode-section { display: none; }
-body[data-mode="views"] .mode-section[data-mode="views"],
-body[data-mode="components"] .mode-section[data-mode="components"],
-body[data-mode="style"] .mode-section[data-mode="style"] { display: block; }
+body[data-mode="style"] .mode-section[data-mode="style"],
+body[data-mode="general"] .mode-section[data-mode="general"],
+body[data-mode="special"] .mode-section[data-mode="special"],
+body[data-mode="views"] .mode-section[data-mode="views"] { display: block; }
+/* The section's own line, straight from the contract's blurb. */
+.section-blurb {
+  margin: 2px 12px 10px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--fg-50);
+}
 /* The size toggle and the shot hints only mean anything against a screenshot. */
 body:not([data-mode="views"]) .views-only { display: none; }
 .filter {
