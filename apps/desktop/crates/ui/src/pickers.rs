@@ -91,6 +91,24 @@ pub(crate) fn chip_label(
 /// A shadcn `CommandItem`-style popover row: px-2 py-1 text-sm, glass row
 /// fill on hover (also the board filter popover's row shape).
 pub(crate) fn picker_row(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<gpui::Div> {
+    picker_row_filled(id, None, Some(t::glass::FILL_ROW.to_hsla()), cx)
+}
+
+/// [`picker_row`] with BOTH of its fills said outright: what it paints at
+/// rest and what it paints under the pointer.
+///
+/// EXP-1045 review: gpui's hover refinement REPLACES `background` rather than
+/// compositing over it, so a row that already carries a fill of its own (the
+/// picker primitive's selection wash) loses that mark the moment the pointer
+/// touches it. The two fills therefore have to be composed by the CALLER and
+/// handed in together — one `bg` for the resting state, one for the hovered
+/// one, and `hover` may only be called once per element.
+pub(crate) fn picker_row_filled(
+    id: impl Into<ElementId>,
+    rest: Option<gpui::Hsla>,
+    hovered: Option<gpui::Hsla>,
+    cx: &App,
+) -> gpui::Stateful<gpui::Div> {
     use gpui::InteractiveElement as _;
     div()
         .id(id)
@@ -103,7 +121,8 @@ pub(crate) fn picker_row(id: impl Into<ElementId>, cx: &App) -> gpui::Stateful<g
         .rounded(cx.theme().radius)
         .text_sm()
         .cursor_pointer()
-        .hover(|style| style.bg(t::glass::FILL_ROW.to_hsla()))
+        .when_some(rest, |row, fill| row.bg(fill))
+        .when_some(hovered, |row, fill| row.hover(move |style| style.bg(fill)))
 }
 
 /// The `CommandEmpty` fallback of a searchable picker.
@@ -318,14 +337,35 @@ pub(crate) fn step_picker_selection(
     }
 }
 
-/// The web `SelectionGlyph`: the mark a picker row wears, by arity. `None`
-/// for an unpicked single row — that one carries nothing, and a MULTI row
-/// carries nothing either: EXP-1021 made its highlight the mark.
+/// The web `SelectionGlyph`: the mark a row wears, by arity. A single row
+/// carries a trailing check when it is picked and NOTHING when it is not; a
+/// MULTI row carries the circle pair, filled or empty, because a tick list
+/// has to say "not ticked" as loudly as "ticked".
+///
+/// EXP-1021 gave the PICKER primitive a different multi language — the row's
+/// own highlight is the mark there, so `picker::render_search` never asks for
+/// a multi glyph. The multi arm lives on for the tick lists that are not
+/// pickers (the launch dialog's MCP servers), where it is the row's only
+/// state cue.
 pub(crate) fn selection_glyph(multi: bool, state: SelectionState, cx: &App) -> Option<Icon> {
+    let selected = state == SelectionState::Selected;
     if multi {
-        return None;
+        return Some(
+            Icon::new(if selected {
+                registry::UI_SELECTED
+            } else {
+                registry::UI_UNSELECTED
+            })
+            .size(px(14.))
+            .flex_shrink_0()
+            .text_color(if selected {
+                cx.theme().foreground
+            } else {
+                cx.theme().muted_foreground
+            }),
+        );
     }
-    (state == SelectionState::Selected).then(|| {
+    selected.then(|| {
         Icon::new(registry::UI_CHECK)
             .size(px(14.))
             .flex_shrink_0()

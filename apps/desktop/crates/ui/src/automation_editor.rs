@@ -108,6 +108,11 @@ pub(crate) struct DeviceOption {
     /// automation's `device_id` and what the host matches itself against.
     pub(crate) device_id: String,
     pub(crate) label: String,
+    /// EXP-924's stored device glyph (`contract::DEVICE_ICON_VALUES`), read
+    /// only through `icons::device_icon` — with [`Self::server`] for the
+    /// kind default when the row names none.
+    pub(crate) icon: Option<String>,
+    pub(crate) server: bool,
     pub(crate) online: bool,
     /// The agent CLIs the machine advertises — the Agent picker offers
     /// exactly these (the server re-checks the pin against the same list).
@@ -915,45 +920,52 @@ impl AutomationEditorState {
             )]);
         }
         let view = cx.entity().downgrade();
-        let menu_devices = devices.clone();
         let bound = self.device_id.clone();
         let trigger = picker_trigger(
             format!("{prefix}-device").into(),
             picked.clone().unwrap_or_else(|| "Select device…".into()),
             cx,
         )
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            for device in &menu_devices {
-                let view = view.clone();
-                let device_id = device.device_id.clone();
-                // EXP-615: every automation-capable machine reads the
-                // same. Offline-but-capable is not a lesser choice — the
-                // run fires when the machine comes back (the offline
-                // catch-up rule) — so the picker carries no online
-                // decoration at all; the Automations LIST shows presence.
-                let label = device.label.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(label))
-                        .checked(bound.as_deref() == Some(device_id.as_str()))
-                        .on_click(move |_, _, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let device_id = device_id.clone();
-                                view.update(cx, |view, cx| {
-                                    access(view).rebind_device(device_id, cx);
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                );
-            }
-            menu
-        });
-        surface::glass_group_rows(vec![surface::glass_picker_row(
-            "Runs on",
-            None,
-            trigger.into_any_element(),
-            cx,
-        )])
+        .into_any_element();
+        // EXP-1021: THE device picker — the same rows the composer and the
+        // workflow runner row draw, each machine by its own glyph.
+        // EXP-615: every automation-capable machine reads the same.
+        // Offline-but-capable is not a lesser choice — the run fires when the
+        // machine comes back (the offline catch-up rule) — so no row is
+        // disabled and none carries an online decoration; the Automations
+        // LIST shows presence.
+        let rows: Vec<crate::picker::device_picker::DevicePickerDevice> = devices
+            .iter()
+            .map(|device| crate::picker::device_picker::DevicePickerDevice {
+                id: device.device_id.clone(),
+                name: device.label.clone(),
+                icon: device.icon.clone(),
+                server: device.server,
+                description: None,
+                disabled: false,
+            })
+            .collect();
+        let control = crate::picker::deferred(move |window, cx| {
+            crate::picker::device_picker::device_picker(
+                &rows,
+                bound,
+                trigger,
+                std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                    let (Some(view), Some(device_id)) = (view.upgrade(), next.into_iter().next())
+                    else {
+                        return;
+                    };
+                    view.update(cx, |view, cx| {
+                        access(view).rebind_device(device_id, cx);
+                        cx.notify();
+                    });
+                }),
+            )
+            .id(SharedString::from(format!("{prefix}-device-picker")))
+            .render(window, cx)
+        })
+        .into_any_element();
+        surface::glass_group_rows(vec![surface::glass_picker_row("Runs on", None, control, cx)])
     }
 
     /// Account / Model / Effort — the optional pins. EXP-995: the agent strip
@@ -1217,6 +1229,8 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
             }
             Some(DeviceOption {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
+                icon: row.icon.clone(),
+                server: row.is_server(),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
                 agents,
                 default_agent,
