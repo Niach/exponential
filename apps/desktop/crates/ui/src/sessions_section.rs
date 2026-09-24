@@ -16,11 +16,14 @@
 //! ([`RecentRunsNav`], `shell::LeftOccupant::RecentRuns`) — the composer's
 //! page is a composer and nothing else.
 //!
-//! EXP-827: both NEST — a run started by another run through
-//! `exponential_sessions_start` sits under it
-//! ([`domain::session_tree::nest_sessions`], the rail's rule) behind a fold
-//! chevron, so a parent's subtree can be collapsed out of the way. EXP-965:
-//! the nesting draws a tree connector ([`domain::tree_guides`]).
+//! EXP-827/EXP-996: both NEST — a run started by another run through
+//! `exponential_sessions_start` sits under it, a resume succession collapses
+//! into ONE row, and the runs of one workflow or one PR stack fold under a
+//! GROUP row ([`domain::session_tree::session_tree`], the ×4 rule; EXP-1049
+//! draws it here). Everything folds behind the same chevron, keyed by
+//! [`domain::session_tree::session_tree_node_key`], so a group folds exactly
+//! like a parent run. EXP-965: the nesting draws a tree connector
+//! ([`domain::tree_guides`]).
 
 use std::collections::HashSet;
 
@@ -67,9 +70,6 @@ pub(crate) struct RailRunRow {
     /// The issue the run belongs to — the row stays highlighted while EITHER
     /// face of that work is on screen (EXP-870's Issue | Run pair).
     pub(crate) issue_id: Option<String>,
-    /// EXP-827: where the row sits in the session TREE.
-    pub(crate) depth: usize,
-    pub(crate) has_children: bool,
     /// EXP-876: the issue's identifier, a batch's `EXP-874 +2`, else none.
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: SharedString,
@@ -91,18 +91,48 @@ pub(crate) struct RailRunRow {
     pub(crate) paused: bool,
 }
 
+/// EXP-996 — one flattened row of a session TREE: a built run row, or the
+/// GROUP row its workflow / stack folds under. `key` is
+/// [`domain::session_tree::session_tree_node_key`]'s, which is what
+/// [`drop_collapsed`] and [`fold_for`] are keyed by — a group folds exactly
+/// like a parent run.
+pub(crate) struct SessionTreeRow<T> {
+    pub(crate) key: String,
+    pub(crate) depth: usize,
+    pub(crate) has_children: bool,
+    pub(crate) kind: SessionTreeRowKind<T>,
+}
+
+pub(crate) enum SessionTreeRowKind<T> {
+    Run(T),
+    /// A workflow / stack band: structure, not work (no dot, no device, no
+    /// Stop).
+    Group(run_rows::SessionGroupFacts),
+}
+
+impl<T> SessionTreeRow<T> {
+    /// The run the row draws, `None` on a group row.
+    pub(crate) fn run(&self) -> Option<&T> {
+        match &self.kind {
+            SessionTreeRowKind::Run(run) => Some(run),
+            SessionTreeRowKind::Group(_) => None,
+        }
+    }
+}
+
 /// The user's live sessions: the ones on OTHER machines
 /// ([`queries::remote_session_rows`], the retired dock's projection) union the
-/// ones this process hosts, newest start first and NESTED by
-/// `parent_session_id`.
+/// ones this process hosts, as the EXP-996 TREE — resume successions collapsed,
+/// children under their parent, workflow and stack runs under group rows,
+/// top level newest activity first.
 ///
 /// Not team-scoped, deliberately: "my live sessions" is one list, the way the
 /// dock's strip always read it — a run on another team's board is still a run
 /// of yours that is going right now.
 fn live_run_tree<T>(
     cx: &mut App,
-    build: impl Fn(&domain::rows::CodingSession, usize, bool, Option<&LocalSessionHost>, i64, &App) -> T,
-) -> Vec<T> {
+    build: impl Fn(&domain::rows::CodingSession, Option<&LocalSessionHost>, i64, &App) -> T,
+) -> Vec<SessionTreeRow<T>> {
     // Everything that needs `&mut App` first — the collection reads below
     // borrow it immutably for the rest of the function.
     let Some(me) = queries::active_account(cx).map(|account| account.user_id) else {
@@ -152,21 +182,46 @@ fn live_run_tree<T>(
     if rows.is_empty() {
         return Vec::new();
     }
+    // The tree orders itself (activity, newest first); this only makes the
+    // input stable, so its first-wins tie-breaks never depend on the
+    // collection's iteration order.
     rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
-    // EXP-827: nest a run started BY a run under it, the ONE rule the rail
-    // and the mobile lists use. The sort above is the ROOT order; children
-    // follow their parent, oldest first.
-    let tree = domain::session_tree::nest_sessions(
+    flatten_session_tree(rows, queries::session_tree_inputs(cx), |session| {
+        let host = hosts
+            .iter()
+            .find(|(id, _)| id == &session.id)
+            .map(|(_, host)| host);
+        build(session, host, now, cx)
+    })
+}
+
+/// EXP-996 — the shared half of every session list: the rows as a TREE
+/// ([`domain::session_tree::session_tree`]), flattened with their depths, each
+/// row turned into whatever the list draws. The collapsed set is applied
+/// LATER, in the render ([`drop_collapsed`]), so folding costs no re-derive.
+fn flatten_session_tree<T>(
+    rows: Vec<&domain::rows::CodingSession>,
+    inputs: queries::SessionTreeInputs,
+    mut build_run: impl FnMut(&domain::rows::CodingSession) -> T,
+) -> Vec<SessionTreeRow<T>> {
+    let tree = domain::session_tree::session_tree(
         rows,
-        |session| session.id.as_str(),
-        |session| session.parent_session_id.as_deref(),
-        |session| session.started_at.as_deref(),
+        |session: &&domain::rows::CodingSession| domain::session_tree::coding_session_facts(session),
+        &inputs.context(),
     );
-    tree.into_iter()
-        .map(|tree_row| {
-            let session = tree_row.session;
-            let host = hosts.iter().find(|(id, _)| id == &session.id).map(|(_, host)| host);
-            build(session, tree_row.depth, tree_row.has_children, host, now, cx)
+    domain::session_tree::visible_session_tree_rows(&tree, &HashSet::new())
+        .into_iter()
+        .map(|flat| SessionTreeRow {
+            key: flat.key,
+            depth: flat.depth,
+            has_children: flat.has_children,
+            kind: match flat.node.session() {
+                Some(session) => SessionTreeRowKind::Run(build_run(session)),
+                None => SessionTreeRowKind::Group(
+                    run_rows::SessionGroupFacts::from_node(flat.node)
+                        .expect("a node that is not a session is a group"),
+                ),
+            },
         })
         .collect()
 }
@@ -174,8 +229,8 @@ fn live_run_tree<T>(
 /// EXP-923 — the rail's Running rows. Derived per paint like the rail's other
 /// live reads (its observers already cover sessions, devices and the local
 /// host set; [`tick`] covers the clock).
-pub(crate) fn rail_running_rows(cx: &mut App) -> Vec<RailRunRow> {
-    live_run_tree(cx, |session, depth, has_children, host, now, cx| {
+pub(crate) fn rail_running_rows(cx: &mut App) -> Vec<SessionTreeRow<RailRunRow>> {
+    live_run_tree(cx, |session, host, now, cx| {
         let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
         let issue = collections.as_ref().and_then(|collections| {
             session
@@ -210,8 +265,6 @@ pub(crate) fn rail_running_rows(cx: &mut App) -> Vec<RailRunRow> {
         RailRunRow {
             session_id: session.id.clone(),
             issue_id: session.issue_id.clone(),
-            depth,
-            has_children,
             identifier: run_rows::run_identifier(session, issue.as_ref(), &batch_issues),
             title: run_rows::run_title(session, issue.as_ref(), &batch_issues),
             // EXP-877's fallback, kept: an unknown or absent agent id is
@@ -237,13 +290,22 @@ pub(crate) fn rail_running_rows(cx: &mut App) -> Vec<RailRunRow> {
 // Recent (the `Past*` names predate EXP-886's rename)
 // ---------------------------------------------------------------------------
 
-/// One finished row, flattened off the collections like the rail's.
+/// One finished row, flattened off the collections like the rail's — EXP-996:
+/// a run, or the workflow / stack group row above it.
 #[derive(Clone, PartialEq)]
 struct PastRow {
-    /// EXP-827: the session tree, exactly as Running nests it.
+    /// The tree's node key ([`domain::session_tree::session_tree_node_key`]) —
+    /// what the fold and [`drop_collapsed`] are keyed by.
+    key: String,
     depth: usize,
     has_children: bool,
-    facts: PastRunFacts,
+    kind: PastRowKind,
+}
+
+#[derive(Clone, PartialEq)]
+enum PastRowKind {
+    Run(PastRunFacts),
+    Group(run_rows::SessionGroupFacts),
 }
 
 pub(crate) struct PastSessionsSection {
@@ -313,22 +375,23 @@ impl PastSessionsSection {
         // EXP-923: history behind a composer, capped — the roots are newest
         // first, so the cut takes the oldest.
         rows.truncate(RECENT_CAP);
-        // EXP-827: a finished sub-session nests under the run that started it,
-        // the same rule Running and the rail use. `own_ended_runs`' order is
-        // the ROOT order (newest end first).
-        let tree = domain::session_tree::nest_sessions(
-            rows,
-            |session| session.id.as_str(),
-            |session| session.parent_session_id.as_deref(),
-            |session| session.started_at.as_deref(),
-        );
-        tree.into_iter()
-            .map(|tree_row| PastRow {
-                depth: tree_row.depth,
-                has_children: tree_row.has_children,
-                facts: run_rows::past_run_facts(tree_row.session, now, cx),
-            })
-            .collect()
+        // EXP-996: the ONE tree the rail draws too — a finished sub-session
+        // under the run that started it, a resume succession as one row, the
+        // runs of one workflow or stack under a group row.
+        flatten_session_tree(rows, queries::session_tree_inputs(cx), |session| {
+            run_rows::past_run_facts(session, now, cx)
+        })
+        .into_iter()
+        .map(|row| PastRow {
+            key: row.key,
+            depth: row.depth,
+            has_children: row.has_children,
+            kind: match row.kind {
+                SessionTreeRowKind::Run(facts) => PastRowKind::Run(facts),
+                SessionTreeRowKind::Group(facts) => PastRowKind::Group(facts),
+            },
+        })
+        .collect()
     }
 }
 
@@ -341,7 +404,7 @@ impl Render for PastSessionsSection {
         let rows = drop_collapsed(
             self.rows.iter().collect::<Vec<_>>(),
             &self.collapsed,
-            |row| row.facts.session_id.as_str(),
+            |row| row.key.as_str(),
             |row| row.depth,
         );
         // EXP-965: the connector, off the VISIBLE depth sequence.
@@ -350,36 +413,49 @@ impl Render for PastSessionsSection {
         let mut column = v_flex().min_w_0();
         let list_origin = self.list_origin.clone();
         for (index, row) in rows.iter().enumerate() {
-            let open_id = row.facts.session_id.clone();
             let list_origin = list_origin.clone();
-            let fold = fold_for(
-                row.facts.session_id.clone(),
-                row.has_children,
-                &self.collapsed,
-                cx,
-            );
-            let active = open_session.as_deref() == Some(row.facts.session_id.as_str());
-            column = column.child(run_rows::render_past_run_row(
-                PastRunSpec {
-                    id_prefix: "past-run",
-                    index,
-                    guides: guides.get(index).cloned().unwrap_or_default(),
-                    fold,
-                    facts: row.facts.clone(),
-                    // EXP-773: a plain link. The transcript and Resume live in
-                    // the fullscreen session view now.
-                    on_open: Box::new(move |_, window, cx| {
-                        crate::session_screen::open_session_with_origin(
-                            &open_id,
-                            list_origin.clone(),
-                            window,
-                            cx,
-                        );
-                    }),
-                },
-                active,
-                cx,
-            ));
+            let fold = fold_for(row.key.clone(), row.has_children, &self.collapsed, cx);
+            let guides = guides.get(index).cloned().unwrap_or_default();
+            column = column.child(match &row.kind {
+                // EXP-996: the group row above its runs — a workflow opens, a
+                // stack only folds.
+                PastRowKind::Group(facts) => run_rows::render_group_row(
+                    run_rows::GroupRowSpec {
+                        id_prefix: "past-run",
+                        index,
+                        guides,
+                        fold,
+                        facts: facts.clone(),
+                        on_open: group_row_open(facts),
+                    },
+                    cx,
+                ),
+                PastRowKind::Run(facts) => {
+                    let open_id = facts.session_id.clone();
+                    let active = open_session.as_deref() == Some(facts.session_id.as_str());
+                    run_rows::render_past_run_row(
+                        PastRunSpec {
+                            id_prefix: "past-run",
+                            index,
+                            guides,
+                            fold,
+                            facts: facts.clone(),
+                            // EXP-773: a plain link. The transcript and Resume
+                            // live in the fullscreen session view now.
+                            on_open: Box::new(move |_, window, cx| {
+                                crate::session_screen::open_session_with_origin(
+                                    &open_id,
+                                    list_origin.clone(),
+                                    window,
+                                    cx,
+                                );
+                            }),
+                        },
+                        active,
+                        cx,
+                    )
+                }
+            });
         }
         // ×4 copy: the section is "Recent" on every client (EXP-886).
         // EXP-923 took its fold away — a panel you opened on purpose has
@@ -456,6 +532,28 @@ pub(crate) fn tick<V: 'static>(
     })
 }
 
+/// EXP-996 — what a GROUP row opens: a workflow group row navigates to its
+/// workflow, a stack group row has no screen of its own and only folds.
+pub(crate) fn group_row_open(
+    facts: &run_rows::SessionGroupFacts,
+) -> Option<run_rows::RunRowAction> {
+    match &facts.kind {
+        run_rows::SessionGroupKind::Workflow { workflow_id } => {
+            let workflow_id = workflow_id.clone();
+            Some(Box::new(move |_, window, cx| {
+                crate::navigation::navigate(
+                    window,
+                    cx,
+                    Screen::Workflow {
+                        workflow_id: workflow_id.clone(),
+                    },
+                );
+            }))
+        }
+        run_rows::SessionGroupKind::Stack => None,
+    }
+}
+
 /// The session the window is SHOWING, so its row can wear the selected paint.
 fn open_session_id(window: &Window, cx: &mut App) -> Option<String> {
     let nav = nav_for_window(window, cx);
@@ -495,19 +593,21 @@ pub(crate) fn drop_collapsed<R>(
 
 /// EXP-827: the fold control for a row — `None` unless it HAS children. The
 /// click toggles the section's collapsed set, which is view state, so this is a
-/// listener rather than a plain closure.
+/// listener rather than a plain closure. EXP-996: `key` is the TREE's node key
+/// ([`domain::session_tree::session_tree_node_key`]) — a session's id, or
+/// `workflow:`/`stack:` for a group row, so both fold through one set.
 pub(crate) fn fold_for<V: Collapsible + 'static>(
-    session_id: String,
+    key: String,
     has_children: bool,
     collapsed: &HashSet<String>,
     cx: &mut gpui::Context<V>,
 ) -> Option<RunRowFold> {
     has_children.then(|| RunRowFold {
-        collapsed: collapsed.contains(&session_id),
+        collapsed: collapsed.contains(&key),
         on_toggle: Box::new(cx.listener(move |this: &mut V, _, _window, cx| {
             let collapsed = this.collapsed_mut();
-            if !collapsed.insert(session_id.clone()) {
-                collapsed.remove(&session_id);
+            if !collapsed.insert(key.clone()) {
+                collapsed.remove(&key);
             }
             cx.notify();
         })),
@@ -551,6 +651,12 @@ fn watch_run_collections<V: 'static>(
         cx.observe(&collections.devices, move |this, _, cx| refresh(this, cx)),
         // EXP-874: a running row's action button carries the action's icon.
         cx.observe(&collections.actions, move |this, _, cx| refresh(this, cx)),
+        // EXP-996: the GROUP rows — which workflow a run is a node of, and the
+        // workflow row the group row takes its name from.
+        cx.observe(&collections.workflows, move |this, _, cx| refresh(this, cx)),
+        cx.observe(&collections.workflow_nodes, move |this, _, cx| {
+            refresh(this, cx)
+        }),
     ]
 }
 

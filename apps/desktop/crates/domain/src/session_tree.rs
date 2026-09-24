@@ -12,6 +12,14 @@
 //! 3. Children follow their parent directly, oldest start first (then id),
 //!    recursively — depth grows by one per level.
 //! 4. A cycle (defensive) breaks at the first repeat.
+//!
+//! EXP-996/EXP-1049 layer the TREE proper on top ([`session_tree`], the web
+//! `lib/sessions/session-tree.ts` twin, same rules and same test names):
+//! resume successions COLLAPSE into one node, the runs of one workflow and of
+//! one PR stack fold under GROUP rows, and [`visible_session_tree_rows`] is
+//! the flattening every client paints its connector over. `nest_sessions`
+//! stays exactly as it was — the Automations log and [`crate::pr_graph`] still
+//! nest plain parent/child lists through it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -114,6 +122,690 @@ where
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// EXP-996 — the session TREE proper (web `lib/sessions/session-tree.ts`)
+// ---------------------------------------------------------------------------
+
+/// EXP-996 — a workflow group row's label while its `workflows` row has not
+/// synced a name (the tab title's own fallback, `ui/src/navigation.rs`).
+pub const WORKFLOW_GROUP_FALLBACK_NAME: &str = "Workflow";
+
+/// EXP-996 — the STACK group row's label. A workflow group row needs none (it
+/// wears its workflow's name); a stack has no synced row to take a name from,
+/// so this is the one NEW string of the tree. It carries no COUNT: every
+/// client draws a group's child count in its own trailing cell, so a number in
+/// the label would say it twice. Byte-identical ×4 (web `STACK_GROUP_LABEL`,
+/// iOS `stackGroupLabel`, Android `STACK_GROUP_LABEL`); it lives here beside
+/// [`crate::pr_stack`]'s stack copy.
+pub const STACK_GROUP_LABEL: &str = "Stacked pull requests";
+
+/// EXP-996 — a GROUP row's fold labels. [`crate::pr_stack`]'s own pair says
+/// CHILD RUNS, which a group has none of: its rows are siblings that belong to
+/// one workflow or one stack. Byte-identical ×4 (web `COLLAPSE_GROUP_LABEL`,
+/// iOS `collapseGroupLabel`, Android `COLLAPSE_GROUP_LABEL`).
+pub const COLLAPSE_GROUP_LABEL: &str = "Collapse these runs";
+pub const EXPAND_GROUP_LABEL: &str = "Expand these runs";
+
+/// EXP-996 — the row fields the tree reads, lifted off whatever row type the
+/// caller holds. ONE mapper, not [`nest_sessions`]' accessor closures: seven
+/// of those are unreadable at the call site, and a batch row's covered ids are
+/// PARSED out of jsonb ([`crate::batch_run::parse_batch_issue_ids`]), so they
+/// cannot be borrowed anyway. `started_reason` is deliberately ABSENT —
+/// `workflow` alone never groups a run (rule 3: the group row's name lives on
+/// the `workflows` row, so an unsynced workflow leaves its runs ungrouped).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionFacts {
+    pub id: String,
+    pub resumed_from_id: Option<String>,
+    pub parent_session_id: Option<String>,
+    pub issue_id: Option<String>,
+    /// The issues a BATCH run covers (EXP-876) — a batch node run of a
+    /// workflow names its issues here and nowhere else.
+    pub batch_issue_ids: Vec<String>,
+    /// ISO-8601 UTC, compared lexicographically (this file's convention);
+    /// `""` = unknown, which sorts OLDEST — the web's `stamp` of 0.
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// The facts of a synced `coding_sessions` row — every desktop caller's
+/// mapper, so no two surfaces can read the columns differently.
+pub fn coding_session_facts(session: &crate::rows::CodingSession) -> SessionFacts {
+    SessionFacts {
+        id: session.id.clone(),
+        resumed_from_id: session.resumed_from_id.clone(),
+        parent_session_id: session.parent_session_id.clone(),
+        issue_id: session.issue_id.clone(),
+        batch_issue_ids: crate::batch_run::parse_batch_issue_ids(session.batch_issue_ids.as_ref()),
+        created_at: session.created_at.clone().unwrap_or_default(),
+        updated_at: session.updated_at.clone().unwrap_or_default(),
+    }
+}
+
+/// EXP-996 — the group row's side of one `workflows` row. Being LISTED is what
+/// makes a workflow groupable, and the NAME is what its group row wears — the
+/// fat synced row is projected down to this because the rail re-derives its
+/// tree on every paint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowFacts {
+    pub id: String,
+    pub name: String,
+}
+
+impl WorkflowFacts {
+    /// A synced row's facts — the name it carries, else the generic word while
+    /// the row has not landed one.
+    pub fn from_row(row: &crate::rows::WorkflowRow) -> Self {
+        Self {
+            id: row.id.clone(),
+            name: row
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(WORKFLOW_GROUP_FALLBACK_NAME)
+                .to_string(),
+        }
+    }
+}
+
+/// EXP-996 — one `workflow_nodes` row's membership: which issue (and which
+/// run) sits in which workflow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowNodeFacts {
+    pub workflow_id: String,
+    pub issue_id: Option<String>,
+    pub session_id: Option<String>,
+}
+
+impl WorkflowNodeFacts {
+    /// A synced row's facts — `None` on a row that names no workflow, which
+    /// can group nothing.
+    pub fn from_row(row: &crate::rows::WorkflowNodeRow) -> Option<Self> {
+        Some(Self {
+            workflow_id: row.workflow_id.clone()?,
+            issue_id: row.issue_id.clone(),
+            session_id: row.session_id.clone(),
+        })
+    }
+}
+
+/// EXP-996 — what the rows alone cannot say: which workflow an issue belongs
+/// to, and which issues stack on which. Every slice may be empty — a caller
+/// with no workflows synced still gets the session/parent tree.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SessionTreeContext<'a> {
+    pub workflows: &'a [WorkflowFacts],
+    pub workflow_nodes: &'a [WorkflowNodeFacts],
+    /// The issues the sessions name, for the stack edges
+    /// ([`crate::pr_stack::stack_chain`]). Callers scope them the way Reviews
+    /// does — the OPEN pull requests, one team.
+    pub issues: &'a [crate::rows::Issue],
+}
+
+/// One node of the tree: a RUN (its resume succession collapsed into one row),
+/// or the group row a workflow / stack of runs folds under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionTreeNode<T> {
+    Session(SessionNode<T>),
+    Workflow(WorkflowGroupNode<T>),
+    Stack(StackGroupNode<T>),
+}
+
+/// ONE run — every row of its resume succession (EXP-974) folded together.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionNode<T> {
+    /// The NEWEST row of the succession: the node's identity and its key.
+    pub id: String,
+    /// The succession oldest-first (`run_chain`'s order), the newest last; one
+    /// entry when the run was never resumed.
+    pub chain: Vec<T>,
+    pub children: Vec<SessionTreeNode<T>>,
+    /// The newest `updated_at` across the chain AND the whole subtree, so
+    /// folding a parent never moves it.
+    pub last_activity_at: String,
+}
+
+impl<T> SessionNode<T> {
+    /// The row the node DRAWS — the newest of its resume succession.
+    pub fn session(&self) -> &T {
+        self.chain.last().expect("a chain always holds its own row")
+    }
+}
+
+/// Rule 3 — the node runs of ONE workflow (EXP-978), newest first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowGroupNode<T> {
+    pub workflow_id: String,
+    /// The synced name, else [`WORKFLOW_GROUP_FALLBACK_NAME`].
+    pub name: String,
+    pub children: Vec<SessionTreeNode<T>>,
+    pub last_activity_at: String,
+}
+
+/// Rule 4 — one PR stack (EXP-897), LINEAR: lowest member first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackGroupNode<T> {
+    /// The lowest issue of the chain — the group's identity and its key.
+    pub root_issue_id: String,
+    pub children: Vec<SessionTreeNode<T>>,
+    pub last_activity_at: String,
+}
+
+impl<T> SessionTreeNode<T> {
+    pub fn children(&self) -> &[SessionTreeNode<T>] {
+        match self {
+            SessionTreeNode::Session(node) => &node.children,
+            SessionTreeNode::Workflow(node) => &node.children,
+            SessionTreeNode::Stack(node) => &node.children,
+        }
+    }
+
+    /// A group row IS its children: with none left it is not drawn
+    /// ([`visible_session_tree_rows`]).
+    pub fn is_group(&self) -> bool {
+        !matches!(self, SessionTreeNode::Session(_))
+    }
+
+    pub fn last_activity_at(&self) -> &str {
+        match self {
+            SessionTreeNode::Session(node) => &node.last_activity_at,
+            SessionTreeNode::Workflow(node) => &node.last_activity_at,
+            SessionTreeNode::Stack(node) => &node.last_activity_at,
+        }
+    }
+
+    /// The run a SESSION node draws, `None` on a group row.
+    pub fn session(&self) -> Option<&T> {
+        match self {
+            SessionTreeNode::Session(node) => Some(node.session()),
+            _ => None,
+        }
+    }
+}
+
+/// A node's stable identity — the key a collapsed set and a list row use
+/// (web `sessionTreeNodeKey`).
+pub fn session_tree_node_key<T>(node: &SessionTreeNode<T>) -> String {
+    match node {
+        SessionTreeNode::Session(node) => node.id.clone(),
+        SessionTreeNode::Workflow(node) => format!("workflow:{}", node.workflow_id),
+        SessionTreeNode::Stack(node) => format!("stack:{}", node.root_issue_id),
+    }
+}
+
+/// EXP-996 — the sessions list as a TREE, the web `sessionTree`'s twin: the
+/// ONE selector every session list draws from (the rail's Running section, the
+/// IDE's Recent list, the phones' session screens). Rules, in this order:
+///
+/// 1. Resume successions COLLAPSE into one node keyed by their newest row.
+/// 2. Children nest under their `parent_session_id`, following the parent's
+///    whole succession (EXP-906: a resume inherits it).
+/// 3. The runs of ONE workflow group under a workflow node.
+/// 4. A PR stack groups under a stack node, LINEAR, lowest first — a stack
+///    with fewer than two listed runs is no group.
+/// 5. Groups and top-level nodes sort by last activity, newest first;
+///    children keep creation order.
+/// 6. An orphan child (parent swept, another team, not synced) sits at top
+///    level; so does a row naming itself, and a cycle breaks where it closes.
+///
+/// Workflow grouping WINS over stack grouping. Pure: no clock, no IO; every
+/// tie breaks on the node key, so two clients agree row for row.
+pub fn session_tree<T, F>(
+    sessions: Vec<T>,
+    facts: F,
+    context: &SessionTreeContext<'_>,
+) -> Vec<SessionTreeNode<T>>
+where
+    F: Fn(&T) -> SessionFacts,
+{
+    let facts: Vec<SessionFacts> = sessions.iter().map(&facts).collect();
+    let index_of: HashMap<&str, usize> = facts
+        .iter()
+        .enumerate()
+        .map(|(index, row)| (row.id.as_str(), index))
+        .collect();
+
+    // 1. Resume successions collapse. OLDEST row first, so the primary
+    //    succession (the newest-successor walk) claims its members before an
+    //    older fork sibling does; whatever is left becomes its own node.
+    let mut ordered: Vec<usize> = (0..facts.len()).collect();
+    ordered.sort_by(|a, b| {
+        facts[*a]
+            .created_at
+            .cmp(&facts[*b].created_at)
+            .then_with(|| facts[*a].id.cmp(&facts[*b].id))
+    });
+    let mut canonical_of: HashMap<usize, usize> = HashMap::new();
+    // (canonical, chain oldest-first), in discovery order.
+    let mut chains: Vec<(usize, Vec<usize>)> = Vec::new();
+    for &start in &ordered {
+        if canonical_of.contains_key(&start) {
+            continue;
+        }
+        let mut chain: Vec<usize> = resume_chain(&facts, &index_of, start)
+            .into_iter()
+            .filter(|member| !canonical_of.contains_key(member))
+            .collect();
+        if chain.is_empty() {
+            chain.push(start);
+        }
+        let canonical = *chain.last().expect("non-empty");
+        for &member in &chain {
+            canonical_of.insert(member, canonical);
+        }
+        chains.push((canonical, chain));
+    }
+
+    // 2. Children nest under their parent's SUCCESSION — the whole chain
+    //    answers for the newest `parent_session_id` it names.
+    let mut parent_of: HashMap<usize, usize> = HashMap::new();
+    for (canonical, chain) in &chains {
+        let named = chain
+            .iter()
+            .rev()
+            .find_map(|member| facts[*member].parent_session_id.as_deref());
+        let parent = named
+            .and_then(|id| index_of.get(id))
+            .and_then(|index| canonical_of.get(index))
+            .copied();
+        // Rule 6: a parent that is gone leaves the child at top level, and so
+        // does a row naming its own succession.
+        if let Some(parent) = parent {
+            if parent != *canonical {
+                parent_of.insert(*canonical, parent);
+            }
+        }
+    }
+
+    let mut children_of: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut roots: Vec<usize> = Vec::new();
+    for (canonical, _) in &chains {
+        match ancestor(*canonical, &parent_of) {
+            Some(parent) => children_of.entry(parent).or_default().push(*canonical),
+            None => roots.push(*canonical),
+        }
+    }
+    // Rule 5: children keep CREATION order, ties on their id.
+    for list in children_of.values_mut() {
+        list.sort_by(|a, b| {
+            facts[*a]
+                .created_at
+                .cmp(&facts[*b].created_at)
+                .then_with(|| facts[*a].id.cmp(&facts[*b].id))
+        });
+    }
+
+    let chain_of: HashMap<usize, Vec<usize>> = chains.into_iter().collect();
+    let mut slots: Vec<Option<T>> = sessions.into_iter().map(Some).collect();
+    let built: Vec<(usize, SessionNode<T>)> = roots
+        .iter()
+        .map(|canonical| {
+            (
+                *canonical,
+                build_node(*canonical, &chain_of, &children_of, &facts, &mut slots),
+            )
+        })
+        .collect();
+
+    // 3./4. Workflow groups, then stack groups — over the TOP-LEVEL nodes
+    //       only (a child run stays under its parent wherever that lands).
+    let workflow_of = workflow_of(&chain_of, &facts, context);
+    let grouped = group_stacks(group_workflows(built, &workflow_of), &facts, context.issues);
+
+    // 5. Groups and lone nodes sort by last activity, newest FIRST.
+    let mut out = grouped;
+    out.sort_by(|a, b| {
+        b.last_activity_at()
+            .cmp(a.last_activity_at())
+            .then_with(|| session_tree_node_key(a).cmp(&session_tree_node_key(b)))
+    });
+    out
+}
+
+/// The resume succession `start` belongs to, oldest first — `queries::run_chain`
+/// / the web `runChain`, over indices: BACKWARDS through `resumed_from_id` to
+/// the first row, FORWARDS to the newest successor at every fork (`created_at`
+/// then id, descending). Cycle-safe both ways. It lives here rather than in
+/// the ui crate's copy because the tree must collapse successions on every
+/// client, not just the one with a query layer.
+fn resume_chain(
+    facts: &[SessionFacts],
+    index_of: &HashMap<&str, usize>,
+    start: usize,
+) -> Vec<usize> {
+    let mut seen: HashSet<usize> = HashSet::new();
+    seen.insert(start);
+    let mut before: Vec<usize> = Vec::new();
+    let mut cursor = start;
+    while let Some(previous_id) = facts[cursor].resumed_from_id.as_deref() {
+        let Some(&previous) = index_of.get(previous_id) else {
+            break;
+        };
+        if !seen.insert(previous) {
+            break;
+        }
+        before.push(previous);
+        cursor = previous;
+    }
+    before.reverse();
+
+    let mut after: Vec<usize> = Vec::new();
+    let mut cursor = start;
+    loop {
+        let next = (0..facts.len())
+            .filter(|index| {
+                facts[*index].resumed_from_id.as_deref() == Some(facts[cursor].id.as_str())
+            })
+            .filter(|index| !seen.contains(index))
+            .max_by(|a, b| {
+                facts[*a]
+                    .created_at
+                    .cmp(&facts[*b].created_at)
+                    .then_with(|| facts[*a].id.cmp(&facts[*b].id))
+            });
+        let Some(next) = next else {
+            break;
+        };
+        seen.insert(next);
+        after.push(next);
+        cursor = next;
+    }
+
+    before
+        .into_iter()
+        .chain(std::iter::once(start))
+        .chain(after)
+        .collect()
+}
+
+/// The top of `index`' parent walk, or `None` when it is already a root.
+/// Breaks a cycle by returning `None`, so the row stays where it is.
+fn ancestor(index: usize, parent_of: &HashMap<usize, usize>) -> Option<usize> {
+    let parent = *parent_of.get(&index)?;
+    let mut seen: HashSet<usize> = HashSet::new();
+    seen.insert(index);
+    let mut cursor = Some(parent);
+    while let Some(current) = cursor {
+        if !seen.insert(current) {
+            return None;
+        }
+        cursor = parent_of.get(&current).copied();
+    }
+    Some(parent)
+}
+
+/// One session node and its subtree, rows moved out of `slots`. A node's
+/// activity counts its whole subtree's (rule 5).
+fn build_node<T>(
+    canonical: usize,
+    chain_of: &HashMap<usize, Vec<usize>>,
+    children_of: &HashMap<usize, Vec<usize>>,
+    facts: &[SessionFacts],
+    slots: &mut Vec<Option<T>>,
+) -> SessionNode<T> {
+    let chain = chain_of.get(&canonical).cloned().unwrap_or_default();
+    let mut last_activity_at = chain
+        .iter()
+        .map(|member| facts[*member].updated_at.clone())
+        .max()
+        .unwrap_or_default();
+    let children: Vec<SessionTreeNode<T>> = children_of
+        .get(&canonical)
+        .map(|kids| {
+            kids.iter()
+                .map(|kid| {
+                    SessionTreeNode::Session(build_node(*kid, chain_of, children_of, facts, slots))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    for child in &children {
+        if child.last_activity_at() > last_activity_at.as_str() {
+            last_activity_at = child.last_activity_at().to_string();
+        }
+    }
+    SessionNode {
+        id: facts[canonical].id.clone(),
+        chain: chain
+            .iter()
+            .map(|member| slots[*member].take().expect("each row placed once"))
+            .collect(),
+        children,
+        last_activity_at,
+    }
+}
+
+/// Rule 3 — canonical index → the workflow (id, name) its run belongs to. A
+/// node belongs to the workflow that lists one of its rows, one of their
+/// issues, or an issue a BATCH row covers; the workflow must be LISTED, which
+/// is where the name comes from.
+fn workflow_of(
+    chain_of: &HashMap<usize, Vec<usize>>,
+    facts: &[SessionFacts],
+    context: &SessionTreeContext<'_>,
+) -> HashMap<usize, (String, String)> {
+    let mut out: HashMap<usize, (String, String)> = HashMap::new();
+    if context.workflows.is_empty() || context.workflow_nodes.is_empty() {
+        return out;
+    }
+    let names: HashMap<&str, &str> = context
+        .workflows
+        .iter()
+        .map(|workflow| (workflow.id.as_str(), workflow.name.as_str()))
+        .collect();
+    let mut by_issue: HashMap<&str, &str> = HashMap::new();
+    let mut by_session: HashMap<&str, &str> = HashMap::new();
+    for node in context.workflow_nodes {
+        let workflow_id = node.workflow_id.as_str();
+        if !names.contains_key(workflow_id) {
+            continue;
+        }
+        if let Some(issue_id) = node.issue_id.as_deref() {
+            by_issue.entry(issue_id).or_insert(workflow_id);
+        }
+        if let Some(session_id) = node.session_id.as_deref() {
+            by_session.entry(session_id).or_insert(workflow_id);
+        }
+    }
+    for (canonical, chain) in chain_of {
+        let named = chain.iter().find_map(|member| {
+            let row = &facts[*member];
+            by_session
+                .get(row.id.as_str())
+                .or_else(|| row.issue_id.as_deref().and_then(|id| by_issue.get(id)))
+                // A batch node run covers several workflow issues (EXP-978).
+                .or_else(|| {
+                    row.batch_issue_ids
+                        .iter()
+                        .find_map(|id| by_issue.get(id.as_str()))
+                })
+                .copied()
+        });
+        if let Some(workflow_id) = named {
+            let name = names.get(workflow_id).copied().unwrap_or_default();
+            out.insert(*canonical, (workflow_id.to_string(), name.to_string()));
+        }
+    }
+    out
+}
+
+/// Rule 3 — the runs of ONE workflow under one group row, newest first. The
+/// `Option<usize>` a bare run keeps is its facts index, which the stack pass
+/// reads its issue out of.
+fn group_workflows<T>(
+    roots: Vec<(usize, SessionNode<T>)>,
+    workflow_of: &HashMap<usize, (String, String)>,
+) -> Vec<(Option<usize>, SessionTreeNode<T>)> {
+    let mut out: Vec<(Option<usize>, SessionTreeNode<T>)> = Vec::new();
+    let mut group_at: HashMap<String, usize> = HashMap::new();
+    for (index, node) in roots {
+        let Some((workflow_id, name)) = workflow_of.get(&index) else {
+            out.push((Some(index), SessionTreeNode::Session(node)));
+            continue;
+        };
+        let position = match group_at.get(workflow_id) {
+            Some(position) => *position,
+            None => {
+                out.push((
+                    None,
+                    SessionTreeNode::Workflow(WorkflowGroupNode {
+                        workflow_id: workflow_id.clone(),
+                        name: name.clone(),
+                        children: Vec::new(),
+                        last_activity_at: String::new(),
+                    }),
+                ));
+                group_at.insert(workflow_id.clone(), out.len() - 1);
+                out.len() - 1
+            }
+        };
+        if let (_, SessionTreeNode::Workflow(group)) = &mut out[position] {
+            if node.last_activity_at > group.last_activity_at {
+                group.last_activity_at = node.last_activity_at.clone();
+            }
+            group.children.push(SessionTreeNode::Session(node));
+        }
+    }
+    for (_, entry) in out.iter_mut() {
+        if let SessionTreeNode::Workflow(group) = entry {
+            sort_by_activity(&mut group.children);
+        }
+    }
+    out
+}
+
+/// Rule 4 — a stack under one group row, LINEAR, lowest first. A stack with
+/// only ONE of its runs listed is no group: the lone node stays where it was.
+fn group_stacks<T>(
+    entries: Vec<(Option<usize>, SessionTreeNode<T>)>,
+    facts: &[SessionFacts],
+    issues: &[crate::rows::Issue],
+) -> Vec<SessionTreeNode<T>> {
+    if issues.is_empty() {
+        return entries.into_iter().map(|(_, node)| node).collect();
+    }
+    let mut slots: Vec<Option<(Option<usize>, SessionTreeNode<T>)>> =
+        entries.into_iter().map(Some).collect();
+    // Every top-level SESSION node that names a listed issue, by issue id.
+    let mut position_of_issue: HashMap<&str, usize> = HashMap::new();
+    for (position, slot) in slots.iter().enumerate() {
+        let Some((Some(index), SessionTreeNode::Session(_))) = slot else {
+            continue;
+        };
+        let Some(issue_id) = facts[*index].issue_id.as_deref() else {
+            continue;
+        };
+        if issues.iter().any(|issue| issue.id == issue_id) {
+            position_of_issue.entry(issue_id).or_insert(position);
+        }
+    }
+
+    let mut out: Vec<SessionTreeNode<T>> = Vec::new();
+    for position in 0..slots.len() {
+        // Claimed by a stack already grouped above. The index is COPIED out:
+        // the take below moves rows out of `slots`.
+        let index = match slots[position].as_ref() {
+            Some((index, _)) => *index,
+            None => continue,
+        };
+        let take = |slots: &mut Vec<Option<(Option<usize>, SessionTreeNode<T>)>>, at: usize| {
+            slots[at].take().expect("claimed once").1
+        };
+        // A group row passes through, and so does a run that names no issue (a
+        // chat, an action, a batch): it can be in no stack.
+        let Some(issue) = index
+            .and_then(|index| facts[index].issue_id.as_deref())
+            .and_then(|id| issues.iter().find(|issue| issue.id == id))
+        else {
+            out.push(take(&mut slots, position));
+            continue;
+        };
+        let chain = crate::pr_stack::stack_chain(issue, issues);
+        let members: Vec<usize> = chain
+            .iter()
+            .filter_map(|member| position_of_issue.get(member.id.as_str()).copied())
+            .filter(|member| slots[*member].is_some())
+            .collect();
+        if chain.len() < 2 || members.len() < 2 {
+            out.push(take(&mut slots, position));
+            continue;
+        }
+        let children: Vec<SessionTreeNode<T>> = members
+            .into_iter()
+            .map(|member| take(&mut slots, member))
+            .collect();
+        let last_activity_at = children
+            .iter()
+            .map(|child| child.last_activity_at().to_string())
+            .max()
+            .unwrap_or_default();
+        out.push(SessionTreeNode::Stack(StackGroupNode {
+            root_issue_id: chain[0].id.clone(),
+            children,
+            last_activity_at,
+        }));
+    }
+    out
+}
+
+/// Newest activity first, ties on the node key — the group children's order
+/// and the top level's.
+fn sort_by_activity<T>(nodes: &mut [SessionTreeNode<T>]) {
+    nodes.sort_by(|a, b| {
+        b.last_activity_at()
+            .cmp(a.last_activity_at())
+            .then_with(|| session_tree_node_key(a).cmp(&session_tree_node_key(b)))
+    });
+}
+
+/// One row of a DRAWN session tree: the node, how deep it sits and whether it
+/// can fold — what [`crate::tree_guides::guides_for`] paints its connector
+/// over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionTreeFlatRow<'a, T> {
+    pub node: &'a SessionTreeNode<T>,
+    pub key: String,
+    pub depth: usize,
+    pub has_children: bool,
+}
+
+/// The tree flattened top to bottom, skipping everything under a COLLAPSED
+/// node (keyed by [`session_tree_node_key`]). A group row with no children
+/// left is DROPPED: a group is its children. Mirrored ×4 with
+/// [`session_tree`] itself — every client flattens before it paints.
+pub fn visible_session_tree_rows<'a, T>(
+    nodes: &'a [SessionTreeNode<T>],
+    collapsed: &HashSet<String>,
+) -> Vec<SessionTreeFlatRow<'a, T>> {
+    fn walk<'a, T>(
+        nodes: &'a [SessionTreeNode<T>],
+        depth: usize,
+        collapsed: &HashSet<String>,
+        out: &mut Vec<SessionTreeFlatRow<'a, T>>,
+    ) {
+        for node in nodes {
+            if node.is_group() && node.children().is_empty() {
+                continue;
+            }
+            let key = session_tree_node_key(node);
+            let hidden = collapsed.contains(&key);
+            out.push(SessionTreeFlatRow {
+                node,
+                key,
+                depth,
+                has_children: !node.children().is_empty(),
+            });
+            if !hidden {
+                walk(node.children(), depth + 1, collapsed, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, 0, collapsed, &mut out);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +866,490 @@ mod tests {
     fn nest_sessions_breaks_a_cycle_where_it_first_appears() {
         let rows = nest(vec![row("a", Some("b")), row("b", Some("a")), row("self", Some("self"))]);
         assert_eq!(shape(&rows), ["self@0", "a@0+", "b@1"]);
+    }
+}
+
+/// EXP-996 — the web `session-tree.test.ts` table, case for case (the same
+/// names, snake_cased), plus the cases only a second implementation can catch.
+#[cfg(test)]
+mod tree_tests {
+    use super::*;
+    use crate::rows::Issue;
+
+    /// The web test's `row()`: the columns the tree reads, nothing else.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Run {
+        id: &'static str,
+        resumed_from_id: Option<&'static str>,
+        parent_session_id: Option<&'static str>,
+        issue_id: Option<&'static str>,
+        batch_issue_ids: Vec<&'static str>,
+        /// `created_at` == `updated_at`, like the web fixture's `at()`.
+        at: &'static str,
+    }
+
+    fn run(id: &'static str) -> Run {
+        Run {
+            id,
+            resumed_from_id: None,
+            parent_session_id: None,
+            issue_id: None,
+            batch_issue_ids: Vec::new(),
+            at: "2026-09-01T10:00:00Z",
+        }
+    }
+
+    impl Run {
+        fn at(mut self, at: &'static str) -> Self {
+            self.at = at;
+            self
+        }
+        fn resuming(mut self, id: &'static str) -> Self {
+            self.resumed_from_id = Some(id);
+            self
+        }
+        fn under(mut self, id: &'static str) -> Self {
+            self.parent_session_id = Some(id);
+            self
+        }
+        fn on(mut self, issue_id: &'static str) -> Self {
+            self.issue_id = Some(issue_id);
+            self
+        }
+        fn covering(mut self, issue_ids: &[&'static str]) -> Self {
+            self.batch_issue_ids = issue_ids.to_vec();
+            self
+        }
+    }
+
+    fn facts(run: &Run) -> SessionFacts {
+        SessionFacts {
+            id: run.id.to_string(),
+            resumed_from_id: run.resumed_from_id.map(str::to_string),
+            parent_session_id: run.parent_session_id.map(str::to_string),
+            issue_id: run.issue_id.map(str::to_string),
+            batch_issue_ids: run.batch_issue_ids.iter().map(|id| id.to_string()).collect(),
+            created_at: run.at.to_string(),
+            updated_at: run.at.to_string(),
+        }
+    }
+
+    fn tree(runs: Vec<Run>, context: &SessionTreeContext<'_>) -> Vec<SessionTreeNode<Run>> {
+        session_tree(runs, facts, context)
+    }
+
+    /// The web test's `ids()`, as one line: keys in order, children in
+    /// parentheses (`workflow:w(n2 n1)`).
+    fn shape(nodes: &[SessionTreeNode<Run>]) -> String {
+        nodes
+            .iter()
+            .map(|node| {
+                let children = shape(node.children());
+                let key = session_tree_node_key(node);
+                if children.is_empty() {
+                    key
+                } else {
+                    format!("{key}({children})")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// A synced `workflows` row's facts, through the projection every caller
+    /// uses (so the name fallback is exercised too).
+    fn workflow(id: &str, name: Option<&str>) -> WorkflowFacts {
+        WorkflowFacts::from_row(
+            &serde_json::from_value(serde_json::json!({
+                "id": id,
+                "team_id": "team-1",
+                "name": name,
+                "status": "running",
+            }))
+            .unwrap(),
+        )
+    }
+
+    fn workflow_node(workflow_id: &str, issue_id: &str) -> WorkflowNodeFacts {
+        WorkflowNodeFacts::from_row(
+            &serde_json::from_value(serde_json::json!({
+                "id": format!("node-{issue_id}"),
+                "workflow_id": workflow_id,
+                "team_id": "team-1",
+                "issue_id": issue_id,
+            }))
+            .unwrap(),
+        )
+        .expect("a node row that names its workflow")
+    }
+
+    /// APP-1 on the default branch, APP-2 on APP-1's branch, APP-3 on APP-2's
+    /// — ids `id-APP-1` … (`pr_stack`'s own fixture builder).
+    fn stacked_issues() -> Vec<Issue> {
+        vec![
+            crate::pr_stack::tests::issue("APP-3", Some("exp/APP-3"), Some("exp/APP-2")),
+            crate::pr_stack::tests::issue("APP-2", Some("exp/APP-2"), Some("exp/APP-1")),
+            crate::pr_stack::tests::issue("APP-1", Some("exp/APP-1"), Some("master")),
+        ]
+    }
+
+    #[test]
+    fn lists_unrelated_sessions_at_top_level_newest_activity_first() {
+        let nodes = tree(
+            vec![
+                run("a").at("2026-09-01T10:00:00Z"),
+                run("b").at("2026-09-01T11:00:00Z"),
+            ],
+            &SessionTreeContext::default(),
+        );
+        assert_eq!(shape(&nodes), "b a");
+    }
+
+    #[test]
+    fn nests_a_child_under_its_parent_session_id() {
+        let nodes = tree(
+            vec![run("c").under("p").at("2026-09-01T10:30:00Z"), run("p")],
+            &SessionTreeContext::default(),
+        );
+        assert_eq!(shape(&nodes), "p(c)");
+    }
+
+    #[test]
+    fn collapses_a_resume_succession_into_one_node_keyed_by_its_newest_row() {
+        let nodes = tree(
+            vec![
+                run("r1").at("2026-09-01T10:00:00Z"),
+                run("r2").resuming("r1").at("2026-09-01T12:00:00Z"),
+            ],
+            &SessionTreeContext::default(),
+        );
+        assert_eq!(shape(&nodes), "r2");
+        let SessionTreeNode::Session(node) = &nodes[0] else {
+            panic!("a session node");
+        };
+        assert_eq!(
+            node.chain.iter().map(|run| run.id).collect::<Vec<_>>(),
+            ["r1", "r2"]
+        );
+        assert_eq!(node.session().id, "r2");
+    }
+
+    #[test]
+    fn follows_a_child_to_its_parents_resume_succession() {
+        let nodes = tree(
+            vec![
+                run("p1"),
+                run("p2").resuming("p1").at("2026-09-01T11:00:00Z"),
+                run("c").under("p1"),
+            ],
+            &SessionTreeContext::default(),
+        );
+        assert_eq!(shape(&nodes), "p2(c)");
+    }
+
+    #[test]
+    fn groups_the_sessions_of_one_workflow_under_a_workflow_node() {
+        let workflows = vec![workflow("w", Some("EXP-996 +5"))];
+        let workflow_nodes = vec![workflow_node("w", "i1"), workflow_node("w", "i2")];
+        let nodes = tree(
+            vec![
+                run("n1").on("i1"),
+                run("n2").on("i2").at("2026-09-01T11:00:00Z"),
+            ],
+            &SessionTreeContext {
+                workflows: &workflows,
+                workflow_nodes: &workflow_nodes,
+                issues: &[],
+            },
+        );
+        assert_eq!(shape(&nodes), "workflow:w(n2 n1)");
+        let SessionTreeNode::Workflow(group) = &nodes[0] else {
+            panic!("a workflow group");
+        };
+        assert_eq!(group.name, "EXP-996 +5");
+    }
+
+    #[test]
+    fn groups_a_stack_under_its_lowest_issue_in_linear_order() {
+        let issues = stacked_issues();
+        let nodes = tree(
+            vec![
+                run("s-top").on("id-APP-3").at("2026-09-01T12:00:00Z"),
+                run("s-low").on("id-APP-1"),
+                run("s-mid").on("id-APP-2").at("2026-09-01T11:00:00Z"),
+            ],
+            &SessionTreeContext {
+                issues: &issues,
+                ..SessionTreeContext::default()
+            },
+        );
+        assert_eq!(shape(&nodes), "stack:id-APP-1(s-low s-mid s-top)");
+    }
+
+    #[test]
+    fn sorts_groups_by_their_last_activity_among_the_top_level_nodes() {
+        let workflows = vec![workflow("w", Some("W"))];
+        let workflow_nodes = vec![workflow_node("w", "i1"), workflow_node("w", "i2")];
+        let nodes = tree(
+            vec![
+                run("lone").at("2026-09-01T11:30:00Z"),
+                run("n1").on("i1").at("2026-09-01T10:00:00Z"),
+                run("n2").on("i2").at("2026-09-01T12:00:00Z"),
+            ],
+            &SessionTreeContext {
+                workflows: &workflows,
+                workflow_nodes: &workflow_nodes,
+                issues: &[],
+            },
+        );
+        assert_eq!(shape(&nodes), "workflow:w(n2 n1) lone");
+        assert_eq!(nodes[0].last_activity_at(), "2026-09-01T12:00:00Z");
+    }
+
+    #[test]
+    fn puts_an_orphan_child_whose_parent_is_gone_at_top_level() {
+        let nodes = tree(vec![run("o").under("gone")], &SessionTreeContext::default());
+        assert_eq!(shape(&nodes), "o");
+    }
+
+    #[test]
+    fn keeps_children_in_creation_order_under_their_parent() {
+        let nodes = tree(
+            vec![
+                run("c2").under("p").at("2026-09-01T10:20:00Z"),
+                run("p"),
+                run("c1").under("p").at("2026-09-01T10:10:00Z"),
+            ],
+            &SessionTreeContext::default(),
+        );
+        assert_eq!(shape(&nodes), "p(c1 c2)");
+    }
+
+    // -----------------------------------------------------------------------
+    // The cases a second implementation is written to catch (EXP-1049).
+    // -----------------------------------------------------------------------
+
+    /// A fork: the primary succession claims its members oldest-first, so the
+    /// OLDER sibling is left over as a node of its own.
+    #[test]
+    fn an_older_fork_sibling_becomes_its_own_node() {
+        let nodes = tree(
+            vec![
+                run("r1").at("2026-09-01T10:00:00Z"),
+                run("r2").resuming("r1").at("2026-09-01T11:00:00Z"),
+                run("r3").resuming("r1").at("2026-09-01T12:00:00Z"),
+            ],
+            &SessionTreeContext::default(),
+        );
+        assert_eq!(shape(&nodes), "r3 r2");
+    }
+
+    /// `started_reason = workflow` alone never groups: the group row's name
+    /// comes from the `workflows` row, so an unsynced workflow leaves its runs
+    /// where they are.
+    #[test]
+    fn never_groups_the_runs_of_a_workflow_it_was_not_handed() {
+        let workflow_nodes = vec![workflow_node("w", "i1"), workflow_node("w", "i2")];
+        let nodes = tree(
+            vec![
+                run("n1").on("i1"),
+                run("n2").on("i2").at("2026-09-01T11:00:00Z"),
+            ],
+            &SessionTreeContext {
+                workflow_nodes: &workflow_nodes,
+                ..SessionTreeContext::default()
+            },
+        );
+        assert_eq!(shape(&nodes), "n2 n1");
+    }
+
+    /// A BATCH node run names its workflow issues in `batch_issue_ids` and
+    /// nowhere else (EXP-876/EXP-978); a nameless workflow row falls back to
+    /// the generic word.
+    #[test]
+    fn groups_a_batch_node_run_by_the_issues_it_covers() {
+        let workflows = vec![workflow("w", None)];
+        let workflow_nodes = vec![workflow_node("w", "i1"), workflow_node("w", "i2")];
+        let nodes = tree(
+            vec![
+                run("batch").covering(&["i1", "i9"]),
+                run("n2").on("i2").at("2026-09-01T11:00:00Z"),
+            ],
+            &SessionTreeContext {
+                workflows: &workflows,
+                workflow_nodes: &workflow_nodes,
+                issues: &[],
+            },
+        );
+        assert_eq!(shape(&nodes), "workflow:w(n2 batch)");
+        let SessionTreeNode::Workflow(group) = &nodes[0] else {
+            panic!("a workflow group");
+        };
+        assert_eq!(group.name, WORKFLOW_GROUP_FALLBACK_NAME);
+    }
+
+    /// Workflow grouping WINS: two stacked issues of one workflow make a
+    /// workflow group, never a stack group inside it.
+    #[test]
+    fn workflow_grouping_beats_stack_grouping() {
+        let issues = stacked_issues();
+        let workflows = vec![workflow("w", Some("W"))];
+        let workflow_nodes = vec![
+            workflow_node("w", "id-APP-1"),
+            workflow_node("w", "id-APP-2"),
+        ];
+        let nodes = tree(
+            vec![
+                run("s-low").on("id-APP-1"),
+                run("s-mid").on("id-APP-2").at("2026-09-01T11:00:00Z"),
+            ],
+            &SessionTreeContext {
+                workflows: &workflows,
+                workflow_nodes: &workflow_nodes,
+                issues: &issues,
+            },
+        );
+        assert_eq!(shape(&nodes), "workflow:w(s-mid s-low)");
+    }
+
+    /// A stack with only ONE of its runs listed is no group.
+    #[test]
+    fn a_stack_with_one_listed_run_is_no_group() {
+        let issues = stacked_issues();
+        let nodes = tree(
+            vec![run("s-low").on("id-APP-1")],
+            &SessionTreeContext {
+                issues: &issues,
+                ..SessionTreeContext::default()
+            },
+        );
+        assert_eq!(shape(&nodes), "s-low");
+    }
+
+    /// A run that names NO issue (a chat, an action, a batch) can be in no
+    /// stack: it stays at top level beside the group, never swallowed and
+    /// never dropped.
+    #[test]
+    fn keeps_an_issue_less_run_beside_a_stack_group() {
+        let issues = vec![
+            crate::pr_stack::tests::issue("APP-2", Some("exp/APP-2"), Some("exp/APP-1")),
+            crate::pr_stack::tests::issue("APP-1", Some("exp/APP-1"), None),
+        ];
+        let nodes = tree(
+            vec![
+                run("chat").at("2026-09-01T09:00:00Z"),
+                run("s-low").on("id-APP-1"),
+                run("s-top").on("id-APP-2").at("2026-09-01T11:00:00Z"),
+            ],
+            &SessionTreeContext {
+                issues: &issues,
+                ..SessionTreeContext::default()
+            },
+        );
+        assert_eq!(shape(&nodes), "stack:id-APP-1(s-low s-top) chat");
+    }
+
+    // -----------------------------------------------------------------------
+    // The flattening (`visibleSessionTreeRows`)
+    // -----------------------------------------------------------------------
+
+    /// The web's `workflowTree()`: a workflow group with a parent run (one
+    /// child) and a second node run.
+    fn workflow_tree() -> (Vec<WorkflowFacts>, Vec<WorkflowNodeFacts>, Vec<Run>) {
+        (
+            vec![workflow("w", Some("W"))],
+            vec![workflow_node("w", "i1"), workflow_node("w", "i2")],
+            vec![
+                run("p").on("i1").at("2026-09-01T11:00:00Z"),
+                run("c").under("p").at("2026-09-01T10:30:00Z"),
+                run("n2").on("i2").at("2026-09-01T10:00:00Z"),
+            ],
+        )
+    }
+
+    fn flattened(collapsed: &[&str]) -> Vec<(String, usize, bool)> {
+        let (workflows, workflow_nodes, runs) = workflow_tree();
+        let nodes = tree(
+            runs,
+            &SessionTreeContext {
+                workflows: &workflows,
+                workflow_nodes: &workflow_nodes,
+                issues: &[],
+            },
+        );
+        let collapsed: HashSet<String> = collapsed.iter().map(|key| key.to_string()).collect();
+        visible_session_tree_rows(&nodes, &collapsed)
+            .into_iter()
+            .map(|row| (row.key, row.depth, row.has_children))
+            .collect()
+    }
+
+    #[test]
+    fn flattens_groups_and_children_with_their_depths() {
+        assert_eq!(
+            flattened(&[])
+                .into_iter()
+                .map(|(key, depth, _)| (key, depth))
+                .collect::<Vec<_>>(),
+            vec![
+                ("workflow:w".to_string(), 0),
+                ("p".to_string(), 1),
+                ("c".to_string(), 2),
+                ("n2".to_string(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn hides_everything_under_a_collapsed_node() {
+        let rows = flattened(&["p"]);
+        assert_eq!(
+            rows.iter().map(|(key, _, _)| key.as_str()).collect::<Vec<_>>(),
+            ["workflow:w", "p", "n2"]
+        );
+        assert!(rows.iter().find(|(key, _, _)| key == "p").unwrap().2);
+    }
+
+    #[test]
+    fn folds_a_whole_group_away() {
+        assert_eq!(
+            flattened(&["workflow:w"])
+                .iter()
+                .map(|(key, _, _)| key.as_str())
+                .collect::<Vec<_>>(),
+            ["workflow:w"]
+        );
+    }
+
+    #[test]
+    fn keys_a_session_by_its_id_and_a_group_by_its_kind() {
+        let (workflows, workflow_nodes, runs) = workflow_tree();
+        let nodes = tree(
+            runs,
+            &SessionTreeContext {
+                workflows: &workflows,
+                workflow_nodes: &workflow_nodes,
+                issues: &[],
+            },
+        );
+        assert_eq!(session_tree_node_key(&nodes[0]), "workflow:w");
+        let stack: SessionTreeNode<Run> = SessionTreeNode::Stack(StackGroupNode {
+            root_issue_id: "i-low".to_string(),
+            children: Vec::new(),
+            last_activity_at: String::new(),
+        });
+        assert_eq!(session_tree_node_key(&stack), "stack:i-low");
+        // A childless group row is not drawn: a group IS its children.
+        assert!(visible_session_tree_rows(&[stack], &HashSet::new()).is_empty());
+    }
+
+    /// The group rows' copy — the workflow fallback and the one NEW string of
+    /// the tree, mirrored ×4.
+    #[test]
+    fn the_group_row_copy_is_locked() {
+        assert_eq!(WORKFLOW_GROUP_FALLBACK_NAME, "Workflow");
+        assert_eq!(STACK_GROUP_LABEL, "Stacked pull requests");
+        assert_eq!(COLLAPSE_GROUP_LABEL, "Collapse these runs");
+        assert_eq!(EXPAND_GROUP_LABEL, "Expand these runs");
     }
 }
