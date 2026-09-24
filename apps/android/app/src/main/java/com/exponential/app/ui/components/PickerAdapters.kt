@@ -1,0 +1,70 @@
+package com.exponential.app.ui.components
+
+import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.IssuePriority
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.ui.components.picker.AssigneePickerMember
+import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.components.picker.IssuePickerIssue
+import com.exponential.app.ui.components.picker.LabelPickerLabel
+import com.exponential.app.ui.components.picker.PriorityPickerOption
+import com.exponential.app.ui.components.picker.StatusPickerStatus
+import com.exponential.app.ui.theme.resolvedStatusColor
+
+/**
+ * EXP-1021: the app's rows as the shared picker contract's rows. The picker
+ * package is the CONTRACT (the same five types on web, iOS and the IDE), so it
+ * never learns about Room entities — the mapping lives here, once, and every
+ * screen that picks a status/priority/assignee/board/label/issue goes through
+ * it. A second copy of one of these is how the four sheets drifted apart in
+ * the first place.
+ */
+
+/**
+ * A resolved team status (EXP-314) as a picker row. Glyph and tint are handed
+ * in RESOLVED: a started row's glyph is its position's pie clock and a builtin
+ * row's colour is its semantic token, neither of which the category alone
+ * carries.
+ */
+fun ResolvedIssueStatus.toPickerRow(): StatusPickerStatus = StatusPickerStatus(
+    id = id,
+    name = name,
+    category = category.wire,
+    colorHex = colorHex,
+    iconName = iconName,
+    color = resolvedStatusColor(this),
+)
+
+/** The contract's priority table in its display order (urgent → none). */
+fun issuePriorityPickerOptions(): List<PriorityPickerOption> =
+    issuePriorityOrder.map { PriorityPickerOption(value = it.wire, label = it.label) }
+
+fun UserEntity.toPickerMember(): AssigneePickerMember = AssigneePickerMember(
+    id = id,
+    name = userDisplayName(this, id),
+    email = email.takeIf { it.isNotBlank() },
+    image = image,
+)
+
+fun BoardEntity.toPickerBoard(): BoardPickerBoard = BoardPickerBoard(
+    id = id,
+    name = name,
+    // `boardIcon`'s repo fallback is the board's own, so resolve the NAME here
+    // rather than letting the picker guess from a null.
+    icon = icon ?: if (repositoryId != null) "code" else null,
+    colorHex = color,
+)
+
+fun LabelEntity.toPickerLabel(): LabelPickerLabel =
+    LabelPickerLabel(id = id, name = name, colorHex = color)
+
+fun IssueEntity.toPickerIssue(disabled: Boolean = false): IssuePickerIssue =
+    IssuePickerIssue(id = id, identifier = identifier, title = title, disabled = disabled)
+
+/** The priority a picker value names. */
+fun pickedPriority(values: Set<String>): IssuePriority? =
+    values.firstOrNull()?.let(IssuePriority::fromWire)

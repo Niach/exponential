@@ -79,9 +79,15 @@ import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.TreeGuides
-import com.exponential.app.domain.issuePriorityOrder
 import com.exponential.app.domain.priorityIcon
 import com.exponential.app.ui.components.BlocksBadge
+import com.exponential.app.ui.components.picker.AssigneePicker
+import com.exponential.app.ui.components.picker.PriorityPicker
+import com.exponential.app.ui.components.picker.StatusPicker
+import com.exponential.app.ui.components.issuePriorityPickerOptions
+import com.exponential.app.ui.components.pickedPriority
+import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.GlassNotice
 import com.exponential.app.ui.components.GlassPill
@@ -579,40 +585,35 @@ fun IssueListScreen(
     // Bulk property sheets (EXP-247) — status/priority/assignee apply then
     // clear the selection; the label sheet stays open across tri-state toggles.
     when (bulkSheet) {
-        BulkSheet.Status -> IssuePickerSheet(
-            title = "Status",
-            // Duplicate is set through the mark-duplicate flow, never picked.
-            items = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
+        // Duplicate is set through the mark-duplicate flow, never picked.
+        BulkSheet.Status -> BulkStatusPicker(
+            statuses = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
             selected = sharedStatus,
-            keyOf = { it.id },
-            labelOf = { it.name },
-            leadingContent = { StatusIcon(it, size = 18.dp) },
             onSelect = {
                 viewModel.bulkUpdateStatus(selectedIds, it)
                 selectedIds = emptySet()
             },
             onDismiss = { bulkSheet = null },
         )
-        BulkSheet.Priority -> IssuePickerSheet(
-            title = "Priority",
-            items = issuePriorityOrder,
-            selected = sharedPriority,
-            labelOf = { it.label },
-            leadingContent = { PriorityIcon(it, size = 18.dp) },
-            onSelect = {
-                viewModel.bulkUpdatePriority(selectedIds, it)
+        BulkSheet.Priority -> PriorityPicker(
+            options = issuePriorityPickerOptions(),
+            value = setOfNotNull(sharedPriority?.wire),
+            onChange = { picked ->
+                pickedPriority(picked)?.let { viewModel.bulkUpdatePriority(selectedIds, it) }
                 selectedIds = emptySet()
             },
-            onDismiss = { bulkSheet = null },
+            open = true,
+            onOpenChange = { open -> if (!open) bulkSheet = null },
         )
-        BulkSheet.Assignee -> AssigneePickerSheet(
-            users = state.teamUsers,
-            selectedUserId = sharedAssigneeId,
-            onSelect = {
-                viewModel.bulkUpdateAssignee(selectedIds, it)
+        BulkSheet.Assignee -> AssigneePicker(
+            members = state.teamUsers.map { it.toPickerMember() },
+            value = setOfNotNull(sharedAssigneeId),
+            onChange = { picked ->
+                viewModel.bulkUpdateAssignee(selectedIds, picked.firstOrNull())
                 selectedIds = emptySet()
             },
-            onDismiss = { bulkSheet = null },
+            open = true,
+            onOpenChange = { open -> if (!open) bulkSheet = null },
         )
         BulkSheet.Labels -> BulkLabelSheet(
             teamLabels = state.labels,
@@ -637,24 +638,20 @@ fun IssueListScreen(
         val editIssue = state.groups.flatMap { it.issues }
             .firstOrNull { it.issue.id == edit.issueId }?.issue
         when (edit.kind) {
-            InlineKind.Status -> IssuePickerSheet(
-                title = "Status",
-                items = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
+            InlineKind.Status -> BulkStatusPicker(
+                statuses = state.teamStatuses.filter { it.category != IssueStatusCategory.Duplicate },
                 selected = statusByIssueId[edit.issueId],
-                keyOf = { it.id },
-                labelOf = { it.name },
-                leadingContent = { StatusIcon(it, size = 18.dp) },
                 onSelect = { viewModel.updateStatus(edit.issueId, it) },
                 onDismiss = { inlineEdit = null },
             )
-            InlineKind.Priority -> IssuePickerSheet(
-                title = "Priority",
-                items = issuePriorityOrder,
-                selected = editIssue?.let { IssuePriority.fromWire(it.priority) },
-                labelOf = { it.label },
-                leadingContent = { PriorityIcon(it, size = 18.dp) },
-                onSelect = { viewModel.updatePriority(edit.issueId, it) },
-                onDismiss = { inlineEdit = null },
+            InlineKind.Priority -> PriorityPicker(
+                options = issuePriorityPickerOptions(),
+                value = setOfNotNull(editIssue?.priority?.let { IssuePriority.fromWire(it).wire }),
+                onChange = { picked ->
+                    pickedPriority(picked)?.let { viewModel.updatePriority(edit.issueId, it) }
+                },
+                open = true,
+                onOpenChange = { open -> if (!open) inlineEdit = null },
             )
         }
     }
@@ -1538,5 +1535,28 @@ private fun NoticeChip(
         text,
         onClick = onClick,
         contentColor = if (isError) MaterialTheme.colorScheme.error else null,
+    )
+}
+
+/**
+ * The board list's status picker (EXP-1021): the shared [StatusPicker] over
+ * RESOLVED team rows, so the bulk bar and the long-press inline edit pick the
+ * same way — both hand back the row itself, which is what the mutations take.
+ */
+@Composable
+private fun BulkStatusPicker(
+    statuses: List<ResolvedIssueStatus>,
+    selected: ResolvedIssueStatus?,
+    onSelect: (ResolvedIssueStatus) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    StatusPicker(
+        statuses = statuses.map { it.toPickerRow() },
+        value = setOfNotNull(selected?.id),
+        onChange = { picked ->
+            picked.firstOrNull()?.let { id -> statuses.firstOrNull { it.id == id } }?.let(onSelect)
+        },
+        open = true,
+        onOpenChange = { open -> if (!open) onDismiss() },
     )
 }

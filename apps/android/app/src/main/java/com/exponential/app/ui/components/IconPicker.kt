@@ -26,14 +26,18 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerMode
+import com.exponential.app.ui.components.picker.iconPickerItems
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * EXP-575: THE icon picker — one slim 36dp swatch showing the current pick
- * that opens the curated grid ([IconSwatchGrid]) in a [GlassSheet], so the
- * 96-glyph grid never sits inline in a form. Every surface that picks an icon
+ * that opens the curated grid ([IconSwatchGrid]) in a bottom sheet, so the
+ * 96-glyph grid never sits inline in a form. EXP-1021 re-homed it onto the
+ * shared [Picker]: the sheet is the primitive's, the grid is its panel. Every surface that picks an icon
  * (create-board form, Start-coding `icon` inputs, the device-settings sheet)
  * renders this.
  *
@@ -94,40 +98,48 @@ fun IconPicker(
         )
     }
     if (open) {
-        GlassSheet(
+        // EXP-1021: the grid rides the shared picker as its PANEL — the sheet,
+        // its title and its dismiss are the primitive's, the 96-glyph grid is
+        // the body. A GlassSheet never scrolls its own slot, and the board set
+        // is taller than the fitted sheet's 85 % cap on every phone, so the
+        // scroller stays here.
+        Picker(
+            items = iconPickerItems(pickable),
+            mode = PickerMode.Single,
+            value = setOfNotNull(picked),
+            onChange = { next -> next.firstOrNull()?.let(onSelect) },
             title = "Icon",
-            onDismiss = { open = false },
-            headerAction = if (allowsNone && picked != null) {
-                {
-                    GlassSheetHeaderAction("No icon") {
-                        onSelect("")
-                        open = false
+            open = true,
+            onOpenChange = { next -> if (!next) open = false },
+            panel = {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp),
+                ) {
+                    if (allowsNone && picked != null) {
+                        // "No icon" is a RESET, not a row: it clears the pick
+                        // and closes, the way the header action always did.
+                        GlassSheetRow(
+                            label = "No icon",
+                            onClick = {
+                                onSelect("")
+                                open = false
+                            },
+                        )
                     }
+                    IconSwatchGrid(
+                        selected = picked,
+                        onSelect = {
+                            onSelect(it)
+                            open = false
+                        },
+                        accentColor = accentColor,
+                        pickable = pickable,
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
                 }
-            } else {
-                null
             },
-        ) {
-            // A GlassSheet never scrolls its own slot — the caller owns the
-            // scroller. The board set is 96 glyphs (EXP-924 grew it from 60),
-            // which is taller than the fitted sheet's 85 % cap on every phone,
-            // so without this the last rows are simply unreachable.
-            Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-            ) {
-                IconSwatchGrid(
-                    selected = picked,
-                    onSelect = {
-                        onSelect(it)
-                        open = false
-                    },
-                    accentColor = accentColor,
-                    pickable = pickable,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-            }
-        }
+        )
     }
 }

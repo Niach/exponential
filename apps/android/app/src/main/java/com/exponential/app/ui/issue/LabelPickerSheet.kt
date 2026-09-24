@@ -1,19 +1,6 @@
 package com.exponential.app.ui.issue
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,22 +9,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.size
 import com.exponential.app.data.db.LabelEntity
-import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
-import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.components.picker.LabelPicker
+import com.exponential.app.ui.components.toPickerLabel
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.LabelPalette
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * Searchable multi-toggle label sheet (EXP-240): dot + name rows that toggle
- * without dismissing, plus a one-tap `+ Create new label "query"` row when the
- * query matches no existing name (case-insensitive exact) — color picked
+ * Searchable multi-toggle label sheet: dot + name rows that toggle without
+ * dismissing, plus a one-tap `+ Create new label "query"` row when the query
+ * matches no existing name (case-insensitive exact) — color picked
  * deterministically via [LabelPalette.autoColor], no swatch strip. The
- * signature is unchanged (incl. `onCreate(name, color)`) so CreateIssueScreen
- * keeps compiling against it.
+ * signature is unchanged (incl. `onCreate(name, color)`) so the create screen
+ * and the issue properties keep compiling against it.
+ *
+ * EXP-1021: the rows, the search field and the sheet are the shared
+ * [LabelPicker]'s; what stays here is the CREATE row, which is this surface's
+ * own affordance and rides as the picker's footer.
  */
 @Composable
 fun LabelPickerSheet(
@@ -48,46 +39,27 @@ fun LabelPickerSheet(
     onDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-
-    val filtered = remember(teamLabels, query) {
-        val q = query.trim()
-        if (q.isEmpty()) teamLabels
-        else teamLabels.filter { it.name.contains(q, ignoreCase = true) }
-    }
     val trimmedQuery = query.trim()
     val hasExactMatch = remember(teamLabels, trimmedQuery) {
         teamLabels.any { it.name.equals(trimmedQuery, ignoreCase = true) }
     }
 
-    GlassSheet(title = "Labels", onDismiss = onDismiss) {
-        GlassSheetSearchField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = "Search or create labels",
-        )
-        Spacer(Modifier.height(4.dp))
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
-        ) {
-            filtered.forEach { label ->
-                val selected = label.id in selectedLabelIds
-                GlassSheetRow(
-                    label = label.name,
-                    selected = selected,
-                    leading = {
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(parseColor(label.color), CircleShape),
-                        )
-                    },
-                    // Multi-toggle: the sheet stays open across taps.
-                    onClick = { onToggle(label.id, selected) },
-                )
-            }
-            if (trimmedQuery.isNotEmpty() && !hasExactMatch) {
+    LabelPicker(
+        labels = teamLabels.map { it.toPickerLabel() },
+        value = selectedLabelIds,
+        // The picker reports the whole new set; this surface writes one
+        // toggle at a time, so the difference IS the tapped label.
+        onChange = { next ->
+            val added = next - selectedLabelIds
+            val removed = selectedLabelIds - next
+            added.forEach { onToggle(it, false) }
+            removed.forEach { onToggle(it, true) }
+        },
+        query = query,
+        onQueryChange = { query = it },
+        emptyText = if (trimmedQuery.isEmpty()) "No labels yet. Type a name to create one." else "No matching labels",
+        footer = if (trimmedQuery.isNotEmpty() && !hasExactMatch) {
+            {
                 GlassSheetRow(
                     label = "Create new label “$trimmedQuery”",
                     leading = {
@@ -98,24 +70,17 @@ fun LabelPickerSheet(
                             tint = Color.White.copy(alpha = TextEmphasis.Secondary),
                         )
                     },
-                    labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    labelColor = Color.White.copy(alpha = TextEmphasis.Secondary),
                     onClick = {
                         onCreate(trimmedQuery, LabelPalette.autoColor(trimmedQuery))
                         query = ""
                     },
                 )
             }
-            if (filtered.isEmpty() && trimmedQuery.isEmpty()) {
-                Text(
-                    "No labels yet. Type a name to create one.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-    }
+        } else {
+            null
+        },
+        open = true,
+        onOpenChange = { open -> if (!open) onDismiss() },
+    )
 }

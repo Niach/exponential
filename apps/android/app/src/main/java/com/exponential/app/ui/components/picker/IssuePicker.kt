@@ -32,7 +32,25 @@ fun IssuePicker(
     value: Set<String>,
     onChange: (Set<String>) -> Unit,
     mode: PickerMode = PickerMode.Single,
-    trigger: @Composable (open: () -> Unit) -> Unit,
+    /** The sheet headline; the default names the picker. */
+    title: String = "Issues",
+    emptyText: String = "No issues",
+    /**
+     * EXP-892: a caller that ranks with the shared engine hands the query in
+     * and the rows already ordered — the picker then renders them verbatim
+     * instead of filtering a second time.
+     */
+    query: String? = null,
+    onQueryChange: ((String) -> Unit)? = null,
+    filter: Boolean = true,
+    /**
+     * EXP-1021: the sheet CONTROLLED by the caller, for a picker that is a
+     * state machine rather than a chip (the issue screens open theirs from a
+     * properties sheet that has already closed).
+     */
+    open: Boolean? = null,
+    onOpenChange: ((Boolean) -> Unit)? = null,
+    trigger: @Composable (open: () -> Unit) -> Unit = {},
 ) {
     Picker(
         items = issuePickerItems(issues),
@@ -40,8 +58,14 @@ fun IssuePicker(
         value = value,
         onChange = onChange,
         search = true,
-        emptyText = "No issues",
-        title = "Issues",
+        emptyText = emptyText,
+        title = title,
+        query = query,
+        onQueryChange = onQueryChange,
+        filter = filter,
+        searchPlaceholder = "Search issues",
+        open = open,
+        onOpenChange = onOpenChange,
         trigger = trigger,
     )
 }

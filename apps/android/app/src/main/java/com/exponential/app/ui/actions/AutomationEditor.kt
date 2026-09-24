@@ -33,6 +33,10 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.triggerEventLabel
 import com.exponential.app.domain.triggerWeekdayName
 import com.exponential.app.ui.components.AccountPickerPill
+import com.exponential.app.ui.components.PickerValueRow
+import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.GlassSegmentedControl
@@ -536,14 +540,23 @@ private fun AutomationFilterPicker(
     selected: String,
     onSelect: (String) -> Unit,
 ) {
-    PickerRow(
-        label = label,
-        value = options.firstOrNull { it.id == selected }?.name ?: anyLabel,
-        options = listOf("") + options.map { it.id },
-        selected = selected,
-        optionLabel = { id ->
-            if (id.isEmpty()) anyLabel else options.firstOrNull { it.id == id }?.name ?: id
+    // EXP-1021: one sheet language for every filter — the shared [Picker],
+    // with the "Any X" reset as its first ROW (a filter's cleared state is a
+    // choice, not a missing one).
+    val rows = listOf(PickerItem(value = "", label = anyLabel)) +
+        options.map { PickerItem(value = it.id, label = it.name) }
+    Picker(
+        items = rows,
+        mode = PickerMode.Single,
+        value = setOf(selected),
+        onChange = { picked -> picked.firstOrNull()?.let(onSelect) },
+        title = label,
+        trigger = { open ->
+            PickerValueRow(
+                label = label,
+                value = options.firstOrNull { it.id == selected }?.name ?: anyLabel,
+                onClick = open,
+            )
         },
-        onSelect = onSelect,
     )
 }
