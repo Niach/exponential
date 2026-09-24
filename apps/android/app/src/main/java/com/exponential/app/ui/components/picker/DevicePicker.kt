@@ -23,8 +23,6 @@ data class DevicePickerDevice(
     /** A muted reason under the name (`Offline`, `Update to run workflows`). */
     val description: String? = null,
     val disabled: Boolean = false,
-    /** A server daemon's kind default differs from a desktop's (`deviceIcon`). */
-    val isServer: Boolean = false,
 )
 
 fun devicePickerItems(devices: List<DevicePickerDevice>): List<PickerItem<String>> =
