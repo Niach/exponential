@@ -38,10 +38,16 @@ const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
 
 // EXP-818: the team's AGENT page — the composer over the caller's sessions
-// list (Running, then Past). EXP-825 made that composer THE
-// launcher: issues, actions and a plain chat all start here (the three-tab
-// dialog and the create-action dialog are gone), so every play button in the
-// app navigates to this route with a preselection in the search params:
+// list (Running, then Past). EXP-825 made that composer THE launcher: issues,
+// actions and a plain chat all start from it.
+//
+// EXP-1019: a play button no longer travels here for work it can already
+// name — a seed carrying a SUBJECT opens the same composer as a dialog over
+// the surface the click came from (`components/launch-dialog/launch-dialog.tsx`,
+// `hooks/use-open-composer.ts`). This route stays the home of a plain CHAT,
+// and it keeps honouring the full seed in its search params, because a deep
+// link from a native client, a notification or an old bookmark still arrives
+// that way:
 //
 //   issues  csv of issue ids (chips; 2+ = a batch)
 //   action  an action id (`builtin:fix-conflicts`, `builtin:create-action`,

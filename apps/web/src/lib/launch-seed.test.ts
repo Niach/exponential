@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { searchFromSeed, seedFromSearch } from "@/lib/launch-seed"
+import { searchFromSeed, seedFromSearch, seedHasSubject } from "@/lib/launch-seed"
 
 // EXP-825: the Agent page's one-shot preselection, both ways across the URL.
 
@@ -76,5 +76,21 @@ describe(`searchFromSeed`, () => {
       prIssueId: undefined,
       icon: undefined,
     })
+  })
+})
+
+// EXP-1019: the one predicate that decides dialog vs. the Agent page.
+describe(`seedHasSubject`, () => {
+  it(`is true for issues and for an action`, () => {
+    expect(seedHasSubject({ issueIds: [a] })).toBe(true)
+    expect(seedHasSubject({ actionId: `builtin:fix-conflicts` })).toBe(true)
+  })
+
+  it(`is false for a chat, however it is seeded`, () => {
+    expect(seedHasSubject({})).toBe(false)
+    expect(seedHasSubject({ issueIds: [] })).toBe(false)
+    // A device or a prefilled sentence is not a subject — there is still
+    // nothing to "Run" or "Implement".
+    expect(seedHasSubject({ deviceId: `d1`, text: `hi` })).toBe(false)
   })
 })
