@@ -202,16 +202,30 @@ export const teamsRouter = router({
         await assertCanUseHelpdesk(id)
       }
 
-      // The prompt rides beside the synced columns but is stamped with its
-      // own clock: `updated_at` bumps the shape (every client re-renders the
-      // team), `agent_prompt_updated_at` only ever tells the editors when.
-      const promptWrite =
-        agentPrompt === undefined
-          ? {}
-          : { agentPrompt: agentPrompt.trimEnd(), agentPromptUpdatedAt: new Date() }
-
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
+        // The prompt rides beside the synced columns but is stamped with its
+        // own clock: `updated_at` bumps the shape (every client re-renders
+        // the team), `agent_prompt_updated_at` only ever tells the editors
+        // when — so it moves ONLY when the normalized text differs from the
+        // stored one (a blur that re-saves the same bytes leaves the "edited
+        // …" caption alone). Owner-only on a tiny table: reading the current
+        // row here is cheap.
+        let promptWrite: {
+          agentPrompt?: string
+          agentPromptUpdatedAt?: Date
+        } = {}
+        if (agentPrompt !== undefined) {
+          const next = agentPrompt.trimEnd()
+          const [current] = await tx
+            .select({ agentPrompt: teams.agentPrompt })
+            .from(teams)
+            .where(eq(teams.id, id))
+            .limit(1)
+          if ((current?.agentPrompt ?? ``) !== next) {
+            promptWrite = { agentPrompt: next, agentPromptUpdatedAt: new Date() }
+          }
+        }
         const [team] = await tx
           .update(teams)
           .set({ ...updates, ...promptWrite, updatedAt: new Date() })

@@ -234,12 +234,27 @@ describe(`imports.savePlan`, () => {
   })
 })
 
+describe(`imports.dryRun`, () => {
+  it(`says the data expired once the worker purged the payload`, async () => {
+    selectQueue.push([jobRow({ status: `failed` })], [{ payload: null }])
+    await expect(caller().dryRun({ jobId: JOB })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: /expired/,
+    })
+    expect(h.toBundle).not.toHaveBeenCalled()
+  })
+})
+
 describe(`imports.cancel`, () => {
-  it(`cancels a live job and wipes the credential in the same UPDATE`, async () => {
+  it(`cancels a live job, wipes the credential AND nulls the claim token in the same UPDATE`, async () => {
     selectQueue.push([jobRow({ status: `running` })])
     updateReturningQueue.push([{ id: JOB }])
     await caller().cancel({ jobId: JOB })
-    expect(updates[0]!.set).toMatchObject({ status: `cancelled`, credential: null })
+    // The worker fences every write on `claim_token = mine`; a NULL token
+    // (plus the status flip) is what stops a finishing discovery or a
+    // failure from writing over `cancelled`.
+    expect(updates[0]!.set).toMatchObject({ status: `cancelled`, credential: null, claimToken: null })
+    expect(updates[0]!.set.finishedAt).toBeInstanceOf(Date)
   })
 
   it(`refuses once the job already finished`, async () => {

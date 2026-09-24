@@ -391,7 +391,10 @@ export async function assertCanInviteMember(
 export type InviteCapacity = { remaining: number | null }
 
 // Pending = unaccepted AND unexpired. Expired rows are dead weight the accept
-// path rejects anyway, so they must not hold a seat.
+// path rejects anyway, so they must not hold a seat. EXP-630: an invite bound
+// to a placeholder member is excluded too — that person already sits on the
+// roster as a team_members row (countTeamMembers), so counting the invite as
+// well would charge the seat twice.
 export async function countPendingInvites(teamId: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
@@ -400,6 +403,7 @@ export async function countPendingInvites(teamId: string): Promise<number> {
       and(
         eq(teamInvites.teamId, teamId),
         isNull(teamInvites.acceptedAt),
+        isNull(teamInvites.placeholderUserId),
         gt(teamInvites.expiresAt, new Date())
       )
     )

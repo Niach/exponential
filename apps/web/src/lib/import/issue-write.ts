@@ -223,13 +223,20 @@ export function planIssueWrite(
   if (!status) {
     throw new Error(`No target status for ${issue.externalRef} (${issue.statusKey})`)
   }
-  if (status.category === `duplicate` && !options.canonicalAvailable) {
-    // The links pass writes duplicate_of_id + status=duplicate together once
-    // both ends exist; an orphan "duplicate" (no relation, or a canonical
-    // outside the import) has nothing to point at and lands as cancelled.
-    warnings.push(
-      `${issue.externalRef}: marked duplicate at the source without a duplicate target; imported as ${ctx.cancelledStatus.name}.`
-    )
+  if (status.category === `duplicate`) {
+    // REV2-27 lockstep: `status=duplicate` never exists without a
+    // `duplicate_of_id`, and the pair can only be written once BOTH ends
+    // exist — so EVERY duplicate lands here on the cancelled builtin and the
+    // links pass flips status + statusId together with duplicate_of_id
+    // (apply-db.ts linkRelations). A cancel between the batches and that
+    // pass then leaves no half-written duplicate. An orphan "duplicate" (no
+    // relation, or a canonical outside the import) has nothing to point at
+    // and simply stays cancelled, with a warning.
+    if (!options.canonicalAvailable) {
+      warnings.push(
+        `${issue.externalRef}: marked duplicate at the source without a duplicate target; imported as ${ctx.cancelledStatus.name}.`
+      )
+    }
     status = ctx.cancelledStatus
   }
 

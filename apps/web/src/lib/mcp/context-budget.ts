@@ -6,9 +6,9 @@
 // what `codingSessions.contextBudget` hands the launcher so a run's context
 // bar can attribute its `tools` layer to a real number rather than a guess.
 //
-// Deliberately a SERVER-side constant: the tool set is whatever this build
-// registers (the cloud-only `exponential_report_bug` included or not), so it
-// is a deploy fact, not a per-run one.
+// Deliberately a SERVER-side constant: `mcpContextBudget()` registers the
+// FULL surface (`ALL_MCP_TOOL_GATES`, so `exponential_report_bug` always
+// counts, cloud or not), so the number is a build fact, not a per-run one.
 
 import { z } from "zod"
 import { registerExponentialTools } from "@/lib/mcp/tools"

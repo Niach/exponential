@@ -1,2 +1,3 @@
-- Automations velger en konto, ikke bare en agent: velg innloggingen på den tilknyttede maskinen, vist med merket og e-postadressen sin
-- Nestede issue-lister tegner tettere trelinjer, med én ubrutt loddrett strek der underissues greiner seg av
+- Kontekstvindu: forbrukspanelet viser en inndelt stolpe over hva som fyller konteksten til en kjøring, med en forklaring til hver del
+- Estimater: slår du på en skala i teaminnstillingene, får issues et estimat blant egenskapene sine, og aktiviteten viser endringer i estimatet
+- Medlemmer: en invitert person står i teamet med én gang med navnet sitt, og «Members»-innstillingene viser hvem som ikke har blitt med ennå

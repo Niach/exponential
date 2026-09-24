@@ -1,2 +1,3 @@
-- Automations vybírají účet, ne jen agenta: zvol přihlášení na propojeném počítači, zobrazené se značkou a e-mailem
-- Vnořené seznamy issues kreslí těsnější stromové linky, s jednou nepřerušenou svislicí tam, kde se větví podřazené issues
+- Kontextové okno: přehled spotřeby ukazuje segmentovaný pruh toho, co plní kontext běhu, s legendou ke každému segmentu
+- Odhady: když v nastavení týmu zapnete škálu, issues dostanou odhad mezi svými vlastnostmi a aktivita ukazuje změny odhadu
+- Členové: pozvaný člověk se objeví v týmu hned i se svým jménem a nastavení „Members“ ukáže, kdo se ještě nepřipojil

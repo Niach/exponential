@@ -3,9 +3,11 @@
 // payload into an `ImportBundle` under the plan's routing, and how to fetch
 // the assets its bundle references. The core never imports an adapter by
 // name outside this file.
+import { readBodyBounded } from "@/lib/import/asset-body"
 import { importBundleSchema } from "@/lib/import/bundle"
-import { IMPORT_MAX_ASSET_BYTES } from "@/lib/import/limits"
+import { IMPORT_ASSET_FETCH_TIMEOUT_MS, IMPORT_MAX_ASSET_BYTES } from "@/lib/import/limits"
 import { previewFromBundle } from "@/lib/import/preview"
+import { resolvesToPublicAddresses } from "@/lib/import/public-address"
 import type { ImportSource } from "@/lib/import/source-types"
 import { linearImportSource } from "@/lib/import/linear/source"
 
@@ -14,7 +16,9 @@ export { previewFromBundle } from "@/lib/import/preview"
 
 // The server fetches bundle asset refs itself, so a bundle must not be able
 // to point it at the private network (SSRF): https only, no literal IPs, no
-// loopback/link-local/RFC1918 names.
+// loopback/link-local/RFC1918 names. This is the cheap SYNTACTIC gate; the
+// fetch below also resolves the name and refuses any non-public answer
+// (public-address.ts).
 export function isSafePublicUrl(ref: string): boolean {
   let url: URL
   try {
@@ -46,12 +50,19 @@ export const bundleImportSource: ImportSource = {
   toBundle(payload) {
     return importBundleSchema.parse(payload)
   },
+  // Resolve, vet EVERY answer, then fetch at once (Bun's fetch cannot be
+  // pinned to the vetted address; `redirect: "error"` keeps a 3xx from
+  // steering it elsewhere). The body streams under the byte cap.
   async fetchAsset({ ref }) {
     if (!isSafePublicUrl(ref)) return null
-    const response = await fetch(ref, { redirect: `error` })
+    if (!(await resolvesToPublicAddresses(new URL(ref).hostname))) return null
+    const response = await fetch(ref, {
+      redirect: `error`,
+      signal: AbortSignal.timeout(IMPORT_ASSET_FETCH_TIMEOUT_MS),
+    })
     if (!response.ok) return null
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    if (bytes.byteLength > IMPORT_MAX_ASSET_BYTES) return null
+    const bytes = await readBodyBounded(response, IMPORT_MAX_ASSET_BYTES)
+    if (!bytes) return null
     return {
       bytes,
       contentType: response.headers.get(`content-type`) ?? `application/octet-stream`,

@@ -1,2 +1,3 @@
-- Automations väljer ett konto, inte bara en agent: ta inloggningen på den kopplade maskinen, visad med sitt märke och sin e-postadress
-- Nästlade issue-listor ritar tätare trädlinjer, med en obruten lodrät linje där underissues grenar av
+- Kontextfönster: förbrukningsrutan visar en indelad stapel över vad som fyller en körnings kontext, med en förklaring till varje del
+- Uppskattningar: slår du på en skala i teaminställningarna får issues en uppskattning bland sina egenskaper, och aktiviteten visar ändringar av uppskattningen
+- Medlemmar: en inbjuden person står i teamet direkt med sitt namn, och "Members"-inställningarna visar vem som inte har gått med ännu

@@ -1,2 +1,3 @@
-- Automations valitsee tilin, ei pelkkää agenttia: valitse kirjautuminen sidotulla koneella, tunnuksen merkin ja sähköpostin kanssa
-- Sisäkkäiset issue-listat piirtävät tiiviimmät puuviivat, ja haarautumiskohdassa pystyviiva kulkee yhtenäisenä
+- Konteksti-ikkuna: käyttönäkymä näyttää lohkoihin jaetun palkin siitä, mikä täyttää ajon kontekstin, ja jokaisella lohkolla on oma selitteensä
+- Arviot: kun tiimin asetuksissa on skaala käytössä, issuet saavat arvion ominaisuuksiensa joukkoon, ja aktiivisuus näyttää arvion muutokset
+- Jäsenet: kutsuttu henkilö näkyy tiimissä heti omalla nimellään, ja "Members"-asetukset kertovat, kuka ei ole vielä liittynyt

@@ -450,6 +450,14 @@ interface AttachmentDao {
 
 @Dao
 interface TeamInviteDao {
+    /**
+     * The team's UNACCEPTED invites — NOT its pending ones. EXP-630 (#810):
+     * a revoked placeholder invite stays a row with `expires_at = now` (the
+     * member row wears "Invite expired" off it), so this set holds revoked and
+     * lapsed links too. Readers wanting the open links take
+     * `pendingInvites()` (domain) over it; no SQL expiry filter because
+     * `expires_at` mixes Postgres text and ISO forms.
+     */
     @Query("SELECT * FROM team_invites WHERE team_id = :teamId AND accepted_at IS NULL")
     fun observeByTeam(teamId: String): Flow<List<TeamInviteEntity>>
 

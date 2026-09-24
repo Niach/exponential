@@ -1,2 +1,3 @@
-- Automations choisit un compte, pas seulement un agent : prends la connexion sur la machine liée, avec sa marque et son adresse e-mail
-- Les listes d'issues imbriquées tracent des lignes d'arbre plus serrées, avec une verticale ininterrompue là où les sous-issues se ramifient
+- Fenêtre de contexte : la feuille d'usage montre une barre segmentée de ce qui remplit le contexte d'un run, avec une légende par segment
+- Estimations : avec une échelle activée dans les réglages de l'équipe, les issues reçoivent une estimation dans leurs propriétés, et l'activité montre les changements d'estimation
+- Membres : une personne invitée figure tout de suite dans l'équipe avec son nom, et les réglages « Members » montrent qui n'a pas encore rejoint

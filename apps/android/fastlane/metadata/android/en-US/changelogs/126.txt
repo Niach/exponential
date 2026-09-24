@@ -1,0 +1,1 @@
+The usage sheet shows a segmented bar of what fills a run's context, with a legend for each segment. Switch on an estimate scale in the team settings and issues take an estimate from their properties, with estimate changes in the activity. An invited person appears on the team at once with their name, and the Members settings show who has not joined yet.

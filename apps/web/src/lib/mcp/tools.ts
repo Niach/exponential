@@ -4918,7 +4918,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_workflows_update`,
     {
-      description: `Update a workflow; pass only what changes. Draft only: deviceId (the ONLINE runner machine, required before workflows_start), addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}], startOn. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
+      description: `Update a workflow; pass only what changes. Draft only: deviceId (the runner machine, your own or a server shared with the team; required before workflows_start), addIssueIds/removeIssueIds, nodes = [{issueId, kind?: contract|leaf|integration, risk?: low|medium|high, touches?: globs}], startOn. Any time: name, decision = an answer worth keeping (appended, dated, to the log every node prompt carries). Returns the fresh metrics.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),

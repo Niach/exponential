@@ -27,6 +27,13 @@ function InviteAcceptPage() {
   const [accepting, setAccepting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  // EXP-630: a used invite may be the viewer's OWN placeholder invite — the
+  // session hook stamps it accepted the moment they sign in through the
+  // mailbox, before this page is reached. `getByToken` cannot tell (the
+  // placeholder id is not public), so a signed-in viewer probes `accept`
+  // once: it answers alreadyMember for the invitee and errors for anyone
+  // else, who then sees the used-state as before. `null` = probing.
+  const [usedForViewer, setUsedForViewer] = useState<boolean | null>(null)
 
   const [invite, setInvite] = useState<{
     teamName: string
@@ -76,7 +83,36 @@ function InviteAcceptPage() {
     }
   }
 
-  if (loading) {
+  const inviteUsed = !!invite?.acceptedAt
+  const viewerLoggedIn = !!session?.user
+  useEffect(() => {
+    if (!inviteUsed || !viewerLoggedIn || usedForViewer !== null) return
+    let cancelled = false
+    trpc.teamInvites.accept
+      .mutate({ token }, { context: { skipErrorToast: true } })
+      .then(({ team }) => {
+        if (cancelled) return
+        setUsedForViewer(false)
+        setSuccess(true)
+        setTimeout(() => {
+          navigate({
+            to: `/t/$teamSlug`,
+            params: { teamSlug: team.slug },
+          })
+        }, 1500)
+      })
+      .catch(() => {
+        if (!cancelled) setUsedForViewer(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [inviteUsed, viewerLoggedIn, usedForViewer, token, navigate])
+
+  // The probe above decides whether a used invite is the viewer's own.
+  const probing = inviteUsed && viewerLoggedIn && usedForViewer === null
+
+  if (loading || (probing && !success)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <LoaderCircle className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -85,8 +121,8 @@ function InviteAcceptPage() {
   }
 
   const isExpired = invite && invite.expiresAt < new Date()
-  const isUsed = invite && invite.acceptedAt
-  const isLoggedIn = !!session?.user
+  const isUsed = inviteUsed && (!viewerLoggedIn || usedForViewer === true)
+  const isLoggedIn = viewerLoggedIn
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">

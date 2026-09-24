@@ -356,6 +356,11 @@ struct Shared {
     /// One-shot like claude's, and re-armed by `thread/start`/`thread/resume`
     /// — a new thread is a new conversation with a new prefix.
     context_layout_published: AtomicBool,
+    /// EXP-1051: this thread was `thread/resume`d (claude's
+    /// `resumed_conversation`). Its first request re-sends the whole replayed
+    /// transcript, so the usage it reports is no prefix to measure — the bar
+    /// draws the base the predecessor recorded instead.
+    resumed: AtomicBool,
     /// [`start_pumps`] already ran. Both entry points call it — `thread/start`
     /// and a resuming `session/load` — and the receivers they hold are clones
     /// of ONE queue, so a second pump would steal half the frames.
@@ -484,6 +489,7 @@ impl ConnectTo<Client> for CodexAgent {
                 usage,
                 closed: AtomicBool::new(false),
                 context_layout_published: AtomicBool::new(false),
+                resumed: AtomicBool::new(false),
                 pumping: AtomicBool::new(false),
             });
             let notifications = connection.notifications.clone();
@@ -789,9 +795,13 @@ async fn open_thread(
         Some(ResumeHandle::Acp(id)) | Some(ResumeHandle::Native(id)) => Some(id.clone()),
         _ => None,
     };
-    // EXP-763: the run playbook, on start AND resume (codex replays the
-    // developer message from the rollout; identical text keeps it stable).
+    // EXP-763: the run playbook, on start AND resume — rebuilt on every
+    // start and resume (EXP-1025: the team prompt an owner edits rides in
+    // it), so a resume may legitimately hand codex DIFFERENT developer
+    // instructions than the rollout recorded; codex takes the text it is
+    // given here over the replayed developer message.
     let playbook = Some(shared.spec.system_append.as_str());
+    shared.resumed.store(resumed.is_some(), Ordering::SeqCst);
     let response = match &resumed {
         Some(thread_id) => {
             call(
@@ -1544,7 +1554,14 @@ fn on_notification(
     // turn; the FIRST report's input halves are what the conversation carried
     // in, which is the one measured number the bar has. One-shot per thread.
     if method == "thread/tokenUsage/updated" {
-        publish_context_layout(shared, cx, prefix_tokens(params.get("tokenUsage")));
+        publish_context_layout(
+            shared,
+            cx,
+            measurable_prefix(
+                shared.resumed.load(Ordering::SeqCst),
+                params.get("tokenUsage"),
+            ),
+        );
     }
 
     // 3. The feed.
@@ -1567,6 +1584,18 @@ fn prefix_tokens(usage: Option<&Value>) -> Option<u64> {
         (None, None) => None,
         (input, cached) => Some(input.unwrap_or(0).max(cached.unwrap_or(0))),
     }
+}
+
+/// EXP-1051: the prefix a usage report is allowed to measure — claude's
+/// `resumed_conversation` guard. A RESUMED thread's first request re-sends
+/// the whole replayed transcript, so its input count is the conversation,
+/// not a prefix: `None`, and [`publish_context_layout`] draws the base the
+/// predecessor recorded (`carried_base`) instead of overstating it.
+fn measurable_prefix(resumed: bool, usage: Option<&Value>) -> Option<u64> {
+    if resumed {
+        return None;
+    }
+    prefix_tokens(usage)
 }
 
 /// EXP-1051: the `context_layout` slot, on a no-op `session_info_update` with
@@ -2653,7 +2682,12 @@ async fn resume_loaded_thread(
         *slot = roots.clone();
     }
     let config = thread_config_for(shared, &roots);
-    // EXP-763: the run playbook, on start AND resume — same text both times.
+    // EXP-763: the run playbook, on start AND resume — rebuilt for this
+    // resume (EXP-1025: an owner's team-prompt edit lands here), so the text
+    // may differ from what the rollout recorded.
+    // EXP-1051: a resumed thread's first usage is the replayed transcript,
+    // not a prefix — `publish_context_layout` carries the recorded base.
+    shared.resumed.store(true, Ordering::SeqCst);
     let response = call(
         shared,
         "thread/resume",
@@ -2857,6 +2891,17 @@ mod tests {
         );
         assert_eq!(prefix_tokens(Some(&json!({}))), None);
         assert_eq!(prefix_tokens(None), None);
+    }
+
+    /// EXP-1051: a RESUMED thread's usage is the replayed transcript, never a
+    /// prefix — the guard hands back `None` so the bar carries the recorded
+    /// base; a fresh thread measures as before.
+    #[test]
+    fn a_resumed_thread_never_measures_its_prefix() {
+        let usage = json!({ "last": { "inputTokens": 34_000, "cachedInputTokens": 30_000 } });
+        assert_eq!(measurable_prefix(false, Some(&usage)), Some(34_000));
+        assert_eq!(measurable_prefix(true, Some(&usage)), None);
+        assert_eq!(measurable_prefix(true, None), None);
     }
 
     #[test]

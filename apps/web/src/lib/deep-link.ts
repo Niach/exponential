@@ -75,6 +75,12 @@ export function oauthErrorMessage(reason: unknown): string {
     case `no_session`:
     case `session_cookie_missing`:
       return `Sign-in didn't complete on the server. Please try again.`
+    // Better Auth refused to attach the provider login to an existing local
+    // account with the same address (oauth2/link-account: "account not
+    // linked" — an unverified local row or a provider outside
+    // trustedProviders). EXP-630: the address may be an invited placeholder.
+    case `account_not_linked`:
+      return `An account with this email already exists but couldn't be linked to that sign-in. Sign in with a sign-in code or your password instead, then add the provider under Account.`
     default:
       return `Couldn't complete sign-in. Please try again.`
   }

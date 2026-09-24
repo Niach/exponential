@@ -56,7 +56,8 @@ const TEAM_PROMPT_TITLE: &str = "Team prompt";
 const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team should follow, as \
 markdown. Repo facts belong in CLAUDE.md; this is for team process, conventions and who to ask.";
 const TEAM_PROMPT_HELP: &str = "Appended to the agent's system prompt after the run playbook, on \
-every start and resume. Applies to runs started or resumed from now on.";
+every start and resume. It reaches every run on every member's machine, with the agent's full \
+permissions. Applies to runs started or resumed from now on.";
 
 /// `12.3k` / `840` — the counter's short form (web `formatByteCount`).
 fn format_byte_count(bytes: usize) -> String {
@@ -376,8 +377,13 @@ impl GeneralPane {
 
     /// EXP-1025: the team prompt section — header with the save caption, the
     /// raw monospace field in its own glass block, the help line and the
-    /// byte/token counter under it.
+    /// byte/token counter under it. Owner-only, and HIDDEN from everyone
+    /// else like every owner control (the web route hides the whole
+    /// section too): a non-owner gets nothing here, not a disabled field.
     fn render_prompt_section(&self, owner: bool, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        if !owner {
+            return div();
+        }
         let bytes = self.prompt_bytes(cx);
         let over = bytes > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES;
         let dirty = self.prompt_dirty(cx);
@@ -405,7 +411,7 @@ impl GeneralPane {
             .py_3()
             .font_family(theme::terminal::FONT_FAMILY)
             .text_xs()
-            .disabled(!owner || self.prompt.loading);
+            .disabled(self.prompt.loading);
         let footer = h_flex()
             .w_full()
             .items_start()

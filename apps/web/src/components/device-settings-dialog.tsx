@@ -705,7 +705,10 @@ export function DeviceSettingsDialog({
   // The agent CLI rows: one per agent the machine reports an install for
   // (its heartbeat account row), version off that row. The "Update" control
   // queues `agent_update` (the CLI's own self-updater, run on the machine).
-  // No cap: the release min-version gate retires builds that cannot run it.
+  // No cap: only daemons that REPORT `version` on the account row can run
+  // the command (older ones answer "doesn't support that command yet"), so
+  // the button is gated on a known version; the release min-version gate
+  // retires those builds eventually.
   const agentUpdateRows = contract.codingAgent.values.flatMap((agent) => {
     const account = row?.agentAccounts?.[agent]
     return account ? [{ agent, version: account.version ?? null }] : []
@@ -1155,42 +1158,50 @@ export function DeviceSettingsDialog({
                         <div className="flex items-center gap-3">
                           <div className="min-w-0 flex-1 truncate text-sm text-foreground">
                             {agentLabel(agent)}
-                            {` `}
-                            <span className="text-muted-foreground">
-                              {agentVersion
-                                ? `v${agentVersion}`
-                                : `version unknown`}
-                            </span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="shrink-0 text-muted-foreground"
-                            disabled={updating}
-                            title={
-                              online
-                                ? `Run \`${agent} update\` on this device.`
-                                : `Run \`${agent} update\` on this device (queued until it comes online).`
-                            }
-                            onClick={() =>
-                              void queueCommand(key, {
-                                kind: `agent_update`,
-                                agent,
-                              })
-                            }
-                          >
-                            {updating ? (
+                            {agentVersion && (
                               <>
-                                <LoaderCircle className="animate-spin" />
-                                Updating…
-                              </>
-                            ) : (
-                              <>
-                                <UpdateIcon />
-                                Update
+                                {` `}
+                                <span className="text-muted-foreground">
+                                  {`v${agentVersion}`}
+                                </span>
                               </>
                             )}
-                          </Button>
+                          </div>
+                          {agentVersion ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="shrink-0 text-muted-foreground"
+                              disabled={updating}
+                              title={
+                                online
+                                  ? `Run \`${agent} update\` on this device.`
+                                  : `Run \`${agent} update\` on this device (queued until it comes online).`
+                              }
+                              onClick={() =>
+                                void queueCommand(key, {
+                                  kind: `agent_update`,
+                                  agent,
+                                })
+                              }
+                            >
+                              {updating ? (
+                                <>
+                                  <LoaderCircle className="animate-spin" />
+                                  Updating…
+                                </>
+                              ) : (
+                                <>
+                                  <UpdateIcon />
+                                  Update
+                                </>
+                              )}
+                            </Button>
+                          ) : (
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              Update the app on this machine first
+                            </span>
+                          )}
                         </div>
                         {sectionErrors[key] ? (
                           <p className="text-xs text-destructive">

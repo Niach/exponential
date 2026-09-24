@@ -9,6 +9,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
+import com.exponential.app.domain.pendingInvites
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -96,8 +97,10 @@ class GettingStartedViewModel @Inject constructor(
         boards,
         codingSessions,
         actions,
+        // "Any open invite" = pending (unaccepted AND unexpired): a revoked or
+        // lapsed link must not tick the step (EXP-630 keeps revoked rows).
         combine(members, invites) { memberRows, inviteRows ->
-            memberRows.size > 1 || inviteRows.isNotEmpty()
+            memberRows.size > 1 || pendingInvites(inviteRows).isNotEmpty()
         },
     ) { devices, boardRows, sessions, actionRows, invitedTeam ->
         GettingStartedSignals(

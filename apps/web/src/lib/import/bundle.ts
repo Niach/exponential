@@ -11,11 +11,13 @@
 import { z } from "zod"
 import {
   hexColorSchema,
+  ISSUE_ESTIMATE_MAX,
   issueEstimationSchema,
   issuePrioritySchema,
   issueStatusCategorySchema,
   issueStatusSchema,
 } from "@exp/db-schema/domain"
+import { IMPORT_MAX_BUNDLE_COMMENTS, IMPORT_MAX_BUNDLE_ISSUES } from "@/lib/import/limits"
 
 export const IMPORT_BUNDLE_VERSION = 1
 
@@ -176,8 +178,9 @@ export const bundleIssueSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullish(),
-  // Story points (issues.estimate); null = not estimated.
-  estimate: z.number().int().nonnegative().nullish(),
+  // Story points (issues.estimate, capped like `issueEstimateSchema`); null
+  // = not estimated.
+  estimate: z.number().int().nonnegative().max(ISSUE_ESTIMATE_MAX).nullish(),
   labelKeys: z.array(keySchema).default([]),
   duplicateOfKey: keySchema.nullish(),
   // The source's parent issue (a `parent` relation, parent → this issue).
@@ -191,22 +194,36 @@ export const bundleIssueSchema = z.object({
   assets: z.array(bundleAssetSchema).default([]),
 })
 
-export const importBundleSchema = z.object({
-  version: z.literal(IMPORT_BUNDLE_VERSION),
-  // The entity-map namespace (`linear`, `jira`, …): re-importing the same
-  // source into the same team creates nothing new.
-  source: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
-  // Human name for attribution lines ("Imported from Linear").
-  sourceLabel: z.string().min(1).max(64),
-  boards: z.array(bundleBoardSchema),
-  statuses: z.array(bundleStatusSchema),
-  labels: z.array(bundleLabelSchema),
-  users: z.array(bundleUserSchema),
-  issues: z.array(bundleIssueSchema),
-  // The scale the source's estimates are on; a team with estimates off
-  // adopts it when any imported issue carries one.
-  estimation: issueEstimationSchema.nullish(),
-})
+export const importBundleSchema = z
+  .object({
+    version: z.literal(IMPORT_BUNDLE_VERSION),
+    // The entity-map namespace (`linear`, `jira`, …): re-importing the same
+    // source into the same team creates nothing new.
+    source: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
+    // Human name for attribution lines ("Imported from Linear").
+    sourceLabel: z.string().min(1).max(64),
+    boards: z.array(bundleBoardSchema),
+    statuses: z.array(bundleStatusSchema),
+    labels: z.array(bundleLabelSchema),
+    users: z.array(bundleUserSchema),
+    // Bounded because `imports.ingest` takes a bundle as one request body
+    // and parks it in `import_jobs.payload` (limits.ts).
+    issues: z.array(bundleIssueSchema).max(IMPORT_MAX_BUNDLE_ISSUES),
+    // The scale the source's estimates are on; a team with estimates off
+    // adopts it when any imported issue carries one.
+    estimation: issueEstimationSchema.nullish(),
+  })
+  .superRefine((bundle, ctx) => {
+    let comments = 0
+    for (const issue of bundle.issues) comments += issue.comments.length
+    if (comments > IMPORT_MAX_BUNDLE_COMMENTS) {
+      ctx.addIssue({
+        code: `custom`,
+        path: [`issues`],
+        message: `A bundle may carry at most ${IMPORT_MAX_BUNDLE_COMMENTS} comments in total`,
+      })
+    }
+  })
 
 export type ImportBundle = z.infer<typeof importBundleSchema>
 export type BundleBoard = z.infer<typeof bundleBoardSchema>

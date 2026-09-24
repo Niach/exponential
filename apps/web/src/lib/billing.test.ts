@@ -7,15 +7,18 @@ import { TRPCError } from "@trpc/server"
 // `db.select()` shifts the next pre-seeded result array off a FIFO queue —
 // within any single billing helper the select order is deterministic, so the
 // queue order matches call order.
-const { selectResults, cloud } = vi.hoisted(() => ({
+const { selectResults, cloud, whereClauses } = vi.hoisted(() => ({
   selectResults: [] as unknown[][],
   cloud: { value: true },
+  // Every `.where(...)` argument, in call order (countPendingInvites' clause
+  // is asserted below).
+  whereClauses: [] as unknown[],
 }))
 
-function chain(): Promise<unknown[]> & Record<string, () => unknown> {
+function chain(): Promise<unknown[]> & Record<string, (arg?: unknown) => unknown> {
   const p = Promise.resolve(
     selectResults.shift() ?? []
-  ) as Promise<unknown[]> & Record<string, () => unknown>
+  ) as Promise<unknown[]> & Record<string, (arg?: unknown) => unknown>
   for (const m of [
     `from`,
     `where`,
@@ -27,7 +30,17 @@ function chain(): Promise<unknown[]> & Record<string, () => unknown> {
   ]) {
     p[m] = () => p
   }
+  p.where = (arg?: unknown) => {
+    whereClauses.push(arg)
+    return p
+  }
   return p
+}
+
+function flattenSqlChunks(node: unknown): unknown[] {
+  const chunks = (node as { queryChunks?: unknown[] }).queryChunks
+  if (!Array.isArray(chunks)) return [node]
+  return chunks.flatMap(flattenSqlChunks)
 }
 
 vi.mock(`@/db/connection`, () => ({
@@ -51,6 +64,7 @@ import {
   getUserPlan,
   getTeamUsage,
   assertCanInviteMember,
+  countPendingInvites,
   getInviteCapacity,
   resolveInviteCapacity,
   assertCanCreateWidget,
@@ -60,6 +74,7 @@ import {
   type PlanTier,
 } from "./billing"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "./plan-limit-error"
+import { teamInvites } from "@/db/schema"
 
 const TEAM_ID = `prod_team_monthly`
 const TEAM_YEARLY_ID = `prod_team_yearly`
@@ -68,6 +83,7 @@ const USER = `user-1`
 
 beforeEach(() => {
   selectResults.length = 0
+  whereClauses.length = 0
   cloud.value = true
   process.env.CREEM_TEAM_PRODUCT_ID = TEAM_ID
   process.env.CREEM_TEAM_YEARLY_PRODUCT_ID = TEAM_YEARLY_ID
@@ -425,6 +441,20 @@ describe(`resolveInviteCapacity — pure seat arithmetic (EXP-725)`, () => {
   it(`clamps an over-seat team at zero, never negative`, () => {
     expect(resolveInviteCapacity(3, 3, 1)).toBe(0)
     expect(resolveInviteCapacity(1, 4, 0)).toBe(0)
+  })
+})
+
+// EXP-630: a placeholder member holds a team_members row (countTeamMembers)
+// AND an unaccepted invite row; counting the invite too would charge the
+// seat twice, so the pending count is restricted to unbound invites.
+describe(`countPendingInvites — placeholder invites are not pending seats (EXP-630)`, () => {
+  it(`filters on placeholder_user_id IS NULL next to the accepted/expiry predicates`, async () => {
+    selectResults.push([{ count: 1 }])
+    await expect(countPendingInvites(WS)).resolves.toBe(1)
+    const where = flattenSqlChunks(whereClauses.at(-1))
+    expect(where).toContain(teamInvites.placeholderUserId)
+    expect(where).toContain(teamInvites.acceptedAt)
+    expect(where).toContain(teamInvites.expiresAt)
   })
 })
 

@@ -41,3 +41,21 @@ fun placeholderStatuses(
     }
     return result
 }
+
+/**
+ * The team's PENDING invites: unaccepted AND unexpired — web
+ * `members-section.tsx`'s "Pending invites" predicate. The DAO's
+ * `accepted_at IS NULL` alone is not enough since EXP-630 (#810): revoking a
+ * placeholder's invite keeps the row with `expires_at = now` (member lists
+ * read the lapsed row as "Invite expired"), so revoked and naturally expired
+ * links both sit in the unaccepted set. Filtered here rather than in SQL:
+ * `expires_at` arrives as Postgres text OR ISO, which don't string-sort
+ * against each other.
+ */
+fun pendingInvites(
+    invites: List<TeamInviteEntity>,
+    nowMs: Long = System.currentTimeMillis(),
+): List<TeamInviteEntity> = invites.filter { invite ->
+    invite.acceptedAt == null &&
+        (WireTimestamps.parseEpochMs(invite.expiresAt) ?: Long.MIN_VALUE) > nowMs
+}
