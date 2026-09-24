@@ -511,6 +511,21 @@ describe(`WorkflowDetail run actions`, () => {
     expect(device()?.disabled).toBe(true)
   })
 
+  // EXP-1021: the runner pick is the SHARED `DevicePicker` behind a
+  // `PickerTrigger`, not this screen's own combobox — the same primitive the
+  // composer and the automation editor open.
+  it(`draws the runner pick through the shared picker`, () => {
+    reset()
+    mount(startable())
+    const host = screen.getByTestId(`workflow-device`)
+    expect(host.querySelector(`[data-slot="picker"]`)).toBeTruthy()
+    // The trigger is a `PickerTrigger` pill, so it is one button carrying the
+    // placeholder — no device is bound in this fixture.
+    const trigger = host.querySelector<HTMLButtonElement>(`button`)
+    expect(trigger?.className).toContain(`rounded-full`)
+    expect(trigger?.textContent).toContain(`Select a device`)
+  })
+
   // `workflows.update` may still be called from here with a name and a device
   // — never with a launch or a start rule.
   it(`writes nothing but the name and the runner device`, async () => {

@@ -83,6 +83,10 @@ const HTML_DEMOS = COMPONENTS.filter((spec) => !isIsland(spec))
 const ENTRY_DEMOS = ENTRIES.filter(
   (entry) => entry.placeholder !== true && entry.render !== undefined
 )
+/** The registered entries that are REAL `@exp/ui` islands (EXP-1030: the
+ *  leaves filled them), photographed on the page beside the legacy set. */
+const ENTRY_ISLANDS = ENTRIES.filter((entry) => entry.island !== undefined)
+const ISLAND_COUNT = ISLANDS.length + ENTRY_ISLANDS.length
 
 /**
  * The words the summary line uses for the four sections — spelled out here
@@ -267,15 +271,15 @@ describe(`islands (EXP-887)`, () => {
   })
 
   test(`the page carries one shadow root per island, the CSS once, the script once`, () => {
-    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(ISLANDS.length)
-    expect(occurrences(html, `<div data-ui-island>`)).toBe(ISLANDS.length)
+    expect(occurrences(html, `<template shadowrootmode="open">`)).toBe(ISLAND_COUNT)
+    expect(occurrences(html, `<div data-ui-island>`)).toBe(ISLAND_COUNT)
     expect(occurrences(html, `<template id="ui-css">`)).toBe(1)
     expect(occurrences(html, ISLAND_CLIENT_SCRIPT)).toBe(1)
     // Both are gated on the stylesheet: no CSS, no islands worth adopting.
     const bare = renderHtml(EMPTY, COMPONENTS)
     expect(bare).not.toContain(`<template id="ui-css">`)
     expect(bare).not.toContain(ISLAND_CLIENT_SCRIPT)
-    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(ISLANDS.length)
+    expect(occurrences(bare, `<template shadowrootmode="open">`)).toBe(ISLAND_COUNT)
   })
 
   test(`every island sits in the same .cmp-demo canvas the HTML demos use`, () => {

@@ -3160,9 +3160,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu`
       ),
       desktop: ok(
-        `pickers::searchable_picker`,
-        `apps/desktop/crates/ui/src/pickers.rs`,
-        `EXP-963: PickerOption + PickerSelection Single/Multi; the label and board popovers wrap it`
+        `picker::Picker`,
+        `apps/desktop/crates/ui/src/picker/mod.rs`,
+        `EXP-1021: the ONE primitive (single = a trailing check, multi = the row highlight); the typed pickers wrap it`
       ),
       ios: leftover(
         `GlassPickerSheet`,

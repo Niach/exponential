@@ -324,6 +324,66 @@ describe(`LaunchComposer`, () => {
     expect(screen.queryByTestId(`agent-options-sheet`)).toBeNull()
   })
 
+  // EXP-1030: the ▶ tool opens THE action picker (@exp/ui `ActionPicker`) —
+  // one action row, curated glyph over the name, description underneath.
+  it(`picks an action through the shared action picker`, () => {
+    const fix = builtinFixConflictsAction(`t1`)
+    const model = fakeModel()
+    render(<LaunchComposer model={model} users={[]} />)
+    const tool = screen.getByTestId(`agent-composer-actions-button`)
+    expect(
+      tool.closest(`[data-slot="picker"]`)?.getAttribute(`data-picker-mode`)
+    ).toBe(`single`)
+    fireEvent.click(tool)
+    const row = screen.getByText(fix.name).closest(`[data-slot=command-item]`)!
+    expect(
+      row.querySelector(`[data-slot=picker-description]`)?.textContent
+    ).toBe(fix.description)
+    fireEvent.click(row)
+    expect(model.pickAction).toHaveBeenCalledWith(fix.id)
+  })
+
+  // EXP-1030: the machine is picked through THE device picker (@exp/ui
+  // `DevicePicker` on the shared primitive), as an inline word of the line.
+  it(`picks the machine through the shared device picker`, () => {
+    const second: SteerDevice = {
+      deviceId: `dev-2`,
+      deviceLabel: `the mini`,
+      agents: [`claude`],
+      online: true,
+      kind: `server`,
+    }
+    const setDeviceId = vi.fn()
+    render(
+      <LaunchComposer
+        model={fakeModel({
+          candidateDevices: [device, second],
+          launch: { ...fakeLaunch(), setDeviceId },
+        })}
+        users={[]}
+      />
+    )
+    const trigger = screen.getByLabelText(`Device`)
+    expect(trigger.getAttribute(`data-slot`)).toBe(`combobox-inline-trigger`)
+    expect(trigger.textContent).toContain(`buildbox`)
+    // The trigger hangs under the primitive's marker — a single pick.
+    expect(
+      trigger.closest(`[data-slot="picker"]`)?.getAttribute(`data-picker-mode`)
+    ).toBe(`single`)
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByText(`the mini`))
+    expect(setDeviceId).toHaveBeenCalledWith(`dev-2`)
+  })
+
+  // One machine is not a choice: the sentence says it, with no chevron.
+  it(`says the one machine as plain text`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} />)
+    expect(screen.queryByLabelText(`Device`)).toBeNull()
+    const word = document.querySelector(`[title="Device"]`)
+    expect(word?.getAttribute(`data-slot`)).toBe(`combobox-inline-word`)
+    expect(word?.textContent).toContain(`buildbox`)
+  })
+
   // EXP-993: the repository is a choice only with several repos, and there
   // is no repo-less row.
   it(`shows the repository picker only with two or more repos`, () => {

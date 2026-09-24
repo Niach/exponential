@@ -1,7 +1,8 @@
-// EXP-792/EXP-941: on the shared `Combobox` the picker keeps its one
-// non-obvious rule — a server the chosen machine is NOT ready for is greyed
-// with the reason as a tooltip but stays PICKABLE (the desktop launcher names
-// the blocker later), so it must never reach the primitive's `disabled`.
+// EXP-792/EXP-1030: on the shared `Picker` primitive (multi) the picker keeps
+// its one non-obvious rule — a server the chosen machine is NOT ready for is
+// greyed with the reason UNDER its name but stays PICKABLE (the desktop
+// launcher names the blocker later, and `launch_options.rs` draws the same
+// row), so it must never reach the primitive's `disabled`.
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { McpServerRow } from "@/lib/mcp-servers"
@@ -48,11 +49,22 @@ describe(`McpServerPicker`, () => {
     fireEvent.click(screen.getAllByRole(`button`)[0]!)
   }
 
+  it(`is the shared picker in multi mode, and marks the picked rows`, () => {
+    open([`srv-1`])
+    const marker = document.querySelector(`[data-slot="picker"]`)
+    expect(marker?.getAttribute(`data-picker-mode`)).toBe(`multi`)
+    expect(rows()[0]!.getAttribute(`data-picked`)).toBe(`true`)
+    expect(rows()[1]!.getAttribute(`data-picked`)).toBeNull()
+  })
+
   it(`keeps a not-ready row pickable, greyed and explained`, () => {
     open()
     const blocked = rows()[1]!
     expect(blocked.getAttribute(`data-disabled`)).not.toBe(`true`)
-    expect(blocked.textContent).toContain(`Not ready`)
+    // The reason is the primitive's muted second line (desktop parity).
+    expect(
+      blocked.querySelector(`[data-slot=picker-description]`)?.textContent
+    ).toBe(`Sign in to Sentry on this machine`)
     expect(
       blocked.querySelector(`[title="Sign in to Sentry on this machine"]`)
     ).toBeTruthy()

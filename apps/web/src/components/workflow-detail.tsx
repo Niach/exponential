@@ -4,6 +4,7 @@ import {
   Button,
   Combobox,
   conceptIcon,
+  DevicePicker,
   Dialog,
   DialogCancel,
   DialogContent,
@@ -15,6 +16,7 @@ import {
   GlassGroup,
   GlassSectionHeader,
   Input,
+  PickerTrigger,
   Sheet,
   SheetContent,
   SheetHeader,
@@ -691,25 +693,46 @@ function RunnerDevicePick({
     currentUserId: session?.user?.id,
     teamId: workflow.teamId,
   })
-  const devices = remote.devices ?? []
+  // EXP-1021: the machines are the shared `DevicePicker`'s rows (device glyph
+  // + name, a shared machine suffixed with its owner), the header chip its
+  // `PickerTrigger` — the same pick the composer and the automation editor
+  // make, drawn by the same primitive.
+  const devices = (remote.devices ?? []).map((candidate) => ({
+    id: candidate.deviceId,
+    name: `${candidate.deviceLabel || candidate.deviceId}${
+      candidate.owner ? ` — ${candidate.owner.name}` : ``
+    }`,
+    icon: candidate.icon,
+    kind: candidate.kind,
+  }))
+  const picked = devices.find((device) => device.id === workflow.deviceId)
+  const PickedGlyph = picked ? getDeviceIcon(picked) : null
+  const frozen = workflow.status !== `draft`
   return (
     <span className="inline-flex min-w-0" data-testid="workflow-device">
-      <Combobox
-        searchable={false}
+      <DevicePicker
         mobileTitle={RUNNER_DEVICE_LABEL}
-        disabled={workflow.status !== `draft`}
+        disabled={frozen}
         value={workflow.deviceId}
-        triggerLabel="Select a device"
-        options={devices.map((candidate) => ({
-          value: candidate.deviceId,
-          label: `${candidate.deviceLabel || candidate.deviceId}${
-            candidate.owner ? ` — ${candidate.owner.name}` : ``
-          }`,
-          icon: getDeviceIcon(candidate),
-        }))}
-        onChange={(value) => {
-          if (value !== null) onPick(value)
-        }}
+        devices={devices}
+        onChange={onPick}
+        trigger={
+          <PickerTrigger
+            label={RUNNER_DEVICE_LABEL}
+            placeholder="Select a device"
+            disabled={frozen}
+            value={
+              picked ? (
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  {PickedGlyph && (
+                    <PickedGlyph aria-hidden className="size-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{picked.name}</span>
+                </span>
+              ) : undefined
+            }
+          />
+        }
       />
     </span>
   )

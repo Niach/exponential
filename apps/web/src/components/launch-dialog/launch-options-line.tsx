@@ -2,6 +2,7 @@ import {
   AccountPicker,
   Button,
   Combobox,
+  DevicePicker,
   GlassGroup,
   GlassToggleRow,
   type PickerOption,
@@ -9,6 +10,8 @@ import {
   MobilePopoverContent,
   MobilePopoverTrigger,
   Label,
+  PickerTrigger,
+  PICKER_INLINE_WORD,
   Switch,
   conceptIcon,
   getDeviceIcon,
@@ -102,6 +105,23 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
     limits: option.limits,
   }))
   const showMcp = model.mcpServers !== null && model.mcpServers.length > 0
+  // EXP-1030: the machines as THE device picker's rows (kind glyph + name,
+  // EXP-432's owner suffix on a teammate's shared server).
+  const deviceRows = candidateDevices.map((candidate) => ({
+    id: candidate.deviceId,
+    name: `${candidate.deviceLabel || candidate.deviceId}${
+      candidate.owner ? ` — ${candidate.owner.name}` : ``
+    }`,
+    icon: candidate.icon,
+    kind: candidate.kind,
+  }))
+  const pickedDevice =
+    deviceRows.find((row) => row.id === device?.deviceId) ?? null
+  const DeviceGlyph = pickedDevice ? getDeviceIcon(pickedDevice) : undefined
+  // Nothing picked yet and one machine on offer still reads as that machine —
+  // there is nothing else it could be.
+  const onlyDevice = pickedDevice ?? deviceRows[0]
+  const OnlyDeviceGlyph = onlyDevice ? getDeviceIcon(onlyDevice) : undefined
 
   return (
     <div className="flex flex-col gap-1 px-1 text-xs text-muted-foreground">
@@ -109,24 +129,37 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
         className="flex flex-wrap items-center gap-x-3 gap-y-1"
         data-testid="agent-options-row"
       >
-        <Combobox
-          triggerVariant="inline"
-          searchable={false}
-          mobileTitle="Device"
-          value={device?.deviceId ?? null}
-          options={candidateDevices.map((candidate) => ({
-            value: candidate.deviceId,
-            // EXP-432: teammates' shared servers carry their owner.
-            label: `${candidate.deviceLabel || candidate.deviceId}${
-              candidate.owner ? ` — ${candidate.owner.name}` : ``
-            }`,
-            icon: getDeviceIcon(candidate),
-          }))}
-          onChange={(value) => {
-            if (value !== null) launch.setDeviceId(value)
-          }}
-          width="sm"
-        />
+        {deviceRows.length <= 1 ? (
+          /* One machine is not a choice: the sentence just says it. The
+             shared `Picker` always renders its trigger (only `Combobox`'s
+             own `inline` variant collapses), so the word is drawn here. */
+          <span
+            data-slot="combobox-inline-word"
+            className={PICKER_INLINE_WORD}
+            title="Device"
+          >
+            {OnlyDeviceGlyph && (
+              <OnlyDeviceGlyph aria-hidden className="size-3.5 shrink-0" />
+            )}
+            {onlyDevice?.name ?? `Device`}
+          </span>
+        ) : (
+          <DevicePicker
+            mobileTitle="Device"
+            value={device?.deviceId ?? null}
+            devices={deviceRows}
+            onChange={launch.setDeviceId}
+            width="sm"
+            trigger={
+              <PickerTrigger
+                variant="inline"
+                label="Device"
+                icon={DeviceGlyph}
+                value={pickedDevice?.name}
+              />
+            }
+          />
+        )}
         {/* EXP-872: THE account picker — brand mark + email, the agent
             implied by the pick; one login collapses to plain text. */}
         <AccountPicker
