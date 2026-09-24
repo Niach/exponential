@@ -147,6 +147,12 @@ pub const DIFF_UI_CARD_PREVIEW_FILES: usize = 5;
 pub const DIFF_UI_COLLAPSE_THRESHOLD_LINES: usize = 300;
 pub const DIFF_UI_LINE_CHUNK: usize = 500;
 pub const DIFF_UI_INLINE_DIFF_MAX_HEIGHT: usize = 288;
+pub const COMPOSER_UI_RUN_HEADLINE: &str = "Run";
+pub const COMPOSER_UI_IMPLEMENT_HEADLINE: &str = "Implement";
+pub const COMPOSER_UI_CHAT_HEADLINE: &str = "Ask the agent";
+pub const COMPOSER_UI_CHAT_PLACEHOLDER: &str = "Ask the agent…";
+pub const COMPOSER_UI_INSTRUCTIONS_PLACEHOLDER: &str = "Additional instructions (optional)…";
+pub const COMPOSER_UI_DIALOG_TITLE: &str = "Start a run";
 
 pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
 pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";
