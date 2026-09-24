@@ -558,6 +558,23 @@ struct State {
     /// parent tool call (a subagent streams beside the main thread).
     current_message: HashMap<String, String>,
     usage: wire::TokenSnapshot,
+    /// EXP-1051: the `context_layout` frame has gone out for THIS
+    /// conversation. One-shot: the layers are launch-time facts and the base
+    /// is measured off the first request, so a per-turn re-publish would only
+    /// redraw the same bar. A `/clear` re-arms it (a new conversation has a
+    /// new prefix) — a compaction does not, since the slot already holds the
+    /// frame and compaction changes the occupancy, not what the run started
+    /// with.
+    context_layout_published: bool,
+    /// EXP-1051: the base a PREVIOUS run of this conversation measured,
+    /// carried over `runs.json` by a native resume. Used only while the model
+    /// is unchanged, and dropped by a `/clear`.
+    carried_base: Option<coding::CarriedBase>,
+    /// EXP-1051: this conversation was RELOADED by a native resume, so its
+    /// first request carries the whole transcript, not a fresh prefix —
+    /// nothing is measured until a `/clear` starts a new one; the bar draws
+    /// the carried base (or none) instead.
+    resumed_conversation: bool,
     context_window: ContextWindow,
     compaction: Option<String>,
     tasks: HashMap<String, TaskEntry>,
@@ -910,6 +927,10 @@ impl ClaudeSession {
             } else {
                 "bypassPermissions".to_string()
             },
+            // EXP-1051: the launcher only fills this on a NATIVE resume — a
+            // fresh run has no conversation to carry a base from.
+            carried_base: spec.context_layers.carried_base.clone(),
+            resumed_conversation: spec.resume.is_some(),
             ..State::default()
         };
         let account_profile = coding::profile_id(options.account.as_deref());
@@ -1849,6 +1870,47 @@ impl ClaudeSession {
         self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
     }
 
+    /// EXP-1051: the `context_layout` slot, on the same carrier as the
+    /// rate-limit one — a no-op `session_info_update` with the frame on its
+    /// `_meta`.
+    ///
+    /// ONE-SHOT per conversation, under the state lock: the first request of
+    /// a run reports how many tokens it carried, everything else in the bar
+    /// is a launch-time byte count, and re-publishing that every turn would
+    /// be a slot rewrite that says nothing new.
+    ///
+    /// `prefix` = what the agent just measured. Without one (the first
+    /// request has not landed yet) a NATIVE resume may still draw the bar
+    /// from the base its predecessor measured — but only while the model is
+    /// the same string, because the base IS the model's own system prompt.
+    fn publish_context_layout(&self, cx: &ConnectionTo<Client>, prefix: Option<u64>) {
+        let (segments, model) = {
+            let mut state = self.lock();
+            if state.context_layout_published {
+                return;
+            }
+            let base = match prefix {
+                Some(prefix) => Some(crate::context_layout::BasePrefix::Measured(prefix)),
+                None => state
+                    .carried_base
+                    .as_ref()
+                    .filter(|carried| carried.model == state.model)
+                    .map(|carried| crate::context_layout::BasePrefix::Carried(carried.tokens)),
+            };
+            let segments = crate::context_layout::layout(&self.spec.context_layers, base);
+            if segments.is_empty() {
+                return;
+            }
+            state.context_layout_published = true;
+            (segments, state.model.clone())
+        };
+        self.notify_meta(
+            cx,
+            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
+            crate::context_layout::meta(&segments, Some(&model)),
+        );
+    }
+
     /// EXP-784: the `rate_limit` slot, as `_meta` on a no-op
     /// `session_info_update` (`RATE_LIMIT_META_KEY`, read by the mapper).
     /// `status` empty/`ok` is the clear; the mapper dedupes identical
@@ -2079,6 +2141,13 @@ impl ClaudeSession {
                         cleared_context = !first_init;
                         if cleared_context {
                             state.plan_tasks.clear();
+                            // EXP-1051: a `/clear` is a NEW conversation
+                            // under a new uuid — its prefix gets measured
+                            // again, and the base the old one carried
+                            // describes a transcript that no longer exists.
+                            state.context_layout_published = false;
+                            state.carried_base = None;
+                            state.resumed_conversation = false;
                         }
                         state.published_native_id = Some(system.session_id.clone());
                         republish = Some(system.session_id.clone());
@@ -2225,6 +2294,10 @@ impl ClaudeSession {
                     .map(|metadata| metadata.trigger.clone())
                     .unwrap_or_default();
                 // Compaction frees occupancy, it does not change the window.
+                // EXP-1051: and it does not change the context LAYOUT either
+                // — the playbook, the memory files and the system prompt all
+                // survive the fold, so the slot already holds the right
+                // frame and nothing is re-published here.
                 state.usage = wire::TokenSnapshot { input: post_tokens, ..Default::default() };
                 drop(state);
                 let mut meta = Map::new();
@@ -2748,6 +2821,10 @@ impl ClaudeSession {
                 }
             }
         }
+        // EXP-1051: the fallback for a gateway that streams nothing — the
+        // consolidated `assistant` frame carries the same `usage`. The
+        // one-shot flag means the streamed path above wins when both arrive.
+        self.measure_prefix(cx, parent.as_deref(), model, &message.message["usage"]);
         if wire::is_rate_limit_notice(model, &text) {
             if let Some(id) = &message_id {
                 self.lock().streamed.remove(id);
@@ -3074,6 +3151,11 @@ impl ClaudeSession {
                     self.lock().context_window.infer(model);
                 }
                 self.merge_usage(cx, &message["usage"], None);
+                // EXP-1051: the ONE measured number the context bar has —
+                // what the FIRST request of this conversation carried.
+                // Deliberately not `TokenSnapshot::used()`, which adds the
+                // output this request is about to produce.
+                self.measure_prefix(cx, parent.as_deref(), model, &message["usage"]);
             }
             "message_delta" => self.merge_usage(cx, &event.event["usage"], None),
             "content_block_start" => {
@@ -3162,6 +3244,48 @@ impl ClaudeSession {
         block.thinking = thinking;
         block.text.push_str(text);
         Some(message_id)
+    }
+
+    /// EXP-1051: whether the message now arriving is a REQUEST of this
+    /// conversation whose reported input is the conversation's own prefix.
+    /// A subagent runs in a context of its own; a `<synthetic>` frame is
+    /// claude's limit notice rather than a request; the `/clear` a plan
+    /// restart injects carries an empty prefix that would freeze the bar at
+    /// nothing; and a replayed transcript is the PREVIOUS run's numbers.
+    fn measurable_request(&self, parent: Option<&str>, model: Option<&str>) -> bool {
+        if parent.is_some() || model == Some(wire::SYNTHETIC_MODEL) {
+            return false;
+        }
+        let state = self.lock();
+        !state.skip_local_command_result && !state.replaying_history
+    }
+
+    /// EXP-1051: one request of this conversation has just reported its
+    /// `usage` — publish the context layout off it, once. A FRESH
+    /// conversation measures its prefix; a RESUMED one (its first request
+    /// re-sends the whole transcript, which is no prefix at all) publishes
+    /// without a measurement and draws the base its predecessor recorded,
+    /// if the model is unchanged. Everything `measurable_request` refuses
+    /// (subagents, the synthetic notice, the injected `/clear`, replayed
+    /// history) publishes nothing.
+    fn measure_prefix(
+        &self,
+        cx: &ConnectionTo<Client>,
+        parent: Option<&str>,
+        model: Option<&str>,
+        usage: &Value,
+    ) {
+        if !self.measurable_request(parent, model) {
+            return;
+        }
+        if self.lock().resumed_conversation {
+            self.publish_context_layout(cx, None);
+            return;
+        }
+        let prefix = prefix_tokens(usage);
+        if prefix > 0 {
+            self.publish_context_layout(cx, Some(prefix));
+        }
     }
 
     fn merge_usage(&self, cx: &ConnectionTo<Client>, usage: &Value, cost: Option<f64>) {
@@ -5195,6 +5319,16 @@ fn transcript_head(path: &Path) -> (Option<String>, Option<String>) {
     (cwd, title)
 }
 
+/// EXP-1051: the tokens ONE request carried into the model — input, cache
+/// reads and cache creation, and deliberately NOT `output_tokens`, which is
+/// what the request produced rather than what it sent. `TokenSnapshot::used()`
+/// sums all four because context OCCUPANCY includes the answer; the context
+/// bar's base is about the prefix alone.
+fn prefix_tokens(usage: &Value) -> u64 {
+    let field = |name: &str| usage.get(name).and_then(Value::as_u64).unwrap_or(0);
+    field("input_tokens") + field("cache_read_input_tokens") + field("cache_creation_input_tokens")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5978,5 +6112,39 @@ mod tests {
         let labels: Vec<String> =
             available_modes().iter().map(|mode| mode.name.clone()).collect();
         assert_eq!(labels, vec!["Plan".to_string(), "Build".to_string()]);
+    }
+
+    /// EXP-1051: the base is measured off what a request SENT — the output
+    /// it is about to produce is not part of the prefix, which is the whole
+    /// difference between this and `TokenSnapshot::used()`.
+    #[test]
+    fn the_prefix_is_the_input_halves_and_never_the_output() {
+        let usage = json!({
+            "input_tokens": 2,
+            "cache_creation_input_tokens": 6_721,
+            "cache_read_input_tokens": 11_474,
+            "output_tokens": 4_000,
+        });
+        assert_eq!(prefix_tokens(&usage), 2 + 6_721 + 11_474);
+        assert_eq!(
+            wire::TokenSnapshot {
+                input: 2,
+                cache_creation: 6_721,
+                cache_read: 11_474,
+                output: 4_000,
+            }
+            .used(),
+            prefix_tokens(&usage) + 4_000,
+            "the occupancy adds the answer; the prefix does not"
+        );
+    }
+
+    /// A frame with no usage object at all is not a measurement of zero — the
+    /// caller's `prefix > 0` guard is what keeps it off the slot.
+    #[test]
+    fn a_missing_usage_measures_nothing() {
+        assert_eq!(prefix_tokens(&Value::Null), 0);
+        assert_eq!(prefix_tokens(&json!({})), 0);
+        assert_eq!(prefix_tokens(&json!({ "output_tokens": 900 })), 0);
     }
 }

@@ -179,6 +179,11 @@ struct AgentUsageSheet: View {
     /// EXP-746: this run's own context window and spend off the relay's
     /// latest-wins `usage` event.
     var sessionUsage: AgentSessionUsage? = nil
+    /// EXP-1051: what is IN that window — the layers the device attributed
+    /// before the first turn, off the latest-wins `context_layout` event. Nil
+    /// (or empty) still draws the block: the conversation and the free rest
+    /// are derived from the usage alone.
+    var contextLayout: [ContextSegment]? = nil
     /// EXP-849: EVERY login the host machine reports for this run's agent. The
     /// header one is dropped from the Accounts section — a row saying "switch
     /// to the account you are already on" is noise.
@@ -198,28 +203,50 @@ struct AgentUsageSheet: View {
     /// the machine may take it.
     var onOpen: (() -> Void)? = nil
 
+    /// EXP-1051: the transient sentence a refused switch tap prints.
+    @State private var notice: String?
+
     /// The other logins — never the one the header names.
     private var otherAccounts: [SessionAccountOption] {
         guard let runAccount else { return accounts }
         return accounts.filter { $0.profileId != runAccount.profileId }
     }
 
+    /// EXP-1051: the context window, folded ×4. Nil while the engine has
+    /// published no usage (or a window of unknown size) — there is then no
+    /// scale to draw the layers against.
+    private var contextWindow: ContextWindowView? {
+        ContextLayoutPresentation.contextWindowView(
+            usage: sessionUsage, segments: contextLayout
+        )
+    }
+
     var body: some View {
         GlassSheetChrome(title: "Usage") {
             VStack(alignment: .leading, spacing: 12) {
+                // EXP-1051: FIRST, above the account header — the run's own
+                // window is what the composer ring was reporting when it was
+                // tapped, and the machine's rate-limit windows are the second
+                // question.
+                if let contextWindow {
+                    ContextWindowBlock(
+                        view: contextWindow,
+                        cost: AgentUsagePresentation.formatUsageCost(sessionUsage?.costUsd)
+                    )
+                    GlassDivider()
+                }
                 header
                 GlassDivider()
                 windowsBlock
-                if let sessionUsage {
-                    GlassDivider()
-                    SessionContextBlock(usage: sessionUsage)
-                }
                 accountsBlock
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // EXP-1051: a refused switch says why HERE, on the tap, instead of
+            // printing under every row for the whole life of the sheet.
+            .noticeToast($notice)
         }
         .onAppear { onOpen?() }
     }
@@ -296,8 +323,18 @@ struct AgentUsageSheet: View {
 
     /// EXP-849/EXP-909: the OTHER logins the host machine holds for this run's
     /// agent — each an identity line with its compact bars, and the icon-only
-    /// switch. The footer says the one thing that is true of all of them: the
-    /// run-level refusal, or what a switch costs.
+    /// switch.
+    ///
+    /// EXP-1051: no footer sentence any more, and no refusal standing under a
+    /// row. Both said, permanently, what only matters at the moment of a tap —
+    /// and between them they pushed the block that answers "how full is this
+    /// run" off the screen. A refused switch now prints its reason as a notice
+    /// when its control is tapped (`SessionAccountRow`).
+    ///
+    /// `SessionAccountSwitch.costNote` (the ×4 string, still the web/desktop
+    /// footer) goes unprinted here for now: a successful tap CLOSES this sheet
+    /// on its way to the relaunch, so a notice raised in its place would never
+    /// be read.
     @ViewBuilder
     private var accountsBlock: some View {
         if !otherAccounts.isEmpty {
@@ -310,47 +347,30 @@ struct AgentUsageSheet: View {
                     SessionAccountRow(
                         option: option,
                         showsSwitch: supportsSwitch && onSwitch != nil,
-                        refusal: rowRefusal(option),
+                        // EXP-1051: the WHOLE refusal, run-level one included
+                        // — there is no footer left to carry it, and the
+                        // notice is read on the control it refused.
+                        refusal: switchRefusal?(option),
                         switching: switching,
-                        onSwitch: { onSwitch?(option) }
+                        onSwitch: { onSwitch?(option) },
+                        onRefused: { notice = $0 }
                     )
-                }
-                if let footer {
-                    Text(footer)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("session-accounts")
         }
     }
-
-    /// A refusal that is about the RUN (wrong agent, mid-turn, offline …) is
-    /// said ONCE in the footer; only a row-specific one rides its row.
-    private func rowRefusal(_ option: SessionAccountOption) -> String? {
-        let refusal = switchRefusal?(option)
-        return refusal == globalBlocker ? nil : refusal
-    }
-
-    private var globalBlocker: String? {
-        SessionAccountSwitch.globalSwitchBlocker(otherAccounts.map { switchRefusal?($0) })
-    }
-
-    /// The run-level refusal when there is one, else the one-time cost of a
-    /// switch — stated BEFORE the tap, because the relaunch re-reads the
-    /// transcript on the account moved to.
-    private var footer: String? {
-        if let globalBlocker { return globalBlocker }
-        return supportsSwitch ? SessionAccountSwitch.costNote : nil
-    }
 }
 
 /// EXP-849: one OTHER login of the run's host machine — who it is, its health,
 /// its own compact bars, and the switch. The control STAYS when a switch would
-/// be refused and the reason sits under the row: a vanished button teaches
-/// nothing. Mirrors Android's `SessionAccountRow` field for field.
+/// be refused: a vanished button teaches nothing. Mirrors Android's
+/// `SessionAccountRow` field for field.
+///
+/// EXP-1051: the reason no longer sits under the row — the disabled control
+/// takes the tap and hands the sentence up as a transient notice, so a sheet
+/// listing three logins is three lines, not nine.
 struct SessionAccountRow: View {
     let option: SessionAccountOption
     /// Whether this run's agent supports switching at all (claude). A codex run
@@ -360,6 +380,8 @@ struct SessionAccountRow: View {
     let refusal: String?
     let switching: Bool
     let onSwitch: () -> Void
+    /// EXP-1051: a tap on the refused control, carrying the reason.
+    var onRefused: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -386,14 +408,6 @@ struct SessionAccountRow: View {
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
-            // The refusal rides the ROW the control is on, so it is read where
-            // the tap was meant to happen.
-            if let refusal {
-                Text(refusal)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("session-account-\(option.profileId)")
@@ -418,45 +432,110 @@ struct SessionAccountRow: View {
                 enabled: refusal == nil,
                 action: onSwitch
             )
+            // EXP-1051: the disabled control still TAKES the tap — over the
+            // dimmed button, because a disabled one refuses gestures — and
+            // answers with the reason it is disabled.
+            .overlay {
+                if let refusal {
+                    Color.clear
+                        .contentShape(Circle())
+                        .onTapGesture { onRefused(refusal) }
+                        .accessibilityLabel(refusal)
+                }
+            }
             .accessibilityIdentifier("switch-account-\(option.profileId)")
         }
     }
 }
 
-/// EXP-746/EXP-909: the run's own context window and spend on ONE line —
-/// `Context · 124k / 200k (62%) · $1.24` — with the shared meter under it. The
-/// strings come from the ×4-locked pure rules; nothing here formats a number
-/// itself.
-struct SessionContextBlock: View {
-    let usage: AgentSessionUsage
+/// EXP-1051: the run's context window — the headline the old
+/// `SessionContextBlock` printed, over a STACKED bar that says where the
+/// window went, and a legend that names every layer.
+///
+/// Closed it is one line and one bar (what a glance wants: how full, and how
+/// much of that was there before the first turn). Open it lists the layers,
+/// `≈`-marked where the device estimated rather than measured them. Every
+/// string and every percent comes from `ContextLayoutPresentation`, the
+/// fixture-locked ×4 fold — nothing here formats a number itself.
+struct ContextWindowBlock: View {
+    let view: ContextWindowView
+    /// EXP-746: the run's spend, which used to ride the context line and still
+    /// has nowhere better to sit.
+    var cost: String? = nil
+
+    @State private var open = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(AgentUsagePresentation.contextSectionTitle)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(
-                    AgentUsagePresentation.formatContextUsage(
-                        used: usage.contextUsed, size: usage.contextSize
-                    ) ?? "—"
-                )
-                .font(.subheadline.weight(.medium).monospacedDigit())
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                Spacer(minLength: 0)
-                if let cost = AgentUsagePresentation.formatUsageCost(usage.costUsd) {
-                    Text(cost)
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { open.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(ContextLayoutPresentation.title.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    Spacer(minLength: 0)
+                    if let cost {
+                        Text(cost)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                    Text(view.headline)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                    AppIcon(open ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("session-context-window")
+            SegmentedTrack(slices: view.bar, ticks: view.ticks)
+            if open {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(view.legend) { row in
+                        legendRow(row)
+                    }
                 }
             }
-            AgentUsageTrack(
-                percent: usage.percent.map(Double.init),
-                severity: AgentUsagePresentation.severity(usage.percent.map(Double.init))
-            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Swatch · label (· what the device found there) · tokens · share. The
+    /// `≈` is the whole of the measured/estimated distinction: a device that
+    /// counted a layer says `21k`, one that divided its characters says
+    /// `≈21k`.
+    private func legendRow(_ row: ContextLegendRow) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(SegmentedTrack.tone(row.tone))
+                .frame(width: 10, height: 10)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.label)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                // Today only `project` names what it loaded (`CLAUDE.md,
+                // ~/.claude/CLAUDE.md`), but any layer that does gets to say
+                // so.
+                if let detail = row.detail {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+            Text("\(row.estimated ? "≈" : "")\(row.tokens)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            Text(row.percent)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .frame(width: 44, alignment: .trailing)
+        }
         .accessibilityElement(children: .combine)
     }
 }

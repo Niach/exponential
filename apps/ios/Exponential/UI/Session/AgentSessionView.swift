@@ -381,6 +381,8 @@ struct AgentSessionView<Switcher: View>: View {
                         account: model.agentAccount,
                         usage: model.runUsage,
                         sessionUsage: model.sessionUsage,
+                        // EXP-1051: and where that window went.
+                        contextLayout: model.sessionContextLayout,
                         // EXP-849: the run's accounts, and the switch — a
                         // resume under another login, claude only, between
                         // turns, on the run's own machine.

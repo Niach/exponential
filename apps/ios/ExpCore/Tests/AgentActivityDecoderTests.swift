@@ -480,6 +480,74 @@ final class AgentActivityDecoderTests: XCTestCase {
         XCTAssertEqual(ok, .clear)
     }
 
+    /// EXP-1051: mirrors web's `parseContextLayout keeps what it can label and
+    /// drops the rest` case for case.
+    func testContextLayoutKeepsWhatItCanLabelAndDropsTheRest() throws {
+        guard case let .contextLayout(layout) = try XCTUnwrap(
+            try decode(#"""
+            {"kind":"context_layout","segments":[
+              {"key":"base","tokens":21000,"source":"measured"},
+              {"key":"project","tokens":9800,"source":"estimated",
+               "detail":"CLAUDE.md, ~/.claude/CLAUDE.md"}]}
+            """#)
+        ) else { return XCTFail("not a context_layout") }
+        XCTAssertEqual(layout, .set([
+            ContextSegment(key: "base", tokens: 21_000, source: "measured"),
+            ContextSegment(
+                key: "project", tokens: 9_800, source: "estimated",
+                detail: "CLAUDE.md, ~/.claude/CLAUDE.md"
+            ),
+        ]))
+
+        // An empty list is a REAL layout (nothing attributed yet), never
+        // "keep": keep is what leaves the previous layout standing.
+        guard case let .contextLayout(empty) = try XCTUnwrap(
+            try decode(#"{"kind":"context_layout","segments":[]}"#)
+        ) else { return XCTFail("not a context_layout") }
+        XCTAssertEqual(empty, .set([]))
+        // No `segments` array at all = unusable.
+        for json in [
+            #"{"kind":"context_layout"}"#,
+            #"{"kind":"context_layout","segments":{}}"#,
+        ] {
+            guard case let .contextLayout(keep) = try XCTUnwrap(try decode(json))
+            else { return XCTFail("not a context_layout") }
+            XCTAssertEqual(keep, .keep, json)
+        }
+
+        // An unknown key, a fractional/negative count and a non-record entry
+        // all go; the FIRST of a duplicate key wins; a garbled source reads as
+        // the conservative `estimated`.
+        guard case let .contextLayout(tolerated) = try XCTUnwrap(
+            try decode(#"""
+            {"kind":"context_layout","segments":[
+              "nope",
+              {"key":"mystery","tokens":5000,"source":"estimated"},
+              {"key":"tools","tokens":1.5,"source":"measured"},
+              {"key":"base","tokens":21000,"source":"measured"},
+              {"key":"base","tokens":99000,"source":"estimated"},
+              {"key":"task","tokens":-1,"source":"estimated"},
+              {"key":"team","tokens":800,"source":"vibes"}]}
+            """#)
+        ) else { return XCTFail("not a context_layout") }
+        XCTAssertEqual(tolerated, .set([
+            ContextSegment(key: "base", tokens: 21_000, source: "measured"),
+            ContextSegment(key: "team", tokens: 800, source: "estimated"),
+        ]))
+
+        // `detail` is cut to the contract's cap, and an empty one is no
+        // detail.
+        guard case let .contextLayout(.set(cut)) = try XCTUnwrap(
+            try decode(#"""
+            {"kind":"context_layout","segments":[
+              {"key":"project","tokens":10,"source":"estimated","detail":"\#(String(repeating: "x", count: 500))"},
+              {"key":"task","tokens":10,"source":"estimated","detail":""}]}
+            """#)
+        ) else { return XCTFail("not a context_layout") }
+        XCTAssertEqual(cut[0].detail?.count, DomainContract.contextLayoutDetailMax)
+        XCTAssertNil(cut[1].detail)
+    }
+
     func testCompactionEdgesAreReadableInBothDirections() throws {
         guard case let .compaction(started) = try XCTUnwrap(
             try decode(#"{"kind":"compaction","phase":"started","trigger":"manual","at":1700}"#)

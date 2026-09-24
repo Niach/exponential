@@ -132,6 +132,46 @@ transcript measure, reused and never restated: web `TRANSCRIPT_COLUMN`
 (`WORK_COLUMN_W`), iOS `transcriptColumn()` and Android `ReadingColumn`
 (`DesignTokens.Transcript` max width).
 
+## 2d. `context_layout` (latest-wins slot, EXP-1051)
+
+```
+{ kind: "context_layout",
+  segments: [ { key, tokens, source, detail? } ],
+  at }
+```
+Where the window the `usage` meter measures actually WENT: the layers the
+launcher put in before the agent's first turn. `key` ∈ contract
+`contextLayout.segments` (`base` | `tools` | `playbook` | `team` | `project` |
+`task`, and that order is the RENDER order — the wire order is ignored);
+`tokens` is an int 0..1e9, the same bounds as `usage`'s counts; `source` ∈
+contract `contextLayout.sources` (`measured` = a real count the agent
+reported, `estimated` = chars / `contextLayout.charsPerToken`); `detail` ≤
+`contextLayout.detailMax` chars names what the layer is made of (`CLAUDE.md,
+~/.claude/CLAUDE.md`). A segment the device cannot attribute is simply
+OMITTED; a key outside the contract fails the parse and the relay drops the
+WHOLE frame (a half-read layout would mis-attribute the remainder).
+
+**Publish rule.** ONE frame per conversation, once the launcher knows what it
+put in the window, and again after a `/clear` (the layers are rebuilt). NOT on
+a compaction: compaction moves the conversation, never the layers, and the
+`usage` meter already reports the new total. An identical layout is not
+republished.
+
+Latest-wins everywhere (relay `LATEST_WINS_KINDS`, journal slot, history
+fold); replay order right after `usage`, before `rate_limit` — a client that
+folded the layout first would hold a bar with no scale.
+
+**`conversation` and `free` are never on the wire.** Every client DERIVES them
+from `usage`: `conversation = max(0, contextUsed - Σ segments)`, `free =
+max(0, contextSize - contextUsed)`, and draws them with the contract's
+`contextLayout.derived` labels/tones. The segments are never rescaled to fit —
+when the device's estimates overshoot `contextUsed` the bar clips at 100%
+rather than shrinking the layers to hide the rounding. The fold is one pure
+function per client, byte-locked by
+`packages/domain-contract/fixtures/context-layout.json` (web
+`lib/context-layout.ts`, desktop `ui::context_layout`, iOS
+`ContextLayoutPresentation`, Android `ContextLayoutPresentation`).
+
 ## 3. `workflow` (latest-wins per workflow id)
 
 ```

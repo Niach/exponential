@@ -195,6 +195,30 @@ pub(crate) fn record_session_ids(ctx: &SessionCtx) {
     upsert_run_record(&ctx.data_dir, &ctx.session_id, &ids, pids);
 }
 
+/// EXP-1051: the measured context base, onto the run's registry record, so
+/// the NEXT resume of this conversation can draw its bar before its first
+/// request lands. The model rides with it because a base is only valid for
+/// the model that measured it — a different one has a different system
+/// prompt, and the launcher drops the carry rather than lie about it.
+///
+/// A replay records nothing: reading a transcript must never write to disk.
+pub(crate) fn record_context_base(ctx: &SessionCtx, tokens: u64, model: &str) {
+    if ctx.replay || model.trim().is_empty() {
+        return;
+    }
+    let carried = coding::CarriedBase {
+        tokens,
+        model: model.to_string(),
+    };
+    coding::run_registry::update(&ctx.data_dir, &ctx.session_id, |record| {
+        if record.context_base().as_ref() == Some(&carried) {
+            return false;
+        }
+        record.set_context_base(Some(&carried));
+        true
+    });
+}
+
 /// The one writer of the engine's fields on a [`coding::run_registry`]
 /// record. A present id wins over what is on disk, an absent one leaves it
 /// alone, and the pids are written verbatim (the end sequence clears them by

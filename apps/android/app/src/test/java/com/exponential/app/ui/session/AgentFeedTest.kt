@@ -7,6 +7,9 @@ import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentRowClass
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.BACKGROUND_TASK_KIND_OTHER
+import com.exponential.app.domain.CONTEXT_SOURCE_ESTIMATED
+import com.exponential.app.domain.CONTEXT_SOURCE_MEASURED
+import com.exponential.app.domain.ContextSegment
 import com.exponential.app.domain.QUEUE_REMOVE_LABEL
 import com.exponential.app.domain.QUEUE_STRIP_TITLE
 import com.exponential.app.domain.QueuedMessage
@@ -1256,6 +1259,80 @@ class AgentFeedTest {
             .applying(usage(124_000, 200_000, null))
             .applying(usage(0, 0, null))
         assertNull(state.usage)
+    }
+
+    /**
+     * EXP-1051: the slot right behind `usage` — latest-wins WHOLE, with the
+     * `config_state` null rule: a frame carrying no `segments` array keeps the
+     * standing layout, because the layers do not change mid-conversation.
+     */
+    @Test
+    fun `the context layout is a latest-wins slot`() {
+        assertNull(ActivityFeedState().contextLayout)
+        val laid = ActivityFeedState().applying(
+            event(
+                """{"kind":"context_layout","segments":[
+                     {"key":"base","tokens":21000,"source":"measured"},
+                     {"key":"project","tokens":9800,"source":"estimated","detail":"CLAUDE.md"}]}""",
+            ),
+        )
+        assertEquals(
+            listOf(
+                ContextSegment("base", 21_000, CONTEXT_SOURCE_MEASURED),
+                ContextSegment("project", 9_800, CONTEXT_SOURCE_ESTIMATED, "CLAUDE.md"),
+            ),
+            laid.contextLayout,
+        )
+        // The newest frame replaces the whole list — an EMPTY one is a real
+        // layout with nothing attributed, never "keep what you had".
+        val emptied = laid.applying(event("""{"kind":"context_layout","segments":[]}"""))
+        assertEquals(emptyList<ContextSegment>(), emptied.contextLayout)
+        // …but a frame with no `segments` ARRAY at all leaves it standing.
+        assertEquals(
+            laid.contextLayout,
+            laid.applying(event("""{"kind":"context_layout"}""")).contextLayout,
+        )
+        assertEquals(
+            laid.contextLayout,
+            laid.applying(event("""{"kind":"context_layout","segments":"nope"}""")).contextLayout,
+        )
+    }
+
+    /**
+     * EXP-1051: tolerant per entry, in the ×4 order `ContextLayoutPresentation`
+     * renders in — an unknown key, a non-integer or negative count and a
+     * repeated key all drop, an unknown source reads as `estimated`, and
+     * `detail` is cut to the contract's cap.
+     */
+    @Test
+    fun `an unreadable context segment drops without taking the frame with it`() {
+        val long = "x".repeat(DomainContract.contextLayoutDetailMax + 40)
+        val state = ActivityFeedState().applying(
+            event(
+                """{"kind":"context_layout","segments":[
+                     {"key":"mystery","tokens":5000,"source":"measured"},
+                     {"key":"base","tokens":21000,"source":"nonsense"},
+                     {"key":"base","tokens":99000,"source":"measured"},
+                     {"key":"tools","tokens":2.5,"source":"measured"},
+                     {"key":"playbook","tokens":-500,"source":"measured"},
+                     {"key":"project","tokens":9800,"source":"estimated","detail":"$long"},
+                     "not an object"]}""",
+            ),
+        )
+        assertEquals(
+            listOf(
+                // Unknown source → the conservative `estimated`; the FIRST
+                // `base` wins; `mystery`, the fractional and the negative go.
+                ContextSegment("base", 21_000, CONTEXT_SOURCE_ESTIMATED),
+                ContextSegment(
+                    "project",
+                    9_800,
+                    CONTEXT_SOURCE_ESTIMATED,
+                    long.take(DomainContract.contextLayoutDetailMax),
+                ),
+            ),
+            state.contextLayout,
+        )
     }
 
     /**

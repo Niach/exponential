@@ -65,6 +65,11 @@ object SessionAccountSwitch {
      * re-enters the recorded run under the other login, which re-reads the
      * transcript — one extra context read, not a per-message surcharge.
      */
+    // EXP-1051: the phone's Usage sheet dropped the permanent footer that
+    // rendered this (the sheet leads with the context window now, and a
+    // standing note under every row was the first thing to cut). The string
+    // STAYS: it is byte-locked ×4 by web's `session-account-switch.test.ts`,
+    // which reads this file, and web/desktop/iOS still show it.
     const val COST_NOTE =
         "The run continues under the other account. Re-reading the transcript once costs tokens."
 

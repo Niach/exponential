@@ -1404,6 +1404,69 @@ export function parseSessionUsage(event: unknown): SessionUsageState | null {
   return usage
 }
 
+/** EXP-1051: ONE attributed layer of the run's context window, as the device
+ *  accounted for it before the first turn — the launcher's own prompt parts
+ *  (`playbook`, `team`, `task`), what the agent CLI loads by itself (`base`,
+ *  `tools`, `project`), each `measured` (a real token count) or `estimated`
+ *  (chars / `contract.contextLayout.charsPerToken`). `key` is a contract
+ *  `contextLayout.segments` key; `conversation` and `free` are NEVER on the
+ *  wire — every client derives them from `usage` (`lib/context-layout.ts`). */
+export interface ContextSegment {
+  key: string
+  tokens: number
+  source: `measured` | `estimated`
+  detail?: string
+}
+
+/** EXP-1051: the latest-wins slot the segments live in — the device publishes
+ *  one per conversation (again after a `/clear`, nothing on a compaction), so
+ *  an empty array is a real layout with nothing attributed, and `null` is "no
+ *  layout published yet". */
+export type ContextLayoutState = ContextSegment[]
+
+const CONTEXT_SEGMENT_KEYS = new Set(
+  contract.contextLayout.segments.map((spec) => spec.key)
+)
+const CONTEXT_SEGMENT_SOURCES = new Set(contract.contextLayout.sources)
+
+/** Fold a `context_layout` event. `null` for a payload that carries no
+ *  `segments` ARRAY at all — the caller then keeps the previous layout
+ *  standing (the `config_state` rule): the layers do not change mid-run, so a
+ *  malformed frame is noise, never "the window emptied".
+ *
+ *  Tolerant per entry, in the ×4 order `lib/context-layout.ts` then renders
+ *  in: an unknown key is dropped (a newer device naming a layer this build
+ *  cannot label), a non-integer or negative count is dropped, the FIRST of a
+ *  duplicate key wins, `detail` is cut to the contract's cap, and a missing or
+ *  unknown `source` reads as `estimated` — the conservative claim. */
+export function parseContextLayout(event: unknown): ContextSegment[] | null {
+  if (!isEventRecord(event)) return null
+  if (!Array.isArray(event.segments)) return null
+  const out: ContextSegment[] = []
+  const seen = new Set<string>()
+  for (const entry of event.segments) {
+    if (!isEventRecord(entry)) continue
+    const key = entry.key
+    if (typeof key !== `string` || !CONTEXT_SEGMENT_KEYS.has(key)) continue
+    if (seen.has(key)) continue
+    const tokens = entry.tokens
+    if (typeof tokens !== `number` || !Number.isInteger(tokens) || tokens < 0) {
+      continue
+    }
+    seen.add(key)
+    const source =
+      typeof entry.source === `string` && CONTEXT_SEGMENT_SOURCES.has(entry.source)
+        ? (entry.source as ContextSegment[`source`])
+        : `estimated`
+    const segment: ContextSegment = { key, tokens, source }
+    if (typeof entry.detail === `string` && entry.detail !== ``) {
+      segment.detail = entry.detail.slice(0, contract.contextLayout.detailMax)
+    }
+    out.push(segment)
+  }
+  return out
+}
+
 /** EXP-784: the agent's rate-limit window as it last reported it — the
  *  fourth latest-wins slot beside `SessionUsageState` (`journal.rs`,
  *  `hub.ts` LATEST_WINS_KINDS, iOS `AgentFeed.applyRateLimit`, Android

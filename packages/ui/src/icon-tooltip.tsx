@@ -14,11 +14,16 @@ import {
 export function IconTooltip({
   label,
   shortcut,
+  hint,
   children,
 }: {
   label: string
   // Keyboard equivalent, rendered muted after the label (e.g. `J`).
   shortcut?: string
+  // EXP-1051: a second, muted line under the label — what the control COSTS
+  // or why it is refused, said where the control is rather than as a caption
+  // the row has to make space for.
+  hint?: string
   children: ReactNode
 }) {
   return (
@@ -30,11 +35,18 @@ export function IconTooltip({
       <TooltipTrigger asChild>
         <span className="inline-flex">{children}</span>
       </TooltipTrigger>
-      <TooltipContent>
-        {label}
-        {shortcut && (
-          <span className="ml-1.5 font-mono text-popover-foreground/60">
-            {shortcut}
+      <TooltipContent className={hint ? `max-w-64` : undefined}>
+        <span>
+          {label}
+          {shortcut && (
+            <span className="ml-1.5 font-mono text-popover-foreground/60">
+              {shortcut}
+            </span>
+          )}
+        </span>
+        {hint && (
+          <span className="mt-0.5 block text-popover-foreground/60">
+            {hint}
           </span>
         )}
       </TooltipContent>

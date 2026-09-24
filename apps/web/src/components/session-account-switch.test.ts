@@ -9,7 +9,6 @@ import { join } from "node:path"
 import {
   ACCOUNTS_SECTION_TITLE,
   activeAccountIndex,
-  globalSwitchBlocker,
   REASON_AGENT,
   REASON_ALREADY,
   REASON_BUSY,
@@ -197,31 +196,6 @@ describe(`usage overlay account rules (EXP-863)`, () => {
     expect(activeAccountIndex(unknown, `nobody@x.io`)).toBe(0)
     expect(activeAccountIndex(unknown, null)).toBe(0)
     expect(activeAccountIndex([option(`work`, { email: `b@x.io` })], null)).toBe(-1)
-  })
-
-  it(`lifts a shared run-level refusal into the footer, never a row-specific one`, () => {
-    expect(
-      globalSwitchBlocker([
-        { blockedReason: REASON_BUSY },
-        { blockedReason: REASON_BUSY },
-      ])
-    ).toBe(REASON_BUSY)
-    expect(
-      globalSwitchBlocker([
-        { blockedReason: REASON_BUSY },
-        { blockedReason: REASON_SIGNED_OUT },
-      ])
-    ).toBeNull()
-    expect(
-      globalSwitchBlocker([
-        { blockedReason: REASON_SIGNED_OUT },
-        { blockedReason: REASON_SIGNED_OUT },
-      ])
-    ).toBeNull()
-    expect(
-      globalSwitchBlocker([{ blockedReason: null }, { blockedReason: REASON_BUSY }])
-    ).toBeNull()
-    expect(globalSwitchBlocker([])).toBeNull()
   })
 })
 

@@ -54,6 +54,7 @@ pub mod clone_manager;
 pub mod codex_app_server;
 pub mod codex_sessions;
 pub mod codex_trust;
+pub mod context_layout;
 pub mod device_mcp_servers;
 pub mod doctor;
 pub mod git_credentials;
@@ -105,6 +106,7 @@ pub use action_prompt::{
 };
 pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
+pub use context_layout::{CarriedBase, ContextLayers, ProjectMemoryFile};
 pub use codex_sessions::default_codex_sessions_root;
 pub use doctor::{
     device_caps, parse_claude_version, parse_codex_version, run_doctor,
@@ -140,8 +142,8 @@ pub use launch_gate::LaunchHold;
 pub use launcher::{apply_account_env, set_session_end_observer, start_heartbeat, HeartbeatStop};
 pub use launcher::SESSION_HEARTBEAT_INTERVAL;
 pub use launcher::{
-    claude_projects_root, claude_transcript_exists, default_device_label, end_session,
-    end_session_best_effort, locate_claude_transcript, prepare, prepare_agent_shell,
+    claude_projects_root, claude_transcript_exists, context_layers_for, default_device_label,
+    end_session, end_session_best_effort, locate_claude_transcript, prepare, prepare_agent_shell,
     AcpLaunch, ActionLaunchRequest, ActionRunKind, ACP_TRANSPORT,
     AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
     GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,

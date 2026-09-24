@@ -58,7 +58,9 @@ pub(crate) const SWITCH_LABEL: &str = "Switch to this account";
 /// The rate-limit wall's PRIMARY button.
 pub(crate) const WALL_SWITCH_LABEL: &str = "Switch account";
 
-/// What a switch costs, said ONCE where the switch is offered.
+/// What a switch costs, said ONCE where the switch is offered — EXP-1051 moved
+/// it ONTO the control, as the second line of the offer's own tooltip. (The web
+/// copy-lock test reads this file for the literal; it stays byte-identical.)
 pub(crate) const COST_NOTE: &str =
     "The run continues under the other account. Re-reading the transcript once costs tokens.";
 
@@ -68,40 +70,6 @@ const REASON_NO_CAP: &str = "Update the app on that machine to switch accounts."
 const REASON_BUSY: &str = "The agent is working — switching waits for the turn to finish.";
 const REASON_SIGNED_OUT: &str = "Sign in to this account on that machine first.";
 const REASON_NEEDS_RELOGIN: &str = "This account needs a re-login on that machine.";
-
-/// Why a run cannot move accounts right now — the note under the rows, when
-/// not one of them can be taken.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SwitchBlocker {
-    /// Not claude.
-    Agent,
-    /// The host machine is not reporting.
-    Offline,
-    /// The host runs a build that does not honour `account` on a resume
-    /// (EXP-849's `account-switch` cap).
-    NoCap,
-    /// A turn is in flight.
-    Working,
-    /// Nothing to switch TO (one login on the machine, or only broken ones).
-    NoOtherAccount,
-}
-
-impl SwitchBlocker {
-    pub(crate) fn message(&self) -> &'static str {
-        match self {
-            SwitchBlocker::Agent => REASON_AGENT,
-            SwitchBlocker::Offline => REASON_OFFLINE,
-            SwitchBlocker::NoCap => REASON_NO_CAP,
-            SwitchBlocker::Working => REASON_BUSY,
-            // Desktop-only state: the ×4 set has no sentence for it (the other
-            // clients simply list nothing), and "there is no other account" is
-            // about the machine, not about this run.
-            SwitchBlocker::NoOtherAccount => {
-                "This machine has no other signed-in account for this agent."
-            }
-        }
-    }
-}
 
 /// One account a run could move to.
 #[derive(Clone, Debug, PartialEq)]
@@ -120,35 +88,6 @@ pub(crate) struct SwitchTarget {
     pub current: bool,
     /// `None` = offerable; `Some(reason)` = rendered disabled with the reason.
     pub blocked: Option<String>,
-}
-
-impl SwitchTarget {
-    /// EXP-863 — the refusal that belongs UNDER this row and nowhere else:
-    /// the account's own state (signed out, needs a re-login). Every other
-    /// reason is about the RUN (agent, host, build, turn) and is said once,
-    /// in the sheet's footer ([`footer_note`]) — a row must never repeat it.
-    pub(crate) fn row_refusal(&self) -> Option<&str> {
-        self.blocked
-            .as_deref()
-            .filter(|reason| *reason == REASON_SIGNED_OUT || *reason == REASON_NEEDS_RELOGIN)
-    }
-}
-
-/// EXP-863 — the ONE note under the sheet: the global blocker when a switch
-/// is refused for every other account, else the one-time cost of taking one.
-/// `None` when there is no other account at all (the Accounts section is
-/// hidden then, and a cost note for a switch nobody can take is noise).
-pub(crate) fn footer_note(
-    targets: &[SwitchTarget],
-    blocker: Option<&SwitchBlocker>,
-) -> Option<&'static str> {
-    if !targets.iter().any(|target| !target.current) {
-        return None;
-    }
-    Some(match blocker {
-        Some(blocker) => blocker.message(),
-        None => COST_NOTE,
-    })
 }
 
 /// EXP-909 — WHICH of the host's logins the run is ON, in the order a client
@@ -210,13 +149,7 @@ pub(crate) fn switch_targets(
     reported_email: Option<&str>,
     can_switch: bool,
     working: bool,
-) -> (Vec<SwitchTarget>, Option<SwitchBlocker>) {
-    // One machine's rows all carry its own liveness; an empty set says nothing
-    // about the host, so it falls through to "nothing to switch to".
-    let host_online = rows
-        .iter()
-        .filter(|row| row.device_id == device_id)
-        .all(|row| row.online);
+) -> Vec<SwitchTarget> {
     let host_rows: Vec<&crate::usage_bar::AgentProfileUsageRow> = rows
         .iter()
         .filter(|row| row.device_id == device_id && row.agent == agent.id())
@@ -267,26 +200,11 @@ pub(crate) fn switch_targets(
             .then_with(|| a.label.cmp(&b.label))
             .then_with(|| a.profile_id.cmp(&b.profile_id))
     });
-    // The note under the rows names the FIRST thing standing in the way, in the
-    // same order the rows themselves refuse.
-    let others = targets.iter().any(|target| !target.current);
-    let blocker = if agent != CodingAgent::Claude {
-        Some(SwitchBlocker::Agent)
-    } else if targets
-        .iter()
-        .any(|target| !target.current && target.blocked.is_none())
-    {
-        None
-    } else if others && !host_online {
-        Some(SwitchBlocker::Offline)
-    } else if others && !can_switch {
-        Some(SwitchBlocker::NoCap)
-    } else if others && working {
-        Some(SwitchBlocker::Working)
-    } else {
-        Some(SwitchBlocker::NoOtherAccount)
-    };
-    (targets, blocker)
+    // EXP-1051: no footer note any more. Every refusal — the run's own facts
+    // as much as the account's — is already ON its row, and the row's switch
+    // control wears it as its tooltip: the sentence sits where the thing it
+    // refuses is, and a row nobody can take never looks merely broken.
+    targets
 }
 
 /// EXP-862 — the account's identity, never its status: the email, else the
@@ -382,14 +300,13 @@ impl SwitchContext {
     }
 
     /// EXP-863 — the switch decision for this run: every account its host
-    /// holds for the agent (the current one included, flagged) and the global
-    /// blocker. `None` when the machine reported no account at all for the
-    /// agent (nothing to say, and nothing to switch), or the row has not
-    /// synced its device yet.
-    pub(crate) fn resolve(&self, cx: &App) -> Option<(Vec<SwitchTarget>, Option<SwitchBlocker>)> {
+    /// holds for the agent, the current one included and flagged. `None` when
+    /// the machine reported no account at all for the agent (nothing to say,
+    /// and nothing to switch), or the row has not synced its device yet.
+    pub(crate) fn resolve(&self, cx: &App) -> Option<Vec<SwitchTarget>> {
         let device_id = self.device_id.as_deref()?;
         let rows = crate::usage_bar::device_profile_rows(cx);
-        let (targets, blocker) = switch_targets(
+        let targets = switch_targets(
             &rows,
             device_id,
             self.agent,
@@ -398,18 +315,20 @@ impl SwitchContext {
             self.can_switch(cx),
             self.working,
         );
-        (!targets.is_empty()).then_some((targets, blocker))
+        (!targets.is_empty()).then_some(targets)
     }
 
     /// EXP-863/EXP-909 — the rows of the sheet's "Accounts" section: ONLY the
     /// accounts the run is NOT on (the one it is on is the sheet's header),
-    /// each with its caption + health, an ICON-ONLY switch control, its mini
-    /// usage line and — for an account-level refusal only — the reason.
-    /// `None` when there is no other account, so the caller omits the section.
+    /// each with its caption + health, an ICON-ONLY switch control and its
+    /// mini usage line. `None` when there is no other account, so the caller
+    /// omits the section.
     ///
     /// EXP-909 dropped the full-width "Switch to this account" button: at
     /// 320 px it pushed every email into an ellipsis, and the sentence still
-    /// rides the control as its tooltip.
+    /// rides the control as its tooltip. EXP-1051 dropped the sentences UNDER
+    /// the rows with it: a row reports an account, its control reports what
+    /// can be done about it.
     pub(crate) fn render_account_rows(
         &self,
         targets: &[SwitchTarget],
@@ -448,13 +367,19 @@ impl SwitchContext {
                     // hidden — a switch that silently disappears mid-run
                     // reads as a bug, and the reason is the whole point.
                     // EXP-909: icon-only (the ×4 swap concept), the sentence
-                    // on its tooltip.
+                    // on its tooltip. EXP-1051: that tooltip is now the ONLY
+                    // place either sentence lives — the refusal when the
+                    // control is disabled, the offer plus its one-time cost
+                    // when it is not, both on the control they are about.
                     .child(
                         Button::new(("session-use-account", index))
                             .ghost()
                             .web_icon_xs()
                             .icon(crate::icons::registry::UI_SWAP)
-                            .tooltip(SWITCH_LABEL)
+                            .tooltip(match target.blocked.as_deref() {
+                                Some(reason) => SharedString::from(reason.to_string()),
+                                None => SharedString::from(format!("{SWITCH_LABEL}\n{COST_NOTE}")),
+                            })
                             .disabled(!offerable)
                             .on_click(move |_, window, cx| {
                                 switch_to(
@@ -494,17 +419,6 @@ impl SwitchContext {
                     );
                 }
             }
-            // EXP-863: only the ACCOUNT's own refusal sits on its row; a
-            // run-level one (busy, offline, agent, build) is the footer's,
-            // said once for the whole sheet.
-            if let Some(reason) = target.row_refusal() {
-                row = row.child(
-                    div()
-                        .text_2xs()
-                        .text_color(muted)
-                        .child(SharedString::from(reason.to_string())),
-                );
-            }
             block = block.child(row);
         }
         Some(block.into_any_element())
@@ -513,30 +427,24 @@ impl SwitchContext {
 
 impl SwitchContext {
     /// EXP-849 — the account block on its own (the rate-limit wall's "Switch
-    /// account" popover, `steer_viewer`): the "Accounts" title, the OTHER
-    /// accounts' rows and the one footer note ([`footer_note`]). `None` when
+    /// account" popover, `steer_viewer`): the "Accounts" title over the OTHER
+    /// accounts' rows, each refusal on its own control (EXP-1051). `None` when
     /// the machine reported no account for the agent, or holds no other one
     /// — a popover that can only explain itself is worse than none. The
-    /// session header's usage sheet composes the same pieces itself, with
-    /// the active account and the context meter above them.
+    /// session header's usage sheet composes the same pieces itself, with the
+    /// context window and the active account above them.
     pub(crate) fn render(&self, cx: &App) -> Option<AnyElement> {
-        let (targets, blocker) = self.resolve(cx)?;
+        let targets = self.resolve(cx)?;
         let rows = self.render_account_rows(&targets, cx)?;
-        let mut block = v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .child(crate::usage_bar::sheet_section_title(SECTION_TITLE, cx))
-            .child(rows);
-        if let Some(note) = footer_note(&targets, blocker.as_ref()) {
-            block = block.child(
-                div()
-                    .text_2xs()
-                    .text_color(cx.theme().muted_foreground.opacity(0.8))
-                    .child(note),
-            );
-        }
-        Some(block.into_any_element())
+        Some(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .child(crate::usage_bar::sheet_section_title(SECTION_TITLE, cx))
+                .child(rows)
+                .into_any_element(),
+        )
     }
 }
 
@@ -716,9 +624,7 @@ mod tests {
 
         // Idle claude on the ambient login: the other healthy account is
         // offerable, the broken ones are listed with their own sentence.
-        let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
-        assert_eq!(blocker, None);
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(targets.len(), 4);
         assert!(targets[0].current, "the run's own account leads");
         assert_eq!(targets[0].profile_id, coding::SYSTEM_PROFILE);
@@ -733,19 +639,14 @@ mod tests {
             Some("This account needs a re-login on that machine.")
         );
 
-        // Mid-turn: every target is disabled and the sheet says why, in the
-        // ×4 sentence.
-        let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
-        assert_eq!(blocker, Some(SwitchBlocker::Working));
-        assert_eq!(
-            SwitchBlocker::Working.message(),
-            "The agent is working — switching waits for the turn to finish."
-        );
+        // Mid-turn: every target is disabled and every control says why, in
+        // the ×4 sentence.
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
         assert!(targets
             .iter()
             .filter(|target| !target.current)
-            .all(|target| target.blocked.as_deref() == Some(SwitchBlocker::Working.message())));
+            .all(|target| target.blocked.as_deref()
+                == Some("The agent is working — switching waits for the turn to finish.")));
 
         // Codex: refused outright, whatever it holds.
         let codex: Vec<AgentProfileUsageRow> = rows
@@ -756,17 +657,12 @@ mod tests {
                 row
             })
             .collect();
-        let (targets, blocker) =
-            switch_targets(&codex, "dev-1", CodingAgent::Codex, None, None, true, false);
-        assert_eq!(blocker, Some(SwitchBlocker::Agent));
-        assert_eq!(
-            SwitchBlocker::Agent.message(),
-            "Only claude can switch accounts during a run."
-        );
+        let targets = switch_targets(&codex, "dev-1", CodingAgent::Codex, None, None, true, false);
         assert!(targets
             .iter()
             .filter(|target| !target.current)
-            .all(|target| target.blocked.is_some()));
+            .all(|target| target.blocked.as_deref()
+                == Some("Only claude can switch accounts during a run.")));
 
         // An offline host, and a host whose build cannot take the switch: the
         // run's own facts outrank the accounts' (the ×4 order).
@@ -778,10 +674,8 @@ mod tests {
                 row
             })
             .collect();
-        let (targets, blocker) =
+        let targets =
             switch_targets(&offline, "dev-1", CodingAgent::Claude, None, None, true, false);
-        assert_eq!(blocker, Some(SwitchBlocker::Offline));
-        assert_eq!(SwitchBlocker::Offline.message(), "The machine is offline.");
         assert_eq!(
             targets
                 .iter()
@@ -789,24 +683,27 @@ mod tests {
                 .and_then(|target| target.blocked.as_deref()),
             Some("The machine is offline.")
         );
-        let (_, blocker) = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, false, false);
-        assert_eq!(blocker, Some(SwitchBlocker::NoCap));
+        let targets =
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, false, false);
         assert_eq!(
-            SwitchBlocker::NoCap.message(),
-            "Update the app on that machine to switch accounts."
+            targets
+                .iter()
+                .find(|target| target.profile_id == "0a1b2c3d")
+                .and_then(|target| target.blocked.as_deref()),
+            Some("Update the app on that machine to switch accounts.")
         );
 
-        // One login only: nothing to switch to.
-        let (_, blocker) =
+        // One login only: nothing to switch to — the section hides itself.
+        let targets =
             switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, None, true, false);
-        assert_eq!(blocker, Some(SwitchBlocker::NoOtherAccount));
+        assert!(targets.iter().all(|target| target.current));
 
         // Another machine's rows are never offered here.
-        let (targets, _) = switch_targets(&rows, "dev-2", CodingAgent::Claude, None, None, true, false);
+        let targets = switch_targets(&rows, "dev-2", CodingAgent::Claude, None, None, true, false);
         assert!(targets.is_empty());
 
         // The run's CURRENT account is the one it records, not the default.
-        let (targets, _) = switch_targets(&rows, "dev-1", CodingAgent::Claude, Some("0a1b2c3d"), None, true, false);
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, Some("0a1b2c3d"), None, true, false);
         assert!(targets[0].current && targets[0].profile_id == "0a1b2c3d");
     }
 
@@ -829,7 +726,7 @@ mod tests {
         };
 
         // 1. The run's own account, when it names a listed login.
-        let (targets, _) = switch_targets(
+        let targets = switch_targets(
             &rows,
             "dev-1",
             CodingAgent::Claude,
@@ -842,7 +739,7 @@ mod tests {
 
         // An account this machine does not hold falls through to the next
         // rung rather than leaving the header on a row that is not there.
-        let (targets, _) = switch_targets(
+        let targets = switch_targets(
             &rows,
             "dev-1",
             CodingAgent::Claude,
@@ -854,7 +751,7 @@ mod tests {
         assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
 
         // 2. The machine's top-level email, when the run says nothing.
-        let (targets, _) = switch_targets(
+        let targets = switch_targets(
             &rows,
             "dev-1",
             CodingAgent::Claude,
@@ -866,7 +763,7 @@ mod tests {
         assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
 
         // 3. The machine's ACTIVE login, when neither is known.
-        let (targets, _) =
+        let targets =
             switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(current(&targets).as_deref(), Some(coding::SYSTEM_PROFILE));
 
@@ -876,7 +773,7 @@ mod tests {
             row("0a1b2c3d", true, Health::Ok),
             row("deadbeef", true, Health::Ok),
         ];
-        let (targets, _) = switch_targets(
+        let targets = switch_targets(
             &named_only,
             "dev-1",
             CodingAgent::Claude,
@@ -889,12 +786,14 @@ mod tests {
         assert!(targets.iter().all(|target| !target.current));
     }
 
-    /// EXP-863: a refusal is said ONCE. An account-level reason (signed out,
-    /// re-login) belongs on its row; a run-level one (busy, offline, agent,
-    /// build) is the footer's and never repeats under a row. No other account
-    /// at all: no footer — the section is hidden, and so is the cost note.
+    /// EXP-1051: a refusal is said ONCE, and it is said ON the control it
+    /// refuses. An account-level reason (signed out, needs a re-login) and a
+    /// run-level one (busy, offline, agent, build) are the same kind of thing
+    /// now — the tooltip of the disabled switch on that row — so no row ever
+    /// carries a sentence of its own and there is no footer left to repeat
+    /// one. The account the run is ON never refuses at all.
     #[test]
-    fn refusals_are_said_once_row_or_footer() {
+    fn every_refusal_rides_the_control_it_refuses() {
         let rows = vec![
             row(coding::SYSTEM_PROFILE, true, Health::Ok),
             row("0a1b2c3d", true, Health::Ok),
@@ -906,42 +805,29 @@ mod tests {
         };
 
         // Idle: the broken accounts carry their own sentence, the healthy one
-        // none, and the footer is the cost note.
-        let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
+        // none (its control offers the switch and its cost instead).
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(
-            by_id(&targets, "deadbeef").row_refusal(),
+            by_id(&targets, "deadbeef").blocked.as_deref(),
             Some("Sign in to this account on that machine first.")
         );
         assert_eq!(
-            by_id(&targets, "badc0ffe").row_refusal(),
+            by_id(&targets, "badc0ffe").blocked.as_deref(),
             Some("This account needs a re-login on that machine.")
         );
-        assert_eq!(by_id(&targets, "0a1b2c3d").row_refusal(), None);
-        assert_eq!(footer_note(&targets, blocker.as_ref()), Some(COST_NOTE));
+        assert_eq!(by_id(&targets, "0a1b2c3d").blocked, None);
+        // The run's own account is never a target, so it never refuses.
+        assert_eq!(by_id(&targets, coding::SYSTEM_PROFILE).blocked, None);
+        assert!(by_id(&targets, coding::SYSTEM_PROFILE).current);
 
-        // Mid-turn: the footer says busy ONCE and no row repeats it.
-        let (targets, blocker) =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
-        assert_eq!(
-            footer_note(&targets, blocker.as_ref()),
-            Some("The agent is working — switching waits for the turn to finish.")
-        );
-        assert!(targets.iter().all(|target| target.row_refusal().is_none()));
-
-        // One login only: nothing to switch to, nothing to say.
-        let (targets, blocker) =
-            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, None, true, false);
-        assert_eq!(footer_note(&targets, blocker.as_ref()), None);
-
-        // Only broken other accounts: their rows say why, the footer names
-        // the machine's state — two different sentences.
-        let broken = vec![rows[0].clone(), rows[2].clone()];
-        let (targets, blocker) =
-            switch_targets(&broken, "dev-1", CodingAgent::Claude, None, None, true, false);
-        let footer = footer_note(&targets, blocker.as_ref()).unwrap();
-        assert_eq!(footer, SwitchBlocker::NoOtherAccount.message());
-        assert_ne!(Some(footer), by_id(&targets, "deadbeef").row_refusal());
+        // Mid-turn: the run-level sentence lands on EVERY other row's control,
+        // outranking the accounts' own (the ×4 refusal order).
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
+        let busy = "The agent is working — switching waits for the turn to finish.";
+        for id in ["0a1b2c3d", "deadbeef", "badc0ffe"] {
+            assert_eq!(by_id(&targets, id).blocked.as_deref(), Some(busy), "{id}");
+        }
+        assert_eq!(by_id(&targets, coding::SYSTEM_PROFILE).blocked, None);
     }
 
     /// The copy is the ×4 copy, byte for byte (Android

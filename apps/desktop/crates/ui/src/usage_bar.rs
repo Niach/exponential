@@ -689,7 +689,11 @@ fn mini_window_reset(window: &MiniWindow, now_epoch: Option<i64>) -> Option<Stri
 //   iOS      AgentUsagePresentation.swift
 //   Android  domain/AgentUsagePresentation.kt
 
-/// The context block's heading. Byte-identical ×4.
+/// The context block's heading. Byte-identical ×4 — still the web's
+/// `CONTEXT_SECTION_TITLE` and both natives' (the copy lock reads this file),
+/// though EXP-1051 replaced the desktop's own block with the richer
+/// `context_layout` section ([`crate::usage_sheet`], title "Context window").
+#[allow(dead_code)]
 pub(crate) const CONTEXT_SECTION_TITLE: &str = "Context";
 
 /// How full the context is, 0-100 and FLOORED. `None` when the run reports no
@@ -751,57 +755,6 @@ pub(crate) fn sheet_section_title(label: impl Into<SharedString>, cx: &App) -> g
         .font_weight(gpui::FontWeight::MEDIUM)
         .text_color(cx.theme().muted_foreground)
         .child(label.into())
-}
-
-/// The "Context" block of the session usage sheet: the heading, the
-/// used/size line with the cost right-aligned on it (EXP-863, web parity),
-/// then the same meter the windows draw. `None` when the run has no usage to
-/// show.
-pub(crate) fn render_context_block(
-    usage: Option<&steer::SessionUsage>,
-    cx: &App,
-) -> Option<AnyElement> {
-    let percent = context_percent(usage)?;
-    let muted = cx.theme().muted_foreground;
-    let block = v_flex()
-        .w_full()
-        .gap_2()
-        .child(sheet_section_title(CONTEXT_SECTION_TITLE, cx))
-        .child(
-            gpui_component::h_flex()
-                .w_full()
-                .items_baseline()
-                .justify_between()
-                .gap_2()
-                .text_xs()
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .child(SharedString::from(format_context_usage(usage))),
-                )
-                .children(format_usage_cost(usage).map(|cost| {
-                    div()
-                        .flex_shrink_0()
-                        .text_color(muted)
-                        .child(SharedString::from(cost))
-                })),
-        )
-        .child(
-            div()
-                .w_full()
-                .h(px(TRACK_H))
-                .rounded_full()
-                .bg(theme::tokens::glass::STROKE_STRONG.to_hsla())
-                .child(
-                    div()
-                        .h_full()
-                        .rounded_full()
-                        .w(gpui::relative(percent as f32 / 100.))
-                        .bg(severity_color(severity(percent), cx)),
-                ),
-        );
-    Some(block.into_any_element())
 }
 
 // ---------------------------------------------------------------------------

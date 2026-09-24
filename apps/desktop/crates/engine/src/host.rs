@@ -633,7 +633,8 @@ struct FeedState {
     /// Latest-wins state, kept OUT of the ring because eviction would
     /// otherwise silently drop it on a long run: the phase (the composer's
     /// gate), and the latest-wins activity kinds — the relay's own
-    /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `rate_limit`
+    /// `LATEST_WINS_KINDS` (D4: `config_state`, `usage`, `context_layout`
+    /// (EXP-1051), `rate_limit`
     /// (EXP-784), `turn` (EXP-848), `background_tasks` and the keyed
     /// `workflow` cards (EXP-850), `diff`), which are slots in `SteerFeed`
     /// too and never feed rows. A `tool_update` (EXP-785) is an ordinary row
@@ -647,6 +648,10 @@ struct FeedState {
     failure: Option<EnginePhase>,
     config_state: Option<LocalFeedEvent>,
     usage: Option<LocalFeedEvent>,
+    /// EXP-1051: the context-layout slot — published once per conversation,
+    /// so as a ring row it would be the FIRST thing a long run evicted and
+    /// no reopened tab would ever draw the bar again.
+    context_layout: Option<LocalFeedEvent>,
     rate_limit: Option<LocalFeedEvent>,
     /// EXP-848: the turn slot — the spinner's source of truth.
     turn: Option<LocalFeedEvent>,
@@ -676,6 +681,7 @@ impl FeedState {
         match event {
             steer::ActivityEvent::ConfigState { .. } => Some(&mut self.config_state),
             steer::ActivityEvent::Usage { .. } => Some(&mut self.usage),
+            steer::ActivityEvent::ContextLayout { .. } => Some(&mut self.context_layout),
             steer::ActivityEvent::RateLimit { .. } => Some(&mut self.rate_limit),
             steer::ActivityEvent::Turn { .. } => Some(&mut self.turn),
             steer::ActivityEvent::Queue { .. } => Some(&mut self.queue),
@@ -792,8 +798,8 @@ impl LocalFeed {
     /// sees the whole session rather than the tail — then the latest-wins
     /// state, in the relay's own replay order (`hub.ts`
     /// `LATEST_REPLAY_ORDER`: the log, then `config_state`, `usage`,
-    /// `rate_limit`, `turn`, the workflow cards, `background_tasks`,
-    /// `diff`), with the phase last
+    /// `context_layout` (EXP-1051), `rate_limit`, `turn`, the workflow cards,
+    /// `background_tasks`, `diff`), with the phase last
     /// because it is what the composer gates on.
     ///
     /// Replaying the state separately is what makes a REOPENED tab of a long
@@ -814,6 +820,7 @@ impl LocalFeed {
         for event in [
             &state.config_state,
             &state.usage,
+            &state.context_layout,
             &state.rate_limit,
             &state.turn,
             &state.queue,
@@ -1397,6 +1404,11 @@ impl SessionCtx {
         }
         if let Some(title) = out.agent_title {
             self.agent_title.set(Some(title));
+        }
+        // EXP-1051: the measured base, onto `runs.json`, so the next resume
+        // of this conversation carries it.
+        if let Some((tokens, model)) = out.context_base {
+            crate::lifecycle::record_context_base(self, tokens, &model);
         }
         if let Some(pending) = out.needs_input {
             self.needs_input.store(pending, Ordering::SeqCst);

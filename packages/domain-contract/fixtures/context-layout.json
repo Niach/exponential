@@ -1,0 +1,670 @@
+[
+  {
+    "name": "every segment: the launcher's full accounting of a 200k window",
+    "usage": { "contextUsed": 65000, "contextSize": 200000 },
+    "segments": [
+      { "key": "base", "tokens": 21000, "source": "measured" },
+      { "key": "tools", "tokens": 2400, "source": "estimated" },
+      { "key": "playbook", "tokens": 1500, "source": "estimated" },
+      { "key": "team", "tokens": 800, "source": "estimated" },
+      {
+        "key": "project",
+        "tokens": 9800,
+        "source": "estimated",
+        "detail": "CLAUDE.md, ~/.claude/CLAUDE.md"
+      },
+      { "key": "task", "tokens": 600, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "65k / 200k (32%)",
+      "percent": 32,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "tools", "tone": "green", "percent": 1.2 },
+        { "key": "playbook", "tone": "yellow", "percent": 0.75 },
+        { "key": "team", "tone": "violet", "percent": 0.4 },
+        { "key": "project", "tone": "orange", "percent": 4.9 },
+        { "key": "task", "tone": "pink", "percent": 0.3 },
+        { "key": "conversation", "tone": "blue", "percent": 14.45 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "tools",
+          "label": "Tools",
+          "tone": "green",
+          "tokens": "2.4k",
+          "percent": "1.2%",
+          "estimated": true
+        },
+        {
+          "key": "playbook",
+          "label": "Playbook",
+          "tone": "yellow",
+          "tokens": "1.5k",
+          "percent": "0.8%",
+          "estimated": true
+        },
+        {
+          "key": "team",
+          "label": "Team prompt",
+          "tone": "violet",
+          "tokens": "800",
+          "percent": "0.4%",
+          "estimated": true
+        },
+        {
+          "key": "project",
+          "label": "Project",
+          "tone": "orange",
+          "tokens": "9.8k",
+          "percent": "4.9%",
+          "estimated": true,
+          "detail": "CLAUDE.md, ~/.claude/CLAUDE.md"
+        },
+        {
+          "key": "task",
+          "label": "Task",
+          "tone": "pink",
+          "tokens": "600",
+          "percent": "0.3%",
+          "estimated": true
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "28.9k",
+          "percent": "14.5%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "135k",
+          "percent": "67.5%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "no layout published yet: the bar is the conversation alone",
+    "usage": { "contextUsed": 65000, "contextSize": 200000 },
+    "segments": null,
+    "expected": {
+      "headline": "65k / 200k (32%)",
+      "percent": 32,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [{ "key": "conversation", "tone": "blue", "percent": 32.5 }],
+      "legend": [
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "65k",
+          "percent": "32.5%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "135k",
+          "percent": "67.5%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "an empty layout reads exactly like no layout",
+    "usage": { "contextUsed": 65000, "contextSize": 200000 },
+    "segments": [],
+    "expected": {
+      "headline": "65k / 200k (32%)",
+      "percent": 32,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [{ "key": "conversation", "tone": "blue", "percent": 32.5 }],
+      "legend": [
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "65k",
+          "percent": "32.5%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "135k",
+          "percent": "67.5%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "estimates overshoot used: conversation clamps to 0 and nothing rescales",
+    "usage": { "contextUsed": 20000, "contextSize": 200000 },
+    "segments": [
+      { "key": "base", "tokens": 21000, "source": "measured" },
+      { "key": "tools", "tokens": 2400, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "20k / 200k (10%)",
+      "percent": 10,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "tools", "tone": "green", "percent": 1.2 },
+        { "key": "conversation", "tone": "blue", "percent": 0 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "tools",
+          "label": "Tools",
+          "tone": "green",
+          "tokens": "2.4k",
+          "percent": "1.2%",
+          "estimated": true
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "0",
+          "percent": "0.0%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "180k",
+          "percent": "90.0%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "base omitted: a resume republishes only the layers it rebuilt",
+    "usage": { "contextUsed": 40000, "contextSize": 200000 },
+    "segments": [
+      { "key": "tools", "tokens": 2400, "source": "estimated" },
+      { "key": "playbook", "tokens": 1500, "source": "estimated" },
+      { "key": "team", "tokens": 800, "source": "estimated" },
+      { "key": "task", "tokens": 600, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "40k / 200k (20%)",
+      "percent": 20,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "tools", "tone": "green", "percent": 1.2 },
+        { "key": "playbook", "tone": "yellow", "percent": 0.75 },
+        { "key": "team", "tone": "violet", "percent": 0.4 },
+        { "key": "task", "tone": "pink", "percent": 0.3 },
+        { "key": "conversation", "tone": "blue", "percent": 17.35 }
+      ],
+      "legend": [
+        {
+          "key": "tools",
+          "label": "Tools",
+          "tone": "green",
+          "tokens": "2.4k",
+          "percent": "1.2%",
+          "estimated": true
+        },
+        {
+          "key": "playbook",
+          "label": "Playbook",
+          "tone": "yellow",
+          "tokens": "1.5k",
+          "percent": "0.8%",
+          "estimated": true
+        },
+        {
+          "key": "team",
+          "label": "Team prompt",
+          "tone": "violet",
+          "tokens": "800",
+          "percent": "0.4%",
+          "estimated": true
+        },
+        {
+          "key": "task",
+          "label": "Task",
+          "tone": "pink",
+          "tokens": "600",
+          "percent": "0.3%",
+          "estimated": true
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "34.7k",
+          "percent": "17.4%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "160k",
+          "percent": "80.0%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "an unknown key is dropped and the first of a duplicate key wins",
+    "usage": { "contextUsed": 65000, "contextSize": 200000 },
+    "segments": [
+      { "key": "mystery", "tokens": 5000, "source": "estimated" },
+      { "key": "base", "tokens": 21000, "source": "measured" },
+      { "key": "base", "tokens": 99000, "source": "estimated" },
+      { "key": "tools", "tokens": 2400, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "65k / 200k (32%)",
+      "percent": 32,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "tools", "tone": "green", "percent": 1.2 },
+        { "key": "conversation", "tone": "blue", "percent": 20.8 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "tools",
+          "label": "Tools",
+          "tone": "green",
+          "tokens": "2.4k",
+          "percent": "1.2%",
+          "estimated": true
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "41.6k",
+          "percent": "20.8%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "135k",
+          "percent": "67.5%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "wire order never wins: the contract's order is the render order",
+    "usage": { "contextUsed": 65000, "contextSize": 200000 },
+    "segments": [
+      { "key": "task", "tokens": 600, "source": "estimated" },
+      { "key": "project", "tokens": 9800, "source": "estimated" },
+      { "key": "base", "tokens": 21000, "source": "measured" }
+    ],
+    "expected": {
+      "headline": "65k / 200k (32%)",
+      "percent": 32,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "project", "tone": "orange", "percent": 4.9 },
+        { "key": "task", "tone": "pink", "percent": 0.3 },
+        { "key": "conversation", "tone": "blue", "percent": 16.8 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "project",
+          "label": "Project",
+          "tone": "orange",
+          "tokens": "9.8k",
+          "percent": "4.9%",
+          "estimated": true
+        },
+        {
+          "key": "task",
+          "label": "Task",
+          "tone": "pink",
+          "tokens": "600",
+          "percent": "0.3%",
+          "estimated": true
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "33.6k",
+          "percent": "16.8%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "135k",
+          "percent": "67.5%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "a zero-token layer never draws, and a negative one reads as zero",
+    "usage": { "contextUsed": 65000, "contextSize": 200000 },
+    "segments": [
+      { "key": "base", "tokens": 21000, "source": "measured" },
+      { "key": "tools", "tokens": 0, "source": "estimated" },
+      { "key": "playbook", "tokens": -500, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "65k / 200k (32%)",
+      "percent": 32,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "conversation", "tone": "blue", "percent": 22 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "44k",
+          "percent": "22.0%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "135k",
+          "percent": "67.5%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "a zero context size is unknown, not empty: no view at all",
+    "usage": { "contextUsed": 1000, "contextSize": 0 },
+    "segments": [{ "key": "base", "tokens": 21000, "source": "measured" }],
+    "expected": null
+  },
+  {
+    "name": "a layout without a usage has no scale: no view at all",
+    "usage": null,
+    "segments": [{ "key": "base", "tokens": 21000, "source": "measured" }],
+    "expected": null
+  },
+  {
+    "name": "used past the window: free clamps at 0 and the headline pins at 100%",
+    "usage": { "contextUsed": 210000, "contextSize": 200000 },
+    "segments": [{ "key": "base", "tokens": 21000, "source": "measured" }],
+    "expected": {
+      "headline": "210k / 200k (100%)",
+      "percent": 100,
+      "severity": "danger",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "conversation", "tone": "blue", "percent": 94.5 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "189k",
+          "percent": "94.5%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "0",
+          "percent": "0.0%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "75% reads as warning",
+    "usage": { "contextUsed": 150000, "contextSize": 200000 },
+    "segments": [
+      { "key": "base", "tokens": 21000, "source": "measured" },
+      { "key": "project", "tokens": 9800, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "150k / 200k (75%)",
+      "percent": 75,
+      "severity": "warning",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "project", "tone": "orange", "percent": 4.9 },
+        { "key": "conversation", "tone": "blue", "percent": 59.6 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "project",
+          "label": "Project",
+          "tone": "orange",
+          "tokens": "9.8k",
+          "percent": "4.9%",
+          "estimated": true
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "119.2k",
+          "percent": "59.6%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "50k",
+          "percent": "25.0%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "95% reads as danger",
+    "usage": { "contextUsed": 191000, "contextSize": 200000 },
+    "segments": [{ "key": "base", "tokens": 21000, "source": "measured" }],
+    "expected": {
+      "headline": "191k / 200k (95%)",
+      "percent": 95,
+      "severity": "danger",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "conversation", "tone": "blue", "percent": 85 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "21k",
+          "percent": "10.5%",
+          "estimated": false
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "170k",
+          "percent": "85.0%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "9k",
+          "percent": "4.5%",
+          "estimated": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "the compact-token ladder: 999, 1k, 1.5k, 134.7k, 61.8k, 300k",
+    "usage": { "contextUsed": 200000, "contextSize": 500000 },
+    "segments": [
+      { "key": "base", "tokens": 999, "source": "measured" },
+      { "key": "tools", "tokens": 1000, "source": "estimated" },
+      { "key": "playbook", "tokens": 1500, "source": "estimated" },
+      { "key": "project", "tokens": 134700, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "200k / 500k (40%)",
+      "percent": 40,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 0.2 },
+        { "key": "tools", "tone": "green", "percent": 0.2 },
+        { "key": "playbook", "tone": "yellow", "percent": 0.3 },
+        { "key": "project", "tone": "orange", "percent": 26.94 },
+        { "key": "conversation", "tone": "blue", "percent": 12.36 }
+      ],
+      "legend": [
+        {
+          "key": "base",
+          "label": "Base",
+          "tone": "neutral",
+          "tokens": "999",
+          "percent": "0.2%",
+          "estimated": false
+        },
+        {
+          "key": "tools",
+          "label": "Tools",
+          "tone": "green",
+          "tokens": "1k",
+          "percent": "0.2%",
+          "estimated": true
+        },
+        {
+          "key": "playbook",
+          "label": "Playbook",
+          "tone": "yellow",
+          "tokens": "1.5k",
+          "percent": "0.3%",
+          "estimated": true
+        },
+        {
+          "key": "project",
+          "label": "Project",
+          "tone": "orange",
+          "tokens": "134.7k",
+          "percent": "26.9%",
+          "estimated": true
+        },
+        {
+          "key": "conversation",
+          "label": "Conversation",
+          "tone": "blue",
+          "tokens": "61.8k",
+          "percent": "12.4%",
+          "estimated": false
+        },
+        {
+          "key": "free",
+          "label": "Free",
+          "tone": "track",
+          "tokens": "300k",
+          "percent": "60.0%",
+          "estimated": false
+        }
+      ]
+    }
+  }
+]

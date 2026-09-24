@@ -215,6 +215,11 @@ final class AgentSessionModel {
     /// rate-limit windows), so it lives beside it and renders in its own
     /// block.
     private(set) var sessionUsage: AgentSessionUsage?
+    /// EXP-1051: where that window actually GOES — the layers the device
+    /// attributed before the first turn, a latest-wins slot beside
+    /// `sessionUsage` (which is what gives them a scale). Nil = the device has
+    /// published no layout, an empty array = a layout that attributed nothing.
+    private(set) var sessionContextLayout: [ContextSegment]?
     /// EXP-784: the agent's rate-limit window, the fourth latest-wins slot.
     /// Nil = not limited (or cleared by an empty/`ok` status).
     private(set) var sessionRateLimit: AgentSessionRateLimit?
@@ -2115,6 +2120,9 @@ final class AgentSessionModel {
         // stale config across a session swap would be the actual bug.
         sessionConfig = nil
         sessionUsage = nil
+        // EXP-1051: the layout goes with the usage it is drawn against — the
+        // replay carries the current `context_layout` after its log too.
+        sessionContextLayout = nil
         sessionRateLimit = nil
     }
 
@@ -2476,6 +2484,11 @@ final class AgentSessionModel {
         case let .usage(update):
             guard !prependingPage else { return }
             sessionUsage = update.applied(to: sessionUsage)
+        case let .contextLayout(update):
+            // EXP-1051: latest-wins STATE like the usage it is drawn against —
+            // an unreadable frame keeps the layers the sheet already shows.
+            guard !prependingPage else { return }
+            sessionContextLayout = update.applied(to: sessionContextLayout)
         case let .rateLimit(update):
             // EXP-784: the fourth slot; an empty/`ok` status clears it.
             guard !prependingPage else { return }

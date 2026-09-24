@@ -37,6 +37,8 @@
 //!   re-sends the whole snapshot on every change, so the newest replaces the
 //!   previous one behind the composer chips / the context meter, and a
 //!   zero-size usage clears the meter the way an empty diff clears the strip.
+//!   EXP-1051 adds `context_layout` right behind `usage` — the same rule,
+//!   latest-wins whole, with `conversation`/`free` derived off `usage`.
 //!
 //! ## Timers belong to the caller
 //!
@@ -506,6 +508,10 @@ pub struct SteerFeed {
     /// composer chips and the context meter, never feed rows.
     config: Option<SessionConfig>,
     usage: Option<SessionUsage>,
+    /// EXP-1051: what the context window is spent on, latest-wins WHOLE — a
+    /// frame REPLACES the vec (empty = the publisher never measured one).
+    /// `conversation` and `free` are derived off `usage`, never stored here.
+    context_layout: Vec<crate::frames::ContextSegment>,
     /// EXP-784: the rate-limit banner's state, same slot rule.
     rate_limit: Option<SessionRateLimit>,
     /// EXP-848: the turn slot — `Ended` until a `turn` event says otherwise,
@@ -693,6 +699,12 @@ impl SteerFeed {
         self.usage
     }
 
+    /// EXP-1051: the context breakdown's segments, in the order the publisher
+    /// sent them (contract order). Empty = no `context_layout` yet.
+    pub fn context_layout(&self) -> &[crate::frames::ContextSegment] {
+        &self.context_layout
+    }
+
     pub fn answer_state(&self, key: &str) -> Option<&AnswerState> {
         self.answers.get(key)
     }
@@ -785,7 +797,8 @@ impl SteerFeed {
     /// about to decide what the prefix even is.
     ///
     /// EXP-846/848 — the LATEST-WINS SLOTS (`config_state`, `usage`,
-    /// `rate_limit`, `turn`, the in-flight compaction) belong to the NEWEST
+    /// `context_layout`, `rate_limit`, `turn`, the in-flight compaction)
+    /// belong to the NEWEST
     /// frames, and a page is the oldest transcript there is. The scratch feed
     /// below is what guards them: the page's own slot events land in ITS slots
     /// and only its `items` are ever taken, so history can never repaint the
@@ -1294,6 +1307,12 @@ impl SteerFeed {
                     cost_usd,
                 });
             }
+            // EXP-1051: the slot right after `usage`, latest-wins WHOLE — one
+            // frame per conversation (and one more after a `/clear`), so the
+            // newest simply replaces whatever the meter was drawing.
+            ActivityEvent::ContextLayout { segments, .. } => {
+                self.context_layout = segments;
+            }
             // EXP-784: the fourth slot. An empty/`ok` status CLEARS it (the
             // zero-size `usage` rule); anything else is the newest word.
             ActivityEvent::RateLimit {
@@ -1469,6 +1488,8 @@ impl SteerFeed {
         // clearing them here never blanks the chips for a visible moment.
         self.config = None;
         self.usage = None;
+        // EXP-1051: the breakdown rides the same burst as `usage`.
+        self.context_layout.clear();
         self.rate_limit = None;
         // EXP-861: the replay carries the queue slot too, in the same burst.
         self.queue.clear();
@@ -1603,8 +1624,9 @@ impl SteerFeed {
 /// edges, its tool rows and the `tool_update`s patching them flush between two
 /// fragments of one main-lane message all the time, and a merge that only
 /// looked at the row immediately behind broke on them — the message arrived as
-/// two bubbles. Latest-wins state (`config_state`, `usage`, `rate_limit`, the
-/// compaction strip) is no row at all, so it never sat in the way either.
+/// two bubbles. Latest-wins state (`config_state`, `usage`, `context_layout`,
+/// `rate_limit`, the compaction strip) is no row at all, so it never sat in
+/// the way either.
 ///
 /// The first row in the fragment's own lane still decides: a MAIN-lane tool
 /// row, a user message or a question behind a main-lane fragment breaks the
@@ -2541,7 +2563,9 @@ pub fn summarize_subagent_row(items: &[&FeedItem]) -> SubagentRowSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frames::ConfigValue;
+    use crate::frames::{
+        ConfigValue, ContextSegment, ContextSegmentKey, ContextSegmentSource,
+    };
 
     /// EXP-884: the generation moves on every mutation — a row, a slot, an
     /// answer lock — and never on a read, so a renderer can memoise
@@ -3260,6 +3284,29 @@ mod tests {
         }
     }
 
+    /// EXP-1051: a two-segment breakdown — the measured base and an estimated
+    /// project segment that carries the one `detail` string.
+    fn context_layout_segments(base: i64, project: i64) -> Vec<ContextSegment> {
+        vec![
+            ContextSegment {
+                key: ContextSegmentKey::Base,
+                tokens: base,
+                source: ContextSegmentSource::Measured,
+                detail: None,
+            },
+            ContextSegment {
+                key: ContextSegmentKey::Project,
+                tokens: project,
+                source: ContextSegmentSource::Estimated,
+                detail: Some("CLAUDE.md".to_string()),
+            },
+        ]
+    }
+
+    fn context_layout_event(base: i64, project: i64) -> ActivityEvent {
+        ActivityEvent::context_layout(context_layout_segments(base, project))
+    }
+
     #[test]
     fn config_state_is_a_slot_not_a_row() {
         let mut feed = SteerFeed::new();
@@ -3325,37 +3372,70 @@ mod tests {
         assert_eq!(feed.usage(), None);
     }
 
+    /// EXP-1051: `context_layout` is a slot right behind `usage`, latest-wins
+    /// WHOLE — the frame published after a `/clear` REPLACES the vec rather
+    /// than merging into it, and it never becomes a feed row.
+    #[test]
+    fn context_layout_is_a_slot_and_a_later_frame_replaces_the_whole_vec() {
+        let mut feed = SteerFeed::new();
+        assert!(feed.context_layout().is_empty());
+        feed.apply(context_layout_event(21_000, 9_800));
+        assert_eq!(
+            feed.context_layout(),
+            context_layout_segments(21_000, 9_800).as_slice()
+        );
+        assert!(feed.is_empty(), "state, never a transcript row");
+        // A `/clear` republishes the whole breakdown — the newest frame is
+        // the whole truth, not a patch onto the old segments.
+        feed.apply(ActivityEvent::context_layout(vec![ContextSegment {
+            key: ContextSegmentKey::Base,
+            tokens: 18_500,
+            source: ContextSegmentSource::Measured,
+            detail: None,
+        }]));
+        assert_eq!(feed.context_layout().len(), 1);
+        assert_eq!(feed.context_layout()[0].tokens, 18_500);
+    }
+
     #[test]
     fn a_replay_swap_repaints_config_and_usage_from_the_staged_events() {
         let mut feed = SteerFeed::new();
         feed.apply(config_event("opus", Some("plan")));
         feed.apply(ActivityEvent::usage(10, 200, None));
+        feed.apply(context_layout_event(21_000, 9_800));
 
         feed.apply_reset();
         // Still up while staging — the reset clears nothing on the spot.
         assert!(feed.config().is_some());
         assert!(feed.usage().is_some());
+        assert!(!feed.context_layout().is_empty());
 
         // The relay replays its latest-wins slots after the log, inside the
         // same staged burst.
         feed.apply(ActivityEvent::narration("replayed"));
         feed.apply(config_event("sonnet", None));
         feed.apply(ActivityEvent::usage(20, 200, Some(0.5)));
+        feed.apply(context_layout_event(18_500, 4_200));
         feed.apply_synced();
         assert_eq!(
             feed.config().unwrap().options[0].value.as_deref(),
             Some("sonnet")
         );
         assert_eq!(feed.usage().unwrap().context_used, 20);
+        assert_eq!(
+            feed.context_layout(),
+            context_layout_segments(18_500, 4_200).as_slice()
+        );
         assert_eq!(texts(&feed), vec!["replayed".to_string()]);
 
-        // A replay that carried NEITHER kind (an old publisher, a PTY run)
-        // leaves both slots empty rather than showing stale chips.
+        // A replay that carried NONE of the kinds (an old publisher, a PTY
+        // run) leaves the slots empty rather than showing stale chips.
         feed.apply_reset();
         feed.apply(ActivityEvent::narration("second"));
         feed.apply_synced();
         assert_eq!(feed.config(), None);
         assert_eq!(feed.usage(), None);
+        assert!(feed.context_layout().is_empty());
     }
 
     // ── Echo dedupe (EXP-78) ───────────────────────────────────────────────

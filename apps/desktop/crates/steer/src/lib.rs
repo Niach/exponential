@@ -117,7 +117,8 @@ pub use feed::{
 };
 pub use frames::{
     rate_limit_clears, rate_limit_expired, rate_limit_is_wall, ActivityEvent, BackgroundTask,
-    BackgroundTaskKind, ClientFrame, CompactRefusal, CompactVerdict, QueuedMessage, QUEUE_MAX,
+    BackgroundTaskKind, ClientFrame, CompactRefusal, CompactVerdict, ContextSegment,
+    ContextSegmentKey, ContextSegmentSource, QueuedMessage, CONTEXT_SEGMENT_DETAIL_MAX, QUEUE_MAX,
     QUEUE_TEXT_MAX,
     ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
     StartRepoGroup, StartStack, StartStackIssue, SteerRole, SubagentStatus, ToolKind, ToolPreview,

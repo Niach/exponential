@@ -170,6 +170,9 @@ impl EngineSession {
             // A replay never prompts; the bare playbook keeps codex's
             // `thread/resume` developer message stable.
             system_append: coding::skill::system_append(None),
+            // A transcript replay draws no bar: it never prompts, so nothing
+            // ever measures a prefix to subtract from.
+            context_layers: coding::ContextLayers::default(),
             exit: child_exit.clone(),
         })?;
 
@@ -417,6 +420,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         personal_key: start.personal_key.clone(),
         reaper_settings_path: acp.reaper_settings_path.clone(),
         system_append: acp.system_append.clone(),
+        context_layers: acp.context_layers.clone(),
     exit: child_exit.clone(),
 })?;
     start_with(

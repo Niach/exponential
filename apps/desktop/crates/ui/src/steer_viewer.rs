@@ -320,6 +320,11 @@ pub(crate) struct SteerSessionView {
     feed: SteerFeed,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
+    /// EXP-1051: whether the usage sheet's context-window LEGEND is unfolded.
+    /// View state, not run state: the bar and its headline are always there,
+    /// the per-layer breakdown is one click away and stays where the reader
+    /// left it while the popover is open.
+    context_legend_open: bool,
     phase: ViewerPhase,
     connected: bool,
     /// EXP-696 wakeups: the last seen edge states, so only a TRANSITION back
@@ -650,6 +655,7 @@ impl SteerSessionView {
             row: None,
             feed: SteerFeed::new(),
             source,
+            context_legend_open: false,
             phase: ViewerPhase::Connecting,
             connected: false,
             device_offline: false,
@@ -2420,6 +2426,14 @@ impl SteerSessionView {
     /// EXP-746: the run's context/spend meter (the usage sheet's own block).
     pub(crate) fn usage(&self) -> Option<steer::SessionUsage> {
         self.feed.usage()
+    }
+
+    /// EXP-1051: the device's own accounting of what it SEEDED the context
+    /// window with — latest-wins state beside [`Self::usage`], empty until the
+    /// device publishes one (an older build never will, and then the sheet's
+    /// bar is the conversation alone).
+    pub(crate) fn context_layout(&self) -> Vec<steer::ContextSegment> {
+        self.feed.context_layout().to_vec()
     }
 
     /// EXP-847: the run's MODE, for the header's read-only Plan chip — the
@@ -6751,6 +6765,21 @@ impl SteerSessionView {
         let usage = self.usage();
         let percent = crate::usage_bar::context_percent(usage.as_ref())?;
         let ring = crate::usage_sheet::context_ring("steer-context", percent, usage.as_ref(), cx);
+        // EXP-1051: the sheet is a pure render — the layout and the legend's
+        // fold are read off the view HERE (the popover's content closure runs
+        // while this view is leased, so it can never read the entity back) and
+        // the toggle flips the field and notifies, which rebuilds the popover
+        // with the rest of this view's tree.
+        let layout = self.context_layout();
+        let legend_open = self.context_legend_open;
+        let view = cx.entity();
+        let on_toggle: std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)> =
+            std::rc::Rc::new(move |_window, cx| {
+                view.update(cx, |view, cx| {
+                    view.context_legend_open = !view.context_legend_open;
+                    cx.notify();
+                });
+            });
         let agent = self.builtin_agent();
         let device_id = self.session_row().and_then(|row| row.device_id.clone());
         let local = self.is_local();
@@ -6814,6 +6843,9 @@ impl SteerSessionView {
                     crate::usage_sheet::render_usage_sheet(
                         agent,
                         usage.as_ref(),
+                        &layout,
+                        legend_open,
+                        on_toggle.clone(),
                         windows.as_ref(),
                         switch,
                         cx,

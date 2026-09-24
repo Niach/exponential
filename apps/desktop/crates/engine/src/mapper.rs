@@ -127,6 +127,13 @@ pub struct MapOut {
     /// EXP-905: the agent's conversation name CHANGED to this (already
     /// normalised). Never a clear: a `null` title says nothing here.
     pub agent_title: Option<String>,
+    /// EXP-1051: a `context_layout` frame with a MEASURED `base` just went
+    /// out — `(tokens, model)`. The host records it on `runs.json`
+    /// ([`crate::lifecycle::record_context_base`]) so the NEXT resume of this
+    /// conversation can draw its bar before its first request lands. A
+    /// carried base is recorded again too: re-writing the same number is
+    /// free, and the record is the only place it survives a restart.
+    pub context_base: Option<(u64, String)>,
 }
 
 /// Identifies one parked ask so an inbound `answer` frame can find the ACP
@@ -217,6 +224,10 @@ pub struct Mapper {
     /// and the journal stored. An identical re-emit says nothing.
     last_config_state: Option<ActivityEvent>,
     last_usage: Option<ActivityEvent>,
+    /// EXP-1051: the `context_layout` slot's last published frame. The
+    /// adapters publish it once per conversation, but a resume and a
+    /// `/clear` both re-arm them — an identical re-emit is not news.
+    last_context_layout: Option<ActivityEvent>,
     /// EXP-784: the rate-limit slot's last published snapshot.
     last_rate_limit: Option<ActivityEvent>,
     /// EXP-905: the agent's conversation name as last reported (normalised),
@@ -459,6 +470,7 @@ impl Mapper {
             config_state: ConfigSnapshot::default(),
             last_config_state: None,
             last_usage: None,
+            last_context_layout: None,
             last_rate_limit: None,
             agent_title: None,
             turn_state: steer::TurnState::default(),
@@ -530,6 +542,17 @@ impl Mapper {
             .and_then(Value::as_u64)
         {
             self.note_turn_tokens(tokens, out);
+        }
+        // EXP-1051: the context-layout slot, on the same carrier as the
+        // rate-limit one (a no-op `session_info_update`) and read here for
+        // the same reason — the adapter picks whichever notification it has.
+        if let Some(slot) = notification
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get(crate::context_layout::CONTEXT_LAYOUT_META_KEY))
+            .cloned()
+        {
+            self.emit_context_layout(slot, out);
         }
         // EXP-773: prose and human turns are scoped to their subagent the same
         // way tool calls are — off the chunk's own `_meta`, else the carrying
@@ -2173,6 +2196,70 @@ impl Mapper {
         emit(out, event, None);
     }
 
+    /// EXP-1051: the context-layout slot, clamped and deduped like `usage`
+    /// above. The payload comes off an adapter's `_meta`, so it is treated as
+    /// UNTRUSTED input: a segment whose key the wire does not know is
+    /// dropped (never the whole frame), a repeated key keeps its first
+    /// occurrence, the rest are sorted into contract order, and a payload
+    /// that does not parse at all publishes nothing.
+    fn emit_context_layout(&mut self, slot: Value, out: &mut MapOut) {
+        let Some(raw) = slot.get("segments").and_then(Value::as_array) else {
+            return;
+        };
+        let mut segments: Vec<steer::ContextSegment> = Vec::new();
+        for entry in raw {
+            // Per ENTRY rather than the array as a whole: an agent (or a
+            // future engine) naming one segment we have no key for must not
+            // cost the frame its other five.
+            let Ok(mut segment) = serde_json::from_value::<steer::ContextSegment>(entry.clone())
+            else {
+                continue;
+            };
+            if segments.iter().any(|kept| kept.key == segment.key) {
+                continue;
+            }
+            segment.detail = segment
+                .detail
+                .map(|detail| self.clean(detail.trim(), steer::CONTEXT_SEGMENT_DETAIL_MAX))
+                .filter(|detail| !detail.is_empty());
+            segments.push(segment);
+        }
+        if segments.is_empty() {
+            return;
+        }
+        segments.sort_by_key(|segment| {
+            steer::ContextSegmentKey::ALL
+                .iter()
+                .position(|key| *key == segment.key)
+                .unwrap_or(usize::MAX)
+        });
+        let mut event = ActivityEvent::context_layout(segments);
+        clamp_context_layout(&mut event);
+        if self.last_context_layout.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_context_layout = Some(event.clone());
+        // EXP-1051 resume carry: only a MEASURED base is worth recording —
+        // an estimate would be re-derived on the next launch anyway.
+        if let ActivityEvent::ContextLayout { segments, .. } = &event {
+            let base = segments.iter().find(|segment| {
+                segment.key == steer::ContextSegmentKey::Base
+                    && segment.source == steer::ContextSegmentSource::Measured
+            });
+            if let Some(base) = base {
+                let model = slot
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if !model.is_empty() {
+                    out.context_base = Some((base.tokens.max(0) as u64, model));
+                }
+            }
+        }
+        emit(out, event, None);
+    }
+
     /// EXP-784: the rate-limit slot, deduped like `usage` above. `status` is
     /// the agent's own word for the window; an empty/`ok` status is the
     /// CLEAR frame (`steer::rate_limit_clears`), published once. Fed by the
@@ -2978,6 +3065,28 @@ pub fn clamp_usage(event: &mut ActivityEvent) {
         .map(|cost| cost.clamp(0.0, USAGE_COST_MAX));
 }
 
+
+/// EXP-1051: clamp an [`ActivityEvent::ContextLayout`] to the relay's bounds,
+/// the sibling of [`clamp_usage`] and for the same reason — `activityEvent`
+/// is a discriminated union, so one out-of-range token count does not clip,
+/// it DROPS the frame and leaves every viewer without a bar for the rest of
+/// the run. The segment count is capped at the contract's key set (a payload
+/// cannot be longer than the vocabulary) and each `detail` at
+/// [`steer::CONTEXT_SEGMENT_DETAIL_MAX`]. A no-op for every other kind.
+pub fn clamp_context_layout(event: &mut ActivityEvent) {
+    let ActivityEvent::ContextLayout { segments, .. } = event else {
+        return;
+    };
+    segments.truncate(steer::ContextSegmentKey::ALL.len());
+    for segment in segments.iter_mut() {
+        segment.tokens = segment.tokens.clamp(0, USAGE_TOKENS_MAX);
+        segment.detail = segment
+            .detail
+            .take()
+            .map(|detail| steer::truncate(&detail, steer::CONTEXT_SEGMENT_DETAIL_MAX))
+            .filter(|detail| !detail.is_empty());
+    }
+}
 
 /// The wire's grouping hint for an option's ACP category — a machine field,
 /// so it is the id, never a label.

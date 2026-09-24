@@ -201,6 +201,10 @@ const LATEST_WINS_KINDS = new Set([
   `diff`,
   `config_state`,
   `usage`,
+  // EXP-1051: where the window the `usage` meter measures went, layer by
+  // layer. Published once per conversation (again after a `/clear`), so it is
+  // a SLOT beside `usage` and never a transcript row.
+  `context_layout`,
   `rate_limit`,
   `turn`,
   // EXP-850 §2/§3: the bottom strip and the workflow cards. A `workflow` is
@@ -221,6 +225,9 @@ const LATEST_WINS_KINDS = new Set([
 const LATEST_REPLAY_ORDER = [
   `config_state`,
   `usage`,
+  // EXP-1051: right behind the meter it decomposes — a client that folds the
+  // layout first would draw a bar with no scale.
+  `context_layout`,
   `rate_limit`,
   `turn`,
   `queue`,

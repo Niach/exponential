@@ -326,6 +326,10 @@ fn print_activity(event: &steer::ActivityEvent, state: &Mutex<AttachState>) {
                 println!("[{line}]");
             }
         }
+        // EXP-1051: the context breakdown is a BAR, and the daemon prints a
+        // line-oriented transcript — the `usage` line above already says how
+        // full the window is, which is the part that reads as text.
+        steer::ActivityEvent::ContextLayout { .. } => {}
         steer::ActivityEvent::Question { text, options, plan_mode, id, ask_id, .. } => {
             println!();
             if plan_mode == &Some(true) {

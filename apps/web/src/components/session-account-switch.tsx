@@ -26,7 +26,7 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { LoaderCircle } from "lucide-react"
 import { toast } from "sonner"
 import type { CodingSession, Device, DeviceAgentHealth } from "@/db/schema"
-import { conceptIcon, Button, ListRow } from "@exp/ui"
+import { conceptIcon, Button, IconTooltip, ListRow, useIsMobile } from "@exp/ui"
 import { codingSessionCollection, deviceCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
 import { runHasEnded } from "@/lib/past-runs"
@@ -184,30 +184,10 @@ export function activeAccountIndex(
   return options.findIndex((option) => option.active)
 }
 
-/** The refusals that are about the RUN, not about one login — when every
- *  other account is refused for the same one of these, the overlay says it
- *  once in its footer instead of under each row. */
-const GLOBAL_SWITCH_REASONS: readonly string[] = [
-  REASON_AGENT,
-  REASON_NOT_MINE,
-  REASON_ENDED,
-  REASON_OFFLINE,
-  REASON_NO_CAP,
-  REASON_BUSY,
-]
-
-/** EXP-863: the ONE footer sentence when switching is refused for every
- *  listed account by the same run-level reason, else null (the footer then
- *  carries `SWITCH_COST_NOTE`). Row-specific refusals (signed out, needs a
- *  re-login) never become the footer: they stay under their row. */
-export function globalSwitchBlocker(
-  options: readonly Pick<SessionAccountOption, `blockedReason`>[]
-): string | null {
-  if (options.length === 0) return null
-  const first = options[0].blockedReason
-  if (!first || !GLOBAL_SWITCH_REASONS.includes(first)) return null
-  return options.every((option) => option.blockedReason === first) ? first : null
-}
+// EXP-1051 retired `globalSwitchBlocker` and the overlay footer it fed: the
+// refusal now rides the switch button's OWN tooltip, where the control is,
+// and `SWITCH_COST_NOTE` rides it as the hint under the label. A footer
+// sentence about a button three rows up was the wrong place for both.
 
 /** The switch, as a small state machine: ONE mutation (the live run's own
  *  resume, naming the account), then the wait for the continuation's row —
@@ -378,23 +358,21 @@ export function useSessionAccountSwitch(
 }
 
 /** The account rows the usage overlay lists (EXP-863: the OTHER accounts —
- *  the caller filters the active one out and owns the section title and the
- *  footer note): the login, its plan, its live usage bars, and "Switch to this
- *  account" — disabled WITH the reason, never hidden (a control that vanishes
- *  reads as a feature that is not there). `omitReason` is the sentence the
- *  footer already says, so no row repeats it. */
+ *  the caller filters the active one out and owns the section title): the
+ *  login, its live usage bars, and "Switch to this account" — disabled WITH
+ *  the reason, never hidden (a control that vanishes reads as a feature that
+ *  is not there). EXP-1051: the reason is the button's TOOLTIP now, so a row
+ *  is two lines whether or not the switch is refused. */
 export function SessionAccountRows({
   options,
   switchingTo,
   onSwitch,
   now,
-  omitReason = null,
 }: {
   options: readonly SessionAccountOption[]
   switchingTo: string | null
   onSwitch: (profileId: string) => void
   now: Date
-  omitReason?: string | null
 }) {
   if (options.length === 0) return null
   return (
@@ -406,7 +384,6 @@ export function SessionAccountRows({
           now={now}
           switching={switchingTo === option.profileId}
           busy={switchingTo !== null}
-          hideReason={option.blockedReason === omitReason}
           onSwitch={() => onSwitch(option.profileId)}
         />
       ))}
@@ -419,14 +396,12 @@ function SessionAccountRow({
   now,
   switching,
   busy,
-  hideReason,
   onSwitch,
 }: {
   option: SessionAccountOption
   now: Date
   switching: boolean
   busy: boolean
-  hideReason: boolean
   onSwitch: () => void
 }) {
   const health = healthBadgeLabel(option.row.health)
@@ -434,6 +409,8 @@ function SessionAccountRow({
   // and, when the credential is broken, the badge. (EXP-863 had already
   // dropped the "Active login" caption: the active account is the header.)
   const age = usageAge(option.row.usage, now)
+  const isMobile = useIsMobile()
+  const blocked = option.blockedReason
   return (
     <ListRow interactive className="flex-col items-stretch gap-1 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2">
@@ -450,32 +427,42 @@ function SessionAccountRow({
         {/* EXP-909: ICON-ONLY. The labelled button took the whole row width on
             a 320px popover and cut the email it was switching away from; the
             swap glyph says the same thing in 28px, with `SWITCH_LABEL` as its
-            tooltip and its accessible name. EXP-862: ghost, never a second
-            bordered capsule inside the row's own fill. */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          disabled={option.blockedReason !== null || busy}
-          onClick={onSwitch}
-          title={SWITCH_LABEL}
-          aria-label={SWITCH_LABEL}
+            accessible name. EXP-862: ghost, never a second bordered capsule
+            inside the row's own fill.
+            EXP-1051: the refusal and the cost note are its TOOLTIP — the
+            sentence belongs to the control, not to a caption the row had to
+            grow for. `IconTooltip` wraps the button in a hoverable span, so a
+            DISABLED switch still explains itself. */}
+        <IconTooltip
+          label={blocked ?? SWITCH_LABEL}
+          hint={blocked ? undefined : SWITCH_COST_NOTE}
         >
-          {switching ? <LoaderCircle className="animate-spin" /> : <SwapIcon />}
-        </Button>
+          {/* A phone cannot hover, and the overlay is a sheet there: a tap on
+              the dead button says the reason as a toast instead. */}
+          <span
+            onClick={isMobile && blocked ? () => toast(blocked) : undefined}
+            data-testid="session-account-switch"
+          >
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              disabled={blocked !== null || busy}
+              onClick={onSwitch}
+              aria-label={SWITCH_LABEL}
+            >
+              {switching ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <SwapIcon />
+              )}
+            </Button>
+          </span>
+        </IconTooltip>
       </div>
       <UsageMini usage={option.row.usage} className={cn(age && `opacity-50`)} />
       {age && (
         <p className="text-[11px] text-muted-foreground/70 opacity-50">{age}</p>
-      )}
-      {/* The refusal sits UNDER the disabled control: it is nearly always
-          something the person can change (wait for the turn, sign in on the
-          machine), and a vanished control reads as a bug. A run-level reason
-          the footer already states is not repeated here (EXP-863). */}
-      {option.blockedReason && !hideReason && (
-        <p className="text-[11px] text-muted-foreground/70">
-          {option.blockedReason}
-        </p>
       )}
     </ListRow>
   )

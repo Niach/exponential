@@ -40,6 +40,7 @@ use crate::argv::{
     CLAUDE_MCP_TOOL_TIMEOUT_ENV, CLAUDE_MCP_TOOL_TIMEOUT_MS,
     MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
 };
+use crate::context_layout::{self, CarriedBase, ContextLayers};
 use crate::mcp_servers::{McpBlocker, ResolvedMcp};
 use crate::action_prompt::{
     chat_prompt, render_action_prompt_full, render_run_resume_prompt, ActionInputValue,
@@ -803,6 +804,14 @@ pub struct AcpLaunch {
     /// resume of every existing run. A team without a prompt (or a fetch
     /// that failed) gets the bare playbook.
     pub system_append: String,
+    /// EXP-1051: the RAW BYTE COUNTS of everything this launch put into the
+    /// agent's context before its first turn — playbook, team prompt, seed
+    /// prompt, the project memory files the agent loads itself, and the
+    /// Exponential MCP surface. The engine turns them into token estimates
+    /// (`domain::contract::CONTEXT_LAYOUT_CHARS_PER_TOKEN`) and publishes the
+    /// `context_layout` frame; nothing is estimated here. Built by
+    /// [`context_layers_for`], best-effort throughout.
+    pub context_layers: ContextLayers,
     /// EXP-792: the launch's team MCP servers, resolved (`exponential` is
     /// NOT among them — it stays [`Self::mcp`]). The adapters render them
     /// into their own config (claude inline, codex `thread/start`). Empty for
@@ -2091,6 +2100,18 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
     // The row id the ACP arm hands the engine (the literal below moves
     // `session.id` into the launch).
     let session_id_for_acp = session.id.clone();
+    let system_append = system_append_for_team(deps, &team_id);
+    // EXP-1051: a fresh session carries no base from anywhere — every layer
+    // is one this launch just built.
+    let context_layers = context_layers_for(
+        deps,
+        agent,
+        &worktree,
+        profile_dir.as_deref(),
+        &system_append,
+        Some(rendered.as_str()),
+        None,
+    );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier,
@@ -2118,7 +2139,8 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // relaunch is `prepare_resume_run`'s).
             resume: None,
             reaper_settings_path: reaper_anchor.clone(),
-            system_append: system_append_for_team(deps, &team_id),
+            system_append,
+            context_layers,
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
@@ -2809,6 +2831,18 @@ fn prepare_action(
     );
 
     let session_id_for_acp = session.id.clone();
+    let system_append = system_append_for_team(deps, &req.team_id);
+    // EXP-1051: an action run's cwd is its own worktree or scratch dir, so
+    // its project memory is whatever sits there — not the trunk clone's.
+    let context_layers = context_layers_for(
+        deps,
+        agent,
+        &cwd,
+        profile_dir.as_deref(),
+        &system_append,
+        rendered.as_deref(),
+        None,
+    );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier: req.action_name.clone(),
@@ -2855,7 +2889,8 @@ fn prepare_action(
             session_id: session_id_for_acp.clone(),
             resume: None,
             reaper_settings_path: reaper_anchor.clone(),
-            system_append: system_append_for_team(deps, &req.team_id),
+            system_append,
+            context_layers,
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
@@ -3618,6 +3653,23 @@ fn prepare_resume_run(
                 .map(ResumeSeed::Native)
         });
     let session_id_for_acp = session.id.clone();
+    let system_append = system_append_for_team(deps, &record.team_id);
+    // EXP-1051: a NATIVE resume re-enters a transcript whose base context
+    // this launch never built, so the predecessor's measured number is the
+    // only honest one to carry. A resume that fell back to a fresh session
+    // (no `acp_resume`) builds its own base and carries nothing.
+    let context_layers = context_layers_for(
+        deps,
+        agent,
+        &cwd,
+        profile_dir.as_deref(),
+        &system_append,
+        rendered.as_deref(),
+        acp_resume
+            .is_some()
+            .then(|| record.context_base())
+            .flatten(),
+    );
     Ok(Prepared::Ready(PreparedLaunch {
         session_id: session.id,
         issue_identifier,
@@ -3640,7 +3692,8 @@ fn prepare_resume_run(
             session_id: session_id_for_acp.clone(),
             resume: acp_resume.clone(),
             reaper_settings_path: reaper_anchor.clone(),
-            system_append: system_append_for_team(deps, &record.team_id),
+            system_append,
+            context_layers,
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
@@ -3670,6 +3723,80 @@ fn system_append_for_team(deps: &CodingDeps, team_id: &str) -> String {
         Err(err) => {
             log::warn!("coding: team prompt for {team_id} unavailable, launching without it: {err}");
             crate::skill::system_append(None)
+        }
+    }
+}
+
+/// EXP-1051 — the measured context layers for ONE launch ([`AcpLaunch::
+/// context_layers`]). Every number is a BYTE COUNT of something this
+/// launcher itself composed or resolved:
+///
+/// - the playbook, verbatim ([`crate::skill::RUN_SKILL`]);
+/// - the EXP-1025 team block, read back off the composed `system_append`
+///   (which is what actually reaches the agent);
+/// - the seed prompt, `None` when there is none (a native resume);
+/// - the project memory files the agent loads on its own from `cwd`;
+/// - the Exponential MCP surface, when the server answered
+///   ([`mcp_tools_bytes`]);
+/// - a resume's carried base from the previous run, when one was recorded.
+///
+/// Best-effort like [`system_append_for_team`]: a missing layer costs the
+/// breakdown one segment, never the launch.
+pub fn context_layers_for(
+    deps: &CodingDeps,
+    agent: CodingAgent,
+    cwd: &Path,
+    profile_dir: Option<&Path>,
+    system_append: &str,
+    prompt: Option<&str>,
+    carried_base: Option<CarriedBase>,
+) -> ContextLayers {
+    ContextLayers {
+        playbook_bytes: crate::skill::RUN_SKILL.len(),
+        team_bytes: context_layout::team_bytes(system_append),
+        task_bytes: prompt.map(str::len),
+        project: context_layout::project_memory(agent, cwd, profile_dir),
+        tools_bytes: mcp_tools_bytes(deps),
+        carried_base,
+    }
+}
+
+/// EXP-1051 — the Exponential MCP surface in bytes (always-load tool defs +
+/// the server instructions), as `codingSessions.contextBudget` reports it.
+///
+/// Cached for the process: the number is a property of the INSTANCE, not of
+/// the run, and every launch would otherwise pay a round trip for it. Only a
+/// SUCCESS is cached — an instance that has not learned the procedure (or a
+/// link that was down) must be able to answer on the next launch rather than
+/// be written off for the session.
+fn mcp_tools_bytes(deps: &CodingDeps) -> Option<usize> {
+    static CACHE: OnceLock<std::sync::Mutex<Option<usize>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    {
+        let cached = match cache.lock() {
+            Ok(guard) => *guard,
+            Err(poisoned) => *poisoned.into_inner(),
+        };
+        if cached.is_some() {
+            return cached;
+        }
+    }
+    match api::coding_sessions::context_budget(&deps.trpc) {
+        Ok(budget) => {
+            let bytes = budget
+                .mcp_always_load_bytes
+                .saturating_add(budget.mcp_instructions_bytes);
+            match cache.lock() {
+                Ok(mut guard) => *guard = Some(bytes),
+                Err(poisoned) => *poisoned.into_inner() = Some(bytes),
+            }
+            Some(bytes)
+        }
+        Err(err) => {
+            log::warn!(
+                "coding: MCP context budget unavailable, launching without a tools segment: {err}"
+            );
+            None
         }
     }
 }

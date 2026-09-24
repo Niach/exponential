@@ -353,6 +353,19 @@ async function bindStartAttachments(
 }
 
 export const codingSessionsRouter = router({
+  // EXP-1051: what the Exponential MCP surface costs a run on turn one, in
+  // UTF-8 bytes — the always-loaded tool definitions plus the server
+  // instructions, exactly as this deployment registers them. A DEPLOY
+  // constant, not a per-run one: the launcher fetches it best-effort once and
+  // caches it, so a run whose backend is unreachable simply reports no `tools`
+  // layer rather than a made-up one. Lazily imported because the MCP tool
+  // table imports `appRouter`, which imports THIS router — a static import
+  // would close the cycle at module-eval time.
+  contextBudget: authedProcedure.query(async () => {
+    const { mcpContextBudget } = await import(`@/lib/mcp/context-budget`)
+    return mcpContextBudget()
+  }),
+
   // Own-row status probe (EXP-403): the headless CLI daemon has no Electric
   // sync, so it polls this for the →ended kill-switch edge the desktop's
   // kill-watch reads off the synced collection. Owner-OR-HOST by the where

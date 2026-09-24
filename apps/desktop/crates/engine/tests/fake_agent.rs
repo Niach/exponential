@@ -35,6 +35,7 @@ use agent_client_protocol::schema::v1::{
     PermissionOptionKind, PromptRequest, PromptResponse, ReadTextFileRequest,
     ReleaseTerminalRequest, RequestPermissionOutcome, RequestPermissionRequest,
     SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionId,
+    SessionInfoUpdate,
     SessionMode, SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
     SetSessionModeResponse, StopReason, StringPropertySchema, Terminal, TerminalOutputRequest,
@@ -405,6 +406,27 @@ async fn run_turn(
             }
             StopReason::EndTurn
         }
+        // EXP-1051: the context bar. The rest of the prompt is the slot the
+        // adapter would stamp, sent TWICE on a no-op `session_info_update` —
+        // the mapper's latest-wins dedupe is what turns two identical frames
+        // into one published event.
+        text if text.starts_with("context-layout ") => {
+            let slot: serde_json::Value =
+                serde_json::from_str(text.trim_start_matches("context-layout ").trim())
+                    .expect("the test's slot parses");
+            let mut meta = serde_json::Map::new();
+            meta.insert(engine::CONTEXT_LAYOUT_META_KEY.to_string(), slot);
+            for _ in 0..2 {
+                let _ = cx.send_notification(
+                    SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()),
+                    )
+                    .meta(meta.clone()),
+                );
+            }
+            StopReason::EndTurn
+        }
         // EXP-936: a turn that fills most of the window — the meter the
         // compaction policy reads — and then holds until released, the way
         // the run's own tool call keeps its turn open.
@@ -654,6 +676,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             resume: None,
             reaper_settings_path: None,
             system_append: coding::skill::system_append(None),
+            context_layers: coding::ContextLayers::default(),
             servers: Vec::new(),
             mcp_secrets: Default::default(),
         },
@@ -1826,4 +1849,88 @@ fn the_wire_diff_masks_the_runs_launcher_secrets() {
         "the token was dropped instead of masked: {published}"
     );
     harness.session.kill("killed");
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1051 — the context-layout slot, end to end
+// ---------------------------------------------------------------------------
+
+/// The slot an adapter would stamp, as the fake agent's prompt carries it.
+fn context_layout_prompt(segments: serde_json::Value) -> String {
+    format!(
+        "context-layout {}",
+        serde_json::json!({ "segments": segments, "model": "opus" })
+    )
+}
+
+/// The slot reaches the wire ONCE even though the agent stamped it twice:
+/// `context_layout` is latest-wins state and an identical re-emit is not news.
+#[test]
+fn a_context_layout_slot_publishes_once_and_an_identical_re_emit_is_dropped() {
+    let harness = start_fake("stream");
+    harness.session.send_prompt(context_layout_prompt(serde_json::json!([
+        { "key": "base", "tokens": 21_000, "source": "measured" },
+        { "key": "playbook", "tokens": 1_500, "source": "estimated" },
+    ])));
+
+    until("the context_layout event", || {
+        !events_of(&harness.sink, "context_layout").is_empty()
+    });
+    // Give the second, identical notification every chance to arrive.
+    std::thread::sleep(Duration::from_millis(200));
+    let events = events_of(&harness.sink, "context_layout");
+    assert_eq!(events.len(), 1, "two identical frames publish once: {events:?}");
+    assert_eq!(events[0]["segments"][0]["key"], "base");
+    assert_eq!(events[0]["segments"][0]["tokens"], 21_000);
+    assert_eq!(events[0]["segments"][0]["source"], "measured");
+    assert_eq!(events[0]["segments"][1]["key"], "playbook");
+}
+
+/// The relay drops a frame whose numbers fall outside its zod bounds WHOLE,
+/// so the device clamps first — and an unknown key costs its frame nothing.
+#[test]
+fn an_out_of_bounds_segment_is_clamped_and_an_unknown_key_dropped() {
+    let harness = start_fake("stream");
+    harness.session.send_prompt(context_layout_prompt(serde_json::json!([
+        { "key": "moon", "tokens": 10, "source": "estimated" },
+        { "key": "playbook", "tokens": 2_000_000_000i64, "source": "estimated" },
+        // Out of contract order on purpose: the mapper sorts.
+        { "key": "base", "tokens": -5, "source": "measured" },
+        // A duplicate keeps the FIRST occurrence.
+        { "key": "playbook", "tokens": 1, "source": "estimated" },
+    ])));
+
+    until("the context_layout event", || {
+        !events_of(&harness.sink, "context_layout").is_empty()
+    });
+    let events = events_of(&harness.sink, "context_layout");
+    let segments = events[0]["segments"].as_array().expect("an array");
+    let keys: Vec<&str> = segments
+        .iter()
+        .map(|segment| segment["key"].as_str().expect("a key"))
+        .collect();
+    assert_eq!(keys, vec!["base", "playbook"], "`moon` is dropped, the rest sorted");
+    assert_eq!(segments[0]["tokens"], 0, "a negative token count floors at zero");
+    assert_eq!(
+        segments[1]["tokens"], 1_000_000_000i64,
+        "the relay's ceiling, not the nonsense number"
+    );
+}
+
+/// A payload that is not a segment list at all publishes nothing — and never
+/// panics the mapping step, which would take the whole run with it.
+#[test]
+fn a_nonsense_context_layout_payload_publishes_nothing() {
+    let harness = start_fake("stream");
+    harness
+        .session
+        .send_prompt("context-layout {\"segments\": \"not a list\"}".to_string());
+    until("the turn to settle", || {
+        kinds(&harness.sink).iter().any(|kind| kind == "turn")
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        events_of(&harness.sink, "context_layout").is_empty(),
+        "a malformed slot is dropped whole"
+    );
 }

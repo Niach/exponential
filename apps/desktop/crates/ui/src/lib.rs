@@ -51,6 +51,7 @@ mod comments;
 mod composer;
 mod composer_images;
 mod commit_graph;
+mod context_layout;
 mod controls;
 mod create_issue_dialog;
 mod create_board_dialog;

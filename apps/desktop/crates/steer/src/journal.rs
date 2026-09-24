@@ -29,7 +29,7 @@
 //! config in it and every viewer nulls the slot: chips, mode switcher and `/`
 //! commands gone for the rest of the run. Replay therefore yields the log
 //! first and then the slots in the relay's own `LATEST_REPLAY_ORDER`
-//! (`config_state`, `usage`, `diff`).
+//! (`config_state`, `usage`, `context_layout`, `diff`).
 //!
 //! EXP-748 adds the other pressure valve, the relay's `hub.ts` rule mirrored
 //! here: a SUBAGENT's tool calls are second-class transcript. One fan-out of
@@ -68,21 +68,26 @@ struct Entry {
 }
 
 /// EXP-758: the latest-wins slots, in the relay's replay order
-/// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`, `rate_limit`,
-/// `turn`, `workflow`, `background_tasks`, `task_list`, `diff` — the diff stays LAST, where
+/// (`LATEST_REPLAY_ORDER` in hub.ts: `config_state`, `usage`,
+/// `context_layout`, `rate_limit`, `turn`, `workflow`, `background_tasks`,
+/// `task_list`, `diff` — the diff stays LAST, where
 /// it replayed before any of this became a map). EXP-784 added `rate_limit`
 /// beside `usage`; EXP-848 `turn`; EXP-850 the keyed `workflow` block and
-/// `background_tasks`; EXP-927 `task_list` right behind it.
+/// `background_tasks`; EXP-927 `task_list` right behind it; EXP-1051
+/// `context_layout` right after `usage`.
 const SLOT_CONFIG_STATE: usize = 0;
 const SLOT_USAGE: usize = 1;
-const SLOT_RATE_LIMIT: usize = 2;
-const SLOT_TURN: usize = 3;
+/// EXP-1051: the context breakdown, replayed right after `usage` — the two
+/// meters are read together.
+const SLOT_CONTEXT_LAYOUT: usize = 2;
+const SLOT_RATE_LIMIT: usize = 3;
+const SLOT_TURN: usize = 4;
 /// EXP-861: the queued-messages slot, replayed right after `turn`.
-const SLOT_QUEUE: usize = 4;
-const SLOT_BACKGROUND_TASKS: usize = 5;
-const SLOT_TASK_LIST: usize = 6;
-const SLOT_DIFF: usize = 7;
-const SLOT_COUNT: usize = 8;
+const SLOT_QUEUE: usize = 5;
+const SLOT_BACKGROUND_TASKS: usize = 6;
+const SLOT_TASK_LIST: usize = 7;
+const SLOT_DIFF: usize = 8;
+const SLOT_COUNT: usize = 9;
 
 /// EXP-850 §3: how many workflow cards one session keeps. A run that starts
 /// more than this many workflows loses the OLDEST (its card is finished and
@@ -97,6 +102,7 @@ fn slot_of(event: &ActivityEvent) -> Option<usize> {
     match event {
         ActivityEvent::ConfigState { .. } => Some(SLOT_CONFIG_STATE),
         ActivityEvent::Usage { .. } => Some(SLOT_USAGE),
+        ActivityEvent::ContextLayout { .. } => Some(SLOT_CONTEXT_LAYOUT),
         ActivityEvent::RateLimit { .. } => Some(SLOT_RATE_LIMIT),
         ActivityEvent::Turn { .. } => Some(SLOT_TURN),
         ActivityEvent::Queue { .. } => Some(SLOT_QUEUE),
@@ -300,6 +306,7 @@ impl ActivityJournal {
         for slot in [
             SLOT_CONFIG_STATE,
             SLOT_USAGE,
+            SLOT_CONTEXT_LAYOUT,
             SLOT_RATE_LIMIT,
             SLOT_TURN,
             SLOT_QUEUE,
@@ -492,6 +499,16 @@ mod tests {
         }
     }
 
+    /// EXP-1051: a one-segment context breakdown, keyed by its base size.
+    fn context_layout(base: i64) -> ActivityEvent {
+        ActivityEvent::context_layout(vec![crate::frames::ContextSegment {
+            key: crate::frames::ContextSegmentKey::Base,
+            tokens: base,
+            source: crate::frames::ContextSegmentSource::Measured,
+            detail: None,
+        }])
+    }
+
     fn tool_details(journal: &ActivityJournal) -> Vec<String> {
         journal
             .replay()
@@ -573,14 +590,16 @@ mod tests {
         );
     }
 
-    /// EXP-784: `rate_limit` is the fourth slot, replayed between `usage`
-    /// and the diff; a `tool_update` is a plain LOG row (EXP-785).
+    /// EXP-784: `rate_limit` is a slot, replayed between `usage` and the
+    /// diff; a `tool_update` is a plain LOG row (EXP-785). EXP-1051 slots
+    /// `context_layout` between `usage` and `rate_limit`.
     #[test]
     fn rate_limit_is_a_slot_between_usage_and_diff_and_tool_update_is_a_row() {
         let mut journal = ActivityJournal::new();
         journal.push(ActivityEvent::diff("--- v1"));
         journal.push(ActivityEvent::rate_limit("allowed_warning", None, None));
         journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(context_layout(21_000));
         journal.push(ActivityEvent::tool("Edit", None));
         journal.push(ActivityEvent::tool_update(
             "tc-1",
@@ -597,9 +616,33 @@ mod tests {
                 &ActivityEvent::tool("Edit", None),
                 &ActivityEvent::tool_update("tc-1", Some(crate::ToolUpdateStatus::Completed), None),
                 &ActivityEvent::usage(10, 200, None),
+                &context_layout(21_000),
                 &ActivityEvent::rate_limit("rejected", Some(5), None),
                 &ActivityEvent::diff("--- v1"),
             ]
+        );
+    }
+
+    /// EXP-1051: `context_layout` is a slot of its own, replayed right after
+    /// `usage`, and only the NEWEST one survives (a `/clear` republishes it).
+    #[test]
+    fn context_layout_is_a_slot_right_after_usage() {
+        let mut journal = ActivityJournal::new();
+        journal.push(context_layout(21_000));
+        journal.push(ActivityEvent::narration("between"));
+        journal.push(ActivityEvent::usage(10, 200, None));
+        journal.push(context_layout(18_500));
+
+        let replay: Vec<&ActivityEvent> = journal.replay().collect();
+        assert_eq!(journal.len(), 1, "only the narration is a LOG row");
+        assert_eq!(
+            replay,
+            vec![
+                &ActivityEvent::narration("between"),
+                &ActivityEvent::usage(10, 200, None),
+                &context_layout(18_500),
+            ],
+            "the log first, then usage, then the newest context_layout"
         );
     }
 

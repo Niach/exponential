@@ -594,6 +594,28 @@ pub fn stack_plan(trpc: &TrpcClient, issue_id: &str) -> Result<Option<StackPlan>
     }
 }
 
+/// EXP-1051 — how big the Exponential MCP surface is for ONE run: the
+/// always-loaded tool definitions plus the server instructions, in bytes as
+/// the server serializes them. The launcher measures every OTHER context
+/// layer itself; this one only the server can know (`lib/mcp/always-load.ts`
+/// + `MCP_SERVER_INSTRUCTIONS`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct McpContextBudget {
+    pub mcp_always_load_bytes: usize,
+    pub mcp_instructions_bytes: usize,
+}
+
+/// `codingSessions.contextBudget` — input-less query (EXP-1051).
+///
+/// Best-effort at the call site: an instance that predates the procedure
+/// answers 404 and the run simply launches without a tools segment in its
+/// context breakdown, so this never panics and never gates a launch.
+/// Blocking; background executor only (§3.5).
+pub fn context_budget(trpc: &TrpcClient) -> Result<McpContextBudget, ApiError> {
+    trpc.query("codingSessions.contextBudget")
+}
+
 /// `codingSessions.end` — mutation, idempotent server-side.
 pub fn end(trpc: &TrpcClient, id: &str) -> Result<CodingSession, ApiError> {
     let envelope: SessionEnvelope = trpc.mutation("codingSessions.end", &SessionIdInput { id })?;
