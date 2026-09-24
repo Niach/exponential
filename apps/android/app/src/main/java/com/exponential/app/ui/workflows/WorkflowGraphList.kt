@@ -1,7 +1,5 @@
 package com.exponential.app.ui.workflows
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,11 +10,9 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,18 +29,16 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.WorkflowNodeEntity
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkflowView
 import com.exponential.app.domain.captionNode
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.IssueChip
+import com.exponential.app.ui.components.IssueChipStack
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DoneBlue
 import com.exponential.app.ui.issue.LiveDot
@@ -57,12 +51,11 @@ import com.exponential.app.ui.work.SessionToneDot
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.flatRow
 
 // EXP-981: a workflow's graph as a PHONE draws it — the same wave-grouped list
 // the blocks mini-graph uses (`ui/components/IssueGraphList.kt`, EXP-980), fed
 // workflow nodes instead of issues. Web and the desktop draw the real grid with
-// edges; here a section per wave over flat rows, each row carrying the chips of
+// edges; here a section per wave over chip rows, each row carrying the chips of
 // its own direct blockers, is what fits.
 //
 // Position is the server's: `wave` is the section, `lane` the order inside it
@@ -138,25 +131,39 @@ private fun Modifier.workflowEdgeRing(style: WorkflowView.EdgeStyle): Modifier {
 }
 
 /**
- * EXP-984: the dashed row border a `proposed` node wears — a follow-up filed
- * during the run that nobody admitted yet. It is drawn like every other node
- * (same caption rule), but the dashes say it is not part of the run: no merge
- * train, and the final pull request does not wait for it.
+ * EXP-1014: the ring a node's CHIP wears, or nothing at all for the ordinary
+ * node. A node on a blocking cycle takes the destructive ring; the one whose
+ * sheet is open takes the accent one; a `proposed` node (EXP-984: a follow-up
+ * filed during the run that nobody admitted yet) is dashed — it is drawn, but
+ * it is not part of the run.
  */
 @Composable
-private fun proposedRowBorder(): Modifier {
-    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    val radius = GlassTokens.RowRadius
-    return Modifier.drawBehind {
-        drawRoundRect(
-            color = color,
-            cornerRadius = CornerRadius(radius.toPx()),
-            style = Stroke(
-                width = 1.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)),
-            ),
-        )
+private fun Modifier.workflowNodeRing(node: WorkflowNodeEntity, selected: Boolean): Modifier {
+    val proposed = node.state == DomainContract.wfNodeStateProposed
+    val color = when {
+        node.onCycle -> MaterialTheme.colorScheme.error
+        selected -> MaterialTheme.colorScheme.primary
+        proposed -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+        else -> return this.padding(2.dp)
     }
+    val dashed = proposed && !node.onCycle && !selected
+    val radius = MdStyle.chipCornerRadius + 2.dp
+    return this
+        .drawBehind {
+            drawRoundRect(
+                color = color,
+                cornerRadius = CornerRadius(radius.toPx()),
+                style = Stroke(
+                    width = 1.dp.toPx(),
+                    pathEffect = if (dashed) {
+                        PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
+                    } else {
+                        null
+                    },
+                ),
+            )
+        }
+        .padding(2.dp)
 }
 
 /**
@@ -203,10 +210,12 @@ internal fun WorkflowStateGlyph(state: String, modifier: Modifier = Modifier) {
 
 /**
  * The graph: one section per wave, the wave's nodes as rows, and under each
- * row the chips of its direct blockers INSIDE the workflow. A compound node is
- * a STACKED card (a second card edge peeking out behind it); a node on a cycle
- * — and every cycle edge — is red. A node whose issue row has not synced
- * renders its caption alone and never crashes.
+ * row the chips of its direct blockers INSIDE the workflow. EXP-1014: a node
+ * row IS the app's issue chip — its state glyph (or its live run's dot) in the
+ * glyph slot, the identifier, the title, and the state caption trailing it in
+ * the state's tone. A compound node is a STACKED chip ([IssueChipStack]); a
+ * node on a cycle — and every cycle edge — is red. A node whose issue row has
+ * not synced renders its caption alone and never crashes.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -227,6 +236,8 @@ internal fun WorkflowGraphList(
      */
     finalPrCaption: String? = null,
     finalPrUrl: String? = null,
+    /** EXP-1014: the node whose sheet is open wears the accent ring. */
+    selectedNodeId: String? = null,
 ) {
     if (graph.nodes.isEmpty()) return
     val incoming = remember(graph.edges) { graph.edges.groupBy { it.to } }
@@ -247,12 +258,12 @@ internal fun WorkflowGraphList(
                     // EXP-982: a node that is UP reads off the session itself,
                     // not off the node state alone.
                     run = graph.runsByNodeId[node.id]?.takeIf { it.live },
+                    selected = node.id == selectedNodeId,
                     onClick = { onSelectNode(node) },
                 )
             }
         }
         finalPrCaption?.let { caption ->
-            SectionHeader(WorkflowView.FINAL_PR_TITLE)
             FinalPrRow(caption = caption, url = finalPrUrl)
         }
         cycleNote?.let { note ->
@@ -313,8 +324,10 @@ private fun RunningStrip(graph: WorkflowGraph, onOpenRun: (String) -> Unit) {
 
 /**
  * The integration branch's one pull request onto the default branch: the whole
- * workflow's result. It opens on GitHub once the engine has actually opened it
- * — before that the row is the caption alone ("Opening the pull request").
+ * workflow's result. EXP-1014: one more CHIP after the last wave, wearing the
+ * merged-PR glyph, with its caption trailing — it opens on GitHub once the
+ * engine has actually opened it, and before that the caption is all there is
+ * to say ("Opening the pull request").
  */
 @Composable
 private fun FinalPrRow(caption: String, url: String?) {
@@ -322,43 +335,38 @@ private fun FinalPrRow(caption: String, url: String?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .flatRow()
             .then(if (url != null) Modifier.clickable { uriHandler.openUri(url) } else Modifier)
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
             .testTag("workflow-final-pr"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            ExpIcons.navReviews,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        IssueChip(
+            identifier = "",
+            title = WorkflowView.FINAL_PR_TITLE,
+            status = null,
+            leading = {
+                Icon(
+                    ExpIcons.notificationPrMerged,
+                    contentDescription = null,
+                    modifier = Modifier.size(MdStyle.chipIconSize),
+                    tint = MdStyle.ChipToken,
+                )
+            },
+            modifier = Modifier.weight(1f, fill = false),
         )
         Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                WorkflowView.FINAL_PR_TITLE,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                caption,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
-        if (url != null) {
-            Icon(
-                ExpIcons.uiExternalLink,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        }
+        Text(
+            caption,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            maxLines = 1,
+        )
     }
 }
+
+/** What a node's chip says while its issue row has not arrived (yet, or at
+ *  all): the chip's degenerate case — a title with no identifier. */
+private const val NODE_UNSYNCED_TITLE = "Not synced yet"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -369,6 +377,7 @@ private fun WorkflowNodeRow(
     blockers: List<WorkflowView.Edge>,
     nodesById: Map<String, WorkflowNodeEntity>,
     run: WorkflowNodeRun?,
+    selected: Boolean,
     onClick: () -> Unit,
 ) {
     val issue = graph.issuesById[node.issueId]
@@ -378,92 +387,76 @@ private fun WorkflowNodeRow(
     // A live run paints the caption in its SESSION's tone, not the node's.
     val tone = run?.let { sessionToneColor(it.tone) }
         ?: workflowToneColor(WorkflowView.nodeTone(node.state))
-    val shape = remember { RoundedCornerShape(GlassTokens.RowRadius) }
     val compound = node.memberIssueIds.isNotEmpty()
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // The compound node's second card edge, peeking out behind the row:
-        // one node, several issues, run as ONE batch on one branch.
-        if (compound) {
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 8.dp)
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .background(GlassTokens.RowFillActive, shape)
-                    .testTag("workflow-node-stack"),
-            )
+    // EXP-1014: the chip's glyph slot — the live run's dot while the node is
+    // up, else the state's own glyph. A draft has no states worth a glyph.
+    val glyph: (@Composable () -> Unit)? = when {
+        run != null -> {
+            {
+                Box(
+                    modifier = Modifier.size(14.dp).testTag("workflow-node-run-dot"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    SessionToneDot(run.tone, busy = run.busy)
+                }
+            }
         }
-        Column(
+        workflowStatus != DomainContract.wfStatusDraft && workflowStateHasGlyph(node.state) -> {
+            { WorkflowStateGlyph(node.state) }
+        }
+        else -> null
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                // EXP-818: a graph row is a LIST row.
-                .flatRow()
-                .then(
-                    when {
-                        node.onCycle ->
-                            Modifier.border(1.dp, MaterialTheme.colorScheme.error, shape)
-                        // EXP-984: a proposal, drawn but not yet part of the run.
-                        node.state == DomainContract.wfNodeStateProposed -> proposedRowBorder()
-                        else -> Modifier
-                    },
-                )
                 .clickable(onClick = onClick)
                 .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
                 .testTag("workflow-node-row"),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (issue != null) {
-                    StatusIcon(IssueStatus.fromWire(issue.status), size = 14.dp)
-                    Spacer(Modifier.width(8.dp))
-                    IssueChip(
-                        identifier = WorkflowView.nodeTitle(
-                            issue.identifier,
-                            node.memberIssueIds.size,
-                        ),
-                        title = null,
-                        status = null,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        issue.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
-                // A node whose issue has not synced (yet, or at all) draws its
-                // CAPTION alone — never a crash, and never a blank row that
-                // reads as a broken node.
+            val chip: @Composable () -> Unit = {
+                IssueChip(
+                    // A node whose issue has not synced (yet, or at all) still
+                    // draws — the chip's own degenerate case, a title with no
+                    // code, never a crash and never a blank row.
+                    identifier = issue?.let {
+                        WorkflowView.nodeTitle(it.identifier, node.memberIssueIds.size)
+                    }.orEmpty(),
+                    title = issue?.title ?: NODE_UNSYNCED_TITLE,
+                    status = null,
+                    leading = glyph,
+                    onClick = onClick,
+                )
             }
-            Row(
-                modifier = Modifier.padding(top = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Box(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .workflowNodeRing(node, selected),
             ) {
-                // EXP-982: a draft has no states yet, so its caption names the
-                // plan and there is nothing for a glyph to say.
-                if (run != null) {
-                    Box(
-                        modifier = Modifier.size(14.dp).testTag("workflow-node-run-dot"),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        SessionToneDot(run.tone, busy = run.busy)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                } else if (workflowStatus != DomainContract.wfStatusDraft &&
-                    workflowStateHasGlyph(node.state)
-                ) {
-                    WorkflowStateGlyph(node.state)
-                    Spacer(Modifier.width(6.dp))
+                // One node, several issues, run as ONE batch on one branch:
+                // the chip is STACKED rather than carrying a second row.
+                if (compound) {
+                    IssueChipStack(
+                        modifier = Modifier.testTag("workflow-node-stack"),
+                        chip = chip,
+                    )
+                } else {
+                    chip()
                 }
+            }
+            if (caption.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
                 Text(
                     caption,
                     style = MaterialTheme.typography.labelSmall,
                     color = tone,
+                    maxLines = 1,
                     modifier = Modifier.testTag("workflow-node-caption"),
                 )
             }
+        }
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GlassTokens.RowPaddingH)) {
             if (blockers.isNotEmpty()) {
                 Text(
                     "Blocked by",

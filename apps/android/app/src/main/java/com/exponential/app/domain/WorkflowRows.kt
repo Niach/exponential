@@ -16,34 +16,36 @@ import kotlinx.serialization.json.intOrNull
  * server put something in `launch` this build has no name for.
  */
 
-/** `workflows.launch`: what every node's run starts with. */
+/**
+ * `workflows.launch`: what every node's run starts with, as the STORED jsonb
+ * carries it — every vintage of it. The strict launch a run actually reads is
+ * [NormalizedWorkflowLaunch]; everything marked deprecated below is decoded
+ * only so an old row still folds into it.
+ */
 data class WorkflowLaunch(
     val agent: String = "",
     val model: String = "",
     /**
      * EXP-1029: the STRONG model — contract, integration and `risk: high`
-     * nodes, and every agent review. The phase pins, [subagentModel] and
-     * [reviewModel] are deprecated (they fold into this one; EXP-1014 removes
-     * them). CARRIED like the pins: the phone never edits it, and the encoder
-     * omits it so the server keeps the stored value. null = not set.
+     * nodes, and every agent review. CARRIED: the phone never edits it, and
+     * the encoder omits it so the server keeps the stored value. null = not
+     * set, and [normalizedLaunch] then folds an old row's pins in.
      */
     val strongModel: String? = null,
-    /** Claude only: the model its subagents run on. */
+    /** Deprecated (EXP-1029): claude's subagents take [model] now. */
     val subagentModel: String = "",
+    /** Deprecated (EXP-1029): a workflow run has no effort pick. */
     val effort: String = "",
     /** An agent profile id on the runner device; "" = its active login. */
     val account: String = "",
+    /** Deprecated (EXP-1029): the engine owns how many nodes run at once. */
     val maxParallel: Int = DomainContract.workflowMaxParallelDefault,
-    /**
-     * EXP-984: the model agent reviews run on; "" = the engine picks one (a
-     * `risk: high` node is ALWAYS reviewed on a model other than its author's).
-     */
+    /** Deprecated (EXP-1029): every agent review runs on [strongModel]. */
     val reviewModel: String = "",
     /**
-     * EXP-1002: the per-PHASE model pins (`contract` nodes, `integration`
-     * nodes, any `risk: high` node). No picker here — they are CARRIED, so a
-     * phone edit of another option (the router replaces the whole `launch`)
-     * never erases what web/desktop pinned. null = no pin.
+     * Deprecated (EXP-1029): the per-PHASE model pins of EXP-1002 fold into
+     * [strongModel]. Still decoded (old rows carry them) and still CARRIED on
+     * the wire, so a phone write never erases what web/desktop stored.
      */
     val contractModel: String? = null,
     val integrationModel: String? = null,
@@ -56,6 +58,78 @@ data class WorkflowLaunch(
     fun withoutPhaseModels(): WorkflowLaunch =
         copy(contractModel = null, integrationModel = null, riskModel = null)
 }
+
+/**
+ * EXP-1029: the STRICT launch every node run reads — two models, no more.
+ * [model] is the CHEAP one (leaf nodes, and the subagents inside every node
+ * run), [strongModel] the capable one (contract nodes, integration nodes,
+ * `risk: high` nodes and EVERY agent review). Mirrors web
+ * `lib/workflow-launch.ts` and Rust `coding::workflows::launch`, same rules,
+ * same names.
+ */
+data class NormalizedWorkflowLaunch(
+    val agent: String,
+    val model: String,
+    val strongModel: String,
+    /** An agent profile id on the runner; "" = its active login. */
+    val account: String = "",
+)
+
+/** The agent a launch runs on when the row names none this build knows. */
+private const val DEFAULT_WORKFLOW_AGENT = "claude"
+
+/** That agent's two models, from the contract. */
+private fun launchDefaults(agent: String): Pair<String, String> = when (agent) {
+    "codex" -> DomainContract.workflowLaunchCodexModel to
+        DomainContract.workflowLaunchCodexStrongModel
+    else -> DomainContract.workflowLaunchClaudeModel to
+        DomainContract.workflowLaunchClaudeStrongModel
+}
+
+/** A stored string that carries a value: trimmed and non-blank, else null. */
+private fun text(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
+
+/**
+ * The stored `workflows.launch` (any vintage) → the launch a run reads:
+ * - `agent`: `claude` or `codex`; anything else → `claude`.
+ * - `model`: the stored one, else that agent's default.
+ * - `strongModel`: the stored one; else the first set of the deprecated pins
+ *   (`reviewModel`, `riskModel`, `contractModel`, `integrationModel`, in that
+ *   order); else that agent's default strong model.
+ * - `subagentModel`, `effort` and `maxParallel` are dropped.
+ */
+fun normalizedLaunch(launch: WorkflowLaunch): NormalizedWorkflowLaunch {
+    val agent = text(launch.agent)
+        ?.takeIf { it in DomainContract.workflowLaunchAgents }
+        ?: DEFAULT_WORKFLOW_AGENT
+    val (defaultModel, defaultStrong) = launchDefaults(agent)
+    val legacy = listOf(
+        launch.reviewModel,
+        launch.riskModel,
+        launch.contractModel,
+        launch.integrationModel,
+    ).firstNotNullOfOrNull { text(it) }
+    return NormalizedWorkflowLaunch(
+        agent = agent,
+        model = text(launch.model) ?: defaultModel,
+        strongModel = text(launch.strongModel) ?: legacy ?: defaultStrong,
+        account = text(launch.account).orEmpty(),
+    )
+}
+
+/**
+ * The model ONE node's run spawns on: the strong model for a `contract` or an
+ * `integration` node and for any `risk: high` node, else the cheap one.
+ */
+fun modelForNode(launch: NormalizedWorkflowLaunch, kind: String, risk: String): String {
+    val strong = kind == DomainContract.wfNodeKindContract ||
+        kind == DomainContract.wfNodeKindIntegration ||
+        risk == DomainContract.wfRiskHigh
+    return if (strong) launch.strongModel else launch.model
+}
+
+/** The model EVERY agent review runs on: the strong one, whatever the node. */
+fun reviewModelFor(launch: NormalizedWorkflowLaunch): String = launch.strongModel
 
 /**
  * EXP-984: an executable check the reviewer RAN. An agent's opinion is

@@ -18,6 +18,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionDisplayState
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.NormalizedWorkflowLaunch
 import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.domain.WorkflowLaunch
 import com.exponential.app.domain.WorkflowView
@@ -25,12 +26,11 @@ import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.edgeNode
 import com.exponential.app.domain.launchOptions
 import com.exponential.app.domain.metricCounters
+import com.exponential.app.domain.normalizedLaunch
 import com.exponential.app.domain.shape
 import com.exponential.app.domain.trainNode
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
-import com.exponential.app.ui.components.DEFAULT_AGENT
-import com.exponential.app.ui.components.supportsSubagentModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -214,10 +214,19 @@ class WorkflowDetailViewModel @Inject constructor(
         row?.deviceId?.let { id -> rows.firstOrNull { it.deviceId == id } }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** The stored launch options, defaulted — what the pickers render. */
-    val launch: StateFlow<WorkflowLaunch> = workflow
-        .map { it?.launchOptions ?: WorkflowLaunch() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WorkflowLaunch())
+    /**
+     * EXP-1029: the workflow's launch as a RUN reads it — the agent and the
+     * two models, folded out of whatever vintage the row stores. Nothing on
+     * this screen edits it (EXP-1014): the phone carries the stored launch and
+     * the node sheet names the model each node runs on.
+     */
+    val launch: StateFlow<NormalizedWorkflowLaunch> = workflow
+        .map { normalizedLaunch(it?.launchOptions ?: WorkflowLaunch()) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            normalizedLaunch(WorkflowLaunch()),
+        )
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
@@ -251,31 +260,6 @@ class WorkflowDetailViewModel @Inject constructor(
                 deviceId = deviceId.takeIf { it.isNotEmpty() },
                 clearDevice = deviceId.isEmpty(),
             )
-        }
-    }
-
-    /**
-     * Any one launch option, written as the WHOLE `launch` object (the router
-     * replaces it, so a patch of one field has to carry the rest). Switching
-     * the agent clears the options that do not belong to it — the server
-     * validates model/effort per agent and refuses a subagent model on
-     * anything but claude.
-     */
-    fun setLaunch(update: (WorkflowLaunch) -> WorkflowLaunch) {
-        val next = update(launch.value).let { options ->
-            // A stored agent of "" means "the runner's own default", which is
-            // claude on the server's side of the validation.
-            val agent = options.agent.ifEmpty { DEFAULT_AGENT }
-            if (supportsSubagentModel(agent)) options else options.copy(subagentModel = "")
-        }
-        mutate("How the workflow runs could not be saved") { accountId ->
-            workflowsApi.update(accountId, workflowId, launch = next)
-        }
-    }
-
-    fun setStartOn(startOn: String) {
-        mutate("The start rule could not be saved") { accountId ->
-            workflowsApi.update(accountId, workflowId, startOn = startOn)
         }
     }
 
