@@ -53,9 +53,11 @@ private const val LIMIT_LABEL_FIVE_HOUR = "5h"
 private const val LIMIT_LABEL_WEEK = "week"
 
 /** The label column and the block's width in a menu row — a dropdown wraps its
- *  content, so the bars have to bring a width of their own. */
+ *  content, so the bars have to bring a width of their own. The block width is
+ *  shared with the picker sheet's login row (EXP-1021), where a full-width bar
+ *  would read as a progress meter rather than as a preview. */
 private val LimitLabelWidth: Dp = 30.dp
-private val LimitBarsWidth: Dp = 136.dp
+internal val AccountLimitBarsWidth: Dp = 136.dp
 
 /** One drawn bar: what it is called and how full it is (0-1). */
 internal data class AccountLimitBar(val label: String, val used: Double)
@@ -131,49 +133,11 @@ internal fun AccountPickerPill(
     val current = options.firstOrNull { it.key == selectedKey } ?: options.firstOrNull() ?: return
     var open by remember { mutableStateOf(false) }
     val pickable = enabled && options.size > 1
-    val badge = AgentHealthRules.badgeLabel(current.health)
     Box(modifier = modifier) {
-        GlassPill(
-            current.email,
+        AccountPill(
+            option = current,
             onClick = if (pickable) ({ open = true }) else null,
             enabled = enabled,
-            leading = {
-                Icon(
-                    agentIconPainter(current.agent),
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = agentIconTint(current.agent),
-                )
-            },
-            trailing = if (badge != null || pickable) {
-                {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (badge != null) {
-                            Text(
-                                badge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                                maxLines = 1,
-                            )
-                        }
-                        if (pickable) {
-                            Icon(
-                                ExpIcons.uiChevronDown,
-                                contentDescription = null,
-                                modifier = Modifier.size(10.dp),
-                                tint = MaterialTheme.colorScheme.onSurface
-                                    .copy(alpha = TextEmphasis.Tertiary),
-                            )
-                        }
-                    }
-                }
-            } else {
-                null
-            },
             contentDescription = contentDescription,
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -187,6 +151,69 @@ internal fun AccountPickerPill(
             )
         }
     }
+}
+
+/**
+ * The picker's TRIGGER on its own: the brand mark, the login's email, its
+ * health badge when the credential is dead, and a chevron only when [onClick]
+ * opens something. EXP-1021 split it out of [AccountPickerPill] so a surface
+ * can keep this exact capsule while its options move into the shared
+ * `AccountPicker` sheet (the automation editor's pin).
+ */
+@Composable
+internal fun AccountPill(
+    option: AccountOption,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String = "Account",
+) {
+    val badge = AgentHealthRules.badgeLabel(option.health)
+    val pickable = enabled && onClick != null
+    GlassPill(
+        option.email,
+        onClick = if (pickable) onClick else null,
+        enabled = enabled,
+        modifier = modifier,
+        leading = {
+            Icon(
+                agentIconPainter(option.agent),
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = agentIconTint(option.agent),
+            )
+        },
+        trailing = if (badge != null || pickable) {
+            {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (badge != null) {
+                        Text(
+                            badge,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                                .copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
+                    }
+                    if (pickable) {
+                        Icon(
+                            ExpIcons.uiChevronDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(10.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
+                                .copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    }
+                }
+            }
+        } else {
+            null
+        },
+        contentDescription = contentDescription,
+    )
 }
 
 /**
@@ -221,7 +248,7 @@ internal fun AccountMenuItems(
                         }
                     }
                     option.limits?.let {
-                        AccountLimitBars(it, modifier = Modifier.width(LimitBarsWidth))
+                        AccountLimitBars(it, modifier = Modifier.width(AccountLimitBarsWidth))
                     }
                 }
             },

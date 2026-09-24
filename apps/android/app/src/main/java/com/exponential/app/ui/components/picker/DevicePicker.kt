@@ -14,6 +14,12 @@ data class DevicePickerDevice(
     val name: String,
     /** Contract `deviceIcon`; null = the kind default. */
     val icon: String? = null,
+    /**
+     * A headless `exponential` daemon rather than the IDE — its KIND default
+     * is the server glyph, so the row cannot draw a laptop for a box in a
+     * rack.
+     */
+    val isServer: Boolean = false,
     /** A muted reason under the name (`Offline`, `Update to run workflows`). */
     val description: String? = null,
     val disabled: Boolean = false,
@@ -28,7 +34,7 @@ fun devicePickerItems(devices: List<DevicePickerDevice>): List<PickerItem<String
             disabled = device.disabled,
             // `deviceIcon` always resolves — a machine that never picked one
             // still draws its kind's default.
-            icon = deviceIcon(device.icon, isServer = false),
+            icon = deviceIcon(device.icon, isServer = device.isServer),
         )
     }
 
