@@ -97,7 +97,7 @@ import kotlinx.coroutines.launch
 // The per-property/combined sheets the Issue face can present (EXP-240).
 // One nullable slot: children opened from the Properties sheet stack over it
 // (propertiesOpen stays true beneath).
-enum class IssueSheet { Status, Priority, Assignee, Labels, DueDate, Duplicate, AddRelation, MoveBoard }
+enum class IssueSheet { Status, Priority, Assignee, Labels, DueDate, Estimate, Duplicate, AddRelation, MoveBoard }
 
 /**
  * EXP-893: the sheet + dialog state the Issue face and the host's top-bar
@@ -246,6 +246,8 @@ fun IssueFace(
     // EXP-487: the issue team's members — the assignee-picker + @-mention
     // vocabulary. state.users stays account-wide for display lookups.
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
+    // EXP-630: the team's estimate scale — `none` hides the chip + sheet row.
+    val estimationType by viewModel.estimationType.collectAsStateWithLifecycle()
     // EXP-57: same-team boards the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -625,10 +627,12 @@ fun IssueFace(
                     issueLabels = state.issueLabels,
                     isModerator = isModerator,
                     hideAssignee = soloMemberId != null,
+                    estimationType = estimationType,
                     onOpenStatus = { controller.activeSheet = IssueSheet.Status },
                     onOpenPriority = { controller.activeSheet = IssueSheet.Priority },
                     onOpenAssignee = { controller.activeSheet = IssueSheet.Assignee },
                     onOpenDueDate = { controller.activeSheet = IssueSheet.DueDate },
+                    onOpenEstimate = { controller.activeSheet = IssueSheet.Estimate },
                     onOpenLabels = { controller.activeSheet = IssueSheet.Labels },
                     onOpenProperties = { controller.propertiesOpen = true },
                 )
@@ -765,10 +769,12 @@ fun IssueFace(
             issueLabels = state.issueLabels,
             currentBoard = state.board,
             hasMoveTargets = moveTargets.isNotEmpty(),
+            estimationType = estimationType,
             onOpenStatus = { controller.activeSheet = IssueSheet.Status },
             onOpenPriority = { controller.activeSheet = IssueSheet.Priority },
             onOpenAssignee = { controller.activeSheet = IssueSheet.Assignee },
             onOpenDueDate = { controller.activeSheet = IssueSheet.DueDate },
+            onOpenEstimate = { controller.activeSheet = IssueSheet.Estimate },
             onOpenLabels = { controller.activeSheet = IssueSheet.Labels },
             onOpenMoveBoard = { controller.activeSheet = IssueSheet.MoveBoard },
             onToggleLabel = { id, assigned -> viewModel.toggleLabel(id, assigned) },
@@ -830,6 +836,15 @@ fun IssueFace(
         DueDateSheet(
             dueDate = issue.dueDate,
             onSetDate = { viewModel.updateDueDate(it) },
+            onDismiss = { controller.activeSheet = null },
+        )
+    }
+
+    if (activeSheet == IssueSheet.Estimate && issue != null && isModerator) {
+        EstimatePickerSheet(
+            current = issue.estimate,
+            estimationType = estimationType,
+            onSelect = { viewModel.updateEstimate(it) },
             onDismiss = { controller.activeSheet = null },
         )
     }

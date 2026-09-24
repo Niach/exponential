@@ -35,7 +35,8 @@ class EventPhrasesTest {
         event: IssueEventEntity,
         users: Map<String, UserEntity> = emptyMap(),
         labels: Map<String, LabelEntity> = emptyMap(),
-    ) = eventPhrase(event, users, labels)
+        estimationType: String? = null,
+    ) = eventPhrase(event, users, labels, estimationType)
 
     private val dana = UserEntity(
         id = "user-dana",
@@ -263,6 +264,40 @@ class EventPhrasesTest {
         )
     }
 
+    // ── EXP-630: estimate events ────────────────────────────────────────────
+
+    @Test
+    fun estimateChangedReadsOnTheTeamScale() {
+        assertEquals(
+            "set the estimate to L",
+            phrase(event("estimate_changed", """{"from":null,"to":5}"""), estimationType = "tshirt"),
+        )
+        assertEquals(
+            "set the estimate to 5 points",
+            phrase(event("estimate_changed", """{"from":null,"to":5}"""), estimationType = "linear"),
+        )
+    }
+
+    // The team row may not have synced when the timeline first draws: the
+    // phrase falls back to the fibonacci default (points), never the bare verb.
+    @Test
+    fun estimateChangedWithoutATeamScaleReadsPoints() {
+        assertEquals(
+            "set the estimate to 3 points",
+            phrase(event("estimate_changed", """{"from":5,"to":3}""")),
+        )
+        assertEquals("set the estimate to 1 point", phrase(event("estimate_changed", """{"to":1}""")))
+    }
+
+    @Test
+    fun estimateClearedReadsRemoved() {
+        assertEquals(
+            "removed the estimate",
+            phrase(event("estimate_changed", """{"from":5,"to":null}"""), estimationType = "tshirt"),
+        )
+        assertEquals("removed the estimate", phrase(event("estimate_changed", null)))
+    }
+
     // ── EXP-595: timeline glyphs (web `EventRow` / desktop `EventGlyph` parity) ──
 
     @Test
@@ -278,6 +313,7 @@ class EventPhrasesTest {
         assertSame(ExpIcons.eventPriorityChanged, plain("priority_changed"))
         assertSame(ExpIcons.eventRelationAdded, plain("relation_added"))
         assertSame(ExpIcons.eventRelationRemoved, plain("relation_removed"))
+        assertSame(ExpIcons.eventEstimateChanged, plain("estimate_changed"))
     }
 
     /** EXP-525 parity: the TARGET status's real row wins over the anchor. */

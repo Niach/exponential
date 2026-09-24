@@ -15,6 +15,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueEventEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -60,6 +61,9 @@ data class CommentThreadState(
      *  status surface uses. Empty while the shape is syncing (resolution
      *  degrades to the constructed builtin defaults). */
     val statuses: List<ResolvedIssueStatus> = emptyList(),
+    /** The issue's team `estimation_type` (EXP-630) — the scale an
+     *  `estimate_changed` row phrases on. Null until the team row syncs. */
+    val estimationType: String? = null,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -105,22 +109,29 @@ class CommentThreadViewModel @Inject constructor(
             }
         }
 
-    // The issue's team statuses (EXP-595) — the teamId comes off the issue's
-    // BOARD (issues don't denormalize it), re-keyed on issue/account switches,
-    // feeding the timeline's status-change glyphs.
-    private val statusRows: Flow<List<IssueStatusEntity>> =
+    // The issue's team vocabulary — its statuses (EXP-595) and its estimate
+    // scale (EXP-630). The teamId comes off the issue's BOARD (issues don't
+    // denormalize it), re-keyed on issue/account switches, feeding the
+    // timeline's status-change glyphs and estimate phrases.
+    private val teamVocabulary: Flow<Pair<List<IssueStatusEntity>, TeamEntity?>> =
         combine(dbFlow, issueIdFlow) { db, id -> db to id }
             .flatMapLatest { (db, id) ->
                 if (db == null || id == null) {
-                    flowOf(emptyList())
+                    flowOf(emptyList<IssueStatusEntity>() to null)
                 } else {
                     combine(db.issueDao().observeById(id), db.boardDao().observeAll()) { issue, boards ->
                         boards.firstOrNull { it.id == issue?.boardId }?.teamId
                     }
                         .distinctUntilChanged()
                         .flatMapLatest { teamId ->
-                            if (teamId == null) flowOf(emptyList())
-                            else db.issueStatusDao().observeByTeam(teamId)
+                            if (teamId == null) {
+                                flowOf(emptyList<IssueStatusEntity>() to null)
+                            } else {
+                                combine(
+                                    db.issueStatusDao().observeByTeam(teamId),
+                                    db.teamDao().observeById(teamId),
+                                ) { rows, team -> rows to team }
+                            }
                         }
                 }
             }
@@ -133,8 +144,8 @@ class CommentThreadViewModel @Inject constructor(
         commentsEventsLabels,
         dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() },
         auth.userId,
-        statusRows,
-    ) { issue, (comments, events, labels), users, userId, statusRows ->
+        teamVocabulary,
+    ) { issue, (comments, events, labels), users, userId, (statusRows, team) ->
         CommentThreadState(
             issue = issue,
             comments = comments,
@@ -143,6 +154,7 @@ class CommentThreadViewModel @Inject constructor(
             labelsById = labels.associateBy { it.id },
             currentUserId = userId,
             statuses = IssueStatusResolver.teamStatuses(statusRows),
+            estimationType = team?.estimationType,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CommentThreadState())
 

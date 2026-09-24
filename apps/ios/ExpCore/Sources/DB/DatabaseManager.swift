@@ -192,6 +192,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Team-level helpdesk switch (EXP-180): gates the Support
                 // inbox on every client. Synced on the teams shape.
                 t.column("helpdesk_enabled", .boolean).notNull().defaults(to: false)
+                // EXP-630: the estimate scale (contract `issueEstimation`);
+                // nullable, NULL reads as `none` = estimates off.
+                t.column("estimation_type", .text)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -245,6 +248,8 @@ public final class DatabaseManager: @unchecked Sendable {
                 // based on (`child.pr_base_branch == lower.branch`).
                 t.column("pr_base_branch", .text)
                 t.column("pr_merged_at", .text)
+                // EXP-630: story points; the team's scale renders them.
+                t.column("estimate", .integer)
                 t.column("created_at", .text).notNull()
                 t.column("updated_at", .text).notNull()
             }
@@ -1911,6 +1916,45 @@ public final class DatabaseManager: @unchecked Sendable {
                     SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
                     WHERE "shape" = 'automations'
                     """)
+            }
+        }
+
+        // v52 (EXP-630 estimates): `issues.estimate` (story points) and
+        // `teams.estimation_type` (the scale rendering them) both joined their
+        // shapes' column allowlists. Guarded additive ALTERs on both tables,
+        // each resetting ITS shape's offset only when it actually added the
+        // column (the v40 pattern: a fresh v1 store already declares both).
+        migrator.registerMigration("v52_issue_estimate") { db in
+            let hasOffsets = try db.tableExists("electric_offsets")
+            if try db.tableExists("issues") {
+                let existing = Set(try db.columns(in: "issues").map(\.name))
+                if !existing.contains("estimate") {
+                    try db.alter(table: "issues") { t in
+                        t.add(column: "estimate", .integer)
+                    }
+                    if hasOffsets {
+                        try db.execute(sql: """
+                            UPDATE "electric_offsets"
+                            SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                            WHERE "shape" = 'issues'
+                            """)
+                    }
+                }
+            }
+            if try db.tableExists("teams") {
+                let existing = Set(try db.columns(in: "teams").map(\.name))
+                if !existing.contains("estimation_type") {
+                    try db.alter(table: "teams") { t in
+                        t.add(column: "estimation_type", .text)
+                    }
+                    if hasOffsets {
+                        try db.execute(sql: """
+                            UPDATE "electric_offsets"
+                            SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                            WHERE "shape" = 'teams'
+                            """)
+                    }
+                }
             }
         }
 

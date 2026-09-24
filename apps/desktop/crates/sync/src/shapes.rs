@@ -191,6 +191,10 @@ pub const SHAPES: [ShapeSpec; 24] = [
             // request targets. `heal_missing_columns` ALTERs it onto existing
             // store tables and the shape-identity rotation's refetch fills it.
             "pr_base_branch",
+            // EXP-630: story points (always a point number; the team's
+            // `estimation_type` decides how it reads). `heal_missing_columns`
+            // ALTERs it onto existing store tables.
+            "estimate",
             "created_at",
             "updated_at",
         ],
@@ -880,6 +884,16 @@ mod tests {
         assert!(spec.columns.contains(&"pr_base_branch"));
         assert!(spec.columns.contains(&"branch"), "the other half of the edge");
         assert!(!spec.columns.contains(&"pr_stack_number"));
+    }
+
+    #[test]
+    fn issues_sync_the_estimate_and_teams_the_scale() {
+        // EXP-630: the estimate chip reads `issues.estimate` on the team's
+        // `estimation_type` — dropping either silently hides every estimate.
+        let spec = shape_by_name("issues").unwrap();
+        assert!(spec.columns.contains(&"estimate"));
+        let teams = shape_by_name("teams").unwrap();
+        assert!(teams.columns.contains(&"estimation_type"));
     }
 
     #[test]

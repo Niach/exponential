@@ -171,6 +171,10 @@ pub struct IssuesUpdateInput {
     /// `status='duplicate'` server-side; `Null` unmarks (restores backlog).
     #[serde(skip_serializing_if = "Patch::is_omit")]
     pub duplicate_of_id: Patch<String>,
+    /// EXP-630: story points (always a point number, the team's scale only
+    /// decides how it reads); `Null` clears.
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub estimate: Patch<i64>,
 }
 
 impl IssuesUpdateInput {
@@ -186,6 +190,7 @@ impl IssuesUpdateInput {
             description: Patch::Omit,
             due_date: Patch::Omit,
             duplicate_of_id: Patch::Omit,
+            estimate: Patch::Omit,
         }
     }
 }
@@ -791,6 +796,24 @@ mod tests {
         input.assignee_id = Patch::Set("u-1".to_string());
         let json = serde_json::to_string(&input).unwrap();
         assert_eq!(json, r#"{"id":"i-1","assigneeId":"u-1","dueDate":null}"#);
+    }
+
+    /// EXP-630: the estimate rides `issues.update` as a plain number, and
+    /// `null` clears it — never `0`, never a string.
+    #[test]
+    fn update_sets_and_clears_the_estimate() {
+        let mut input = IssuesUpdateInput::new("i-1");
+        input.estimate = Patch::Set(5);
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"id":"i-1","estimate":5}"#
+        );
+        let mut input = IssuesUpdateInput::new("i-1");
+        input.estimate = Patch::Null;
+        assert_eq!(
+            serde_json::to_string(&input).unwrap(),
+            r#"{"id":"i-1","estimate":null}"#
+        );
     }
 
     #[test]

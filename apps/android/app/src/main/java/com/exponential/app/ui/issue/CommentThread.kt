@@ -224,6 +224,7 @@ fun CommentThread(
                             usersById = state.usersById,
                             labelsById = state.labelsById,
                             statuses = state.statuses,
+                            estimationType = state.estimationType,
                             lineAbove = lineAbove,
                             lineBelow = lineBelow,
                         )

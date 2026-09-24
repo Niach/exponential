@@ -25,6 +25,11 @@ data class TeamEntity(
     // Team-level helpdesk switch (EXP-180): when on, every member gets the
     // "Support" inbox (standalone tickets with external reporters — not issues).
     @ColumnInfo(name = "helpdesk_enabled") @SerialName("helpdesk_enabled") @JsonNames("helpdeskEnabled") val helpdeskEnabled: PgBool = false,
+    // EXP-630: the team's estimate scale (contract `issueEstimation`:
+    // none | exponential | fibonacci | linear | tshirt). `none` (and a row
+    // from an older server that lacks the column) = estimates OFF, so the
+    // chip and the properties row hide; issues keep their point values.
+    @ColumnInfo(name = "estimation_type") @SerialName("estimation_type") @JsonNames("estimationType") val estimationType: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )
@@ -90,6 +95,9 @@ data class IssueEntity(
     @ColumnInfo(name = "creator_id") @SerialName("creator_id") @JsonNames("creatorId") val creatorId: String? = null,
     @ColumnInfo(name = "source") @SerialName("source") @JsonNames("source") val source: String? = null,
     @ColumnInfo(name = "due_date") @SerialName("due_date") @JsonNames("dueDate") val dueDate: String? = null,
+    // EXP-630: story points — always a point NUMBER, rendered on the team's
+    // `estimation_type` scale (domain/IssueEstimate.kt). NULL = not estimated.
+    val estimate: Int? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
     @ColumnInfo(name = "duplicate_of_id") @SerialName("duplicate_of_id") @JsonNames("duplicateOfId") val duplicateOfId: String? = null,

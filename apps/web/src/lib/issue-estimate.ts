@@ -20,8 +20,12 @@ export const ESTIMATION_TYPE_OPTIONS: { value: IssueEstimation; label: string; h
   { value: `tshirt`, label: `T-shirt`, hint: `XS, S, M, L, XL` },
 ]
 
-export function estimationScale(type: IssueEstimation): readonly number[] {
-  return type === `none` ? [] : ISSUE_ESTIMATION_SCALES[type]
+export const NO_ESTIMATE = `No estimate`
+
+export function estimationScale(type: IssueEstimation | string): readonly number[] {
+  return type in ISSUE_ESTIMATION_SCALES
+    ? ISSUE_ESTIMATION_SCALES[type as EstimationScale]
+    : []
 }
 
 function tshirtLabel(value: number): string | null {
@@ -30,8 +34,11 @@ function tshirtLabel(value: number): string | null {
 }
 
 /** "No estimate", "M", "1 point", "5 points". */
-export function estimateLabel(value: number | null | undefined, type: IssueEstimation = `fibonacci`): string {
-  if (value === null || value === undefined) return `No estimate`
+export function estimateLabel(
+  value: number | null | undefined,
+  type: IssueEstimation | string = `fibonacci`
+): string {
+  if (value === null || value === undefined) return NO_ESTIMATE
   if (type === `tshirt`) {
     const size = tshirtLabel(value)
     if (size) return size
@@ -40,7 +47,7 @@ export function estimateLabel(value: number | null | undefined, type: IssueEstim
 }
 
 /** The chip form: "M" on the t-shirt scale, "5 pt" elsewhere. */
-export function estimateShortLabel(value: number, type: IssueEstimation = `fibonacci`): string {
+export function estimateShortLabel(value: number, type: IssueEstimation | string = `fibonacci`): string {
   if (type === `tshirt`) {
     const size = tshirtLabel(value)
     if (size) return size
@@ -49,23 +56,47 @@ export function estimateShortLabel(value: number, type: IssueEstimation = `fibon
 }
 
 /**
- * Picker options: "No estimate" first, then the scale's ladder, plus the
- * current value when it sits off the ladder (an import from another scale),
- * so the trigger always names a listed option. Values are strings (the
- * picker's currency); `""` = clear.
+ * The values a picker offers: the scale's ladder plus the current value when
+ * it sits off the ladder (an import from another scale, a value set before
+ * the scale was switched), ascending — so the trigger always names a listed
+ * option. The "No estimate" row is the caller's.
+ */
+export function estimatePickerValues(
+  current: number | null | undefined,
+  type: IssueEstimation | string
+): number[] {
+  const values = new Set<number>(estimationScale(type))
+  if (typeof current === `number` && current >= 0) values.add(current)
+  return [...values].sort((left, right) => left - right)
+}
+
+/**
+ * Picker options: "No estimate" first, then `estimatePickerValues`. Values
+ * are strings (the picker's currency); `""` = clear.
  */
 export function estimatePickerOptions(
   current: number | null | undefined,
   type: IssueEstimation
 ): { value: string; label: string }[] {
-  const values = new Set<number>(estimationScale(type))
-  if (typeof current === `number` && current >= 0) values.add(current)
   return [
-    { value: ``, label: `No estimate` },
-    ...[...values]
-      .sort((left, right) => left - right)
-      .map((value) => ({ value: String(value), label: estimateLabel(value, type) })),
+    { value: ``, label: NO_ESTIMATE },
+    ...estimatePickerValues(current, type).map((value) => ({
+      value: String(value),
+      label: estimateLabel(value, type),
+    })),
   ]
+}
+
+/** The `estimate_changed` timeline phrase, on the team's scale. */
+export function estimateEventPhrase(
+  payload: Record<string, unknown> | null | undefined,
+  type: IssueEstimation | string = `fibonacci`
+): string {
+  const raw = payload?.to
+  const to =
+    typeof raw === `number` ? raw : typeof raw === `string` && raw !== `` ? Number(raw) : null
+  if (to === null || !Number.isFinite(to)) return `removed the estimate`
+  return `set the estimate to ${estimateLabel(to, type)}`
 }
 
 /** The picker's string back to the wire value (`""` → null). */

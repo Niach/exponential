@@ -12,8 +12,10 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.estimateShortLabel
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillSize
@@ -31,7 +33,8 @@ import com.exponential.app.ui.theme.glassCard
  * The top property chip box (EXP-240) — one glass box of wrapping capsule
  * chips replacing the stacked property/times cards + labels section: Status,
  * Priority, Assignee (hidden on solo teams, EXP-50), Due date (only when set),
- * one chip per assigned label, and a "+" chip. Chip taps open the per-property
+ * Estimate (EXP-630: only while the team's scale is not `none`; reads
+ * "Estimate" until set), one chip per assigned label, and a "+" chip. Chip taps open the per-property
  * sheets; the box background (FlowRow gaps included) and "+" open the combined
  * Properties sheet. Non-moderators see it dimmed and inert.
  */
@@ -45,13 +48,18 @@ fun IssuePropertyChips(
     issueLabels: List<LabelEntity>,
     isModerator: Boolean,
     hideAssignee: Boolean,
+    /** The team's `estimation_type` (contract issueEstimation); `none`/null
+     *  hides the estimate chip entirely (EXP-630). */
+    estimationType: String?,
     onOpenStatus: () -> Unit,
     onOpenPriority: () -> Unit,
     onOpenAssignee: () -> Unit,
     onOpenDueDate: () -> Unit,
+    onOpenEstimate: () -> Unit,
     onOpenLabels: () -> Unit,
     onOpenProperties: () -> Unit,
 ) {
+    val estimatesOn = estimationType != null && estimationType != DomainContract.issueEstimationNone
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -113,6 +121,16 @@ fun IssuePropertyChips(
                 maxLines = 1,
                 // Overdue/soon tints the whole pill, glyph and label alike.
                 contentColor = dueDateColor(issue.dueDate),
+            )
+        }
+        if (estimatesOn) {
+            GlassPill(
+                issue.estimate?.let { estimateShortLabel(it, estimationType!!) } ?: "Estimate",
+                size = PillSize.Sm,
+                enabled = isModerator,
+                onClick = onOpenEstimate,
+                icon = ExpIcons.uiEstimate,
+                maxLines = 1,
             )
         }
         issueLabels.forEach { label ->

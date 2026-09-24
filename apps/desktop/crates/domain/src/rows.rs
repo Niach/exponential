@@ -231,6 +231,12 @@ pub struct Issue {
     /// existed; `heal_missing_columns` ALTERs it in and the refetch backfills.
     #[serde(default)]
     pub pr_base_branch: Option<String>,
+    /// EXP-630 `issues.estimate` — story points, always a point NUMBER;
+    /// the team's `estimation_type` decides how it reads
+    /// ([`crate::issue_estimate`]). `None` = unset (and on rows synced
+    /// before the column existed; `heal_missing_columns` ALTERs it in).
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub estimate: Option<i64>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1881,6 +1887,37 @@ mod tests {
         assert_eq!(issue.priority, IssuePriority::High);
         assert_eq!(issue.sort_order, Some(1.5));
         assert_eq!(issue.description, None);
+    }
+
+    /// EXP-630: `estimate` arrives as a bare number from tRPC seeds and as
+    /// TEXT from Electric; a pre-column row simply has none.
+    #[test]
+    fn issue_estimate_hydrates_from_number_or_string_and_defaults_to_none() {
+        let base = json!({
+            "id": "i-1",
+            "board_id": "p-1",
+            "number": 1,
+            "identifier": "EXP-1",
+            "title": "Sized",
+            "status": "backlog"
+        });
+        let mut numeric = base.clone();
+        numeric["estimate"] = json!(5);
+        let issue: Issue = serde_json::from_value(numeric).expect("numeric estimate");
+        assert_eq!(issue.estimate, Some(5));
+
+        let mut text = base.clone();
+        text["estimate"] = json!("8");
+        let issue: Issue = serde_json::from_value(text).expect("text estimate");
+        assert_eq!(issue.estimate, Some(8));
+
+        let mut cleared = base.clone();
+        cleared["estimate"] = json!(null);
+        let issue: Issue = serde_json::from_value(cleared).expect("null estimate");
+        assert_eq!(issue.estimate, None);
+
+        let issue: Issue = serde_json::from_value(base).expect("pre-column row");
+        assert_eq!(issue.estimate, None);
     }
 
     #[test]

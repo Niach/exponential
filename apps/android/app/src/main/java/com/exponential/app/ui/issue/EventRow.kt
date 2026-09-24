@@ -21,6 +21,8 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.estimateEventPhrase
 import com.exponential.app.domain.relationEventPhrase
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.userDisplayName
@@ -41,13 +43,16 @@ internal fun EventRow(
     usersById: Map<String, UserEntity>,
     labelsById: Map<String, LabelEntity>,
     statuses: List<ResolvedIssueStatus>,
+    /** The team's `estimation_type` for `estimate_changed` rows (EXP-630);
+     *  null (team row not synced) phrases on the fibonacci default. */
+    estimationType: String?,
     lineAbove: Boolean = false,
     lineBelow: Boolean = false,
 ) {
     val who = userDisplayName(event.actorUserId?.let { usersById[it] }, event.actorUserId)
     val time = relativeTime(event.createdAt)
     val text = buildString {
-        append(who).append(' ').append(eventPhrase(event, usersById, labelsById))
+        append(who).append(' ').append(eventPhrase(event, usersById, labelsById, estimationType))
         // Only append the separator when there is a time to follow it — an
         // unparseable createdAt must not leave a dangling "·" (EXP-169).
         if (time.isNotEmpty()) append(" · ").append(time)
@@ -123,6 +128,7 @@ internal fun eventGlyph(
     "priority_changed" -> EventGlyph.Plain(ExpIcons.eventPriorityChanged)
     "relation_added" -> EventGlyph.Plain(ExpIcons.eventRelationAdded)
     "relation_removed" -> EventGlyph.Plain(ExpIcons.eventRelationRemoved)
+    "estimate_changed" -> EventGlyph.Plain(ExpIcons.eventEstimateChanged)
     else -> null
 }
 
@@ -147,10 +153,13 @@ internal fun eventVerb(type: String): String = when (type) {
 // degrade to the bare verb; board_moved (EXP-57) is self-contained. The
 // user/label maps are deliberately non-defaulted: a call site that forgets
 // them must fail to compile, not silently render pseudonyms and bare verbs.
+// [estimationType] (EXP-630) likewise: the team's scale names an estimate
+// ("L" vs "5 points"); null = not synced yet, phrased on fibonacci.
 internal fun eventPhrase(
     event: IssueEventEntity,
     usersById: Map<String, UserEntity>,
     labelsById: Map<String, LabelEntity>,
+    estimationType: String?,
 ): String {
     // One parse per phrase — status_changed/board_moved read two keys.
     val payload = parsedPayload(event.payload)
@@ -206,6 +215,12 @@ internal fun eventPhrase(
             type = field("type"),
             identifier = field("relatedIdentifier"),
             direction = field("direction"),
+        )
+        // EXP-630: contract-shared wording (estimateEventPhrase) on the team's
+        // scale; a missing/null `to` reads as cleared, never the bare verb.
+        "estimate_changed" -> estimateEventPhrase(
+            payload,
+            estimationType ?: DomainContract.issueEstimationFibonacci,
         )
         else -> eventVerb(event.type)
     }

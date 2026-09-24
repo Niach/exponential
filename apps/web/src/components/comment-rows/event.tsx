@@ -3,7 +3,7 @@ import { displayUserName } from "@/lib/user-display"
 import { conceptIcon } from "@exp/ui"
 import { relationEventParts } from "@/lib/issue-relations"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
-import { estimateLabel } from "@/lib/issue-estimate"
+import { estimateEventPhrase } from "@/lib/issue-estimate"
 import type { IssueEstimation } from "@/lib/domain"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
@@ -222,17 +222,9 @@ export function EventRow({
     // generic "<type> changed" fallback until they grow a phrase of their own.
     case `estimate_changed`: {
       Icon = EstimateChangedIcon
-      text =
-        payload.to === null || payload.to === undefined ? (
-          <>removed the estimate</>
-        ) : (
-          <>
-            set the estimate to{` `}
-            <span className="font-medium text-foreground">
-              {estimateLabel(Number(payload.to), (team?.estimationType as IssueEstimation | undefined) ?? `fibonacci`)}
-            </span>
-          </>
-        )
+      text = (
+        <>{estimateEventPhrase(payload, (team?.estimationType as IssueEstimation | undefined) ?? `fibonacci`)}</>
+      )
       break
     }
     // EXP-736: one phrase table (lib/issue-relations.ts) drives web, IDE and

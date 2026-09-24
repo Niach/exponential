@@ -101,6 +101,26 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertFalse(team.helpdeskEnabled)
     }
 
+    // EXP-630: the estimate scale rides the teams shape; a pre-rotation
+    // snapshot omits it (nil = `none`, estimates off).
+    func testTeamDecodesEstimationType() throws {
+        let team = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team", "helpdesk_enabled": "f",
+          "estimation_type": "fibonacci",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertEqual(team.estimationType, "fibonacci")
+        let older = try decode(TeamEntity.self, #"""
+        {
+          "id": "w1", "name": "Team", "slug": "team",
+          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }
+        """#)
+        XCTAssertNil(older.estimationType)
+    }
+
     // MARK: - Board (sort_order arrives as Postgres text off the wire)
 
     func testBoardDecodesWireSortOrderAndIgnoresDeadColumns() throws {

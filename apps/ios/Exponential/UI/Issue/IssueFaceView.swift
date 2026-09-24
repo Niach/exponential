@@ -21,6 +21,8 @@ enum IssuePropertyChild: String, Identifiable {
     case assignee
     case labels
     case dueDate
+    /// EXP-630: the story-points picker (only while the team's scale is on).
+    case estimate
     case moveBoard
     case duplicateOf
     /// EXP-736: the two-stage "Add relation" picker (kind, then issue).
@@ -143,6 +145,7 @@ struct IssueFaceView<Switcher: View>: View {
                     assignee: vm.assignee(),
                     assignedLabels: vm.assignedLabels,
                     singleMemberTeam: vm.singleMemberTeam,
+                    estimationType: vm.estimationType,
                     isModerator: vm.permissions.isModerator,
                     onTapProperty: { directChild = $0 },
                     onOpenProperties: { activeSheet = .properties }
@@ -390,6 +393,7 @@ struct IssueFaceView<Switcher: View>: View {
                 assignedIds: vm.assignedLabelIds,
                 relations: vm.relationRows,
                 singleMemberTeam: vm.singleMemberTeam,
+                estimationType: vm.estimationType,
                 board: vm.board,
                 hasMoveTargets: !vm.moveTargetBoards.isEmpty,
                 onToggleLabel: { labelId in
@@ -491,6 +495,12 @@ struct IssueFaceView<Switcher: View>: View {
             DueDateSheet(
                 date: parseDate(issue.dueDate),
                 onDateChange: { date in Task { await vm.setDueDate(date) } }
+            )
+        case .estimate:
+            EstimateSheet(
+                current: issue.estimate,
+                estimationType: vm.estimationType,
+                onSelect: { value in Task { await vm.setEstimate(value) } }
             )
         case .moveBoard:
             MoveBoardPickerSheet(
