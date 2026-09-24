@@ -51,11 +51,11 @@ struct AgentIssuePickerSheet: View {
             // EXP-892: the rows are RANKED here, so the primitive renders them
             // verbatim and only reports what was typed.
             query: $searchText,
-            open: $isPresented,
-            hideTrigger: true,
             // Why the list is empty, not just that it is: a team with nothing
             // codeable and a query with no hit are different answers.
             emptyText: model.issues.isEmpty ? "No eligible issues to code." : "No matching issues.",
+            open: $isPresented,
+            hideTrigger: true,
             footer: showsGuards ? { AnyView(guards) } : nil,
             sheetIdentifier: "agent-composer-issues-picker",
             trigger: { EmptyView() }
