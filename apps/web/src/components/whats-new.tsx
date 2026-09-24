@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { format, parseISO } from "date-fns"
 import { Megaphone, X } from "lucide-react"
 import {
@@ -11,36 +11,75 @@ import {
   Separator,
   useIsMobile,
 } from "@exp/ui"
+import { cn } from "@/lib/utils"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
-import { CHANGELOG, latestChangelogEntry } from "@/lib/changelog"
+import {
+  CHANGELOG,
+  latestChangelogEntry,
+  type ChangelogEntry,
+} from "@/lib/changelog"
 import { markChangelogSeen, readSeenChangelogId } from "@/lib/changelog-seen"
 
-// "What's new" changelog surfaces (EXP-164): a small dismissable card in the
-// sidebar footer previewing the latest release note, and the detailed sheet
-// it opens. The card keys on the HEAD entry of `CHANGELOG` — dismissing (or
-// opening) stores that entry's id per-device, and the card stays hidden until
-// a release prepends a fresh entry.
+// "What's new" changelog surfaces (EXP-164): a small dismissable card floating
+// over the bottom of the sidebar's scroll area previewing the latest release
+// note, and the detailed sheet it opens. The card keys on the HEAD entry of
+// `CHANGELOG` — dismissing (or opening) stores that entry's id per-device, and
+// the card stays hidden until a release prepends a fresh entry.
 
-export function WhatsNewCard({ onOpen }: { onOpen: () => void }) {
+/** The card's state, owned by the sidebar (EXP-1022): the card FLOATS over
+ *  the scroll area, so the scroll content needs to know whether to reserve
+ *  room under its last row — visibility has to live one level up. */
+export interface WhatsNewState {
+  latest: ChangelogEntry | null
+  visible: boolean
+  dismiss: () => void
+}
+
+export function useWhatsNew(): WhatsNewState {
   const latest = latestChangelogEntry()
   // Read once at mount — dismissal updates React state immediately, so the
   // stored value only matters for the initial render.
   const [seenId] = useState(() => readSeenChangelogId())
   const [dismissed, setDismissed] = useState(false)
-
-  if (!latest || dismissed || seenId === latest.id) return null
-
-  const dismiss = () => {
+  const dismiss = useCallback(() => {
+    if (!latest) return
     setDismissed(true)
     markChangelogSeen(latest.id)
+  }, [latest])
+  return {
+    latest,
+    visible: latest !== null && !dismissed && seenId !== latest.id,
+    dismiss,
   }
+}
+
+/** EXP-1022: the vertical room the sidebar's scroll content keeps under its
+ *  last row while the card floats (its height plus a gap), so the final entry
+ *  can still scroll clear of it. The desktop rail reserves the same
+ *  (`sidebar.rs` `WHATS_NEW_CLEARANCE`). */
+export const WHATS_NEW_CLEARANCE_CLASS = `pb-20`
+
+export function WhatsNewCard({
+  state,
+  onOpen,
+  className,
+}: {
+  state: WhatsNewState
+  onOpen: () => void
+  className?: string
+}) {
+  const { latest, visible, dismiss } = state
+  if (!latest || !visible) return null
 
   return (
     <div
       role="button"
       tabIndex={0}
       aria-label={`What's new: ${latest.title}`}
-      className="cursor-pointer rounded-lg border bg-card p-3 shadow-sm transition-colors hover:bg-accent/50"
+      className={cn(
+        `cursor-pointer rounded-lg border bg-card p-3 shadow-md transition-colors hover:bg-accent/50`,
+        className
+      )}
       onClick={() => {
         dismiss()
         onOpen()
