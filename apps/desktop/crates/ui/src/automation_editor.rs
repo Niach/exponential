@@ -108,6 +108,11 @@ pub(crate) struct DeviceOption {
     /// automation's `device_id` and what the host matches itself against.
     pub(crate) device_id: String,
     pub(crate) label: String,
+    /// EXP-924's stored device glyph (`contract::DEVICE_ICON_VALUES`), read
+    /// only through `icons::device_icon` — with [`Self::server`] for the
+    /// kind default when the row names none.
+    pub(crate) icon: Option<String>,
+    pub(crate) server: bool,
     pub(crate) online: bool,
     /// The agent CLIs the machine advertises — the Agent picker offers
     /// exactly these (the server re-checks the pin against the same list).
@@ -922,42 +927,41 @@ impl AutomationEditorState {
             cx,
         )
         .into_any_element();
-        // EXP-1030: the shared device picker (EXP-1021), the same rows the
-        // composer's device pin and the workflow runner draw. EXP-615: every
-        // automation-capable machine reads the same — offline-but-capable is
-        // not a lesser choice (the run fires when the machine comes back), so
-        // no row is greyed and none carries an online decoration; the
-        // Automations LIST shows presence.
+        // EXP-1021: THE device picker — the same rows the composer and the
+        // workflow runner row draw, each machine by its own glyph.
+        // EXP-615: every automation-capable machine reads the same.
+        // Offline-but-capable is not a lesser choice — the run fires when the
+        // machine comes back (the offline catch-up rule) — so no row is
+        // disabled and none carries an online decoration; the Automations
+        // LIST shows presence.
         let rows: Vec<crate::picker::device_picker::DevicePickerDevice> = devices
             .iter()
             .map(|device| crate::picker::device_picker::DevicePickerDevice {
                 id: device.device_id.clone(),
                 name: device.label.clone(),
-                icon: Some(
-                    launch_options::device_glyph_name(&device.device_id, cx).to_string(),
-                ),
+                icon: device.icon.clone(),
+                server: device.server,
                 description: None,
                 disabled: false,
             })
             .collect();
         let control = crate::picker::deferred(move |window, cx| {
-            let view = view.clone();
             crate::picker::device_picker::device_picker(
                 &rows,
-                bound.clone(),
+                bound,
                 trigger,
-                std::rc::Rc::new(move |values: Vec<String>, _window, cx: &mut App| {
-                    let Some(device_id) = values.into_iter().next() else {
+                std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                    let (Some(view), Some(device_id)) = (view.upgrade(), next.into_iter().next())
+                    else {
                         return;
                     };
-                    if let Some(view) = view.upgrade() {
-                        view.update(cx, |view, cx| {
-                            access(view).rebind_device(device_id, cx);
-                            cx.notify();
-                        });
-                    }
+                    view.update(cx, |view, cx| {
+                        access(view).rebind_device(device_id, cx);
+                        cx.notify();
+                    });
                 }),
             )
+            .id(SharedString::from(format!("{prefix}-device-picker")))
             .render(window, cx)
         })
         .into_any_element();
@@ -1225,6 +1229,8 @@ pub(crate) fn automation_devices(cx: &App) -> Vec<DeviceOption> {
             }
             Some(DeviceOption {
                 label: row.label.clone().unwrap_or_else(|| device_id.clone()),
+                icon: row.icon.clone(),
+                server: row.is_server(),
                 online: crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
                 agents,
                 default_agent,

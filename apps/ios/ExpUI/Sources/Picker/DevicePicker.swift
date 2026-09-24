@@ -27,6 +27,11 @@ public struct DevicePicker<Trigger: View>: View {
     public let devices: [DevicePickerDevice]
     public let value: String?
     public let onChange: (String) -> Void
+    /// The sheet headline; the default names the picker. A row that asks the
+    /// question in its own words — the automation editor's "Runs on" — says so
+    /// here, exactly as on Android (`DevicePicker.kt`), so the sheet cannot
+    /// contradict the row that opened it.
+    public let title: String
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
     /// property row or `…` menu drives `open` and hides the trigger, and
@@ -41,6 +46,7 @@ public struct DevicePicker<Trigger: View>: View {
         devices: [DevicePickerDevice],
         value: String?,
         onChange: @escaping (String) -> Void,
+        title: String = "Device",
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
@@ -49,6 +55,7 @@ public struct DevicePicker<Trigger: View>: View {
         self.devices = devices
         self.value = value
         self.onChange = onChange
+        self.title = title
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
@@ -74,7 +81,7 @@ public struct DevicePicker<Trigger: View>: View {
             value: value.map { [$0] } ?? [],
             onChange: { picked in picked.first.map(onChange) },
             emptyText: "No devices",
-            title: "Device",
+            title: title,
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,

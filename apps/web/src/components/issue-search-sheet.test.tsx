@@ -70,16 +70,6 @@ vi.mock(`@/hooks/use-issue-search-results`, () => ({
 }))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
   IssueStatusIcon: () => <span data-testid="status-icon" />,
-  // EXP-1021: the rows carry the issue's resolved status glyph as the
-  // picker's own leading slot too; the body this sheet draws is unchanged.
-  toStatusPickerStatus: () => ({
-    id: `s1`,
-    name: `Backlog`,
-    category: `backlog`,
-  }),
-}))
-vi.mock(`@/hooks/use-team-statuses`, () => ({
-  useTeamStatusesContext: () => ({ resolve: () => ({ id: `s1` }) }),
 }))
 
 const { IssueSearchSheet } = await import(`@/components/issue-search-sheet`)

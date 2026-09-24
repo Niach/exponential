@@ -53,6 +53,14 @@ public struct IssuePicker<Trigger: View>: View {
     /// A muted "Loading…" row instead of the rows, while the caller's pool is
     /// still being read.
     public let loading: Bool
+    /// The sheet headline; the default names the picker. A flow that is not
+    /// "pick an issue" but a NAMED link — "Parent of", "Duplicate of…" — says
+    /// so here, exactly as on Android (`IssuePicker.kt`) and web
+    /// (`mobileTitle`); the header is the only thing telling the user which of
+    /// the six relations they are creating.
+    public let title: String
+    /// What an empty list (or an empty search) reads as.
+    public let emptyText: String
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
     /// property row or `…` menu drives `open` and hides the trigger, and
@@ -61,9 +69,6 @@ public struct IssuePicker<Trigger: View>: View {
     public let open: Binding<Bool>?
     public let hideTrigger: Bool
     public let onDismiss: (() -> Void)?
-    /// EXP-1030 — what an empty list reads as; nil = "No issues". The
-    /// composer's pool says WHY it is empty ("No eligible issues to code").
-    public let emptyText: String?
     /// EXP-1030 — a block under the rows: the composer's batch guards
     /// (one repository per run, the batch cap), which caption the list.
     public let footer: (() -> AnyView)?
@@ -78,10 +83,11 @@ public struct IssuePicker<Trigger: View>: View {
         onChange: @escaping (Set<String>) -> Void,
         query: Binding<String>? = nil,
         loading: Bool = false,
+        title: String = "Issues",
+        emptyText: String = "No issues",
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
-        emptyText: String? = nil,
         footer: (() -> AnyView)? = nil,
         sheetIdentifier: String? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
@@ -92,10 +98,11 @@ public struct IssuePicker<Trigger: View>: View {
         self.onChange = onChange
         self.query = query
         self.loading = loading
+        self.title = title
+        self.emptyText = emptyText
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
-        self.emptyText = emptyText
         self.footer = footer
         self.sheetIdentifier = sheetIdentifier
         self.trigger = trigger
@@ -123,8 +130,11 @@ public struct IssuePicker<Trigger: View>: View {
             value: value,
             onChange: onChange,
             search: true,
-            emptyText: emptyText ?? "No issues",
-            title: "Issues",
+            emptyText: emptyText,
+            title: title,
+            // The placeholder keeps saying "issues" whatever the header says:
+            // a "Search parent of" field would read as nonsense.
+            searchPlaceholder: "Search issues",
             query: query,
             loading: loading,
             open: open,

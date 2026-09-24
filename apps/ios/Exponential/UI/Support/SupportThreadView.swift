@@ -71,6 +71,8 @@ struct SupportThreadView: View {
                     onChange: { boardId in
                         Task { await vm.escalate(boardId: boardId) }
                     },
+                    // The same words as the `…` item that opens it.
+                    title: "Escalate to issue",
                     open: $escalateOpen,
                     hideTrigger: true,
                     trigger: { EmptyView() }

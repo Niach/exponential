@@ -24,6 +24,7 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.ui.components.toPickerBoard
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -63,7 +64,12 @@ data class SheetActionsState(
 data class StartBoardOption(
     val id: String,
     val name: String,
-    /** Contract `boardIcon`, already resolved (a repo board's own fallback). */
+    /**
+     * EXP-1021: the board's resolved glyph NAME and colour, so every surface
+     * that lists these can draw the BOARD row the rest of the app draws
+     * (`boardPickerItems`) instead of a bare label. Resolved by
+     * [toPickerBoard], never guessed from a null here.
+     */
     val icon: String? = null,
     val colorHex: String? = null,
 )
@@ -213,7 +219,6 @@ class AgentLaunchDataViewModel @Inject constructor(
                 .filter { it.teamId == teamId && it.deletedAt == null }
                 .sortedBy { it.name.lowercase() }
                 .map { board ->
-                    // The shared adapter owns the icon fallback rule.
                     val row = board.toPickerBoard()
                     StartBoardOption(
                         id = row.id,

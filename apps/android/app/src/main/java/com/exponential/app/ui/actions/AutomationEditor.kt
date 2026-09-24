@@ -35,6 +35,8 @@ import com.exponential.app.domain.triggerWeekdayName
 import com.exponential.app.ui.components.AccountPill
 import com.exponential.app.ui.components.PickerValueRow
 import com.exponential.app.ui.components.picker.AccountPicker
+import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.components.picker.boardPickerItems
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
@@ -278,7 +280,10 @@ internal fun AutomationTriggerFields(
             AutomationFilterPicker(
                 label = "Board",
                 anyLabel = "Any board",
-                options = boards.map { StartFilterOption(it.id, it.name) },
+                // The board rows the rest of the app draws: glyph + colour.
+                options = boardPickerItems(
+                    boards.map { BoardPickerBoard(it.id, it.name, it.icon, it.colorHex) },
+                ),
                 selected = draft.boardId,
                 onSelect = { onChange(draft.copy(boardId = it)) },
             )
@@ -287,7 +292,7 @@ internal fun AutomationTriggerFields(
                 AutomationFilterPicker(
                     label = "Label",
                     anyLabel = "Any label",
-                    options = labels,
+                    options = labels.map { it.toFilterRow() },
                     selected = draft.labelId,
                     onSelect = { onChange(draft.copy(labelId = it)) },
                 )
@@ -298,7 +303,7 @@ internal fun AutomationTriggerFields(
                     label = "Priority",
                     anyLabel = "Any priority",
                     options = DomainContract.issuePriorityValues.map {
-                        StartFilterOption(it, IssuePriority.fromWire(it).label)
+                        PickerItem(value = it, label = IssuePriority.fromWire(it).label)
                     },
                     selected = draft.priority,
                     onSelect = { onChange(draft.copy(priority = it)) },
@@ -309,7 +314,7 @@ internal fun AutomationTriggerFields(
                 AutomationFilterPicker(
                     label = "To status",
                     anyLabel = "Any status",
-                    options = statuses,
+                    options = statuses.map { it.toFilterRow() },
                     selected = draft.toStatusId,
                     onSelect = { onChange(draft.copy(toStatusId = it)) },
                 )
@@ -554,19 +559,23 @@ private fun AutomationTimeRow(time: String, onChange: (String) -> Unit) {
 
 // One "Any"-defaulted single-select filter row: the empty value is the
 // no-filter state and stays re-pickable as the first option.
+//
+// [options] arrive as picker ROWS rather than bare names so the BOARD filter
+// can hand over `boardPickerItems`' rows — a board is a glyph in its colour
+// everywhere else in the app, and a filter sheet is no place to start drawing
+// it as a bare label (EXP-1021).
 @Composable
 private fun AutomationFilterPicker(
     label: String,
     anyLabel: String,
-    options: List<StartFilterOption>,
+    options: List<PickerItem<String>>,
     selected: String,
     onSelect: (String) -> Unit,
 ) {
     // EXP-1021: one sheet language for every filter — the shared [Picker],
     // with the "Any X" reset as its first ROW (a filter's cleared state is a
     // choice, not a missing one).
-    val rows = listOf(PickerItem(value = "", label = anyLabel)) +
-        options.map { PickerItem(value = it.id, label = it.name) }
+    val rows = listOf(PickerItem(value = "", label = anyLabel)) + options
     Picker(
         items = rows,
         mode = PickerMode.Single,
@@ -576,9 +585,13 @@ private fun AutomationFilterPicker(
         trigger = { open ->
             PickerValueRow(
                 label = label,
-                value = options.firstOrNull { it.id == selected }?.name ?: anyLabel,
+                value = options.firstOrNull { it.value == selected }?.label ?: anyLabel,
                 onClick = open,
             )
         },
     )
 }
+
+/** A plain id/name filter option as a picker row. */
+private fun StartFilterOption.toFilterRow(): PickerItem<String> =
+    PickerItem(value = id, label = name)

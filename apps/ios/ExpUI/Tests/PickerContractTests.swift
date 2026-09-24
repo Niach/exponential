@@ -92,6 +92,124 @@ final class PickerContractTests: XCTestCase {
         }
     }
 
+    /// A typed picker's HEADER is a PARAMETER, not a constant (EXP-1021
+    /// review r2; Android carries the same parameters). The default names the
+    /// picker, so a plain "pick a board" moves nothing — but a flow whose
+    /// whole meaning is in the header says it: the relations linker titles
+    /// stage two by the link being made ("Parent of"), move-to-board and
+    /// escalate-to-issue by the `…` item that opened them, and an
+    /// automation's "Runs on" row by its own words.
+    func testATypedPickerHeaderIsAParameterNotAConstant() {
+        XCTAssertEqual(
+            IssuePicker(issues: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Issues"
+        )
+        XCTAssertEqual(
+            IssuePicker(
+                issues: [], value: [], onChange: { _ in }, title: "Parent of",
+                trigger: { EmptyView() }
+            ).title,
+            "Parent of"
+        )
+        XCTAssertEqual(
+            BoardPicker(boards: [], value: nil, onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Board"
+        )
+        XCTAssertEqual(
+            BoardPicker(
+                boards: [], value: nil, onChange: { _ in }, title: "Move to board",
+                trigger: { EmptyView() }
+            ).title,
+            "Move to board"
+        )
+        XCTAssertEqual(
+            DevicePicker(devices: [], value: nil, onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Device"
+        )
+        XCTAssertEqual(
+            DevicePicker(
+                devices: [], value: nil, onChange: { _ in }, title: "Runs on",
+                trigger: { EmptyView() }
+            ).title,
+            "Runs on"
+        )
+        XCTAssertEqual(
+            ActionPicker(actions: [], value: nil, onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Action"
+        )
+        XCTAssertEqual(
+            StatusPicker(statuses: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Status"
+        )
+        XCTAssertEqual(
+            PriorityPicker(options: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Priority"
+        )
+        XCTAssertEqual(
+            LabelPicker(labels: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).title,
+            "Labels"
+        )
+    }
+
+    /// The same for the empty line, on the two pickers that filter a POOL:
+    /// "no matching issues" and "no issues at all" are different answers, and
+    /// the linkers only ever mean the first.
+    func testTheEmptyLineIsAParameterOnThePoolPickers() {
+        XCTAssertEqual(
+            IssuePicker(issues: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).emptyText,
+            "No issues"
+        )
+        XCTAssertEqual(
+            IssuePicker(
+                issues: [], value: [], onChange: { _ in }, emptyText: "No matching issues",
+                trigger: { EmptyView() }
+            ).emptyText,
+            "No matching issues"
+        )
+        XCTAssertEqual(
+            LabelPicker(labels: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).emptyText,
+            "No labels"
+        )
+        XCTAssertEqual(
+            LabelPicker(
+                labels: [], value: [], onChange: { _ in },
+                emptyText: "No labels yet. Type a name to create one.",
+                trigger: { EmptyView() }
+            ).emptyText,
+            "No labels yet. Type a name to create one."
+        )
+    }
+
+    /// The picker renders the rows it is handed, on all four clients — so a
+    /// member pool's ORDER is the SOURCE's job, never the sheet's. iOS reads
+    /// its members with a `fetchAll`, which has no order at all;
+    /// `membersByDisplayName` is the twin of Android's
+    /// `UserDao.observeByTeam` `ORDER BY u.name, u.email`, on the RESOLVED
+    /// display name so a row that reads as its email files under the email.
+    func testAMemberPoolIsOrderedByDisplayNameBeforeThePickerSeesIt() {
+        let member = { (id: String, name: String?, email: String) in
+            UserEntity(id: id, name: name, email: email, image: nil, createdAt: "", updatedAt: "")
+        }
+        let pool = [
+            member("3", "zoe", "z@exp.dev"),
+            member("1", nil, "ada@exp.dev"),
+            member("2", "Bea", "b@exp.dev"),
+        ]
+        XCTAssertEqual(
+            AssigneePicker<EmptyView>.items(
+                membersByDisplayName(pool).map(AssigneePickerMember.init), allowsNone: false
+            ).map(\.label),
+            ["ada@exp.dev", "Bea", "zoe"]
+        )
+        // The unordered pool is exactly what the bug looked like.
+        XCTAssertEqual(
+            AssigneePicker<EmptyView>.items(
+                pool.map(AssigneePickerMember.init), allowsNone: false
+            ).map(\.label),
+            ["zoe", "ada@exp.dev", "Bea"]
+        )
+    }
+
     /// The whole point of EXP-1021: the sheet's rows sit on the sheet itself.
     /// A resting row has NO fill and NO hairline — there is nothing between
     /// `GlassSheetChrome` and the list, and the row list's insets are the same

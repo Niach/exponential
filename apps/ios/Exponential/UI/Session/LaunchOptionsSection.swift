@@ -129,6 +129,9 @@ struct LaunchOptionsSection: View {
                     },
                     value: deviceId,
                     onChange: { deviceId = $0 },
+                    // The sheet says what the ROW says — an automation's
+                    // "Runs on" must not open a sheet headed "Device".
+                    title: deviceTitle,
                     trigger: {
                         GlassPickerRowLabel(
                             deviceTitle,

@@ -1,6 +1,8 @@
 package com.exponential.app.ui.components.picker
 
 import androidx.compose.ui.graphics.Color
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.ui.components.toPickerDevice
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import java.io.File
@@ -49,10 +51,13 @@ class PickerContractTest {
             listOf("Unassigned", "Ada"),
             assigneePickerItems(listOf(AssigneePickerMember("u", "Ada")), allowsNone = true).map { it.label },
         )
-        // The device set is the registry's append-only `devicePickable` list;
-        // `laptop` has been in it since EXP-924 and can never leave.
-        assertTrue(iconPickerItems(IconPickerSet.Device).any { it.value == "laptop" })
-        assertTrue(iconPickerItems(IconPickerSet.Board).none { it.value == "laptop" })
+        // The icon picker is the tenth, and the SET it offers is the registry's
+        // own append-only list (EXP-924) — `laptop` is a device glyph and has
+        // never been a board one. It renders those names as a grid rather than
+        // as rows, so there is no `iconPickerItems` here to build: the picker
+        // package holds no dead row builder for it.
+        assertTrue(ExpIcons.devicePickable.contains("laptop"))
+        assertFalse(ExpIcons.pickable.contains("laptop"))
         // A machine always resolves a glyph, and a SERVER never wears the
         // desktop default.
         val server = devicePickerItems(
@@ -150,6 +155,60 @@ class PickerContractTest {
         val labelSheet = moduleFile("src/main/java/com/exponential/app/ui/issue/LabelPickerSheet.kt").readText()
         assertTrue(labelSheet.contains("PickerActionRow("))
         assertFalse("no second row idiom in the sheet", labelSheet.contains("GlassSheetRow("))
+    }
+
+    /**
+     * A footer under a PANEL has to keep its height. `GlassSheet` caps its
+     * column (85 % of the screen on a fitted sheet) and measures its
+     * UNWEIGHTED children against that whole cap first — an unweighted
+     * scrolling panel therefore eats the main axis and the footer beside it
+     * measures at maxHeight 0, which is not a short row but NO row. That is
+     * exactly how the icon picker's "No icon" reset disappeared on a phone:
+     * the board set is 7 columns x 14 rows, over the cap on every handset, so
+     * an `allowsNone` host could not clear an icon at all.
+     *
+     * So the panel is the one child that may grow, `fill = false` so a short
+     * one still takes only what it needs, and the footer is its SIBLING (in
+     * the rows branch it is a list item instead, where it scrolls with them).
+     */
+    @Test
+    fun aPanelLeavesRoomForTheFooterUnderIt() {
+        val source = pickerSource("Picker.kt")
+        val branch = source.indexOf("if (panel != null) {")
+        val bounded = source.indexOf("Modifier.weight(1f, fill = false)")
+        val panelCall = source.indexOf("panel { picked ->")
+        val footer = source.indexOf("footer?.invoke()")
+        assertTrue(branch > 0 && bounded > 0 && panelCall > 0 && footer > 0)
+        assertTrue("the panel slot is bounded inside the panel branch", branch < bounded)
+        assertTrue("and the panel renders inside that slot", bounded < panelCall)
+        assertTrue("with the footer under it, not inside it", panelCall < footer)
+        // The ROW branch's footer scrolls with the rows instead, so it is a
+        // list item rather than a sibling of the scroller.
+        assertTrue(source.contains("if (footer != null) item { footer() }"))
+    }
+
+    /**
+     * The ONE recorded exception to "a board list is a [BoardPicker]": the
+     * share composer's target sheet (`ui/share/ShareBoardPicker.kt`) spans
+     * TEAMS, and the shared `BoardPickerBoard` contract (web
+     * `board-picker.tsx`) carries no team. A picker row is FLAT — the contract
+     * has no section header — so it rides the PRIMITIVE with
+     * [boardPickerItems]' rows and says the team in the row's own muted second
+     * line. What it may not do is keep a selection language of its own.
+     */
+    @Test
+    fun theShareTargetSheetIsAFlatPickerWithItsTeamAsTheDescription() {
+        val share = moduleFile("src/main/java/com/exponential/app/ui/share/ShareBoardPicker.kt").readText()
+        assertTrue("it renders the primitive", share.contains("    Picker("))
+        assertTrue("over the shared board rows", share.contains("boardPickerItems("))
+        assertTrue("the team is the row's description", share.contains("description = group.team.name"))
+        assertFalse("never a sheet of its own", share.contains("GlassSheet("))
+        assertFalse("never a second picked idiom", share.contains("GlassSheetRow("))
+        // The form row that opens option sheets everywhere else went the same
+        // way, so no surface reaching it draws a trailing check either.
+        val optionRows = moduleFile("src/main/java/com/exponential/app/ui/components/SheetOptionRows.kt").readText()
+        assertTrue("the form row is the picker's trigger", optionRows.contains("    Picker("))
+        assertFalse("and never draws its own option sheet", optionRows.contains("GlassSheet(title = label"))
     }
 
     /**
@@ -332,6 +391,37 @@ class PickerContractTest {
         val source = pickerSource("Picker.kt")
         assertTrue(source.contains("PickerDefaults.DotSize"))
         assertTrue(source.contains("TextEmphasis.Tertiary"))
+    }
+
+    /**
+     * A machine that cannot take a start renders DISABLED with the reason as
+     * its description — a documented device-picker rule that nothing could
+     * reach while the adapter dropped both fields on the floor.
+     * [com.exponential.app.domain.LaunchDeviceRules] owns the verdict and the
+     * sentence, so a sheet row never invents a third wording.
+     */
+    @Test
+    fun anUnstartableMachineIsADisabledRowThatSaysWhy() {
+        val offline = SteerDevice(deviceId = "d", deviceLabel = "buildbox", online = false)
+            .toPickerDevice()
+        assertTrue(offline.disabled)
+        assertEquals("Offline", offline.description)
+        val signedOut = SteerDevice(
+            deviceId = "e",
+            deviceLabel = "mbp",
+            // Online, installed, and every login dead — as unstartable as an
+            // offline machine, and the one case the row can name the agent of.
+            agents = emptyList(),
+            unauthedAgents = listOf("claude"),
+        ).toPickerDevice()
+        assertTrue(signedOut.disabled)
+        assertEquals("claude not signed in", signedOut.description)
+        val ready = SteerDevice(deviceId = "f", deviceLabel = "mbp", agents = listOf("claude"))
+            .toPickerDevice()
+        assertFalse(ready.disabled)
+        assertNull(ready.description)
+        // And the primitive already refuses to pick one.
+        assertNull(PickerRules.select(PickerMode.Single, emptySet(), devicePickerItems(listOf(offline)).single()))
     }
 
     private fun items(): List<PickerItem<String>> = listOf(

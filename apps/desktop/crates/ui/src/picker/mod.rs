@@ -44,8 +44,8 @@ use gpui_component::{
 use theme::tokens as t;
 
 use crate::pickers::{
-    clamp_picker_selection, picker_row, selection_glyph, step_picker_selection, SelectionState,
-    PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH,
+    clamp_picker_selection, picker_row_filled, selection_glyph, step_picker_selection,
+    SelectionState, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH,
 };
 
 pub(crate) mod account_picker;
@@ -591,6 +591,13 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 let enabled: Vec<bool> = visible.iter().map(|ix| !items[*ix].disabled).collect();
                 let cursor_at = clamp_picker_selection(state.read(cx).cursor(), &enabled);
                 let target = cursor_at.map(|position| items[visible[position]].value.clone());
+                // The cursor is the ENTER TARGET always, but it only PAINTS
+                // once the user has reached for the list (EXP-1045 review): a
+                // fresh multi surface draws the cursor in the very fill its
+                // selection wash uses, so a drawn cursor on row 0 would read
+                // as a picked first row — and a `search = false` multi picker
+                // has no way to move it off.
+                let cursor_shown = state.read(cx).cursor_visible();
                 let list_active = cx.theme().list_active;
 
                 column = column
@@ -648,26 +655,36 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     let popover_state = popover_state.clone();
                     let state = state.clone();
                     let value = value.clone();
-                    let mut row = picker_row(
+                    // THE selection language (EXP-1021): a multi pick reads
+                    // as the row's own highlight — fill plus the active
+                    // stroke, never a circle. The stroke is also the third
+                    // state: on ALL of a bulk edit's rows it is there, on
+                    // only SOME the wash stands alone. The cursor rides the
+                    // SAME fill, so both live in `row_fill` — one `bg` for
+                    // the two of them, never one overpainting the other, and
+                    // the HOVERED fill is composed the same way (gpui's hover
+                    // refinement replaces `background` outright, so a picked
+                    // row handed only the plain row fill would shed its mark
+                    // under the pointer). Hovering MOVES the cursor here, so
+                    // the pointer fill is the cursor's — except on a disabled
+                    // row, which never takes it.
+                    let (at_rest, under_pointer) = row_fills(
+                        multi,
+                        mark,
+                        cursor_shown && cursor_at == Some(position),
+                        disabled,
+                        list_active,
+                    );
+                    let mut row = picker_row_filled(
                         ElementId::Name(SharedString::from(format!("{rows_id:?}-{position}"))),
+                        at_rest,
+                        under_pointer,
                         cx,
                     )
                     // A border on EVERY row, transparent unless the row is
                     // picked: the mark must not move the rows it marks.
                     .border_1()
                     .border_color(gpui::transparent_black())
-                    // THE selection language (EXP-1021): a multi pick reads
-                    // as the row's own highlight — fill plus the active
-                    // stroke, never a circle. The stroke is also the third
-                    // state: on ALL of a bulk edit's rows it is there, on
-                    // only SOME the wash stands alone. The cursor rides the
-                    // SAME fill, so both live in `row_fill` (below) — one
-                    // `bg` for the two of them, never one overpainting the
-                    // other.
-                    .when_some(
-                        row_fill(multi, mark, cursor_at == Some(position), list_active),
-                        |row, fill| row.bg(fill),
-                    )
                     .when(multi && mark == PickerChecked::All, |row| {
                         row.border_color(t::glass::STROKE_ACTIVE.to_hsla())
                     })
@@ -730,6 +747,30 @@ fn draw_item<T: Clone>(
         Some(render) => render(item, cx),
         None => picker_item_body(item, cx),
     }
+}
+
+/// The TWO backgrounds a search-surface row hands
+/// [`crate::pickers::picker_row_filled`]: the one it paints at rest, and the
+/// one it paints under the pointer.
+///
+/// EXP-1045 review round 2: gpui's hover refinement REPLACES `background`, so
+/// a row given only the plain row fill on hover sheds its selection wash the
+/// moment the pointer touches it — a `Some` row lost its whole mark, an `All`
+/// row kept nothing but its stroke. The hovered fill is therefore composed by
+/// the same rule, with the cursor ON: hovering MOVES the cursor onto the row
+/// under the pointer (one highlight, EXP-892), so the two states are the same
+/// paint. A disabled row never takes the cursor, so it hovers as it rests.
+fn row_fills(
+    multi: bool,
+    mark: PickerChecked,
+    at_cursor: bool,
+    disabled: bool,
+    cursor: Hsla,
+) -> (Option<Hsla>, Option<Hsla>) {
+    (
+        row_fill(multi, mark, at_cursor, cursor),
+        row_fill(multi, mark, !disabled, cursor),
+    )
 }
 
 /// The one background a search-surface row paints: the keyboard cursor, the
@@ -878,6 +919,10 @@ fn picker_empty_row(message: SharedString, cx: &App) -> impl IntoElement {
 #[derive(Default)]
 struct PickerSurfaceState {
     cursor: usize,
+    /// Has the user reached for the list yet — a ↑/↓, a hover, a typed query?
+    /// Until then the cursor is only the ENTER TARGET and paints nothing
+    /// ([`Self::cursor_visible`]).
+    reached: bool,
     query: String,
 }
 
@@ -886,25 +931,38 @@ impl PickerSurfaceState {
         self.cursor
     }
 
-    /// `true` when the cursor actually moved (only then is a repaint owed).
+    /// Whether the cursor paints. A fresh surface says nothing about row 0:
+    /// on a MULTI picker the cursor tint IS the selection wash, so a resting
+    /// cursor would claim the first row is picked — and a `search = false`
+    /// multi picker (the status / priority filters) has no key that could
+    /// move it off again. Enter still targets the row underneath.
+    fn cursor_visible(&self) -> bool {
+        self.reached
+    }
+
+    /// `true` when the painted cursor actually changed (only then is a
+    /// repaint owed) — including the first reach, which makes it appear.
     fn move_to(&mut self, position: usize) -> bool {
-        if self.cursor == position {
-            return false;
-        }
+        let changed = self.cursor != position || !self.reached;
         self.cursor = position;
-        true
+        self.reached = true;
+        changed
     }
 
     fn reset(&mut self) {
         self.cursor = 0;
+        self.reached = false;
         self.query.clear();
     }
 
-    /// A changed query puts the top row back under the cursor.
+    /// A changed query puts the top row back under the cursor — and a
+    /// NON-empty one is itself a reach for the list, so the top match paints
+    /// as what Enter will pick; clearing the field takes that back.
     fn sync_query(&mut self, query: &str) {
         if self.query != query {
             self.query = query.to_string();
             self.cursor = 0;
+            self.reached = !query.is_empty();
         }
     }
 }
@@ -920,7 +978,15 @@ fn cursor_move_listener<A: gpui::Action>(
     let state = state.clone();
     move |_, _window, cx| {
         let current = state.read(cx).cursor();
-        if let Some(next) = step_picker_selection(current, delta, &enabled) {
+        // While the cursor is only the Enter target and paints nothing, the
+        // first ↑/↓ REVEALS it where it already sits rather than stepping
+        // past the row Enter would have picked.
+        let next = if state.read(cx).cursor_visible() {
+            step_picker_selection(current, delta, &enabled)
+        } else {
+            clamp_picker_selection(current, &enabled)
+        };
+        if let Some(next) = next {
             if state.update(cx, |state, _| state.move_to(next)) {
                 cx.notify(parent_view_id);
             }
@@ -1113,6 +1179,87 @@ mod tests {
         assert_eq!(row_fill(true, PickerChecked::None, false, cursor), None);
     }
 
+    /// EXP-1045 review round 2: the HOVERED fill is the one the pointer
+    /// actually paints (gpui's hover refinement replaces `background`), so a
+    /// picked row has to carry its mark there too — asserting only the cursor
+    /// fill let the round-1 stacking fix be defeated by `picker_row`'s own
+    /// hover style.
+    #[test]
+    fn a_picked_row_keeps_its_mark_under_the_pointer_too() {
+        let cursor = t::glass::FILL_ACTIVE.to_hsla();
+        let hovered = |mark| row_fills(true, mark, false, false, cursor).1;
+
+        // Every multi state hovers as something, and a picked one hovers
+        // DEEPER than an unpicked one — the wash is still in the paint.
+        let plain = hovered(PickerChecked::None).expect("a hovered row is filled");
+        let partly = hovered(PickerChecked::Some).expect("a hovered row is filled");
+        let fully = hovered(PickerChecked::All).expect("a hovered row is filled");
+        assert_eq!(plain, cursor, "an unpicked row hovers as the bare cursor");
+        assert_ne!(partly, plain, "a partly-picked row hovers as picked");
+        assert_eq!(partly, fully, "the third state is the stroke's, not the fill's");
+        assert!(partly.a > plain.a, "the wash and the cursor stack");
+
+        // A row at rest under the cursor and the same row hovered are ONE
+        // paint: hovering moves the cursor onto the row it points at.
+        let (at_cursor, hovered_same) = row_fills(true, PickerChecked::Some, true, false, cursor);
+        assert_eq!(at_cursor, hovered_same);
+
+        // A disabled row cannot take the cursor, so it hovers as it rests —
+        // an unpicked one paints nothing at all.
+        assert_eq!(
+            row_fills(true, PickerChecked::None, false, true, cursor),
+            (None, None)
+        );
+        assert_eq!(
+            row_fills(true, PickerChecked::Some, false, true, cursor),
+            (Some(cursor), Some(cursor)),
+            "a disabled picked row keeps its wash and gains no hover tint"
+        );
+    }
+
+    /// EXP-1045 review round 2: the across-frame state of the searchable
+    /// surface — the STALE-SEARCH rule (a query change puts the top row back
+    /// under the cursor), the fresh-open reset `on_open_change` calls, and
+    /// the resting cursor that paints nothing until the user reaches for the
+    /// list (else an unpicked first row wears the selection wash).
+    #[test]
+    fn the_cursor_resets_on_a_query_change_and_on_open() {
+        let mut state = PickerSurfaceState::default();
+        assert_eq!(state.cursor(), 0);
+        assert!(!state.cursor_visible(), "a fresh surface marks no row at all");
+
+        // A reach (↑/↓ or a hover) moves the cursor AND reveals it; moving it
+        // nowhere is not a repaint.
+        assert!(state.move_to(2));
+        assert_eq!(state.cursor(), 2);
+        assert!(state.cursor_visible());
+        assert!(!state.move_to(2), "no move, no repaint");
+
+        // A narrowed query re-targets the top row — and paints there, because
+        // typing is itself a reach: the highlight says what Enter picks.
+        state.sync_query("al");
+        assert_eq!(state.cursor(), 0);
+        assert!(state.cursor_visible());
+        state.move_to(1);
+        state.sync_query("al");
+        assert_eq!(state.cursor(), 1, "the same query leaves the cursor alone");
+
+        // Clearing the field takes the paint back with it.
+        state.sync_query("");
+        assert_eq!(state.cursor(), 0);
+        assert!(!state.cursor_visible());
+
+        // Every open starts over (`on_open_change`).
+        state.sync_query("beta");
+        state.move_to(3);
+        state.reset();
+        assert_eq!(state.cursor(), 0);
+        assert!(!state.cursor_visible());
+        state.sync_query("beta");
+        assert_eq!(state.cursor(), 0, "the reset forgot the query too");
+        assert!(state.cursor_visible());
+    }
+
     /// Presentation belongs to the primitive: a caller asks for `search`,
     /// for `multi` or for a `panel` — never for a popover.
     #[test]
@@ -1240,6 +1387,7 @@ mod tests {
                     id: "device-1".to_string(),
                     name: "studio".to_string(),
                     icon: Some("laptop".to_string()),
+                    server: false,
                     description: Some("Offline".to_string()),
                     disabled: true,
                 }];

@@ -38,6 +38,10 @@ struct RelationPickerSheet: View {
                 .background {
                     IssueCandidatePicker(
                         candidates: candidates,
+                        // Stage two is titled by the KIND picked in stage one
+                        // — "Parent of", "Blocked by" — because the rows
+                        // themselves look identical for all six links.
+                        title: pick?.title ?? "Issues",
                         open: Binding(
                             get: { pick != nil },
                             set: { isOpen in if !isOpen { pick = nil } }

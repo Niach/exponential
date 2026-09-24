@@ -29,5 +29,9 @@ func humanTeamMemberIds(teamId: String, db: Database) throws -> [String] {
 /// happens here via the synced team_members rows (EXP-487).
 func teamMemberUsers(teamId: String, db: Database) throws -> [UserEntity] {
     let memberIds = try humanTeamMemberIds(teamId: teamId, db: db)
-    return try UserEntity.filter(memberIds.contains(Column("id"))).fetchAll(db)
+    // Display-name order, at the source (EXP-1021 review r2) — the shared
+    // assignee picker renders the rows it is handed.
+    return membersByDisplayName(
+        try UserEntity.filter(memberIds.contains(Column("id"))).fetchAll(db)
+    )
 }

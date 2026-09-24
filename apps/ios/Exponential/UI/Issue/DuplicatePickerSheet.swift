@@ -24,15 +24,22 @@ struct DuplicateIssuePicker: View {
     var body: some View {
         IssueCandidatePicker(
             candidates: candidates,
+            // The same words the banner the pick writes will use.
+            title: "Duplicate of",
             open: open,
             onDismiss: onDismiss,
             serverSearch: serverSearch,
             onSelect: onSelect
         )
         // Loaded on demand: a picker the user never opens never touches the
-        // store, and the sheet draws its loading row until the pool lands.
+        // store, and the sheet draws its loading row until the first pool
+        // lands. Re-read on EVERY opening — the picker is permanently mounted
+        // (the status picker hands off to it rather than a trigger opening
+        // it), so a once-only load could never offer an issue created after
+        // the first open. The previous pool stays on screen while the new one
+        // is read: dropping it would flash the loading row on a re-open.
         .task(id: open.wrappedValue) {
-            guard open.wrappedValue, candidates == nil else { return }
+            guard open.wrappedValue else { return }
             candidates = await loadCandidates()
         }
     }

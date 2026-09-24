@@ -524,6 +524,9 @@ pub(crate) fn launch_device_rows(
             id: device.device_id.clone(),
             name: device.label.clone(),
             icon: Some(device_glyph_name(&device.device_id, cx).to_string()),
+            // The glyph above is already resolved (EXP-924), so the kind
+            // default the picker would derive from this is never consulted.
+            server: false,
             description: None,
             // EXP-615: an offline-but-capable machine is not a lesser choice
             // (the run fires when it comes back), so no candidate is ever

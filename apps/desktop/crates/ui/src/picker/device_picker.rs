@@ -15,6 +15,10 @@ pub(crate) struct DevicePickerDevice {
     pub name: String,
     /// Contract `deviceIcon`; `None` = the kind default.
     pub icon: Option<String>,
+    /// Contract `deviceKind` = `server` (web `kind`), read ONLY for that
+    /// default: a headless daemon falls back to the server glyph, every other
+    /// machine to the device one.
+    pub server: bool,
     /// A muted reason under the name (`Offline`, `Update to run workflows`).
     pub description: Option<String>,
     pub disabled: bool,
@@ -30,7 +34,7 @@ pub(crate) fn device_items(devices: &[DevicePickerDevice]) -> Vec<PickerItem<Str
                 // DEVICE icon, else the kind default.
                 .icon(gpui_component::Icon::from(device_icon(
                     device.icon.as_deref(),
-                    false,
+                    device.server,
                 )));
             if let Some(description) = &device.description {
                 item = item.description(description.clone());
