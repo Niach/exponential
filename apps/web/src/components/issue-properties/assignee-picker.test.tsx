@@ -1,6 +1,7 @@
 // EXP-941: "Unassign" used to be a `__unassign__` CommandItem that only
-// existed once somebody was assigned. It is the primitive's `noneLabel` row
-// now — always present, reporting `null`, with no sentinel string anywhere.
+// existed once somebody was assigned. EXP-1021: it is the shared
+// `AssigneePicker`'s `allowsNone` row now — always present, reporting `null`,
+// with no sentinel string anywhere.
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
@@ -64,9 +65,13 @@ describe(`AssigneePicker`, () => {
       document.querySelector(`[data-slot=command-input]`) as HTMLInputElement,
       { target: { value: `alan@example` } }
     )
-    // One row left, and it draws the avatar (its `AT` initials) beside the
-    // name — the row body `renderOption` kept.
+    // One row left: the avatar (its `AT` initials), the name, and the email as
+    // the shared picker's muted second line.
     expect(rows()).toHaveLength(1)
-    expect(rows()[0]!.textContent).toBe(`ATAlan Turing`)
+    const row = rows()[0]!
+    expect(row.textContent).toBe(`ATAlan Turingalan@example.com`)
+    expect(
+      row.querySelector(`[data-slot=picker-description]`)?.textContent
+    ).toBe(`alan@example.com`)
   })
 })

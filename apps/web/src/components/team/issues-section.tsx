@@ -11,11 +11,16 @@ import { trpc } from "@/lib/trpc-client"
 import type { IssueEstimation, IssueOption } from "@/lib/domain"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
-import { toStatusMenuOptions } from "@/components/issue-properties/status-dropdown"
+import {
+  toStatusMenuOptions,
+  toStatusPickerStatuses,
+} from "@/components/issue-properties/status-dropdown"
 import { ESTIMATION_TYPE_OPTIONS } from "@/lib/issue-estimate"
 import {
   Button,
-  Combobox,
+  ICON_COMPONENTS,
+  StatusPicker,
+  type StatusPickerStatus,
   GlassGroup,
   GlassSectionHeader,
   Select,
@@ -148,6 +153,25 @@ export function PrAutomationCard({
     [pickable]
   )
 
+  // The same rows for the PICKER (EXP-1021's shared `StatusPicker`, which
+  // takes resolved status rows) — `menuOptions` above stays the TRIGGER's
+  // view of them, which splits the colour into a class and a hex.
+  const statusRows = useMemo<StatusPickerStatus[]>(
+    () => [
+      ...toStatusPickerStatuses(pickable),
+      // Not a status: `*Automation=false` turns the automation off entirely,
+      // so the one target that is not a target rides the same list.
+      {
+        id: `none`,
+        name: `Do nothing`,
+        category: `cancelled`,
+        icon: ICON_COMPONENTS.ban,
+        colorHex: `text-muted-foreground`,
+      },
+    ],
+    [pickable]
+  )
+
   const persist = async (
     event: `pr_opened` | `pr_merged`,
     target: string,
@@ -232,17 +256,14 @@ export function PrAutomationCard({
                 className="flex items-center justify-between gap-3 px-4 py-3"
               >
                 <span className="min-w-0 text-sm">{label}, move issues to</span>
-                <Combobox
-                  searchable={false}
+                <StatusPicker
                   value={value}
-                  options={menuOptions}
+                  statuses={statusRows}
                   mobileTitle={label}
                   align="end"
                   width="sm"
-                  onChange={(picked) => {
-                    if (picked) void persist(event, picked, value)
-                  }}
-                  renderTrigger={() => (
+                  onChange={(picked) => void persist(event, picked, value)}
+                  trigger={
                     // Fixed width so both rows' triggers line up (EXP-328) —
                     // the label ellipsizes instead of stretching the button.
                     <Button
@@ -263,7 +284,7 @@ export function PrAutomationCard({
                       </span>
                       <ChevronDown className="h-3 w-3 text-muted-foreground" />
                     </Button>
-                  )}
+                  }
                 />
               </div>
             )

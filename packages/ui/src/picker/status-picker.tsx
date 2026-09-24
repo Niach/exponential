@@ -1,6 +1,10 @@
 import type { ReactNode } from "react"
 
-import { Picker, type PickerItem } from "./picker"
+import {
+  Picker,
+  type PickerItem,
+  type PickerSurfaceProps,
+} from "./picker"
 
 // EXP-1029 contract — the status picker: the team's `issue_statuses` rows
 // (EXP-314) in `displayOrder`, each by its glyph in its colour (builtins by
@@ -20,7 +24,7 @@ export interface StatusPickerStatus {
   icon?: PickerItem[`icon`]
 }
 
-interface StatusPickerBase {
+interface StatusPickerBase extends PickerSurfaceProps {
   statuses: readonly StatusPickerStatus[]
   trigger: ReactNode
   /** The sheet's title on a phone. */
@@ -34,7 +38,14 @@ interface StatusPickerBase {
 export type StatusPickerProps = StatusPickerBase &
   (
     | { mode?: `single`; value: string | null; onChange: (statusId: string) => void }
-    | { mode: `multi`; value: readonly string[]; onChange: (statusIds: string[]) => void }
+    | {
+        mode: `multi`
+        value: readonly string[]
+        onChange: (statusIds: string[]) => void
+        /** At the cap the unpicked rows go disabled; picked ones still
+         *  toggle off (the automation trigger's ten-id filters). */
+        max?: number
+      }
   )
 
 export function statusPickerItems(statuses: readonly StatusPickerStatus[]): PickerItem[] {

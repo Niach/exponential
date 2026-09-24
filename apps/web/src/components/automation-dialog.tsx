@@ -7,7 +7,9 @@ import { actionCollection, automationCollection } from "@/lib/collections"
 import { isBuiltinActionId } from "@/lib/builtin-actions"
 import { parseAutomationTrigger } from "@/lib/action-triggers"
 import {
+  ActionPicker,
   getActionIcon,
+  PickerTrigger,
   Button,
   Dialog,
   DialogBody,
@@ -16,7 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogCancel,
-  Combobox,
   GlassGroup,
 } from "@exp/ui"
 import { defaultDeviceId, type SteerDevice } from "@/lib/steer-devices"
@@ -139,6 +140,19 @@ export function AutomationDialog({
   const blockedByInputs = selectedAction
     ? hasRequiredInputs(selectedAction)
     : false
+  // EXP-697: the glyph must flow INLINE with the name — preflight makes svg
+  // display:block, which pushed the name onto a second line inside the
+  // trigger's truncating value span.
+  const PickedActionIcon = selectedAction
+    ? getActionIcon(selectedAction)
+    : null
+  const pickedActionLabel =
+    selectedAction && PickedActionIcon ? (
+      <>
+        <PickedActionIcon className="mr-1.5 inline size-4 align-text-bottom" />
+        {selectedAction.name}
+      </>
+    ) : undefined
 
   // A model/effort belongs to ONE agent — another login of the same agent
   // keeps them, a different agent re-clamps them.
@@ -213,32 +227,30 @@ export function AutomationDialog({
               {/* EXP-616: the grouped-form row — "Action" leads, the picked
                   action trails. */}
               <GlassGroup>
-                <Combobox
-                  triggerVariant="row"
-                  searchable={false}
+                {/* EXP-1021: the shared `ActionPicker` — the team's actions
+                    by curated glyph + name, on the glass form ladder's row
+                    trigger. An action with a required input cannot be
+                    automated (nobody is there to fill it in), so its row is
+                    rendered and disabled rather than hidden. */}
+                <ActionPicker
+                  actions={actionOptions.map((action) => ({
+                    id: action.id,
+                    name: action.name,
+                    icon: action.icon,
+                    disabled: hasRequiredInputs(action),
+                  }))}
+                  search={false}
                   mobileTitle="Action"
                   value={actionId === `` ? null : actionId}
-                  onChange={(value) => {
-                    if (value !== null) setActionId(value)
-                  }}
-                  triggerLabel="Select an action"
-                  options={actionOptions.map((action) => {
-                    const ActionIcon = getActionIcon(action)
-                    return {
-                      value: action.id,
-                      disabled: hasRequiredInputs(action),
-                      // EXP-697: the icon must flow INLINE with the name —
-                      // preflight makes svg display:block, which pushed the
-                      // name onto a second line inside the picker's
-                      // truncating value span.
-                      label: (
-                        <>
-                          <ActionIcon className="mr-1.5 inline size-4 align-text-bottom" />
-                          {action.name}
-                        </>
-                      ),
-                    }
-                  })}
+                  onChange={setActionId}
+                  trigger={
+                    <PickerTrigger
+                      variant="row"
+                      label="Action"
+                      placeholder="Select an action"
+                      value={pickedActionLabel}
+                    />
+                  }
                 />
               </GlassGroup>
               {actionOptions.length === 0 && (

@@ -65,29 +65,40 @@ export type PickerMode = `single` | `multi`
 /** The four popover widths, as the literals Tailwind can scan. */
 export type PickerWidth = `sm` | `md` | `lg` | `xl`
 
-interface PickerPropsBase<T extends string> {
+/** What a typed picker forwards to the SURFACE verbatim (EXP-1021 sweep):
+ *  where the popover hangs, how wide it is, a controlled open state, and the
+ *  trigger-less host. Every typed picker extends it, so a call site never has
+ *  to drop back to `Combobox` just to place a popover. */
+export interface PickerSurfaceProps {
+  /** The filter field's placeholder (only read while `search`). */
+  searchPlaceholder?: string
+  /** Popover alignment against the trigger (pointer only). */
+  align?: `start` | `end`
+  /** The popover's width (pointer only; the sheet is the screen). */
+  width?: PickerWidth
+  /** Controlled open state; uncontrolled when absent. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Controlled-open with NO trigger element: a host that opens the picker
+   *  from its own menu item (the phone issue-detail `…` menu's "Move to
+   *  board"). The `trigger` is then never rendered. */
+  hideTrigger?: boolean
+  "data-testid"?: string
+}
+
+interface PickerPropsBase<T extends string> extends PickerSurfaceProps {
   items: readonly PickerItem<T>[]
   /** The chip or button that opens the picker. The primitive renders it as
    *  the anchor and wires the open state; the caller styles it. */
   trigger: ReactNode
   /** A filter field at the top of the surface. */
   search?: boolean
-  /** The filter field's placeholder. */
-  searchPlaceholder?: string
   /** What an empty `items` (or an empty search) reads as. */
   emptyText?: ReactNode
   /** The sheet's title on phones (the popover has none). */
   mobileTitle?: string
   disabled?: boolean
-  /** Controlled open state; uncontrolled when absent. */
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  /** Popover alignment against the trigger (pointer only). */
-  align?: `start` | `end`
-  /** The popover's width (pointer only; the sheet is the screen). */
-  width?: PickerWidth
   className?: string
-  "data-testid"?: string
   /** Controlled search text — for an external ranking engine
    *  (`useIssueSearchResults`, EXP-892). With it, pass
    *  `shouldFilter={false}` so the caller's order is rendered verbatim. */
@@ -140,8 +151,9 @@ function isColorClass(color: string) {
 }
 
 /** THE row body: the dot or the tinted glyph, the label, the muted second
- *  line. Plain — a picker row is never a card, on any surface. */
-function PickerItemBody<T extends string>({ item }: { item: PickerItem<T> }) {
+ *  line. Plain — a picker row is never a card, on any surface. Exported for
+ *  the MENU arm alone (`pickerMenuRows`). */
+export function PickerItemBody<T extends string>({ item }: { item: PickerItem<T> }) {
   const Glyph = item.icon
   return (
     <>
@@ -199,6 +211,7 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
     onOpenChange,
     align,
     width,
+    hideTrigger,
     className,
     query,
     onQueryChange,
@@ -212,13 +225,7 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
   const testId = props[`data-testid`]
 
   const byValue = new Map(items.map((item) => [item.value, item]))
-  const options: PickerOption<T>[] = items.map((item) => ({
-    value: item.value,
-    label: item.label,
-    keywords: pickerItemKeywords(item),
-    disabled: item.disabled,
-    checked: item.checked,
-  }))
+  const options = pickerItemOptions(items)
 
   const selection =
     props.mode === `multi`
@@ -262,6 +269,7 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
         panel={panel}
         open={open}
         onOpenChange={onOpenChange}
+        hideTrigger={hideTrigger}
         align={align}
         width={width}
         disabled={disabled}
@@ -279,6 +287,43 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
       />
     </span>
   )
+}
+
+/** A picker row as the `PickerOption` every `Combobox` arm speaks. The row's
+ *  colour is NOT part of it: the body is drawn by `PickerItemBody`, so the
+ *  dot-or-tinted-glyph decision stays in exactly one place. */
+function pickerItemOptions<T extends string>(
+  items: readonly PickerItem<T>[]
+): PickerOption<T>[] {
+  return items.map((item) => ({
+    value: item.value,
+    label: item.label,
+    keywords: pickerItemKeywords(item),
+    disabled: item.disabled,
+    checked: item.checked,
+  }))
+}
+
+/**
+ * The picker's rows as the MENU arm speaks them (`ComboboxMenuItems`,
+ * EXP-957): spread the result into it.
+ *
+ * A Radix submenu is a shell the primitive does not own — a popover cannot
+ * nest inside one without stacking a second portal and focus trap — but
+ * EXP-1021 still wants ONE set of rows, so the typed pickers' items are
+ * bridged here instead of being rebuilt by hand at every context menu. Only
+ * the SURFACE differs: the menu keeps its own selection glyph (EXP-957), the
+ * row body is the primitive's.
+ */
+export function pickerMenuRows<T extends string>(items: readonly PickerItem<T>[]) {
+  const byValue = new Map(items.map((item) => [item.value, item]))
+  return {
+    options: pickerItemOptions(items),
+    renderOption: (option: PickerOption<T>) => {
+      const item = byValue.get(option.value)
+      return item ? <PickerItemBody item={item} /> : null
+    },
+  }
 }
 
 /** The keywords a row matches on: the explicit ones, else a string label. */

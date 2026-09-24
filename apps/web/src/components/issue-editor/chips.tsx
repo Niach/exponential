@@ -16,10 +16,11 @@ import {
 } from "@/components/issue-properties/priority-dropdown"
 import {
   toStatusMenuOption,
-  toStatusMenuOptions,
+  toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import {
-  Combobox,
+  PriorityPicker,
+  StatusPicker,
   Button,
   conceptIcon,
   DatePicker,
@@ -87,19 +88,17 @@ export function IssueEditorChips({
 
   return (
     <>
-      <Combobox
-        searchable={false}
+      <StatusPicker
+        statuses={toStatusPickerStatuses(statusOptions)}
         value={status.id}
         disabled={disabled || disableStatus}
-        options={toStatusMenuOptions(statusOptions)}
         width="sm"
         onChange={(id) => {
-          if (!id) return
           const picked = byId.get(id)
           if (picked) void onStatusChange(picked)
         }}
         mobileTitle="Status"
-        renderTrigger={() => (
+        trigger={
           <Pill
             mode="action"
             disabled={disabled || disableStatus}
@@ -116,20 +115,17 @@ export function IssueEditorChips({
           >
             {statusTrigger.label}
           </Pill>
-        )}
+        }
       />
 
-      <Combobox
-        searchable={false}
+      <PriorityPicker
+        options={priorities}
         value={priority}
         disabled={disabled}
-        options={priorities}
         width="sm"
-        onChange={(next) => {
-          if (next) void onPriorityChange(next)
-        }}
+        onChange={(next) => void onPriorityChange(next as IssuePriority)}
         mobileTitle="Priority"
-        renderTrigger={() => (
+        trigger={
           <Pill
             mode="action"
             disabled={disabled}
@@ -142,7 +138,7 @@ export function IssueEditorChips({
           >
             {priorityTrigger.label}
           </Pill>
-        )}
+        }
       />
 
       {!hideAssignee && (

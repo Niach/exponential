@@ -2,15 +2,14 @@ import { useState } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { labelCollection } from "@/lib/collections"
 import {
-  Combobox,
+  LabelPicker as UiLabelPicker,
   Button,
   Pill,
   Input,
   LABEL_COLORS,
   ColorSwatchGrid,
-  type PickerOption,
+  conceptIcon,
 } from "@exp/ui"
-import { Tag, Plus, ArrowLeft } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import type { Label } from "@/db/schema"
 
@@ -25,11 +24,15 @@ interface LabelPickerProps {
   renderTrigger?: (selectedLabels: Label[]) => React.ReactNode
 }
 
-// EXP-941: the shared `Combobox` — the rows are the primitive's multi-select
-// ones (the leading circle pair instead of this file's old Checkbox), the
-// "Create label" row is its `footer`, and the create form is its `panel`,
-// which REPLACES the search field and the list while `view === "create"`.
-// Every bit of create state stays here.
+// EXP-1021: the shared `LabelPicker` (@exp/ui) — every row is its colour dot
+// plus its name, a picked row reads as the row's own HIGHLIGHT (no circles),
+// the "Create label" row is the surface's `footer`, and the create form is its
+// `panel`, which REPLACES the search field and the list while
+// `view === "create"`. Every bit of create state stays here.
+
+const AddGlyph = conceptIcon(`ui-add`)
+const BackGlyph = conceptIcon(`ui-chevron-left`)
+const LabelsGlyph = conceptIcon(`settings-labels`)
 export function LabelPicker({
   disabled,
   teamId,
@@ -58,11 +61,6 @@ export function LabelPicker({
   const selectedLabels = (labels ?? []).filter((l: Label) =>
     selectedLabelIds.includes(l.id)
   )
-  const options: PickerOption[] = (labels ?? []).map((label: Label) => ({
-    value: label.id,
-    label: label.name,
-    dot: label.color,
-  }))
 
   const newNameIsDuplicate =
     newName.trim().length > 0 &&
@@ -95,9 +93,8 @@ export function LabelPicker({
   }
 
   return (
-    <Combobox
-      multiple
-      options={options}
+    <UiLabelPicker
+      labels={(labels ?? []) as Label[]}
       value={selectedLabelIds}
       // The hosts own one label at a time, so the primitive's whole-selection
       // change is reported back as the toggled id.
@@ -119,7 +116,7 @@ export function LabelPicker({
       }}
       width="sm"
       mobileTitle="Labels"
-      placeholder="Filter labels..."
+      searchPlaceholder="Filter labels..."
       emptyText="No labels found."
       footer={
         <Button
@@ -128,7 +125,7 @@ export function LabelPicker({
           className="w-full justify-start rounded-none font-normal"
           onClick={() => setView(`create`)}
         >
-          <Plus className="size-3.5" />
+          <AddGlyph className="size-3.5" />
           Create label
         </Button>
       }
@@ -141,7 +138,7 @@ export function LabelPicker({
                 size="icon-xs"
                 onClick={() => setView(`list`)}
               >
-                <ArrowLeft className="size-3.5" />
+                <BackGlyph className="size-3.5" />
               </Button>
               <span className="text-sm font-medium">Create label</span>
             </div>
@@ -186,12 +183,12 @@ export function LabelPicker({
           </div>
         ) : undefined
       }
-      renderTrigger={() =>
+      trigger={
         renderTrigger ? (
           renderTrigger(selectedLabels)
         ) : (
           <Pill mode="action" disabled={disabled}>
-            <Tag className="size-3" />
+            <LabelsGlyph className="size-3" />
             {selectedLabels.length > 0 ? (
               <>
                 <span className="flex items-center -space-x-0.5">

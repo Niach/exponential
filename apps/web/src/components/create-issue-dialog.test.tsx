@@ -254,6 +254,8 @@ describe(`CreateIssueDialog`, () => {
     mockState.draftListAttachments.mockResolvedValue([])
     mockState.attachmentDelete.mockResolvedValue({ txId: 3 })
 
+    // cmdk scrolls the active row into view; jsdom has no layout.
+    Element.prototype.scrollIntoView ??= function scrollIntoView() {}
     vi.stubGlobal(`fetch`, fetchMock)
     vi.stubGlobal(
       `ResizeObserver`,
@@ -450,9 +452,9 @@ describe(`CreateIssueDialog`, () => {
 
     renderDialog({ onCreated })
 
-    fireEvent.keyDown(screen.getByRole(`button`, { name: /APP/ }), {
-      key: `Enter`,
-    })
+    // EXP-1021: the board chip is the shared `BoardPicker` — a popover
+    // trigger, so it opens on the click a native button makes of an Enter.
+    fireEvent.click(screen.getByRole(`button`, { name: /APP/ }))
     fireEvent.click(await screen.findByText(`Web`))
 
     await waitFor(() => {
