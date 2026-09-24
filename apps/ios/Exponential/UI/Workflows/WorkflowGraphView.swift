@@ -2,24 +2,27 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-981 — a workflow's graph on a phone. Web and the IDE draw the grid with
-/// its edges; a phone has no room for one, so it renders the SAME nodes as the
-/// wave-grouped LIST the blocks graph uses (`IssueGraphView`, EXP-980): a
-/// `Wave 1` / `Wave 2` … band per column, one row per node, and under each row
-/// the chips of the nodes that block it. Those chips ARE the edges the grid
-/// clients draw, so they take the edge's own style (EXP-983
-/// `WorkflowView.edgeStyle`): landed green, stale or cyclic red, speculative a
-/// dashed border, plain the chip's default.
+/// EXP-981 — a workflow's graph on a phone. Web and the IDE draw the grid; a
+/// phone has no room for one, so it renders the SAME nodes as the wave-grouped
+/// LIST the blocks graph uses (`IssueGraphView`, EXP-980): a `Wave 1` /
+/// `Wave 2` … band per column and one row per node, in the server's own
+/// (`wave`, `lane`) order.
 ///
-/// Nothing is laid out here: `wave` and `lane` come off the synced rows (the
-/// server computes them), and the edges come from `WorkflowView.edges` over the
-/// already synced `blocks` relations. A node whose issue row has not synced
-/// renders its caption alone rather than crashing.
+/// EXP-1014 — a node row IS the app's established issue chip and nothing else:
+/// the glyph slot carries the node's own state (its live run's dot while the
+/// run is up, the state's glyph in the state's tone once it has one, the
+/// issue's status glyph before that), the identifier and title read exactly as
+/// they do in every other chip, and the state CAPTION sits at the row's
+/// trailing edge in the same tone. No second line, no kind or risk subtitle —
+/// what the plan declares is the node sheet's business. A compound node (a
+/// parent run as one batch with its sub-issues) is the STACKED chip.
+///
+/// Nothing is laid out here: `wave` and `lane` come off the synced rows. A node
+/// whose issue row has not synced names itself by id rather than crashing.
 struct WorkflowGraphView: View {
     let nodes: [WorkflowNodeEntity]
-    let edges: [WorkflowView.Edge]
-    /// contract `wfStatus` — the caption reads the plan on a draft and the
-    /// state once it runs.
+    /// contract `wfStatus` — a draft's nodes have no state worth a caption, so
+    /// the rule gives them none.
     let workflowStatus: String
     /// The synced rows the nodes are named from.
     let issues: [String: IssueEntity]
@@ -33,10 +36,6 @@ struct WorkflowGraphView: View {
     let onSelect: (WorkflowNodeEntity) -> Void
     /// Steer the node's run — the Running strip's tap.
     var onOpenRun: (String) -> Void = { _ in }
-
-    private var nodesById: [String: WorkflowNodeEntity] {
-        Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-    }
 
     /// The nodes grouped by column, in (wave, lane) order — the server's
     /// layout, read straight off the rows.
@@ -116,22 +115,23 @@ struct WorkflowGraphView: View {
         }
     }
 
-    /// The final-PR node. It links out to the pull request once there is one;
+    /// The final-PR node — one more chip after the last wave, reading like
+    /// every other row. It links out to the pull request once there is one;
     /// until then it is the caption alone ("Opening the pull request").
     @ViewBuilder
     private func finalPrRow(_ caption: String) -> some View {
-        let row = VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.navReviews, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(WorkflowView.finalPrTitle)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                Spacer(minLength: 0)
-            }
+        let row = HStack(spacing: 8) {
+            IssueChip(
+                identifier: nil,
+                title: WorkflowView.finalPrTitle,
+                iconName: AppIcons.notificationPrMerged,
+                statusColor: .white.opacity(TextOpacity.secondary)
+            )
+            Spacer(minLength: 8)
             Text(caption)
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
@@ -149,9 +149,6 @@ struct WorkflowGraphView: View {
 
     @ViewBuilder
     private func nodeRow(_ node: WorkflowNodeEntity) -> some View {
-        // The edges pointing AT this node: what blocks it inside the workflow,
-        // in the rule's edge order.
-        let incoming = edges.filter { $0.to == node.id }
         let caption = WorkflowView.nodeCaption(
             WorkflowView.CaptionNode(kind: node.kind, state: node.state, risk: node.risk),
             workflowStatus: workflowStatus
@@ -164,124 +161,106 @@ struct WorkflowGraphView: View {
         let run = runs[node.id].flatMap { $0.live ? $0 : nil }
         let captionColor = run.map { SessionStateDot.color($0.tone) } ?? Self.color(tone)
         Button { onSelect(node) } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    chip(for: node, cycle: node.onCycle)
-                    Spacer(minLength: 0)
-                }
-                // EXP-982: the caption painted by its tone PLUS a glyph, so a
-                // state reads by shape as well as by colour.
-                HStack(spacing: 5) {
-                    if let run {
-                        SessionStateDot(tone: run.tone, pulsing: run.busy, size: 8)
-                            .accessibilityIdentifier("workflow-node-run-dot")
-                    } else if let icon = Self.stateIcon(node.state) {
-                        AppIcon(icon, size: AppIcon.Size.small)
-                            .foregroundStyle(Self.color(tone))
-                    }
+            HStack(spacing: 8) {
+                nodeChip(node, tone: tone, run: run)
+                Spacer(minLength: 8)
+                if !caption.isEmpty {
                     Text(caption)
                         .font(.caption2)
                         .foregroundStyle(captionColor)
-                }
-                if !incoming.isEmpty {
-                    HStack(spacing: 6) {
-                        Text("Blocked by")
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        // A wide fan-in would push the row off a phone: the
-                        // chips scroll sideways instead of wrapping.
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 4) {
-                                ForEach(incoming, id: \.from) { edge in
-                                    if let blocker = nodesById[edge.from] {
-                                        chip(
-                                            for: blocker,
-                                            cycle: edge.cycle,
-                                            style: WorkflowView.edgeStyle(
-                                                edge,
-                                                fromState: blocker.state,
-                                                toState: node.state
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                        .lineLimit(1)
+                        .accessibilityIdentifier("workflow-node-caption")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .flatRow()
-            // EXP-984: a `proposed` node is not part of the run until a member
-            // admits it. Where the grid clients draw the NODE dashed, a phone
-            // row wears the dash as its own border.
-            .overlay {
-                if node.isProposed { ProposedRowBorder() }
-            }
-            // A compound node (a parent run as one batch with its sub-issues)
-            // is drawn as a STACKED card: a second card edge peeking out
-            // behind it, the ×4 rule's shorthand for "this is several issues".
-            .background(alignment: .bottom) {
-                if !node.memberIssueIds.isEmpty {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(GlassTokens.fillRow)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(GlassTokens.strokeRow, lineWidth: GlassTokens.hairline)
-                        )
-                        .padding(.horizontal, 6)
-                        .offset(y: 5)
-                }
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("workflow-node-row")
     }
 
-    /// One node, as the shared issue badge: `EXP-14 +3` for a compound node,
-    /// the bare identifier otherwise. A blocker chip stands in for the EDGE the
-    /// grid clients draw, so it is handed that edge's `style` and wears it.
+    /// One node as the shared issue chip, with the workflow's own ring around
+    /// it — dashed for a `proposed` node (filed mid-run, not part of it until a
+    /// member admits it), destructive for one inside a blocking cycle. A
+    /// COMPOUND node is the stacked chip: one run, one branch, one pull
+    /// request over several issues.
     @ViewBuilder
-    private func chip(
-        for node: WorkflowNodeEntity, cycle: Bool, style: WorkflowView.EdgeStyle? = nil
+    private func nodeChip(
+        _ node: WorkflowNodeEntity, tone: WorkflowView.Tone, run: WorkflowNodeRun?
+    ) -> some View {
+        let chip = chipFace(node, tone: tone, run: run).overlay { Self.ring(node) }
+        if node.memberIssueIds.isEmpty {
+            chip
+        } else {
+            IssueChipStack { chip }
+                .accessibilityIdentifier("workflow-node-chip-stack")
+        }
+    }
+
+    /// The chip itself. The glyph slot is the node's STATE: its live run's dot
+    /// while the run is up, the state's glyph in the state's tone once the
+    /// state has one, and the issue's own status glyph before that — a node
+    /// that has not started reads exactly like the same issue anywhere else.
+    @ViewBuilder
+    private func chipFace(
+        _ node: WorkflowNodeEntity, tone: WorkflowView.Tone, run: WorkflowNodeRun?
     ) -> some View {
         let issue = issues[node.issueId]
-        let status = IssueStatus.from(issue?.status)
-        IssueChip(
-            identifier: WorkflowView.nodeTitle(
-                // A node whose issue has not synced still names itself.
-                identifier: issue?.identifier ?? node.issueId,
-                memberCount: node.memberIssueIds.count
-            ),
-            title: issue?.title,
-            iconName: status.iconName,
-            statusColor: cycle
-                ? DesignTokens.Semantic.red
-                : (Self.edgeColor(style) ?? status.color)
+        // A node whose issue has not synced still names itself.
+        let identifier = WorkflowView.nodeTitle(
+            identifier: issue?.identifier ?? node.issueId,
+            memberCount: node.memberIssueIds.count
         )
-        // The dashed hairline says "speculative" the way a dashed edge does.
-        .overlay {
-            if style == .speculative { SpeculativeChipBorder() }
+        let status = IssueStatus.from(issue?.status)
+        if let run {
+            ChipBox(identifier: identifier, title: Self.chipTitle(issue?.title)) {
+                SessionStateDot(tone: run.tone, pulsing: run.busy, size: 8)
+                    .accessibilityIdentifier("workflow-node-run-dot")
+            }
+        } else if let icon = Self.stateIcon(node.state) {
+            IssueChip(
+                identifier: identifier,
+                title: issue?.title,
+                iconName: icon,
+                statusColor: Self.color(tone)
+            )
+        } else {
+            IssueChip(
+                identifier: identifier,
+                title: issue?.title,
+                iconName: status.iconName,
+                statusColor: status.color
+            )
         }
     }
 
-    /// What an edge's style paints its chip in, or nil where the chip keeps the
-    /// issue's own status colour (`plain` and `speculative` — the latter says
-    /// what it is with the dash instead).
-    static func edgeColor(_ style: WorkflowView.EdgeStyle?) -> Color? {
-        switch style {
-        case .cycle, .stale: DesignTokens.Semantic.red
-        case .landed: DesignTokens.Semantic.green
-        default: nil
+    /// The same 60-character cut `IssueChip` takes, for the one face that
+    /// builds its box by hand (the live dot is not a glyph name).
+    private static func chipTitle(_ title: String?) -> String? {
+        guard let title else { return nil }
+        let cut = IssueRefs.chipTitle(title)
+        return cut.isEmpty ? nil : cut
+    }
+
+    /// The ring a node's chip wears, or nothing at all: a `proposed` node is
+    /// drawn but is not part of the run (EXP-984), and a node inside a blocking
+    /// cycle cannot start until a relation goes.
+    @ViewBuilder
+    static func ring(_ node: WorkflowNodeEntity) -> some View {
+        if node.isProposed {
+            WorkflowChipRing(color: .white.opacity(TextOpacity.tertiary), dashed: true)
+        } else if node.onCycle {
+            WorkflowChipRing(color: DesignTokens.Palette.destructive)
         }
     }
 
-    /// The glyph a state wears beside its caption — existing icon CONCEPTS
-    /// only. The quiet states (blocked / ready / proposed / skipped / paused)
-    /// get none: the caption alone is the whole message.
+    /// The glyph a state wears in the chip's glyph slot — existing icon
+    /// CONCEPTS only. The states that have not started (blocked / ready /
+    /// proposed / skipped) get none: the chip then keeps the issue's own status
+    /// glyph, which is what a node that has not run yet actually is.
     static func stateIcon(_ state: String) -> String? {
         switch state {
         case DomainContract.wfNodeStateRunning: AppIcons.codingRunning
@@ -308,29 +287,22 @@ struct WorkflowGraphView: View {
     }
 }
 
-/// EXP-984 — the dashed outline a `proposed` node wears: a follow-up filed
-/// during the run that a member has yet to admit, so it is drawn but is not
-/// part of the run. Web and the IDE dash the node's own outline; a phone row's
-/// outline IS its border.
-struct ProposedRowBorder: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: GlassTokens.rowRadius, style: .continuous)
-            .strokeBorder(
-                Color.white.opacity(TextOpacity.tertiary),
-                style: StrokeStyle(lineWidth: GlassTokens.hairline, dash: [4, 3])
-            )
-    }
-}
+/// EXP-1014 — the ring a workflow node's chip wears: the chip's own border,
+/// redrawn in a colour that says something. Dashed = `proposed` (drawn, but not
+/// part of the run until a member admits it), solid destructive = inside a
+/// blocking cycle. Web and the IDE ring the node in the grid; a phone rings the
+/// chip that IS the node.
+struct WorkflowChipRing: View {
+    let color: Color
+    var dashed = false
 
-/// EXP-983 — the hairline a speculative edge's chip wears: the chip's own
-/// border, redrawn as a dash. A phone draws no edges, so the chip standing in
-/// for one has to carry the dash itself.
-struct SpeculativeChipBorder: View {
     var body: some View {
         RoundedRectangle(cornerRadius: MarkdownStyle.chipCornerRadius, style: .continuous)
             .strokeBorder(
-                Color.white.opacity(TextOpacity.secondary),
-                style: StrokeStyle(lineWidth: IssueChipTokens.borderWidth, dash: [3, 2])
+                color,
+                style: StrokeStyle(
+                    lineWidth: IssueChipTokens.borderWidth, dash: dashed ? [3, 2] : []
+                )
             )
     }
 }
