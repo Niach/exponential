@@ -227,7 +227,7 @@ export interface SessionChain {
 }
 
 /** Nested runs deeper than this are a bug, not a workflow — the CTE stops. */
-const MAX_SESSION_CHAIN_DEPTH = 20
+export const MAX_SESSION_CHAIN_DEPTH = 20
 
 /**
  * EXP-897: a run's whole ancestry in ONE recursive walk up
