@@ -5110,11 +5110,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_invites_create`,
     {
-      description: `Create an invite link for a team, returning the token to share. Owner only. Pass email to have the server mail the link (emailDelivered reports the attempt).`,
+      description: `Create an invite link for a team, returning the token to share. Owner only. Pass email to have the server mail the link (emailDelivered reports the attempt); an email invite also adds the person to the team at once as a placeholder member (memberUserId, assignable now; their content carries over when they join). name labels that member.`,
       inputSchema: strictInput({
         teamId: uuidString,
         role: z.enum([`owner`, `member`]).default(`member`),
         email: z.string().email().max(255).optional(),
+        name: z.string().trim().max(180).optional(),
       }),
     },
     async (input) => {
@@ -5125,6 +5126,7 @@ export function registerExponentialTools(
           invite: result.invite,
           token: result.token,
           emailDelivered: result.emailDelivered,
+          memberUserId: result.memberUserId,
         })
       } catch (e) {
         return err(e)

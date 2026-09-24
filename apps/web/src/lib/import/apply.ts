@@ -33,7 +33,6 @@ export interface ApplyTeamState {
   statuses: ResolvedStatus[]
   labels: { id: string; name: string }[]
   members: { userId: string; email: string; name: string }[]
-  pendingInviteEmails: string[]
 }
 
 export interface FetchedAsset {
@@ -74,7 +73,6 @@ export interface ApplyPorts {
     category: IssueStatusCategory
   }): Promise<{ id: string; name: string }>
   createLabel(input: { name: string; color: string }): Promise<{ id: string }>
-  createInvite(email: string): Promise<void>
   // Idempotent: an already archived board is left alone.
   archiveBoard(boardId: string): Promise<void>
   // Switches the team's estimate scale on (only ever called when it is off).
@@ -168,8 +166,6 @@ export async function applyBundle(
   // --- users --------------------------------------------------------------
   await report(`users`, 0, bundle.users.length)
   const users = new Map<string, ResolvedUser>()
-  const invitedThisRun = new Set<string>()
-  const mappedInvites = await ports.loadMapped(`user`)
   for (const user of bundle.users) {
     const entry = plan.users[user.key]
     const resolved: ResolvedUser = {
@@ -184,24 +180,6 @@ export async function applyBundle(
         warn(
           `${user.name} was mapped to a member who left the team; their content is attributed to you.`
         )
-      }
-    } else if (entry?.mode === `invite` && user.email) {
-      const email = norm(user.email)
-      const pending =
-        mappedInvites.has(user.key) ||
-        invitedThisRun.has(email) ||
-        state.pendingInviteEmails.some((row) => norm(row) === email)
-      if (!pending) {
-        try {
-          await ports.createInvite(user.email)
-          counts.invites += 1
-          invitedThisRun.add(email)
-          await ports.recordMap([
-            { kind: `user`, externalId: user.key, externalRef: user.email, localId: `invite` },
-          ])
-        } catch (err) {
-          warn(`Could not invite ${user.email}: ${errorMessage(err)}`)
-        }
       }
     }
     users.set(user.key, resolved)

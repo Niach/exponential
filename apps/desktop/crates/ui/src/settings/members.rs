@@ -12,6 +12,14 @@
 //! flipped with the field's emptiness — two intents on one control, and the
 //! link path was unreachable while an address was typed.
 //!
+//! EXP-630 placeholder members: an invite by email puts the person on the
+//! ROSTER at once (name + email, assignable before they sign in), so the send
+//! control is [`super::invite_form::InviteForm`] — the web's shared form, Name
+//! beside the address — and a member row that has not joined yet wears a muted
+//! "Invited" / "Invite expired" pill (the [`domain::placeholder_status`] rule
+//! over the synced invites) with "Resend invite" in its overflow menu. The
+//! pending list is what is left: unaccepted AND unexpired links.
+//!
 //! Reads are live: members/users/invites come from the synced collections
 //! (the web reads the same shapes); role/remove/revoke are §4.1 un-gated
 //! mutations reflected by the Electric echo, except remove/leave — those
@@ -25,9 +33,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
-    clipboard::Clipboard,
     h_flex,
-    input::{InputEvent, InputState},
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -35,30 +41,26 @@ use sync::Store;
 
 use domain::board::format_short_date;
 use domain::contract::TEAM_ROLE_OWNER;
+use domain::placeholder_status::{invite_is_pending, placeholder_statuses, PlaceholderStatus};
 use domain::rows::{User, TeamInvite, TeamMember};
 
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::WebControl as _;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
+use super::invite_form::{
+    invite_link_row, out_of_seats_notice, InviteForm, InviteFormLayout, ResendTarget,
+};
 use super::{section, error_notice, is_owner, is_plan_limit, spawn_trpc};
 use crate::icons::registry;
 
-/// EXP-771 (web copy wins): the server accepted the invite but could not mail
-/// it — the generated link renders right under this, so the wording points at
-/// it. Kept byte-identical to `members-section.tsx`'s toast.
-const EMAIL_FALLBACK_MESSAGE: &str =
-    "Couldn't email the invite. Copy the link below and share it instead.";
-
-/// EXP-771: the seat cap is not "some plan limit" — it is the web's
-/// `UpgradeDialog` on the invite controls, rendered inline here (the desktop
-/// never shows pricing, §4.9). Title + body byte-identical to
+/// The web's helper line under "Invite members" — an invite by email is a
+/// ROSTER action now (EXP-630), and the copy says so. Byte-identical to
 /// `members-section.tsx`.
-const OUT_OF_SEATS_TITLE: &str = "Out of seats";
-const OUT_OF_SEATS_MESSAGE: &str =
-    "Everyone on your plan's seats is already in this team. Add seats to \
-     invite more teammates.";
+const INVITE_HELP: &str = "Send an invite by email — they join the team right \
+     away and can be assigned work before they sign in — or generate a link to \
+     share yourself";
 
 /// One joined member row (web `members` + `userMap`).
 struct MemberRow {
@@ -68,18 +70,17 @@ struct MemberRow {
 
 pub struct MembersPane {
     nav: Entity<Navigation>,
-    /// Optional invitee email (EXP-188 invite-by-email) — empty = link-only.
-    email_input: Entity<InputState>,
+    /// EXP-630: the shared invite-by-email form (name + address + "Send
+    /// invite"), the same view the "Resend invite" dialog renders.
+    invite_form: Entity<InviteForm>,
+    /// The link minted by the OUTLINE "Generate invite link" (the form owns
+    /// the one its own failed delivery falls back to).
     invite_url: Option<SharedString>,
     /// Web `generating` — the OUTLINE "Generate invite link" is in flight.
     generating: bool,
-    /// Web `sending` — the PRIMARY "Send invite" is in flight.
-    sending: bool,
     error: Option<SharedString>,
     /// The seat cap rejected the invite — the web's "Out of seats" notice.
     out_of_seats: bool,
-    /// "Invite sent to X" after a delivered email invite.
-    sent_notice: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -90,37 +91,35 @@ impl MembersPane {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let collections = Store::global(cx).collections().clone();
-        let email_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("teammate@example.com"));
+        let team_id = active_team_id(&nav, cx).unwrap_or_default();
+        let invite_form =
+            cx.new(|cx| InviteForm::new(team_id, None, InviteFormLayout::Row, window, cx));
         let subscriptions = vec![
             cx.observe(&nav, |this, _, cx| {
-                // Team switch: the generated URL belongs to the old one.
+                // Team switch: the generated URL belongs to the old one, and so
+                // does everything the form has on screen.
                 this.invite_url = None;
                 this.error = None;
                 this.out_of_seats = false;
-                this.sent_notice = None;
+                let team_id = active_team_id(&this.nav, cx).unwrap_or_default();
+                this.invite_form
+                    .update(cx, |form, cx| form.reset_for_team(team_id, cx));
                 cx.notify();
             }),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_invites, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
-            // The button label switches with the email field's emptiness.
-            cx.subscribe(&email_input, |_, _, event: &InputEvent, cx| {
-                if matches!(event, InputEvent::Change) {
-                    cx.notify();
-                }
-            }),
+            // The form's own spinner gates this pane's link button too.
+            cx.observe(&invite_form, |_, _, cx| cx.notify()),
         ];
 
         Self {
             nav,
-            email_input,
+            invite_form,
             invite_url: None,
             generating: false,
-            sending: false,
             error: None,
             out_of_seats: false,
-            sent_notice: None,
             _subscriptions: subscriptions,
         }
     }
@@ -147,33 +146,32 @@ impl MembersPane {
         rows
     }
 
-    fn pending_invites(&self, team_id: &str, cx: &App) -> Vec<TeamInvite> {
+    /// Every synced invite of the team, newest first — the input both the
+    /// member-row badges and the pending list read.
+    fn team_invites(&self, team_id: &str, cx: &App) -> Vec<TeamInvite> {
         let mut invites: Vec<TeamInvite> = Store::global(cx)
             .collections()
             .team_invites
             .read(cx)
             .iter()
-            .filter(|invite| {
-                invite.team_id == team_id && invite.accepted_at.is_none()
-            })
+            .filter(|invite| invite.team_id == team_id)
             .cloned()
             .collect();
         invites.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         invites
     }
 
-    /// `teamInvites.create`. `with_email` picks the web's two intents apart:
-    /// `true` is "Send invite" (the server mails the link and reports
-    /// `emailDelivered`), `false` is "Generate invite link" (link only, even
-    /// when an address happens to be typed).
-    fn generate_invite(
+    /// `teamInvites.create` with NO address — the web's second intent:
+    /// "Generate invite link", the share-it-yourself path. It mints no
+    /// placeholder member (nobody was named), so it only ever produces a link.
+    /// The email intent lives in [`InviteForm`].
+    fn generate_link(
         &mut self,
         team_id: String,
-        with_email: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        if self.generating || self.sending {
+        if self.generating {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -183,25 +181,13 @@ impl MembersPane {
             return;
         };
         let base = account.instance_url;
-        let email = with_email
-            .then(|| self.email_input.read(cx).value().trim().to_string())
-            .filter(|value| !value.is_empty());
-        if with_email && email.is_none() {
-            return;
-        }
 
-        if with_email {
-            self.sending = true;
-        } else {
-            self.generating = true;
-        }
+        self.generating = true;
         self.error = None;
         self.out_of_seats = false;
-        self.sent_notice = None;
         cx.notify();
 
         cx.spawn_in(window, async move |this, window| {
-            let request_email = email.clone();
             let result = window
                 .background_executor()
                 .spawn(async move {
@@ -209,35 +195,16 @@ impl MembersPane {
                         &trpc,
                         &team_id,
                         api::teams::TeamRole::Member,
-                        request_email.as_deref(),
+                        None,
+                        api::teams::InviteExtras::default(),
                     )
                 })
                 .await;
-            let _ = this.update_in(window, |this, window, cx| {
+            let _ = this.update_in(window, |this, _, cx| {
                 this.generating = false;
-                this.sending = false;
                 match result {
                     Ok(out) => {
-                        let url: SharedString =
-                            format!("{base}/invite/{}", out.token).into();
-                        match (&email, out.email_delivered) {
-                            (Some(sent_to), Some(true)) => {
-                                // Delivered — clear the field and confirm; the
-                                // link stays available as a manual fallback.
-                                this.sent_notice =
-                                    Some(format!("Invite sent to {sent_to}").into());
-                                this.email_input.update(cx, |state, cx| {
-                                    state.set_value("", window, cx);
-                                });
-                            }
-                            (Some(_), _) => {
-                                // Requested but not delivered (transport down
-                                // or unconfigured) — fall back to the link.
-                                this.error = Some(EMAIL_FALLBACK_MESSAGE.into());
-                            }
-                            (None, _) => {}
-                        }
-                        this.invite_url = Some(url);
+                        this.invite_url = Some(format!("{base}/invite/{}", out.token).into());
                     }
                     Err(err) if is_plan_limit(&err) => {
                         this.out_of_seats = true;
@@ -259,6 +226,8 @@ impl MembersPane {
         my_user_id: &str,
         i_am_owner: bool,
         owner_count: usize,
+        team_id: &str,
+        placeholder: Option<PlaceholderStatus>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
         let member = &row.member;
@@ -302,7 +271,17 @@ impl MembersPane {
                     role_icon,
                     SharedString::from(role.clone()),
                     cx,
-                )),
+                ))
+                // EXP-630: the roster row of somebody who has not joined yet —
+                // MUTED, right after the role, so the list reads "who is here"
+                // with "and who is still on the way" as a footnote.
+                .when_some(placeholder, |identity_row, status| {
+                    identity_row.child(placeholder_chip(
+                        row_id("member-placeholder", &member.id),
+                        status,
+                        cx,
+                    ))
+                }),
         );
         // Skip the email sub-line when the resolved name already IS the email
         // (the name-less Apple-ID case above), so it never shows twice.
@@ -349,20 +328,51 @@ impl MembersPane {
                     is_self,
                     is_owner_row,
                     i_am_owner,
+                    // EXP-630: a placeholder member gets "Resend invite" —
+                    // the dialog needs the team plus the row's own prefill.
+                    placeholder.map(|_| ResendContext {
+                        team_id: team_id.to_string(),
+                        display_name: name.clone(),
+                        target: ResendTarget {
+                            user_id: member.user_id.clone(),
+                            name: row
+                                .user
+                                .as_ref()
+                                .and_then(|user| user.name.clone())
+                                .unwrap_or_default(),
+                            email: row
+                                .user
+                                .as_ref()
+                                .and_then(|user| user.email.clone())
+                                .unwrap_or_default(),
+                        },
+                    }),
                     cx,
                 ))
             })
     }
 }
 
-/// Web `DropdownMenu` per member row: role changes (owner, not self), then
-/// Leave team (self) / Remove member (owner).
+/// What the row's "Resend invite" needs to open its dialog (EXP-630) —
+/// `None` on a member who has joined.
+#[derive(Clone, Debug)]
+struct ResendContext {
+    team_id: String,
+    /// The row's resolved label — it leads the dialog's description.
+    display_name: String,
+    target: ResendTarget,
+}
+
+/// Web `DropdownMenu` per member row: Resend invite (owner, not self, still
+/// invited), role changes (owner, not self), then Leave team (self) / Remove
+/// member (owner).
 fn member_actions_menu(
     member_id: String,
     name: &str,
     is_self: bool,
     is_owner_row: bool,
     i_am_owner: bool,
+    resend: Option<ResendContext>,
     cx: &gpui::App,
 ) -> impl IntoElement {
     // EXP-862: a row's "..." is a GHOST glyph, never a circle.
@@ -375,6 +385,24 @@ fn member_actions_menu(
             let member_id = member_id.clone();
             let name = name.to_string();
             move |mut menu, _, _| {
+                // EXP-630: first item — the invite is the thing that is
+                // unfinished about this row.
+                if let Some(resend) = resend.clone().filter(|_| i_am_owner && !is_self) {
+                    menu = menu.item(
+                        PopupMenuItem::new("Resend invite")
+                            .icon(Icon::new(registry::UI_MAIL))
+                            .on_click(move |_, window, cx| {
+                                let resend = resend.clone();
+                                super::resend_invite_dialog::open(
+                                    window,
+                                    cx,
+                                    resend.team_id,
+                                    resend.display_name,
+                                    resend.target,
+                                );
+                            }),
+                    );
+                }
                 if i_am_owner && !is_self {
                     // Only the applicable role change renders — demoting another
                     // owner is always safe (I stay an owner). The no-op variant
@@ -470,7 +498,7 @@ fn open_remove_member_dialog(
 }
 
 impl Render for MembersPane {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
             return v_flex().child(
                 div()
@@ -489,6 +517,11 @@ impl Render for MembersPane {
             .iter()
             .filter(|row| row.member.role.as_deref() == Some(TEAM_ROLE_OWNER))
             .count();
+        // EXP-630: who is on the roster without having joined — read off the
+        // SYNCED invites, by the same rule the web and the natives apply.
+        let invites = self.team_invites(&team_id, cx);
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let placeholders = placeholder_statuses(&invites, now_ms);
 
         // EXP-771: the web header — a bare "Members" label, no count subline
         // (EXP-698 retired header counts on every client, and the desktop's
@@ -504,7 +537,15 @@ impl Render for MembersPane {
         let mut list = v_flex().w_full().min_w_0();
         for (index, row) in rows.iter().enumerate() {
             list = list.child(crate::surface::list_row(
-                self.render_member_row(row, &my_user_id, i_am_owner, owner_count, cx),
+                self.render_member_row(
+                    row,
+                    &my_user_id,
+                    i_am_owner,
+                    owner_count,
+                    &team_id,
+                    placeholders.get(&row.member.user_id).copied(),
+                    cx,
+                ),
                 index,
             ));
         }
@@ -512,14 +553,8 @@ impl Render for MembersPane {
 
         // InviteControls (web: owner-only `showInvite`).
         if i_am_owner {
-            let busy = self.generating || self.sending;
-            let email_empty = self
-                .email_input
-                .read(cx)
-                .value()
-                .trim()
-                .is_empty();
-            // Web order, top to bottom: the heading pair, the email row, the
+            let busy = self.generating || self.invite_form.read(cx).sending();
+            // Web order, top to bottom: the heading pair, the invite form, the
             // generated link, the "Generate invite link" button, the pending
             // list. The heading is SENTENCE case here — the web's "Invite
             // Members" is the last title-cased heading in the settings pages.
@@ -541,45 +576,16 @@ impl Render for MembersPane {
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    "Send an invite by email, or generate a link to share yourself",
-                                ),
+                                .child(INVITE_HELP),
                         ),
                 );
 
-            invite_section = invite_section.child(
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(glass_input(&self.email_input, window, cx).web_input_sm()),
-                    )
-                    .child(
-                        Button::new("invite-send")
-                            .primary()
-                            .web_sm()
-                            .label("Send invite")
-                            .icon(registry::UI_MAIL)
-                            .loading(self.sending)
-                            .disabled(busy || email_empty)
-                            .on_click(cx.listener({
-                                let team_id = team_id.clone();
-                                move |this, _, window, cx| {
-                                    this.generate_invite(team_id.clone(), true, window, cx);
-                                }
-                            })),
-                    ),
-            );
+            // EXP-630: THE shared form (name + address + "Send invite") — it
+            // owns its own spinner, notices and fallback link.
+            invite_section = invite_section.child(self.invite_form.clone());
 
-            // The notices sit BETWEEN the email row and the link: the email
-            // fallback's copy says "copy the link below", so the link has to
-            // be below it.
-            if let Some(notice) = &self.sent_notice {
-                invite_section = invite_section.child(sent_notice(notice.clone(), cx));
-            }
+            // The notices below belong to the LINK path only (the form renders
+            // its own).
             if self.out_of_seats {
                 invite_section = invite_section.child(out_of_seats_notice(cx));
             }
@@ -588,32 +594,8 @@ impl Render for MembersPane {
             }
 
             if let Some(url) = &self.invite_url {
-                invite_section = invite_section.child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .px_2()
-                                .py_1()
-                                .rounded(cx.theme().radius)
-                                .border_1()
-                                .border_color(super::row_stroke(cx))
-                                .text_xs()
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .whitespace_nowrap()
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .child(url.clone()),
-                        )
-                        .child(
-                            Clipboard::new("invite-copy")
-                                .value(url.clone())
-                                .tooltip("Copy invite URL"),
-                        ),
-                );
+                invite_section =
+                    invite_section.child(invite_link_row("invite-link-copy", url.clone(), cx));
             }
 
             invite_section = invite_section.child(
@@ -628,16 +610,22 @@ impl Render for MembersPane {
                         .on_click(cx.listener({
                             let team_id = team_id.clone();
                             move |this, _, window, cx| {
-                                this.generate_invite(team_id.clone(), false, window, cx);
+                                this.generate_link(team_id.clone(), window, cx);
                             }
                         })),
                 ),
             );
 
-            let invites = self.pending_invites(&team_id, cx);
-            if !invites.is_empty() {
+            // EXP-630: PENDING = unaccepted AND unexpired. An expired
+            // placeholder invite is a badge on its member row above, not a
+            // live link in this list.
+            let pending: Vec<&TeamInvite> = invites
+                .iter()
+                .filter(|invite| invite_is_pending(invite, now_ms))
+                .collect();
+            if !pending.is_empty() {
                 let mut pending_rows = v_flex().w_full().min_w_0();
-                for (invite_index, invite) in invites.iter().enumerate() {
+                for (invite_index, invite) in pending.iter().enumerate() {
                     let invite_id = invite.id.clone();
                     let role: SharedString = invite
                         .role
@@ -755,47 +743,6 @@ fn display_name(row: &MemberRow) -> String {
         .unwrap_or_else(|| domain::member_fallback_label(&row.member.user_id))
 }
 
-/// The web's seat-cap `UpgradeDialog`, inline: its title as the lead line, its
-/// description under it, and the desktop's one billing hand-off (§4.9 — seats
-/// are bought on the web).
-fn out_of_seats_notice(cx: &App) -> impl IntoElement {
-    v_flex()
-        .gap_1()
-        .px_3()
-        .py_2()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(cx.theme().primary.opacity(0.4))
-        .bg(cx.theme().primary.opacity(0.05))
-        .child(
-            div()
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .child(OUT_OF_SEATS_TITLE),
-        )
-        .child(div().text_sm().child(OUT_OF_SEATS_MESSAGE))
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child("Add seats on the web."),
-        )
-}
-
-/// "Invite sent to X" confirmation (EXP-188 invite-by-email).
-fn sent_notice(message: SharedString, cx: &App) -> impl IntoElement {
-    div()
-        .px_3()
-        .py_2()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(theme::tokens::GREEN.to_hsla().opacity(0.5))
-        .bg(theme::tokens::GREEN.to_hsla().opacity(0.1))
-        .text_sm()
-        .text_color(theme::tokens::GREEN.to_hsla())
-        .child(message)
-}
-
 /// EXP-698: the role badge IS the shared small READONLY pill, with the role
 /// glyph leading. (It was a bespoke `role_chip` recipe — the last chip shape
 /// in the settings panes.)
@@ -809,6 +756,21 @@ fn role_chip(
     crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
     .child(Icon::new(icon).with_size(gpui::px(PillSize::Sm.glyph())))
     .child(label)
+}
+
+/// EXP-630: the "invited, not joined" badge — the same small readonly pill the
+/// role wears, MUTED and led by the mail concept, so it reads as a footnote on
+/// the row rather than a second role.
+fn placeholder_chip(
+    id: impl Into<ElementId>,
+    status: PlaceholderStatus,
+    cx: &App,
+) -> impl IntoElement {
+    use crate::surface::{PillMode, PillSize};
+    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx)
+        .text_color(cx.theme().muted_foreground)
+        .child(Icon::new(registry::UI_MAIL).with_size(gpui::px(PillSize::Sm.glyph())))
+        .child(status.label())
 }
 
 fn row_id(kind: &str, id: &str) -> ElementId {

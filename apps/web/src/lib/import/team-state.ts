@@ -1,6 +1,6 @@
 // EXP-630: the team as the plan builder and the dry run see it — one loader
 // shared by the router (dry run, default plan) and the worker (apply ports).
-import { and, eq, gt, inArray, isNull, isNotNull, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   boards,
@@ -8,13 +8,12 @@ import {
   issueStatuses,
   issues,
   labels,
-  teamInvites,
   teamMembers,
   teams,
   users,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
-import { assertCanInviteMember, getTeamPlan, getTeamUsage } from "@/lib/billing"
+import { getTeamPlan, getTeamUsage } from "@/lib/billing"
 import type { IssueEstimation, IssueStatus, IssueStatusCategory } from "@/lib/domain"
 import type { TeamState } from "@/lib/import/plan"
 
@@ -85,25 +84,6 @@ export async function loadImportTeamState(
     .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(eq(teamMembers.teamId, teamId))
 
-  const inviteRows = await db
-    .select({ email: teamInvites.email })
-    .from(teamInvites)
-    .where(
-      and(
-        eq(teamInvites.teamId, teamId),
-        isNull(teamInvites.acceptedAt),
-        gt(teamInvites.expiresAt, new Date()),
-        isNotNull(teamInvites.email)
-      )
-    )
-
-  let canInvite = true
-  try {
-    await assertCanInviteMember(teamId)
-  } catch {
-    canInvite = false
-  }
-
   let storage: TeamState[`storage`] = { limitBytes: null, usedBytes: 0 }
   if (isCloudInstance()) {
     const [{ limits }, usage] = await Promise.all([getTeamPlan(teamId), getTeamUsage(teamId)])
@@ -159,8 +139,6 @@ export async function loadImportTeamState(
       email: row.email ?? ``,
       name: row.name ?? ``,
     })),
-    pendingInviteEmails: inviteRows.map((row) => row.email!).filter(Boolean),
-    canInvite,
     storage,
     importedIssueKeys,
     importedBoards,

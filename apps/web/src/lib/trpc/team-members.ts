@@ -12,6 +12,7 @@ import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { endForeignHostedSessions } from "@/lib/coding-session-kill"
+import { deletePlaceholderIfOrphaned } from "@/lib/placeholder-members"
 
 // v7: the self-service `join` procedure is gone with public teams —
 // membership is invite-only everywhere; the only anonymous write path is
@@ -226,6 +227,10 @@ export const teamMembersRouter = router({
           )
           .returning({ id: devices.id })
         clearedDeviceShare = cleared.length > 0
+        // EXP-630: an unclaimed placeholder nothing references any more has
+        // no reason to exist once it is off its last roster (its invites
+        // cascade with it). A referenced one stays, like any former member.
+        await deletePlaceholderIfOrphaned(tx, target.userId)
       })
       // Post-commit (never inside the tx — a concurrent shape renewal would
       // repopulate the cache with pre-commit membership).

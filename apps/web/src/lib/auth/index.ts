@@ -40,6 +40,11 @@ import { dailyAnonymousIdFromHeaders } from "@/lib/conversion/anonymous"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { recordSubscriptionLifecycleEvent } from "@/lib/conversion/subscription-events"
 import { isAdminUser } from "./app-user"
+import {
+  adoptProviderProfile,
+  claimPlaceholder,
+  providerProfileFromClaims,
+} from "@/lib/placeholder-members"
 import { mintAppleClientSecret } from "./apple"
 import { withAuthDbFailureSignal } from "./db-failure-signal"
 import {
@@ -313,6 +318,41 @@ export const auth = betterAuth({
     },
   },
   databaseHooks: {
+    // EXP-630 placeholder members: a sign-in THROUGH a placeholder's email
+    // (Google/Apple/OIDC link, sign-in code, password reset) makes the row a
+    // real account. The linked account's id token carries the provider's
+    // name and picture — those replace the invited (Linear/typed) name, but
+    // only on an unclaimed placeholder; a real account's chosen name is never
+    // overwritten by a later link. The session hook then clears the flag and
+    // marks the pending invites accepted. Both are idempotent no-ops for
+    // ordinary accounts.
+    account: {
+      create: {
+        after: async (account) => {
+          if (!account.idToken) return
+          try {
+            await adoptProviderProfile(
+              db,
+              account.userId,
+              providerProfileFromClaims(decodeJwtPayload(account.idToken))
+            )
+          } catch (err) {
+            console.error(`[auth] placeholder profile adoption failed:`, err)
+          }
+        },
+      },
+    },
+    session: {
+      create: {
+        after: async (session) => {
+          try {
+            await claimPlaceholder(db, session.userId)
+          } catch (err) {
+            console.error(`[auth] placeholder claim failed:`, err)
+          }
+        },
+      },
+    },
     user: {
       create: {
         // EXP-857: a first sign-in with a one-time code creates the account

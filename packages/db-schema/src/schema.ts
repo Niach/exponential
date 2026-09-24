@@ -313,11 +313,25 @@ export const teamInvites = pgTable(
     // Optional recipient address (EXP-188 invite-by-email). Display metadata
     // only — accept() stays token-bound, never recipient-bound.
     email: varchar({ length: 255 }),
+    // EXP-630: the placeholder member this email invite created up front
+    // (users.placeholder_at) — already on the roster, assignable and
+    // attributable before the person joins. accept() claims it: the accepting
+    // account IS the placeholder (signed in through its email) or absorbs it
+    // (attributions move to the accepter, the placeholder row goes).
+    // Cascades: revoking keeps the row, deleting the placeholder drops the
+    // invite. Synced (team-invites shape) so member lists can badge the row.
+    placeholderUserId: text(`placeholder_user_id`).references(
+      () => users.id,
+      { onDelete: `cascade` }
+    ),
     acceptedAt: timestamp(`accepted_at`, { withTimezone: true }),
     expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
     ...timestamps,
   },
-  (table) => [index(`idx_team_invites_team`).on(table.teamId)]
+  (table) => [
+    index(`idx_team_invites_team`).on(table.teamId),
+    index(`idx_team_invites_placeholder_user`).on(table.placeholderUserId),
+  ]
 )
 
 export const boards = pgTable(

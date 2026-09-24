@@ -55,6 +55,16 @@ export const users = pgTable(
     // SERVER-ONLY like the stamps above (the users shape allowlist pins 6
     // columns; this never syncs).
     timezone: text(`timezone`),
+    // EXP-630 placeholder members: a row created by an email invite (or the
+    // Linear import's member mapping) BEFORE the person has signed up, so
+    // issues, comments and events can be attributed to them at once. Set
+    // while the row has no credentials of its own; cleared the moment it is
+    // claimed — a session for it (OAuth link, sign-in code, password reset),
+    // or the invite's accept merging it into the accepting account. Unclaimed
+    // placeholders receive no notification email. SERVER-ONLY (the users
+    // shape allowlist pins 6 columns); clients learn "invited, not joined"
+    // from the pending invite's synced `placeholder_user_id`.
+    placeholderAt: timestamp(`placeholder_at`, { withTimezone: true }),
     // Trigger-maintained membership mirror (REV-37, sync_user_team_ids in the
     // custom trigger file): the user's team ids, sorted for determinism. It
     // exists so the users shape's where clause can be

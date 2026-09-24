@@ -42,6 +42,9 @@
 //!   `fixtures/issue-graph.json`;
 //! * [`issue_rail`] — EXP-998's blocks RAIL: the git-graph lanes an issue
 //!   list draws between its visible rows (web `lib/issue-rail.ts` twin);
+//! * [`placeholder_status`] — EXP-630's roster badge: which members are
+//!   "invited, not joined" (and whether their link still works) read off the
+//!   synced invites (web `lib/placeholder-status.ts`'s twin);
 //! * [`image_message`] — the steer/start image-message shape (EXP-511/825),
 //!   `lib/steer-image-message.ts`'s byte-identical twin;
 //! * [`issue_estimate`] — EXP-630 story points on the TEAM's scale (labels,
@@ -93,6 +96,7 @@ pub mod issue_nesting;
 pub mod issue_rail;
 pub mod issue_search;
 pub mod options;
+pub mod placeholder_status;
 pub mod pr_graph;
 pub mod pr_stack;
 pub mod relations;

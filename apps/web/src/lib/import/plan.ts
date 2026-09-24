@@ -66,10 +66,6 @@ export interface TeamState {
   statuses: TeamStateStatus[]
   labels: TeamStateLabel[]
   members: TeamStateMember[]
-  // Emails with a pending invite already (case-insensitive).
-  pendingInviteEmails: string[]
-  // Cloud seat gate: false = `teamInvites.create` would refuse.
-  canInvite: boolean
   // Cloud storage limit; null = unlimited.
   storage: { limitBytes: number | null; usedBytes: number }
   // Bundle issue keys the entity map already holds (a resume / re-run).
@@ -473,7 +469,6 @@ export function evaluatePlan(
   }
 
   // --- users --------------------------------------------------------------
-  let invites = 0
   const fallbackUsers: string[] = []
   for (const user of bundle.users) {
     const entry = plan.users[user.key]
@@ -487,21 +482,6 @@ export function evaluatePlan(
         blockers.push(`The member chosen for ${label} is no longer in this team.`)
       }
       continue
-    }
-    if (entry.mode === `invite`) {
-      if (!user.email) {
-        blockers.push(`${label} has no email address to invite.`)
-        continue
-      }
-      if (!state.canInvite) {
-        blockers.push(
-          `Inviting ${label} would exceed the team's seats. Attribute their content to yourself or add seats first.`
-        )
-        continue
-      }
-      if (!state.pendingInviteEmails.some((row) => norm(row) === norm(user.email))) {
-        invites += 1
-      }
     }
     fallbackUsers.push(label)
   }
@@ -650,7 +630,6 @@ export function evaluatePlan(
       boardsToCreate,
       statusesToCreate,
       labelsToCreate,
-      invites,
       issues,
       alreadyImported,
       skippedIssues,

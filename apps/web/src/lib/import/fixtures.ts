@@ -234,8 +234,6 @@ export function teamStateFixture(overrides: Partial<TeamState> = {}): TeamState 
       { userId: ME, email: `danny@straehhuber.com`, name: `Danny` },
       { userId: `member-hannes`, email: `HANNES.ROBIER@youspi.com`, name: `Hannes` },
     ],
-    pendingInviteEmails: [],
-    canInvite: true,
     storage: { limitBytes: null, usedBytes: 0 },
     importedIssueKeys: new Set(),
     importedBoards: new Map(),

@@ -305,8 +305,9 @@ fn sort_instant(instant: Option<i64>, carried: &mut i64) -> i64 {
 /// `Date.parse`). Covers both ISO-8601 (`…T…Z`) and Electric's timestamptz
 /// text (`… …+00`), the two forms a row's timestamps ever arrive in. Twin of
 /// `issue_search::parse_instant` (private there; this crate keeps every rule
-/// module self-contained).
-fn parse_instant(value: &str) -> Option<i64> {
+/// module self-contained). `pub(crate)` since EXP-630: the invite badge dates
+/// `expires_at` through THIS copy rather than carrying a third one.
+pub(crate) fn parse_instant(value: &str) -> Option<i64> {
     let value = value.trim();
     let year: i64 = value.get(0..4)?.parse().ok()?;
     if value.get(4..5)? != "-" {

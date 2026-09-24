@@ -1372,6 +1372,12 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
     // Optional recipient address (EXP-188): set when the owner sent the
     // invite by email; rides the team-invites shape for the pending list.
     public let email: String?
+    // The placeholder member this invite created (EXP-630): an emailed invite
+    // puts the invitee on the roster at once as a credential-less `users` row,
+    // and the member list badges that row "invited, not joined" while the
+    // invite is unaccepted. NULL for link invites and invites to an existing
+    // account; rides the team-invites shape.
+    public let placeholderUserId: String?
     public let expiresAt: String
     public let acceptedAt: String?
     public let createdAt: String
@@ -1383,6 +1389,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
         role: String,
         token: String?,
         email: String? = nil,
+        placeholderUserId: String? = nil,
         expiresAt: String,
         acceptedAt: String?,
         createdAt: String,
@@ -1393,6 +1400,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
         self.role = role
         self.token = token
         self.email = email
+        self.placeholderUserId = placeholderUserId
         self.expiresAt = expiresAt
         self.acceptedAt = acceptedAt
         self.createdAt = createdAt
@@ -1402,6 +1410,7 @@ public struct TeamInviteEntity: Codable, FetchableRecord, PersistableRecord, Ide
     enum CodingKeys: String, CodingKey {
         case id, role, token, email
         case teamId = "team_id"
+        case placeholderUserId = "placeholder_user_id"
         case expiresAt = "expires_at"
         case acceptedAt = "accepted_at"
         case createdAt = "created_at"

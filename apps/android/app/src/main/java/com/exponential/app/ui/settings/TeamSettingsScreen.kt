@@ -743,6 +743,19 @@ private fun MembersSection(
                 }
                 // Role badge pill (iOS parity).
                 GlassPill(row.member.role, size = PillSize.Sm, mode = PillMode.Readonly)
+                // EXP-630: an email invite put this member on the roster before
+                // the person signed in — a MUTED mail pill right after the role
+                // says so ("Invited" / "Invite expired"), exactly as web. The
+                // invite surface itself stays web-only (EXP-725).
+                row.placeholder?.let { placeholder ->
+                    GlassPill(
+                        placeholder.label,
+                        size = PillSize.Sm,
+                        mode = PillMode.Readonly,
+                        icon = ExpIcons.uiMail,
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    )
+                }
                 if (hasActions) {
                     var rowMenu by remember { mutableStateOf(false) }
                     Box {

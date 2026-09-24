@@ -348,11 +348,12 @@ export const labelPlanSchema = z.discriminatedUnion(`mode`, [
   z.object({ mode: z.literal(`skip`) }),
 ])
 
+// EXP-630: a source user maps to a team member — an existing one, or the
+// PLACEHOLDER member the wizard's inline invite created for them (they are on
+// the roster at once; their attributions carry over when they join) — or its
+// content is attributed to the importer.
 export const userPlanSchema = z.discriminatedUnion(`mode`, [
   z.object({ mode: z.literal(`member`), userId: z.string().min(1) }),
-  // Sends a team invite to the source email; content is attributed to the
-  // importer until (and after — imports never rewrite) they accept.
-  z.object({ mode: z.literal(`invite`) }),
   z.object({ mode: z.literal(`self`) }),
 ])
 
@@ -405,7 +406,6 @@ export const importCountsSchema = z.object({
   boards: z.number().int().nonnegative(),
   statuses: z.number().int().nonnegative(),
   labels: z.number().int().nonnegative(),
-  invites: z.number().int().nonnegative(),
   issues: z.number().int().nonnegative(),
   comments: z.number().int().nonnegative(),
   attachments: z.number().int().nonnegative(),
@@ -420,7 +420,6 @@ export function emptyImportCounts(): ImportCounts {
     boards: 0,
     statuses: 0,
     labels: 0,
-    invites: 0,
     issues: 0,
     comments: 0,
     attachments: 0,
@@ -437,7 +436,6 @@ export const dryRunResultSchema = z.object({
     boardsToCreate: z.number().int().nonnegative(),
     statusesToCreate: z.number().int().nonnegative(),
     labelsToCreate: z.number().int().nonnegative(),
-    invites: z.number().int().nonnegative(),
     issues: z.number().int().nonnegative(),
     alreadyImported: z.number().int().nonnegative(),
     skippedIssues: z.number().int().nonnegative(),

@@ -156,7 +156,6 @@ describe(`evaluatePlan`, () => {
       attachments: 2,
       assetBytes: 85_285,
       events: 5,
-      invites: 0,
       skippedIssues: 0,
     })
     expect(result.warnings.join(`\n`)).toMatch(/attributed to you/)
@@ -279,21 +278,6 @@ describe(`evaluatePlan`, () => {
     const result = evaluatePlan(bundle, allocate, withBoard)
     expect(result.blockers).toEqual([])
     expect(result.warnings.join(`\n`)).toMatch(/get new numbers/)
-  })
-
-  it(`blocks an invite the seat gate would refuse and counts one otherwise`, () => {
-    const invite: ImportPlan = {
-      ...plan,
-      users: { ...plan.users, [`user:${U_DENNIS}`]: { mode: `invite` } },
-    }
-    expect(evaluatePlan(bundle, invite, teamStateFixture({ canInvite: false })).blockers.join(`\n`)).toMatch(
-      /exceed the team's seats/
-    )
-    expect(evaluatePlan(bundle, invite, state).counts.invites).toBe(1)
-    expect(
-      evaluatePlan(bundle, invite, teamStateFixture({ pendingInviteEmails: [`Dennis@straehhuber.com`] })).counts
-        .invites
-    ).toBe(0)
   })
 
   it(`blocks a storage overflow on a limited plan`, () => {

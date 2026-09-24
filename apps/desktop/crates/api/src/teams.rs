@@ -10,7 +10,8 @@
 //! - `teams.inviteCapacity({teamId})` → `{remaining}` (query, EXP-725)
 //! - `teamMembers.updateRole({memberId, role})` → `{member}`
 //! - `teamMembers.remove({memberId})` → `{ok}` (also "Leave team")
-//! - `teamInvites.create({teamId, role, email?})` → `{invite, token, emailDelivered}`
+//! - `teamInvites.create({teamId, role, email?, name?, placeholderUserId?})` →
+//!   `{invite, token, emailDelivered, memberUserId}` (EXP-630)
 //! - `teamInvites.accept({token})` → `{team, alreadyMember, txId?}`
 //! - `teamInvites.list({teamId})` → `{invites}` (query)
 //! - `teamInvites.revoke({id})` → `{ok}`
@@ -225,6 +226,10 @@ pub struct TeamInviteOut {
     /// invites).
     #[serde(default)]
     pub email: Option<String>,
+    /// EXP-630: the placeholder member this invite is bound to (null on link
+    /// invites and on invites to an existing account).
+    #[serde(default)]
+    pub placeholder_user_id: Option<String>,
     /// Only on `getByToken` (joined for the preview card).
     #[serde(default)]
     pub team_name: Option<String>,
@@ -241,16 +246,35 @@ pub struct InviteCreateOutput {
     /// `false` = mail requested but delivery failed (show the link instead).
     #[serde(default)]
     pub email_delivered: Option<bool>,
+    /// EXP-630: the PLACEHOLDER member the invite put on the roster (the
+    /// re-invited one on a resend). `null` on a link invite and when the
+    /// address already belongs to an account.
+    #[serde(default)]
+    pub member_user_id: Option<String>,
+}
+
+/// EXP-630: the placeholder-member extras of an invite by email. All-`None`
+/// (`Default`) keeps the wire shape byte-identical to the EXP-188 invite.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct InviteExtras<'a> {
+    /// The placeholder's display name; empty/absent = the mailbox local part.
+    pub name: Option<&'a str>,
+    /// Re-invite THIS unclaimed placeholder member ("Resend invite"),
+    /// optionally at a corrected address — the roster row keeps its
+    /// attributions.
+    pub placeholder_user_id: Option<&'a str>,
 }
 
 /// `teamInvites.create` — mutation (owner-only; plan-cap gated). `email`
-/// is optional (EXP-188): when set, the server mails the invite link and
-/// reports the outcome via `email_delivered`.
+/// is optional (EXP-188): when set, the server mails the invite link, puts the
+/// invitee on the roster as a placeholder member (EXP-630, see
+/// [`InviteExtras`]) and reports the outcome via `email_delivered`.
 pub fn team_invites_create(
     trpc: &TrpcClient,
     team_id: &str,
     role: TeamRole,
     email: Option<&str>,
+    extras: InviteExtras<'_>,
 ) -> Result<InviteCreateOutput, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -259,8 +283,21 @@ pub fn team_invites_create(
         role: TeamRole,
         #[serde(skip_serializing_if = "Option::is_none")]
         email: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        placeholder_user_id: Option<&'a str>,
     }
-    trpc.mutation("teamInvites.create", &Input { team_id, role, email })
+    trpc.mutation(
+        "teamInvites.create",
+        &Input {
+            team_id,
+            role,
+            email,
+            name: extras.name.filter(|name| !name.is_empty()),
+            placeholder_user_id: extras.placeholder_user_id,
+        },
+    )
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -385,7 +422,14 @@ mod tests {
             r#"{"result":{"data":{"invite":{"id":"inv-1","teamId":"w-1","role":"member","expiresAt":"2026-07-10T00:00:00Z"},"token":"rawtoken123"}}}"#,
         );
         let out =
-            team_invites_create(&client(&base), "w-1", TeamRole::Member, None).unwrap();
+        team_invites_create(
+            &client(&base),
+            "w-1",
+            TeamRole::Member,
+            None,
+            InviteExtras::default(),
+        )
+        .unwrap();
         assert_eq!(out.token, "rawtoken123");
         assert_eq!(out.invite.id, "inv-1");
         assert_eq!(out.email_delivered, None);
@@ -423,6 +467,7 @@ mod tests {
             "w-1",
             TeamRole::Member,
             Some("jo@example.com"),
+            InviteExtras::default(),
         )
         .unwrap();
         assert_eq!(out.email_delivered, Some(true));
@@ -430,6 +475,55 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request
             .ends_with(r#"{"teamId":"w-1","role":"member","email":"jo@example.com"}"#));
+    }
+
+    /// EXP-630: a "Resend invite" carries the placeholder's id and the (possibly
+    /// corrected) name beside the address, and the response names the roster row
+    /// the invite belongs to.
+    #[test]
+    fn invite_create_sends_the_placeholder_extras_and_decodes_the_member() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"invite":{"id":"inv-3","teamId":"w-1","role":"member","email":"jo@example.com","placeholderUserId":"u-9"},"token":"rawtoken789","emailDelivered":true,"memberUserId":"u-9"}}}"#,
+        );
+        let out = team_invites_create(
+            &client(&base),
+            "w-1",
+            TeamRole::Member,
+            Some("jo@example.com"),
+            InviteExtras {
+                name: Some("Jo Miller"),
+                placeholder_user_id: Some("u-9"),
+            },
+        )
+        .unwrap();
+        assert_eq!(out.member_user_id.as_deref(), Some("u-9"));
+        assert_eq!(out.invite.placeholder_user_id.as_deref(), Some("u-9"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"teamId":"w-1","role":"member","email":"jo@example.com","name":"Jo Miller","placeholderUserId":"u-9"}"#
+        ));
+
+        // An EMPTY name is not a name — it must not reach the wire (the
+        // server would take it as "call them ''" instead of defaulting to the
+        // mailbox local part).
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"invite":{"id":"inv-4","teamId":"w-1"},"token":"t"}}}"#,
+        );
+        team_invites_create(
+            &client(&base),
+            "w-1",
+            TeamRole::Member,
+            Some("jo@example.com"),
+            InviteExtras {
+                name: Some(""),
+                placeholder_user_id: None,
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"w-1","role":"member","email":"jo@example.com"}"#));
     }
 
     /// EXP-725: the wizard's invite step asks BEFORE offering the control —

@@ -10,6 +10,7 @@ import {
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
+import { InviteMemberForm } from "@/components/team/invite-member-form"
 import {
   BOARD_PREFIX_PATTERN,
   IMPORT_TERMINAL_STATUSES,
@@ -95,6 +96,7 @@ function formatBytes(bytes: number) {
 }
 
 const DownloadIcon = conceptIcon(`settings-import`)
+const UiMailIcon = conceptIcon(`ui-mail`)
 
 /**
  * EXP-630 tracker-import wizard (web-only, owner-only, like Billing). One
@@ -394,6 +396,8 @@ function MapStep({
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null)
   const [checking, setChecking] = useState(false)
   const [starting, setStarting] = useState(false)
+  // The source user whose inline invite form is open (one at a time).
+  const [invitingKey, setInvitingKey] = useState<string | null>(null)
   const checkedPlanRef = useRef<string | null>(null)
 
   const boards = useTeamBoards(team.id)
@@ -782,40 +786,76 @@ function MapStep({
 
       <section className="space-y-3">
         <GlassSectionHeader label="Members" count={preview.users.length} />
+        <div className="text-xs text-muted-foreground">
+          Map each person to a team member, or invite them: an invite puts them on
+          the team right away (name and address from the source, editable), so their
+          issues and comments are theirs from the start — they keep everything when
+          they sign in.
+        </div>
         <GlassGroup>
           {preview.users.map((user) => {
             const entry: UserPlan = plan.users[user.key] ?? { mode: `self` }
             const value = entry.mode === `member` ? `member:${entry.userId}` : entry.mode
+            const inviting = invitingKey === user.key
             return (
-              <GlassRow key={user.key} className="justify-between">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{user.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {user.email ?? `no email`} · {user.issueCount.toLocaleString()} assigned ·{` `}
-                    {user.commentCount.toLocaleString()} comments
+              <div key={user.key}>
+                <GlassRow className="justify-between">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{user.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {user.email ?? `no email`} · {user.issueCount.toLocaleString()} assigned ·{` `}
+                      {user.commentCount.toLocaleString()} comments
+                    </div>
                   </div>
-                </div>
-                <Select
-                  value={value}
-                  onValueChange={(next) => {
-                    if (next === `self` || next === `invite`) setUser(user.key, { mode: next })
-                    else setUser(user.key, { mode: `member`, userId: next.replace(`member:`, ``) })
-                  }}
-                >
-                  <SelectTrigger className="w-56">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {users.map((row) => (
-                      <SelectItem key={row.id} value={`member:${row.id}`}>
-                        {row.id === userId ? `${row.name} (you)` : `${row.name} · ${row.email}`}
-                      </SelectItem>
-                    ))}
-                    {user.email && <SelectItem value="invite">Invite {user.email}</SelectItem>}
-                    <SelectItem value="self">Attribute to me</SelectItem>
-                  </SelectContent>
-                </Select>
-              </GlassRow>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Select
+                      value={value}
+                      onValueChange={(next) => {
+                        if (next === `self`) setUser(user.key, { mode: next })
+                        else setUser(user.key, { mode: `member`, userId: next.replace(`member:`, ``) })
+                      }}
+                    >
+                      <SelectTrigger className="w-56">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users.map((row) => (
+                          <SelectItem key={row.id} value={`member:${row.id}`}>
+                            {row.id === userId ? `${row.name} (you)` : `${row.name} · ${row.email}`}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="self">Attribute to me</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {entry.mode !== `member` && (
+                      <Button
+                        variant={inviting ? `secondary` : `outline`}
+                        size="sm"
+                        onClick={() => setInvitingKey(inviting ? null : user.key)}
+                      >
+                        <UiMailIcon className="mr-1.5 size-3.5" />
+                        Invite
+                      </Button>
+                    )}
+                  </div>
+                </GlassRow>
+                {inviting && (
+                  <div className="border-t border-border/50 px-4 py-3">
+                    <InviteMemberForm
+                      teamId={team.id}
+                      defaultName={user.name}
+                      defaultEmail={user.email ?? ``}
+                      autoFocus="email"
+                      onInvited={(invited) => {
+                        if (invited.memberUserId) {
+                          setUser(user.key, { mode: `member`, userId: invited.memberUserId })
+                          setInvitingKey(null)
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             )
           })}
         </GlassGroup>
@@ -936,7 +976,6 @@ function DryRunPanel({ result }: { result: DryRunResult }) {
     `${counts.boardsToCreate} new boards`,
     `${counts.statusesToCreate} new statuses`,
     `${counts.labelsToCreate} new labels`,
-    ...(counts.invites > 0 ? [`${counts.invites} invites`] : []),
     ...(counts.events > 0 ? [`${counts.events.toLocaleString()} history events`] : []),
     ...(counts.alreadyImported > 0 ? [`${counts.alreadyImported.toLocaleString()} already imported`] : []),
     ...(counts.skippedIssues > 0 ? [`${counts.skippedIssues.toLocaleString()} skipped`] : []),
@@ -1063,10 +1102,10 @@ function FinishedStep({
                 </div>
               ))}
             </div>
-            {(counts.relations > 0 || counts.events > 0 || counts.invites > 0) && (
+            {(counts.relations > 0 || counts.events > 0) && (
               <div className="px-4 pb-3 text-xs text-muted-foreground">
                 {counts.relations.toLocaleString()} relations · {counts.events.toLocaleString()} history
-                events · {counts.invites} invites
+                events
               </div>
             )}
             {warnings.length > 0 && (
