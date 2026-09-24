@@ -693,27 +693,39 @@ export function IssueList({
   // multi-member team never briefly reads as solo.
   const isSolo = users.length === 1
 
+  // EXP-1023: a due-date column nobody in this list fills is pure empty space
+  // to the right of the label chips — the IDE, whose row is a flex line with
+  // a zero-width due cell (`issue_list.rs` `due_cell`), never shows it. The
+  // column collapses to 0 for the WHOLE list (every row, not per row: the
+  // dates have to line up once any row has one) and is keyed off every issue
+  // in `groups`, including the ones a collapsed group or "Show more" hides,
+  // so revealing rows never reflows the list.
+  const hasDueDate = groups.some((group) =>
+    group.issues.some((issue) => Boolean(issue.dueDate))
+  )
+
   // The row grid grows a leading checkbox column (md+ when bulk select is
-  // on), drops the assignee column on solo teams, and grows a trailing
-  // action column when the caller renders one. Every combination is a full
-  // literal — Tailwind only sees complete class strings. md+ ONLY: below the
-  // breakpoint the row is a flex card (EXP-620), so there is no mobile
-  // template to keep in step here.
+  // on), drops the assignee column on solo teams, collapses the due-date
+  // column when the list has no dates (`--issue-due`, set on the list
+  // below), and grows a trailing action column when the caller renders one.
+  // Every combination is a full literal — Tailwind only sees complete class
+  // strings. md+ ONLY: below the breakpoint the row is a flex card
+  // (EXP-620), so there is no mobile template to keep in step here.
   const rowGridClass = bulkEnabled
     ? renderRowAction
       ? isSolo
-        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem_var(--issue-rail,0px)]`
-        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem_var(--issue-rail,0px)]`
+        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_var(--issue-due,4.5rem)_2rem_var(--issue-rail,0px)]`
+        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_var(--issue-due,4.5rem)_2rem_var(--issue-rail,0px)]`
       : isSolo
-        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_var(--issue-rail,0px)]`
-        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_var(--issue-rail,0px)]`
+        ? `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_var(--issue-due,4.5rem)_var(--issue-rail,0px)]`
+        : `md:grid-cols-[1.25rem_calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_var(--issue-due,4.5rem)_var(--issue-rail,0px)]`
     : renderRowAction
       ? isSolo
-        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_2rem_var(--issue-rail,0px)]`
-        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_2rem_var(--issue-rail,0px)]`
+        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_var(--issue-due,4.5rem)_2rem_var(--issue-rail,0px)]`
+        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_var(--issue-due,4.5rem)_2rem_var(--issue-rail,0px)]`
       : isSolo
-        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_4.5rem_var(--issue-rail,0px)]`
-        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_4.5rem_var(--issue-rail,0px)]`
+        ? `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_var(--issue-due,4.5rem)_var(--issue-rail,0px)]`
+        : `md:grid-cols-[calc(1.5rem+var(--issue-indent,0px))_4.5rem_1.5rem_1fr_auto_1.75rem_var(--issue-due,4.5rem)_var(--issue-rail,0px)]`
 
   // EXP-998: the blocks rail over the VISIBLE entries — every rendered row,
   // every group header (folded or not) and every "Show more" button, in
@@ -796,7 +808,12 @@ export function IssueList({
       // reveal and edge highlight key off; the column width is read by every
       // row's grid template.
       className="group/rail max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
-      style={{ "--issue-rail": `${railW}px` } as React.CSSProperties}
+      style={
+        {
+          "--issue-rail": `${railW}px`,
+          ...(hasDueDate ? {} : { "--issue-due": `0px` }),
+        } as React.CSSProperties
+      }
       {...{ [RAIL_ROOT_ATTR]: `` }}
     >
       {visibleGroups.map((group) => {
