@@ -1970,7 +1970,7 @@ impl RailView {
                                 .text_color(cx.theme().muted_foreground)
                                 .truncate()
                                 .child(crate::changelog::LATEST.summary),
-                ),
+                        ),
                 )
                 .into_any_element(),
         )
