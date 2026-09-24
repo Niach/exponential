@@ -11,6 +11,11 @@ import ExpUI
 // tokens it paints with (`GlassPickerTokens`), and as the STRUCTURE of the
 // types themselves — a typed picker's `Body` IS the primitive, and there is
 // exactly one `PickerSelectionStyle` case, so a circle cannot come back.
+// The typed pickers are views, so a case that reaches for one stays on the
+// main actor (EXP-1020 hit this first; the `items` statics are `nonisolated`,
+// but the annotation costs nothing and keeps the target building under both
+// toolchains).
+@MainActor
 final class PickerContractTests: XCTestCase {
 
     func testARowMatchesOnItsKeywordsElseOnItsLabel() {
