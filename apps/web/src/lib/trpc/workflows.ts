@@ -8,18 +8,20 @@ import {
   workflowReviewHeadSchema,
   workflowReviewOracleSchema,
   type WorkflowNodeReview,
-  WORKFLOW_DEFAULT_LAUNCH,
-  WORKFLOW_DEFAULT_LAUNCH_BY_AGENT,
+  WORKFLOW_LAUNCH_DEFAULTS,
   WORKFLOW_MAX_ISSUES,
   wfNodeStateSchema,
+  workflowLaunchAgentValues,
   workflowLaunchSchema,
   workflowTouchesSchema,
   wfNodeKindSchema,
   wfRiskSchema,
   wfStartOnSchema,
-  type WorkflowLaunchStored,
+  type WorkflowLaunch,
+  type WorkflowLaunchAgent,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import { normalizeWorkflowLaunch } from "@/lib/workflow-launch"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
   boards,
@@ -29,6 +31,7 @@ import {
   issues,
   workflowNodes,
   workflows,
+  type DeviceLaunchDefaults,
 } from "@/db/schema"
 import { getSteerRelayConfig, relayPostInput } from "@/lib/steer"
 import { oneLine } from "@/lib/steer-child-messages"
@@ -56,11 +59,6 @@ const agentModelValues: Record<string, readonly string[]> = {
   claude: contract.codingModel.values,
   codex: contract.codexModel.values,
 }
-const agentEffortValues: Record<string, readonly string[]> = {
-  claude: contract.codingEffort.values,
-  codex: contract.codexEffort.values,
-}
-
 const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
 
 /** The device's build cannot run workflows (it predates the engine). */
@@ -71,80 +69,58 @@ const WORKFLOW_DEVICE = {
   capMessage: `Update Exponential on that machine to run workflows`,
 }
 
-function assertLaunch(launch: WorkflowLaunchStored): void {
-  if (launch.agent && !codingAgentValues.includes(launch.agent)) {
-    throw bad(`Unknown agent`)
-  }
-  const agent = launch.agent ?? `claude`
-  if (launch.model && !agentModelValues[agent]!.includes(launch.model)) {
-    throw bad(`Unknown ${agent} model`)
-  }
-  // EXP-1002: the per-PHASE and risk overrides come out of the SAME closed set
-  // as the workflow's own model — they only say which nodes take which.
-  for (const phase of [
-    launch.strongModel,
-    launch.contractModel,
-    launch.integrationModel,
-    launch.riskModel,
-  ]) {
-    if (phase && !agentModelValues[agent]!.includes(phase)) {
-      throw bad(`Unknown ${agent} model`)
-    }
-  }
-  if (launch.effort && !agentEffortValues[agent]!.includes(launch.effort)) {
-    throw bad(`Unknown ${agent} effort`)
-  }
-  if (launch.subagentModel) {
-    if (agent !== `claude`) throw bad(`Only claude takes a subagent model`)
-    if (!contract.codingModel.values.includes(launch.subagentModel)) {
-      throw bad(`Unknown subagent model`)
-    }
+/**
+ * EXP-1032: the NORMALIZED launch is what gets stored and validated — two
+ * models out of the agent's own closed vocabulary, and nothing else. The
+ * deprecated pins an old client still sends were folded into `strongModel`
+ * by `normalizeWorkflowLaunch` long before this.
+ */
+function assertLaunch(launch: WorkflowLaunch): void {
+  if (!codingAgentValues.includes(launch.agent)) throw bad(`Unknown agent`)
+  const models = agentModelValues[launch.agent]!
+  for (const model of [launch.model, launch.strongModel]) {
+    if (!models.includes(model)) throw bad(`Unknown ${launch.agent} model`)
   }
 }
 
-// EXP-1002: the three pins older clients have never heard of — and, EXP-1029,
-// the `strongModel` they replace, carried by the same rule until every client
-// writes it (EXP-1014).
-const PHASE_MODEL_KEYS = [
-  `strongModel`,
-  `contractModel`,
-  `integrationModel`,
-  `riskModel`,
-] as const
-
 /**
- * The launch `workflows.update` stores. `launch` is replaced WHOLE, except the
- * three phase pins, which follow the cross-client contract: key ABSENT → keep
- * the stored value, `null` → clear, string → set. Cleared pins are stored as
- * absent keys ("absent = `model`").
+ * EXP-1032: a new workflow's launch, seeded from the machine that will run it
+ * — its default ACCOUNT names the agent it runs on, its
+ * `launch_defaults.workflow` the two models. A device that advertises none
+ * (or no device at all) falls back to contract `workflowLaunch` defaults. A
+ * model outside that agent's vocabulary is a stale advertisement: the
+ * fallback stands in rather than a launch `assertLaunch` would refuse.
  */
-export function mergeLaunch(
-  stored: WorkflowLaunchStored | null | undefined,
-  incoming: WorkflowLaunchStored
-): WorkflowLaunchStored {
-  const merged: WorkflowLaunchStored = { ...incoming }
-  // A carried pin belongs to the STORED agent's model vocabulary; across an
-  // agent switch it would only be refused, so the new agent's shipped pin
-  // stands in (what the web's Agent row does explicitly).
-  const storedAgent = stored?.agent ?? `claude`
-  const agent = incoming.agent ?? `claude`
-  for (const key of PHASE_MODEL_KEYS) {
-    // compat: iOS ≤0.14.38, Android ≤0.14.39 and desktop/CLI ≤0.14.46 send a
-    // launch WITHOUT these keys, which would erase pins a newer client set.
-    // Delete this carry-forward (absent = clear again) once
-    // CLIENT_MIN_VERSION_IOS ≥ 0.14.39, CLIENT_MIN_VERSION_ANDROID ≥ 0.14.40
-    // and CLIENT_MIN_VERSION_DESKTOP/CLI ≥ 0.14.47 — those releases always
-    // send all three keys explicitly.
-    if (!(key in incoming)) {
-      const carried =
-        agent === storedAgent
-          ? stored?.[key]
-          : WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[agent]?.[key]
-      if (carried) merged[key] = carried
-    }
-    if (merged[key] == null) delete merged[key]
+export function launchFromDeviceDefaults(
+  defaults: DeviceLaunchDefaults | null | undefined
+): WorkflowLaunch {
+  const agent: WorkflowLaunchAgent =
+    workflowLaunchAgentValues.find((value) => value === defaults?.defaultAgent) ?? `claude`
+  const fallback = WORKFLOW_LAUNCH_DEFAULTS[agent]
+  const models = agentModelValues[agent]!
+  const pick = (value: unknown, otherwise: string) =>
+    typeof value === `string` && models.includes(value) ? value : otherwise
+  const launch: WorkflowLaunch = {
+    agent,
+    model: pick(defaults?.workflow?.model, fallback.model),
+    strongModel: pick(defaults?.workflow?.strongModel, fallback.strongModel),
   }
-  return merged
+  // The default account is one of `defaultAgent`'s profile ids, so it only
+  // ever rides beside a valid agent (`clampLaunchDefaults`).
+  if (defaults?.defaultAccount) launch.account = defaults.defaultAccount
+  return launch
+}
+
+/** The launch a workflow bound to `deviceId` is seeded with. A device row
+ *  that is gone reads as one that advertises nothing. */
+async function launchForDevice(deviceId: string): Promise<WorkflowLaunch> {
+  const { db } = await import(`@/db/connection`)
+  const [row] = await db
+    .select({ launchDefaults: devices.launchDefaults })
+    .from(devices)
+    .where(eq(devices.deviceId, deviceId))
+    .limit(1)
+  return launchFromDeviceDefaults(row?.launchDefaults ?? null)
 }
 
 /** The first agent that device can run for this caller, or null. Asks
@@ -525,10 +501,25 @@ export const workflowsRouter = router({
         teamId: z.string().uuid(),
         name: z.string().trim().min(1).max(255).optional(),
         issueIds: z.array(z.string().uuid()).min(1).max(WORKFLOW_MAX_ISSUES),
+        // EXP-1032: the machine that will run it, when the caller already
+        // knows one — the launch is seeded from ITS agent defaults.
+        deviceId: z.string().min(1).max(128).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertTeamMember(ctx.session.user.id, input.teamId)
+      const launch = input.deviceId
+        ? await launchForDevice(input.deviceId)
+        : launchFromDeviceDefaults(null)
+      if (input.deviceId) {
+        await assertDeviceUsable(
+          input.deviceId,
+          input.teamId,
+          ctx.session.user.id,
+          launch.agent,
+          WORKFLOW_DEVICE
+        )
+      }
       const picked = await loadPickableIssues(input.issueIds, input.teamId, null)
       // By NUMBER: "APP-10" sorts before "APP-6" as text.
       const first = [...picked.rows].sort((a, b) => a.number - b.number)[0]!
@@ -549,9 +540,13 @@ export const workflowsRouter = router({
             repositoryId: picked.repositoryId,
             creatorId: ctx.session.user.id,
             name,
-            // EXP-1002: a draft opens on the shipped split (opus implements,
-            // fable scaffolds and merges) rather than four blank rows.
-            launch: WORKFLOW_DEFAULT_LAUNCH,
+            ...(input.deviceId && { deviceId: input.deviceId }),
+            // EXP-1029: two models, seeded from the runner's agent defaults;
+            // the workflow screen has no settings panel to change them in.
+            launch,
+            // EXP-1029: every new workflow starts its dependents on the
+            // blockers' CONTRACT. There is no choice any more.
+            startOn: `contract`,
             integrationBranch: workflowIntegrationBranch(id),
           })
           .returning(wireColumns)
@@ -587,23 +582,27 @@ export const workflowsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await loadWorkflow(input.id)
       await assertTeamMember(ctx.session.user.id, existing.teamId)
-      const { id, name, decision, ...config } = input
+      // EXP-1029: `startOn` is fixed to `contract` — an old client still sends
+      // it, and it changes nothing at all (not even the draft gate).
+      const { id, name, decision, startOn: _startOn, ...config } = input
+      void _startOn
       // The name is a label; everything else is the run's configuration.
       if (Object.values(config).some((value) => value !== undefined)) {
         assertDraft(existing.status, `Changing how a workflow runs`)
       }
+      // EXP-1029: a launch is REPLACED whole by its normalized self — no
+      // phase-pin merge dance. An old client's pins fold into `strongModel`.
       let nextLaunch = input.launch
-        ? mergeLaunch(existing.launch, input.launch)
+        ? normalizeWorkflowLaunch(input.launch)
         : undefined
       if (nextLaunch) assertLaunch(nextLaunch)
       const deviceId =
         input.deviceId === undefined ? existing.deviceId : input.deviceId
-      // `create` stamps every workflow `agent: claude`, so binding a machine
-      // that only runs another agent would be refused until the person flips
-      // the Agent row. A bare device pick instead re-seeds the launch from the
-      // first agent that machine CAN run. (Setting `deviceId` already asserted
-      // the draft above.)
-      if (input.deviceId && !input.launch && existing.launch?.agent) {
+      // EXP-1032: binding a runner to a DRAFT re-seeds agent, account and both
+      // models from THAT machine's agent defaults — the workflow screen has no
+      // settings panel, so the device IS the choice. (Setting `deviceId`
+      // already asserted the draft above.)
+      if (input.deviceId && !input.launch) {
         // Ownership and the cap first: those refusals must stay theirs.
         await assertDeviceUsable(
           input.deviceId,
@@ -612,29 +611,37 @@ export const workflowsRouter = router({
           null,
           WORKFLOW_DEVICE
         )
-        const canRunStored = await assertDeviceUsable(
+        const seeded = await launchForDevice(input.deviceId)
+        const canRunSeeded = await assertDeviceUsable(
           input.deviceId,
           existing.teamId,
           ctx.session.user.id,
-          existing.launch.agent,
+          seeded.agent,
           WORKFLOW_DEVICE
         ).then(
           () => true,
           () => false
         )
-        const runnable = canRunStored
-          ? null
+        // The machine advertises an agent it cannot actually run (or none at
+        // all): the first one it CAN run stands in. No runnable agent at all
+        // leaves the seed alone and the assert below refuses, as before.
+        const runnable = canRunSeeded
+          ? seeded.agent
           : await firstRunnableAgent(
               input.deviceId,
               existing.teamId,
               ctx.session.user.id
             )
-        // No runnable agent at all: the assert below refuses, as before.
-        if (runnable && WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[runnable]) {
-          nextLaunch = { ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[runnable] }
-        }
+        const stand = workflowLaunchAgentValues.find(
+          (value) => value === runnable && value !== seeded.agent
+        )
+        // The stand-in agent drops the account too: a profile id belongs to
+        // the agent it was advertised for.
+        nextLaunch = stand
+          ? { agent: stand, ...WORKFLOW_LAUNCH_DEFAULTS[stand] }
+          : seeded
       }
-      const launch = nextLaunch ?? existing.launch
+      const launch = nextLaunch ?? normalizeWorkflowLaunch(existing.launch)
       if (deviceId && (input.deviceId !== undefined || input.launch)) {
         await assertDeviceUsable(
           deviceId,
@@ -644,16 +651,14 @@ export const workflowsRouter = router({
           WORKFLOW_DEVICE
         )
       }
-      // compat: iOS 0.14.39, Android 0.14.40 and desktop 0.14.47 still send
-      // the removed `gate` (EXP-1010); strip mode drops it, and a gate-only
-      // patch leaves nothing to set, which drizzle refuses with a 500. Answer
-      // with the row as it is. Delete once CLIENT_MIN_VERSION_IOS >= 0.14.40,
-      // _ANDROID >= 0.14.41 and _DESKTOP/_CLI >= 0.14.48.
+      // compat: older clients still send the removed `gate` (EXP-1010) and
+      // `startOn` (EXP-1029); both are ignored, and a patch of nothing but
+      // those leaves nothing to set, which drizzle refuses with a 500. Answer
+      // with the row as it is.
       if (
         name === undefined &&
         input.deviceId === undefined &&
         nextLaunch === undefined &&
-        input.startOn === undefined &&
         decision === undefined
       ) {
         return ctx.db.transaction(async (tx) => {
@@ -673,7 +678,6 @@ export const workflowsRouter = router({
             ...(name !== undefined && { name }),
             ...(input.deviceId !== undefined && { deviceId: input.deviceId }),
             ...(nextLaunch !== undefined && { launch: nextLaunch }),
-            ...(input.startOn !== undefined && { startOn: input.startOn }),
             ...(decision !== undefined && {
               decisions: appendDecisionLine(existing.decisions, decision, new Date()),
             }),
@@ -850,7 +854,7 @@ export const workflowsRouter = router({
         existing.deviceId,
         existing.teamId,
         ctx.session.user.id,
-        existing.launch.agent,
+        normalizeWorkflowLaunch(existing.launch).agent,
         WORKFLOW_DEVICE
       )
       return ctx.db.transaction(async (tx) => {
@@ -1461,6 +1465,9 @@ export const workflowsRouter = router({
         viaAgent: ctx.viaMcp === true,
         prUrl: workflow.finalPrUrl,
       })
+      // `mergeRepositoryPull` already applied this for the very same url
+      // (EXP-1032); asking again costs one read and cannot apply twice — the
+      // applier returns early on a row that reads `merged`.
       const { applyWorkflowFinalPrState } = await import(`@/lib/workflow-final-pr`)
       await applyWorkflowFinalPrState(ctx.db, workflow.finalPrUrl, `merged`)
       return { merged: true as const }

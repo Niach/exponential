@@ -132,44 +132,37 @@ pub struct WorkflowFacts {
     pub integration_branch: String,
     #[serde(default)]
     pub final_pr_url: Option<String>,
-    /// `launch.maxParallel`, or the contract default.
+    /// Contract `workflow.maxParallelDefault` — how many node runs may be
+    /// live at once. Not a launch field any more (EXP-1029): the hosts fill
+    /// it from the contract.
     pub max_parallel: usize,
-    /// `launch.agent` (contract `codingAgent`) — the agent EVERY run of this
-    /// workflow spawns on, its reviews included. Absent = claude. It names
-    /// the model family an adversarial review swaps inside.
-    #[serde(default)]
-    pub agent: Option<String>,
-    /// EXP-984: `launch.reviewModel` — what an agent review runs on. Absent
-    /// = the author's own model, unless the node is adversarial.
-    #[serde(default)]
-    pub review_model: Option<String>,
-    /// EXP-984: `launch.model` — the model a node's run spawns on unless its
-    /// PHASE overrides it. A high-risk node is never reviewed by the same
-    /// model that wrote it.
-    #[serde(default)]
-    pub author_model: Option<String>,
-    /// EXP-1002: `launch.contractModel` — what a `contract` node runs on.
-    /// Absent = `author_model`.
-    #[serde(default)]
-    pub contract_model: Option<String>,
-    /// EXP-1002: `launch.integrationModel` — what an `integration` node runs
-    /// on. Absent = `author_model`.
-    #[serde(default)]
-    pub integration_model: Option<String>,
-    /// EXP-1002: `launch.riskModel` — what a `risk: high` node runs on,
-    /// WHATEVER its kind. The most specific pin there is, so it wins over the
-    /// phase ones. Absent = the node's phase model.
-    #[serde(default)]
-    pub risk_model: Option<String>,
-    /// contract `wfStartOn` (`contract|pr_open|landed`). An absent or unknown
-    /// word reads as `landed`: the conservative mode, which never starts a
-    /// node on work that is not in yet.
+    /// EXP-1029: THE launch, normalized — the agent, the optional account and
+    /// the two models every node run and every agent review read
+    /// ([`launch::model_for_node`] / [`launch::review_model_for`]). Built by
+    /// the hosts from the stored jsonb; a fixture may write the raw jsonb
+    /// here and it normalizes the same way.
+    #[serde(default, deserialize_with = "deserialize_launch")]
+    pub launch: launch::WorkflowLaunch,
+    /// contract `wfStartOn` (`contract|pr_open|landed`). New workflows are
+    /// all `contract` (EXP-1029); an older row keeps what it was started
+    /// with, and an absent or unknown word reads as `landed`: the
+    /// conservative mode, which never starts a node on work that is not in
+    /// yet.
     #[serde(default = "start_on_landed")]
     pub start_on: String,
 }
 
 fn start_on_landed() -> String {
     START_ON_LANDED.to_string()
+}
+
+/// The stored `launch` jsonb of ANY vintage → the strict launch.
+fn deserialize_launch<'de, D>(deserializer: D) -> Result<launch::WorkflowLaunch, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = serde_json::Value::deserialize(deserializer)?;
+    Ok(launch::normalize_workflow_launch(&raw))
 }
 
 impl Default for WorkflowFacts {
@@ -181,12 +174,7 @@ impl Default for WorkflowFacts {
             final_pr_url: None,
             max_parallel: 0,
             start_on: start_on_landed(),
-            agent: None,
-            review_model: None,
-            author_model: None,
-            contract_model: None,
-            integration_model: None,
-            risk_model: None,
+            launch: launch::WorkflowLaunch::default(),
         }
     }
 }
@@ -1142,41 +1130,14 @@ fn is_ancestor(blockers: &HashMap<&str, Vec<&str>>, ancestor: &str, node: &str) 
 
 /// contract `wfReviewVerdict`.
 const VERDICT_REQUEST_CHANGES: &str = "request_changes";
-/// contract `wfRisk` — the risk that makes a review adversarial.
+/// contract `wfRisk` — the risk a node's own author called hard. It runs on
+/// the strong model, and its review is ADVERSARIAL (said so in the prompt).
 const RISK_HIGH: &str = "high";
-/// The two contract claude models an adversarial review swaps between.
-const MODEL_OPUS: &str = "opus";
-const MODEL_FABLE: &str = "fable";
-/// contract `codingAgent` — the agent whose reviews swap inside `codexModel`.
-const AGENT_CODEX: &str = "codex";
-/// The two contract codex models an adversarial review swaps between.
-const MODEL_CODEX_SOL: &str = "gpt-5.6-sol";
-const MODEL_CODEX_LUNA: &str = "gpt-5.6-luna";
-/// contract `wfNodeKind` — the two phases that may pin their own model.
-const KIND_CONTRACT: &str = "contract";
-const KIND_INTEGRATION: &str = "integration";
 
-/// EXP-1002: the model a node's run spawns on, most specific pin first —
-/// its RISK, then its PHASE, then the workflow's own `launch.model`. `None` =
-/// the device's default. A `risk: high` node is the one the person called
-/// hard, so that pin outranks the phase it happens to sit in; a `leaf` (and
-/// any kind this build does not know) has no phase pin at all. The pins opt
-/// OUT of the workflow's model, they never replace it.
+/// EXP-1029: the model a node's run spawns on — the ONE rule, shared with
+/// web `lib/workflow-launch.ts`.
 pub fn node_model(workflow: &WorkflowFacts, kind: &str, risk: &str) -> Option<String> {
-    let risk_pin = (risk == RISK_HIGH)
-        .then(|| workflow.risk_model.as_deref())
-        .flatten();
-    let phase = match kind {
-        KIND_CONTRACT => workflow.contract_model.as_deref(),
-        KIND_INTEGRATION => workflow.integration_model.as_deref(),
-        _ => None,
-    };
-    risk_pin
-        .filter(|model| !model.is_empty())
-        .or(phase.filter(|model| !model.is_empty()))
-        .or(workflow.author_model.as_deref())
-        .filter(|model| !model.is_empty())
-        .map(str::to_string)
+    Some(launch::model_for_node(&workflow.launch, kind, risk))
 }
 
 /// EXP-984 rule 7 — the agent review gate. ONE review start per pass, in
@@ -1223,7 +1184,7 @@ fn review_decisions(snapshot: &Snapshot, mirrored: &[Mirrored<'_>]) -> Vec<Decis
         let adversarial = node.risk == RISK_HIGH;
         decisions.push(Decision::StartReview {
             node_id: node.id.clone(),
-            model: review_model(snapshot, node, adversarial),
+            model: review_model(snapshot),
             adversarial,
         });
         break;
@@ -1292,40 +1253,13 @@ fn findings_delivered(snapshot: &Snapshot, node: &NodeFacts, round: i64) -> bool
         .is_some_and(|sent| *sent >= round)
 }
 
-/// The model a review runs on: the workflow's pin, else the author's own.
-/// An ADVERSARIAL review must never be the author's model, so an equal pick
-/// swaps deterministically INSIDE the workflow agent's own family — the
-/// review keeps that agent, and a codex reviewer handed `opus` cannot start
-/// (claude: `opus` ↔ `fable`, anything else → `opus`; codex: `gpt-5.6-sol` ↔
-/// `gpt-5.6-luna`, anything else → `gpt-5.6-sol`).
-/// EXP-1002: "the author's" is the model THIS node ran on, phase pin and all
-/// — a high-risk contract node on its own model would otherwise be reviewed
-/// by the very model that wrote it.
-fn review_model(snapshot: &Snapshot, node: &NodeFacts, adversarial: bool) -> Option<String> {
-    let author = node_model(&snapshot.workflow, &node.kind, &node.risk);
-    let codex = snapshot.workflow.agent.as_deref() == Some(AGENT_CODEX);
-    // EXP-1010: a claude review runs on fable unless the workflow pins
-    // another model; codex has no such default and reviews on the author's.
-    let picked = snapshot
-        .workflow
-        .review_model
-        .as_deref()
-        .filter(|model| !model.is_empty())
-        .map(str::to_string)
-        .or_else(|| (!codex).then(|| MODEL_FABLE.to_string()))
-        .or_else(|| author.clone());
-    if !adversarial || picked != author {
-        return picked;
-    }
-    Some(
-        match (codex, author.as_deref()) {
-            (false, Some(MODEL_OPUS)) => MODEL_FABLE,
-            (false, _) => MODEL_OPUS,
-            (true, Some(MODEL_CODEX_SOL)) => MODEL_CODEX_LUNA,
-            (true, _) => MODEL_CODEX_SOL,
-        }
-        .to_string(),
-    )
+/// EXP-1029: EVERY agent review runs on the launch's STRONG model, whatever
+/// the node — there is no adversarial model swap any more (the strong model
+/// is the capable one, and a review is the one thing always worth it). The
+/// `adversarial` flag still rides along to the prompt: it is the node's own
+/// `risk: high`, not a model choice.
+fn review_model(snapshot: &Snapshot) -> Option<String> {
+    Some(launch::review_model_for(&snapshot.workflow.launch))
 }
 
 /// EXP-983 rule 6 — the train's topological gate: a node lands only once
@@ -1472,7 +1406,6 @@ fn desired_state(
         }
         return Some(state("ready"));
     };
-    let session = snapshot.sessions.get(session_id)?;
     let pr_state = snapshot
         .issues
         .get(node.issue_id.as_str())
@@ -1484,9 +1417,16 @@ fn desired_state(
     // first sat `running` / `waiting` for ever with its code already in. The
     // server's `landNode` reads the merged state before its gate, and a
     // landed node is final, so the mirror never looks at it again.
+    //
+    // EXP-1032: asked BEFORE the session row, which this device may never
+    // have synced (a run started on another machine, a row pruned since).
+    // That used to leave the pass undecided for ever — the node sat
+    // `running` with its code already merged, every other node landed, and
+    // the workflow never reached its final pull request.
     if pr_state == Some(domain::contract::PR_STATE_MERGED) {
         return Some(Desired::Land);
     }
+    let session = snapshot.sessions.get(session_id)?;
     // GitHub refused to land this head and the run is merging the trunk in:
     // the node stays `updating` until its pull request MOVES (live or not —
     // the host's resume of an ended run is what moves it), and the train
@@ -1788,12 +1728,7 @@ mod tests {
                 final_pr_url: None,
                 max_parallel: 3,
                 start_on: START_ON_LANDED.to_string(),
-                agent: None,
-                review_model: None,
-                author_model: None,
-                contract_model: None,
-                integration_model: None,
-                risk_model: None,
+                launch: launch::WorkflowLaunch::default(),
             },
             nodes,
             integration_branch_exists: true,
@@ -1974,7 +1909,7 @@ mod tests {
                 node_id: "a".to_string(),
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
-                model: None,
+                model: Some("opus".to_string()),
             }),
             "past the grace the start is retried: {decisions:?}"
         );
@@ -2014,7 +1949,7 @@ mod tests {
                 node_id: "a".to_string(),
                 attempt: 2,
                 base_branch: "exp/wf-abcdef12".to_string(),
-                model: None,
+                model: Some("opus".to_string()),
             }),
             "one free retry: {decisions:?}"
         );
@@ -2043,178 +1978,54 @@ mod tests {
         );
     }
 
-    /// EXP-1002: a PHASE pin moves that kind of node and nothing else — the
-    /// leaves beside it keep the workflow's own model.
+    /// EXP-1029: ONE model policy — the cheap model writes the leaves, the
+    /// strong one the contract and integration nodes and every `risk: high`
+    /// node, whatever its kind.
     #[test]
-    fn a_phase_model_only_moves_its_own_kind() {
+    fn the_strong_model_takes_the_contract_and_integration_nodes() {
         let mut contract_node = node("a", "ready", 0, 0);
-        contract_node.kind = KIND_CONTRACT.to_string();
-        let mut snapshot = running(vec![contract_node, node("b", "ready", 0, 1)]);
-        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
-        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
-        let decisions = evaluate(&snapshot);
-        let started: Vec<(&str, Option<&str>)> = decisions
-            .iter()
+        contract_node.kind = "contract".to_string();
+        let snapshot = running(vec![contract_node, node("b", "ready", 0, 1)]);
+        let started: Vec<(String, Option<String>)> = evaluate(&snapshot)
+            .into_iter()
             .filter_map(|decision| match decision {
-                Decision::StartNode { node_id, model, .. } => {
-                    Some((node_id.as_str(), model.as_deref()))
-                }
+                Decision::StartNode { node_id, model, .. } => Some((node_id, model)),
                 _ => None,
             })
             .collect();
         assert_eq!(
             started,
-            vec![("a", Some(MODEL_FABLE)), ("b", Some(MODEL_OPUS))],
-            "{decisions:?}"
+            vec![
+                ("a".to_string(), Some("fable".to_string())),
+                ("b".to_string(), Some("opus".to_string()))
+            ],
+            "the contract node takes the strong model, the leaf the cheap one"
         );
 
-        // Nothing pinned anywhere = the device's own default, as before.
-        let mut bare = running(vec![node("a", "ready", 0, 0)]);
-        bare.workflow.contract_model = Some(String::new());
-        assert_eq!(node_model(&bare.workflow, KIND_CONTRACT, ""), None);
-        assert_eq!(node_model(&bare.workflow, KIND_INTEGRATION, ""), None);
+        let facts = &running(vec![]).workflow;
+        assert_eq!(node_model(facts, "integration", "low").as_deref(), Some("fable"));
+        assert_eq!(node_model(facts, "leaf", RISK_HIGH).as_deref(), Some("fable"));
+        assert_eq!(node_model(facts, "leaf", "medium").as_deref(), Some("opus"));
     }
 
-    /// EXP-1002: the risk pin is the most specific one — it outranks the
-    /// phase a hard node happens to sit in, and only a `risk: high` node
-    /// takes it.
+    /// EXP-1029: EVERY agent review runs on the strong model — there is no
+    /// adversarial swap left, and a codex workflow reviews on a codex model.
     #[test]
-    fn the_risk_pin_outranks_the_phase_pin() {
-        let mut snapshot = running(vec![]);
-        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
-        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
-        snapshot.workflow.risk_model = Some("sonnet".to_string());
-        let facts = &snapshot.workflow;
+    fn every_review_runs_on_the_strong_model() {
+        let snapshot = running(vec![]);
+        assert_eq!(review_model(&snapshot).as_deref(), Some("fable"));
 
-        assert_eq!(
-            node_model(facts, KIND_CONTRACT, RISK_HIGH).as_deref(),
-            Some("sonnet"),
-            "a hard contract node takes the risk pin, not the phase's"
-        );
-        assert_eq!(
-            node_model(facts, "leaf", RISK_HIGH).as_deref(),
-            Some("sonnet"),
-            "so does a hard leaf, which has no phase pin at all"
-        );
-        assert_eq!(
-            node_model(facts, KIND_CONTRACT, "medium").as_deref(),
-            Some(MODEL_FABLE),
-            "an ordinary contract node is untouched by it"
-        );
-        assert_eq!(
-            node_model(facts, "leaf", "low").as_deref(),
-            Some(MODEL_OPUS),
-            "and an ordinary leaf keeps the workflow's model"
-        );
-    }
+        let mut codex = running(vec![]);
+        codex.workflow.launch =
+            launch::normalize_workflow_launch(&serde_json::json!({ "agent": "codex" }));
+        assert_eq!(review_model(&codex).as_deref(), Some("gpt-5.6-luna"));
 
-    /// EXP-1002: "never the author's model" reads the model the NODE ran on,
-    /// so a high-risk node on a phase pin is not reviewed by its own writer.
-    #[test]
-    fn an_adversarial_review_dodges_the_phase_model() {
-        let mut snapshot = running(vec![]);
-        snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
-        snapshot.workflow.contract_model = Some(MODEL_FABLE.to_string());
-
-        let mut risky = node("a", "in_review", 0, 0);
-        risky.kind = KIND_CONTRACT.to_string();
-        risky.risk = RISK_HIGH.to_string();
-        // It wrote on fable, so its adversarial review is opus — the
-        // workflow's `model` would have been the WRONG dodge here.
-        assert_eq!(
-            review_model(&snapshot, &risky, true).as_deref(),
-            Some(MODEL_OPUS)
-        );
-
-        let leaf = node("b", "in_review", 0, 1);
-        assert_eq!(
-            review_model(&snapshot, &leaf, true).as_deref(),
-            Some(MODEL_FABLE),
-            "the leaf wrote on opus"
-        );
-        // Not adversarial: the node's own model, phase pin and all.
-        assert_eq!(
-            review_model(&snapshot, &risky, false).as_deref(),
-            Some(MODEL_FABLE)
-        );
-        // An explicit review pin still wins over both.
-        snapshot.workflow.review_model = Some("sonnet".to_string());
-        assert_eq!(
-            review_model(&snapshot, &risky, true).as_deref(),
-            Some("sonnet")
-        );
-        // And with a RISK pin the dodge follows that instead: the node wrote
-        // on opus, so its adversarial review is fable.
-        snapshot.workflow.review_model = None;
-        snapshot.workflow.risk_model = Some(MODEL_OPUS.to_string());
-        assert_eq!(
-            review_model(&snapshot, &risky, true).as_deref(),
-            Some(MODEL_FABLE)
-        );
-    }
-
-    /// A codex workflow's review runs on codex too (`launch_review` keeps the
-    /// workflow's agent), so its adversarial swap stays inside `codexModel`:
-    /// a claude alias there is a reviewer that cannot start.
-    #[test]
-    fn an_adversarial_review_swaps_inside_the_agents_own_models() {
-        let mut snapshot = running(vec![]);
-        snapshot.workflow.agent = Some(AGENT_CODEX.to_string());
-        snapshot.workflow.author_model = Some(MODEL_CODEX_SOL.to_string());
-        snapshot.workflow.risk_model = Some(MODEL_CODEX_LUNA.to_string());
-
-        let mut risky = node("a", "in_review", 0, 0);
-        risky.risk = RISK_HIGH.to_string();
-        // The codex defaults: a high-risk node wrote on luna, no review pin.
-        assert_eq!(
-            review_model(&snapshot, &risky, true).as_deref(),
-            Some(MODEL_CODEX_SOL)
-        );
-        // Written on sol, reviewed on luna.
-        snapshot.workflow.risk_model = None;
-        assert_eq!(
-            review_model(&snapshot, &risky, true).as_deref(),
-            Some(MODEL_CODEX_LUNA)
-        );
-        // No model at all (the device default), or one this build does not
-        // know: still a codex model, never a claude alias.
-        for author in [None, Some("gpt-5.6-terra"), Some("gpt-9")] {
-            snapshot.workflow.author_model = author.map(str::to_string);
-            assert_eq!(
-                review_model(&snapshot, &risky, true).as_deref(),
-                Some(MODEL_CODEX_SOL),
-                "{author:?}"
-            );
-        }
-        // A review that is not adversarial keeps the author's model, and an
-        // explicit pin that differs from it is left alone.
-        snapshot.workflow.author_model = Some(MODEL_CODEX_SOL.to_string());
-        assert_eq!(
-            review_model(&snapshot, &risky, false).as_deref(),
-            Some(MODEL_CODEX_SOL)
-        );
-        snapshot.workflow.review_model = Some("gpt-5.6-terra".to_string());
-        assert_eq!(
-            review_model(&snapshot, &risky, true).as_deref(),
-            Some("gpt-5.6-terra")
-        );
-        // The swap words ARE contract `codexModel` / `codingModel` values.
-        for model in [MODEL_CODEX_SOL, MODEL_CODEX_LUNA] {
-            assert!(domain::contract::CODEX_MODEL_VALUES.contains(&model));
-        }
-        for model in [MODEL_OPUS, MODEL_FABLE] {
+        // The words ARE contract `codingModel` / `codexModel` values.
+        for model in ["opus", "fable"] {
             assert!(domain::contract::CODING_MODEL_VALUES.contains(&model));
         }
-        assert!(domain::contract::CODING_AGENT_VALUES.contains(&AGENT_CODEX));
-        // And claude (named or absent) keeps its own pair.
-        snapshot.workflow.review_model = None;
-        for agent in [None, Some("claude")] {
-            snapshot.workflow.agent = agent.map(str::to_string);
-            snapshot.workflow.author_model = Some(MODEL_OPUS.to_string());
-            assert_eq!(
-                review_model(&snapshot, &risky, true).as_deref(),
-                Some(MODEL_FABLE)
-            );
+        for model in ["gpt-5.6-sol", "gpt-5.6-luna"] {
+            assert!(domain::contract::CODEX_MODEL_VALUES.contains(&model));
         }
     }
 

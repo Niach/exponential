@@ -15,15 +15,18 @@ use crate::error::ApiError;
 use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
-/// `workflows.launch` — what every node's run starts with. Every field is
-/// optional; an absent one falls back to the runner device's own defaults.
+/// `workflows.launch` AS STORED — the jsonb of any vintage. The wire struct
+/// only, kept tolerant: nothing here decides anything.
 ///
-/// It serializes ONLY as `workflows.update`'s `launch`, and there the three
-/// EXP-1002 phase pins are a TRI-STATE server-side: key absent = keep the
-/// stored pin (a client that predates the keys must not wipe them), `null` =
-/// clear, a string = set. This client knows them, so it ALWAYS writes all
-/// three, `null` when unset — omitting one would make a cleared pin stick.
-/// Decoding stays tolerant (`default`).
+/// EXP-1029: what a run actually READS is
+/// [`coding::workflows::launch::WorkflowLaunch`], which
+/// `normalize_workflow_launch` makes of this — an agent, an optional account
+/// and TWO models (`model` cheap, `strong_model` capable). Everything below
+/// `strong_model` is DEPRECATED: the per-phase pins and `review_model` fold
+/// into `strong_model`, `subagent_model`, `effort` and `max_parallel` are
+/// dropped. Nothing writes them any more (the server stores the normalized
+/// four keys); they stay declared so an older row still decodes and so a
+/// carried launch round-trips unharmed.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowLaunch {
@@ -33,9 +36,7 @@ pub struct WorkflowLaunch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// EXP-1029: the STRONG model — contract, integration and `risk: high`
-    /// nodes, and every agent review (`coding::workflows::launch`). The
-    /// per-phase pins and `review_model` below are deprecated: they fold
-    /// into this one and EXP-1014 removes them. Carried, never edited here.
+    /// nodes, and EVERY agent review (`coding::workflows::launch`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strong_model: Option<String>,
     /// EXP-1002: the model `contract` nodes run on. Absent = `model`.

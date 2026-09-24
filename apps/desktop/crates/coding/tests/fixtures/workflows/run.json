@@ -6,7 +6,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         { "id": "a", "issueId": "i-a", "kind": "contract", "state": "blocked", "wave": 0, "lane": 0 }
@@ -23,13 +24,21 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         { "id": "root", "issueId": "i-root", "kind": "contract", "state": "landed", "wave": 0, "lane": 0 },
         { "id": "left", "issueId": "i-left", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 0 },
         { "id": "right", "issueId": "i-right", "kind": "leaf", "state": "blocked", "wave": 1, "lane": 1 },
-        { "id": "tail", "issueId": "i-tail", "kind": "integration", "state": "blocked", "wave": 2, "lane": 0 }
+        {
+          "id": "tail",
+          "issueId": "i-tail",
+          "kind": "integration",
+          "state": "blocked",
+          "wave": 2,
+          "lane": 0
+        }
       ],
       "edges": [
         ["root", "left"],
@@ -43,8 +52,20 @@
     "expected": [
       { "kind": "setNodeState", "nodeId": "left", "state": "ready" },
       { "kind": "setNodeState", "nodeId": "right", "state": "ready" },
-      { "kind": "startNode", "nodeId": "left", "attempt": 1, "baseBranch": "exp/wf-abcdef12" },
-      { "kind": "startNode", "nodeId": "right", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }
+      {
+        "kind": "startNode",
+        "nodeId": "left",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus"
+      },
+      {
+        "kind": "startNode",
+        "nodeId": "right",
+        "attempt": 1,
+        "baseBranch": "exp/wf-abcdef12",
+        "model": "opus"
+      }
     ]
   },
   {
@@ -54,7 +75,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 2
+        "maxParallel": 2,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -74,7 +96,9 @@
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12" }]
+    "expected": [
+      { "kind": "startNode", "nodeId": "b", "attempt": 1, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+    ]
   },
   {
     "name": "rule 2: a retried node starts at its next attempt",
@@ -83,15 +107,26 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "ready", "wave": 0, "lane": 0, "attempt": 2 }
+        {
+          "id": "a",
+          "issueId": "i-a",
+          "kind": "leaf",
+          "state": "ready",
+          "wave": 0,
+          "lane": 0,
+          "attempt": 2
+        }
       ],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
-    "expected": [{ "kind": "startNode", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12" }]
+    "expected": [
+      { "kind": "startNode", "nodeId": "a", "attempt": 3, "baseBranch": "exp/wf-abcdef12", "model": "opus" }
+    ]
   },
   {
     "name": "rule 3: a reset rate limit nudges the run once",
@@ -100,7 +135,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -134,7 +170,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -162,7 +199,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -189,7 +227,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -214,8 +253,14 @@
           "approvedAt": "2026-09-19T10:00:00.000Z"
         }
       ],
-      "issues": { "i-c": { "prState": "open" }, "i-l": { "prState": "open" } },
-      "sessions": { "s-c": { "live": false }, "s-l": { "live": false } },
+      "issues": {
+        "i-c": { "prState": "open" },
+        "i-l": { "prState": "open" }
+      },
+      "sessions": {
+        "s-c": { "live": false },
+        "s-l": { "live": false }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -228,7 +273,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -254,8 +300,14 @@
           "approvedAt": "2026-09-19T00:00:00Z"
         }
       ],
-      "issues": { "i-c": { "prState": "open" }, "i-l": { "prState": "open" } },
-      "sessions": { "s-c": { "live": false }, "s-l": { "live": false } },
+      "issues": {
+        "i-c": { "prState": "open" },
+        "i-l": { "prState": "open" }
+      },
+      "sessions": {
+        "s-c": { "live": false },
+        "s-l": { "live": false }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -268,7 +320,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -292,8 +345,14 @@
           "attempt": 1
         }
       ],
-      "issues": { "i-a": { "prState": "open" }, "i-b": { "prState": "open" } },
-      "sessions": { "s-a": { "live": false }, "s-b": { "live": false } },
+      "issues": {
+        "i-a": { "prState": "open" },
+        "i-b": { "prState": "open" }
+      },
+      "sessions": {
+        "s-a": { "live": false },
+        "s-b": { "live": false }
+      },
       "inFlight": ["a"],
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -307,7 +366,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -335,7 +395,8 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 },
@@ -353,11 +414,10 @@
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
-      "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 0 }
-      ],
+      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "skipped", "wave": 0, "lane": 0 }],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -371,11 +431,10 @@
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "finalPrUrl": "https://github.com/acme/web/pull/9",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
-      "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }
-      ],
+      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }],
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -388,7 +447,8 @@
         "id": "wf-1",
         "status": "paused",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "blocked", "wave": 0, "lane": 0 },
@@ -420,7 +480,8 @@
         "id": "wf-1",
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -444,7 +505,10 @@
           "attempt": 1
         }
       ],
-      "sessions": { "s-a": { "live": true }, "s-b": { "live": false } },
+      "sessions": {
+        "s-a": { "live": true },
+        "s-b": { "live": false }
+      },
       "integrationBranchExists": true,
       "nowMs": 1000
     },
@@ -457,7 +521,8 @@
         "id": "wf-1",
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
       "nodes": [
         {
@@ -484,11 +549,10 @@
         "id": "wf-1",
         "status": "cancelled",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
-      "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }
-      ],
+      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "landed", "wave": 0, "lane": 0 }],
       "integrationBranchExists": false,
       "nowMs": 1000
     },
@@ -501,33 +565,37 @@
         "id": "wf-1",
         "status": "draft",
         "integrationBranch": "exp/wf-abcdef12",
-        "maxParallel": 3
+        "maxParallel": 3,
+        "launch": { "model": "opus", "strongModel": "fable" }
       },
-      "nodes": [
-        { "id": "a", "issueId": "i-a", "kind": "leaf", "state": "proposed", "wave": 0, "lane": 0 }
-      ],
+      "nodes": [{ "id": "a", "issueId": "i-a", "kind": "leaf", "state": "proposed", "wave": 0, "lane": 0 }],
       "integrationBranchExists": false,
       "nowMs": 1000
     },
     "expected": []
   },
   {
-    "name": "EXP-1002: each phase pin moves its own kind, the risk pin outranks them, the leaves keep the workflow's model",
+    "name": "EXP-1029: the strong model takes the contract and integration nodes and every high-risk one, the leaves the cheap one",
     "snapshot": {
       "workflow": {
         "id": "wf-1",
         "status": "running",
         "integrationBranch": "exp/wf-abcdef12",
         "maxParallel": 3,
-        "authorModel": "opus",
-        "contractModel": "fable",
-        "integrationModel": "fable",
-        "riskModel": "sonnet"
+        "launch": { "model": "opus", "strongModel": "sonnet" }
       },
       "nodes": [
         { "id": "head", "issueId": "i-head", "kind": "contract", "state": "ready", "wave": 0, "lane": 0 },
         { "id": "leaf", "issueId": "i-leaf", "kind": "leaf", "state": "ready", "wave": 0, "lane": 1 },
-        { "id": "tail", "issueId": "i-tail", "kind": "integration", "state": "ready", "wave": 0, "lane": 2, "risk": "high" }
+        {
+          "id": "tail",
+          "issueId": "i-tail",
+          "kind": "integration",
+          "state": "ready",
+          "wave": 0,
+          "lane": 2,
+          "risk": "high"
+        }
       ],
       "integrationBranchExists": true,
       "nowMs": 1000
@@ -538,7 +606,7 @@
         "nodeId": "head",
         "attempt": 1,
         "baseBranch": "exp/wf-abcdef12",
-        "model": "fable"
+        "model": "sonnet"
       },
       {
         "kind": "startNode",

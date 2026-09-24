@@ -1058,9 +1058,10 @@ export const WORKFLOW_LAUNCH_DEFAULTS: Record<
  * `subagentModel`, `reviewModel`, `effort` and `maxParallel`: none of them is
  * part of [`WorkflowLaunch`] any more. `normalizeWorkflowLaunch` folds a set
  * `contractModel` / `integrationModel` / `riskModel` / `reviewModel` into
- * `strongModel` and drops the rest; EXP-1014 deletes them from every writer
- * and every settings UI. Until then older clients still send them, so the
- * schema keeps accepting them.
+ * `strongModel` and drops the rest. EXP-1032 removed them from every writer
+ * and every settings UI (`workflows.update` stores the normalized four keys
+ * and nothing else); older clients still SEND them, so the schema keeps
+ * accepting them.
  */
 export interface WorkflowLaunchStored {
   agent?: string | null
@@ -1123,7 +1124,8 @@ export const WORKFLOW_DEFAULT_LAUNCH: WorkflowLaunchStored =
   WORKFLOW_DEFAULT_LAUNCH_BY_AGENT.claude!
 
 /** The stored shape's wire schema (`workflows.update`). Keys stay `.strict()`
- *  so a typo is refused; the deprecated keys stay accepted until EXP-1014. */
+ *  so a typo is refused; the deprecated keys stay accepted for old clients
+ *  (EXP-1032 normalizes them away before anything is stored). */
 export const workflowLaunchSchema = z
   .object({
     agent: z.string().max(16).nullish(),
