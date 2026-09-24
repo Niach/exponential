@@ -280,6 +280,33 @@ describe(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
     expect(screen.getByText(`No boards`)).toBeTruthy()
   })
 
+  it(`className styles the SURFACE, not the caller's own trigger`, () => {
+    setViewport(1280)
+    // Regression (EXP-1021 review): `className` used to be forwarded to
+    // `Combobox`, which applies it to its OWN default trigger — and `Picker`
+    // always supplies `renderTrigger`, so it was dropped on the floor. The
+    // icon picker's `w-auto` (its grid is wider than any of the four widths)
+    // silently did nothing.
+    render(
+      <Picker
+        mode="single"
+        items={items}
+        value={null}
+        onChange={vi.fn()}
+        className="w-auto"
+        trigger={trigger}
+      />
+    )
+    open()
+    const surface = document.querySelector(`[data-slot=popover-content]`)
+    expect(surface).not.toBeNull()
+    expect(surface!.className).toContain(`w-auto`)
+    // …and it wins over the width, or it could never hug a fixed-size body.
+    expect(surface!.className.indexOf(`w-auto`)).toBeGreaterThan(
+      surface!.className.indexOf(`w-[16rem]`)
+    )
+  })
+
   it(`a row draws its icon in its colour and its description muted`, () => {
     setViewport(1280)
     const Glyph = (props: { className?: string }) => (

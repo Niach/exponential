@@ -10,6 +10,9 @@ import SwiftUI
 /// stacks OVER this sheet instead of replacing its content. Backing out of it
 /// is a swipe down, which lands back on the picks exactly as the in-content
 /// back button used to — and there is one fewer bespoke list in the app.
+///
+/// A pick therefore takes TWO sheets down, and they go one at a time: stage
+/// two closes itself, and this sheet follows on its `onDismiss`.
 struct RelationPickerSheet: View {
     /// Candidate issues (same team, self excluded), newest first.
     let loadCandidates: () async -> [IssueEntity]
@@ -23,6 +26,10 @@ struct RelationPickerSheet: View {
     /// nil = stage one (the kind picker) is the only thing on screen.
     @State private var pick: RelationPick?
     @State private var candidates: [IssueEntity]?
+    /// Whether stage two ended in a PICK rather than a swipe down. The link
+    /// is written immediately; what this defers is only THIS sheet's own
+    /// dismissal — see `onDismiss` below.
+    @State private var linked = false
 
     var body: some View {
         GlassSheetChrome(title: "Add relation") {
@@ -35,12 +42,24 @@ struct RelationPickerSheet: View {
                             get: { pick != nil },
                             set: { isOpen in if !isOpen { pick = nil } }
                         ),
+                        onDismiss: {
+                            // Stage two has finished animating away — only now
+                            // is this sheet's own dismissal in flight alone.
+                            // Taking a nested sheet and its host down in the
+                            // SAME update is a known SwiftUI wedge (the host
+                            // can be left presented-but-dead), and the picker
+                            // already dismisses itself on a single pick.
+                            guard linked else { return }
+                            linked = false
+                            dismiss()
+                        },
                         serverSearch: serverSearch,
                         onSelect: { issue in
                             guard let pick else { return }
+                            // The relation is written NOW; the two sheets come
+                            // down one after the other, never together.
                             onSelect(pick, issue)
-                            self.pick = nil
-                            dismiss()
+                            linked = true
                         }
                     )
                 }
@@ -51,6 +70,7 @@ struct RelationPickerSheet: View {
         LazyVStack(spacing: GlassPickerTokens.rowSpacing) {
             ForEach(RelationPick.all) { entry in
                 Button {
+                    linked = false
                     pick = entry
                     // Loaded on demand: stage one is instant, and a sheet the
                     // user closes again never touches the store.

@@ -224,7 +224,9 @@ object PickerDefaults {
  * open them. Uncontrolled ([open] null) is the ordinary case.
  */
 @Composable
-fun <T> Picker(
+fun <T : Any> Picker(
+    // The value IS the row's identity (the LazyColumn keys on it), so it can
+    // never be null.
     items: List<PickerItem<T>>,
     mode: PickerMode,
     /** The current selection (at most one value in [PickerMode.Single]). */
@@ -253,9 +255,13 @@ fun <T> Picker(
     footer: (@Composable () -> Unit)? = null,
     /**
      * REPLACES the search field and the rows with an inline body (the icon
-     * picker's swatch grid). The sheet and the trigger stay the primitive's.
+     * picker's swatch grid). The sheet, the trigger and the PICK stay the
+     * primitive's: the body reports the value it was given through the `pick`
+     * it receives, and the primitive folds it into the selection and closes
+     * the sheet exactly as a row does. A panel can no more invent its own pick
+     * than a row can invent its own highlight. [footer] still renders under it.
      */
-    panel: (@Composable () -> Unit)? = null,
+    panel: (@Composable (pick: (T) -> Unit) -> Unit)? = null,
     /**
      * Replaces the row BODY, never its highlight or its click — so a custom
      * row can not invent a second "this is picked" idiom. The one caller is
@@ -286,7 +292,20 @@ fun <T> Picker(
 
     GlassSheet(title = title, onDismiss = { setOpen(false) }) {
         if (panel != null) {
-            panel()
+            panel { picked ->
+                // The panel hands back a VALUE; the rule that turns it into a
+                // selection is the same one a row goes through.
+                val next = PickerRules.select(mode, value, PickerItem(value = picked, label = ""))
+                if (next != null) {
+                    onChange(next)
+                    if (PickerRules.closesOnPick(mode)) setOpen(false)
+                }
+            }
+            // A panel replaces the ROWS, never the footer: the icon picker's
+            // "No icon" reset sits under its grid the way "Create label" sits
+            // under the label rows.
+            footer?.invoke()
+            Spacer(Modifier.height(8.dp))
             return@GlassSheet
         }
         if (search) {
@@ -316,7 +335,7 @@ fun <T> Picker(
                     )
                 }
             }
-            items(rows, key = { it.value.toString() }) { item ->
+            items(rows, key = { it.value }) { item ->
                 PickerRow(
                     item = item,
                     checked = PickerRules.checked(item, value),
@@ -352,15 +371,63 @@ private fun <T> PickerRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = PickerDefaults.RowOuterPadding, vertical = 1.dp)
+            // The 44dp minimum is the HIGHLIGHT's height, so it goes above the
+            // inner padding (`GlassSheetRow`'s own order): below it the padding
+            // is added ON TOP of the minimum and the row stands ~18dp taller
+            // than the sheet rows beside it.
+            .defaultMinSize(minHeight = PickerDefaults.RowHeight)
             .clip(shape)
             .background(PickerDefaults.rowBackground(checked), shape)
             .border(GlassTokens.Hairline, PickerDefaults.rowStroke(checked), shape)
             .clickable(enabled = !item.disabled, onClick = onClick)
-            .padding(horizontal = PickerDefaults.RowInnerPadding, vertical = 8.dp)
-            .defaultMinSize(minHeight = PickerDefaults.RowHeight),
+            .padding(horizontal = PickerDefaults.RowInnerPadding, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (body != null) body(item) else PickerItemBody(item)
+    }
+}
+
+/**
+ * A picker FOOTER row — the primitive's own row idiom for the one thing in a
+ * picker sheet that is NOT an option: "Create new label “x”", "No icon". It
+ * takes the rows' geometry so it lines up with them, and it never takes the
+ * highlight, because it picks nothing. Callers hand it to [Picker]'s `footer`
+ * instead of reaching for a sheet row from another surface — a second row
+ * idiom inside the picker sheet is exactly what EXP-1021 removed.
+ */
+@Composable
+fun PickerActionRow(
+    label: String,
+    onClick: () -> Unit,
+    icon: ImageVector? = null,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = PickerDefaults.RowOuterPadding, vertical = 1.dp)
+            .defaultMinSize(minHeight = PickerDefaults.RowHeight)
+            .clip(RoundedCornerShape(PickerDefaults.RowRadius))
+            .clickable(onClick = onClick)
+            .padding(horizontal = PickerDefaults.RowInnerPadding, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(PickerDefaults.IconSize),
+                tint = Color.White.copy(alpha = TextEmphasis.Secondary),
+            )
+            Spacer(Modifier.width(PickerDefaults.LeadingGap))
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            // An action reads muted beside the options it sits under.
+            color = Color.White.copy(alpha = TextEmphasis.Secondary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

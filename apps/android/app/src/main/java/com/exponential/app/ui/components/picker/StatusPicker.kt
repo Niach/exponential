@@ -2,6 +2,7 @@ package com.exponential.app.ui.components.picker
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 
 /**
@@ -32,7 +33,11 @@ fun statusPickerItems(statuses: List<StatusPickerStatus>): List<PickerItem<Strin
         PickerItem(
             value = status.id,
             label = status.name,
-            icon = status.iconName?.let { com.exponential.app.ui.icons.ExpIcons.byName(it) },
+            // A status row is a GLYPH row (`StatusIcon`'s rule): an unknown —
+            // or missing — registry name degrades to the neutral backlog glyph
+            // rather than blanking the leading slot, which would drop the row
+            // to the coloured DOT a label row wears.
+            icon = status.iconName?.let { ExpIcons.byName(it) } ?: ExpIcons.statusBacklog,
             color = status.color ?: status.colorHex?.takeIf { it.isNotBlank() }?.let(::parseColor),
             keywords = listOf(status.name, status.category),
         )

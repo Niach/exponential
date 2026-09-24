@@ -1,22 +1,16 @@
 package com.exponential.app.ui.issue
 
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.size
 import com.exponential.app.data.db.LabelEntity
-import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.picker.LabelPicker
+import com.exponential.app.ui.components.picker.PickerActionRow
 import com.exponential.app.ui.components.toPickerLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.LabelPalette
-import com.exponential.app.ui.theme.TextEmphasis
 
 /**
  * Searchable multi-toggle label sheet: dot + name rows that toggle without
@@ -60,17 +54,11 @@ fun LabelPickerSheet(
         emptyText = if (trimmedQuery.isEmpty()) "No labels yet. Type a name to create one." else "No matching labels",
         footer = if (trimmedQuery.isNotEmpty() && !hasExactMatch) {
             {
-                GlassSheetRow(
+                // EXP-1021: the picker's OWN footer idiom — a create row is
+                // still a picker row, not a row borrowed from another sheet.
+                PickerActionRow(
                     label = "Create new label “$trimmedQuery”",
-                    leading = {
-                        Icon(
-                            ExpIcons.uiAdd,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = Color.White.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    },
-                    labelColor = Color.White.copy(alpha = TextEmphasis.Secondary),
+                    icon = ExpIcons.uiAdd,
                     onClick = {
                         onCreate(trimmedQuery, LabelPalette.autoColor(trimmedQuery))
                         query = ""

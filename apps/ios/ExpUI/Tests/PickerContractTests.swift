@@ -44,6 +44,28 @@ final class PickerContractTests: XCTestCase {
         XCTAssertFalse(IconPicker.items(for: .board).contains { $0.value == "laptop" })
     }
 
+    /// An account row is keyed by the option's `key`, never the bare profile
+    /// id (`system` repeats across agents), searches on the email AND the
+    /// agent, and falls back to the health badge as its second line — the
+    /// EXP-992 bars replace that line when the row draws its own body.
+    func testAnAccountRowIsKeyedByItsAgentAndProfile() {
+        let rows = AccountPicker<EmptyView>.items([
+            AccountOption(
+                id: "system",
+                agent: "claude",
+                email: "ada@exp.dev",
+                isDeviceDefault: true,
+                health: .needsRelogin
+            ),
+            AccountOption(id: "system", agent: "codex", email: "ada@exp.dev", isDeviceDefault: false),
+        ])
+        XCTAssertEqual(rows.map(\.value), ["claude:system", "codex:system"])
+        XCTAssertEqual(rows.map(\.label), ["ada@exp.dev", "ada@exp.dev"])
+        XCTAssertEqual(rows[0].description, AgentAccountHealth.needsRelogin.badgeLabel)
+        XCTAssertNil(rows[1].description)
+        XCTAssertEqual(rows[1].searchKeywords, ["ada@exp.dev", "codex"])
+    }
+
     /// All ten, including the two EXP-1021 re-homed (the account picker and
     /// the icon picker's grid). A typed picker's `body` is `some View`, so its
     /// `Body` is the concrete type it returns: if any of them ever renders its

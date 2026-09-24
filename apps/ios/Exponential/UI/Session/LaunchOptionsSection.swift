@@ -15,9 +15,9 @@ import SwiftUI
 // included: a sleeping box still owns the binding and fires the missed
 // schedule when it comes back), and there are no toggles (an automated run
 // takes the machine's own). EXP-995: its first row is THE account picker
-// (`AccountPickerMenu`, brand mark + email over the bound machine's logins,
-// the agent riding the pick) where the launch variant draws the agent
-// capsule — the caller hands it `accountOptions`. Model/Effort speak the
+// (EXP-1021's shared `AccountPicker`: brand mark + email + limit bars over the
+// bound machine's logins, the agent riding the pick) where the launch variant
+// draws the agent capsule — the caller hands it `accountOptions`. Model/Effort speak the
 // launch "CLI default" sentinel on both — blank is what stores NULL on the
 // row and lets the machine decide.
 //
@@ -144,6 +144,12 @@ struct LaunchOptionsSection: View {
 
     // MARK: - Agent / model / effort
 
+    /// What the account row NAMES: the caller's pick, else the first option
+    /// (the machine's default) — the row always says something.
+    private var currentAccount: AccountOption? {
+        selectedAccount ?? accountOptions?.first
+    }
+
     /// A binding offers "CLI default" for EVERY agent — a blank pin stores
     /// NULL on the row — where a run only offers it where the CLI has one
     /// (claude's model is explicit-always).
@@ -183,19 +189,34 @@ struct LaunchOptionsSection: View {
     private var optionsSection: some View {
         Section {
             if let accountOptions, let onAccountSelect, !accountOptions.isEmpty {
-                // EXP-995: the SHARED account picker leads the card — the
-                // same row the device sheet's "Default account" wears.
-                HStack(spacing: 8) {
-                    Text("Account")
-                        .foregroundStyle(.white.opacity(TextOpacity.primary))
-                    Spacer(minLength: 8)
-                    AccountPickerMenu(
-                        options: accountOptions,
-                        selection: selectedAccount,
-                        mark: { AgentBrandMark.image($0) },
-                        onSelect: onAccountSelect
-                    )
-                }
+                // EXP-995/EXP-1021: the SHARED, TYPED account picker leads the
+                // card — the one sheet of plain rows, each the brand mark +
+                // the login's email over its EXP-992 bars. The whole row is
+                // its trigger, like every other picker row here; a lone login
+                // draws the chevron-less label and never opens (the picker
+                // disables itself).
+                AccountPicker(
+                    options: accountOptions,
+                    value: currentAccount?.key,
+                    onChange: { key in
+                        guard let picked = accountOptions.first(where: { $0.key == key })
+                        else { return }
+                        onAccountSelect(picked)
+                    },
+                    mark: { AgentBrandMark.image($0) },
+                    trigger: {
+                        HStack(spacing: 8) {
+                            Text("Account")
+                                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                            Spacer(minLength: 8)
+                            AccountPickerTriggerLabel(
+                                option: currentAccount,
+                                mark: currentAccount.flatMap { AgentBrandMark.image($0.agent) },
+                                chevron: accountOptions.count > 1
+                            )
+                        }
+                    }
+                )
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("automation-account-row")
             } else if availableAgents.count > 1 {
