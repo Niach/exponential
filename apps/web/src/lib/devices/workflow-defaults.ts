@@ -44,7 +44,11 @@ export function workflowFallbackFor(agent: string): DeviceWorkflowDefaults {
       }
 }
 
-/** The sub-shell row's trailing summary: `opus · fable`. */
-export function workflowDefaultsSummary(defaults: DeviceWorkflowDefaults): string {
-  return `${defaults.model} · ${defaults.strongModel}`
+/** The sub-shell row's trailing summary, `Opus · Fable` ×4 — the same
+ *  display labels the Model rows show, never the raw ids. */
+export function workflowDefaultsSummary(
+  defaults: DeviceWorkflowDefaults,
+  labelOf: (value: string) => string
+): string {
+  return `${labelOf(defaults.model)} · ${labelOf(defaults.strongModel)}`
 }

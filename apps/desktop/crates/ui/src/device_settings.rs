@@ -20,26 +20,30 @@
 //! | Agent defaults | `setLaunchDefaults` (UNCONDITIONAL — a UI edit is     |
 //! |                | last-write-wins on both); the OWN device ALSO saves   |
 //! |                | settings.json first through [`CodingHub::save_settings`] |
-//! | Worktrees      | `devices.createCommand` (worktree_remove / _prune) —  |
 //! |                | a DURABLE queue: an offline machine runs it on return |
 //! | Update         | `devices.requestUpdate` (EXP-909: server devices only,|
 //! |                | FEED-36's "Update now…" confirms) — NOT an autosave   |
 //! | Remove         | `devices.remove` behind a confirm (EXP-909); the      |
 //! |                | dialog closes behind it                               |
 //!
-//! Data comes from the SYNCED `devices` + `device_worktrees` collections
-//! (never relay presence): defaults stay editable while the machine is
-//! offline ("Applies when the device comes online."), and the worktree rows
-//! reflect the machine's last report. EXP-490: the dialog mirrors the LIVE
-//! baseline while open — the drafted sections (name and, since EXP-696, the
-//! defaults controls) re-seed only while the user has NOT diverged from the
-//! previous baseline, so a background delta never stomps a draft; the
-//! default-device and sharing switches hold no draft and render straight off
-//! the row.
-//! Queued commands
-//! are polled (`devices.getCommand`) until terminal — a failure renders its
-//! device-reported message inline; success shows up as the row vanishing
-//! when the machine re-reports.
+//! EXP-1020: ONE layout on the four clients, and ONE column. There is no
+//! worktrees section here any more — a machine's worktrees are a LOCAL
+//! surface, Settings → Worktrees, which is also the only place that cleans
+//! them; the remote `worktree_remove` / `worktree_prune` queue went with it.
+//! The agent-defaults card ends in a "Workflow settings" SUB-SHELL row (the
+//! model pair a workflow started on this machine is seeded from,
+//! `launch_defaults.workflow`), and "Remove device" is a plain row of the
+//! same shell rather than a section of its own.
+//!
+//! Data comes from the SYNCED `devices` collection (never relay presence):
+//! defaults stay editable while the machine is offline ("Applies when the
+//! device comes online."). EXP-490: the dialog mirrors the LIVE baseline
+//! while open — the drafted sections (name and, since EXP-696, the defaults
+//! controls) re-seed only while the user has NOT diverged from the previous
+//! baseline, so a background delta never stomps a draft; the default-device
+//! and sharing switches hold no draft and render straight off the row. A
+//! queued agent-CLI update is polled (`devices.getCommand`) until terminal —
+//! a failure renders its device-reported message inline.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -52,7 +56,7 @@ use gpui_component::{
     button::{ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 use sync::Store;
 
@@ -70,15 +74,9 @@ use crate::native_dialog::{self, AlertSpec, DialogContent, DialogSpec};
 use crate::queries;
 use crate::surface;
 
-/// EXP-762: the worktrees column's width. Fixed rather than a flex share so
-/// resizing the dialog widens the settings column (its pickers and account
-/// line are what need the room); a mono `repo branch` path truncates.
-const WORKTREES_COLUMN_W: f32 = 320.;
-
 /// EXP-862: what the dialog's form actually needs — Name, Default device,
-/// Sharing and the agent defaults, with room for a handful of worktrees beside
-/// them. It is a CAP, not a floor: a short screen still gets the old 85% and
-/// both columns scroll inside it.
+/// Sharing and the agent defaults. It is a CAP, not a floor: a short screen
+/// still gets the old 85% and the stack scrolls inside it.
 const CONTENT_H: f32 = 560.;
 
 /// Queued-command poll cadence while the dialog is open (offline machines
@@ -96,6 +94,20 @@ const NAME_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 /// contract window of `now_ms`. Negative ages (clock skew — the server
 /// stamped ahead of this client's clock) clamp online; unparseable stamps
 /// read OFFLINE (fail-closed — an unstartable claim is the safe direction).
+/// EXP-1020: the DISPLAY label of a choice value (`opus` -> `Opus`), for a
+/// row that SUMMARISES picks made elsewhere — the "Workflow settings" pair.
+/// A value with no entry shows itself, so an unknown alias is still legible.
+pub(crate) fn choice_label(
+    choices: &'static [(&'static str, &'static str)],
+    value: &str,
+) -> SharedString {
+    choices
+        .iter()
+        .find(|(_, candidate)| *candidate == value)
+        .map(|(label, _)| SharedString::from(*label))
+        .unwrap_or_else(|| SharedString::from(value.to_string()))
+}
+
 pub(crate) fn row_is_online(last_seen_at: Option<&str>, now_ms: i64) -> bool {
     let Some(seen) = last_seen_at.and_then(crate::comments::parse_epoch) else {
         return false;
@@ -144,21 +156,17 @@ pub(crate) fn editor_agents(
 /// Open the dialog for a synced devices row (own devices only — the
 /// machines menu never offers Edit on teammates' rows).
 pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
-    // EXP-762: LANDSCAPE — the settings column and the worktrees column side
-    // by side (the Start-coding dialog's footprint), each scrolling on its
-    // own. The portrait stack put the agent's usage windows at the bottom of
-    // one long column, and the shell's scroll wrapper squeezed the clipped
-    // agent card until the last window was cut off (see [`Render`]).
+    // EXP-862: the dialog is CONTENT-sized. Name, Default device, Sharing
+    // and the agent defaults are a short form now that the account and usage
+    // rows are gone (they live on the Devices page's Accounts section), and
+    // a window taking 85% of a 1440p display to render six rows read as a
+    // page, not as a dialog. It stays resizable and scrolls inside.
     //
-    // EXP-862: the dialog is CONTENT-sized. Name, Default device, Sharing and
-    // the agent defaults are a short form now that the account and usage rows
-    // are gone (they live on the Devices page's Accounts section), and a
-    // window taking 85% of a 1440p display to render six rows plus a worktree
-    // list read as a page, not as a dialog. It stays resizable, and both
-    // columns still scroll inside it for a device with many worktrees.
+    // EXP-1020: ONE column since the worktrees left, so the landscape width
+    // the second one needed (EXP-762's 820) narrows to the form's own.
     let height = (window.viewport_size().height * 0.85).min(px(CONTENT_H));
-    let spec = DialogSpec::new("Device settings", size(px(820.), height))
-        .resizable(size(px(680.), px(360.)));
+    let spec = DialogSpec::new("Device settings", size(px(560.), height))
+        .resizable(size(px(440.), px(360.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| DeviceSettingsView::new(device_row_id, window, cx));
         DialogContent::new(view).self_scrolling()
@@ -168,8 +176,8 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
 /// One queued command the dialog tracks until terminal.
 struct TrackedCommand {
     id: String,
-    /// `prune`, `"{repo} {branch}"` for a removal, `"login {agent}"` for
-    /// an EXP-484 sign-in, or `"update {agent}"` for an agent CLI update —
+    /// `"login {agent}"` for an EXP-484 sign-in, or `"update {agent}"` for
+    /// an agent CLI update —
     /// the inline error/result slot.
     key: String,
 }
@@ -339,6 +347,15 @@ pub struct DeviceSettingsView {
     effort_select: ChoiceSelect,
     codex_model_select: ChoiceSelect,
     codex_effort_select: ChoiceSelect,
+    /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on — the row web
+    /// had and the IDE did not.
+    subagent_model_select: ChoiceSelect,
+    /// EXP-1020: the "Workflow settings" page's pair — what a workflow
+    /// started on this machine is seeded from (`launch_defaults.workflow`).
+    workflow_model_select: ChoiceSelect,
+    workflow_strong_model_select: ChoiceSelect,
+    /// EXP-1020: which sub-shell page is open, if any.
+    nav: crate::sub_shell::SubShellNav,
     claude_ultracode: bool,
     claude_plan_mode: bool,
     /// EXP-872: the machine's DEFAULT ACCOUNT — the profile id of
@@ -400,10 +417,9 @@ pub struct DeviceSettingsView {
     /// EXP-909: the remove landed — the row this dialog configures is gone,
     /// so the dialog closes on the next frame.
     removed: bool,
-    /// EXP-762: the two columns' scroll positions (view state, so a
-    /// re-render — every autosave, every heartbeat resync — keeps them).
+    /// The stack's scroll position (view state, so a re-render — every
+    /// autosave, every heartbeat resync — keeps it).
     settings_scroll: ScrollHandle,
-    worktrees_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -477,6 +493,24 @@ impl DeviceSettingsView {
             window,
             cx,
         );
+        let subagent_model_select = choice_select(
+            &crate::coding_selects::SUBAGENT_MODEL_CHOICES,
+            &seeded.claude_subagent_model,
+            window,
+            cx,
+        );
+        let workflow_model_select = choice_select(
+            model_choices_for(CodingAgent::Claude),
+            &seeded.workflow_model,
+            window,
+            cx,
+        );
+        let workflow_strong_model_select = choice_select(
+            model_choices_for(CodingAgent::Claude),
+            &seeded.workflow_strong_model,
+            window,
+            cx,
+        );
 
         let mut subscriptions = vec![
             // EXP-490: a devices delta re-renders AND mirrors the new
@@ -485,7 +519,6 @@ impl DeviceSettingsView {
                 this.resync(window, cx);
                 cx.notify();
             }),
-            cx.observe(&collections.device_worktrees, |_, _, cx| cx.notify()),
         ];
         if own {
             // The own device's baseline is the hub settings (fresher than the
@@ -507,6 +540,9 @@ impl DeviceSettingsView {
             &effort_select,
             &codex_model_select,
             &codex_effort_select,
+            &subagent_model_select,
+            &workflow_model_select,
+            &workflow_strong_model_select,
         ] {
             // EXP-694 autosave: a picked value IS the save (the guard in
             // `save_defaults` swallows the programmatic rewrites).
@@ -545,6 +581,10 @@ impl DeviceSettingsView {
             effort_select,
             codex_model_select,
             codex_effort_select,
+            subagent_model_select,
+            workflow_model_select,
+            workflow_strong_model_select,
+            nav: crate::sub_shell::SubShellNav::new(),
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
             default_account: seeded.default_account.clone(),
@@ -568,7 +608,6 @@ impl DeviceSettingsView {
             remove_busy: false,
             removed: false,
             settings_scroll: ScrollHandle::new(),
-            worktrees_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -582,22 +621,6 @@ impl DeviceSettingsView {
             .read(cx)
             .get(&self.device_row_id)
             .cloned()
-    }
-
-    fn worktrees(&self, cx: &App) -> Vec<domain::rows::DeviceWorktreeRow> {
-        let mut rows: Vec<domain::rows::DeviceWorktreeRow> = Store::global(cx)
-            .collections()
-            .device_worktrees
-            .read(cx)
-            .iter()
-            .filter(|row| row.device_row_id.as_deref() == Some(self.device_row_id.as_str()))
-            .cloned()
-            .collect();
-        rows.sort_by(|a, b| {
-            (a.repo_full_name.as_deref(), a.branch.as_deref())
-                .cmp(&(b.repo_full_name.as_deref(), b.branch.as_deref()))
-        });
-        rows
     }
 
     fn online(&self, cx: &App) -> bool {
@@ -722,6 +745,15 @@ impl DeviceSettingsView {
             (&self.effort_select, baseline.claude_effort.clone()),
             (&self.codex_model_select, baseline.codex_model.clone()),
             (&self.codex_effort_select, baseline.codex_effort.clone()),
+            (
+                &self.subagent_model_select,
+                baseline.claude_subagent_model.clone(),
+            ),
+            (&self.workflow_model_select, baseline.workflow_model.clone()),
+            (
+                &self.workflow_strong_model_select,
+                baseline.workflow_strong_model.clone(),
+            ),
         ] {
             select.update(cx, |select, cx| {
                 select.set_selected_value(&SharedString::from(value), window, cx)
@@ -747,6 +779,9 @@ impl DeviceSettingsView {
         drafted.claude_effort = selected(&self.effort_select, cx);
         drafted.codex_model = selected(&self.codex_model_select, cx);
         drafted.codex_effort = selected(&self.codex_effort_select, cx);
+        drafted.claude_subagent_model = selected(&self.subagent_model_select, cx);
+        drafted.workflow_model = selected(&self.workflow_model_select, cx);
+        drafted.workflow_strong_model = selected(&self.workflow_strong_model_select, cx);
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.default_account = self.default_account.clone();
@@ -1102,51 +1137,7 @@ impl DeviceSettingsView {
         );
     }
 
-    // -- worktree commands -----------------------------------------------------
-
-    fn queue_command(
-        &mut self,
-        key: String,
-        kind: &'static str,
-        repo: Option<String>,
-        branch: Option<String>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let device_id = self.device_id.clone();
-        self.set_error(key.clone(), None);
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    api::devices::create_command(
-                        &trpc,
-                        &device_id,
-                        kind,
-                        repo.as_deref(),
-                        branch.as_deref(),
-                    )
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(created) => {
-                        this.tracked.push(TrackedCommand {
-                            id: created.id,
-                            key,
-                        });
-                        this.ensure_polling(cx);
-                    }
-                    Err(err) => this.set_error(key, Some(err.user_message().into())),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
+    // -- device commands -------------------------------------------------------
 
     /// Queue an `agent_update` for `agent` on this machine — the agent CLI's
     /// own self-updater, run remotely (the web dialog's twin). Tracked under
@@ -1412,39 +1403,6 @@ impl DeviceSettingsView {
         .detach();
     }
 
-    fn command_pending(&self, key: &str) -> bool {
-        self.tracked.iter().any(|command| command.key == key)
-    }
-
-    fn prompt_remove_worktree(
-        &mut self,
-        repo: String,
-        branch: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let view = cx.entity().downgrade();
-        let spec = AlertSpec::new(
-            format!("Remove the {branch} worktree?"),
-            "Removes the worktree on the machine (the branch is kept). \
-             Uncommitted changes refuse remotely.",
-            "Remove",
-        )
-        .ok_variant(ButtonVariant::Danger)
-        .on_ok(move |_, cx| {
-            if let Some(view) = view.upgrade() {
-                let repo = repo.clone();
-                let branch = branch.clone();
-                view.update(cx, |this, cx| {
-                    let key = format!("{repo} {branch}");
-                    this.queue_command(key, "worktree_remove", Some(repo), Some(branch), cx);
-                });
-            }
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
-    }
-
     // -- render pieces ---------------------------------------------------------
 
     fn error_line(&self, key: &str, cx: &App) -> Option<gpui::Div> {
@@ -1610,6 +1568,17 @@ impl DeviceSettingsView {
                 self.codex_effort_select.clone(),
             ),
         };
+        // `Opus · Fable` ×4 — the same display labels the Model rows show,
+        // never the raw aliases.
+        let drafted = self.drafted(cx);
+        let workflow_summary = SharedString::from(format!(
+            "{} · {}",
+            choice_label(model_choices_for(CodingAgent::Claude), &drafted.workflow_model),
+            choice_label(
+                model_choices_for(CodingAgent::Claude),
+                &drafted.workflow_strong_model,
+            ),
+        ));
         let mut group = AgentDefaultsGroup::new(
             "device-defaults",
             agent_tab,
@@ -1624,7 +1593,25 @@ impl DeviceSettingsView {
             model,
             effort,
         )
-        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode);
+        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
+        // EXP-1020: the "Workflow settings" page — the model pair a workflow
+        // started on this machine is seeded from. It hangs off the DEFAULT
+        // account's agent rather than the tab, so it shows on both.
+        .trailing(vec![crate::sub_shell::sub_shell_row(
+            crate::sub_shell::SubShellProps::new("device-workflow-settings", "Workflow settings")
+                .icon(Icon::new(registry::NAV_WORKFLOWS))
+                .value(workflow_summary),
+            cx.listener(|this: &mut Self, _, _window, cx| {
+                this.nav.open("Workflow settings");
+                cx.notify();
+            }),
+            cx,
+        )]);
+        // EXP-981/EXP-1020: claude's subagent model, the row the IDE was
+        // missing while web had it.
+        if agent_tab.supports_subagent_model() {
+            group = group.subagent(self.subagent_model_select.clone());
+        }
         if agent_tab == CodingAgent::Claude {
             group = group
                 .toggle(DefaultsToggle::new(
@@ -1680,155 +1667,45 @@ impl DeviceSettingsView {
         body
     }
 
-    fn render_worktrees_section(
-        &mut self,
-        online: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let worktrees = self.worktrees(cx);
-        let muted = cx.theme().muted_foreground;
-        let prune_pending = self.command_pending("prune");
-        // EXP-862: the section BAND, with the broom in its trailing slot as
-        // GHOST chrome — the same place and the same weight every other list
-        // band's action has. `loading` swaps the glyph for the spinner.
-        let header = surface::glass_section_header(
-            "Worktrees",
-            Some(
-                crate::controls::ghost_icon_button(
-                    "device-worktrees-prune",
-                    Icon::new(registry::UI_CLEAN),
+    /// EXP-1020: the "Workflow settings" page — the model pair a workflow
+    /// started on this machine is seeded from. Both names come from CLAUDE's
+    /// vocabulary: the workflow engine's two-model policy is written in the
+    /// aliases `coding::settings::MODEL_ALIASES` clamps against.
+    fn render_workflow_page(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        v_flex()
+            .w_full()
+            .gap_2()
+            .child(surface::glass_group_rows(vec![
+                surface::glass_picker_row(
+                    "Model",
+                    None,
+                    surface::glass_picker_select(gpui_component::select::Select::new(
+                        &self.workflow_model_select,
+                    ))
+                    .into_any_element(),
                     cx,
-                )
-                .loading(prune_pending)
-                .tooltip("Prune merged worktrees")
-                .disabled(prune_pending || worktrees.is_empty())
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.queue_command("prune".to_string(), "worktree_prune", None, None, cx);
-                }))
-                .into_any_element(),
-            ),
-            cx,
-        );
-
-        let mut body = v_flex().w_full().gap_2().child(header);
-        if !online && (!worktrees.is_empty() || prune_pending) {
-            body = body.child(div().text_xs().text_color(muted).child(
-                "This device is offline — queued changes run when it comes online.",
-            ));
-        }
-        if let Some(error) = self.error_line("prune", cx) {
-            body = body.child(error);
-        }
-        if worktrees.is_empty() {
-            return body.child(
+                ),
+                surface::glass_picker_row(
+                    "Strong model",
+                    None,
+                    surface::glass_picker_select(gpui_component::select::Select::new(
+                        &self.workflow_strong_model_select,
+                    ))
+                    .into_any_element(),
+                    cx,
+                ),
+            ]))
+            .child(
                 div()
                     .text_xs()
-                    .text_color(muted)
-                    .child("No worktrees reported by this device."),
-            );
-        }
-        // EXP-694: the hairline-underlined list became ONE grouped stack —
-        // the same card the defaults wear, one worktree per row.
-        let mut rows: Vec<Div> = Vec::new();
-        for (index, worktree) in worktrees.iter().enumerate() {
-            let repo = worktree.repo_full_name.clone().unwrap_or_default();
-            let branch = worktree.branch.clone().unwrap_or_default();
-            let key = format!("{repo} {branch}");
-            let removing = self.command_pending(&key);
-            let busy = worktree.busy.unwrap_or(false);
-            let dirty = match worktree.dirty.as_deref() {
-                Some("tracked") => Some("uncommitted changes"),
-                Some("untracked") => Some("untracked files"),
-                _ => None,
-            };
-            let mut row = surface::glass_row_shell()
-                .min_w_0()
-                .gap_2()
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .child(Icon::new(registry::UI_BRANCH).xsmall().text_color(muted)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_xs()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .whitespace_nowrap()
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(div().text_color(muted).child(SharedString::from(repo.clone())))
-                                .child(SharedString::from(branch.clone())),
-                        ),
-                );
-            if let Some(identifier) = worktree.issue_identifier.clone() {
-                row = row.child(
-                    div()
-                        .flex_shrink_0()
-                        .px_1()
-                        .rounded(px(theme::tokens::radius::SM))
-                        .border_1()
-                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                        .text_xs()
-                        .text_color(muted)
-                        .child(SharedString::from(identifier)),
-                );
-            }
-            if let Some(dirty) = dirty {
-                row = row.child(
-                    h_flex()
-                        .flex_shrink_0()
-                        .gap_0p5()
-                        .items_center()
-                        .text_xs()
-                        .text_color(theme::tokens::YELLOW.to_hsla())
-                        .child(Icon::new(registry::UI_WARNING).xsmall())
-                        .child(dirty),
-                );
-            }
-            if busy {
-                row = row.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(theme::tokens::GREEN.to_hsla())
-                        .child("in use"),
-                );
-            }
-            let remove_repo = repo.clone();
-            let remove_branch = branch.clone();
-            row = row.child(
-                // EXP-862: remove is ghost chrome on a row, never a circle.
-                crate::controls::ghost_icon_button(
-                    ("device-worktree-remove", index),
-                    Icon::new(registry::UI_DELETE),
-                    cx,
-                )
-                    .disabled(busy || removing)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.prompt_remove_worktree(
-                            remove_repo.clone(),
-                            remove_branch.clone(),
-                            window,
-                            cx,
-                        );
-                    })),
-            );
-            // A failed removal reports under its own row, inside the group.
-            match self.error_line(&key, cx) {
-                Some(error) => rows.push(
-                    v_flex()
-                        .w_full()
-                        .child(row)
-                        .child(div().px_4().pb_3().child(error)),
-                ),
-                None => rows.push(row),
-            }
-        }
-        body.child(surface::glass_group_rows(rows))
+                    .text_color(cx.theme().muted_foreground)
+                    .child(
+                        "Leaf nodes and the subagents inside them run on the model. \
+                         Contract, integration and risky nodes, and every review, run \
+                         on the strong model.",
+                    ),
+            )
+            .into_any_element()
     }
 
     /// FEED-33: the Sharing group — one switch per team the signed-in user
@@ -2107,10 +1984,11 @@ impl DeviceSettingsView {
         let label = row
             .and_then(|row| row.label.clone())
             .unwrap_or_else(|| self.device_id.clone());
+        // EXP-1020: a ROW of the same shell, not a section of its own — a
+        // destructive row needs no headline to be found.
         v_flex()
             .w_full()
             .gap_2()
-            .child(surface::glass_section_header("Remove", None, cx))
             .child(surface::glass_group_rows(vec![surface::glass_row_shell()
                 .min_w_0()
                 .gap_2()
@@ -2230,7 +2108,7 @@ impl Render for DeviceSettingsView {
         }
 
         // Every group in the dialog sits on the SAME 8px rhythm (the ×4
-        // parity look) — the worktrees section included.
+        // parity look).
         let mut body = body.child(self.render_defaults_section(online, cx));
         // EXP-909: Update and Remove are the LAST two sections ×4 — the
         // device row carries one control now (the gear that opened this), so
@@ -2239,7 +2117,26 @@ impl Render for DeviceSettingsView {
         // agent CLI rows (claude/codex self-update) show for both kinds.
         body = body.child(self.render_update_section(row.as_ref(), online, server, cx));
         let body = body.child(self.render_remove_section(row.as_ref(), cx));
-        let worktrees_section = self.render_worktrees_section(online, cx);
+
+        // EXP-1020: ONE column. The second one (EXP-762/798) existed to park
+        // the worktrees beside the settings, and a machine's worktrees are a
+        // LOCAL surface now — Settings → Worktrees.
+        //
+        // EXP-1029/1020: the stack is a SUB-SHELL host, so "Workflow
+        // settings" slides its page in place of the whole stack (back glyph
+        // on top) rather than opening a dialog on top of a dialog.
+        let mut host = crate::sub_shell::SubShellHost::new(body.pr_2().pb_2());
+        if self.nav.is_open() {
+            let page = self.render_workflow_page(cx);
+            host = host.open(
+                crate::sub_shell::SubShellPage::new("Workflow settings", page),
+                cx.listener(|this: &mut Self, _, _window, cx| {
+                    this.nav.back();
+                    cx.notify();
+                }),
+            );
+        }
+        let body = div().w_full().child(host.render(window, cx));
 
         // EXP-762: two columns, each its own scroll pane. The dialog is
         // `self_scrolling` (see [`open`]) so this root gets a DEFINITE height
@@ -2251,33 +2148,15 @@ impl Render for DeviceSettingsView {
         // column that could give — and the usage windows at its foot were what
         // got cut). The settings column takes the wider share: its rows carry
         // pickers and the account line, the worktree rows one mono path each.
-        h_flex()
+        v_flex()
             .size_full()
+            .min_w_0()
             .min_h_0()
-            .items_stretch()
-            .gap_4()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(crate::scroll_pane::v_scroll_pane(
-                        "device-settings-settings",
-                        &self.settings_scroll,
-                        body.pr_2().pb_2(),
-                    )),
-            )
-            .child(
-                v_flex()
-                    .w(px(WORKTREES_COLUMN_W))
-                    .flex_shrink_0()
-                    .min_h_0()
-                    .child(crate::scroll_pane::v_scroll_pane(
-                        "device-settings-worktrees",
-                        &self.worktrees_scroll,
-                        worktrees_section.pr_2().pb_2(),
-                    )),
-            )
+            .child(crate::scroll_pane::v_scroll_pane(
+                "device-settings-settings",
+                &self.settings_scroll,
+                body,
+            ))
     }
 }
 

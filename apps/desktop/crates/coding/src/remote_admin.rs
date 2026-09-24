@@ -63,6 +63,25 @@ pub struct DefaultsPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_account: Option<String>,
     pub agents: BTreeMap<String, AgentDefaultsPatch>,
+    /// EXP-1029/EXP-1020: the WORKFLOW model pair new workflows started on
+    /// this machine are seeded from (`DeviceWorkflowDefaults`). Absent from
+    /// a machine that predates it — the server then carries its stored copy
+    /// forward rather than wiping it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<WorkflowDefaultsPatch>,
+}
+
+/// The `launch_defaults.workflow` object: the cheap model (leaf nodes and
+/// the subagents inside them) and the strong one (contract, integration and
+/// `risk: high` nodes, and every agent review). A HALF pair seeds nothing,
+/// so both names ride together or neither does.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkflowDefaultsPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strong_model: Option<String>,
 }
 
 /// Apply `patch` onto `settings`, FIELD-wise and ignore-invalid: a value
@@ -107,6 +126,21 @@ pub fn apply_defaults_patch(settings: &mut Settings, patch: &DefaultsPatch) -> b
         if settings.default_account != next {
             settings.default_account = next;
             changed = true;
+        }
+    }
+    // EXP-1020: the workflow pair, each half clamped to the MODEL_ALIASES
+    // vocabulary `Settings::load` normalizes against. An invalid name is
+    // dropped without touching the field, like every other patch value.
+    if let Some(workflow) = &patch.workflow {
+        for (value, slot) in [
+            (&workflow.model, &mut settings.workflow_model),
+            (&workflow.strong_model, &mut settings.workflow_strong_model),
+        ] {
+            if let Some(value) = value {
+                if crate::settings::MODEL_ALIASES.contains(&value.as_str()) {
+                    set_string(slot, value, &mut changed);
+                }
+            }
         }
     }
     for (agent_id, entry) in &patch.agents {
@@ -190,6 +224,10 @@ pub fn defaults_wire(settings: &Settings) -> DefaultsPatch {
         default_agent: Some(settings.default_agent.id().to_string()),
         default_account: settings.default_account.clone(),
         agents,
+        workflow: Some(WorkflowDefaultsPatch {
+            model: Some(settings.workflow_model.clone()),
+            strong_model: Some(settings.workflow_strong_model.clone()),
+        }),
     }
 }
 
@@ -538,6 +576,36 @@ mod tests {
         assert!(target.claude_ultracode);
         assert_eq!(target.codex_effort, "high");
         assert!(!target.claude_plan_mode);
+    }
+
+    // EXP-1020: the "Workflow settings" pair.
+    #[test]
+    fn the_workflow_pair_rides_the_wire_and_clamps_field_wise() {
+        let mut source = Settings::default();
+        source.workflow_model = "sonnet".into();
+        source.workflow_strong_model = "opus".into();
+        let wire = defaults_wire(&source);
+        let workflow = wire.workflow.as_ref().expect("the pair rides the wire");
+        assert_eq!(workflow.model.as_deref(), Some("sonnet"));
+        assert_eq!(workflow.strong_model.as_deref(), Some("opus"));
+
+        let mut target = Settings::default();
+        assert!(apply_defaults_patch(&mut target, &wire));
+        assert_eq!(target.workflow_model, "sonnet");
+        assert_eq!(target.workflow_strong_model, "opus");
+
+        // A name outside the alias vocabulary is dropped WITHOUT resetting
+        // the field — the same rule every other patch value follows.
+        let patch = DefaultsPatch {
+            workflow: Some(WorkflowDefaultsPatch {
+                model: Some("gpt-5.6-sol".into()),
+                strong_model: None,
+            }),
+            ..DefaultsPatch::default()
+        };
+        assert!(!apply_defaults_patch(&mut target, &patch));
+        assert_eq!(target.workflow_model, "sonnet");
+        assert_eq!(target.workflow_strong_model, "opus");
     }
 
     // -- remove_worktree_remote ------------------------------------------------

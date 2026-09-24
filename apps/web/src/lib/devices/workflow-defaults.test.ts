@@ -44,6 +44,9 @@ describe(`workflowDefaultsFor`, () => {
 
 describe(`workflowDefaultsSummary`, () => {
   it(`joins the pair the way every platform's row shows it`, () => {
-    expect(workflowDefaultsSummary({ model: `opus`, strongModel: `fable` })).toBe(`opus · fable`)
+    const label = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
+    expect(workflowDefaultsSummary({ model: `opus`, strongModel: `fable` }, label)).toBe(
+      `Opus · Fable`
+    )
   })
 })

@@ -959,7 +959,7 @@ export function DeviceSettingsDialog({
               <SubShell
                 label="Workflow settings"
                 icon={WorkflowIcon}
-                value={workflowDefaultsSummary(workflowDraft)}
+                value={workflowDefaultsSummary(workflowDraft, modelLabel)}
                 data-testid="device-settings-workflow"
               >
                 <GlassGroup>
