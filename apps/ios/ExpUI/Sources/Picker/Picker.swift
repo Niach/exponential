@@ -163,9 +163,12 @@ public enum GlassPickerTokens {
     public static let searchVPadding: CGFloat = 8
 }
 
-/// The `search` filter: a row matches when ANY of its keywords contains the
-/// query, case- and diacritic-insensitively. Pure, so the contract test can
-/// name it without a view.
+/// The `search` filter: a row matches when ANY of its keywords CONTAINS the
+/// query, case-insensitively — the same fold web and Android do (Kotlin's
+/// `contains(ignoreCase = true)`), so the same typing narrows the same rows on
+/// every client. Deliberately NOT diacritic-insensitive: that would match rows
+/// here that the other three would hide. Pure, so the contract test can name
+/// it without a view.
 public enum PickerSearch {
     public static func matches<Value>(_ item: PickerItem<Value>, query: String) -> Bool {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -254,6 +257,11 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     /// primitive's, so a custom mark can never invent a second "this is
     /// picked" idiom.
     public let renderMark: ((PickerItem<Value>) -> AnyView?)?
+    /// Replaces a row's BODY — everything right of the mark. The account
+    /// rows' EXP-992 limit bars are the one caller, exactly as on web
+    /// (`renderItem` there); the highlight, the mark and the tap stay the
+    /// primitive's.
+    public let renderItem: ((PickerItem<Value>) -> AnyView?)?
     private let trigger: () -> Trigger
 
     /// The sheet's presentation while no caller controls it. The primitive
@@ -278,6 +286,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         panel: (() -> AnyView)? = nil,
         footer: (() -> AnyView)? = nil,
         renderMark: ((PickerItem<Value>) -> AnyView?)? = nil,
+        renderItem: ((PickerItem<Value>) -> AnyView?)? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.items = items
@@ -297,6 +306,7 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
         self.panel = panel
         self.footer = footer
         self.renderMark = renderMark
+        self.renderItem = renderItem
         self.trigger = trigger
     }
 
@@ -339,7 +349,8 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
                 loading: loading,
                 panel: panel,
                 footer: footer,
-                renderMark: renderMark
+                renderMark: renderMark,
+                renderItem: renderItem
             )
             // Sheets present outside the host's environment, and the app is
             // dark-forced everywhere else (EXP-687).
@@ -367,6 +378,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     let panel: (() -> AnyView)?
     let footer: (() -> AnyView)?
     let renderMark: ((PickerItem<Value>) -> AnyView?)?
+    let renderItem: ((PickerItem<Value>) -> AnyView?)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var localQuery = ""
@@ -416,8 +428,10 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
             } else if visible.isEmpty {
                 // `emptyText` covers BOTH an empty list and an empty search —
                 // one string, so a picker never says two different things
-                // about having nothing to show.
-                if let emptyText {
+                // about having nothing to show. A FOOTER is the answer to the
+                // same miss ("Create new label …"), so the two never share
+                // the sheet: the row you can act on wins.
+                if let emptyText, footer == nil {
                     Text(emptyText)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -429,7 +443,8 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                     GlassPickerSheetRow(
                         item: item,
                         checked: item.checkedState(in: value),
-                        mark: renderMark?(item)
+                        mark: renderMark?(item),
+                        content: renderItem?(item)
                     ) {
                         onChange(PickerSelection.picking(item.value, in: value, mode: mode))
                         if PickerSelection.closesOnPick(mode) { dismiss() }
@@ -450,6 +465,9 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let checked: PickerChecked
     /// A caller-drawn leading slot (an avatar); nil = the item's own mark.
     let mark: AnyView?
+    /// A caller-drawn row BODY (the account rows' limit bars); nil = the
+    /// item's own label + description.
+    let content: AnyView?
     let action: () -> Void
 
     private var fill: Color {
@@ -472,20 +490,7 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 leading
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.label)
-                        .font(.subheadline)
-                        .foregroundStyle(
-                            .white.opacity(item.disabled ? TextOpacity.quaternary : TextOpacity.primary)
-                        )
-                        .lineLimit(1)
-                    if let description = item.description, !description.isEmpty {
-                        Text(description)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-                }
+                rowBody
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, GlassPickerTokens.rowHPadding)
@@ -501,6 +506,31 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
         // A disabled row RENDERS — it is information, not absence — but never
         // picks.
         .disabled(item.disabled)
+    }
+
+    /// The caller's body when there is one — it takes the whole row, so the
+    /// bars inside it measure against the sheet rather than hugging their
+    /// labels — else the item's own label over its muted second line.
+    @ViewBuilder
+    private var rowBody: some View {
+        if let content {
+            content.frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.label)
+                    .font(.subheadline)
+                    .foregroundStyle(
+                        .white.opacity(item.disabled ? TextOpacity.quaternary : TextOpacity.primary)
+                    )
+                    .lineLimit(1)
+                if let description = item.description, !description.isEmpty {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
+            }
+        }
     }
 
     @ViewBuilder

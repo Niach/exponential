@@ -78,6 +78,18 @@ struct IssueCandidatePicker: View {
             onDismiss: onDismiss,
             trigger: { EmptyView() }
         )
+        // The picker is HOST-driven and permanently mounted (both entry
+        // points hang it on a `.background`), so nothing unmounts this state
+        // between openings — a query typed into one opening would still be
+        // filtering the next. Cleared on the OPENING edge, not the closing
+        // one: re-filtering while the sheet animates away would flash the
+        // whole pool back in behind it.
+        .onChange(of: open.wrappedValue) { _, isOpen in
+            guard isOpen else { return }
+            searchText = ""
+            hits = []
+            hitsQuery = ""
+        }
         // Debounced server augmentation: `.task(id:)` cancels the previous
         // sleep on every keystroke, so only a settled query round-trips.
         .task(id: trimmedQuery) {

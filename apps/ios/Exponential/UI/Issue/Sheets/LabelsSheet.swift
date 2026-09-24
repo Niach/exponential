@@ -82,6 +82,14 @@ struct IssueLabelsPicker: View {
                 : nil,
             trigger: { EmptyView() }
         )
+        // Host-driven and permanently mounted, so this state outlives the
+        // sheet: without this, a query typed into one opening would still be
+        // filtering the next (and the create row would still be offering the
+        // old name). Cleared on the OPENING edge — re-filtering while the
+        // sheet animates away would flash every label back in behind it.
+        .onChange(of: open.wrappedValue) { _, isOpen in
+            if isOpen { searchText = "" }
+        }
     }
 
     private var createRow: some View {
