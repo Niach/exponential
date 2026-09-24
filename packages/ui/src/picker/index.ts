@@ -2,6 +2,7 @@
 // primitive, typed pickers on top; the barrel re-exports this whole
 // directory, so a leaf never edits `../index.ts`.
 export * from "./picker"
+export * from "./picker-trigger"
 export * from "./board-picker"
 export * from "./issue-picker"
 export * from "./action-picker"

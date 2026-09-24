@@ -18,6 +18,8 @@ export interface IssuePickerIssue {
 interface IssuePickerBase {
   issues: readonly IssuePickerIssue[]
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -39,12 +41,19 @@ export function issuePickerItems(issues: readonly IssuePickerIssue[]): PickerIte
   }))
 }
 
-export function IssuePicker({ issues, emptyText = `No issues`, ...props }: IssuePickerProps) {
+export function IssuePicker({
+  issues,
+  emptyText = `No issues`,
+  mobileTitle = `Issues`,
+  search = true,
+  ...props
+}: IssuePickerProps) {
   const items = issuePickerItems(issues)
+  const shared = { items, emptyText, mobileTitle, search }
   if (props.mode === `multi`) {
     const { mode: _mode, ...rest } = props
-    return <Picker mode="multi" items={items} emptyText={emptyText} {...rest} />
+    return <Picker mode="multi" {...shared} {...rest} />
   }
   const { mode: _mode, ...rest } = props
-  return <Picker mode="single" items={items} emptyText={emptyText} {...rest} />
+  return <Picker mode="single" {...shared} {...rest} />
 }

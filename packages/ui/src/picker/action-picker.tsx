@@ -20,6 +20,8 @@ export interface ActionPickerProps {
   value: string | null
   onChange: (actionId: string) => void
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -35,6 +37,21 @@ export function actionPickerItems(actions: readonly ActionPickerAction[]): Picke
   }))
 }
 
-export function ActionPicker({ actions, emptyText = `No actions`, ...props }: ActionPickerProps) {
-  return <Picker mode="single" items={actionPickerItems(actions)} emptyText={emptyText} {...props} />
+export function ActionPicker({
+  actions,
+  emptyText = `No actions`,
+  mobileTitle = `Actions`,
+  search = true,
+  ...props
+}: ActionPickerProps) {
+  return (
+    <Picker
+      mode="single"
+      items={actionPickerItems(actions)}
+      emptyText={emptyText}
+      mobileTitle={mobileTitle}
+      search={search}
+      {...props}
+    />
+  )
 }

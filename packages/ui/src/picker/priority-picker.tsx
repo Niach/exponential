@@ -19,6 +19,8 @@ export interface PriorityPickerOption {
 interface PriorityPickerBase {
   options: readonly PriorityPickerOption[]
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   disabled?: boolean
   className?: string
 }
@@ -38,12 +40,17 @@ export function priorityPickerItems(options: readonly PriorityPickerOption[]): P
   }))
 }
 
-export function PriorityPicker({ options, ...props }: PriorityPickerProps) {
+export function PriorityPicker({
+  options,
+  mobileTitle = `Priority`,
+  ...props
+}: PriorityPickerProps) {
   const items = priorityPickerItems(options)
+  const shared = { items, mobileTitle }
   if (props.mode === `multi`) {
     const { mode: _mode, ...rest } = props
-    return <Picker mode="multi" items={items} {...rest} />
+    return <Picker mode="multi" {...shared} {...rest} />
   }
   const { mode: _mode, ...rest } = props
-  return <Picker mode="single" items={items} {...rest} />
+  return <Picker mode="single" {...shared} {...rest} />
 }

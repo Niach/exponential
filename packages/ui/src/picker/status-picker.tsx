@@ -23,6 +23,8 @@ export interface StatusPickerStatus {
 interface StatusPickerBase {
   statuses: readonly StatusPickerStatus[]
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -45,12 +47,18 @@ export function statusPickerItems(statuses: readonly StatusPickerStatus[]): Pick
   }))
 }
 
-export function StatusPicker({ statuses, emptyText = `No statuses`, ...props }: StatusPickerProps) {
+export function StatusPicker({
+  statuses,
+  emptyText = `No statuses`,
+  mobileTitle = `Status`,
+  ...props
+}: StatusPickerProps) {
   const items = statusPickerItems(statuses)
+  const shared = { items, emptyText, mobileTitle }
   if (props.mode === `multi`) {
     const { mode: _mode, ...rest } = props
-    return <Picker mode="multi" items={items} emptyText={emptyText} {...rest} />
+    return <Picker mode="multi" {...shared} {...rest} />
   }
   const { mode: _mode, ...rest } = props
-  return <Picker mode="single" items={items} emptyText={emptyText} {...rest} />
+  return <Picker mode="single" {...shared} {...rest} />
 }

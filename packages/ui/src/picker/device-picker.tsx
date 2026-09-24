@@ -23,6 +23,8 @@ export interface DevicePickerProps {
   value: string | null
   onChange: (deviceId: string) => void
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -39,6 +41,19 @@ export function devicePickerItems(devices: readonly DevicePickerDevice[]): Picke
   }))
 }
 
-export function DevicePicker({ devices, emptyText = `No devices`, ...props }: DevicePickerProps) {
-  return <Picker mode="single" items={devicePickerItems(devices)} emptyText={emptyText} {...props} />
+export function DevicePicker({
+  devices,
+  emptyText = `No devices`,
+  mobileTitle = `Device`,
+  ...props
+}: DevicePickerProps) {
+  return (
+    <Picker
+      mode="single"
+      items={devicePickerItems(devices)}
+      emptyText={emptyText}
+      mobileTitle={mobileTitle}
+      {...props}
+    />
+  )
 }

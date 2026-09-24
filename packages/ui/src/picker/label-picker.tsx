@@ -18,6 +18,8 @@ export interface LabelPickerProps {
   value: readonly string[]
   onChange: (labelIds: string[]) => void
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   /** On by default: a team's label list outgrows a menu quickly. */
   search?: boolean
   disabled?: boolean
@@ -37,6 +39,7 @@ export function LabelPicker({
   labels,
   search = true,
   emptyText = `No labels`,
+  mobileTitle = `Labels`,
   ...props
 }: LabelPickerProps) {
   return (
@@ -45,6 +48,7 @@ export function LabelPicker({
       items={labelPickerItems(labels)}
       search={search}
       emptyText={emptyText}
+      mobileTitle={mobileTitle}
       {...props}
     />
   )

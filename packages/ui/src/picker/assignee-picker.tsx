@@ -20,6 +20,8 @@ export const UNASSIGNED_VALUE = `` as const
 interface AssigneePickerBase {
   members: readonly AssigneePickerMember[]
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -51,12 +53,15 @@ export function AssigneePicker({
   members,
   allowsNone = false,
   emptyText = `No members`,
+  mobileTitle = `Assignee`,
+  search = true,
   ...props
 }: AssigneePickerProps) {
+  const shared = { emptyText, mobileTitle, search }
   if (props.mode === `multi`) {
     const { mode: _mode, ...rest } = props
     return (
-      <Picker mode="multi" items={assigneePickerItems(members)} emptyText={emptyText} {...rest} />
+      <Picker mode="multi" items={assigneePickerItems(members)} {...shared} {...rest} />
     )
   }
   const { mode: _mode, value, onChange, ...rest } = props
@@ -66,7 +71,7 @@ export function AssigneePicker({
       items={assigneePickerItems(members, allowsNone)}
       value={value ?? (allowsNone ? UNASSIGNED_VALUE : null)}
       onChange={(picked) => onChange(picked === UNASSIGNED_VALUE ? null : picked)}
-      emptyText={emptyText}
+      {...shared}
       {...rest}
     />
   )

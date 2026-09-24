@@ -23,6 +23,8 @@ export interface BoardPickerProps {
   value: string | null
   onChange: (boardId: string) => void
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -39,6 +41,19 @@ export function boardPickerItems(boards: readonly BoardPickerBoard[]): PickerIte
   }))
 }
 
-export function BoardPicker({ boards, emptyText = `No boards`, ...props }: BoardPickerProps) {
-  return <Picker mode="single" items={boardPickerItems(boards)} emptyText={emptyText} {...props} />
+export function BoardPicker({
+  boards,
+  emptyText = `No boards`,
+  mobileTitle = `Board`,
+  ...props
+}: BoardPickerProps) {
+  return (
+    <Picker
+      mode="single"
+      items={boardPickerItems(boards)}
+      emptyText={emptyText}
+      mobileTitle={mobileTitle}
+      {...props}
+    />
+  )
 }
