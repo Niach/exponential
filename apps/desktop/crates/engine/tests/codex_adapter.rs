@@ -308,6 +308,7 @@ fn spec() -> engine::adapters::AdapterSpec {
         replay: false,
         personal_key: Some("expu_test".to_string()),
         reaper_settings_path: None,
+        system_append: coding::skill::system_append(None),
         exit: engine::ChildExitLink::new(),
     }
 }

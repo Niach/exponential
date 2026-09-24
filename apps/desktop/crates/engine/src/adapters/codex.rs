@@ -786,7 +786,7 @@ async fn open_thread(
     };
     // EXP-763: the run playbook, on start AND resume (codex replays the
     // developer message from the rollout; identical text keeps it stable).
-    let playbook = Some(coding::skill::RUN_SKILL);
+    let playbook = Some(shared.spec.system_append.as_str());
     let response = match &resumed {
         Some(thread_id) => {
             call(
@@ -2576,7 +2576,12 @@ async fn resume_loaded_thread(
     let response = call(
         shared,
         "thread/resume",
-        codex_wire::thread_resume_params(thread_id, cwd, config, Some(coding::skill::RUN_SKILL)),
+        codex_wire::thread_resume_params(
+            thread_id,
+            cwd,
+            config,
+            Some(shared.spec.system_append.as_str()),
+        ),
     )
     .await?;
     // The thread codex actually re-opened is the one every later `turn/start`

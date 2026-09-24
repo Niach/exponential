@@ -52,6 +52,7 @@ interface Contract {
   codingSessionBlocked: { kinds: string[]; windows: string[] }
   codingSession: { staleHours: number }
   device: { onlineWindowSeconds: number }
+  team: { agentPromptMaxBytes: number }
   steerFeed: {
     byteCap: number
     itemCap: number
@@ -725,6 +726,7 @@ pub const STEER_WORKING_PREVIEW_MAX: usize = ${contract.steerWorking.previewMax}
 pub const ISSUE_STATUS_STARTED_MAX: usize = ${contract.issueStatusCategory.startedMax};
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = ${deviceOnlineWindowMs};
+pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = ${contract.team.agentPromptMaxBytes};
 pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";
 pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflictsId}";
 pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";

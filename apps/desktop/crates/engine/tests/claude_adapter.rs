@@ -414,6 +414,7 @@ fn spec_env(
         replay: false,
         personal_key: Some("expu_test-key".to_string()),
         reaper_settings_path: Some(work.join("claude-hooks/1/row-1.settings.json")),
+        system_append: coding::skill::system_append(None),
         exit: engine::ChildExitLink::new(),
     }
 }

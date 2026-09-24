@@ -211,6 +211,16 @@ export const teams = pgTable(`teams`, {
   // pick the ladder the picker offers and how a value reads (t-shirt).
   // Synced so every client renders the chip the same way.
   estimationType: varchar(`estimation_type`, { length: 16 }).notNull().default(`none`),
+  // EXP-1025 — the TEAM PROMPT: owner-authored markdown every coding run of
+  // the team gets appended to its system prompt, after the run playbook and
+  // before the repo's CLAUDE.md (rebuilt on every start AND resume). Capped
+  // at contract `team.agentPromptMaxBytes`. SERVER-ONLY like `actions.body`:
+  // behind the teams shape allowlist, read through `teams.getAgentPrompt`
+  // (members) and written through `teams.update` (owners); the launcher
+  // fetches it at prepare time. `agent_prompt_updated_at` = the last
+  // non-empty-to-different write, for the editors' "edited …" caption.
+  agentPrompt: text(`agent_prompt`).notNull().default(``),
+  agentPromptUpdatedAt: timestamp(`agent_prompt_updated_at`, { withTimezone: true }),
   ...timestamps,
 })
 

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { contract } from "@exp/domain-contract"
 import { issueEstimationSchema } from "@/lib/domain"
 import { TRPCError } from "@trpc/server"
 import {
@@ -27,6 +28,18 @@ import {
   getInviteCapacity,
 } from "@/lib/billing"
 import { assertTeamDeletableBilling } from "@/lib/billing/billing-handover"
+
+/** EXP-1025: the team prompt's cap, in UTF-8 BYTES (what the agent's
+ *  context pays for), from the contract so the editors' counters, the Rust
+ *  launcher's guard and this gate can never disagree. */
+export const TEAM_AGENT_PROMPT_MAX_BYTES = contract.team.agentPromptMaxBytes
+
+const agentPromptSchema = z.string().refine(
+  (text) => new TextEncoder().encode(text).byteLength <= TEAM_AGENT_PROMPT_MAX_BYTES,
+  {
+    message: `The team prompt must be at most ${TEAM_AGENT_PROMPT_MAX_BYTES} bytes.`,
+  }
+)
 
 function slugify(input: string): string {
   return input
@@ -165,10 +178,14 @@ export const teamsRouter = router({
         // EXP-630: the estimate scale; `none` switches estimates off (values
         // already set stay on the rows, hidden until a scale is picked again).
         estimationType: issueEstimationSchema.optional(),
+        // EXP-1025: the team prompt (raw markdown, UTF-8 bytes capped by the
+        // contract, never trimmed server-side beyond the trailing whitespace
+        // the launcher would drop anyway). Empty string = no team prompt.
+        agentPrompt: agentPromptSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { teamId: id, ...updates } = input
+      const { teamId: id, agentPrompt, ...updates } = input
       await assertTeamOwner(ctx.session.user.id, id)
 
       if (updates.helpdeskEnabled === true) {
@@ -185,15 +202,50 @@ export const teamsRouter = router({
         await assertCanUseHelpdesk(id)
       }
 
+      // The prompt rides beside the synced columns but is stamped with its
+      // own clock: `updated_at` bumps the shape (every client re-renders the
+      // team), `agent_prompt_updated_at` only ever tells the editors when.
+      const promptWrite =
+        agentPrompt === undefined
+          ? {}
+          : { agentPrompt: agentPrompt.trimEnd(), agentPromptUpdatedAt: new Date() }
+
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [team] = await tx
           .update(teams)
-          .set({ ...updates, updatedAt: new Date() })
+          .set({ ...updates, ...promptWrite, updatedAt: new Date() })
           .where(eq(teams.id, id))
           .returning(teamColumns)
         return { team, txId }
       })
+    }),
+
+  // EXP-1025: the team prompt, member-readable (every member's runs carry
+  // it, so every member may see what their agent is told), owner-written
+  // through `update`. Server-only like `actions.body`: it is NOT on the
+  // teams shape, so this is the ONE read path for the settings editors (web
+  // + IDE) and for the launcher at prepare/resume time.
+  getAgentPrompt: authedProcedure
+    .input(z.object({ teamId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await assertTeamMember(ctx.session.user.id, input.teamId)
+      const [row] = await ctx.db
+        .select({
+          agentPrompt: teams.agentPrompt,
+          agentPromptUpdatedAt: teams.agentPromptUpdatedAt,
+        })
+        .from(teams)
+        .where(eq(teams.id, input.teamId))
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND` })
+      }
+      return {
+        agentPrompt: row.agentPrompt,
+        agentPromptUpdatedAt: row.agentPromptUpdatedAt,
+        maxBytes: TEAM_AGENT_PROMPT_MAX_BYTES,
+      }
     }),
 
   delete: authedProcedure

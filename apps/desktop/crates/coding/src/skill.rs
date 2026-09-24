@@ -29,6 +29,41 @@ pub const RUN_SKILL: &str = include_str!("skill.md");
 /// gate in `context-budget.test.ts`.
 pub const RUN_SKILL_MAX_BYTES: usize = 6 * 1024;
 
+/// EXP-1025 — the heading the TEAM PROMPT rides under, after the playbook.
+/// One level-1 heading like the playbook's own, so the two read as sibling
+/// documents in the system prompt.
+pub const TEAM_PROMPT_HEADING: &str = "# Team instructions";
+
+/// EXP-1025 — the one framing sentence under that heading: who wrote the
+/// text and where it ranks (above the requester's additional instructions,
+/// which ride LAST in the seed prompt).
+pub const TEAM_PROMPT_LEAD: &str = "Written by this team's owners in Exponential; it applies to \
+every run of the team and outranks the requester's additional instructions.";
+
+/// EXP-1025 — the text that goes onto the agent's additive system-prompt
+/// channel for ONE run: the playbook, then the team prompt under
+/// [`TEAM_PROMPT_HEADING`]. `None`/blank = the playbook alone, byte-identical
+/// to what every run got before the team prompt existed, so a team without
+/// one changes nothing.
+///
+/// Rebuilt on every start AND resume (the channel is), which is the whole
+/// reason the team prompt lives here and not in the seed prompt: an edit in
+/// Settings reaches the next resume of every existing run.
+///
+/// The text rides VERBATIM (trailing whitespace dropped): the server already
+/// refused anything over `domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES`, and
+/// a launcher that silently cut a prompt would hand the agent rules the
+/// owner never wrote.
+pub fn system_append(team_prompt: Option<&str>) -> String {
+    match team_prompt.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(text) => format!(
+            "{}\n\n{TEAM_PROMPT_HEADING}\n\n{TEAM_PROMPT_LEAD}\n\n{text}\n",
+            RUN_SKILL.trim_end()
+        ),
+        None => RUN_SKILL.to_string(),
+    }
+}
+
 /// Every `exponential_*` name the playbook mentions, deduplicated, in order
 /// of first appearance. The web drift gate checks the same set against the
 /// registered tool surface.
@@ -64,6 +99,31 @@ mod tests {
             "skill.md is {} bytes, cap {RUN_SKILL_MAX_BYTES}",
             RUN_SKILL.len()
         );
+    }
+
+    /// EXP-1025: no team prompt = the playbook, byte for byte.
+    #[test]
+    fn system_append_without_a_team_prompt_is_the_bare_playbook() {
+        assert_eq!(system_append(None), RUN_SKILL);
+        assert_eq!(system_append(Some("")), RUN_SKILL);
+        assert_eq!(system_append(Some("  \n\t")), RUN_SKILL);
+    }
+
+    /// EXP-1025: the team prompt follows the playbook under its own
+    /// heading, verbatim, with one framing sentence between.
+    #[test]
+    fn system_append_places_the_team_prompt_after_the_playbook() {
+        let text = system_append(Some("## Rules\n\n- Always run `bun test`.\n\n"));
+        assert!(text.starts_with(RUN_SKILL.trim_end()));
+        let tail = &text[RUN_SKILL.trim_end().len()..];
+        assert_eq!(
+            tail,
+            "\n\n# Team instructions\n\nWritten by this team's owners in Exponential; it applies to \
+every run of the team and outranks the requester's additional instructions.\n\n## Rules\n\n- Always \
+run `bun test`.\n"
+        );
+        // The cap is the server's (`teams.update`), mirrored by the contract.
+        assert_eq!(domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES, 12 * 1024);
     }
 
     #[test]

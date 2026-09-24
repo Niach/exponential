@@ -21,7 +21,6 @@
 use crate::agent::CodingAgent;
 use crate::mcp_json::MCP_JSON_FILE;
 use crate::settings::Settings;
-use crate::skill::RUN_SKILL;
 
 /// The env var carrying the raw `expu_` key for codex sessions (EXP-201) —
 /// codex gets the MCP credential via the spawn environment instead of a
@@ -618,7 +617,10 @@ pub fn claude_model_arg(model: &str) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
+/// `system_append` = [`crate::skill::system_append`]'s text (EXP-1025: the
+/// playbook plus the team prompt) — the caller composes it, since the team is
+/// the launcher's to know.
+pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp, system_append: &str) -> Vec<String> {
     let trimmed_model = opts.model.trim();
     let trimmed_effort = opts.effort.trim();
     let mut args: Vec<String> = Vec::new();
@@ -642,9 +644,10 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
             }
             args.extend(mcp_config_args());
             args.extend(permission_args(opts.plan_mode));
-            // EXP-763: the run playbook, appended to the system prompt.
+            // EXP-763: the run playbook (EXP-1025: + the team prompt),
+            // appended to the system prompt.
             args.push("--append-system-prompt".into());
-            args.push(RUN_SKILL.into());
+            args.push(system_append.into());
         }
         CodingAgent::Codex => {
             // EXP-389: codex's startup update prompt ("Update now / Skip …
@@ -687,7 +690,7 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
             args.push("-c".into());
             args.push(format!(
                 "developer_instructions={}",
-                toml_basic_string(RUN_SKILL)
+                toml_basic_string(system_append)
             ));
             // EXP-690: every codex run bypasses approvals and the sandbox.
             args.push("--dangerously-bypass-approvals-and-sandbox".into());
@@ -699,6 +702,7 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skill::RUN_SKILL;
 
     /// EXP-763: the codex playbook override is one TOML basic string — what
     /// `-c developer_instructions=<value>` hands the TOML parser must decode
@@ -830,7 +834,7 @@ mod tests {
     /// and the run playbook still ride it on every agent.
     #[test]
     fn shell_args_per_agent() {
-        let claude = shell_args(&claude_opts(), &AgentMcp::ClaudeFile);
+        let claude = shell_args(&claude_opts(), &AgentMcp::ClaudeFile, RUN_SKILL);
         assert_eq!(
             claude,
             vec![
@@ -855,6 +859,7 @@ mod tests {
                 url: "http://x/api/mcp".to_string(),
                 session_id: None,
             },
+            RUN_SKILL,
         );
         assert_eq!(args[..2], ["-c", "check_for_update_on_startup=false"]);
         // EXP-792: ONE inline-table flag carries the whole `mcp_servers`

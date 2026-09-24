@@ -278,6 +278,9 @@
   "device": {
     "onlineWindowSeconds": 90
   },
+  "team": {
+    "agentPromptMaxBytes": 12288
+  },
   "steerFeed": {
     "byteCap": 16777216,
     "itemCap": 200000,

@@ -1156,8 +1156,9 @@ impl ClaudeSession {
             settings: self.spec.reaper_settings_path.as_deref(),
             add_dirs: &[],
             disallowed_tools: disallowed,
-            // EXP-763: the run playbook, on every start and resume.
-            append_system_prompt: Some(coding::skill::RUN_SKILL),
+            // EXP-763: the run playbook (EXP-1025: + the team prompt), on
+            // every start and resume.
+            append_system_prompt: Some(self.spec.system_append.as_str()),
         });
         let mut spawn = self.spec.spawn.clone().args(argv);
         for (key, value) in wire::extra_env() {
