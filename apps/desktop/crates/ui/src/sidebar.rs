@@ -1195,8 +1195,14 @@ impl RailView {
     /// EXP-996 — ONE group row of the rail's Running tree: the workflow whose
     /// node runs sit under it, or the PR stack they form. Not a session: no
     /// agent mark, no attention badge, no device glyph, no Stop — the concept
-    /// icon, the name and the fold. A workflow row OPENS its workflow; a stack
-    /// has no screen of its own and only folds.
+    /// icon, the name, the member count and the fold. A workflow row OPENS its
+    /// workflow; a stack has no screen of its own and only folds.
+    ///
+    /// It draws the same FACTS as [`run_rows::render_group_row`] but not that
+    /// row: the rail's chrome is its own ([`crate::surface::flat_row_compact`],
+    /// pad 8 and [`RUNNING_ROW_GAP`] against the list's pad 12 and gap 0), and
+    /// a rail row opens its detail with [`navigation::navigate_from_rail`], so
+    /// sharing the renderer would mean threading all of that through it.
     fn rail_group_row(
         &self,
         index: usize,
@@ -1244,6 +1250,15 @@ impl RailView {
                     .text_xs()
                     .text_color(muted)
                     .child(facts.label.clone()),
+            )
+            // A group IS its children, so how many there are is what the reader
+            // is deciding to fold away — the ×4 trailing cell.
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(facts.members.to_string()),
             )
             .when_some(open, |this, workflow_id| {
                 this.on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {

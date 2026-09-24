@@ -426,15 +426,22 @@ extension SessionTree {
             )
         }
 
-        // The walk order is FIXED (creation, then id) rather than the store's
-        // dictionary order: it decides which top-level node claims a stack
-        // member when two of them name the same issue, and two clients must
-        // claim the same one.
+        // The walk order is FIXED rather than the store's dictionary order: it
+        // decides which top-level node claims a stack member when two of them
+        // name the same issue, and two clients must claim the same one.
+        //
+        // The key is the chain's OLDEST row, not its newest: web, Rust and
+        // Kotlin discover a node when they reach the first row of its
+        // succession (walking every row oldest-first), so a resumed run holds
+        // the place its FIRST row earned. Keying on the canonical newest row
+        // would move it and break the tie-break ×4.
         let roots = rootIds
             .compactMap { build($0) }
             .sorted { a, b in
-                let (ca, cb) = (stamp(a.session.createdAt), stamp(b.session.createdAt))
-                return ca != cb ? ca < cb : a.session.id < b.session.id
+                let first = { (node: SessionNode) in node.chain.first ?? node.session }
+                let (fa, fb) = (first(a), first(b))
+                let (ca, cb) = (stamp(fa.createdAt), stamp(fb.createdAt))
+                return ca != cb ? ca < cb : fa.id < fb.id
             }
 
         // Rules 3 then 4, over the TOP-LEVEL nodes only (a child run stays

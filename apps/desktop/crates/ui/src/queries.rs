@@ -604,8 +604,13 @@ pub fn team_workflows(cx: &App, team_id: &str) -> (Vec<domain::rows::WorkflowRow
 pub(crate) struct SessionTreeInputs {
     workflows: Vec<domain::session_tree::WorkflowFacts>,
     workflow_nodes: Vec<domain::session_tree::WorkflowNodeFacts>,
-    /// The stack edges' input, scoped the way Reviews scopes them
-    /// ([`is_reviewable`]): a stack is made of OPEN pull requests.
+    /// The stack edges' input: the LISTED rows' own issues (plus the issues a
+    /// batch row covers), never the whole synced pool. ×4 with web
+    /// `useSessionTreeContext`, iOS `sessionTreeContext` and Android
+    /// `treeContext` — a wider pool lets `stack_chain` walk down to an issue
+    /// with no run on screen, which moves `root_issue_id` and with it the
+    /// collapse key `stack:<id>`, so the same stack would fold differently
+    /// here than on the other three clients.
     issues: Vec<domain::rows::Issue>,
 }
 
@@ -622,11 +627,30 @@ impl SessionTreeInputs {
 /// EXP-996 — every input the session tree's GROUPING needs (the workflow a run
 /// is a node of, the stack its pull request sits in). Empty before the shapes
 /// land, which is exactly "no groups yet", never a wrong group.
-pub(crate) fn session_tree_inputs(cx: &App) -> SessionTreeInputs {
+///
+/// `sessions` are the rows about to be listed: the stack edges are scoped to
+/// THEIR issues, so the group a reader sees is made of runs the reader can
+/// see (the ×4 rule, see [`SessionTreeInputs::issues`]).
+pub(crate) fn session_tree_inputs(
+    cx: &App,
+    sessions: &[&domain::rows::CodingSession],
+) -> SessionTreeInputs {
     let Some(store) = Store::try_global(cx) else {
         return SessionTreeInputs::default();
     };
     let collections = store.collections();
+    let listed: std::collections::HashSet<String> = sessions
+        .iter()
+        .flat_map(|session| {
+            session
+                .issue_id
+                .iter()
+                .cloned()
+                .chain(domain::batch_run::parse_batch_issue_ids(
+                    session.batch_issue_ids.as_ref(),
+                ))
+        })
+        .collect();
     SessionTreeInputs {
         // Projected down to the group rows' facts, never cloned whole: the
         // rail re-derives this on every paint.
@@ -646,7 +670,7 @@ pub(crate) fn session_tree_inputs(cx: &App) -> SessionTreeInputs {
             .issues
             .read(cx)
             .iter()
-            .filter(|issue| is_reviewable(issue))
+            .filter(|issue| listed.contains(&issue.id))
             .cloned()
             .collect(),
     }

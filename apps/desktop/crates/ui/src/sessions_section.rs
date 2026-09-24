@@ -186,7 +186,8 @@ fn live_run_tree<T>(
     // input stable, so its first-wins tie-breaks never depend on the
     // collection's iteration order.
     rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
-    flatten_session_tree(rows, queries::session_tree_inputs(cx), |session| {
+    let inputs = queries::session_tree_inputs(cx, &rows);
+    flatten_session_tree(rows, inputs, |session| {
         let host = hosts
             .iter()
             .find(|(id, _)| id == &session.id)
@@ -378,7 +379,8 @@ impl PastSessionsSection {
         // EXP-996: the ONE tree the rail draws too — a finished sub-session
         // under the run that started it, a resume succession as one row, the
         // runs of one workflow or stack under a group row.
-        flatten_session_tree(rows, queries::session_tree_inputs(cx), |session| {
+        let inputs = queries::session_tree_inputs(cx, &rows);
+        flatten_session_tree(rows, inputs, |session| {
             run_rows::past_run_facts(session, now, cx)
         })
         .into_iter()

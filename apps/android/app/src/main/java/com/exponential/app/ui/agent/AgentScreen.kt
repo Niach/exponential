@@ -124,8 +124,8 @@ fun AgentScreen(
     // sidebar after Automations).
     onOpenWorkflows: () -> Unit = {},
     // EXP-1050: a WORKFLOW group row in the sessions list leads to its
-    // workflow. Until the nav host hands one down, it opens the list — a group
-    // row that leads nowhere is worse than one that lands a tap away.
+    // workflow. The default is the list, for a preview or a test that names no
+    // route — a group row that leads nowhere is worse than one a tap away.
     onOpenWorkflow: (workflowId: String) -> Unit = { onOpenWorkflows() },
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),

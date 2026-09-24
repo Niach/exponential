@@ -11,8 +11,13 @@
 //   2. Children nest under their `parentSessionId` (a `sessions_start`
 //      child, EXP-679/818), following the parent's resume succession.
 //   3. Sessions of ONE workflow group under `{ kind: 'workflow' }` — a row
-//      whose issue is a `workflow_nodes` row of a running workflow (or whose
-//      `startedReason` is `workflow`) belongs to that workflow.
+//      belongs to the workflow whose `workflow_nodes` name it (by session id,
+//      by issue, or by an issue a batch row covers) AND which the caller
+//      listed in `workflows`, because that row is where the group's NAME comes
+//      from. `startedReason: 'workflow'` alone never groups: it says a run is
+//      SOME workflow's node, not which, and a group row cannot be drawn
+//      without a name. (EXP-1029 wrote the looser rule; every client
+//      implements this one.)
 //   4. A stack (`issues.pr_base_branch` edges, `lib/pr-stack.ts`) groups
 //      under `{ kind: 'stack', rootIssueId }` in LINEAR order, lowest first.
 //      Stacks and workflows are NOT unified (decision 5): a stack is a

@@ -770,6 +770,24 @@ pub struct SessionTreeFlatRow<'a, T> {
     pub has_children: bool,
 }
 
+/// Every SESSION node of the tree, depth-first, groups flattened away (web
+/// `flattenSessionTree`, iOS `flatten`, Android `flattenSessionTree`). What a
+/// caller wants when it needs the runs a tree holds and not its structure —
+/// counting them, or finding the one it should reveal.
+pub fn flatten_session_tree<T>(nodes: &[SessionTreeNode<T>]) -> Vec<&SessionNode<T>> {
+    fn walk<'a, T>(nodes: &'a [SessionTreeNode<T>], out: &mut Vec<&'a SessionNode<T>>) {
+        for node in nodes {
+            if let SessionTreeNode::Session(session) = node {
+                out.push(session);
+            }
+            walk(node.children(), out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, &mut out);
+    out
+}
+
 /// The tree flattened top to bottom, skipping everything under a COLLAPSED
 /// node (keyed by [`session_tree_node_key`]). A group row with no children
 /// left is DROPPED: a group is its children. Mirrored ×4 with
@@ -1282,6 +1300,27 @@ mod tree_tests {
             .into_iter()
             .map(|row| (row.key, row.depth, row.has_children))
             .collect()
+    }
+
+    /// The web's `flattenSessionTree (EXP-1029 contract)` case, same name.
+    #[test]
+    fn walks_groups_and_children_depth_first_sessions_only() {
+        let (workflows, workflow_nodes, runs) = workflow_tree();
+        let nodes = tree(
+            runs,
+            &SessionTreeContext {
+                workflows: &workflows,
+                workflow_nodes: &workflow_nodes,
+                issues: &[],
+            },
+        );
+        assert_eq!(
+            flatten_session_tree(&nodes)
+                .into_iter()
+                .map(|node| node.id.clone())
+                .collect::<Vec<_>>(),
+            vec!["p".to_string(), "c".to_string(), "n2".to_string()]
+        );
     }
 
     #[test]
