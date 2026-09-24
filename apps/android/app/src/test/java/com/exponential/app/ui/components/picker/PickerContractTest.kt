@@ -1,7 +1,7 @@
 package com.exponential.app.ui.components.picker
 
-import com.exponential.app.domain.DomainContract
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Ignore
 import org.junit.Test
@@ -33,7 +33,10 @@ class PickerContractTest {
             listOf("Unassigned", "Ada"),
             assigneePickerItems(listOf(AssigneePickerMember("u", "Ada")), allowsNone = true).map { it.label },
         )
-        assertEquals(DomainContract.deviceIconValues.size, iconPickerItems(IconPickerSet.Device).size)
+        // The device set is the registry's append-only `devicePickable` list;
+        // `laptop` has been in it since EXP-924 and can never leave.
+        assertTrue(iconPickerItems(IconPickerSet.Device).any { it.value == "laptop" })
+        assertTrue(iconPickerItems(IconPickerSet.Board).none { it.value == "laptop" })
     }
 
     @Ignore("EXP-1029 contract: EXP-1021 moves the account and icon pickers onto Picker")
