@@ -15,24 +15,20 @@ import {
   TREE_BASE,
   TREE_INDENT,
   TreeGuides,
-  treeGuides,
   type TreeGuide,
 } from "@exp/ui"
 import type { CodingSession, Device } from "@/db/schema"
 import { deviceCollection } from "@/lib/collections"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
-import {
-  sessionTree,
-  visibleSessionTreeRows,
-  type SessionTreeNode,
-} from "@/lib/sessions/session-tree"
+import type { SessionTreeNode } from "@/lib/sessions/session-tree"
 import { cn } from "@/lib/utils"
 import {
   SessionGroupRow,
   TreeFoldToggle,
   useCollapsedNodes,
   useSessionTreeContext,
+  useSessionTreeRows,
 } from "@/components/session-tree"
 import { rowPrState, useSessionListRows, type SessionListRow } from "@/hooks/use-agents-data"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
@@ -101,37 +97,30 @@ export function useMyRunningRows(
   const { runs } = useMyLiveRuns(teamId, currentUserId, 30_000)
   const rows = useSessionListRows(teamId, runs)
   const context = useSessionTreeContext(teamId, rows)
+  const tree = useSessionTreeRows(rows, context, collapsed)
   const { data: deviceRows } = useLiveQuery(
     (query) => (teamId ? query.from({ d: deviceCollection }) : undefined),
     [teamId]
   )
   return useMemo(() => {
-    const byId = new Map(rows.map((row) => [row.session.id, row]))
     const devices = (deviceRows ?? []) as Device[]
     const deviceOf = (session: CodingSession) => {
       if (!session.deviceId) return undefined
       const matches = devices.filter((d) => d.deviceId === session.deviceId)
       return matches.find((d) => d.userId === session.userId) ?? matches[0]
     }
-    const tree = visibleSessionTreeRows(
-      sessionTree(
-        rows.map((row) => row.session),
-        context
-      ),
-      collapsed
-    )
-    const guides = treeGuides(tree.map((entry) => entry.depth))
-    return tree.flatMap((entry, index): RunningRow[] => {
+    return tree.flatMap(({ flat, row, guide }): RunningRow[] => {
       const base = {
-        key: entry.key,
-        depth: entry.depth,
-        hasChildren: entry.hasChildren,
-        guide: guides[index]!,
+        key: flat.key,
+        depth: flat.depth,
+        hasChildren: flat.hasChildren,
+        guide,
       }
-      if (entry.node.kind !== `session`) {
-        return [{ ...base, kind: `group`, node: entry.node } satisfies RunningGroupEntry]
+      if (flat.node.kind !== `session`) {
+        return [
+          { ...base, kind: `group`, node: flat.node } satisfies RunningGroupEntry,
+        ]
       }
-      const row = byId.get(entry.node.session.id)
       if (!row) return []
       const identity = sessionIdentity(row)
       const state = sessionDisplayState(
@@ -151,7 +140,7 @@ export function useMyRunningRows(
         } satisfies RunningSessionEntry,
       ]
     })
-  }, [rows, deviceRows, context, collapsed])
+  }, [tree, deviceRows])
 }
 
 /** Which run the app is SHOWING right now — a sidebar row lights up on either
