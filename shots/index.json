@@ -749,8 +749,8 @@
         "file": "shots/machine-settings/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 43458,
-        "sha256": "0d67cd17e3a99e1969a83150244b6a3609f2609855a2b5d05d178277536eb1c9"
+        "bytes": 40328,
+        "sha256": "21d6eddf20866564832ac76ed3f1c19cc64e25b885d19fd1875991245b4c7382"
       },
       "ios": {
         "file": "shots/machine-settings/ios.webp",
@@ -763,15 +763,15 @@
         "file": "shots/machine-settings/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 28890,
-        "sha256": "019900f08c5b8cd6c6ae023fa5553fdf0e030db03bf1a7092fa134ac0d49c139"
+        "bytes": 28788,
+        "sha256": "a48e3e8079b0af6a414dd02fd6751ee38044692b7673195d3bd1d77271c0bc9b"
       },
       "web-mobile": {
         "file": "shots/machine-settings/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 35274,
-        "sha256": "67f035e91462338e2110a4ca6e345940a89edb970aec2889c865d246f3720b44"
+        "bytes": 34294,
+        "sha256": "1f263f93b4fffb8441aaee955d04789d86cbeb2d53e31227e9d05b98d998c63f"
       }
     },
     "my-issues": {
