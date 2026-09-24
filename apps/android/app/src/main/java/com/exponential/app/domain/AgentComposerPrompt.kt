@@ -64,4 +64,16 @@ object AgentComposerPrompt {
         is Subject.Issues -> if (subject.count > 1) "Start batch · ${subject.count}" else "Start coding"
         Subject.Action -> "Run action"
     }
+
+    /**
+     * EXP-1038: the composer's HEADLINE verb, above the field and beside the
+     * subject chips — the contract's `composerUi*` copy ×4: "Run" for an
+     * action, "Implement" for issue chips, "Ask the agent" for a subjectless
+     * chat (which has no chips, so the verb stands alone).
+     */
+    fun headline(subject: Subject): String = when (subject) {
+        Subject.None -> DomainContract.composerUiChatHeadline
+        is Subject.Issues -> DomainContract.composerUiImplementHeadline
+        Subject.Action -> DomainContract.composerUiRunHeadline
+    }
 }
