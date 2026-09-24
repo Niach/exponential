@@ -33,7 +33,7 @@ import {
   type WfNodeKind,
   type WfRisk,
   type WfStartOn,
-  type WorkflowLaunch,
+  type WorkflowLaunchStored,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import {
@@ -175,7 +175,7 @@ const INTENT_ERROR: Record<WorkflowIntent, string> = {
 interface WorkflowPatch {
   name?: string
   deviceId?: string | null
-  launch?: WorkflowLaunch
+  launch?: WorkflowLaunchStored
   startOn?: WfStartOn
 }
 
@@ -639,7 +639,7 @@ function MetricsSection({ metrics }: { metrics: Record<string, unknown> }) {
 
 /** The launch as the web sends it: every EXP-1002 phase pin explicit, `null`
  *  when unset (the server keeps a pin whose key is absent). */
-export function explicitPhasePins(launch: WorkflowLaunch): WorkflowLaunch {
+export function explicitPhasePins(launch: WorkflowLaunchStored): WorkflowLaunchStored {
   return {
     ...launch,
     contractModel: launch.contractModel ?? null,
@@ -673,14 +673,14 @@ function HowItRunsSection({
   // `workflows.update` replaces the launch whole, EXCEPT the three phase pins:
   // there an ABSENT key means "keep what is stored" (older clients never send
   // them), so this sender always names all three — `null` is how one clears.
-  const patchLaunch = (patch: Partial<WorkflowLaunch>) =>
+  const patchLaunch = (patch: Partial<WorkflowLaunchStored>) =>
     void onSave({ launch: explicitPhasePins({ ...launch, ...patch }) })
 
   // A different agent has a different model vocabulary, so every model pin is
   // re-seeded from THAT agent's shipped split rather than blanked (stale
   // values would only be refused by the router). Effort is cleared: it has no
   // shipped default.
-  const agentSwitchPatch = (value: string): Partial<WorkflowLaunch> => ({
+  const agentSwitchPatch = (value: string): Partial<WorkflowLaunchStored> => ({
     model: null,
     contractModel: null,
     integrationModel: null,

@@ -69,6 +69,19 @@ data class AgentLaunchDefaults(
  * still stamps that key; both decoders here are `ignoreUnknownKeys`, so it is
  * simply skipped instead of failing the whole object.
  */
+/**
+ * EXP-1029: a device's WORKFLOW model defaults (`launch_defaults.workflow`)
+ * — the cheap [model] (leaves + subagents) and the [strongModel] (contract,
+ * integration and `risk: high` nodes, every agent review) new workflows are
+ * seeded from. Absent on a machine that predates them: readers fall back to
+ * `DomainContract.deviceAgentDefaultsWorkflowModel` / `…StrongModel`.
+ */
+@Serializable
+data class DeviceWorkflowDefaults(
+    @SerialName("model") val model: String? = null,
+    @SerialName("strongModel") val strongModel: String? = null,
+)
+
 @Serializable
 data class DeviceLaunchDefaults(
     @SerialName("defaultAgent") val defaultAgent: String? = null,
@@ -82,6 +95,8 @@ data class DeviceLaunchDefaults(
      */
     @SerialName("defaultAccount") val defaultAccount: String? = null,
     @SerialName("agents") val agents: Map<String, AgentLaunchDefaults> = emptyMap(),
+    /** EXP-1029: the workflow model defaults; null on an older machine. */
+    @SerialName("workflow") val workflow: DeviceWorkflowDefaults? = null,
 )
 
 /**

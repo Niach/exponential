@@ -64,6 +64,21 @@ export interface DomainContract {
     maxIssues: number
     maxReviewRounds: number
   }
+  /** EXP-1029: the two-model workflow launch per agent (cheap `model`,
+   *  capable `strongModel`) and a device's agent defaults. */
+  workflowLaunch: {
+    agents: readonly string[]
+    claudeModel: string
+    claudeStrongModel: string
+    codexModel: string
+    codexStrongModel: string
+  }
+  deviceAgentDefaults: {
+    model: string
+    subagentModel: string
+    workflowModel: string
+    workflowStrongModel: string
+  }
   codingSessionStatus: { values: readonly string[] }
   /**
    * EXP-637: how a run finished in the agent's own words

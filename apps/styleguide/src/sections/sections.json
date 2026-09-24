@@ -1,0 +1,36 @@
+{
+  "$comment": "EXP-1029 contract — THE styleguide section index, read by the web styleguide (sections/index.ts) and the IDE styleguide (apps/desktop/crates/ui/src/styleguide). Four ordered sections; every entry id names one placeholder file (entries/<id>.tsx, styleguide/entries/<id>.rs) pre-registered here so a leaf only fills its file and never edits this index. EXP-1019 moves the EXISTING entries into the four sections.",
+  "sections": [
+    { "id": "style", "order": 1, "title": "1 Style", "blurb": "The values the controls are made of: colour, shape, type, motion and the icon registry.", "entries": [] },
+    { "id": "general", "order": 2, "title": "2 General components", "blurb": "The glass control set every screen is built from.", "entries": [
+      "picker", "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label",
+      "sub-shell",
+      "toast"
+    ] },
+    { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
+      "composer-dialog", "session-tree", "device-settings"
+    ] },
+    { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [
+      "workflow-graph"
+    ] }
+  ],
+  "owners": {
+    "picker": "EXP-1021",
+    "picker-board": "EXP-1021",
+    "picker-issue": "EXP-1021",
+    "picker-action": "EXP-1021",
+    "picker-account": "EXP-1021",
+    "picker-device": "EXP-1021",
+    "picker-assignee": "EXP-1021",
+    "picker-icon": "EXP-1021",
+    "picker-status": "EXP-1021",
+    "picker-priority": "EXP-1021",
+    "picker-label": "EXP-1021",
+    "sub-shell": "EXP-1020",
+    "toast": "EXP-1031",
+    "composer-dialog": "EXP-1019",
+    "session-tree": "EXP-996",
+    "device-settings": "EXP-1020",
+    "workflow-graph": "EXP-1014"
+  }
+}

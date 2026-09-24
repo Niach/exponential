@@ -36,6 +36,8 @@
 pub mod base;
 pub mod branch;
 pub mod facts;
+// EXP-1029: the two-model launch every node run and review reads from.
+pub mod launch;
 pub mod state;
 
 use std::collections::{HashMap, HashSet};
