@@ -1,10 +1,9 @@
 import type * as React from "react"
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useParams, useRouterState } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
 import {
   AgentBrandMark,
-  conceptIcon,
   getDeviceIcon,
   ListRow,
   SidebarGroup,
@@ -23,8 +22,18 @@ import type { CodingSession, Device } from "@/db/schema"
 import { deviceCollection } from "@/lib/collections"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { sessionIdentity } from "@/lib/session-identity"
-import { nestSessions, visibleTreeRows } from "@/lib/session-tree"
+import {
+  sessionTree,
+  visibleSessionTreeRows,
+  type SessionTreeNode,
+} from "@/lib/sessions/session-tree"
 import { cn } from "@/lib/utils"
+import {
+  SessionGroupRow,
+  TreeFoldToggle,
+  useCollapsedNodes,
+  useSessionTreeContext,
+} from "@/components/session-tree"
 import { rowPrState, useSessionListRows, type SessionListRow } from "@/hooks/use-agents-data"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 import { useOpenSession } from "@/hooks/use-open-session"
@@ -46,18 +55,28 @@ import { useOpenSession } from "@/hooks/use-open-session"
 //
 // Clicking a row navigates with the `running` origin, which creates no work
 // tab (`lib/work-tabs.ts` `TABLESS_ORIGIN`) and keeps the main menu up.
-
-const ChevronDownIcon = conceptIcon(`ui-chevron-down`)
-const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
+//
+// EXP-996: and the nesting is the whole `sessionTree` — a workflow's node runs
+// and a stack's runs each sit under ONE group row here too, so ten live nodes
+// read as one workflow instead of filling the menu.
 
 const EMPTY_COLLAPSED: ReadonlySet<string> = new Set<string>()
 
-/** One row of the section, joined and nested. */
-export interface RunningRow {
-  row: SessionListRow
+/** One row of the section, nested: a live run, or the group row above a
+ *  workflow's runs or a stack's. */
+export type RunningRow = RunningSessionEntry | RunningGroupEntry
+
+interface RunningEntryBase {
+  /** `sessionTreeNodeKey` — what the collapsed set holds. */
+  key: string
   depth: number
   hasChildren: boolean
   guide: TreeGuide
+}
+
+export interface RunningSessionEntry extends RunningEntryBase {
+  kind: `session`
+  row: SessionListRow
   /** The device row behind `session.device_id`, for its icon. */
   device: Pick<Device, `icon` | `kind`> | undefined
   deviceName: string
@@ -65,6 +84,11 @@ export interface RunningRow {
   needsInput: boolean
   identifier: string | null
   subject: string
+}
+
+export interface RunningGroupEntry extends RunningEntryBase {
+  kind: `group`
+  node: Extract<SessionTreeNode<CodingSession>, { kind: `workflow` | `stack` }>
 }
 
 /** My live runs in the team, joined and nested — the section's model, shared
@@ -76,6 +100,7 @@ export function useMyRunningRows(
 ): RunningRow[] {
   const { runs } = useMyLiveRuns(teamId, currentUserId, 30_000)
   const rows = useSessionListRows(teamId, runs)
+  const context = useSessionTreeContext(teamId, rows)
   const { data: deviceRows } = useLiveQuery(
     (query) => (teamId ? query.from({ d: deviceCollection }) : undefined),
     [teamId]
@@ -88,13 +113,25 @@ export function useMyRunningRows(
       const matches = devices.filter((d) => d.deviceId === session.deviceId)
       return matches.find((d) => d.userId === session.userId) ?? matches[0]
     }
-    const tree = visibleTreeRows(
-      nestSessions(rows.map((row) => row.session)),
+    const tree = visibleSessionTreeRows(
+      sessionTree(
+        rows.map((row) => row.session),
+        context
+      ),
       collapsed
     )
     const guides = treeGuides(tree.map((entry) => entry.depth))
-    return tree.flatMap((entry, index) => {
-      const row = byId.get(entry.session.id)
+    return tree.flatMap((entry, index): RunningRow[] => {
+      const base = {
+        key: entry.key,
+        depth: entry.depth,
+        hasChildren: entry.hasChildren,
+        guide: guides[index]!,
+      }
+      if (entry.node.kind !== `session`) {
+        return [{ ...base, kind: `group`, node: entry.node } satisfies RunningGroupEntry]
+      }
+      const row = byId.get(entry.node.session.id)
       if (!row) return []
       const identity = sessionIdentity(row)
       const state = sessionDisplayState(
@@ -103,19 +140,18 @@ export function useMyRunningRows(
       )
       return [
         {
+          ...base,
+          kind: `session`,
           row,
-          depth: entry.depth,
-          hasChildren: entry.hasChildren,
-          guide: guides[index]!,
           device: deviceOf(row.session),
           deviceName: row.device.label || row.session.deviceLabel || `Desktop`,
           needsInput: state === `needs_input`,
           identifier: identity.identifier,
           subject: identity.subject,
-        } satisfies RunningRow,
+        } satisfies RunningSessionEntry,
       ]
     })
-  }, [rows, deviceRows, collapsed])
+  }, [rows, deviceRows, context, collapsed])
 }
 
 /** Which run the app is SHOWING right now — a sidebar row lights up on either
@@ -132,7 +168,7 @@ function useShownRun(): { runId: string | null; issueIdentifier: string | null }
 }
 
 function isShown(
-  entry: RunningRow,
+  entry: RunningSessionEntry,
   shown: { runId: string | null; issueIdentifier: string | null }
 ): boolean {
   if (shown.runId && entry.row.session.id === shown.runId) return true
@@ -176,19 +212,12 @@ export function SidebarRunningSection({
   teamId: string | undefined
   currentUserId: string | undefined
 }) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
-    () => new Set<string>()
-  )
+  const [collapsed, toggle] = useCollapsedNodes()
   const entries = useMyRunningRows(teamId, currentUserId, collapsed)
   const shown = useShownRun()
   const openSession = useOpenSession()
+  const { teamSlug } = useParams({ strict: false }) as { teamSlug?: string }
   if (entries.length === 0) return null
-  const toggle = (sessionId: string) =>
-    setCollapsed((current) => {
-      const next = new Set(current)
-      if (!next.delete(sessionId)) next.add(sessionId)
-      return next
-    })
   return (
     <SidebarGroup data-testid="sidebar-running">
       {/* EXP-1022: the main menu's plain group label, like Pinned and Boards
@@ -198,12 +227,27 @@ export function SidebarRunningSection({
         {/* Gapless (EXP-965: nothing for a connector to bridge). */}
         <div className="flex flex-col">
           {entries.map((entry) => {
+            const expanded = !collapsed.has(entry.key)
+            // EXP-996: a workflow's or a stack's runs under one group row,
+            // drawn by the shared row so the menu and the lists agree.
+            if (entry.kind === `group`) {
+              return (
+                <SessionGroupRow
+                  key={entry.key}
+                  node={entry.node}
+                  depth={entry.depth}
+                  guide={entry.guide}
+                  expanded={expanded}
+                  onToggle={() => toggle(entry.key)}
+                  teamSlug={teamSlug}
+                />
+              )
+            }
             const session = entry.row.session
             const DeviceIcon = getDeviceIcon(entry.device ?? {})
-            const expanded = !collapsed.has(session.id)
             return (
               <ListRow
-                key={session.id}
+                key={entry.key}
                 interactive
                 active={isShown(entry, shown)}
                 onClick={() =>
@@ -217,24 +261,13 @@ export function SidebarRunningSection({
               >
                 <TreeGuides guide={entry.guide} />
                 {entry.hasChildren && (
-                  <span
-                    role="button"
-                    tabIndex={-1}
-                    aria-label={
+                  <TreeFoldToggle
+                    expanded={expanded}
+                    label={
                       expanded ? `Collapse child runs` : `Expand child runs`
                     }
-                    className="flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      toggle(session.id)
-                    }}
-                  >
-                    {expanded ? (
-                      <ChevronDownIcon className="size-3" />
-                    ) : (
-                      <ChevronRightIcon className="size-3" />
-                    )}
-                  </span>
+                    onToggle={() => toggle(entry.key)}
+                  />
                 )}
                 <RunningMark
                   agent={session.agent}
@@ -269,7 +302,11 @@ export function SidebarRunningSection({
 /** EXP-923: the compact rail's Running column — one 32px button per live run
  *  under the board icons, children straight under their parents (a 48px
  *  column has no room to indent). The rail owns the button chrome, so it
- *  hands one in, exactly like `SidebarPinnedIcons`. */
+ *  hands one in, exactly like `SidebarPinnedIcons`.
+ *
+ *  EXP-996: the GROUP rows are dropped here — a 48px column cannot say "these
+ *  eight belong to one workflow", and a row nobody can read is worse than the
+ *  runs themselves, which are what the reader clicks. */
 export function SidebarRunningIcons({
   teamId,
   currentUserId,
@@ -287,7 +324,9 @@ export function SidebarRunningIcons({
   }) => React.ReactNode
   separator?: React.ReactNode
 }) {
-  const entries = useMyRunningRows(teamId, currentUserId)
+  const entries = useMyRunningRows(teamId, currentUserId).filter(
+    (entry): entry is RunningSessionEntry => entry.kind === `session`
+  )
   const shown = useShownRun()
   const openSession = useOpenSession()
   if (entries.length === 0) return null

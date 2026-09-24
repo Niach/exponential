@@ -321,8 +321,11 @@ function groupStacks<T extends SessionTreeRow>(
       out.push(entry)
       continue
     }
+    // A node already pulled into a group below is gone from the top level;
+    // one that names no issue (a chat, an action, a batch) can be in no stack
+    // and simply stays where it was.
+    if (claimed.has(entry.session.id)) continue
     const issueId = entry.session.issueId
-    if (!issueId || claimed.has(entry.session.id)) continue
     const issue = issueId ? byIssueId.get(issueId) : undefined
     if (!issue) {
       out.push(entry)

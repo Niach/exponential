@@ -128,6 +128,31 @@ describe(`sessionTree (EXP-1029 → EXP-996)`, () => {
     ])
   })
 
+  it(`keeps an issue-less run beside a stack group`, () => {
+    const chat = row(`chat`, at(`2026-09-01T09:00:00Z`))
+    const low = row(`s-low`, { issueId: `i-low` })
+    const top = row(`s-top`, { issueId: `i-top`, ...at(`2026-09-01T11:00:00Z`) })
+    expect(
+      ids(
+        sessionTree([chat, low, top], {
+          issues: [
+            { id: `i-low`, identifier: `APP-1`, branch: `exp/APP-1`, prBaseBranch: null },
+            { id: `i-top`, identifier: `APP-2`, branch: `exp/APP-2`, prBaseBranch: `exp/APP-1` },
+          ],
+        })
+      )
+    ).toEqual([
+      {
+        stack: `i-low`,
+        children: [
+          { id: `s-low`, children: [] },
+          { id: `s-top`, children: [] },
+        ],
+      },
+      { id: `chat`, children: [] },
+    ])
+  })
+
   it(`sorts groups by their last activity among the top-level nodes`, () => {
     const lone = row(`lone`, at(`2026-09-01T11:30:00Z`))
     const n1 = row(`n1`, { issueId: `i1`, ...at(`2026-09-01T10:00:00Z`) })
