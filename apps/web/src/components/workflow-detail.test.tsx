@@ -314,9 +314,9 @@ describe(`WorkflowDetail graph`, () => {
     expect(screen.getByTestId(`workflow-node-members`).textContent).toContain(
       `APP-9`
     )
-    expect(screen.getByTestId(`workflow-node-touches`).textContent).toBe(
-      `apps/web/**`
-    )
+    // EXP-1024: the planner's `touches` globs are bookkeeping, not a panel row.
+    expect(screen.queryByTestId(`workflow-node-touches`)).toBeNull()
+    expect(panel.textContent).not.toContain(`apps/web/**`)
   })
 })
 
@@ -758,21 +758,39 @@ describe(`WorkflowDetail node panel actions`, () => {
   })
 
   // EXP-1002: the node's surfaces are the app's own faces, in `availableFaces`
-  // order, and only the ones this node HAS.
-  it(`offers Issue, Run and Changes as the app's face strip`, () => {
+  // order, and only the ones this node HAS. EXP-1024: drawn by the work
+  // header's `WorkFaceToggle` itself, with no face selected.
+  it(`offers Issue, Run and Changes as the work header's face toggle`, () => {
     graphState.issues = [issue(`i-n1`, `APP-1`, { prNumber: 7, prState: `open` })]
     const both = open({ state: `in_review`, sessionId: `s-1` })
-    expect(screen.getByTestId(`workflow-node-faces`).textContent).toBe(
+    const strip = screen.getByTestId(`workflow-node-faces`)
+    const toggle = strip.querySelector(`[data-testid="work-face-toggle"]`)
+    expect(toggle).not.toBeNull()
+    expect(toggle!.textContent).toBe(
       `${ISSUE_FACE_LABEL}${RUN_FACE_LABEL}${CHANGES_FACE_LABEL}`
     )
+    // The reader is on the graph, not on a face: every segment is inactive.
+    const segments = toggle!.querySelectorAll(`[data-slot="tabs-trigger"]`)
+    expect(segments).toHaveLength(3)
+    for (const segment of segments) {
+      expect(segment.getAttribute(`data-state`)).toBe(`inactive`)
+    }
+    // Changes opens the issue's review page (and closes the panel, so the
+    // segment is held across the two events).
+    const changes = screen.getByText(CHANGES_FACE_LABEL)
+    fireEvent.mouseDown(changes)
+    fireEvent.click(changes)
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/reviews/$issueIdentifier`,
+      params: { teamSlug: `acme`, issueIdentifier: `APP-1` },
+    })
     both.unmount()
 
-    // No run and no pull request: the issue is the only way out.
+    // No run and no pull request: the chip is the only way out, and a
+    // one-segment toggle is not drawn — the same rule as the work header.
     graphState.issues = [issue(`i-n1`, `APP-1`)]
     open({ state: `blocked` })
-    expect(screen.getByTestId(`workflow-node-faces`).textContent).toBe(
-      ISSUE_FACE_LABEL
-    )
+    expect(screen.queryByTestId(`workflow-node-faces`)).toBeNull()
   })
 
   it(`marks a node whose run is up and lists it one tap from its session`, () => {

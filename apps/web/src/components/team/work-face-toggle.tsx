@@ -28,7 +28,10 @@ import type { WorkTabFace } from "@/lib/work-tabs"
 // lone `Runs` item still shows so the menu is never out of reach. EXP-974:
 // an issue-less run's menu lists its RESUME CHAIN (`lib/sessions/run-chain`),
 // so a resumed run and its successor wear the same toggle and pick each
-// other from the caret instead of a band above the transcript.
+// other from the caret instead of a band above the transcript. EXP-1024: a
+// NULL face leaves every segment inactive — the workflow node panel, where
+// the reader is on the graph and each segment is a way OUT of it rather than
+// a picture of where they are.
 
 /** The four faces a work tab can show. `diff` is the run's changes,
  *  `results` its published screenshots (EXP-879). */
@@ -71,7 +74,8 @@ export function WorkFaceToggle({
   items,
   runMenu,
 }: {
-  face: WorkFace
+  /** The face on show; `null` = none (every segment inactive). */
+  face: WorkFace | null
   items: readonly WorkFaceItem[]
   runMenu?: WorkFaceRunMenu
 }) {
@@ -82,7 +86,9 @@ export function WorkFaceToggle({
   if (items.length < 2 && !hasRunMenu) return null
   return (
     <Tabs
-      value={face}
+      // Radix wants a string: a value no segment carries leaves them all
+      // inactive, which is exactly what a null face means.
+      value={face ?? ``}
       onValueChange={(next) => {
         if (next === face) return
         items.find((item) => item.face === next)?.onSelect()
