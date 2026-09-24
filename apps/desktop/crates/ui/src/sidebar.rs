@@ -559,6 +559,19 @@ const NAV_GUIDE_INSET: f32 = 16. + 4. + 5.;
 /// would drift the moment the other moved.
 const RUNNING_ROW_GAP: f32 = 0.25 * theme::FONT_SIZE_PX;
 
+/// EXP-1022: the breathing room between two of the EXPANDED rail's sections
+/// (nav entries / Pinned / Boards / Running / This device) — plain space, like
+/// the web sidebar's group padding; the rules are gone. The compact icon
+/// column keeps its rules: with no labels they are its only grouping cue.
+const SECTION_GAP: f32 = 8.;
+
+/// EXP-1022: the room the rail's scroll content keeps under its last row
+/// while the What's-new card floats over the scroll area's bottom edge — the
+/// card's height plus a gap, so the last row can still scroll clear of it.
+/// The web sidebar reserves the same (`whats-new.tsx`
+/// `WHATS_NEW_CLEARANCE_CLASS`).
+const WHATS_NEW_CLEARANCE: f32 = 80.;
+
 /// One flattened `ListNav` virtual-list row (EXP-915) — the big list's
 /// `ListRow` at the column's density: the issue rides behind the memoized
 /// query's `Rc`, so rebuilding the vector per frame clones handles, never
@@ -1107,12 +1120,13 @@ impl RailView {
                 )
             })
             .collect();
+        let rule = self.section_rule(cx);
         Some(
             v_flex()
                 .w_full()
                 .gap(px(RUNNING_ROW_GAP))
                 .when(self.compact, |section| section.items_center())
-                .child(self.divider(cx))
+                .child(rule)
                 .when(!self.compact, |section| {
                     section.child(self.section_label("Running", cx))
                 })
@@ -1712,9 +1726,26 @@ impl RailView {
         }
     }
 
-    /// The rail's section rule — full width, like the web sidebar's.
+    /// The compact icon column's section rule — full width, like the web
+    /// icon rail's separators.
     fn divider(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         left_column_divider(cx)
+    }
+
+    /// EXP-1022: what separates two sections in the rail's CURRENT shape —
+    /// the rule in the compact icon column, plain [`SECTION_GAP`] space in
+    /// the expanded rail (the web sidebar draws no rules between its groups
+    /// either).
+    fn section_rule(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        if self.compact {
+            self.divider(cx)
+        } else {
+            div()
+                .w_full()
+                .h(px(SECTION_GAP))
+                .flex_shrink_0()
+                .into_any_element()
+        }
     }
 }
 
@@ -1871,64 +1902,75 @@ impl RailView {
         if !crate::changelog::whats_new_visible(seen.as_deref()) {
             return None;
         }
+        // EXP-1022: the card FLOATS over the rail's scroll area, so the
+        // glass fill sits on an OPAQUE ground of its own (the window
+        // gradient's bottom stop, where the card lives) — rows sliding
+        // behind it must not show through — under a shadow that lifts it.
         Some(
             div()
-                .id("rail-whats-new")
                 .w_full()
                 .flex_shrink_0()
                 .rounded(px(theme::tokens::radius::LG))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-                .p_3()
-                .cursor_pointer()
-                .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
-                .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                    crate::changelog::open_whats_new(window, cx);
-                }))
+                .bg(theme::background_gradient_color_at(1.))
+                .shadow_md()
                 .child(
-                    h_flex()
+                    div()
+                        .id("rail-whats-new")
                         .w_full()
-                        .gap_2()
-                        .items_center()
+                        .rounded(px(theme::tokens::radius::LG))
+                        .border_1()
+                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+                        .p_3()
+                        .cursor_pointer()
+                        .hover(|this| this.bg(theme::tokens::glass::FILL_ACTIVE.to_hsla()))
+                        .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                            crate::changelog::open_whats_new(window, cx);
+                        }))
                         .child(
-                            Icon::new(registry::NAV_CHANGELOG)
-                                .small()
-                                .flex_shrink_0()
-                                .text_color(cx.theme().muted_foreground),
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .items_center()
+                                .child(
+                                    Icon::new(registry::NAV_CHANGELOG)
+                                        .small()
+                                        .flex_shrink_0()
+                                        .text_color(cx.theme().muted_foreground),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_sm()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .truncate()
+                                        .child("What's new"),
+                                )
+                                .child(
+                                    Button::new("rail-whats-new-dismiss")
+                                        .ghost().cursor_pointer()
+                                        .xsmall()
+                                        .flex_shrink_0()
+                                        .icon(registry::UI_CLOSE)
+                                        .tooltip("Dismiss")
+                                        .on_click(cx.listener(|_, _: &ClickEvent, _window, cx| {
+                                            // Without this the dismissal ALSO opens
+                                            // the dialog the card's own click handler
+                                            // owns.
+                                            cx.stop_propagation();
+                                            crate::changelog::mark_seen(cx);
+                                        })),
+                                ),
                         )
                         .child(
                             div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
+                                .mt_1()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
                                 .truncate()
-                                .child("What's new"),
-                        )
-                        .child(
-                            Button::new("rail-whats-new-dismiss")
-                                .ghost().cursor_pointer()
-                                .xsmall()
-                                .flex_shrink_0()
-                                .icon(registry::UI_CLOSE)
-                                .tooltip("Dismiss")
-                                .on_click(cx.listener(|_, _: &ClickEvent, _window, cx| {
-                                    // Without this the dismissal ALSO opens
-                                    // the dialog the card's own click handler
-                                    // owns.
-                                    cx.stop_propagation();
-                                    crate::changelog::mark_seen(cx);
-                                })),
+                                .child(crate::changelog::LATEST.summary),
                         ),
-                )
-                .child(
-                    div()
-                        .mt_1()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .truncate()
-                        .child(crate::changelog::LATEST.summary),
                 )
                 .into_any_element(),
         )
@@ -2074,11 +2116,12 @@ impl Render for RailView {
         // EXP-778: the Pinned section — hidden while nothing is pinned.
         let pinned_rows = self.render_pinned_rows(active_chat_action.as_deref(), cx);
         let pinned_section: Option<gpui::AnyElement> = (!pinned_rows.is_empty()).then(|| {
+            let rule = self.section_rule(cx);
             v_flex()
                 .w_full()
                 .gap_1()
                 .when(self.compact, |section| section.items_center())
-                .child(self.divider(cx))
+                .child(rule)
                 .when(!self.compact, |section| {
                     section.child(self.section_label("Pinned", cx))
                 })
@@ -2271,12 +2314,21 @@ impl Render for RailView {
         // them are the `Shell`'s (`render_left_column`), shared with the
         // settings nav and the `ListNav`, so the rail neither pads its top
         // nor renders a header of its own.
+        // EXP-1022: the What's-new card FLOATS over the scroll area's bottom
+        // edge (rows slide behind it) — rendered up front so the scroll
+        // content knows whether to keep clearance under its last row.
+        let whats_new_card = self.render_whats_new_card(cx);
+        let whats_new_clearance = whats_new_card.is_some();
+        // EXP-997: the column's 8px gutter belongs to the SCROLL CONTENT and
+        // the footer rows, not the column — the scroll pane spans the full
+        // column width, so its overlay scrollbar rides the column's right
+        // edge in that gutter, beside the rows instead of over them (the
+        // `ListNav` list's geometry).
         v_flex()
             .w(px(crate::shell::LEFT_COLUMN_WIDTH))
             .flex_shrink_0()
             .h_full()
             .pb_2()
-            .px_2()
             .gap_1()
             // EXP-285/EXP-293 history: the rail used to be the app's ONE
             // lighter column, painting a `FILL_SECTION` wash over the Shell's
@@ -2302,7 +2354,11 @@ impl Render for RailView {
                 &self.rail_scroll,
                 v_flex()
                     .w_full()
+                    .px_2()
                     .gap_1()
+                    .when(whats_new_clearance, |content| {
+                        content.pb(px(WHATS_NEW_CLEARANCE))
+                    })
                     .child(self.rail_tool_icon(
                         "rail-inbox",
                         Icon::new(registry::NAV_INBOX),
@@ -2372,13 +2428,13 @@ impl Render for RailView {
                     // EXP-778: Pinned sits between the nav entries and the
                     // boards (rail order: entries / Pinned / boards / Sessions).
                     .children(pinned_section)
-                    .child(self.divider(cx))
+                    .child(self.section_rule(cx))
                     .children(boards_header)
                     .children(board_icons)
                     // EXP-923: Running — MY live runs, the live half of the
                     // retired top-tab group.
                     .children(running_section)
-                    .child(self.divider(cx))
+                    .child(self.section_rule(cx))
                     // Repo tool windows — this machine's trunk clone.
                     .child(self.section_label("This device", cx))
                     .child(self.rail_tool_icon(
@@ -2399,28 +2455,47 @@ impl Render for RailView {
                         sc_badge,
                         cx,
                     )),
-            ))
-            // EXP-723: the web sidebar footer's order, top to bottom —
-            // What's-new card, the muted Getting-started re-entry point, the
-            // sync spinner, then the account row with the settings gear.
-            .children(self.render_whats_new_card(cx))
-            .children(getting_started_icon)
-            .children(self.render_sync_indicator(cx))
-            // EXP-340: one bottom row — the account button fills the width,
-            // the terminal button and the gear ride its right edge.
+            )
+            // EXP-1022: the What's-new card, floating over the scroll area's
+            // bottom edge in the column's gutter; the `v_scroll_pane` shell
+            // is `relative`, so the card anchors to the pane's bounds.
+            .children(whats_new_card.map(|card| {
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .px_2()
+                    .child(card)
+            })))
+            // EXP-723: the web sidebar footer's order, top to bottom — the
+            // muted Getting-started re-entry point, the sync spinner, then
+            // the account row with the settings gear (the What's-new card
+            // floats above, over the scroll area).
             .child(
-                h_flex()
+                v_flex()
                     .w_full()
+                    .px_2()
                     .gap_1()
-                    .items_center()
+                    .children(getting_started_icon)
+                    .children(self.render_sync_indicator(cx))
+                    // EXP-340: one bottom row — the account button fills the
+                    // width, the terminal button and the gear ride its right
+                    // edge.
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(self.render_account_button(cx)),
-                    )
-                    .child(terminal_entry)
-                    .child(settings_entry),
+                        h_flex()
+                            .w_full()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(self.render_account_button(cx)),
+                            )
+                            .child(terminal_entry)
+                            .child(settings_entry),
+                    ),
             )
             .into_any_element()
     }

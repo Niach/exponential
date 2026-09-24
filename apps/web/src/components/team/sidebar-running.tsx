@@ -6,10 +6,10 @@ import {
   AgentBrandMark,
   conceptIcon,
   getDeviceIcon,
-  GlassSectionHeader,
   ListRow,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -191,7 +191,9 @@ export function SidebarRunningSection({
     })
   return (
     <SidebarGroup data-testid="sidebar-running">
-      <GlassSectionHeader label="Running" />
+      {/* EXP-1022: the main menu's plain group label, like Pinned and Boards
+          above it — the filled group band belongs to LISTS, not the menu. */}
+      <SidebarGroupLabel>Running</SidebarGroupLabel>
       <SidebarGroupContent>
         {/* Gapless (EXP-965: nothing for a connector to bridge). */}
         <div className="flex flex-col">
