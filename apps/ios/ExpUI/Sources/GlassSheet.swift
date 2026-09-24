@@ -272,12 +272,13 @@ extension GlassSheetChrome where Pinned == EmptyView {
 ///
 /// EXP-1021: the SHARED picker (`GlassPicker` + its ten typed pickers) is what
 /// a board / issue / action / account / device / assignee / icon / status /
-/// priority / label pick renders through. This one stays for the picks that
-/// are not one of those ten — a repository, a branch, an estimate scale, an
-/// "Any board" event filter — and it draws its rows in the picker's OWN
-/// language so the two cannot look like different products: plain rows on the
-/// sheet, and the pick marked by the row's highlight, never a trailing
-/// checkmark.
+/// priority / label pick renders through — the automation form's "Any board"
+/// event filter included, since its rows ARE the typed pickers' rows. This one
+/// stays for the picks that are not one of those ten — a repository, a branch,
+/// an estimate scale — and it draws its rows in the picker's OWN language so
+/// the two cannot look like different products: plain rows on the sheet, and
+/// the pick marked the way every SINGLE pick is marked, by a muted trailing
+/// check (`GlassPickerTokens.selectionStyle(for: .single)`).
 public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
     let title: String
     let items: [Item]
@@ -322,22 +323,13 @@ public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
                         HStack(spacing: 10) {
                             row(wrapped.value)
                             Spacer(minLength: 0)
+                            if picked {
+                                AppIcon(AppIcons.uiCheck, size: GlassPickerTokens.checkSize)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            }
                         }
                         .padding(.horizontal, GlassPickerTokens.rowHPadding)
                         .frame(minHeight: GlassPickerTokens.rowMinHeight)
-                        .background(
-                            picked ? GlassPickerTokens.pickedFill : GlassPickerTokens.restingFill,
-                            in: RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius)
-                                .strokeBorder(
-                                    picked
-                                        ? GlassPickerTokens.pickedStroke
-                                        : GlassPickerTokens.restingStroke,
-                                    lineWidth: GlassTokens.hairline
-                                )
-                        )
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

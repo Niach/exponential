@@ -54,7 +54,10 @@ fun RelationPickerSheet(
     Picker(
         items = items,
         mode = PickerMode.Single,
-        value = emptySet(),
+        // EXP-892: on the ISSUE stage a typed query cues its best match — the
+        // top row — exactly as the duplicate linker does. The kind stage picks
+        // nothing yet, so it cues nothing.
+        value = if (pick == null) emptySet() else bestMatch(ranked, query),
         onChange = { picked ->
             val value = picked.firstOrNull() ?: return@Picker
             if (pick == null) {

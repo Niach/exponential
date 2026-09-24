@@ -58,10 +58,13 @@ fun AutomationFormSheet(
     /** The row being edited; null = create a new automation. */
     editing: AutomationEntity? = null,
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
+    // EXP-1021: the label/status filter rows carry a colour and a resolved
+    // glyph, which the launcher's id+name input options do not.
+    filterViewModel: AutomationFilterOptionsViewModel = hiltViewModel(),
 ) {
     val boardOptions by dataViewModel.boardOptions.collectAsStateWithLifecycle()
-    val labelOptions by dataViewModel.labelOptions.collectAsStateWithLifecycle()
-    val statusOptions by dataViewModel.statusOptions.collectAsStateWithLifecycle()
+    val labelOptions by filterViewModel.labels.collectAsStateWithLifecycle()
+    val statusOptions by filterViewModel.statuses.collectAsStateWithLifecycle()
 
     // Custom actions only — builtins are server-shipped prompts with required
     // inputs and no team row to target (web parity).

@@ -23,6 +23,19 @@ import type { PickerOption } from "../picker-option"
 // is whatever chip or button the caller wants opened — the primitive owns
 // the surface, the caller owns the trigger.
 //
+// THE SELECTION LANGUAGE, one on all four clients (review r3 settled it,
+// after iOS and Android had drifted to the wash for both arms):
+//
+//   single  a trailing `ui-check` on the picked row, and NO wash. This is
+//           EXP-957's rule, which was matched to the natives; EXP-1021 only
+//           ever set out to change the MULTI arm.
+//   multi   the row's own highlight, never a glyph — the circle pair this
+//           issue was opened about.
+//
+// The wash means "picked" only where there is more than one pick to see; a
+// single pick wearing it reads like a multi pick. Both halves are pinned in
+// picker.test.tsx, and the IDE, iOS and Android carry the same case.
+//
 // The two surfaces are `Combobox`'s (EXP-941): `MobilePopover` already is
 // the popover-or-sheet pair, cmdk already owns the filter and the keys, and
 // the sheet already closes on a drag down (EXP-687). What EXP-1021 adds is

@@ -29,7 +29,10 @@ fun DuplicatePickerSheet(
     val ranked = rememberIssueCandidates(candidates, query, searchServer)
     IssuePicker(
         issues = ranked.map { it.toPickerIssue() },
-        value = emptySet(),
+        // EXP-892: while a query is being typed the best match — the top row —
+        // reads as picked, the same contract the `#` menu keeps. The picker's
+        // own single mark is what draws it (EXP-1021).
+        value = bestMatch(ranked, query),
         onChange = { picked ->
             val id = picked.firstOrNull() ?: return@IssuePicker
             ranked.firstOrNull { it.id == id }?.let(onPick)

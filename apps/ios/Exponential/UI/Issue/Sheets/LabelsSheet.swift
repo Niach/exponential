@@ -29,7 +29,8 @@ func autoLabelColor(for name: String) -> String {
 
 /// EXP-1021 — the labels picker: the shared `LabelPicker` (multi by contract,
 /// so the sheet stays open across toggles and a picked row reads by its own
-/// highlight, never a checkmark) plus the one thing only this surface has —
+/// highlight — multi's mark, where a single pick wears a trailing check) plus
+/// the one thing only this surface has —
 /// a `+ Create new label "query"` row when the typed name has no
 /// case-insensitive exact match. It creates + assigns with the deterministic
 /// auto color above; there is no swatch picking in this flow (EXP-240).
@@ -74,6 +75,10 @@ struct IssueLabelsPicker: View {
                 for id in picked.symmetricDifference(assignedIds) { onToggle(id) }
             },
             query: $searchText,
+            // A team with no labels yet: the create row needs a name typed
+            // before it can offer anything, so the empty line is where this
+            // flow says the row exists at all.
+            emptyText: LabelPickerEmpty.creatable,
             open: open,
             hideTrigger: true,
             onDismiss: onDismiss,

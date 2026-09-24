@@ -494,25 +494,31 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 let enabled: Vec<bool> = visible.iter().map(|ix| !items[*ix].disabled).collect();
                 let cursor_at = clamp_picker_selection(state.read(cx).cursor(), &enabled);
                 let target = cursor_at.map(|position| items[visible[position]].value.clone());
-                // The cursor is the ENTER TARGET always, but it only PAINTS
-                // once the user has reached for the list (EXP-1045 review): a
-                // fresh multi surface draws the cursor in the very fill its
-                // selection wash uses, so a drawn cursor on row 0 would read
-                // as a picked first row — and a `search = false` multi picker
-                // has no way to move it off.
-                let cursor_shown = state.read(cx).cursor_visible();
+                // The cursor is the ENTER TARGET always; whether it PAINTS
+                // before the user reaches for the list is a MULTI question
+                // (EXP-1045 review rounds 2 + 3). On a multi surface the
+                // cursor tint IS the selection wash, so a drawn cursor on
+                // row 0 would read as a picked first row — and a
+                // `search = false` multi picker has no way to move it off.
+                // A single row is marked by its trailing check instead, so
+                // its cursor is free to paint from the first frame — it has
+                // to, or "open, press Enter" would commit a row that never
+                // said it was the one.
+                let cursor_shown = state.read(cx).cursor_visible(multi);
                 let list_active = cx.theme().list_active;
 
                 column = column
                     .capture_action(cursor_move_listener::<gpui_component::input::MoveUp>(
                         &state,
                         -1,
+                        multi,
                         enabled.clone(),
                         parent_view_id,
                     ))
                     .capture_action(cursor_move_listener::<gpui_component::input::MoveDown>(
                         &state,
                         1,
+                        multi,
                         enabled,
                         parent_view_id,
                     ))
@@ -601,18 +607,9 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                             cx.notify(parent_view_id);
                         }
                     })
-                    .child(draw_item(&render_item, item, cx));
-                    if !multi {
-                        row = row.children(selection_glyph(
-                            false,
-                            if selected {
-                                SelectionState::Selected
-                            } else {
-                                SelectionState::Unselected
-                            },
-                            cx,
-                        ));
-                    }
+                    .child(draw_item(&render_item, item, cx))
+                    // The trailing mark, single only ([`row_glyph`]).
+                    .children(row_glyph(multi, selected, cx));
                     row = if disabled {
                         row.cursor_default()
                     } else {
@@ -657,7 +654,7 @@ fn draw_item<T: Clone>(
 /// the same rule, with the cursor ON: hovering MOVES the cursor onto the row
 /// under the pointer (one highlight, EXP-892), so the two states are the same
 /// paint. A disabled row never takes the cursor, so it hovers as it rests.
-fn row_fills(
+pub(crate) fn row_fills(
     multi: bool,
     mark: PickerChecked,
     at_cursor: bool,
@@ -667,6 +664,42 @@ fn row_fills(
     (
         row_fill(multi, mark, at_cursor, cursor),
         row_fill(multi, mark, !disabled, cursor),
+    )
+}
+
+/// [`row_fills`] for a SINGLE-pick row, where the mark is the trailing check
+/// and the fill is the cursor's alone.
+///
+/// Exported because one surface draws the picker's rows OUTSIDE the
+/// primitive: the relations linker is a native dialog, which has no trigger
+/// to hang a popover off, so it builds its own list (`issue_detail`). It must
+/// not invent a second answer — `pickers::picker_row` hard-codes the plain
+/// row fill on hover, and hovering MOVES the selection onto the row under the
+/// pointer, so the selected row is ALWAYS the hovered one and gpui's hover
+/// refinement would replace its `list_active` with that weaker fill (EXP-1045
+/// review round 3: the same class the primitive itself was fixed for).
+pub(crate) fn single_row_fills(selected: bool, cursor: Hsla) -> (Option<Hsla>, Option<Hsla>) {
+    row_fills(false, PickerChecked::None, selected, false, cursor)
+}
+
+/// The TRAILING mark a search-surface row wears — EXP-957's rule, re-pinned
+/// by the EXP-1045 review and the same on all four clients: a SINGLE pick is
+/// marked by a trailing check (and an unpicked row by nothing at all), a
+/// MULTI pick by the row's own highlight wash and NEVER by a glyph. The menu
+/// surface says the same thing with `PopupMenuItem::checked` +
+/// `check_side(Side::Right)`.
+fn row_glyph(multi: bool, selected: bool, cx: &App) -> Option<Icon> {
+    if multi {
+        return None;
+    }
+    selection_glyph(
+        false,
+        if selected {
+            SelectionState::Selected
+        } else {
+            SelectionState::Unselected
+        },
+        cx,
     )
 }
 
@@ -817,8 +850,8 @@ fn picker_empty_row(message: SharedString, cx: &App) -> impl IntoElement {
 struct PickerSurfaceState {
     cursor: usize,
     /// Has the user reached for the list yet — a ↑/↓, a hover, a typed query?
-    /// Until then the cursor is only the ENTER TARGET and paints nothing
-    /// ([`Self::cursor_visible`]).
+    /// On a MULTI surface the cursor is only the ENTER TARGET until then and
+    /// paints nothing ([`Self::cursor_visible`]).
     reached: bool,
     query: String,
 }
@@ -828,13 +861,19 @@ impl PickerSurfaceState {
         self.cursor
     }
 
-    /// Whether the cursor paints. A fresh surface says nothing about row 0:
-    /// on a MULTI picker the cursor tint IS the selection wash, so a resting
-    /// cursor would claim the first row is picked — and a `search = false`
-    /// multi picker (the status / priority filters) has no key that could
-    /// move it off again. Enter still targets the row underneath.
-    fn cursor_visible(&self) -> bool {
-        self.reached
+    /// Whether the cursor paints — a MULTI-only question (EXP-1045 review
+    /// round 3). There the cursor tint IS the selection wash, so a fresh
+    /// surface says nothing about row 0: a resting cursor would claim the
+    /// first row is picked, and a `search = false` multi picker (the status /
+    /// priority filters) has no key that could move it off again. Enter still
+    /// targets the row underneath.
+    ///
+    /// A SINGLE row wears its pick as the trailing check, so the wash is the
+    /// cursor's alone and paints from the first frame: the Enter target has
+    /// to be visible, or opening a searchable single picker and pressing
+    /// Enter commits a row nothing ever highlighted.
+    fn cursor_visible(&self, multi: bool) -> bool {
+        !multi || self.reached
     }
 
     /// `true` when the painted cursor actually changed (only then is a
@@ -869,6 +908,7 @@ impl PickerSurfaceState {
 fn cursor_move_listener<A: gpui::Action>(
     state: &Entity<PickerSurfaceState>,
     delta: isize,
+    multi: bool,
     enabled: Vec<bool>,
     parent_view_id: gpui::EntityId,
 ) -> impl Fn(&A, &mut Window, &mut App) + 'static {
@@ -878,7 +918,7 @@ fn cursor_move_listener<A: gpui::Action>(
         // While the cursor is only the Enter target and paints nothing, the
         // first ↑/↓ REVEALS it where it already sits rather than stepping
         // past the row Enter would have picked.
-        let next = if state.read(cx).cursor_visible() {
+        let next = if state.read(cx).cursor_visible(multi) {
             step_picker_selection(current, delta, &enabled)
         } else {
             clamp_picker_selection(current, &enabled)
@@ -1114,6 +1154,68 @@ mod tests {
         );
     }
 
+    /// The ×4 selection-mark rule (EXP-957, re-pinned by the EXP-1021 review):
+    /// **single = the trailing check, multi = the row wash**, on web, iOS,
+    /// Android and here. EXP-1021 only ever changed MULTI (circles → the
+    /// highlight); a single pick keeps the mark it always had. The web twin
+    /// is `picker.test.tsx`'s `single mode marks the picked row with a
+    /// trailing check, never a wash` / `multi mode marks picked rows by the
+    /// highlight colour, never a circle`.
+    #[gpui::test]
+    async fn single_marks_with_a_trailing_check_and_multi_with_the_highlight(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let fill = t::glass::FILL_ACTIVE.to_hsla();
+
+            // Single: the check on the picked row, nothing on the others —
+            // and the wash is never the mark (at rest an unhovered picked row
+            // paints no fill at all, so the glyph is all there is to see).
+            assert!(row_glyph(false, true, cx).is_some(), "the picked row checks");
+            assert!(row_glyph(false, false, cx).is_none(), "an unpicked one does not");
+            assert_eq!(
+                row_fill(false, PickerChecked::All, false, fill),
+                None,
+                "a single pick is never marked by the wash"
+            );
+
+            // Multi: the wash on every marked row and NEVER a glyph — no
+            // circle pair, no check, in any of the three states.
+            for selected in [true, false] {
+                assert!(
+                    row_glyph(true, selected, cx).is_none(),
+                    "a multi row carries no trailing glyph"
+                );
+            }
+            assert_eq!(row_fill(true, PickerChecked::All, false, fill), Some(fill));
+            assert_eq!(row_fill(true, PickerChecked::Some, false, fill), Some(fill));
+            assert_eq!(row_fill(true, PickerChecked::None, false, fill), None);
+        });
+    }
+
+    /// EXP-1045 review round 3: the relations linker (`issue_detail`) draws
+    /// the picker's rows from its own dialog shell, so it takes its fills
+    /// from the primitive too ([`single_row_fills`]). `pickers::picker_row`
+    /// hard-codes the plain row fill on hover, and hovering MOVES the
+    /// selection onto the row under the pointer — so the selected row is
+    /// always the hovered one, and the hovered fill has to be the selection's.
+    #[test]
+    fn the_linker_rows_keep_their_highlight_under_the_pointer() {
+        let active = t::glass::FILL_ACTIVE.to_hsla();
+        assert_eq!(
+            single_row_fills(true, active),
+            (Some(active), Some(active)),
+            "the selected row paints the same fill at rest and under the pointer"
+        );
+        assert_eq!(
+            single_row_fills(false, active),
+            (None, Some(active)),
+            "an unselected row is bare until the pointer moves the selection onto it"
+        );
+    }
+
     /// EXP-1045 review round 2: the across-frame state of the searchable
     /// surface — the STALE-SEARCH rule (a query change puts the top row back
     /// under the cursor), the fresh-open reset `on_open_change` calls, and
@@ -1123,20 +1225,23 @@ mod tests {
     fn the_cursor_resets_on_a_query_change_and_on_open() {
         let mut state = PickerSurfaceState::default();
         assert_eq!(state.cursor(), 0);
-        assert!(!state.cursor_visible(), "a fresh surface marks no row at all");
+        assert!(
+            !state.cursor_visible(true),
+            "a fresh multi surface marks no row at all"
+        );
 
         // A reach (↑/↓ or a hover) moves the cursor AND reveals it; moving it
         // nowhere is not a repaint.
         assert!(state.move_to(2));
         assert_eq!(state.cursor(), 2);
-        assert!(state.cursor_visible());
+        assert!(state.cursor_visible(true));
         assert!(!state.move_to(2), "no move, no repaint");
 
         // A narrowed query re-targets the top row — and paints there, because
         // typing is itself a reach: the highlight says what Enter picks.
         state.sync_query("al");
         assert_eq!(state.cursor(), 0);
-        assert!(state.cursor_visible());
+        assert!(state.cursor_visible(true));
         state.move_to(1);
         state.sync_query("al");
         assert_eq!(state.cursor(), 1, "the same query leaves the cursor alone");
@@ -1144,17 +1249,38 @@ mod tests {
         // Clearing the field takes the paint back with it.
         state.sync_query("");
         assert_eq!(state.cursor(), 0);
-        assert!(!state.cursor_visible());
+        assert!(!state.cursor_visible(true));
 
         // Every open starts over (`on_open_change`).
         state.sync_query("beta");
         state.move_to(3);
         state.reset();
         assert_eq!(state.cursor(), 0);
-        assert!(!state.cursor_visible());
+        assert!(!state.cursor_visible(true));
         state.sync_query("beta");
         assert_eq!(state.cursor(), 0, "the reset forgot the query too");
-        assert!(state.cursor_visible());
+        assert!(state.cursor_visible(true));
+    }
+
+    /// EXP-1045 review round 3: the resting cursor is withheld from a MULTI
+    /// surface only. A single searchable picker with an empty query paints
+    /// its cursor from the first frame — Enter commits the row under it, and
+    /// a picker that opens, targets row 0 and highlights nothing commits a
+    /// row the user was never shown.
+    #[test]
+    fn a_single_surface_paints_its_enter_target_from_the_first_frame() {
+        let mut state = PickerSurfaceState::default();
+        assert!(!state.cursor_visible(true), "multi waits for a reach");
+        assert!(state.cursor_visible(false), "single paints row 0 at once");
+
+        // …and it never un-paints: a cleared query drops `reached` (the multi
+        // rule) without taking the single surface's highlight with it.
+        state.sync_query("al");
+        state.sync_query("");
+        assert!(!state.cursor_visible(true));
+        assert!(state.cursor_visible(false));
+        state.reset();
+        assert!(state.cursor_visible(false));
     }
 
     /// Presentation belongs to the primitive: a caller asks for `search`,
