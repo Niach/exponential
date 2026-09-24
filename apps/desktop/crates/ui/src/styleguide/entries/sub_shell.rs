@@ -7,6 +7,14 @@
 //! at rest or the open page with `controls::back_glyph` on top. Live users:
 //! the device settings dialog and Settings → Agents, both for "Workflow
 //! settings".
+//!
+//! WHY THIS DESCRIBES INSTEAD OF RENDERING: the IDE entry signature is
+//! `fn() -> Div` with no `&App` (`entries/mod.rs`, EXP-1029's contract), and
+//! every glass recipe this component is built from takes one for the theme.
+//! A hand-rolled unthemed lookalike would be worse than a description — the
+//! styleguide's own rule is that a lookalike can disagree with the product
+//! silently. The web entry renders the REAL component as an island; giving
+//! the IDE entries an `&App` is EXP-1063.
 
 use gpui::{div, Div, ParentElement as _};
 

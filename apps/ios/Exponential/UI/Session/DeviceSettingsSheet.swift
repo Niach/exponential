@@ -582,24 +582,23 @@ struct DeviceSettingsSheet: View {
             effort: draftBinding(\.effort),
             ultracode: draftBinding(\.ultracode),
             planMode: draftBinding(\.planMode),
-            footerNote: device.isOnline ? nil : "Applies when the device comes online."
+            footerNote: device.isOnline ? nil : "Applies when the device comes online.",
+            // EXP-1020: the LAST row of that same card, not a card of its own.
+            trailing: AnyView(workflowRow())
         )
-        workflowSection()
     }
 
     // MARK: - Workflow settings (EXP-1029)
 
-    /// The machine's workflow model pair, one SUB-SHELL row under the agent
-    /// block: tapping it slides its page in over the sheet. Shown for both
-    /// agents — a workflow runs on the machine's DEFAULT account, so the pair
-    /// follows the default agent rather than the tab that happens to be open.
-    private func workflowSection() -> some View {
-        Section {
-            SubShell(label: "Workflow settings", value: workflowSummary) {
-                workflowPage()
-            }
+    /// The machine's workflow model pair, one SUB-SHELL row — the last entry
+    /// of the agent-defaults card (EXP-1020): tapping it slides its page in
+    /// over the sheet. Shown for both agents — a workflow runs on the
+    /// machine's DEFAULT account, so the pair follows the default agent
+    /// rather than the tab that happens to be open.
+    private func workflowRow() -> some View {
+        SubShell(label: "Workflow settings", value: workflowSummary) {
+            workflowPage()
         }
-        .listRowBackground(glassFormRowFill)
     }
 
     /// The stored pair, clamped to the default agent's vocabulary — what the
