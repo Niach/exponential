@@ -27,7 +27,7 @@ class MemoryPorts implements ApplyPorts {
     members: [{ userId: `member-hannes`, email: `hannes.robier@youspi.com`, name: `Hannes` }],
   }
   map = new Map<string, Map<string, string>>()
-  created = { boards: [] as string[], statuses: [] as string[], labels: [] as string[] }
+  created = { boards: [] as string[], statuses: [] as string[], labels: [] as string[], invites: [] as string[] }
   archived: string[] = []
   batches: PlannedIssueWrite[][] = []
   links: PlannedLink[] = []
@@ -72,6 +72,15 @@ class MemoryPorts implements ApplyPorts {
     this.created.labels.push(input.name)
     this.state = { ...this.state, labels: [...this.state.labels, { id, name: input.name }] }
     return { id }
+  }
+  async createInvite(input: { email: string; name: string }) {
+    this.created.invites.push(input.email)
+    const memberUserId = `placeholder-${input.email}`
+    this.state = {
+      ...this.state,
+      members: [...this.state.members, { userId: memberUserId, email: input.email, name: input.name }],
+    }
+    return { memberUserId }
   }
   async archiveBoard(boardId: string) {
     this.archived.push(boardId)
@@ -159,6 +168,7 @@ describe(`applyBundle`, () => {
       boards: [`MAIN`],
       statuses: [`Doing`],
       labels: [`Brand new`],
+      invites: [],
     })
     expect(result.counts).toMatchObject({
       boards: 1,
@@ -204,6 +214,25 @@ describe(`applyBundle`, () => {
     expect(tenWrite.comments[0]!.body).toMatch(/^\*Imported from Test Tracker/)
   })
 
+  it(`invites a planned person once, attributes their content to the placeholder, and reuses it on a re-run`, async () => {
+    const ports = new MemoryPorts()
+    const invited = plan({
+      users: { "u-h": { mode: `member`, userId: `member-hannes` }, "u-x": { mode: `invite`, name: `Stranger`, email: `Stranger@example.com` } },
+    })
+    const result = await applyBundle(bundleFixture(), invited, ports, options)
+    expect(ports.created.invites).toEqual([`Stranger@example.com`])
+    expect(result.counts.invites).toBe(1)
+    const tenWrite = ports.batches[0]![1]!
+    expect(tenWrite.issue.creatorId).toBe(`placeholder-Stranger@example.com`)
+    expect(tenWrite.comments[0]!.authorId).toBe(`placeholder-Stranger@example.com`)
+    expect(tenWrite.comments[0]!.body).not.toMatch(/^\*Imported from/)
+    expect(ports.map.get(`user`)?.get(`u-x`)).toBe(`placeholder-Stranger@example.com`)
+    // Second run: the placeholder is on the roster → no second invite.
+    const again = await applyBundle(bundleFixture(), invited, ports, options)
+    expect(ports.created.invites).toEqual([`Stranger@example.com`])
+    expect(again.counts.invites).toBe(0)
+  })
+
   it(`re-running the same bundle creates nothing new`, async () => {
     const ports = new MemoryPorts()
     await applyBundle(bundleFixture(), plan(), ports, options)
@@ -214,6 +243,7 @@ describe(`applyBundle`, () => {
       boards: [`MAIN`],
       statuses: [`Doing`],
       labels: [`Brand new`],
+      invites: [],
     })
     expect(result.counts).toMatchObject({ boards: 0, statuses: 0, labels: 0, issues: 0 })
     // The links pass is idempotent on the executor side; here it just runs again.
@@ -342,7 +372,7 @@ describe(`applyBundle`, () => {
       labels: [...ports.state.labels, { id: `label-old`, name: `brand NEW` }],
     }
     await applyBundle(bundleFixture(), plan(), ports, options)
-    expect(ports.created).toEqual({ boards: [], statuses: [], labels: [] })
+    expect(ports.created).toEqual({ boards: [], statuses: [], labels: [], invites: [] })
     expect(ports.batches[0]![0]!.issue.boardId).toBe(`board-old`)
     expect(ports.batches[0]![0]!.issue.statusId).toBe(`status-old`)
   })

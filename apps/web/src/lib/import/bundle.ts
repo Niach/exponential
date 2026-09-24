@@ -354,6 +354,15 @@ export const labelPlanSchema = z.discriminatedUnion(`mode`, [
 // content is attributed to the importer.
 export const userPlanSchema = z.discriminatedUnion(`mode`, [
   z.object({ mode: z.literal(`member`), userId: z.string().min(1) }),
+  // Invited when the import starts: a placeholder member with this name
+  // and address (editable in the wizard), claimed when the person signs in.
+  z.object({
+    mode: z.literal(`invite`),
+    name: z.string().trim().max(180),
+    email: z.string().trim().max(255),
+  }),
+  // Skipped: issues stay unassigned, comments post as the importer with the
+  // attribution line.
   z.object({ mode: z.literal(`self`) }),
 ])
 
@@ -406,6 +415,7 @@ export const importCountsSchema = z.object({
   boards: z.number().int().nonnegative(),
   statuses: z.number().int().nonnegative(),
   labels: z.number().int().nonnegative(),
+  invites: z.number().int().nonnegative(),
   issues: z.number().int().nonnegative(),
   comments: z.number().int().nonnegative(),
   attachments: z.number().int().nonnegative(),
@@ -420,6 +430,7 @@ export function emptyImportCounts(): ImportCounts {
     boards: 0,
     statuses: 0,
     labels: 0,
+    invites: 0,
     issues: 0,
     comments: 0,
     attachments: 0,
@@ -436,6 +447,7 @@ export const dryRunResultSchema = z.object({
     boardsToCreate: z.number().int().nonnegative(),
     statusesToCreate: z.number().int().nonnegative(),
     labelsToCreate: z.number().int().nonnegative(),
+    invites: z.number().int().nonnegative(),
     issues: z.number().int().nonnegative(),
     alreadyImported: z.number().int().nonnegative(),
     skippedIssues: z.number().int().nonnegative(),

@@ -1,5 +1,5 @@
 // EXP-630: the drizzle implementation of `ApplyPorts` — the only file in the
-// import that writes issue data. Boards, statuses and labels go
+// import that writes issue data. Boards, statuses, labels and invites go
 // through their tRPC routers via `createCaller` with a synthetic context for
 // the job's creator (the MCP layer's reuse pattern, lib/mcp/tools.ts
 // buildCtx), so every validation those routers own (prefix/slug rules, the
@@ -30,6 +30,7 @@ import { boardsRouter } from "@/lib/trpc/boards"
 import { statusesRouter } from "@/lib/trpc/statuses"
 import { labelsRouter } from "@/lib/trpc/labels"
 import { teamsRouter } from "@/lib/trpc/teams"
+import { teamInvitesRouter } from "@/lib/trpc/team-invites"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { deleteObject, uploadObject } from "@/lib/storage"
 import {
@@ -107,6 +108,7 @@ const importCaller = router({
   statuses: statusesRouter,
   labels: labelsRouter,
   teams: teamsRouter,
+  teamInvites: teamInvitesRouter,
 })
 
 // The preserve-timestamps guard (0001_triggers.sql): transaction-local, so a
@@ -240,6 +242,15 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
         color: input.color,
       })
       return { id: label.id }
+    },
+
+    async createInvite(input) {
+      const { memberUserId } = await caller.teamInvites.create({
+        teamId: job.teamId,
+        email: input.email,
+        name: input.name,
+      })
+      return { memberUserId }
     },
 
     // EXP-500 archive (idempotent in the router): the archived-issues board

@@ -13,7 +13,7 @@ import {
   users,
 } from "@/db/schema"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
-import { getTeamPlan, getTeamUsage } from "@/lib/billing"
+import { getInviteCapacity, getTeamPlan, getTeamUsage } from "@/lib/billing"
 import type { IssueEstimation, IssueStatus, IssueStatusCategory } from "@/lib/domain"
 import type { TeamState } from "@/lib/import/plan"
 
@@ -84,6 +84,8 @@ export async function loadImportTeamState(
     .innerJoin(users, eq(users.id, teamMembers.userId))
     .where(eq(teamMembers.teamId, teamId))
 
+  const { remaining: seatsLeft } = await getInviteCapacity(teamId)
+
   let storage: TeamState[`storage`] = { limitBytes: null, usedBytes: 0 }
   if (isCloudInstance()) {
     const [{ limits }, usage] = await Promise.all([getTeamPlan(teamId), getTeamUsage(teamId)])
@@ -139,6 +141,7 @@ export async function loadImportTeamState(
       email: row.email ?? ``,
       name: row.name ?? ``,
     })),
+    seatsLeft,
     storage,
     importedIssueKeys,
     importedBoards,

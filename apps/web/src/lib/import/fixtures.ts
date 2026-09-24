@@ -47,7 +47,7 @@ export function linearSnapshotFixture(): LinearSnapshot {
     users: [
       { id: U_DENNIS, name: `dennis@straehhuber.com`, displayName: `dennis`, email: `dennis@straehhuber.com`, active: true },
       { id: U_HANNES, name: `Hannes Robier`, displayName: `hannes`, email: `hannes.robier@youspi.com`, active: true },
-      { id: U_BOT, name: `Linear`, displayName: `linear`, email: `linear-org@linear.linear.app`, active: true },
+      { id: U_BOT, name: `Linear`, displayName: `linear`, email: `linear-org@linear.linear.app`, active: false },
     ],
     projects: [{ id: P_MAINT, name: `M5 - Maintenance`, teamIds: [T_MET] }],
     issues: [
@@ -234,6 +234,7 @@ export function teamStateFixture(overrides: Partial<TeamState> = {}): TeamState 
       { userId: ME, email: `danny@straehhuber.com`, name: `Danny` },
       { userId: `member-hannes`, email: `HANNES.ROBIER@youspi.com`, name: `Hannes` },
     ],
+    seatsLeft: null,
     storage: { limitBytes: null, usedBytes: 0 },
     importedIssueKeys: new Set(),
     importedBoards: new Map(),

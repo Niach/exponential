@@ -10,7 +10,8 @@ import {
   useTeamUsers,
 } from "@/hooks/use-team-data"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
-import { InviteMemberForm } from "@/components/team/invite-member-form"
+import { UpgradeDialog } from "@/components/upgrade-dialog"
+import { getRuntimeConfig } from "@/lib/runtime-config"
 import {
   BOARD_PREFIX_PATTERN,
   IMPORT_TERMINAL_STATUSES,
@@ -22,6 +23,7 @@ import {
   type StatusPlan,
   type UserPlan,
 } from "@/lib/import/bundle"
+import { plannedInviteEmails } from "@/lib/import/plan"
 import {
   Alert,
   AlertDescription,
@@ -49,6 +51,31 @@ import {
 type ImportJob = Awaited<ReturnType<typeof trpc.imports.get.query>>
 
 const POLL_MS = 1_500
+
+type MemberChoice = `invite` | `member` | `skip`
+
+// The Members step's seat count on the cloud: free seats minus the invites
+// planned so far; below zero it names what is missing and offers seats.
+function SeatCapsule({ left, onAddSeats }: { left: number; onAddSeats: () => void }) {
+  if (left >= 0) {
+    return (
+      <Pill className="text-muted-foreground">
+        {left} {left === 1 ? `seat` : `seats`} left
+      </Pill>
+    )
+  }
+  const missing = -left
+  return (
+    <span className="flex items-center gap-2">
+      <Pill className="text-destructive">
+        Needs {missing} more {missing === 1 ? `seat` : `seats`}
+      </Pill>
+      <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={onAddSeats}>
+        Add seats
+      </Button>
+    </span>
+  )
+}
 
 const PHASE_LABELS: Record<string, string> = {
   discovering: `Reading the workspace`,
@@ -96,7 +123,6 @@ function formatBytes(bytes: number) {
 }
 
 const DownloadIcon = conceptIcon(`settings-import`)
-const UiMailIcon = conceptIcon(`ui-mail`)
 
 /**
  * EXP-630 tracker-import wizard (web-only, owner-only, like Billing). One
@@ -396,8 +422,33 @@ function MapStep({
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null)
   const [checking, setChecking] = useState(false)
   const [starting, setStarting] = useState(false)
-  // The source user whose inline invite form is open (one at a time).
-  const [invitingKey, setInvitingKey] = useState<string | null>(null)
+  // Free seats on the cloud (members + pending invites against the plan);
+  // null = no cap; undefined = not loaded yet. The Members step counts its
+  // planned invites against it.
+  const [seatsLeft, setSeatsLeft] = useState<number | null | undefined>(undefined)
+  const [upgradeOpen, setUpgradeOpen] = useState(false)
+  const [productIds, setProductIds] = useState<{ team: string | null; teamYearly: string | null }>({
+    team: null,
+    teamYearly: null,
+  })
+  useEffect(() => {
+    let cancelled = false
+    void trpc.teams.inviteCapacity
+      .query({ teamId: team.id })
+      .then(({ remaining }) => {
+        if (!cancelled) setSeatsLeft(remaining)
+      })
+      .catch(() => {
+        if (!cancelled) setSeatsLeft(null)
+      })
+    void getRuntimeConfig().then((config) => {
+      if (cancelled) return
+      setProductIds({ team: config.creemTeamProductId, teamYearly: config.creemTeamYearlyProductId })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [team.id])
   const checkedPlanRef = useRef<string | null>(null)
 
   const boards = useTeamBoards(team.id)
@@ -409,6 +460,10 @@ function MapStep({
     if (!plan && job.plan) setPlan(job.plan)
   }, [job.plan, plan])
 
+  const teamMembersForPlan = useMemo(
+    () => users.map((row) => ({ userId: row.id, email: row.email, name: row.name })),
+    [users]
+  )
   const planJson = useMemo(() => JSON.stringify(plan), [plan])
   const checked = dryRun !== null && checkedPlanRef.current === planJson
 
@@ -785,80 +840,103 @@ function MapStep({
       </section>
 
       <section className="space-y-3">
-        <GlassSectionHeader label="Members" count={preview.users.length} />
-        <div className="text-xs text-muted-foreground">
-          Map each person to a team member, or invite them: an invite puts them on
-          the team right away (name and address from the source, editable), so their
-          issues and comments are theirs from the start — they keep everything when
-          they sign in.
-        </div>
+        <GlassSectionHeader
+          label="Members"
+          count={preview.users.length}
+          trailing={
+            seatsLeft !== undefined && seatsLeft !== null ? (
+              <SeatCapsule
+                left={seatsLeft - plannedInviteEmails(plan, teamMembersForPlan).length}
+                onAddSeats={() => setUpgradeOpen(true)}
+              />
+            ) : undefined
+          }
+        />
         <GlassGroup>
           {preview.users.map((user) => {
             const entry: UserPlan = plan.users[user.key] ?? { mode: `self` }
-            const value = entry.mode === `member` ? `member:${entry.userId}` : entry.mode
-            const inviting = invitingKey === user.key
+            const choice: MemberChoice = entry.mode === `self` ? `skip` : entry.mode
+            const matched = users.find(
+              (row) => user.email && row.email.toLowerCase() === user.email.toLowerCase()
+            )
             return (
-              <div key={user.key}>
-                <GlassRow className="justify-between">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{user.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">
-                      {user.email ?? `no email`} · {user.issueCount.toLocaleString()} assigned ·{` `}
-                      {user.commentCount.toLocaleString()} comments
-                    </div>
+              <GlassRow key={user.key} className="flex-col items-stretch gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{user.name}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {user.email ?? `no email`} · {user.issueCount.toLocaleString()} assigned ·{` `}
+                    {user.commentCount.toLocaleString()} comments
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                </div>
+                <div className="flex shrink-0 flex-col items-stretch gap-2 md:items-end">
+                  <SegmentedControl<MemberChoice>
+                    value={choice}
+                    onValueChange={(next) => {
+                      if (next === `skip`) setUser(user.key, { mode: `self` })
+                      else if (next === `member`)
+                        setUser(user.key, { mode: `member`, userId: matched?.id ?? userId })
+                      else setUser(user.key, { mode: `invite`, name: user.name, email: user.email ?? `` })
+                    }}
+                    options={[
+                      ...(user.email ? [{ value: `invite` as const, label: `Invite` }] : []),
+                      { value: `member` as const, label: `Member` },
+                      { value: `skip` as const, label: `Skip` },
+                    ]}
+                  />
+                  {entry.mode === `member` && (
                     <Select
-                      value={value}
-                      onValueChange={(next) => {
-                        if (next === `self`) setUser(user.key, { mode: next })
-                        else setUser(user.key, { mode: `member`, userId: next.replace(`member:`, ``) })
-                      }}
+                      value={entry.userId}
+                      onValueChange={(next) => setUser(user.key, { mode: `member`, userId: next })}
                     >
-                      <SelectTrigger className="w-56">
+                      <SelectTrigger className="md:w-64">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {users.map((row) => (
-                          <SelectItem key={row.id} value={`member:${row.id}`}>
+                          <SelectItem key={row.id} value={row.id}>
                             {row.id === userId ? `${row.name} (you)` : `${row.name} · ${row.email}`}
                           </SelectItem>
                         ))}
-                        <SelectItem value="self">Attribute to me</SelectItem>
                       </SelectContent>
                     </Select>
-                    {entry.mode !== `member` && (
-                      <Button
-                        variant={inviting ? `secondary` : `outline`}
-                        size="sm"
-                        onClick={() => setInvitingKey(inviting ? null : user.key)}
-                      >
-                        <UiMailIcon className="mr-1.5 size-3.5" />
-                        Invite
-                      </Button>
-                    )}
-                  </div>
-                </GlassRow>
-                {inviting && (
-                  <div className="border-t border-border/50 px-4 py-3">
-                    <InviteMemberForm
-                      teamId={team.id}
-                      defaultName={user.name}
-                      defaultEmail={user.email ?? ``}
-                      autoFocus="email"
-                      onInvited={(invited) => {
-                        if (invited.memberUserId) {
-                          setUser(user.key, { mode: `member`, userId: invited.memberUserId })
-                          setInvitingKey(null)
-                        }
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
+                  )}
+                  {entry.mode === `invite` && (
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        value={entry.name}
+                        onChange={(e) => setUser(user.key, { ...entry, name: e.target.value })}
+                        placeholder="Name"
+                        aria-label={`Name for ${user.name}`}
+                        className="sm:w-40"
+                      />
+                      <Input
+                        type="email"
+                        value={entry.email}
+                        onChange={(e) => setUser(user.key, { ...entry, email: e.target.value })}
+                        placeholder="teammate@example.com"
+                        aria-label={`Email for ${user.name}`}
+                        className="sm:w-64"
+                      />
+                    </div>
+                  )}
+                </div>
+              </GlassRow>
             )
           })}
         </GlassGroup>
+        <div className="text-xs text-muted-foreground">
+          Invites go out when the import starts. Skipped people's issues stay unassigned; their
+          comments are posted by you with a note.
+        </div>
+        <UpgradeDialog
+          open={upgradeOpen}
+          onOpenChange={setUpgradeOpen}
+          title="Out of seats"
+          description="Add seats to invite everyone in this import."
+          teamProductId={productIds.team}
+          teamYearlyProductId={productIds.teamYearly}
+          teamId={team.id}
+        />
       </section>
 
       <section className="space-y-3">
@@ -976,6 +1054,7 @@ function DryRunPanel({ result }: { result: DryRunResult }) {
     `${counts.boardsToCreate} new boards`,
     `${counts.statusesToCreate} new statuses`,
     `${counts.labelsToCreate} new labels`,
+    ...(counts.invites > 0 ? [`${counts.invites} invites`] : []),
     ...(counts.events > 0 ? [`${counts.events.toLocaleString()} history events`] : []),
     ...(counts.alreadyImported > 0 ? [`${counts.alreadyImported.toLocaleString()} already imported`] : []),
     ...(counts.skippedIssues > 0 ? [`${counts.skippedIssues.toLocaleString()} skipped`] : []),
@@ -1102,10 +1181,10 @@ function FinishedStep({
                 </div>
               ))}
             </div>
-            {(counts.relations > 0 || counts.events > 0) && (
+            {(counts.relations > 0 || counts.events > 0 || counts.invites > 0) && (
               <div className="px-4 pb-3 text-xs text-muted-foreground">
                 {counts.relations.toLocaleString()} relations · {counts.events.toLocaleString()} history
-                events
+                events · {counts.invites} invites
               </div>
             )}
             {warnings.length > 0 && (

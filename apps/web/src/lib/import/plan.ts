@@ -66,6 +66,8 @@ export interface TeamState {
   statuses: TeamStateStatus[]
   labels: TeamStateLabel[]
   members: TeamStateMember[]
+  // Free seats (members + pending invites against the plan); null = no cap.
+  seatsLeft: number | null
   // Cloud storage limit; null = unlimited.
   storage: { limitBytes: number | null; usedBytes: number }
   // Bundle issue keys the entity map already holds (a resume / re-run).
@@ -233,14 +235,26 @@ export function buildDefaultPlan(
       : { mode: `create` }
   }
 
+  // Members by address; the rest are invited while seats last (people only —
+  // a source's bots and deactivated accounts are skipped), then skipped.
   const users: ImportPlan[`users`] = {}
+  let seatsPlanned = 0
   for (const user of preview.users) {
     const member = user.email
       ? state.members.find((row) => norm(row.email) === norm(user.email))
       : undefined
-    users[user.key] = member
-      ? { mode: `member`, userId: member.userId }
-      : { mode: `self` }
+    if (member) {
+      users[user.key] = { mode: `member`, userId: member.userId }
+    } else if (
+      user.email &&
+      user.active &&
+      (state.seatsLeft === null || seatsPlanned < state.seatsLeft)
+    ) {
+      seatsPlanned += 1
+      users[user.key] = { mode: `invite`, name: user.name, email: user.email }
+    } else {
+      users[user.key] = { mode: `self` }
+    }
   }
 
   return {
@@ -277,7 +291,27 @@ function statusPlanCategory(
 }
 
 function userPlanTarget(plan: UserPlan | undefined): `member` | `importer` {
-  return plan?.mode === `member` ? `member` : `importer`
+  return plan?.mode === `member` || plan?.mode === `invite` ? `member` : `importer`
+}
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * Seats an import's invites need beyond the roster: unique addresses that
+ * do not belong to a member already (those resolve to the member at apply).
+ */
+export function plannedInviteEmails(
+  plan: ImportPlan,
+  members: readonly TeamStateMember[]
+): string[] {
+  const known = new Set(members.map((row) => norm(row.email)))
+  const unique = new Set<string>()
+  for (const entry of Object.values(plan.users)) {
+    if (entry.mode !== `invite`) continue
+    const email = norm(entry.email)
+    if (email && !known.has(email)) unique.add(email)
+  }
+  return [...unique]
 }
 
 export function evaluatePlan(
@@ -483,7 +517,20 @@ export function evaluatePlan(
       }
       continue
     }
+    if (entry.mode === `invite`) {
+      if (!EMAIL_SHAPE.test(entry.email.trim())) {
+        blockers.push(`${user.name} needs a valid email address to be invited.`)
+      }
+      continue
+    }
     fallbackUsers.push(label)
+  }
+  const invites = plannedInviteEmails(plan, state.members).length
+  if (state.seatsLeft !== null && invites > state.seatsLeft) {
+    const missing = invites - state.seatsLeft
+    blockers.push(
+      `Inviting ${invites} ${invites === 1 ? `person` : `people`} needs ${missing} more ${missing === 1 ? `seat` : `seats`}. Add seats or skip some people.`
+    )
   }
 
   // --- issues -------------------------------------------------------------
@@ -630,6 +677,7 @@ export function evaluatePlan(
       boardsToCreate,
       statusesToCreate,
       labelsToCreate,
+      invites,
       issues,
       alreadyImported,
       skippedIssues,

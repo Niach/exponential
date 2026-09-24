@@ -73,6 +73,9 @@ export interface ApplyPorts {
     category: IssueStatusCategory
   }): Promise<{ id: string; name: string }>
   createLabel(input: { name: string; color: string }): Promise<{ id: string }>
+  // Email invite = a placeholder member at once (EXP-630); null when the
+  // address belongs to an account that must accept the link first.
+  createInvite(input: { email: string; name: string }): Promise<{ memberUserId: string | null }>
   // Idempotent: an already archived board is left alone.
   archiveBoard(boardId: string): Promise<void>
   // Switches the team's estimate scale on (only ever called when it is off).
@@ -166,6 +169,8 @@ export async function applyBundle(
   // --- users --------------------------------------------------------------
   await report(`users`, 0, bundle.users.length)
   const users = new Map<string, ResolvedUser>()
+  const mappedUsers = await ports.loadMapped(`user`)
+  const invitedThisRun = new Map<string, string>()
   for (const user of bundle.users) {
     const entry = plan.users[user.key]
     const resolved: ResolvedUser = {
@@ -180,6 +185,40 @@ export async function applyBundle(
         warn(
           `${user.name} was mapped to a member who left the team; their content is attributed to you.`
         )
+      }
+    } else if (entry?.mode === `invite`) {
+      // Already on the roster (a member, or a placeholder from an earlier
+      // run) → that member; otherwise invite now and remember the result.
+      const email = norm(entry.email)
+      const member = state.members.find((row) => norm(row.email) === email)
+      const mapped = mappedUsers.get(user.key)
+      if (member) {
+        resolved.userId = member.userId
+      } else if (mapped && state.members.some((row) => row.userId === mapped)) {
+        resolved.userId = mapped
+      } else if (invitedThisRun.has(email)) {
+        resolved.userId = invitedThisRun.get(email)!
+      } else {
+        try {
+          const { memberUserId } = await ports.createInvite({
+            email: entry.email.trim(),
+            name: entry.name.trim() || user.name,
+          })
+          counts.invites += 1
+          if (memberUserId) {
+            resolved.userId = memberUserId
+            invitedThisRun.set(email, memberUserId)
+            await ports.recordMap([
+              { kind: `user`, externalId: user.key, externalRef: email, localId: memberUserId },
+            ])
+          } else {
+            warn(
+              `${user.name} already has an account and was invited; their content is attributed to you until they accept.`
+            )
+          }
+        } catch (err) {
+          warn(`Could not invite ${entry.email}: ${errorMessage(err)}. Their content is attributed to you.`)
+        }
       }
     }
     users.set(user.key, resolved)
