@@ -686,6 +686,9 @@ function HowItRunsSection({
     integrationModel: null,
     riskModel: null,
     subagentModel: null,
+    // EXP-1029: the strong model belongs to the old agent's set too; null
+    // clears it (the server carries an ABSENT key, drops a null one).
+    strongModel: null,
     ...WORKFLOW_DEFAULT_LAUNCH_BY_AGENT[value],
     agent: value,
     effort: null,

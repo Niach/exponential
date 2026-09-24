@@ -45,7 +45,7 @@ public struct StatusPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
-    public static func items(_ statuses: [StatusPickerStatus]) -> [PickerItem<String>] {
+    nonisolated public static func items(_ statuses: [StatusPickerStatus]) -> [PickerItem<String>] {
         statuses.map { status in
             PickerItem(
                 value: status.id,

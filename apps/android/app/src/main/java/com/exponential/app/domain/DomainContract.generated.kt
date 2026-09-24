@@ -108,8 +108,8 @@ object DomainContract {
     const val workflowLaunchClaudeStrongModel: String = "fable"
     const val workflowLaunchCodexModel: String = "gpt-5.6-sol"
     const val workflowLaunchCodexStrongModel: String = "gpt-5.6-luna"
-    const val deviceAgentDefaultsModel: String = "opus"
-    const val deviceAgentDefaultsSubagentModel: String = "opus"
+    const val deviceAgentDefaultsModel: String = "fable"
+    const val deviceAgentDefaultsSubagentModel: String = ""
     const val deviceAgentDefaultsWorkflowModel: String = "opus"
     const val deviceAgentDefaultsWorkflowStrongModel: String = "fable"
     const val actionInputsMax: Int = 10

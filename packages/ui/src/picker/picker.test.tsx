@@ -41,14 +41,34 @@ describe(`Picker (EXP-1029 contract)`, () => {
 })
 
 describe.skip(`Picker presentation (EXP-1029 → EXP-1021)`, () => {
-  it(`opens a popover anchored at the trigger on a pointer device`, () => {})
-  it(`opens a bottom sheet of plain rows on a phone — no cards inside the sheet`, () => {})
-  it(`single mode closes on a pick and reports the value`, () => {})
-  it(`multi mode toggles without closing and reports the whole set`, () => {})
-  it(`multi mode marks picked rows by the highlight colour, never a circle`, () => {})
-  it(`a phone sheet closes on swipe down`, () => {})
-  it(`search filters rows by label and keywords`, () => {})
-  it(`a disabled row renders but never picks`, () => {})
-  it(`emptyText shows for no items and for an empty search`, () => {})
-  it(`a row draws its icon in its colour and its description muted`, () => {})
+  it(`opens a popover anchored at the trigger on a pointer device`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`opens a bottom sheet of plain rows on a phone — no cards inside the sheet`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`single mode closes on a pick and reports the value`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`multi mode toggles without closing and reports the whole set`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`multi mode marks picked rows by the highlight colour, never a circle`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`a phone sheet closes on swipe down`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`search filters rows by label and keywords`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`a disabled row renders but never picks`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`emptyText shows for no items and for an empty search`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
+  it(`a row draws its icon in its colour and its description muted`, () => {
+    expect.fail(`EXP-1021 implements this case`)
+  })
 })
