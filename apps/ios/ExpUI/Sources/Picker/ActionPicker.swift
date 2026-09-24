@@ -23,6 +23,9 @@ public struct ActionPicker<Trigger: View>: View {
     public let actions: [ActionPickerAction]
     public let value: String?
     public let onChange: (String) -> Void
+    /// The sheet headline; the default names the picker (Android's
+    /// `ActionPicker.kt` carries the same parameter).
+    public let title: String
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
     /// property row or `…` menu drives `open` and hides the trigger, and
@@ -37,6 +40,7 @@ public struct ActionPicker<Trigger: View>: View {
         actions: [ActionPickerAction],
         value: String?,
         onChange: @escaping (String) -> Void,
+        title: String = "Action",
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
@@ -45,6 +49,7 @@ public struct ActionPicker<Trigger: View>: View {
         self.actions = actions
         self.value = value
         self.onChange = onChange
+        self.title = title
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
@@ -65,7 +70,7 @@ public struct ActionPicker<Trigger: View>: View {
             onChange: { picked in picked.first.map(onChange) },
             search: true,
             emptyText: "No actions",
-            title: "Action",
+            title: title,
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,

@@ -33,6 +33,12 @@ public struct LabelPicker<Trigger: View>: View {
     /// filters and the primitive renders `labels` verbatim.
     public let query: Binding<String>?
     public let footer: (() -> AnyView)?
+    /// The sheet headline; the default names the picker (Android's
+    /// `LabelPicker.kt` carries the same parameter).
+    public let title: String
+    /// What an empty list (or an empty search) reads as — the labels sheet
+    /// says "type a name to create one" instead.
+    public let emptyText: String
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
     /// property row or `…` menu drives `open` and hides the trigger, and
@@ -48,6 +54,8 @@ public struct LabelPicker<Trigger: View>: View {
         value: Set<String>,
         onChange: @escaping (Set<String>) -> Void,
         query: Binding<String>? = nil,
+        title: String = "Labels",
+        emptyText: String = "No labels",
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
@@ -58,6 +66,8 @@ public struct LabelPicker<Trigger: View>: View {
         self.value = value
         self.onChange = onChange
         self.query = query
+        self.title = title
+        self.emptyText = emptyText
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
@@ -83,8 +93,10 @@ public struct LabelPicker<Trigger: View>: View {
             value: value,
             onChange: onChange,
             search: true,
-            emptyText: "No labels",
-            title: "Labels",
+            emptyText: emptyText,
+            title: title,
+            // The placeholder keeps saying "labels" whatever the header says.
+            searchPlaceholder: "Search labels",
             query: query,
             open: open,
             hideTrigger: hideTrigger,

@@ -36,6 +36,9 @@ public struct PriorityPicker<Trigger: View>: View {
     public let mode: PickerMode
     public let value: Set<String>
     public let onChange: (Set<String>) -> Void
+    /// The sheet headline; the default names the picker (Android's
+    /// `PriorityPicker.kt` carries the same parameter).
+    public let title: String
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
     /// property row or `…` menu drives `open` and hides the trigger, and
@@ -51,6 +54,7 @@ public struct PriorityPicker<Trigger: View>: View {
         mode: PickerMode = .single,
         value: Set<String>,
         onChange: @escaping (Set<String>) -> Void,
+        title: String = "Priority",
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
@@ -60,6 +64,7 @@ public struct PriorityPicker<Trigger: View>: View {
         self.mode = mode
         self.value = value
         self.onChange = onChange
+        self.title = title
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
@@ -83,7 +88,7 @@ public struct PriorityPicker<Trigger: View>: View {
             mode: mode,
             value: value,
             onChange: onChange,
-            title: "Priority",
+            title: title,
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,
