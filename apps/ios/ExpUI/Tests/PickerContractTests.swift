@@ -9,8 +9,9 @@ import ExpUI
 // the presentation rules are pinned where they actually live: as the pure
 // functions the sheet body calls (`PickerSearch`, `PickerSelection`), as the
 // tokens it paints with (`GlassPickerTokens`), and as the STRUCTURE of the
-// types themselves — a typed picker's `Body` IS the primitive, and there is
-// exactly one `PickerSelectionStyle` case, so a circle cannot come back.
+// types themselves — a typed picker's `Body` IS the primitive, and there are
+// exactly two `PickerSelectionStyle` cases, one per MODE, so a circle cannot
+// come back.
 // The typed pickers are views, so a case that reaches for one stays on the
 // main actor (EXP-1020 hit this first; the `items` statics are `nonisolated`,
 // but the annotation costs nothing and keeps the target building under both
@@ -168,15 +169,29 @@ final class PickerContractTests: XCTestCase {
         )
         XCTAssertEqual(
             LabelPicker(labels: [], value: [], onChange: { _ in }, trigger: { EmptyView() }).emptyText,
-            "No labels"
+            LabelPickerEmpty.plain
         )
+    }
+
+    /// The labels picker's two sentences, pinned as the VALUES the call sites
+    /// pass rather than as strings a test hands itself: a flow whose rows can
+    /// be CREATED from the query says so on the empty line (the issue's labels
+    /// sheet — its create row needs a name typed before it can offer
+    /// anything), a flow without that row says the flat one (the board's bulk
+    /// edit). They are named in `ExpUI` for exactly this reason: a literal at
+    /// one call site is how the deleted sheet's hint went missing, and a
+    /// literal here would only have pinned the test's own copy of it.
+    func testTheLabelsSheetSaysItsRowsCanBeCreated() {
+        XCTAssertEqual(LabelPickerEmpty.plain, "No labels")
+        XCTAssertEqual(LabelPickerEmpty.creatable, "No labels yet. Type a name to create one.")
+        // The whole point: the two flows must not settle on one sentence.
+        XCTAssertNotEqual(LabelPickerEmpty.creatable, LabelPickerEmpty.plain)
         XCTAssertEqual(
             LabelPicker(
-                labels: [], value: [], onChange: { _ in },
-                emptyText: "No labels yet. Type a name to create one.",
+                labels: [], value: [], onChange: { _ in }, emptyText: LabelPickerEmpty.creatable,
                 trigger: { EmptyView() }
             ).emptyText,
-            "No labels yet. Type a name to create one."
+            LabelPickerEmpty.creatable
         )
     }
 
@@ -225,15 +240,40 @@ final class PickerContractTests: XCTestCase {
         XCTAssertEqual(GlassPickerTokens.rowRadius, GlassTokens.rowRadius)
     }
 
-    /// A picked row reads as the row's own highlight — the one bright glass
-    /// fill and its paired stroke. `PickerSelectionStyle` has exactly ONE
-    /// case, so there is no circle or checkmark to fall back to.
+    /// The selection language EXP-1021 asked for on the MULTI arm: a picked
+    /// row reads as the row's own highlight — the one bright glass fill and
+    /// its paired stroke — never a leading circle, and never a check.
     func testMultiModeMarksPickedRowsByTheHighlightColourNeverACircle() {
-        XCTAssertEqual(PickerSelectionStyle.allCases, [.highlight])
-        XCTAssertEqual(GlassPickerTokens.selectionStyle, .highlight)
+        XCTAssertEqual(GlassPickerTokens.selectionStyle(for: .multi), .highlight)
         XCTAssertEqual(GlassPickerTokens.pickedFill, GlassTokens.fillActive)
         XCTAssertEqual(GlassPickerTokens.pickedStroke, GlassTokens.strokeActive)
         XCTAssertNotEqual(GlassPickerTokens.pickedFill, GlassPickerTokens.restingFill)
+        XCTAssertEqual(GlassPickerTokens.fill(.all, style: .highlight), GlassPickerTokens.pickedFill)
+        XCTAssertEqual(
+            GlassPickerTokens.stroke(.all, style: .highlight), GlassPickerTokens.pickedStroke
+        )
+        XCTAssertFalse(GlassPickerTokens.drawsCheck(.all, style: .highlight))
+    }
+
+    /// The twin of the case above, and the other half of EXP-957's rule (web
+    /// `combobox-core`: "single — the picked row wears a trailing `ui-check`",
+    /// matched to the natives): EXP-1021 only ever changed the MULTI arm, so a
+    /// SINGLE pick keeps the trailing check web and the IDE have always drawn,
+    /// muted at the secondary glyph's size, and takes NO wash — a one-of-many
+    /// list whose picked row is also washed reads as a multi list with one
+    /// thing ticked. Two styles and no more, so neither the circle EXP-1021
+    /// removed nor a third idiom has anywhere to come back.
+    func testSingleModeMarksThePickedRowByATrailingCheckNeverTheHighlight() {
+        XCTAssertEqual(PickerSelectionStyle.allCases, [.check, .highlight])
+        XCTAssertEqual(GlassPickerTokens.selectionStyle(for: .single), .check)
+        XCTAssertTrue(GlassPickerTokens.drawsCheck(.all, style: .check))
+        XCTAssertFalse(GlassPickerTokens.drawsCheck(.none, style: .check))
+        XCTAssertEqual(GlassPickerTokens.checkSize, AppIcon.Size.small)
+        // The check is the WHOLE mark: no fill, no stroke behind it.
+        XCTAssertEqual(GlassPickerTokens.fill(.all, style: .check), GlassPickerTokens.restingFill)
+        XCTAssertEqual(
+            GlassPickerTokens.stroke(.all, style: .check), GlassPickerTokens.restingStroke
+        )
     }
 
     func testSingleModeClosesOnAPickMultiModeStaysOpen() {

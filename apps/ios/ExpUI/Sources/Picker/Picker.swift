@@ -10,11 +10,11 @@ import SwiftUI
 // Presentation belongs to the primitive, never to the caller: on the phone
 // every picker is a bottom sheet (`GlassSheetChrome`, the ONE shell) of PLAIN
 // rows — no card, no section, no bordered shell between the sheet and the
-// list; multi-select marks a picked row by the row's own HIGHLIGHT, never a
-// leading circle or a trailing checkmark; a swipe down closes (the platform
-// sheet gesture, EXP-687). `search` adds the filter field at the top. The
-// trigger is whatever chip or button the caller hands in; the primitive owns
-// the sheet.
+// list; a SINGLE pick wears a muted trailing check, a MULTI pick the row's own
+// HIGHLIGHT, never a leading circle (`PickerSelectionStyle`); a swipe down
+// closes (the platform sheet gesture, EXP-687). `search` adds the filter field
+// at the top. The trigger is whatever chip or button the caller hands in; the
+// primitive owns the sheet.
 //
 // That selection language is the whole of EXP-1021: the app had three picker
 // sheets that disagreed — two wrapped their rows in a card, one drew circles,
@@ -102,11 +102,19 @@ public enum PickerMode: Equatable, Sendable {
     case multi
 }
 
-/// How a picked row reads. There is deliberately exactly ONE case: a second
-/// idiom — a leading circle, a trailing check — is how the three sheets
-/// EXP-1021 replaced drifted apart in the first place. Web passes the same
-/// single value (`selectionStyle="highlight"`).
+/// How a picked row reads. Exactly one idiom per MODE, derived from the mode
+/// and never chosen by a caller (`GlassPickerTokens.selectionStyle(for:)`) —
+/// a call site that got to pick is how the three sheets EXP-1021 replaced
+/// drifted apart in the first place. The split is EXP-957's rule
+/// (`packages/ui/src/combobox-core.tsx`), matched on all four clients.
 public enum PickerSelectionStyle: String, CaseIterable, Sendable {
+    /// SINGLE: the picked row wears a trailing check, muted like every other
+    /// secondary glyph in a row, and nothing else moves. There is one pick, so
+    /// washing its row would only say what the check already says — louder.
+    case check
+    /// MULTI: the row's own bright fill and its paired stroke. EXP-1021
+    /// replaced the leading circle pair with it; a toggle reads as a state the
+    /// ROW is in, not as a control beside it.
     case highlight
 }
 
@@ -128,8 +136,14 @@ public enum PickerChecked: String, CaseIterable, Sendable {
 /// shared glass tokens: a literal here would be the drift this issue exists
 /// to end.
 public enum GlassPickerTokens {
-    /// The one and only way a picked row reads.
-    public static let selectionStyle: PickerSelectionStyle = .highlight
+    /// The one and only way a picked row reads, per mode — the whole mapping,
+    /// in one place, so a sheet body has no idiom of its own to choose.
+    public static func selectionStyle(for mode: PickerMode) -> PickerSelectionStyle {
+        switch mode {
+        case .single: .check
+        case .multi: .highlight
+        }
+    }
 
     /// 44pt — the same tap target every glass sheet row has.
     public static let rowMinHeight: CGFloat = 44
@@ -140,13 +154,16 @@ public enum GlassPickerTokens {
     /// with a glyph, a dot or nothing at all.
     public static let markWidth: CGFloat = 24
     public static let dotSize: CGFloat = 10
+    /// The single pick's trailing check: a secondary glyph, at the secondary
+    /// glyph size (web draws the same mark at `size-3.5 text-muted-foreground`).
+    public static let checkSize: CGFloat = AppIcon.Size.small
 
     /// A RESTING row is plain: no fill, no hairline, nothing between it and
     /// the sheet. This is the "no cards inside the sheet" rule, as a value.
     public static let restingFill: Color = .clear
     public static let restingStroke: Color = .clear
-    /// A PICKED row is the one bright fill + its paired stroke — the whole
-    /// selection language.
+    /// A PICKED row in MULTI is the one bright fill + its paired stroke; in
+    /// single the row stays plain and the trailing check says it.
     public static let pickedFill: Color = GlassTokens.fillActive
     public static let pickedStroke: Color = GlassTokens.strokeActive
 
@@ -154,6 +171,35 @@ public enum GlassPickerTokens {
     /// states read as weights of one mark rather than two different idioms.
     public static let partialFill: Color = GlassTokens.fillActive
     public static let partialStroke: Color = .clear
+
+    /// What a row actually paints: its MODE's idiom first, then how much of
+    /// the selection it carries. Pure, so the rule the sheet body paints by is
+    /// nameable — including the half that is an absence, a single pick leaving
+    /// its row as plain as every other.
+    public static func fill(_ checked: PickerChecked, style: PickerSelectionStyle) -> Color {
+        guard style == .highlight else { return restingFill }
+        switch checked {
+        case .all: return pickedFill
+        case .some: return partialFill
+        case .none: return restingFill
+        }
+    }
+
+    public static func stroke(_ checked: PickerChecked, style: PickerSelectionStyle) -> Color {
+        guard style == .highlight else { return restingStroke }
+        switch checked {
+        case .all: return pickedStroke
+        case .some: return partialStroke
+        case .none: return restingStroke
+        }
+    }
+
+    /// The other half: single's trailing check. `.some` is a bulk edit's third
+    /// state and a bulk edit is always multi, so there is nothing for a
+    /// partial single pick to draw — and no row ever wears both marks.
+    public static func drawsCheck(_ checked: PickerChecked, style: PickerSelectionStyle) -> Bool {
+        style == .check && checked == .all
+    }
 
     /// The list's own inset inside the sheet (matching every other glass
     /// sheet's row list) and the search field's.
@@ -467,6 +513,9 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                     GlassPickerSheetRow(
                         item: item,
                         checked: item.checkedState(in: value),
+                        // The mark is the MODE's, never the row's or the
+                        // caller's: check in single, highlight in multi.
+                        style: GlassPickerTokens.selectionStyle(for: mode),
                         mark: renderMark?(item),
                         content: renderItem?(item)
                     ) {
@@ -483,10 +532,12 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
 }
 
 /// One picker row: its mark, its label, its muted second line — and, when it
-/// is picked, the highlight that says so.
+/// is picked, whichever of the two marks its mode wears.
 private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let item: PickerItem<Value>
     let checked: PickerChecked
+    /// The mode's selection idiom, resolved by the sheet.
+    let style: PickerSelectionStyle
     /// A caller-drawn leading slot (an avatar); nil = the item's own mark.
     let mark: AnyView?
     /// A caller-drawn row BODY (the account rows' limit bars); nil = the
@@ -494,21 +545,8 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let content: AnyView?
     let action: () -> Void
 
-    private var fill: Color {
-        switch checked {
-        case .all: GlassPickerTokens.pickedFill
-        case .some: GlassPickerTokens.partialFill
-        case .none: GlassPickerTokens.restingFill
-        }
-    }
-
-    private var stroke: Color {
-        switch checked {
-        case .all: GlassPickerTokens.pickedStroke
-        case .some: GlassPickerTokens.partialStroke
-        case .none: GlassPickerTokens.restingStroke
-        }
-    }
+    private var fill: Color { GlassPickerTokens.fill(checked, style: style) }
+    private var stroke: Color { GlassPickerTokens.stroke(checked, style: style) }
 
     var body: some View {
         Button(action: action) {
@@ -516,6 +554,7 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
                 leading
                 rowBody
                 Spacer(minLength: 0)
+                trailingCheck
             }
             .padding(.horizontal, GlassPickerTokens.rowHPadding)
             .frame(minHeight: GlassPickerTokens.rowMinHeight)
@@ -554,6 +593,15 @@ private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
                         .lineLimit(1)
                 }
             }
+        }
+    }
+
+    /// SINGLE's whole mark.
+    @ViewBuilder
+    private var trailingCheck: some View {
+        if GlassPickerTokens.drawsCheck(checked, style: style) {
+            AppIcon(AppIcons.uiCheck, size: GlassPickerTokens.checkSize)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
     }
 

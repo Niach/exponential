@@ -173,18 +173,20 @@ class PickerContractTest {
      */
     @Test
     fun aPanelLeavesRoomForTheFooterUnderIt() {
-        val source = pickerSource("Picker.kt")
-        val branch = source.indexOf("if (panel != null) {")
-        val bounded = source.indexOf("Modifier.weight(1f, fill = false)")
-        val panelCall = source.indexOf("panel { picked ->")
-        val footer = source.indexOf("footer?.invoke()")
-        assertTrue(branch > 0 && bounded > 0 && panelCall > 0 && footer > 0)
-        assertTrue("the panel slot is bounded inside the panel branch", branch < bounded)
-        assertTrue("and the panel renders inside that slot", bounded < panelCall)
-        assertTrue("with the footer under it, not inside it", panelCall < footer)
+        // NESTING, not just order: "the footer comes after the panel" is also
+        // true of a footer INSIDE the weighted box, which is the broken layout
+        // this case exists to catch. Kotlin's indentation is the nesting here,
+        // so the two lines are compared by their depth.
+        val branch = sourceBlock("Picker.kt", "if (panel != null) {", "return@GlassSheet")
+        val box = branch.single { it.trim().startsWith("Box(modifier = Modifier.weight(1f, fill = false))") }
+        val panelCall = branch.single { it.trim().startsWith("panel { picked ->") }
+        val footer = branch.single { it.trim() == "footer?.invoke()" }
+        assertTrue("the panel renders INSIDE the bounded slot", indent(panelCall) > indent(box))
+        assertEquals("the footer is the slot's SIBLING, not its child", indent(box), indent(footer))
+        assertTrue("and it comes under it", branch.indexOf(footer) > branch.indexOf(box))
         // The ROW branch's footer scrolls with the rows instead, so it is a
         // list item rather than a sibling of the scroller.
-        assertTrue(source.contains("if (footer != null) item { footer() }"))
+        assertTrue(pickerSource("Picker.kt").contains("if (footer != null) item { footer() }"))
     }
 
     /**
@@ -262,14 +264,19 @@ class PickerContractTest {
             // The picker package declares them; so does the icon picker's own
             // file. A declaration is not a caller.
             .filterNot { it.parentFile?.name == "picker" || it.name == "IconPicker.kt" }
-            .map { it.readText() }
+            // A MENTION is not a caller either: comments and KDoc name these
+            // constantly, and a bare `contains("BoardPicker(")` also matches
+            // the tail of some other `…BoardPicker(`. Strip the prose, then
+            // require a call that starts at an identifier boundary.
+            .map { codeOf(it.readText()) }
             .toList()
         val typed = listOf(
             "BoardPicker", "IssuePicker", "ActionPicker", "AccountPicker", "DevicePicker",
             "AssigneePicker", "StatusPicker", "PriorityPicker", "LabelPicker", "IconPicker",
         )
         for (name in typed) {
-            assertTrue("$name is rendered by nothing", callers.any { it.contains("$name(") })
+            val call = Regex("""(^|[^A-Za-z0-9_])$name\s*\(""")
+            assertTrue("$name is rendered by nothing", callers.any(call::containsMatchIn))
         }
     }
 
@@ -286,29 +293,31 @@ class PickerContractTest {
             assertFalse("no $card inside the picker sheet", source.contains(card))
         }
         // A row at rest paints nothing at all — no fill, no stroke.
-        assertEquals(Color.Transparent, PickerDefaults.rowBackground(PickerChecked.None))
-        assertEquals(Color.Transparent, PickerDefaults.rowStroke(PickerChecked.None))
+        assertEquals(PickerMark.None, PickerDefaults.mark(PickerMode.Multi, PickerChecked.None))
+        assertEquals(Color.Transparent, PickerDefaults.rowBackground(PickerMark.None))
+        assertEquals(Color.Transparent, PickerDefaults.rowStroke(PickerMark.None))
     }
 
     /**
-     * The selection language EXP-1021 asked for: a picked row reads as the
-     * row's own highlight, never a leading circle or a trailing check.
+     * The selection language EXP-1021 asked for on the MULTI arm: a picked row
+     * reads as the row's own highlight, never a leading circle.
      */
     @Test
     fun multiModeMarksPickedRowsByTheHighlightColourNeverACircle() {
-        assertEquals(GlassTokens.RowFillActive, PickerDefaults.rowBackground(PickerChecked.All))
-        assertEquals(GlassTokens.StrokeActive, PickerDefaults.rowStroke(PickerChecked.All))
-        assertEquals(Color.Transparent, PickerDefaults.rowBackground(PickerChecked.None))
+        assertEquals(PickerMark.WashAndStroke, PickerDefaults.mark(PickerMode.Multi, PickerChecked.All))
+        assertEquals(GlassTokens.RowFillActive, PickerDefaults.rowBackground(PickerMark.WashAndStroke))
+        assertEquals(GlassTokens.StrokeActive, PickerDefaults.rowStroke(PickerMark.WashAndStroke))
         val source = pickerSource("Picker.kt")
-        for (circle in listOf("uiCheck", "Checkbox", "RadioButton", "uiMinus")) {
-            assertFalse("a picked row is a highlight, never a $circle", source.contains(circle))
+        for (circle in listOf("Checkbox", "RadioButton", "uiMinus", "uiSelected", "uiUnselected")) {
+            assertFalse("a multi row is a highlight, never a $circle", source.contains(circle))
         }
         // Tri-state (the bulk edit): a PARTIAL row wears the wash alone, so
         // "some of these" is said in paint and never in a dash glyph. An
         // explicit `checked` wins over membership in the set; without one the
         // state is derived from it.
-        assertEquals(GlassTokens.RowFillActive, PickerDefaults.rowBackground(PickerChecked.Some))
-        assertEquals(Color.Transparent, PickerDefaults.rowStroke(PickerChecked.Some))
+        assertEquals(PickerMark.Wash, PickerDefaults.mark(PickerMode.Multi, PickerChecked.Some))
+        assertEquals(GlassTokens.RowFillActive, PickerDefaults.rowBackground(PickerMark.Wash))
+        assertEquals(Color.Transparent, PickerDefaults.rowStroke(PickerMark.Wash))
         val partial = PickerItem(value = "a", label = "Alpha", checked = PickerChecked.Some)
         assertEquals(PickerChecked.Some, PickerRules.checked(partial, setOf("a")))
         assertEquals(PickerChecked.Some, PickerRules.checked(partial, emptySet()))
@@ -323,6 +332,54 @@ class PickerContractTest {
         val afterAdd = PickerRules.select(PickerMode.Multi, setOf("a"), items[1])
         assertEquals(setOf("a", "b"), afterAdd)
         assertEquals(emptySet<String>(), PickerRules.select(PickerMode.Multi, setOf("a"), items[0]))
+    }
+
+    /**
+     * The twin of the case above, and the other half of EXP-957's rule (web
+     * `combobox-core`: "single — the picked row wears a trailing `ui-check`"):
+     * EXP-1021 only ever changed the MULTI arm, so a SINGLE pick keeps the
+     * trailing check web and the IDE have always drawn, and takes NO wash —
+     * a one-of-many list where the picked row is also washed reads as a multi
+     * list with one thing ticked.
+     */
+    @Test
+    fun singleModeMarksThePickedRowByATrailingCheckNeverTheHighlight() {
+        assertEquals(PickerMark.Check, PickerDefaults.mark(PickerMode.Single, PickerChecked.All))
+        assertEquals(PickerMark.None, PickerDefaults.mark(PickerMode.Single, PickerChecked.None))
+        // The check is the WHOLE mark: no fill, no stroke behind it.
+        assertEquals(Color.Transparent, PickerDefaults.rowBackground(PickerMark.Check))
+        assertEquals(Color.Transparent, PickerDefaults.rowStroke(PickerMark.Check))
+        // And it is the PRIMITIVE that draws it, outside the row body, so a
+        // `renderItem` caller can never leave a single pick unmarked.
+        val source = pickerSource("Picker.kt")
+        val body = source.indexOf("if (body != null) body(item) else PickerItemBody(item)")
+        val check = source.indexOf("if (mark == PickerMark.Check) {")
+        val glyph = source.indexOf("ExpIcons.uiCheck")
+        assertTrue(body > 0 && check > body && glyph > check)
+    }
+
+    /**
+     * EXP-1021's ONE recorded exception to "a sheet of options is a [Picker]":
+     * the estimate sheet. An estimate is not one of the ten typed subjects —
+     * no id, no glyph, no colour, just a number rendered as a word — and iOS's
+     * `EstimateSheet` keeps the same `GlassSheetRow` idiom, so sweeping the
+     * Android one alone would put the two phones back out of step. Recorded
+     * here so it reads as a DECISION rather than as a sheet the sweep missed;
+     * what it may not do is mark a pick in some third way, and it does not:
+     * `GlassSheetRow`'s `selected` draws the single arm's trailing check.
+     */
+    @Test
+    fun theEstimateSheetIsTheOneRecordedExceptionToThePickerSweep() {
+        val estimate = moduleFile("src/main/java/com/exponential/app/ui/issue/EstimatePickerSheet.kt")
+            .readText()
+        assertTrue("the exception is recorded in the file", estimate.contains("recorded exception"))
+        assertTrue("it stays on the sheet row idiom", estimate.contains("GlassSheetRow("))
+        assertFalse("and never grows a picker of its own", estimate.contains("Picker("))
+        // The sheet row's own mark is the single arm's: a trailing `uiCheck`.
+        val sheet = moduleFile("src/main/java/com/exponential/app/ui/components/GlassSheet.kt").readText()
+        val selected = sheet.indexOf("} else if (selected) {")
+        assertTrue(selected > 0)
+        assertTrue(sheet.indexOf("ExpIcons.uiCheck", selected) > selected)
     }
 
     @Test
@@ -432,6 +489,31 @@ class PickerContractTest {
 
     private fun pickerSource(name: String): String =
         moduleFile("src/main/java/com/exponential/app/ui/components/picker/$name").readText()
+
+    /**
+     * The lines of one branch of a picker source, `from` through `to` — the
+     * unit a nesting case reasons over, since Kotlin says nesting in
+     * indentation and a whole-file `indexOf` says only "somewhere after".
+     */
+    private fun sourceBlock(name: String, from: String, to: String): List<String> {
+        val lines = pickerSource(name).lines()
+        val start = lines.indexOfFirst { it.contains(from) }
+        val end = lines.drop(start + 1).indexOfFirst { it.contains(to) }
+        assertTrue("$from … $to not found in $name", start >= 0 && end >= 0)
+        return lines.subList(start, start + end + 2)
+    }
+
+    private fun indent(line: String): Int = line.length - line.trimStart().length
+
+    /**
+     * A source with its PROSE removed — line comments, block comments and
+     * KDoc. These files name every picker in their comments, so a structural
+     * case that reads the raw text is asserting almost nothing.
+     */
+    private fun codeOf(source: String): String = source
+        .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), " ")
+        .lines()
+        .joinToString("\n") { it.substringBefore("//") }
 
     /**
      * A module-relative source file, located the way [com.exponential.app.ui.emoji]

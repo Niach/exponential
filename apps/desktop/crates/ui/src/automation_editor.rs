@@ -46,7 +46,8 @@ use crate::coding_selects::{effort_choices_for, model_choices_for};
 use crate::surface;
 // EXP-615: the model/effort pins render through the ONE shared launch
 // cluster; EXP-995: the agent strip above them became THE account picker
-// (`coding_selects::account_picker`), fed by the bound machine's logins.
+// (`picker::account_picker` since EXP-1021), fed by the bound machine's
+// logins.
 use crate::launch_options;
 use crate::controls::glass_input;
 
@@ -969,14 +970,14 @@ impl AutomationEditorState {
     }
 
     /// Account / Model / Effort — the optional pins. EXP-995: the agent strip
-    /// is gone — the group's FIRST ROW is THE account picker every launch
-    /// surface shares ([`crate::coding_selects::account_picker`]): brand mark
-    /// + email over every login the BOUND machine reports, its default first,
-    /// and a pick implies the agent (the server re-checks it against what the
-    /// machine advertises). Model/effort below it are the same rows the launch
-    /// dialogs draw and only unlock once an agent is pinned: they are
-    /// validated per agent, and "the device's default agent with a foreign
-    /// model" is not a state the server accepts.
+    /// is gone — the group's FIRST ROW is THE account picker
+    /// ([`crate::picker::account_picker`], the shared picker since EXP-1021):
+    /// brand mark + email over every login the BOUND machine reports, its
+    /// default first, and a pick implies the agent (the server re-checks it
+    /// against what the machine advertises). Model/effort below it are the
+    /// same rows the launch dialogs draw and only unlock once an agent is
+    /// pinned: they are validated per agent, and "the device's default agent
+    /// with a foreign model" is not a state the server accepts.
     fn render_launch_pins<V: Render>(
         &self,
         prefix: &'static str,
@@ -1002,23 +1003,66 @@ impl AutomationEditorState {
                     .map(|option| option.account_option_key())
             });
         let view = cx.entity().downgrade();
-        let picker = crate::coding_selects::account_picker(
-            SharedString::from(format!("{prefix}-account")),
-            &options,
-            current_key.as_deref(),
-            crate::coding_selects::AccountTrigger::Row,
-            move |option: &coding::AccountOption, _window, cx| {
-                let Some(view) = view.upgrade() else {
-                    return;
-                };
-                let option = option.clone();
-                view.update(cx, |view, cx| {
-                    access(view).set_account(&option);
-                    cx.notify();
-                });
-            },
-            cx,
-        );
+        // EXP-1021: THE account picker — the shared picker's rows (brand mark
+        // + login email, a dead credential's health as the muted line) behind
+        // the trigger the other pin rows in this group wear. What the trigger
+        // READS as: the stored pair, else the machine's own default, which is
+        // the picker's first row.
+        let current_option = current_key
+            .as_deref()
+            .and_then(|key| options.iter().find(|option| option.account_option_key() == key))
+            .or_else(|| coding::default_account_option(&options))
+            .cloned();
+        let picker = match current_option {
+            // No login to offer: the row keeps its label and nothing else —
+            // a caller with nothing to pick builds its own fallback rows.
+            None => div().into_any_element(),
+            Some(current) => {
+                // Nothing to PICK either, with exactly one login: the same
+                // line without the affordance (the mark and the email still
+                // say which login the run spends).
+                let alone = options.len() < 2;
+                let trigger = picker_trigger(
+                    format!("{prefix}-account").into(),
+                    SharedString::from(current.email.clone()),
+                    cx,
+                )
+                .icon(crate::coding_selects::agent_mark(current.agent))
+                .dropdown_caret(!alone)
+                .into_any_element();
+                let picked = current.account_option_key();
+                let rows = options.clone();
+                crate::picker::deferred(move |window, cx| {
+                    let options = rows.clone();
+                    crate::picker::account_picker::account_picker(
+                        &rows,
+                        Some(picked),
+                        trigger,
+                        std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                            let (Some(view), Some(key)) = (view.upgrade(), next.into_iter().next())
+                            else {
+                                return;
+                            };
+                            let Some(option) = options
+                                .iter()
+                                .find(|option| option.account_option_key() == key)
+                                .cloned()
+                            else {
+                                return;
+                            };
+                            view.update(cx, |view, cx| {
+                                access(view).set_account(&option);
+                                cx.notify();
+                            });
+                        }),
+                    )
+                    .disabled(alone)
+                    .id(SharedString::from(format!("{prefix}-account-picker")))
+                    .render(window, cx)
+                })
+                .into_any_element()
+            }
+        };
         let strip = surface::glass_picker_row("Account", None, picker, cx);
 
         // Model/Effort stay VISIBLE while nothing is pinned (web parity,
