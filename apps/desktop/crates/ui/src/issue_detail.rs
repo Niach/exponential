@@ -2745,17 +2745,24 @@ impl Render for IssuePicker {
         }
         // EXP-892: ONE highlight — the selected row; hovering moves it there.
         let selected = self.selected.min(items.len().saturating_sub(1));
+        let list_active = cx.theme().colors.list_active;
         for (position, item) in items.iter().enumerate() {
             let issue_id = item.value.clone();
             let body = crate::picker::picker_item_body(item, cx);
+            // EXP-1045 review round 3: the fills are the PRIMITIVE's, the
+            // HOVERED one included — `pickers::picker_row` hard-codes the
+            // plain row fill on hover, and hovering moves the selection HERE,
+            // so the selected row is always the row under the pointer and
+            // would shed its highlight the moment it was reached.
+            let (at_rest, under_pointer) =
+                crate::picker::single_row_fills(position == selected, list_active);
             list = list.child(
-                crate::pickers::picker_row(
+                crate::pickers::picker_row_filled(
                     SharedString::from(format!("issue-pick-{issue_id}")),
+                    at_rest,
+                    under_pointer,
                     cx,
                 )
-                .when(position == selected, |style| {
-                    style.bg(cx.theme().colors.list_active)
-                })
                 .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
                     if *hovered && this.selected != position {
                         this.selected = position;

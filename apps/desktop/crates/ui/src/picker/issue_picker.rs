@@ -93,27 +93,3 @@ pub(crate) fn issue_multi_picker(
         .search(true)
         .empty_text("No issues")
 }
-
-/// [`issue_picker`] over rows that already carry their status glyph.
-pub(crate) fn issue_row_picker(
-    rows: &[IssuePickerIssue],
-    value: Option<String>,
-    trigger: AnyElement,
-    on_change: OnPickerChange<String>,
-) -> Picker<String> {
-    Picker::single(issue_rows(rows), value, trigger, on_change)
-        .search(true)
-        .empty_text("No issues")
-}
-
-/// [`issue_multi_picker`] over rows that already carry their status glyph.
-pub(crate) fn issue_row_multi_picker(
-    rows: &[IssuePickerIssue],
-    value: Vec<String>,
-    trigger: AnyElement,
-    on_change: OnPickerChange<String>,
-) -> Picker<String> {
-    Picker::multi(issue_rows(rows), value, trigger, on_change)
-        .search(true)
-        .empty_text("No issues")
-}
