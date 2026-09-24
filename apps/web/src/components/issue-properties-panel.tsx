@@ -1,5 +1,13 @@
 import { Megaphone } from "lucide-react"
-import { conceptIcon, Combobox, Pill, DatePicker, BoardGlyph } from "@exp/ui"
+import {
+  conceptIcon,
+  Combobox,
+  Pill,
+  DatePicker,
+  BoardGlyph,
+  PriorityPicker,
+  StatusPicker,
+} from "@exp/ui"
 import type { User } from "@/db/schema"
 import type { IssueEstimation, IssuePriority, IssueSource } from "@/lib/domain"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -17,7 +25,7 @@ import {
 } from "@/components/issue-properties/priority-dropdown"
 import {
   toStatusMenuOption,
-  toStatusMenuOptions,
+  toStatusPickerStatuses,
 } from "@/components/issue-properties/status-dropdown"
 import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { LabelPicker } from "@/components/issue-properties/label-picker"
@@ -199,19 +207,17 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
   const priorityTrigger = getPriorityConfig(priority)
 
   const statusControl = (
-    <Combobox
-      searchable={false}
+    <StatusPicker
+      statuses={toStatusPickerStatuses(teamStatusOptions)}
       value={status.id}
       disabled={disabled}
-      options={toStatusMenuOptions(teamStatusOptions)}
       width="sm"
       onChange={(id) => {
-        if (!id) return
         const picked = statusById.get(id)
         if (picked) void onStatusChange(picked)
       }}
       mobileTitle="Status"
-      renderTrigger={() => (
+      trigger={
         <Pill mode="action" disabled={disabled}>
           <StatusTriggerIcon
             className={`!h-3 !w-3 ${statusTrigger.color}`}
@@ -223,27 +229,24 @@ export function IssuePropertiesPanel(props: IssuePropertiesPanelProps) {
           />
           {statusTrigger.label}
         </Pill>
-      )}
+      }
     />
   )
 
   const priorityControl = (
-    <Combobox
-      searchable={false}
+    <PriorityPicker
+      options={priorities}
       value={priority}
       disabled={disabled}
-      options={priorities}
       width="sm"
-      onChange={(next) => {
-        if (next) void onPriorityChange(next)
-      }}
+      onChange={(next) => void onPriorityChange(next as IssuePriority)}
       mobileTitle="Priority"
-      renderTrigger={() => (
+      trigger={
         <Pill mode="action" disabled={disabled}>
           <PriorityIcon priority={priorityTrigger.value} className="!h-3 !w-3" />
           {priorityTrigger.label}
         </Pill>
-      )}
+      }
     />
   )
 

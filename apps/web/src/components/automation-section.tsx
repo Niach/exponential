@@ -29,14 +29,20 @@ import {
   labelCollection,
 } from "@/lib/collections"
 import { buildStatusOptions } from "@/lib/team-statuses"
+import { toStatusPickerStatus } from "@/components/issue-properties/status-dropdown"
 import type { Board, IssueStatusRow, Label as TeamLabel } from "@/db/schema"
 import {
   AccountPicker,
   agentLabel,
+  BoardPicker,
   Combobox,
+  DevicePicker,
+  LabelPicker,
+  PickerTrigger,
+  PriorityPicker,
+  StatusPicker,
   Button,
   Label,
-  type PickerOption,
   TabsTrigger,
   GLASS_SELECT_TRIGGER,
   GlassGroup,
@@ -308,40 +314,44 @@ export function AutomationDevicePicker({
   // entry so editing other fields never silently rebinds or drops it.
   const unknownDeviceId =
     deviceId && !devices.some((d) => d.deviceId === deviceId) ? deviceId : null
+  const pickedDevice = devices.find((d) => d.deviceId === deviceId)
+  const pickedDeviceLabel = pickedDevice
+    ? pickedDevice.deviceLabel || pickedDevice.deviceId
+    : unknownDeviceId
+      ? // A machine the viewer cannot see: the raw id, muted, so it reads as
+        // a binding rather than a name.
+        <span className="text-muted-foreground">{unknownDeviceId}</span>
+      : undefined
   return (
     // EXP-616: a grouped-form row — "Runs on" leads, the machine trails.
     <GlassGroup>
-      <Combobox
-        triggerVariant="row"
-        searchable={false}
+      <DevicePicker
         mobileTitle="Runs on"
         value={deviceId}
-        onChange={(value) => {
-          if (value !== null) onChange(value)
-        }}
-        triggerLabel="Select a device"
-        options={[
+        onChange={onChange}
+        devices={[
           ...(unknownDeviceId
-            ? [
-                {
-                  value: unknownDeviceId,
-                  label: (
-                    <span className="text-muted-foreground">
-                      {unknownDeviceId}
-                    </span>
-                  ),
-                },
-              ]
+            ? [{ id: unknownDeviceId, name: unknownDeviceId }]
             : []),
           // EXP-615: no online dot here — every automation-capable machine is
           // equally bindable (a schedule catches up on reconnect), so the
           // live state belongs on the Automations tab's rows, not in the
           // picker.
           ...devices.map((device) => ({
-            value: device.deviceId,
-            label: device.deviceLabel || device.deviceId,
+            id: device.deviceId,
+            name: device.deviceLabel || device.deviceId,
+            icon: device.icon,
+            kind: device.kind,
           })),
         ]}
+        trigger={
+          <PickerTrigger
+            variant="row"
+            label="Runs on"
+            placeholder="Select a device"
+            value={pickedDeviceLabel}
+          />
+        }
       />
     </GlassGroup>
   )
@@ -570,18 +580,27 @@ function EventFilterPickers({
     [teamId, showStatuses]
   )
 
+  // EXP-1021: the filter rows are the typed pickers' rows — a board keeps its
+  // icon and colour, a label its dot, a status its glyph — so a filter list
+  // reads exactly like the list it filters.
   const boardOptions = useMemo(
     () =>
       [...((boardRows ?? []) as Board[])]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((board) => ({ id: board.id, name: board.name })),
+        .map((board) => ({
+          id: board.id,
+          name: board.name,
+          icon: board.icon,
+          color: board.color,
+          repositoryId: board.repositoryId,
+        })),
     [boardRows]
   )
   const labelOptions = useMemo(
     () =>
       [...((labelRows ?? []) as TeamLabel[])]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((label) => ({ id: label.id, name: label.name })),
+        .map((label) => ({ id: label.id, name: label.name, color: label.color })),
     [labelRows]
   )
   // Duplicate is never a pickable target (same rule as the create/edit status
@@ -590,12 +609,13 @@ function EventFilterPickers({
     () =>
       buildStatusOptions((statusRows ?? []) as IssueStatusRow[])
         .filter((option) => option.category !== `duplicate`)
-        .map((option) => ({ id: option.id, name: option.name })),
+        .map((option) => toStatusPickerStatus(option)),
     [statusRows]
   )
   const priorityOptions = useMemo(
     () =>
       issuePriorityOptions.map((option) => ({
+        ...option,
         id: option.value,
         name: option.label,
       })),
@@ -604,112 +624,94 @@ function EventFilterPickers({
 
   return (
     <div className="flex flex-wrap gap-2">
-      <Combobox
-        multiple
+      <BoardPicker
+        mode="multi"
         max={MAX_TRIGGER_FILTER_IDS}
-        options={filterOptions(boardOptions)}
+        boards={boardOptions}
         value={draft.boardIds}
         onChange={(boardIds) => set({ boardIds })}
-        triggerVariant="field"
         mobileTitle="Any board"
-        placeholder="Filter boards..."
+        searchPlaceholder="Filter boards..."
         emptyText="No boards found."
         width="sm"
-        renderTrigger={() =>
-          filterTrigger(
-            filterSummary(boardOptions, draft.boardIds, `Any board`, `board`, `boards`),
-            draft.boardIds.length === 0
-          )
-        }
+        trigger={filterTrigger(
+          filterSummary(boardOptions, draft.boardIds, `Any board`, `board`, `boards`),
+          draft.boardIds.length === 0
+        )}
       />
       {showLabels && (
-        <Combobox
-          multiple
+        <LabelPicker
           max={MAX_TRIGGER_FILTER_IDS}
-          options={filterOptions(labelOptions)}
+          labels={labelOptions}
           value={draft.labelIds}
           onChange={(labelIds) => set({ labelIds })}
-          triggerVariant="field"
           mobileTitle="Any label"
-          placeholder="Filter labels..."
+          searchPlaceholder="Filter labels..."
           emptyText="No labels found."
           width="sm"
-          renderTrigger={() =>
-            filterTrigger(
-              filterSummary(labelOptions, draft.labelIds, `Any label`, `label`, `labels`),
-              draft.labelIds.length === 0
-            )
-          }
+          trigger={filterTrigger(
+            filterSummary(labelOptions, draft.labelIds, `Any label`, `label`, `labels`),
+            draft.labelIds.length === 0
+          )}
         />
       )}
       {showPriorities && (
-        <Combobox
-          multiple
+        <PriorityPicker
+          mode="multi"
           max={MAX_TRIGGER_FILTER_IDS}
-          options={filterOptions(priorityOptions)}
+          options={priorityOptions}
           value={draft.priorities}
           onChange={(priorities) =>
             set({ priorities: priorities as IssuePriority[] })
           }
-          triggerVariant="field"
           mobileTitle="Any priority"
-          placeholder="Filter priorities..."
-          emptyText="No priorities found."
           width="sm"
-          renderTrigger={() =>
-            filterTrigger(
-              filterSummary(
-                priorityOptions,
-                draft.priorities,
-                `Any priority`,
-                `priority`,
-                `priorities`
-              ),
-              draft.priorities.length === 0
-            )
-          }
+          trigger={filterTrigger(
+            filterSummary(
+              priorityOptions,
+              draft.priorities,
+              `Any priority`,
+              `priority`,
+              `priorities`
+            ),
+            draft.priorities.length === 0
+          )}
         />
       )}
       {showStatuses && (
-        <Combobox
-          multiple
+        <StatusPicker
+          mode="multi"
           max={MAX_TRIGGER_FILTER_IDS}
-          options={filterOptions(statusOptions)}
+          statuses={statusOptions}
           value={draft.toStatusIds}
           onChange={(toStatusIds) => set({ toStatusIds })}
-          triggerVariant="field"
           mobileTitle="Any status"
-          placeholder="Filter statuses..."
+          search
+          searchPlaceholder="Filter statuses..."
           emptyText="No statuses found."
           width="sm"
-          renderTrigger={() =>
-            filterTrigger(
-              filterSummary(
-                statusOptions,
-                draft.toStatusIds,
-                `Any status`,
-                `status`,
-                `statuses`
-              ),
-              draft.toStatusIds.length === 0
-            )
-          }
+          trigger={filterTrigger(
+            filterSummary(
+              statusOptions,
+              draft.toStatusIds,
+              `Any status`,
+              `status`,
+              `statuses`
+            ),
+            draft.toStatusIds.length === 0
+          )}
         />
       )}
     </div>
   )
 }
 
-// EXP-941: the popover+Command copy these four filters shared is now the
-// shared `Combobox` (multi-select, capped at MAX_TRIGGER_FILTER_IDS to match
-// the server's per-list limit). What stays local is the only thing the
-// primitive can't know: the filter's own `3 boards` summary, and the compact
-// chip that shows it.
+// EXP-941/EXP-1021: the popover+Command copy these four filters shared is now
+// the TYPED picker of each domain in its multi arm, capped at
+// MAX_TRIGGER_FILTER_IDS to match the server's per-list limit. What stays
+// local is the only thing a picker can't know: the filter's own `3 boards`
+// summary, and the compact chip that shows it.
 type FilterRow = { id: string; name: string }
-
-function filterOptions(rows: FilterRow[]): PickerOption[] {
-  return rows.map((row) => ({ value: row.id, label: row.name }))
-}
 
 function filterSummary(
   rows: FilterRow[],

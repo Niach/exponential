@@ -5,6 +5,8 @@
 
 use gpui::AnyElement;
 
+use crate::icons::device_icon;
+
 use super::{OnPickerChange, Picker, PickerItem};
 
 /// A device row as the picker reads it.
@@ -23,7 +25,13 @@ pub(crate) fn device_items(devices: &[DevicePickerDevice]) -> Vec<PickerItem<Str
         .iter()
         .map(|device| {
             let mut item = PickerItem::new(device.id.clone(), device.name.clone())
-                .disabled(device.disabled);
+                .disabled(device.disabled)
+                // EXP-924's resolver: the row's stored glyph when it names a
+                // DEVICE icon, else the kind default.
+                .icon(gpui_component::Icon::from(device_icon(
+                    device.icon.as_deref(),
+                    false,
+                )));
             if let Some(description) = &device.description {
                 item = item.description(description.clone());
             }

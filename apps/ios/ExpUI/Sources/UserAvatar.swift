@@ -12,19 +12,35 @@ import SwiftUI
 /// clients. Fill is that hue at 20 %, the initials the hue at full alpha, and
 /// there is no hairline: the colour IS the chrome.
 public struct UserAvatar: View {
-    let user: UserEntity?
-    let id: String?
+    let image: String?
+    let initials: String
+    /// What the fallback hue is keyed on — the synced row's id when there is
+    /// one, the raw id otherwise; both are the same string, so a member whose
+    /// row lands mid-session keeps its colour.
+    let hueKey: String?
     var size: CGFloat = 32
 
     public init(user: UserEntity?, id: String?, size: CGFloat = 32) {
-        self.user = user
-        self.id = id
+        self.init(
+            image: user?.image,
+            initials: memberInitials(user, id: id),
+            hueKey: user?.id ?? id,
+            size: size
+        )
+    }
+
+    /// EXP-1021: the same avatar from LOOSE fields — the shared assignee
+    /// picker's rows carry a member's name/email/image, never a `users` row.
+    public init(image: String?, initials: String, hueKey: String?, size: CGFloat = 32) {
+        self.image = image
+        self.initials = initials
+        self.hueKey = hueKey
         self.size = size
     }
 
     public var body: some View {
         Group {
-            if let urlString = user?.image,
+            if let urlString = image,
                !urlString.isEmpty,
                let url = URL(string: urlString) {
                 AsyncImage(url: url) { phase in
@@ -44,15 +60,12 @@ public struct UserAvatar: View {
     }
 
     private var initialsChip: some View {
-        // The hue is keyed on the id the caller knows the person by — the
-        // synced row's id when there is one, the raw id otherwise; both are the
-        // same string, so a member whose row lands mid-session keeps its colour.
-        let hue = DesignTokens.Avatar.hues[avatarHueIndex(user?.id ?? id)]
+        let hue = DesignTokens.Avatar.hues[avatarHueIndex(hueKey)]
         // The glyph has to scale with the avatar. A fixed .caption is wider than
         // the 16pt chip avatars on the issue detail, so SwiftUI truncated two
         // initials to a lone "…" — visible in the App Store screenshots
         // (EXP-393). 0.42 of the diameter matches the Android InitialsAvatar.
-        return Text(memberInitials(user, id: id))
+        return Text(initials)
             .font(.system(size: size * 0.42, weight: .medium))
             .lineLimit(1)
             .minimumScaleFactor(0.6)

@@ -1,7 +1,11 @@
 import type { ReactNode } from "react"
 
-import { BOARD_ICON_OPTIONS } from "../board-icons"
-import { Picker, type PickerItem } from "./picker"
+import { getActionIcon } from "../board-icons"
+import {
+  Picker,
+  type PickerItem,
+  type PickerSurfaceProps,
+} from "./picker"
 
 // EXP-1029 contract — the action picker: the team's actions (and the two
 // listed builtins) by curated icon + name. The composer's action chip and
@@ -10,16 +14,22 @@ import { Picker, type PickerItem } from "./picker"
 export interface ActionPickerAction {
   id: string
   name: string
-  /** Contract `boardIcon` (the curated action set); absent = the default. */
+  /** Contract `boardIcon` (the curated action set); absent = the default
+   *  action glyph — a row is never iconless. */
   icon?: string | null
   description?: ReactNode
+  /** Rendered, never pickable — an action whose required inputs nobody is
+   *  there to fill in (the automation editor). */
+  disabled?: boolean
 }
 
-export interface ActionPickerProps {
+export interface ActionPickerProps extends PickerSurfaceProps {
   actions: readonly ActionPickerAction[]
   value: string | null
   onChange: (actionId: string) => void
   trigger: ReactNode
+  /** The sheet's title on a phone. */
+  mobileTitle?: string
   search?: boolean
   disabled?: boolean
   emptyText?: string
@@ -30,11 +40,27 @@ export function actionPickerItems(actions: readonly ActionPickerAction[]): Picke
   return actions.map((action) => ({
     value: action.id,
     label: action.name,
-    icon: BOARD_ICON_OPTIONS.find((option) => option.name === action.icon)?.icon,
+    icon: getActionIcon(action),
     description: action.description,
+    disabled: action.disabled,
   }))
 }
 
-export function ActionPicker({ actions, emptyText = `No actions`, ...props }: ActionPickerProps) {
-  return <Picker mode="single" items={actionPickerItems(actions)} emptyText={emptyText} {...props} />
+export function ActionPicker({
+  actions,
+  emptyText = `No actions`,
+  mobileTitle = `Actions`,
+  search = true,
+  ...props
+}: ActionPickerProps) {
+  return (
+    <Picker
+      mode="single"
+      items={actionPickerItems(actions)}
+      emptyText={emptyText}
+      mobileTitle={mobileTitle}
+      search={search}
+      {...props}
+    />
+  )
 }

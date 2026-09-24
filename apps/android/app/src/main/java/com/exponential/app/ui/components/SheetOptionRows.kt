@@ -233,58 +233,13 @@ internal fun PickerRow(
     optionIcon: ((String) -> ImageVector?)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
-    val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled) { open = true }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // EXP-697: the LABEL keeps its width and the VALUE takes the rest.
-        // The other way round (a weighted label next to an unweighted value)
-        // measures the value first at full width, so a long picked name — an
-        // action's, say — squeezed the label down to a wrapped column of
-        // single letters.
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        // The picked option's own glyph, right before its name. Unweighted, so
-        // the value keeps the whole rest of the row (see above).
-        selected?.let { optionIcon?.invoke(it) }?.let { glyph ->
-            Icon(
-                glyph,
-                contentDescription = null,
-                modifier = Modifier.padding(start = 8.dp).size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(
-                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-                ),
-            )
-        }
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f).padding(start = 8.dp),
-        )
-        Icon(
-            ExpIcons.uiChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary,
-            ),
-        )
-    }
+    PickerValueRow(
+        label = label,
+        value = value,
+        valueIcon = selected?.let { optionIcon?.invoke(it) },
+        enabled = enabled,
+        onClick = { open = true },
+    )
     if (open) {
         GlassSheet(title = label, onDismiss = { open = false }) {
             Column(
@@ -316,6 +271,76 @@ internal fun PickerRow(
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+/**
+ * The picker ROW on its own — label left, picked value + chevron right — with
+ * no sheet of its own. EXP-1021 split it out of [PickerRow] so a form row can
+ * be the TRIGGER of the shared `Picker` (the automation form's action and
+ * filter rows) while the surfaces that still carry their own option sheet keep
+ * rendering exactly the same row.
+ */
+@Composable
+internal fun PickerValueRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    valueIcon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // EXP-697: the LABEL keeps its width and the VALUE takes the rest.
+        // The other way round (a weighted label next to an unweighted value)
+        // measures the value first at full width, so a long picked name — an
+        // action's, say — squeezed the label down to a wrapped column of
+        // single letters.
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // The picked option's own glyph, right before its name. Unweighted, so
+        // the value keeps the whole rest of the row (see above).
+        if (valueIcon != null) {
+            Icon(
+                valueIcon,
+                contentDescription = null,
+                modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                ),
+            )
+        }
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
+        )
+        Icon(
+            ExpIcons.uiChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) TextEmphasis.Tertiary else TextEmphasis.Quaternary,
+            ),
+        )
     }
 }
 

@@ -719,12 +719,13 @@ impl AutomationEditorState {
             })
             .into_any_element();
 
-        let boards: Vec<(String, String)> = sync::Store::global(cx)
-            .collections()
-            .boards_in_team(&self.team_id, cx)
-            .into_iter()
-            .map(|board| (board.id, board.name))
-            .collect();
+        // The filter rows are the TYPED pickers' own rows: a board wears its
+        // glyph in its colour, a label its coloured dot.
+        let boards = crate::picker::board_picker::board_items(
+            &sync::Store::global(cx)
+                .collections()
+                .boards_in_team(&self.team_id, cx),
+        );
         let mut rows = vec![
             surface::glass_picker_row("When", None, when, cx),
             self.render_filter(
@@ -732,7 +733,7 @@ impl AutomationEditorState {
                 "board",
                 "Board",
                 "Any board",
-                &boards,
+                boards,
                 &self.board_ids,
                 |state| &mut state.board_ids,
                 access,
@@ -741,16 +742,15 @@ impl AutomationEditorState {
         ];
         match self.event {
             EventKind::LabelAdded => {
-                let labels: Vec<(String, String)> = crate::queries::team_labels(cx, &self.team_id)
-                    .into_iter()
-                    .map(|label| (label.id, label.name))
-                    .collect();
+                let labels = crate::picker::label_picker::label_items(
+                    &crate::queries::team_labels(cx, &self.team_id),
+                );
                 rows.push(self.render_filter(
                     prefix,
                     "label",
                     "Label",
                     "Any label",
-                    &labels,
+                    labels,
                     &self.label_ids,
                     |state| &mut state.label_ids,
                     access,
@@ -758,16 +758,19 @@ impl AutomationEditorState {
                 ));
             }
             EventKind::Created | EventKind::PriorityChanged => {
-                let priorities: Vec<(String, String)> = domain::contract::ISSUE_PRIORITY_VALUES
-                    .iter()
-                    .map(|value| ((*value).to_string(), capitalize(value)))
-                    .collect();
+                let priorities: Vec<crate::picker::PickerItem<String>> =
+                    domain::contract::ISSUE_PRIORITY_VALUES
+                        .iter()
+                        .map(|value| {
+                            crate::picker::PickerItem::new((*value).to_string(), capitalize(value))
+                        })
+                        .collect();
                 rows.push(self.render_filter(
                     prefix,
                     "priority",
                     "Priority",
                     "Any priority",
-                    &priorities,
+                    priorities,
                     &self.priorities,
                     |state| &mut state.priorities,
                     access,
@@ -778,18 +781,18 @@ impl AutomationEditorState {
                 // EXP-314: the team's own status rows. The duplicate category
                 // is excluded like every other picker — a duplicate needs its
                 // canonical pairing, so nothing "changes to" it in isolation.
-                let statuses: Vec<(String, String)> =
+                let statuses: Vec<crate::picker::PickerItem<String>> =
                     crate::queries::team_statuses(cx, &self.team_id)
                         .into_iter()
                         .filter(|row| row.category != "duplicate")
-                        .map(|row| (row.id, row.name))
+                        .map(|row| crate::picker::PickerItem::new(row.id, row.name))
                         .collect();
                 rows.push(self.render_filter(
                     prefix,
                     "status",
                     "To status",
                     "Any status",
-                    &statuses,
+                    statuses,
                     &self.to_status_ids,
                     |state| &mut state.to_status_ids,
                     access,
@@ -810,7 +813,7 @@ impl AutomationEditorState {
         key: &'static str,
         label: &'static str,
         empty_label: &'static str,
-        options: &[(String, String)],
+        items: Vec<crate::picker::PickerItem<String>>,
         selected: &[String],
         pick: fn(&mut Self) -> &mut Vec<String>,
         access: fn(&mut V) -> &mut Self,
@@ -818,55 +821,52 @@ impl AutomationEditorState {
     ) -> Div {
         let button_label: SharedString = match selected.len() {
             0 => empty_label.into(),
-            1 => options
+            1 => items
                 .iter()
-                .find(|(id, _)| id == &selected[0])
-                .map(|(_, name)| SharedString::from(name.clone()))
+                .find(|item| item.value == selected[0])
+                .map(|item| item.label.clone())
                 .unwrap_or_else(|| "1 selected".into()),
             count => format!("{count} selected").into(),
         };
-        let options = options.to_vec();
         let picked = selected.to_vec();
         let at_cap = selected.len() >= filter_cap();
         let view = cx.entity().downgrade();
-        let control = picker_trigger(
-            format!("{prefix}-filter-{key}").into(),
-            button_label,
-            cx,
-        )
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            if options.is_empty() {
-                return menu.item(PopupMenuItem::new("Nothing to filter on").disabled(true));
-            }
-            for (id, name) in &options {
-                let on = picked.iter().any(|entry| entry == id);
-                let view = view.clone();
-                let id = id.clone();
-                menu = menu.item(
-                    PopupMenuItem::new(SharedString::from(name.clone()))
-                        .checked(on)
-                        // At the cap only DEselection stays live —
-                        // the server rejects a longer list.
-                        .disabled(at_cap && !on)
-                        .on_click(move |_, _, cx| {
-                            if let Some(view) = view.upgrade() {
-                                let id = id.clone();
-                                view.update(cx, |view, cx| {
-                                    let list = pick(access(view));
-                                    match list.iter().position(|e| e == &id) {
-                                        Some(ix) => {
-                                            list.remove(ix);
-                                        }
-                                        None if list.len() < filter_cap() => list.push(id),
-                                        None => {}
-                                    }
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                );
-            }
-            menu
+        let trigger =
+            picker_trigger(format!("{prefix}-filter-{key}").into(), button_label, cx)
+                .into_any_element();
+        // EXP-1021: a filter is a MULTI pick, so it rides the shared picker —
+        // its rows carry the subject's own glyph and a picked one reads as
+        // the row's highlight, the same language every other multi picker
+        // speaks.
+        let items: Vec<crate::picker::PickerItem<String>> = items
+            .into_iter()
+            .map(|item| {
+                // At the cap only DEselection stays live — the server rejects
+                // a longer list.
+                let on = picked.iter().any(|entry| entry == &item.value);
+                item.disabled(at_cap && !on)
+            })
+            .collect();
+        let control = crate::picker::deferred(move |window, cx| {
+            crate::picker::Picker::multi(
+                items,
+                picked,
+                trigger,
+                std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                    if let Some(view) = view.upgrade() {
+                        view.update(cx, |view, cx| {
+                            let list = pick(access(view));
+                            *list = next.clone();
+                            list.truncate(filter_cap());
+                            cx.notify();
+                        });
+                    }
+                }),
+            )
+            .search(true)
+            .empty_text("Nothing to filter on")
+            .id(SharedString::from(format!("{prefix}-filter-{key}-picker")))
+            .render(window, cx)
         })
         .into_any_element();
         surface::glass_picker_row(label, None, control, cx)

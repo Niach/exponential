@@ -121,7 +121,7 @@ describe(`the shared picker API (EXP-1029 contract)`, () => {
   })
 })
 
-describe.skip(`every typed picker renders through the primitive (EXP-1029 → EXP-1021)`, () => {
+describe(`every typed picker renders through the primitive (EXP-1029 → EXP-1021)`, () => {
   it.each(TYPED)(`%s`, (_name, element) => {
     const { container } = render(element())
     expect(container.querySelector(`[data-slot="picker"]`)).not.toBeNull()

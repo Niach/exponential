@@ -265,56 +265,19 @@ extension GlassSheetChrome where Pinned == EmptyView {
     }
 }
 
-/// One tap-target row inside a glass sheet: leading slot, label, optional
-/// trailing checkmark. 44pt minimum height.
-public struct GlassSheetRow<Leading: View>: View {
-    let label: String
-    var selected: Bool = false
-    var labelOpacity: Double = 1
-    let action: () -> Void
-    @ViewBuilder let leading: () -> Leading
-
-    public init(
-        label: String,
-        selected: Bool = false,
-        labelOpacity: Double = 1,
-        action: @escaping () -> Void,
-        @ViewBuilder leading: @escaping () -> Leading
-    ) {
-        self.label = label
-        self.selected = selected
-        self.labelOpacity = labelOpacity
-        self.action = action
-        self.leading = leading
-    }
-
-    public var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                leading()
-                    .frame(width: 24)
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(labelOpacity))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if selected {
-                    AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// The ONE "pick one of these" sheet (EXP-603 retired the stock `PickerSheet`
-/// it was cloned from): rows with a trailing checkmark, immediate commit +
-/// dismiss on tap. The chrome measures the rows, so a three-option list
-/// presents as a short sheet instead of a half-screen of empty glass.
+/// The untyped "pick one of these" sheet (EXP-603 retired the stock
+/// `PickerSheet` it was cloned from): immediate commit + dismiss on tap. The
+/// chrome measures the rows, so a three-option list presents as a short sheet
+/// instead of a half-screen of empty glass.
+///
+/// EXP-1021: the SHARED picker (`GlassPicker` + its ten typed pickers) is what
+/// a board / issue / action / account / device / assignee / icon / status /
+/// priority / label pick renders through. This one stays for the picks that
+/// are not one of those ten — a repository, a branch, an estimate scale, an
+/// "Any board" event filter — and it draws its rows in the picker's OWN
+/// language so the two cannot look like different products: plain rows on the
+/// sheet, and the pick marked by the row's highlight, never a trailing
+/// checkmark.
 public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
     let title: String
     let items: [Item]
@@ -349,29 +312,39 @@ public struct GlassPickerSheet<Item, ID: Hashable, Row: View>: View {
     public var body: some View {
         let identified = items.map { IdentifiedItem(id: idFor($0), value: $0) }
         GlassSheetChrome(title: title) {
-            VStack(spacing: 2) {
+            VStack(spacing: GlassPickerTokens.rowSpacing) {
                 ForEach(identified) { wrapped in
                     Button {
                         onSelect(wrapped.value)
                         dismiss()
                     } label: {
+                        let picked = selectedID.map { $0 == wrapped.id } ?? false
                         HStack(spacing: 10) {
                             row(wrapped.value)
                             Spacer(minLength: 0)
-                            if let selectedID, wrapped.id == selectedID {
-                                AppIcon(AppIcons.uiCheck, size: 15, weight: .semibold)
-                                    .foregroundStyle(Color.white)
-                            }
                         }
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 44)
+                        .padding(.horizontal, GlassPickerTokens.rowHPadding)
+                        .frame(minHeight: GlassPickerTokens.rowMinHeight)
+                        .background(
+                            picked ? GlassPickerTokens.pickedFill : GlassPickerTokens.restingFill,
+                            in: RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius)
+                                .strokeBorder(
+                                    picked
+                                        ? GlassPickerTokens.pickedStroke
+                                        : GlassPickerTokens.restingStroke,
+                                    lineWidth: GlassTokens.hairline
+                                )
+                        )
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 16)
+            .padding(.horizontal, GlassPickerTokens.listHPadding)
+            .padding(.bottom, GlassPickerTokens.listBottomPadding)
         }
     }
 }

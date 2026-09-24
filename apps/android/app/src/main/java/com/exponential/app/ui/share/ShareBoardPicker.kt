@@ -127,10 +127,12 @@ fun ShareBoardSelector(
 }
 
 /**
- * Team-grouped board picker sheet for the share composer — the shared
- * [GlassSheet] chooser ([com.exponential.app.ui.issue.IssuePickerSheet]'s
- * pattern: title + [GlassSheetRow]s + trailing check), with a secondary team
- * header above each group's boards.
+ * Team-grouped board picker sheet for the share composer: title +
+ * [GlassSheetRow]s with a secondary team header above each group's boards.
+ *
+ * EXP-1021 deliberately left this one off the shared `BoardPicker`: a picker
+ * row is FLAT in the contract, with no section above it, and the share target
+ * is the one board list that has to say which TEAM each board belongs to.
  */
 @Composable
 fun ShareBoardPickerSheet(

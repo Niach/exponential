@@ -9,10 +9,11 @@ import {
   DialogContent,
   DialogTitle,
   Button,
-  ComboboxList,
+  issuePickerItems,
+  PickerList,
   useIsMobile,
   conceptIcon,
-  type PickerOption,
+  type PickerItem,
   BoardGlyph,
 } from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
@@ -26,7 +27,11 @@ import {
   type IssueSearchRow,
 } from "@/lib/issue-search"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import {
+  IssueStatusIcon,
+  toStatusPickerStatus,
+} from "@/components/issue-properties/status-dropdown"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
@@ -66,7 +71,8 @@ const NO_ROWS: SearchResult[] = []
 //
 // The engine is the shared one (EXP-892, `useIssueSearchResults`: instant
 // local ranking over the synced rows, the server's full-text pass spliced in
-// behind). The body is the shared picker (EXP-941/EXP-958, `ComboboxList`):
+// behind). The body is the shared picker (EXP-1021, `PickerList` — the
+// primitive's body with no surface around it, since both shells ARE one):
 // the search field, the rows and the empty state all come from it, so this
 // surface can no longer drift from every other searchable list — cmdk owns
 // the keyboard model (top row selected as results arrive, ↑/↓, Enter opens,
@@ -84,6 +90,7 @@ export function IssueSearchSheet({
   teamSlug,
 }: IssueSearchSheetProps) {
   const [query, setQuery] = useState(``)
+  const { resolve } = useTeamStatusesContext()
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const boards = useTeamBoards(teamId)
@@ -129,16 +136,27 @@ export function IssueSearchSheet({
     emptyQuery: `none`,
   })
 
-  // The option carries the IDENTITY only; the row it stands for is looked up
+  // The item carries the IDENTITY only; the row it stands for is looked up
   // here (two issues can share a title).
-  const options = useMemo<PickerOption[]>(
+  // EXP-1021: the rows carry the issue's resolved STATUS glyph like every
+  // other issue picker's; this surface keeps its own two-line body (the board
+  // and the identifier under the title, EXP-922), so it draws that glyph
+  // itself rather than through the primitive's leading slot.
+  const items = useMemo(
     () =>
-      results.map((issue) => ({
-        value: issue.id,
-        label: issue.title,
-        keywords: [issue.identifier, issue.title],
-      })),
-    [results]
+      issuePickerItems(
+        results.map((issue) => {
+          const status = toStatusPickerStatus(resolve(issue))
+          return {
+            id: issue.id,
+            identifier: issue.identifier,
+            title: issue.title,
+            icon: status.icon,
+            color: status.colorHex ?? undefined,
+          }
+        })
+      ),
+    [results, resolve]
   )
   const resultById = useMemo(
     () => new Map<string, SearchResult>(results.map((i) => [i.id, i])),
@@ -194,8 +212,8 @@ export function IssueSearchSheet({
       </div>
     )
 
-  const renderOption = (option: PickerOption) => {
-    const issue = resultById.get(option.value)
+  const renderItem = (item: PickerItem) => {
+    const issue = resultById.get(item.value)
     if (!issue) return null
     const board = boardMap.get(issue.boardId)
     return (
@@ -226,21 +244,25 @@ export function IssueSearchSheet({
     leading?: ReactNode,
     inputVariant?: `inline` | `field`
   ) => (
-    <ComboboxList
-      options={options}
+    <PickerList
+      mode="single"
+      items={items}
+      // Picking NAVIGATES, so nothing is ever the picked row and none wears
+      // a check.
       value={null}
       onChange={(id) => {
-        const issue = id === null ? undefined : resultById.get(id)
+        const issue = resultById.get(id)
         if (issue) handlePick(issue)
       }}
+      search
       shouldFilter={false}
       leading={leading}
       inputVariant={inputVariant}
       query={query}
       onQueryChange={setQuery}
-      placeholder={ISSUE_SEARCH_PLACEHOLDER}
+      searchPlaceholder={ISSUE_SEARCH_PLACEHOLDER}
       emptyText={emptyState}
-      renderOption={renderOption}
+      renderItem={renderItem}
       className={className}
       listClassName="max-h-none"
     />

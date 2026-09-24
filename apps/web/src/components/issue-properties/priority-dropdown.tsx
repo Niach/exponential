@@ -1,4 +1,4 @@
-import { Button, Combobox } from "@exp/ui"
+import { Button, PriorityPicker } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssuePriorityConfig,
@@ -42,21 +42,19 @@ export function PriorityDropdown({
   const TriggerIcon = current.icon
 
   return (
-    <Combobox
-      searchable={false}
+    <PriorityPicker
+      options={priorities}
       value={priority}
       disabled={disabled}
-      options={priorities}
       mobileTitle="Priority"
       width="sm"
       onChange={async (nextPriority) => {
-        if (!nextPriority) return
         await trpc.issues.update.mutate({
           id: issueId,
-          priority: nextPriority,
+          priority: nextPriority as IssuePriority,
         })
       }}
-      renderTrigger={() => (
+      trigger={
         <Button
           variant="ghost"
           className="h-8 w-8 md:h-5 md:w-5 p-0"
@@ -65,7 +63,7 @@ export function PriorityDropdown({
         >
           <TriggerIcon className={`h-3.5 w-3.5 ${current.color}`} />
         </Button>
-      )}
+      }
     />
   )
 }

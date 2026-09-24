@@ -11,7 +11,7 @@ import SwiftUI
 /// `IssueLabelsSelector`, whose pills toggle inline and whose add chip opens
 /// the searchable Labels sheet, and by `IssueRelationsSection` (EXP-736). The
 /// Board row hides when there is nowhere to move.
-struct IssuePropertiesSheet<Child: View>: View {
+struct IssuePropertiesSheet<Child: View, Pickers: View>: View {
     let issue: IssueEntity
     /// EXP-314: the issue's status resolved against its team's status rows.
     let status: ResolvedIssueStatus
@@ -36,8 +36,13 @@ struct IssuePropertiesSheet<Child: View>: View {
     /// Fired once a child finished dismissing — the host promotes whatever a
     /// picker parked (a hand-off target, the picked move board).
     let onChildDismiss: () -> Void
-    /// The per-property pickers, built by the host (they need the view model).
+    /// The per-property children that still present a VIEW, built by the host
+    /// (they need the view model).
     @ViewBuilder let child: (IssuePropertyChild) -> Child
+    /// EXP-1021: the typed pickers, also host-built. They own their own sheets
+    /// and read `activeChild` through their own bindings, so they ride as a
+    /// second presentation node beside the `.sheet(item:)` below.
+    @ViewBuilder let pickers: () -> Pickers
 
     var body: some View {
         let priority = IssuePriority.from(issue.priority)
@@ -138,9 +143,12 @@ struct IssuePropertiesSheet<Child: View>: View {
             .padding(.bottom, 24)
             // The child rides the INNER node — the chrome root carries the
             // move confirm, and no node may own two presentations (EXP-240).
-            .sheet(item: $activeChild, onDismiss: onChildDismiss) { target in
+            .sheet(item: issueViewChild($activeChild), onDismiss: onChildDismiss) { target in
                 child(target)
             }
+            // A second node for the typed pickers (EXP-240: no node may own
+            // two presentations).
+            .background { pickers() }
         }
     }
 }

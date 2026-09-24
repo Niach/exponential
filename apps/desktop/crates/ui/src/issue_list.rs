@@ -1173,94 +1173,99 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         let ids = ids.clone();
         let list = list.clone();
         let team_id = team_id.clone();
-        with_label(
+        // EXP-1021: the bulk label edit rides the SHARED label picker. Its
+        // rows are tri-state — a label on ALL the picked issues wears the
+        // wash + the active stroke, one on only SOME the bare wash — and
+        // that mark is the row's whole selection language; no trailing
+        // check/minus column, on any client.
+        let trigger = with_label(
             Button::new("bulk-labels")
                 .ghost()
                 .web_sm()
                 .icon(Icon::from(ExpIcon::Tag)),
             "Labels",
         )
-            .tooltip("Labels")
-            .disabled(busy)
-            .dropdown_menu(move |menu, _window, cx| {
-                let mut menu = menu
-                    .scrollable(true)
-                    .max_h(px(320.))
-                    .check_side(Side::Right);
-                let labels = queries::team_labels(cx, &team_id);
-                if labels.is_empty() {
-                    return menu.item(PopupMenuItem::label("No labels in this team"));
+        .tooltip("Labels")
+        .disabled(busy)
+        .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            let labels = queries::team_labels(cx, &team_id);
+            // How many of the PICKED issues carry each label — the tri-state.
+            let selected_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
+            let mut counts: HashMap<String, usize> = HashMap::new();
+            for link in Store::global(cx).collections().issue_labels.read(cx).iter() {
+                if selected_set.contains(link.issue_id.as_str()) {
+                    *counts.entry(link.label_id.clone()).or_default() += 1;
                 }
-                // Tri-state per web: checked when the label is on ALL
-                // selected issues; toggling removes from all, else adds
-                // to all.
-                let selected_set: HashSet<&str> =
-                    ids.iter().map(String::as_str).collect();
-                let mut counts: HashMap<String, usize> = HashMap::new();
-                for link in Store::global(cx).collections().issue_labels.read(cx).iter() {
-                    if selected_set.contains(link.issue_id.as_str()) {
-                        *counts.entry(link.label_id.clone()).or_default() += 1;
-                    }
-                }
-                for label in labels {
-                    let on_all =
-                        counts.get(&label.id).copied().unwrap_or(0) == ids.len();
-                    let dot = label
-                        .color
-                        .as_deref()
-                        .and_then(parse_hex_color)
-                        .unwrap_or(gpui::opaque_grey(0.5, 1.0));
-                    let name = SharedString::from(label.name.clone());
+            }
+            let on_all: HashSet<String> = labels
+                .iter()
+                .filter(|label| {
+                    counts.get(&label.id).copied().unwrap_or(0) == ids.len() && !ids.is_empty()
+                })
+                .map(|label| label.id.clone())
+                .collect();
+            let mut picker = crate::picker::label_picker::label_picker(
+                &labels,
+                on_all.iter().cloned().collect(),
+                trigger,
+                {
                     let ids = ids.clone();
                     let list = list.clone();
-                    let label_id = label.id.clone();
-                    menu = menu.item(
-                        PopupMenuItem::element(move |_, cx| {
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .child(
-                                    div().size_2().rounded_full().flex_shrink_0().bg(dot),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(cx.theme().popover_foreground)
-                                        .child(name.clone()),
-                                )
-                        })
-                        .checked(on_all)
-                        .on_click(move |_, _, cx| {
-                            let label_id = label_id.clone();
-                            let op = if on_all {
-                                "issueLabels.bulkRemove"
-                            } else {
-                                "issueLabels.bulkAdd"
-                            };
-                            spawn_bulk_op(
-                                list.clone(),
-                                cx,
-                                ids.clone(),
-                                false,
-                                op,
-                                move |trpc, chunk| {
-                                    if on_all {
-                                        api::labels::issue_labels_bulk_remove(
-                                            trpc, &label_id, chunk,
-                                        )
+                    let on_all = on_all.clone();
+                    Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                        // The primitive reports the whole new set; the write
+                        // is one bulk add or one bulk remove, so the ONE row
+                        // that changed is the diff — a label that was on all
+                        // of them comes off all of them, anything else goes
+                        // onto all of them.
+                        let next_set: HashSet<&String> = next.iter().collect();
+                        let removed = on_all.iter().find(|id| !next_set.contains(id)).cloned();
+                        let added = next.iter().find(|id| !on_all.contains(*id)).cloned();
+                        let (label_id, remove) = match (removed, added) {
+                            (Some(id), _) => (id, true),
+                            (None, Some(id)) => (id, false),
+                            _ => return,
+                        };
+                        let op = if remove {
+                            "issueLabels.bulkRemove"
+                        } else {
+                            "issueLabels.bulkAdd"
+                        };
+                        spawn_bulk_op(
+                            list.clone(),
+                            cx,
+                            ids.clone(),
+                            false,
+                            op,
+                            move |trpc, chunk| {
+                                if remove {
+                                    api::labels::issue_labels_bulk_remove(trpc, &label_id, chunk)
                                         .map(|_| ())
-                                    } else {
-                                        api::labels::issue_labels_bulk_add(
-                                            trpc, &label_id, chunk,
-                                        )
+                                } else {
+                                    api::labels::issue_labels_bulk_add(trpc, &label_id, chunk)
                                         .map(|_| ())
-                                    }
-                                },
-                            );
-                        }),
-                    );
-                }
-                menu
-            })
+                                }
+                            },
+                        );
+                    })
+                },
+            )
+            .empty_text("No labels in this team");
+            // The third state: on SOME of the picked issues, not all.
+            for item in &mut picker.items {
+                let count = counts.get(&item.value).copied().unwrap_or(0);
+                item.checked = Some(if count == 0 {
+                    crate::picker::PickerChecked::None
+                } else if count == ids.len() {
+                    crate::picker::PickerChecked::All
+                } else {
+                    crate::picker::PickerChecked::Some
+                });
+            }
+            picker.id("bulk-labels-picker").render(window, cx)
+        })
+        .into_any_element()
     };
 
     // EXP-981: the play control is a MENU now — Start as batch (what the

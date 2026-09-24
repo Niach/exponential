@@ -23,8 +23,6 @@ use gpui::{
 };
 use gpui_component::{
     calendar::{CalendarEvent, CalendarState, Date},
-    input::InputState,
-    menu::DropdownMenu as _,
     ActiveTheme as _, Icon, Sizable as _,
 };
 
@@ -51,10 +49,9 @@ pub(crate) struct IssueDraft {
     pub(crate) solo_member_id: Option<String>,
     pub(crate) assignee_id: Option<String>,
     pub(crate) selected_label_ids: Vec<String>,
-    /// EXP-288: the shared label picker's search input (host-owned).
-    label_query: Entity<InputState>,
-    /// Release review R5: the label picker's keyboard selection.
-    label_cursor: Entity<crate::pickers::PickerCursor>,
+    // EXP-1021: the label picker used to make the draft hold its query
+    // field and its keyboard cursor. The shared picker primitive owns both
+    // now — the draft holds only the SET, which is what it writes.
     pub(crate) due_date: Option<NaiveDate>,
     due_calendar: Entity<CalendarState>,
     _subscriptions: Vec<Subscription>,
@@ -63,9 +60,6 @@ pub(crate) struct IssueDraft {
 impl IssueDraft {
     pub(crate) fn new(team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
-        let label_query = cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels…"));
-        let label_cursor = cx.new(|_| crate::pickers::PickerCursor::default());
-
         let mut subscriptions = Vec::new();
         // Due-date picks mirror into our state (web `onDueDateSelect`).
         subscriptions.push(
@@ -92,8 +86,6 @@ impl IssueDraft {
             assignee_id: solo_member_id.clone(),
             solo_member_id,
             selected_label_ids: Vec::new(),
-            label_query,
-            label_cursor,
             due_date: None,
             due_calendar,
             team_id,
@@ -187,28 +179,44 @@ impl IssueDraft {
             .unwrap_or_else(|| domain::statuses::constructed_default(current.anchor));
         let current_key = resolved.group_key.clone();
         let view = cx.entity().clone();
-        chip_button(SharedString::from(format!("{prefix}-status-chip")), cx)
+        let trigger = chip_button(SharedString::from(format!("{prefix}-status-chip")), cx)
             .icon(crate::icons::resolved_status_icon(&resolved, cx))
             .child(crate::pickers::chip_label(resolved.name.clone(), false, cx))
-            .dropdown_menu(move |menu, _window, cx| {
-                let view = view.clone();
-                let statuses = crate::queries::team_status_options(cx, &view.read(cx).team_id);
-                crate::pickers::status_menu(
-                    menu,
-                    &statuses,
-                    &current_key,
-                    // A brand-new issue can't be a duplicate of anything yet —
-                    // no duplicate row here (web `creatableStatusOptions`).
-                    crate::pickers::StatusMenuScope::Assignable,
-                    Rc::new(move |pick, _window, cx| {
-                        view.update(cx, |this, cx| {
-                            this.status = pick;
-                            cx.notify();
-                        });
-                    }),
-                    cx,
-                )
-            })
+            .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            let statuses = crate::queries::team_status_options(cx, &view.read(cx).team_id);
+            // A brand-new issue can't be a duplicate of anything yet — no
+            // duplicate row here (web `creatableStatusOptions`).
+            let offered: Vec<domain::statuses::ResolvedStatus> = crate::pickers::status_menu_options(
+                &statuses,
+                crate::pickers::StatusMenuScope::Assignable,
+            )
+            .into_iter()
+            .cloned()
+            .collect();
+            let picks = offered.clone();
+            crate::picker::status_picker::status_picker(
+                &offered,
+                crate::picker::PickerMode::Single,
+                vec![current_key.clone()],
+                trigger,
+                Rc::new(move |keys, _window, cx| {
+                    let Some(pick) = keys
+                        .first()
+                        .and_then(|key| picks.iter().find(|status| &status.group_key == key))
+                        .map(crate::pickers::StatusPick::from_resolved)
+                    else {
+                        return;
+                    };
+                    view.update(cx, |this, cx| {
+                        this.status = pick;
+                        cx.notify();
+                    });
+                }),
+            )
+            .id(SharedString::from(format!("{prefix}-status-picker")))
+            .render(window, cx)
+        })
     }
 
     fn priority_chip(
@@ -219,23 +227,28 @@ impl IssueDraft {
         let config = domain::options::get_issue_priority_config(self.priority);
         let current = self.priority;
         let view = cx.entity().clone();
-        chip_button(SharedString::from(format!("{prefix}-priority-chip")), cx)
+        let trigger = chip_button(SharedString::from(format!("{prefix}-priority-chip")), cx)
             .icon(option_icon(config, cx))
             .child(crate::pickers::chip_label(config.label, false, cx))
-            .dropdown_menu(move |menu, _window, cx| {
-                let view = view.clone();
-                crate::pickers::priority_menu(
-                    menu,
-                    current,
-                    Rc::new(move |value, _window, cx| {
-                        view.update(cx, |this, cx| {
-                            this.priority = value;
-                            cx.notify();
-                        });
-                    }),
-                    cx,
-                )
-            })
+            .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::priority_picker::priority_picker(
+                crate::picker::PickerMode::Single,
+                vec![current],
+                trigger,
+                Rc::new(move |values, _window, cx| {
+                    let Some(value) = values.first().copied() else {
+                        return;
+                    };
+                    view.update(cx, |this, cx| {
+                        this.priority = value;
+                        cx.notify();
+                    });
+                }),
+            )
+            .id(SharedString::from(format!("{prefix}-priority-picker")))
+            .render(window, cx)
+        })
     }
 
     /// Web `AssigneePicker`: "Assignee" or the selected member's name;
@@ -256,27 +269,36 @@ impl IssueDraft {
         let current = self.assignee_id.clone();
         let view = cx.entity().clone();
 
-        chip_button(SharedString::from(format!("{prefix}-assignee-chip")), cx)
+        let trigger = chip_button(SharedString::from(format!("{prefix}-assignee-chip")), cx)
             .icon(
                 Icon::new(registry::UI_ASSIGNEE)
                     .xsmall()
                     .text_color(cx.theme().muted_foreground),
             )
             .child(crate::pickers::chip_label(label, selected.is_none(), cx))
-            .dropdown_menu(move |menu, _window, _cx| {
-                let view = view.clone();
-                crate::pickers::assignee_menu(
-                    menu,
-                    &users,
-                    current.as_deref(),
-                    Rc::new(move |picked, _window, cx| {
-                        view.update(cx, |this, cx| {
-                            this.assignee_id = picked;
-                            cx.notify();
-                        });
-                    }),
-                )
-            })
+            .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            use crate::picker::assignee_picker::UNASSIGNED_VALUE;
+            crate::picker::assignee_picker::assignee_picker(
+                &users,
+                crate::picker::PickerMode::Single,
+                current.into_iter().collect(),
+                true,
+                trigger,
+                Rc::new(move |picked, _window, cx| {
+                    let assignee_id = picked
+                        .first()
+                        .filter(|user_id| user_id.as_str() != UNASSIGNED_VALUE)
+                        .cloned();
+                    view.update(cx, |this, cx| {
+                        this.assignee_id = assignee_id;
+                        cx.notify();
+                    });
+                }),
+            )
+            .id(SharedString::from(format!("{prefix}-assignee-picker")))
+            .render(window, cx)
+        })
     }
 
     /// Web `LabelPicker` trigger: "Label" or the joined selected names.
@@ -308,29 +330,26 @@ impl IssueDraft {
                     .text_color(cx.theme().muted_foreground),
             )
             .child(crate::pickers::chip_label(label, unset, cx));
-        crate::pickers::label_picker_popover(
-            SharedString::from(format!("{prefix}-labels-popover")),
-            trigger,
-            crate::pickers::LabelPickerParams {
-                labels,
-                selected_ids: self.selected_label_ids.clone(),
-                query: self.label_query.clone(),
-                cursor: self.label_cursor.clone(),
-                on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
-                    let label_id = label_id.to_string();
+        let trigger = trigger.into_any_element();
+        let selected_ids = self.selected_label_ids.clone();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::label_picker::label_picker(
+                &labels,
+                selected_ids.clone(),
+                trigger,
+                // The draft holds the whole SET, which is exactly what the
+                // primitive reports — no per-toggle bookkeeping left.
+                Rc::new(move |next, _window, cx| {
+                    let next = next.clone();
                     view.update(cx, |this, cx| {
-                        if was_selected {
-                            this.selected_label_ids
-                                .retain(|existing| existing != &label_id);
-                        } else {
-                            this.selected_label_ids.push(label_id);
-                        }
+                        this.selected_label_ids = next;
                         cx.notify();
                     });
                 }),
-                width: Some(px(crate::pickers::PICKER_SEARCH_WIDTH)),
-            },
-        )
+            )
+            .id(SharedString::from(format!("{prefix}-labels-picker")))
+            .render(window, cx)
+        })
     }
 
     /// Web due chip: `CalendarDays` + "Jul 3" or "Due date"; the popover hosts

@@ -34,7 +34,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     calendar::{CalendarEvent, CalendarState, Date},
     h_flex,
-    input::InputState,
     menu::{DropdownMenu as _, PopupMenuItem},
     v_flex, ActiveTheme as _, Icon, Sizable as _, Side,
 };
@@ -49,7 +48,7 @@ use domain::rows::{Issue, Label, Board, User};
 
 use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, registry, ExpIcon};
-use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH, PICKER_SEARCH_WIDTH};
+use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH};
 use crate::issue_detail::{issue_web_url, set_duplicate_of, DETAIL_GUTTER};
 use crate::navigation::go_back;
 use crate::queries;
@@ -58,16 +57,10 @@ use crate::surface::{glass_pill, PillMode, PillSize};
 pub struct IssueHeader {
     issue_id: Option<String>,
     due_calendar: Entity<CalendarState>,
-    /// Search query of the Labels popover (EXP-282 — the searchable picker
-    /// follows the labels-picker pattern: the OWNING view holds the
-    /// `InputState`, the popover only renders it).
-    label_query: Entity<InputState>,
-    /// Search query of the move-to-board popover (EXP-316 — web
-    /// `BoardPicker` parity, same host-owned-InputState recipe as labels).
-    board_query: Entity<InputState>,
-    /// Release review R5: the label and board pickers' keyboard selections.
-    label_cursor: Entity<crate::pickers::PickerCursor>,
-    board_cursor: Entity<crate::pickers::PickerCursor>,
+    // EXP-1021: the label and move-to-board pickers used to make this view
+    // hold their query fields and their keyboard cursors. The shared picker
+    // primitive owns both now, so the header holds no picker state at all —
+    // only the due-date calendar, which is not one of the ten.
     /// The detail view's Start-coding control, rendered here as the "Agent"
     /// group (EXP-256, web parity — the entity stays owned by the detail
     /// view, which also reads its `resolved_repo` for the actions menu).
@@ -93,18 +86,7 @@ impl IssueHeader {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let due_calendar = cx.new(|cx| CalendarState::new(window, cx));
-        let label_query =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Filter labels..."));
-        let board_query =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Move to board..."));
-
         let mut subscriptions = Vec::new();
-        // Live label search re-filters the popover's rows (EXP-282).
-        let label_cursor = cx.new(|_| crate::pickers::PickerCursor::default());
-        let board_cursor = cx.new(|_| crate::pickers::PickerCursor::default());
-        subscriptions.push(cx.observe(&label_query, |_, _, cx| cx.notify()));
-        // Live board search re-filters the move-to-board popover (EXP-316).
-        subscriptions.push(cx.observe(&board_query, |_, _, cx| cx.notify()));
         // User picked a due date in the popover → immediate mutation (the
         // popover stays open, web parity — shadcn's Calendar doesn't
         // auto-close either).
@@ -156,10 +138,6 @@ impl IssueHeader {
         Self {
             issue_id: None,
             due_calendar,
-            label_query,
-            board_query,
-            label_cursor,
-            board_cursor,
             start_coding,
             merge_suppressed: false,
             badge_face: crate::pr_graph::BadgeFace::Issue,
@@ -312,30 +290,43 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let trigger = chip_button("prop-status", cx)
             .icon(crate::icons::resolved_status_icon(&resolved, cx))
-            .child(crate::pickers::chip_label(resolved.name.clone(), false, cx));
-        trigger.dropdown_menu(move |menu, _, cx| {
-            let issue_id = issue_id.clone();
+            .child(crate::pickers::chip_label(resolved.name.clone(), false, cx))
+            .into_any_element();
+        // EXP-1021: THE status picker, through the shared primitive.
+        crate::picker::deferred(move |window, cx| {
             let statuses = match &team_id {
                 Some(team_id) => crate::queries::team_status_options(cx, team_id),
                 None => domain::statuses::default_resolved_statuses(),
             };
-            crate::pickers::status_menu(
-                menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
+            // L27: the duplicate row IS offered here (single-issue scope) —
+            // `apply_status_selection` intercepts it into the canonical
+            // picker, desktop's only path to marking a duplicate.
+            let offered: Vec<domain::statuses::ResolvedStatus> = crate::pickers::status_menu_options(
                 &statuses,
-                &current_key,
-                // L27: a duplicate-category pick opens the picker; every other
-                // status writes.
                 crate::pickers::StatusMenuScope::SingleIssue,
-                Rc::new(move |pick, window, cx| {
-                    crate::issue_detail::apply_status_selection(
-                        issue_id.clone(),
-                        pick,
-                        window,
-                        cx,
-                    );
-                }),
-                cx,
             )
+            .into_iter()
+            .cloned()
+            .collect();
+            let picks = offered.clone();
+            crate::picker::status_picker::status_picker(
+                &offered,
+                crate::picker::PickerMode::Single,
+                vec![current_key.clone()],
+                trigger,
+                Rc::new(move |keys, window, cx| {
+                    let Some(pick) = keys
+                        .first()
+                        .and_then(|key| picks.iter().find(|status| &status.group_key == key))
+                        .map(crate::pickers::StatusPick::from_resolved)
+                    else {
+                        return;
+                    };
+                    crate::issue_detail::apply_status_selection(issue_id.clone(), pick, window, cx);
+                }),
+            )
+            .id("prop-status-picker")
+            .render(window, cx)
         })
     }
 
@@ -355,19 +346,24 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let trigger = chip_button("prop-priority", cx)
             .icon(option_icon(config, cx))
-            .child(crate::pickers::chip_label(config.label, false, cx));
-        trigger.dropdown_menu(move |menu, _, cx| {
-            let issue_id = issue_id.clone();
-            crate::pickers::priority_menu(
-                menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
-                current,
-                Rc::new(move |value, _window, cx| {
+            .child(crate::pickers::chip_label(config.label, false, cx))
+            .into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            crate::picker::priority_picker::priority_picker(
+                crate::picker::PickerMode::Single,
+                vec![current],
+                trigger,
+                Rc::new(move |values, _window, cx| {
+                    let Some(value) = values.first().copied() else {
+                        return;
+                    };
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                     input.priority = Some(value);
                     spawn_issue_update(cx, input);
                 }),
-                cx,
             )
+            .id("prop-priority-picker")
+            .render(window, cx)
         })
     }
 
@@ -406,21 +402,29 @@ impl IssueHeader {
                 .child(crate::pickers::chip_label("Assignee", true, cx)),
         };
 
-        trigger.dropdown_menu(move |menu, _, _| {
-            let issue_id = issue_id.clone();
-            crate::pickers::assignee_menu(
-                menu.min_w(px(PICKER_MENU_MIN_WIDTH)),
+        let trigger = trigger.into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            use crate::picker::assignee_picker::UNASSIGNED_VALUE;
+            crate::picker::assignee_picker::assignee_picker(
                 &users,
-                current_id.as_deref(),
+                crate::picker::PickerMode::Single,
+                current_id.clone().into_iter().collect(),
+                // `Unassigned` is a real ROW, never a hidden placeholder.
+                true,
+                trigger,
                 Rc::new(move |picked, _window, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
-                    input.assignee_id = match picked {
-                        Some(user_id) => api::Patch::Set(user_id),
-                        None => api::Patch::Null,
+                    input.assignee_id = match picked.first() {
+                        Some(user_id) if user_id != UNASSIGNED_VALUE => {
+                            api::Patch::Set(user_id.clone())
+                        }
+                        _ => api::Patch::Null,
                     };
                     spawn_issue_update(cx, input);
                 }),
             )
+            .id("prop-assignee-picker")
+            .render(window, cx)
         })
     }
 
@@ -456,20 +460,28 @@ impl IssueHeader {
                 cx,
             ));
 
-        crate::pickers::label_picker_popover(
-            "prop-labels-popover",
-            trigger,
-            crate::pickers::LabelPickerParams {
-                labels,
-                selected_ids: selected,
-                query: self.label_query.clone(),
-                cursor: self.label_cursor.clone(),
-                on_toggle: Rc::new(move |label_id, was_selected, _window, cx| {
-                    toggle_label(cx, issue_id.clone(), label_id.to_string(), was_selected);
+        let trigger = trigger.into_any_element();
+        crate::picker::deferred(move |window, cx| {
+            let before = selected.clone();
+            crate::picker::label_picker::label_picker(
+                &labels,
+                selected.clone(),
+                trigger,
+                // The primitive reports the whole new SET; the write is still
+                // one add/remove, so the ONE row that changed is the diff.
+                Rc::new(move |next, _window, cx| {
+                    let added = next.iter().find(|id| !before.contains(id));
+                    let removed = before.iter().find(|id| !next.contains(id));
+                    if let Some(label_id) = added {
+                        toggle_label(cx, issue_id.clone(), label_id.clone(), false);
+                    } else if let Some(label_id) = removed {
+                        toggle_label(cx, issue_id.clone(), label_id.clone(), true);
+                    }
                 }),
-                width: Some(px(PICKER_SEARCH_WIDTH)),
-            },
-        )
+            )
+            .id("prop-labels-picker")
+            .render(window, cx)
+        })
     }
 
     /// The due-date control (web `DueDateControl`): a `CalendarDays` chip
@@ -983,20 +995,28 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let identifier = issue.identifier.clone();
         let boards = crate::issue_list::move_target_boards(cx, &issue.board_id);
+        let current_board_id = issue.board_id.clone();
+        let trigger = chip_button("prop-board", cx)
+            .icon(icon.xsmall())
+            .child(crate::pickers::chip_label(name, false, cx))
+            .into_any_element();
         Some(
-            crate::pickers::board_picker_popover(
-                "prop-board-popover",
-                chip_button("prop-board", cx)
-                    .icon(icon.xsmall())
-                    .child(crate::pickers::chip_label(name, false, cx)),
-                crate::pickers::BoardPickerParams {
-                    boards,
-                    current_board_id: issue.board_id.clone(),
-                    query: self.board_query.clone(),
-                    cursor: self.board_cursor.clone(),
+            crate::picker::deferred(move |window, cx| {
+                crate::picker::board_picker::board_picker(
+                    &boards,
+                    Some(current_board_id.clone()),
+                    trigger,
                     // EXP-426: the pick confirms before moving — the canonical
-                    // cross-client wording (web/iOS/Android share it).
-                    on_pick: Rc::new(move |board_id: String, window, cx| {
+                    // cross-client wording (web/iOS/Android share it). Picking
+                    // the issue's OWN board is a no-op, as it always was.
+                    Rc::new(move |picked, window, cx| {
+                        let Some(board_id) = picked
+                            .into_iter()
+                            .next()
+                            .filter(|board_id| board_id != &current_board_id)
+                        else {
+                            return;
+                        };
                         let target_name = Store::global(cx)
                             .collections()
                             .boards
@@ -1013,9 +1033,10 @@ impl IssueHeader {
                             target_name,
                         );
                     }),
-                    width: Some(px(PICKER_SEARCH_WIDTH)),
-                },
-            )
+                )
+                .id("prop-board-picker")
+                .render(window, cx)
+            })
             .into_any_element(),
         )
     }

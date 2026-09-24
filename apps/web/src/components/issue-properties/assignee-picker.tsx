@@ -1,8 +1,10 @@
-import { Combobox, Pill, UserAvatar, type PickerOption } from "@exp/ui"
-import { User as UserIcon } from "lucide-react"
+import { AssigneePicker as UiAssigneePicker, Pill, UserAvatar } from "@exp/ui"
+import { conceptIcon } from "@exp/ui"
 import type { User } from "@/db/schema"
 import { cn } from "@/lib/utils"
 import { displayUserName } from "@/lib/user-display"
+
+const UnassignedGlyph = conceptIcon(`ui-unassigned`)
 
 interface AssigneePickerProps {
   disabled?: boolean
@@ -20,9 +22,11 @@ interface AssigneePickerProps {
   align?: `start` | `end`
 }
 
-// EXP-941: the shared `Combobox` — "Unassign" is the primitive's `noneLabel`
-// row (it reports `null`, so no `__unassign__` sentinel exists any more) and
-// the picked row wears the primitive's trailing check.
+// EXP-1021: the shared `AssigneePicker` (@exp/ui `picker/assignee-picker.tsx`)
+// — avatar + name + email rows, an `Unassigned` row that reports `null`, and
+// the primitive's selection language. This file is now only the app's half:
+// the team's `User` rows adapted to the picker's members, and the default
+// chip trigger.
 export function AssigneePicker({
   disabled,
   users,
@@ -32,42 +36,27 @@ export function AssigneePicker({
   triggerClassName,
   align = `start`,
 }: AssigneePickerProps) {
-  const options: PickerOption[] = users.map((user) => ({
-    value: user.id,
-    label: displayUserName(user, user.id),
-    keywords: [displayUserName(user, user.id), user.email ?? ``],
+  const members = users.map((user) => ({
+    id: user.id,
+    name: displayUserName(user, user.id),
+    email: user.email,
+    image: user.image,
   }))
-  const usersById = new Map(users.map((user) => [user.id, user]))
-  const selectedUser = selectedUserId ? usersById.get(selectedUserId) : undefined
+  const selectedUser = members.find((member) => member.id === selectedUserId)
 
   return (
-    <Combobox
-      options={options}
+    <UiAssigneePicker
+      members={members}
+      allowsNone
       value={selectedUserId}
       onChange={onSelect}
-      noneLabel="Unassign"
       disabled={disabled}
       mobileTitle="Assignee"
-      placeholder="Search people..."
+      searchPlaceholder="Search people..."
       emptyText="No users found."
       width="sm"
       align={align}
-      renderOption={(option) => (
-        <>
-          <UserAvatar
-            size={20}
-            user={{
-              id: option.value,
-              name: String(option.label),
-              image: usersById.get(option.value)?.image ?? null,
-            }}
-          />
-          <span className="min-w-0 flex-1 truncate text-sm">
-            {option.label}
-          </span>
-        </>
-      )}
-      renderTrigger={() =>
+      trigger={
         trigger ?? (
           <Pill
             mode="action"
@@ -76,21 +65,12 @@ export function AssigneePicker({
           >
             {selectedUser ? (
               <>
-                <UserAvatar
-                  size={16}
-                  user={{
-                    id: selectedUser.id,
-                    name: displayUserName(selectedUser, selectedUser.id),
-                    image: selectedUser.image,
-                  }}
-                />
-                <span className="truncate">
-                  {displayUserName(selectedUser, selectedUser.id)}
-                </span>
+                <UserAvatar size={16} user={selectedUser} />
+                <span className="truncate">{selectedUser.name}</span>
               </>
             ) : (
               <>
-                <UserIcon className="size-3" />
+                <UnassignedGlyph className="size-3" />
                 Assignee
               </>
             )}

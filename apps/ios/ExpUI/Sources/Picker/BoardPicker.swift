@@ -26,6 +26,14 @@ public struct BoardPicker<Trigger: View>: View {
     public let value: String?
     public let onChange: (String) -> Void
     public let search: Bool
+    /// EXP-1021 — the surface controls every typed picker forwards verbatim
+    /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
+    /// property row or `…` menu drives `open` and hides the trigger, and
+    /// `onDismiss` fires once the sheet finished animating away (what a
+    /// hand-off to a SECOND picker is promoted on).
+    public let open: Binding<Bool>?
+    public let hideTrigger: Bool
+    public let onDismiss: (() -> Void)?
     private let trigger: () -> Trigger
 
     public init(
@@ -33,12 +41,18 @@ public struct BoardPicker<Trigger: View>: View {
         value: String?,
         onChange: @escaping (String) -> Void,
         search: Bool = true,
+        open: Binding<Bool>? = nil,
+        hideTrigger: Bool = false,
+        onDismiss: (() -> Void)? = nil,
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.boards = boards
         self.value = value
         self.onChange = onChange
         self.search = search
+        self.open = open
+        self.hideTrigger = hideTrigger
+        self.onDismiss = onDismiss
         self.trigger = trigger
     }
 
@@ -62,6 +76,9 @@ public struct BoardPicker<Trigger: View>: View {
             search: search,
             emptyText: "No boards",
             title: "Board",
+            open: open,
+            hideTrigger: hideTrigger,
+            onDismiss: onDismiss,
             trigger: trigger
         )
     }

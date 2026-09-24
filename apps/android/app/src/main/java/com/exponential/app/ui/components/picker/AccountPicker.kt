@@ -37,7 +37,14 @@ fun AccountPicker(
     options: List<AccountPickerOption>,
     value: String?,
     onChange: (String) -> Unit,
-    trigger: @Composable (open: () -> Unit) -> Unit,
+    /**
+     * EXP-1021: the sheet CONTROLLED by the caller, for a picker that is a
+     * state machine rather than a chip (the issue screens open theirs from a
+     * properties sheet that has already closed).
+     */
+    open: Boolean? = null,
+    onOpenChange: ((Boolean) -> Unit)? = null,
+    trigger: @Composable (open: () -> Unit) -> Unit = {},
 ) {
     Picker(
         items = accountPickerItems(options),
@@ -45,6 +52,8 @@ fun AccountPicker(
         value = setOfNotNull(value),
         onChange = { picked -> picked.firstOrNull()?.let(onChange) },
         title = "Account",
+        open = open,
+        onOpenChange = onOpenChange,
         trigger = trigger,
     )
 }

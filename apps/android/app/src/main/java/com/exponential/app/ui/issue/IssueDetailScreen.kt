@@ -57,8 +57,15 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.domain.IssueStatusResolver
-import com.exponential.app.domain.issuePriorityOrder
-import com.exponential.app.ui.components.BoardIcon
+import com.exponential.app.ui.components.picker.AssigneePicker
+import com.exponential.app.ui.components.picker.BoardPicker
+import com.exponential.app.ui.components.picker.PriorityPicker
+import com.exponential.app.ui.components.picker.StatusPicker
+import com.exponential.app.ui.components.issuePriorityPickerOptions
+import com.exponential.app.ui.components.pickedPriority
+import com.exponential.app.ui.components.toPickerBoard
+import com.exponential.app.ui.components.toPickerMember
+import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -68,8 +75,6 @@ import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
-import com.exponential.app.ui.components.PriorityIcon
-import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.markdown.EditorModel
 import com.exponential.app.ui.markdown.IssueRefHandler
@@ -787,48 +792,51 @@ fun IssueFace(
 
     if (activeSheet == IssueSheet.Status && issue != null && isModerator) {
         val currentStatus = IssueStatusResolver.resolve(issue, teamStatuses)
-        IssuePickerSheet(
-            title = "Status",
-            items = teamStatuses,
-            selected = currentStatus,
-            keyOf = { it.id },
-            labelOf = { it.name },
-            leadingContent = { StatusIcon(it, size = 16.dp) },
-            onSelect = {
+        StatusPicker(
+            statuses = teamStatuses.map { it.toPickerRow() },
+            value = setOfNotNull(currentStatus?.id),
+            onChange = { picked ->
+                val status = picked.firstOrNull()?.let { id -> teamStatuses.firstOrNull { it.id == id } }
+                    ?: return@StatusPicker
                 // Duplicate = status interception (L27): picking a
                 // duplicate-CATEGORY status opens the canonical-issue picker
                 // instead of writing the status directly; markDuplicate sets
                 // duplicateOfId + status='duplicate' atomically (still the enum
                 // path — EXP-314). Cancelling leaves the status untouched.
-                if (it.category == IssueStatusCategory.Duplicate) {
+                if (status.category == IssueStatusCategory.Duplicate) {
                     controller.activeSheet = IssueSheet.Duplicate
                 } else {
-                    viewModel.updateStatus(it)
+                    viewModel.updateStatus(status)
                 }
             },
-            onDismiss = { if (controller.activeSheet == IssueSheet.Status) controller.activeSheet = null },
+            open = true,
+            onOpenChange = { open ->
+                // The duplicate interception has already moved the sheet on;
+                // only a dismiss that still owns the Status sheet closes it.
+                if (!open && controller.activeSheet == IssueSheet.Status) controller.activeSheet = null
+            },
         )
     }
 
     if (activeSheet == IssueSheet.Priority && issue != null && isModerator) {
         val currentPriority = IssuePriority.fromWire(issue.priority)
-        IssuePickerSheet(
-            title = "Priority",
-            items = issuePriorityOrder,
-            selected = currentPriority,
-            labelOf = { it.label },
-            leadingContent = { PriorityIcon(it, size = 16.dp) },
-            onSelect = { viewModel.updatePriority(it) },
-            onDismiss = { controller.activeSheet = null },
+        PriorityPicker(
+            options = issuePriorityPickerOptions(),
+            value = setOf(currentPriority.wire),
+            onChange = { picked -> pickedPriority(picked)?.let(viewModel::updatePriority) },
+            open = true,
+            onOpenChange = { open -> if (!open) controller.activeSheet = null },
         )
     }
 
     if (activeSheet == IssueSheet.Assignee && issue != null && isModerator) {
-        AssigneePickerSheet(
-            users = teamUsers,
-            selectedUserId = issue.assigneeId,
-            onSelect = { viewModel.updateAssignee(it) },
-            onDismiss = { controller.activeSheet = null },
+        AssigneePicker(
+            members = teamUsers.map { it.toPickerMember() },
+            value = setOfNotNull(issue.assigneeId),
+            // An empty set IS unassigned (the contract's single-mode arm).
+            onChange = { picked -> viewModel.updateAssignee(picked.firstOrNull()) },
+            open = true,
+            onOpenChange = { open -> if (!open) controller.activeSheet = null },
         )
     }
 
@@ -883,15 +891,13 @@ fun IssueFace(
     // Move to board (EXP-57): pick a same-team target, then confirm —
     // the move renumbers the issue (new identifier), so it's consequential.
     if (activeSheet == IssueSheet.MoveBoard && issue != null && isModerator) {
-        IssuePickerSheet(
+        BoardPicker(
+            boards = moveTargets.map { it.toPickerBoard() },
+            value = null,
+            onChange = { id -> moveTarget = moveTargets.firstOrNull { it.id == id } },
             title = "Move to board",
-            items = moveTargets,
-            selected = null,
-            keyOf = { it.id },
-            labelOf = { it.name },
-            leadingContent = { BoardIcon(it, size = 18.dp) },
-            onSelect = { moveTarget = it },
-            onDismiss = { controller.activeSheet = null },
+            open = true,
+            onOpenChange = { open -> if (!open) controller.activeSheet = null },
         )
     }
 

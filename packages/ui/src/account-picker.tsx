@@ -2,10 +2,13 @@ import * as React from "react"
 
 import { AgentMark, agentLabel } from "./agent-picker"
 import { cn } from "./cn"
-import { Combobox } from "./combobox"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
 import { Meter, type MeterTone } from "./meter"
-import type { PickerOption } from "./picker-option"
+import { Picker, type PickerItem } from "./picker/picker"
+import {
+  PICKER_INLINE_WORD,
+  PickerTrigger,
+} from "./picker/picker-trigger"
 import { useIsMobile } from "./use-mobile"
 
 // EXP-872: ONE account picker per platform (web here, desktop
@@ -160,9 +163,10 @@ function AccountOptionRow({
   )
 }
 
-/** THE account picker. `inline` = one word of the composer's muted options
- *  line (collapses to plain text with a single login), `row` = the glass
- *  form ladder's picker row (`mobileTitle` leading, the pick trailing). */
+/** THE account picker, on the shared `Picker` primitive (EXP-1021).
+ *  `inline` = one word of the composer's muted options line (collapses to
+ *  plain text with a single login), `row` = the glass form ladder's picker
+ *  row (`mobileTitle` leading, the pick trailing). */
 export function AccountPicker({
   value,
   options,
@@ -192,7 +196,7 @@ export function AccountPicker({
     () => new Map(options.map((option) => [option.key, option])),
     [options]
   )
-  const pickerOptions = React.useMemo<PickerOption[]>(
+  const items = React.useMemo<PickerItem[]>(
     () =>
       options.map((option) => ({
         value: option.key,
@@ -202,27 +206,55 @@ export function AccountPicker({
       })),
     [options]
   )
+  const picked = value === null ? undefined : byKey.get(value)
+
+  // One login is not a choice: the sentence just says it (the `inline` rule
+  // `Combobox` keeps for its own word). It still carries the picker marker —
+  // this IS the account picker, with nothing left to pick.
+  if (variant === `inline` && options.length <= 1) {
+    const word = picked ?? options[0]
+    return (
+      <span data-slot="picker" data-picker-mode="single" className="contents">
+        <span
+          data-slot="combobox-inline-word"
+          data-testid={testId}
+          className={cn(PICKER_INLINE_WORD, className)}
+          title={mobileTitle}
+        >
+          {word ? <AccountOptionLabel option={word} /> : mobileTitle}
+        </span>
+      </span>
+    )
+  }
+
   return (
-    <Combobox
-      triggerVariant={variant}
-      searchable={false}
-      mobileTitle={mobileTitle}
+    <Picker
+      mode="single"
+      items={items}
       value={value}
-      options={pickerOptions}
+      onChange={onChange}
+      mobileTitle={mobileTitle}
       align={align}
       width={width}
       disabled={disabled}
-      className={className}
       data-testid={testId}
-      onChange={(next) => {
-        if (next !== null) onChange(next)
-      }}
-      renderOption={(option) => {
-        const account = byKey.get(option.value)
+      trigger={
+        <PickerTrigger
+          variant={variant}
+          label={mobileTitle}
+          value={picked ? <AccountOptionLabel option={picked} /> : undefined}
+          disabled={disabled}
+          className={className}
+        />
+      }
+      // The EXP-992 preview is the one bespoke row body in the package: a
+      // hover card beside the row on a pointer, the bars inline on touch.
+      renderItem={(item) => {
+        const account = byKey.get(item.value)
         return account ? (
           <AccountOptionRow option={account} touch={touch} />
         ) : (
-          <span className="min-w-0 flex-1 truncate text-sm">{option.label}</span>
+          <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
         )
       }}
     />
