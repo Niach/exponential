@@ -218,6 +218,14 @@ mod tests {
     }
 
     #[test]
+    fn keeps_model_as_model_even_beside_old_pins() {
+        let launch = normalize_workflow_launch(&json!({ "model": "sonnet", "contractModel": "fable" }));
+        assert_eq!(launch.agent, WorkflowLaunchAgent::Claude);
+        assert_eq!(launch.model, "sonnet");
+        assert_eq!(launch.strong_model, "fable");
+    }
+
+    #[test]
     fn drops_a_blank_account() {
         assert_eq!(normalize_workflow_launch(&json!({ "account": "" })), claude());
         assert_eq!(normalize_workflow_launch(&json!({ "account": null })), claude());

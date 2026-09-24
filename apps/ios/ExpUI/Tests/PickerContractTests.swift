@@ -29,7 +29,10 @@ final class PickerContractTests: XCTestCase {
             AssigneePicker<EmptyView>.items([AssigneePickerMember(id: "u", name: "Ada")], allowsNone: true).map(\.label),
             ["Unassigned", "Ada"]
         )
-        XCTAssertEqual(IconPicker.items(for: .device).count, DomainContract.deviceIconValues.count)
+        // The device set is the registry's append-only `devicePickable` list;
+        // `laptop` has been in it since EXP-924 and can never leave.
+        XCTAssertTrue(IconPicker.items(for: .device).contains { $0.value == "laptop" && $0.icon == "laptop" })
+        XCTAssertFalse(IconPicker.items(for: .board).contains { $0.value == "laptop" })
     }
 
     func testEveryTypedPickerRendersThroughThePrimitive() throws {
