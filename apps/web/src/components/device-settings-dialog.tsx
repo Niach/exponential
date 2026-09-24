@@ -81,7 +81,8 @@ import {
   CLI_DEFAULT_EFFORT,
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
-import { accountOptionKey, flattenAccounts, type AccountOption } from "@/lib/accounts/account-option"
+import { accountOptionKey } from "@/lib/accounts/account-option"
+import { deviceAccountOptions } from "@/lib/devices/account-options"
 import { healthBadgeLabel, SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import { agentLabel } from "@exp/ui"
 
@@ -230,21 +231,11 @@ export function DeviceSettingsDialog({
     row?.agentUsage,
   ])
 
-  // EXP-872: the default-account rows — the machine's flattened logins, or
-  // one ambient option per editable agent while it reports none (an offline
-  // machine's defaults stay editable either way).
+  // EXP-872/EXP-1020: the default-account rows — the machine's flattened
+  // logins plus one ambient option per editable agent that reports none, so
+  // a one-login machine can still be pointed at the other agent.
   const defaultAccountOptions = useMemo(() => {
-    const flat: AccountOption[] = row ? flattenAccounts(row) : []
-    const options: AccountOption[] =
-      flat.length > 0
-        ? flat
-        : editorAgents.map((agent) => ({
-            id: SYSTEM_PROFILE_ID,
-            agent: agent as AccountOption[`agent`],
-            email: agentLabel(agent),
-            isDeviceDefault: false,
-            health: `unknown` as const,
-          }))
+    const options = deviceAccountOptions(row, editorAgents)
     return options.map((option) => ({
       key: accountOptionKey(option),
       id: option.id,

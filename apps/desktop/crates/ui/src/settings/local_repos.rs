@@ -25,7 +25,7 @@
 //!   hatch.
 //! - **Worktrees** (EXP-369, regrouped in EXP-694): the scan carries each
 //!   clone's linked worktrees, and the pane renders ALL of them as ONE flat
-//!   inset-grouped list — the Device settings dialog's look, no per-clone
+//!   inset-grouped list — no per-clone
 //!   nesting and no expander (a clone with no worktrees simply contributes no
 //!   row; its maintenance row still appears in the "Local repositories" group
 //!   below). Per worktree: a confirmed force-remove and a terminal button
@@ -42,7 +42,7 @@
 //!   modifications always skip (reported); untracked-only debris does not.
 //!   All git ops are `std::process::Command("git")` with explicit argv
 //!   (masterplan L5) — no `gh`, no git library, no shell. EXP-694: the
-//!   section header carries the Device-settings broom, which sweeps EVERY
+//!   section header carries the broom, which sweeps EVERY
 //!   clone (each still under its own policy and its own inline report); a
 //!   clone row keeps the same broom for itself alone.
 //! - **Remove local copy**: delete the clone dir + its `.worktrees` sibling
@@ -50,6 +50,13 @@
 //!   one of the clone's worktrees (the Remove button disables with the reason).
 //!
 //! No auto-GC (§4.7): every deletion is an explicit, confirmed user action.
+//!
+//! EXP-1020: this is THE worktrees surface. The device settings dialog's
+//! section (and the remote `worktree_remove` / `worktree_prune` queue behind
+//! it) is gone on all four clients — a machine's worktrees are LOCAL, so
+//! they are cleaned where they live. The section also says when the repos
+//! root's filesystem is running low, since worktrees are the one thing here
+//! that grows without being asked.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -169,8 +176,15 @@ const DISK_LOW_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 const DISK_LOW_FRACTION: f64 = 0.10;
 
 /// The filesystem holding `path`: `(free, capacity)` in bytes. `None` when
-/// the path does not exist yet or the syscall refuses — an unknown disk
-/// never warns.
+/// the path does not exist yet, the syscall refuses, or the platform has no
+/// probe here — an unknown disk never warns.
+///
+/// `statvfs` is unix-only (libc does not declare it on Windows, and
+/// build-desktop.yml does build an msvc target), so the windows arm returns
+/// `None` until someone wires `GetDiskFreeSpaceExW`. A missing warning is
+/// the safe direction: the section still works, it just says nothing about
+/// headroom.
+#[cfg(unix)]
 fn disk_free(path: &Path) -> Option<(u64, u64)> {
     let c_path = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).ok()?;
     // SAFETY: `c_path` is a valid NUL-terminated string for the call, and
@@ -183,6 +197,11 @@ fn disk_free(path: &Path) -> Option<(u64, u64)> {
         let unit = stat.f_frsize as u64;
         Some((stat.f_bavail as u64 * unit, stat.f_blocks as u64 * unit))
     }
+}
+
+#[cfg(not(unix))]
+fn disk_free(_path: &Path) -> Option<(u64, u64)> {
+    None
 }
 
 /// Whether `(free, capacity)` is low enough to say so.
@@ -587,9 +606,9 @@ impl LocalReposPane {
         native_dialog::open_alert(window, cx, spec);
     }
 
-    /// EXP-694: the Worktrees section's prune affordance is MACHINE-wide,
-    /// like the Device settings dialog's broom — the flat list is not grouped
-    /// by clone any more, so neither is the sweep. Each clone still runs its
+    /// EXP-694: the Worktrees section's prune affordance is MACHINE-wide —
+    /// the flat list is not grouped by clone any more, so neither is the
+    /// sweep. Each clone still runs its
     /// own [`Self::run_prune`] (its own policy, its own inline report).
     fn run_prune_all(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let clones: Vec<(String, PathBuf)> = match &self.scan {
@@ -605,7 +624,6 @@ impl LocalReposPane {
         }
     }
 
-    /// Whether any clone is mid-prune/-remove (the header broom's spinner).
     /// EXP-1020: the repos root's headroom, re-read at most every
     /// [`DISK_TTL`]. Takes `&mut self` because the reading is cached on the
     /// pane, and it is read from the render.
@@ -620,6 +638,7 @@ impl LocalReposPane {
         Some(reading)
     }
 
+    /// Whether any clone is mid-prune/-remove (the header broom's spinner).
     fn any_busy(&self) -> bool {
         self.actions.values().any(|action| action.busy)
     }
@@ -793,8 +812,7 @@ impl LocalReposPane {
     /// One worktree row of the FLAT worktrees group (EXP-369/694): its repo +
     /// branch (or directory) over the path on disk, with the terminal
     /// dropdown and the confirmed force-remove on the right. Not grouped by
-    /// clone any more — the machine's worktrees are ONE list, the way the
-    /// Device settings dialog shows them.
+    /// clone any more — the machine's worktrees are ONE list.
     #[allow(clippy::too_many_arguments)]
     fn render_worktree_row(
         &self,
@@ -953,8 +971,7 @@ impl Render for LocalReposPane {
             .unwrap_or_default();
 
         // The count would be a REPO count — misleading under this title.
-        // EXP-694: the broom sits in the header, machine-wide, exactly like
-        // the Device settings dialog's.
+        // EXP-694: the broom sits in the header, machine-wide.
         let sweeping = self.any_busy();
         let has_worktrees = matches!(&self.scan, Scan::Ready(repos)
             if repos.iter().any(|repo| !repo.worktrees.is_empty()));

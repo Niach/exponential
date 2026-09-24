@@ -1,14 +1,16 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.runtime.Composable
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * EXP-1029 contract — sub-shell navigation on Android (web, IDE and iOS carry
- * the same case names), implemented by EXP-1043.
+ * the same cases), implemented by EXP-1043.
  *
  * The composable is a drawing of [SubShellNavigation]: the host renders the
  * level the stack names, the row pushes and the header pops. The rules live
@@ -80,18 +82,45 @@ class SubShellContractTest {
         assertTrue(nav.isOpen)
     }
 
-    /** Each row owns its own page slot: reopening one is its page again. */
+    /**
+     * The parity case (web `keeps the open page in sync with the card's live
+     * props`, iOS `testAnOpenPageFollowsItsLiveBindings`): an open page draws
+     * the surface's CURRENT state, never a snapshot frozen at tap time.
+     *
+     * Android reaches that a different way than the two siblings. There the
+     * page is a closure the host re-invokes, so the test calls it twice and
+     * reads both renders. Here it is a `@Composable` lambda, which a plain
+     * JVM test cannot invoke at all (no composer), and this module has
+     * neither Robolectric nor a compose rule — so the recomposition half is
+     * NOT observable here and is not claimed to be: it rides `KeptAlive` in
+     * [SubShellHost], which keeps the row composing behind the open page so
+     * the compose compiler updates that lambda's captures in place.
+     *
+     * What the stack owns IS observable, and it is the half that would break
+     * the rule on its own: the entry holds the ROW's lambda by reference
+     * (never a copy, never a rendered snapshot), under the row's own slot id
+     * so the level is not re-keyed while it is open.
+     */
     @Test
-    fun aRowKnowsWhenItsOwnPageIsTheOpenOne() {
+    fun anOpenPageFollowsItsLiveBindings() {
         val nav = SubShellNavigation()
         val row = Any()
-        val other = Any()
+        // A CAPTURING page, the shape the sheet hands over (its pickers read
+        // the surface's drafts) — the captures are what must stay live.
+        val model = "opus"
+        val page: @Composable () -> Unit = { check(model.isNotEmpty()) }
 
-        nav.push("Workflow settings", id = row)
+        nav.push("Workflow settings", id = row, content = page)
 
-        assertTrue(nav.isOpen(row))
-        assertFalse(nav.isOpen(other))
-        nav.back()
-        assertFalse(nav.isOpen(row))
+        val entry = nav.pages.last()
+        assertSame(page, entry.content)
+        assertSame(row, entry.id)
+
+        // Going deeper leaves the page underneath holding its own lambda —
+        // a parent level stays composed, so its row's captures stay live.
+        val deeper: @Composable () -> Unit = { check(model.isNotEmpty()) }
+        nav.push("Model", content = deeper)
+        assertSame(page, nav.pages.first().content)
+        assertSame(deeper, nav.pages.last().content)
     }
 }

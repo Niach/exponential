@@ -3,7 +3,7 @@ import { useState } from "react"
 import { describe, expect, it } from "vitest"
 
 import { GlassGroup, GlassRow } from "./glass-rows"
-import { SubShell, SubShellHost } from "./sub-shell"
+import { SubShell, SubShellHost, useSubShell } from "./sub-shell"
 
 // EXP-1029 contract, implemented by EXP-1020 — sub-shell navigation. The
 // IDE, iOS and Android siblings carry the same case names.
@@ -168,6 +168,36 @@ describe(`SubShell navigation (EXP-1029 → EXP-1020)`, () => {
     fireEvent.click(screen.getByText(`Workflow settings`))
     expect(container.querySelector(`[data-slot="sub-shell-page"]`)).toBeNull()
     expect(screen.queryByText(`Child page row`)).toBeNull()
+  })
+
+  it(`useSubShell().back() inside a page closes THAT page, not its children`, () => {
+    function Page() {
+      const { back } = useSubShell()
+      return (
+        <GlassGroup>
+          <GlassRow>Child page row</GlassRow>
+          <button type="button" onClick={back}>
+            Done
+          </button>
+        </GlassGroup>
+      )
+    }
+    const { container } = render(
+      <SubShellHost>
+        <GlassGroup>
+          <SubShell label="Workflow settings">
+            <Page />
+          </SubShell>
+        </GlassGroup>
+      </SubShellHost>
+    )
+    fireEvent.click(screen.getByText(`Workflow settings`))
+    expect(screen.getByText(`Child page row`)).toBeTruthy()
+    fireEvent.click(screen.getByText(`Done`))
+    // The page dismissed ITSELF; a hook that popped the page's own child
+    // would have left it open and looked like it did nothing.
+    expect(container.querySelector(`[data-slot="sub-shell-page"]`)).toBeNull()
+    expect(bodyOf(container, `sub-shell-host`)?.hasAttribute(`hidden`)).toBe(false)
   })
 
   it(`keeps the open page in sync with the card's live props`, () => {

@@ -90,6 +90,9 @@ struct DeviceSettingsSheet: View {
     @State private var defaultAgent = "claude"
     /// EXP-872: the machine's default ACCOUNT — a login profile id of
     /// `defaultAgent` (`""` = none stored, which reads as its active login).
+    /// EXP-1042: a pick may also park the picker's ambient sentinel
+    /// (`system`) here, so the row reads as selected; it never reaches the
+    /// server — `DeviceLaunchDefaultsInput` folds it into the clear.
     @State private var defaultAccount = ""
     @State private var selectedAgent = "claude"
     @State private var drafts: [String: AgentDraft] = [:]
@@ -235,7 +238,7 @@ struct DeviceSettingsSheet: View {
     /// `keepTab` holds the agent tab the user is looking at (a re-seed must not
     /// yank it), as long as the row still offers that agent.
     private func applyDefaults(_ device: SteerDevice, keepTab: Bool) {
-        let agents = editableAgents(device)
+        let agents = device.editableAgentIds
         let advertisedDefault = device.launchDefaults?.defaultAgent
         defaultAgent = agents.contains(advertisedDefault ?? "") ? advertisedDefault! : (agents.first ?? "claude")
         // EXP-872: the stored account belongs to the stored agent — it only
@@ -499,22 +502,6 @@ struct DeviceSettingsSheet: View {
 
     // MARK: - Agent defaults
 
-    /// Every agent worth a tab: runnable ∪ signed-out installs ∪ agents the
-    /// stored defaults already carry — an OFFLINE machine's defaults stay
-    /// editable even though nothing is advertised as runnable right now.
-    private func editableAgents(_ device: SteerDevice) -> [String] {
-        var set = Set(device.agentIds)
-        set.formUnion(device.unauthedAgentIds)
-        if let stored = device.launchDefaults?.agents?.keys {
-            set.formUnion(stored)
-        }
-        // EXP-1042: a machine that advertises NOTHING offers every contract
-        // agent, not just claude — web's `editorAgents` has always done that,
-        // and the default account is unpickable on a one-agent list.
-        if set.isEmpty { set.formUnion(DomainContract.codingAgentValues) }
-        return DomainContract.codingAgentValues.filter { set.contains($0) }
-    }
-
     /// EXP-872: every login this machine reports, as the ONE list the default
     /// is picked from. An editable agent that reports no login still gets a
     /// row, named by the agent and standing for its AMBIENT login — an
@@ -532,7 +519,7 @@ struct DeviceSettingsSheet: View {
             launchDefaults: device.launchDefaults
         )
         let covered = Set(reported.map(\.agent))
-        let ambient = editableAgents(device)
+        let ambient = device.editableAgentIds
             .filter { !covered.contains($0) }
             .map { agent in
                 AccountOption(
@@ -559,7 +546,7 @@ struct DeviceSettingsSheet: View {
     /// machine's default, and the row is where a person reads which one it is).
     @ViewBuilder
     private func defaultsSection(_ device: SteerDevice) -> some View {
-        let agents = editableAgents(device)
+        let agents = device.editableAgentIds
         let options = accountOptions(device)
         if !options.isEmpty {
             Section {
@@ -763,8 +750,11 @@ struct DeviceSettingsSheet: View {
             defaultAgent: defaultAgent,
             // EXP-872: nil while nothing is picked; the input encodes it as
             // an explicit null (the clear), and the machine then falls back
-            // to its active login, exactly as flatten does.
-            defaultAccount: defaultAccount.isEmpty ? nil : defaultAccount,
+            // to its active login, exactly as flatten does. EXP-1042: the
+            // draft is handed over RAW — the input folds both the blank and
+            // the ambient `system` sentinel into that nil itself, so no
+            // writer here can leak the sentinel to the server.
+            defaultAccount: defaultAccount,
             agents: agents,
             // EXP-1029: a whole-object save REPLACES the stored defaults, so
             // the workflow pair rides every write — leaving it out would

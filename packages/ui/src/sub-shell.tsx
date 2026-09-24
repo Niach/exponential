@@ -69,11 +69,18 @@ export interface SubShellPage {
 }
 
 interface SubShellContextValue {
-  /** Slides `page` in place of the host's card. */
+  /** Slides `page` in place of this level. */
   open: (page: SubShellPage) => void
-  /** Returns to the card (or the enclosing page). */
+  /**
+   * Closes THIS level: from inside a page, returns to the card (or to the
+   * enclosing page); at the host, closes whatever page is open under it.
+   *
+   * Deliberately NOT "pop my own child": a page's whole reason to reach for
+   * this hook is to dismiss ITSELF after acting, and a hook that instead
+   * closed the page's children would look like it did nothing.
+   */
   back: () => void
-  /** Whether a page is open right now. */
+  /** Whether a page is open UNDER this level right now. */
   isOpen: boolean
 }
 
@@ -123,7 +130,8 @@ function ShellLevel({
   const backRef = useRef<HTMLButtonElement | null>(null)
   const touchStart = useRef<{ x: number; y: number } | null>(null)
 
-  const back = useCallback(() => {
+  /** Closes the page open under this level. */
+  const closeChild = useCallback(() => {
     setOpenId(null)
     setAdhoc(null)
   }, [])
@@ -142,7 +150,9 @@ function ShellLevel({
 
   const value: SubShellLevelValue = {
     open,
-    back,
+    // A page closes ITSELF through the hook; the host has no page of its
+    // own, so there it means "close the one open under me".
+    back: page?.onBack ?? closeChild,
     isOpen,
     slot: slotNode,
     openId,
@@ -222,7 +232,7 @@ function ShellLevel({
           ? createPortal(
               <ShellLevel
                 slotName="sub-shell-page"
-                page={{ title: adhoc.title, onBack: back }}
+                page={{ title: adhoc.title, onBack: closeChild }}
               >
                 {adhoc.content}
               </ShellLevel>,

@@ -102,9 +102,11 @@ public struct DeviceWorkflowDefaultsInput: Encodable, Sendable {
 /// server-side: unconditional last-write-wins between humans).
 public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     public let defaultAgent: String?
-    /// EXP-872: the default ACCOUNT — a login profile id of `defaultAgent`
-    /// (`system` = its ambient login). nil beside a default agent rides as an
-    /// explicit JSON null (see `encode(to:)`): the clear.
+    /// EXP-872: the default ACCOUNT — a login profile id of `defaultAgent`.
+    /// nil beside a default agent rides as an explicit JSON null (see
+    /// `encode(to:)`): the clear. EXP-1042: the picker's ambient sentinel
+    /// (`system`) and the blank are folded into that nil by `init`, so this
+    /// property is only ever a REAL profile id — see there.
     public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaultsInput]?
     /// EXP-1029: the workflow pair. A whole-object save REPLACES the stored
@@ -120,7 +122,15 @@ public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
         workflow: DeviceWorkflowDefaultsInput? = nil
     ) {
         self.defaultAgent = defaultAgent
-        self.defaultAccount = defaultAccount
+        // EXP-1042: `system` is a PICKER sentinel standing for the agent's
+        // AMBIENT login, never a stored profile id — the server clamp takes
+        // any non-empty string, so a sender that forwarded it verbatim would
+        // pin the literal word. Folded into the clear HERE, the one place
+        // every writer passes through, rather than at each pick site.
+        let account = defaultAccount ?? ""
+        self.defaultAccount = account.isEmpty || account == AgentAccountsRows.systemProfileId
+            ? nil
+            : account
         self.agents = agents
         self.workflow = workflow
     }
@@ -154,9 +164,13 @@ private struct SetLaunchDefaultsInput: Encodable {
 
 private struct CreateCommandInput: Encodable {
     let deviceId: String
-    /// `worktree_remove` (repoFullName + branch required) | `worktree_prune` |
     /// `agent_login` (EXP-484: `agent` required, `switch` optional) |
     /// `agent_login_code` (EXP-765: `agent` + `code` required).
+    /// EXP-1042: this client no longer emits `worktree_remove` /
+    /// `worktree_prune` — the worktree inventory is an IDE surface now. Those
+    /// kinds (and the `repoFullName`/`branch` fields they alone need) survive
+    /// only for machines running an older build; EXP-1060 retires the wire
+    /// once the version floors pass.
     let kind: String
     let repoFullName: String?
     let branch: String?
@@ -325,9 +339,14 @@ public final class DevicesApi: Sendable {
         )
     }
 
-    /// EXP-481: queue a worktree command for the device (owner-only). Runs on
-    /// its next heartbeat — immediately when online (relay nudge), on return
-    /// when offline. `worktree_remove` needs repoFullName + branch.
+    /// EXP-481: queue a command for the device (owner-only). Runs on its next
+    /// heartbeat — immediately when online (relay nudge), on return when
+    /// offline.
+    /// EXP-1042: the app sends only the `agent_login*` kinds. It no longer
+    /// emits `worktree_remove` / `worktree_prune` (the inventory left the
+    /// phone for the IDE); those kinds — and `repoFullName`/`branch` with
+    /// them — stay on the wire only for machines running an older build, and
+    /// EXP-1060 retires them once the version floors pass.
     /// EXP-484: `agent_login` needs `agent` (and optionally `switchAccount`) —
     /// the device runs the agent's own sign-in and completes the command early
     /// with the URL/code as its `result`.

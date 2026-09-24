@@ -76,11 +76,6 @@ public struct SubShellNavigation {
         guard !stack.isEmpty else { return }
         stack.removeLast()
     }
-
-    /// Straight back to the card (the host going away, a sheet closing).
-    public mutating func reset() {
-        stack.removeAll()
-    }
 }
 
 // MARK: - The channel a row opens through
@@ -135,10 +130,12 @@ public struct SubShellHost<Content: View>: View {
                 SubShellPageView(title: page.title, onBack: goBack) {
                     page.content()
                 }
-                // Each level slides in on its own: without the depth
-                // identity SwiftUI would read a deeper push as the same
-                // view and swap the contents with no transition.
-                .id(navigation.depth)
+                // Each page slides in on its own: without an identity of its
+                // own SwiftUI would read a deeper push as the same view and
+                // swap the contents with no transition. The ROW's stable
+                // `pageId`, not the depth — two pages at the same depth are
+                // different pages, and depth would let SwiftUI confuse them.
+                .id(page.id)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
                 content()

@@ -87,6 +87,13 @@ impl SubShellProps {
     pub(crate) fn page_title(&self) -> SharedString {
         self.title.clone().unwrap_or_else(|| self.label.clone())
     }
+
+    /// Whether clicking this row opens its page. A disabled row takes NO
+    /// pointer — [`sub_shell_row`] gates the click handler on this — so it
+    /// can never reach the owning view's [`SubShellNav`].
+    pub(crate) fn opens(&self) -> bool {
+        !self.disabled
+    }
 }
 
 /// The page a row opens: the same shell — groups of rows.
@@ -234,6 +241,7 @@ pub(crate) fn sub_shell_row(
     cx: &App,
 ) -> Div {
     let foreground = cx.theme().foreground;
+    let opens = props.opens();
     let disabled = props.disabled;
     let mut text = v_flex()
         .min_w_0()
@@ -252,7 +260,7 @@ pub(crate) fn sub_shell_row(
     }
     let row = glass_row_shell()
         .id(props.id)
-        .when(!disabled, |row| {
+        .when(opens, |row| {
             row.cursor_pointer()
                 .hover(|style| style.bg(t::glass::FILL_ACTIVE.to_hsla()))
                 .on_click(move |event, window, cx| on_open(event, window, cx))
@@ -281,7 +289,7 @@ pub(crate) fn sub_shell_row(
 
 #[cfg(test)]
 mod tests {
-    use super::SubShellNav;
+    use super::{SubShellNav, SubShellProps};
 
     #[test]
     fn clicking_the_row_slides_the_child_page_in_place_of_the_whole_card() {
@@ -326,14 +334,26 @@ mod tests {
 
     #[test]
     fn a_disabled_row_never_opens() {
-        // The row is what enforces it: a disabled row takes no pointer and
-        // never reaches `open`, so the stack stays where it was.
+        // `opens()` IS the production predicate `sub_shell_row` gates its
+        // click handler on, so this pins the real guard rather than the
+        // test's own `if`.
+        let enabled = SubShellProps::new("row", "Workflow settings");
+        assert!(enabled.opens());
+        let disabled = SubShellProps::new("row", "Workflow settings").disabled(true);
+        assert!(!disabled.opens());
+
+        // What the row does with it: no pointer, so the stack never moves.
         let mut nav = SubShellNav::new();
-        let disabled = true;
-        if !disabled {
-            nav.open("Workflow settings");
+        for props in [&disabled, &enabled] {
+            if props.opens() {
+                nav.open(props.page_title());
+            }
         }
-        assert!(!nav.is_open());
+        assert_eq!(nav.depth(), 1, "only the enabled row opened");
+        assert_eq!(
+            nav.current().map(|title| title.as_ref()),
+            Some("Workflow settings")
+        );
     }
 
     #[test]

@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DeviceWorkflowDefaults
+import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.DomainContract
@@ -143,7 +144,8 @@ fun DeviceSettingsSheet(
     var defaultAgent by remember { mutableStateOf(seededDefaultAgent(device, editableAgents)) }
     // EXP-872: "default agent" became "default ACCOUNT" — the row stores a
     // login's profile id and the agent is derived from it. "" = nothing stored
-    // yet, and the picker then sits on the machine's own first login.
+    // yet (including the AMBIENT login, which is never a stored id), and the
+    // picker then sits on that agent's ambient option.
     var defaultAccount by remember {
         mutableStateOf(device.launchDefaults?.defaultAccount.orEmpty())
     }
@@ -393,13 +395,21 @@ fun DeviceSettingsSheet(
                             Spacer(Modifier.weight(1f))
                             AccountPickerPill(
                                 options = accountOptions,
-                                selectedKey = defaultAccount
-                                    .takeIf { it.isNotEmpty() }
-                                    ?.let { "$defaultAgent:$it" },
+                                // An unset pin IS the ambient login, and that is
+                                // the option carrying `system` — the same
+                                // `agent:id` key every other picker builds.
+                                selectedKey =
+                                    "$defaultAgent:${defaultAccount.ifEmpty { SYSTEM_PROFILE_ID }}",
                                 onSelect = { option ->
+                                    // The ambient login is NOT a profile id: it
+                                    // stores as "nothing pinned", which is what
+                                    // the row echoes back (see [buildDefaults]).
+                                    val picked = option.id
+                                        .takeIf { it != SYSTEM_PROFILE_ID }
+                                        .orEmpty()
                                     defaultAgent = option.agent
-                                    defaultAccount = option.id
-                                    queueDefaults(agent = option.agent, account = option.id)
+                                    defaultAccount = picked
+                                    queueDefaults(agent = option.agent, account = picked)
                                 },
                             )
                         }
@@ -450,6 +460,9 @@ fun DeviceSettingsSheet(
                     OptionGroup {
                         SubShell(
                             label = "Workflow settings",
+                            // The `nav-workflows` CONCEPT, the glyph the web row
+                            // carries and the one Workflows wears everywhere.
+                            icon = ExpIcons.navWorkflows,
                             value = "${modelLabel(workflowModel)} · ${modelLabel(workflowStrongModel)}",
                             title = "Workflow settings",
                         ) {
@@ -748,6 +761,12 @@ internal fun buildDefaults(
      * start on; "" (nothing picked yet) builds a null, which the request
      * sends as an explicit `defaultAccount: null` (the clear), and the
      * agent's ACTIVE login stays the default.
+     *
+     * [SYSTEM_PROFILE_ID] means the same thing and clears too: the AMBIENT
+     * login is a PICKER sentinel, never a stored id (the server clamp takes
+     * any non-empty string, so a leaked `"system"` would pin a profile that
+     * does not exist). The mapping lives here rather than at the pick site
+     * alone so the next writer cannot forget it.
      */
     defaultAccount: String,
     agents: List<String>,
@@ -762,7 +781,7 @@ internal fun buildDefaults(
     workflow: DeviceWorkflowDefaults? = null,
 ): DeviceLaunchDefaults = DeviceLaunchDefaults(
     defaultAgent = defaultAgent,
-    defaultAccount = defaultAccount.takeIf { it.isNotEmpty() },
+    defaultAccount = defaultAccount.takeIf { it.isNotEmpty() && it != SYSTEM_PROFILE_ID },
     workflow = workflow,
     agents = agents.associateWith { agent ->
         val draft = drafts[agent]

@@ -27,6 +27,31 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
         XCTAssertNil(claude.index(forKey: "subagentModel"))
     }
 
+    /// EXP-1042: the account picker offers one AMBIENT option per login-less
+    /// agent, and its id is the `system` sentinel — a picker word, never a
+    /// profile id. The server clamp takes any non-empty string, so the input
+    /// itself folds the sentinel into the clear: picking it writes an
+    /// explicit null, exactly like web, not the literal "system".
+    func testTheAmbientSentinelEncodesAsAnExplicitNull() throws {
+        let object = try json(DeviceLaunchDefaultsInput(
+            defaultAgent: "codex",
+            defaultAccount: AgentAccountsRows.systemProfileId,
+            agents: ["codex": AgentLaunchDefaultsInput(model: "gpt-5-codex")]
+        ))
+        XCTAssertEqual(object["defaultAgent"] as? String, "codex")
+        XCTAssertNotNil(object.index(forKey: "defaultAccount"))
+        XCTAssertTrue(object["defaultAccount"] is NSNull)
+        XCTAssertNil(object["defaultAccount"] as? String)
+    }
+
+    /// And so does the blank the sheet's draft holds while nothing is stored.
+    func testABlankDefaultAccountEncodesAsAnExplicitNull() throws {
+        let object = try json(DeviceLaunchDefaultsInput(
+            defaultAgent: "claude", defaultAccount: ""
+        ))
+        XCTAssertTrue(object["defaultAccount"] is NSNull)
+    }
+
     func testPickedDefaultAccountRidesAsItself() throws {
         let object = try json(DeviceLaunchDefaultsInput(
             defaultAgent: "claude",

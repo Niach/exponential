@@ -67,20 +67,6 @@ import com.exponential.app.ui.theme.TextEmphasis
  * `ui::sub_shell`, iOS `ExpUI/Sources/SubShell.swift`.
  */
 
-/** The host's test tag — the card boundary a page replaces. */
-const val SUB_SHELL_HOST_TAG = "sub-shell-host"
-
-/** An OPEN page's test tag. */
-const val SUB_SHELL_PAGE_TAG = "sub-shell-page"
-
-/** The row entry's test tag. */
-const val SUB_SHELL_ROW_TAG = "sub-shell"
-
-/** The page header's back button test tag; its label is [SUB_SHELL_BACK_LABEL]. */
-const val SUB_SHELL_BACK_TAG = "sub-shell-back"
-
-const val SUB_SHELL_BACK_LABEL = "Back"
-
 /** One page on a host's stack: which row opened it, its title, its body. */
 class SubShellPageEntry(
     val id: Any,
@@ -137,9 +123,6 @@ class SubShellNavigation {
         forward = false
         stack = stack.dropLast(1)
     }
-
-    /** Whether [id]'s row is the one that opened a page on this stack. */
-    fun isOpen(id: Any): Boolean = stack.any { it.id === id }
 }
 
 /** The stack a [SubShell] row pushes onto; null outside a [SubShellHost]. */
@@ -165,7 +148,7 @@ fun SubShellHost(modifier: Modifier = Modifier, content: @Composable () -> Unit)
                 .fillMaxWidth()
                 // A level slides in from outside the host's own bounds.
                 .clipToBounds()
-                .testTag(SUB_SHELL_HOST_TAG),
+                .testTag("sub-shell-host"),
         ) {
             val pages = nav.pages
             SubShellLevel(
@@ -184,7 +167,7 @@ fun SubShellHost(modifier: Modifier = Modifier, content: @Composable () -> Unit)
                         forward = nav.forward,
                         reduceMotion = reduceMotion,
                         animateOnEnter = true,
-                        tag = SUB_SHELL_PAGE_TAG,
+                        tag = "sub-shell-page",
                     ) {
                         Column(modifier = Modifier.fillMaxWidth()) {
                             SubShellBackHeader(title = page.title, onBack = nav::back)
@@ -224,7 +207,7 @@ fun SubShell(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .testTag(SUB_SHELL_ROW_TAG)
+            .testTag("sub-shell")
             .clickable(enabled = enabled && nav != null) {
                 // The `page` lambda is the compose compiler's memoised one:
                 // handing it over once is enough, because every
@@ -260,10 +243,10 @@ private fun SubShellBackHeader(title: String, onBack: () -> Unit) {
         modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack, modifier = Modifier.testTag(SUB_SHELL_BACK_TAG)) {
+        IconButton(onClick = onBack, modifier = Modifier.testTag("sub-shell-back")) {
             Icon(
                 ExpIcons.uiChevronLeft,
-                contentDescription = SUB_SHELL_BACK_LABEL,
+                contentDescription = "Back",
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )

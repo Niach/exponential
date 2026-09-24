@@ -20,7 +20,6 @@
 //! | Agent defaults | `setLaunchDefaults` (UNCONDITIONAL — a UI edit is     |
 //! |                | last-write-wins on both); the OWN device ALSO saves   |
 //! |                | settings.json first through [`CodingHub::save_settings`] |
-//! |                | a DURABLE queue: an offline machine runs it on return |
 //! | Update         | `devices.requestUpdate` (EXP-909: server devices only,|
 //! |                | FEED-36's "Update now…" confirms) — NOT an autosave   |
 //! | Remove         | `devices.remove` behind a confirm (EXP-909); the      |
@@ -90,10 +89,6 @@ const COMMAND_POLL_OFFLINE: Duration = Duration::from_secs(8);
 /// switches, the sharing row) writes straight through on change.
 const NAME_SAVE_DEBOUNCE: Duration = Duration::from_millis(800);
 
-/// Whether a synced devices row reads ONLINE: `last_seen_at` within the
-/// contract window of `now_ms`. Negative ages (clock skew — the server
-/// stamped ahead of this client's clock) clamp online; unparseable stamps
-/// read OFFLINE (fail-closed — an unstartable claim is the safe direction).
 /// EXP-1020: the DISPLAY label of a choice value (`opus` -> `Opus`), for a
 /// row that SUMMARISES picks made elsewhere — the "Workflow settings" pair.
 /// A value with no entry shows itself, so an unknown alias is still legible.
@@ -108,6 +103,85 @@ pub(crate) fn choice_label(
         .unwrap_or_else(|| SharedString::from(value.to_string()))
 }
 
+/// EXP-1020: the workflow pair a machine would start a workflow with, for
+/// `agent`. The machine stores ONE pair, in its DEFAULT agent's names
+/// (`Settings::load` clamps it there, as does the server and web's
+/// `workflowDefaultsFor`), so the other agent's selects show that agent's
+/// contract defaults until it becomes the default.
+pub(crate) fn workflow_pair_for(
+    settings: &coding::Settings,
+    agent: CodingAgent,
+) -> (String, String) {
+    if settings.default_agent == agent {
+        (
+            settings.workflow_model.clone(),
+            settings.workflow_strong_model.clone(),
+        )
+    } else {
+        workflow_defaults_for(agent)
+    }
+}
+
+/// EXP-1020: the "Workflow settings" PAGE — the two rungs a workflow
+/// launches on. ONE builder, rendered by both settings surfaces (the Device
+/// settings dialog and Settings → Agents), so the two pages cannot drift.
+///
+/// The selects carry the DEFAULT account's agent's vocabulary; the caller
+/// picks the pair before handing them over.
+pub(crate) fn render_workflow_page(
+    model: &ChoiceSelect,
+    strong_model: &ChoiceSelect,
+    cx: &App,
+) -> gpui::AnyElement {
+    use gpui_component::select::Select;
+    v_flex()
+        .w_full()
+        .gap_2()
+        .child(surface::glass_group_rows(vec![
+            surface::glass_picker_row(
+                "Model",
+                None,
+                surface::glass_picker_select(Select::new(model)).into_any_element(),
+                cx,
+            ),
+            surface::glass_picker_row(
+                "Strong model",
+                None,
+                surface::glass_picker_select(Select::new(strong_model)).into_any_element(),
+                cx,
+            ),
+        ]))
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    "Leaf nodes and the subagents inside them run on the model. \
+                     Contract, integration and risky nodes, and every review, run \
+                     on the strong model.",
+                ),
+        )
+        .into_any_element()
+}
+
+/// Contract `workflowLaunch`'s pair for `agent`.
+pub(crate) fn workflow_defaults_for(agent: CodingAgent) -> (String, String) {
+    match agent {
+        CodingAgent::Claude => (
+            domain::contract::WORKFLOW_LAUNCH_CLAUDE_MODEL.to_string(),
+            domain::contract::WORKFLOW_LAUNCH_CLAUDE_STRONG_MODEL.to_string(),
+        ),
+        CodingAgent::Codex => (
+            domain::contract::WORKFLOW_LAUNCH_CODEX_MODEL.to_string(),
+            domain::contract::WORKFLOW_LAUNCH_CODEX_STRONG_MODEL.to_string(),
+        ),
+    }
+}
+
+/// Whether a synced devices row reads ONLINE: `last_seen_at` within the
+/// contract window of `now_ms`. Negative ages (clock skew — the server
+/// stamped ahead of this client's clock) clamp online; unparseable stamps
+/// read OFFLINE (fail-closed — an unstartable claim is the safe direction).
 pub(crate) fn row_is_online(last_seen_at: Option<&str>, now_ms: i64) -> bool {
     let Some(seen) = last_seen_at.and_then(crate::comments::parse_epoch) else {
         return false;
@@ -352,8 +426,13 @@ pub struct DeviceSettingsView {
     subagent_model_select: ChoiceSelect,
     /// EXP-1020: the "Workflow settings" page's pair — what a workflow
     /// started on this machine is seeded from (`launch_defaults.workflow`).
+    /// ONE pair per agent, like the model/effort selects above: the pair
+    /// belongs to the DEFAULT agent's vocabulary, and the two vocabularies
+    /// do not overlap, so a select cannot simply be re-pointed.
     workflow_model_select: ChoiceSelect,
     workflow_strong_model_select: ChoiceSelect,
+    codex_workflow_model_select: ChoiceSelect,
+    codex_workflow_strong_model_select: ChoiceSelect,
     /// EXP-1020: which sub-shell page is open, if any.
     nav: crate::sub_shell::SubShellNav,
     claude_ultracode: bool,
@@ -499,15 +578,31 @@ impl DeviceSettingsView {
             window,
             cx,
         );
+        let (claude_workflow, claude_workflow_strong) =
+            workflow_pair_for(&seeded, CodingAgent::Claude);
+        let (codex_workflow, codex_workflow_strong) =
+            workflow_pair_for(&seeded, CodingAgent::Codex);
         let workflow_model_select = choice_select(
             model_choices_for(CodingAgent::Claude),
-            &seeded.workflow_model,
+            &claude_workflow,
             window,
             cx,
         );
         let workflow_strong_model_select = choice_select(
             model_choices_for(CodingAgent::Claude),
-            &seeded.workflow_strong_model,
+            &claude_workflow_strong,
+            window,
+            cx,
+        );
+        let codex_workflow_model_select = choice_select(
+            model_choices_for(CodingAgent::Codex),
+            &codex_workflow,
+            window,
+            cx,
+        );
+        let codex_workflow_strong_model_select = choice_select(
+            model_choices_for(CodingAgent::Codex),
+            &codex_workflow_strong,
             window,
             cx,
         );
@@ -543,6 +638,8 @@ impl DeviceSettingsView {
             &subagent_model_select,
             &workflow_model_select,
             &workflow_strong_model_select,
+            &codex_workflow_model_select,
+            &codex_workflow_strong_model_select,
         ] {
             // EXP-694 autosave: a picked value IS the save (the guard in
             // `save_defaults` swallows the programmatic rewrites).
@@ -584,6 +681,8 @@ impl DeviceSettingsView {
             subagent_model_select,
             workflow_model_select,
             workflow_strong_model_select,
+            codex_workflow_model_select,
+            codex_workflow_strong_model_select,
             nav: crate::sub_shell::SubShellNav::new(),
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
@@ -749,10 +848,24 @@ impl DeviceSettingsView {
                 &self.subagent_model_select,
                 baseline.claude_subagent_model.clone(),
             ),
-            (&self.workflow_model_select, baseline.workflow_model.clone()),
+            // EXP-1020: each agent's pair takes ITS OWN names — the
+            // baseline carries only the default agent's, so the other
+            // agent's selects fall back to its contract defaults.
+            (
+                &self.workflow_model_select,
+                workflow_pair_for(&baseline, CodingAgent::Claude).0,
+            ),
             (
                 &self.workflow_strong_model_select,
-                baseline.workflow_strong_model.clone(),
+                workflow_pair_for(&baseline, CodingAgent::Claude).1,
+            ),
+            (
+                &self.codex_workflow_model_select,
+                workflow_pair_for(&baseline, CodingAgent::Codex).0,
+            ),
+            (
+                &self.codex_workflow_strong_model_select,
+                workflow_pair_for(&baseline, CodingAgent::Codex).1,
             ),
         ] {
             select.update(cx, |select, cx| {
@@ -780,12 +893,37 @@ impl DeviceSettingsView {
         drafted.codex_model = selected(&self.codex_model_select, cx);
         drafted.codex_effort = selected(&self.codex_effort_select, cx);
         drafted.claude_subagent_model = selected(&self.subagent_model_select, cx);
-        drafted.workflow_model = selected(&self.workflow_model_select, cx);
-        drafted.workflow_strong_model = selected(&self.workflow_strong_model_select, cx);
+        // EXP-1020: the stored pair is the DEFAULT agent's, so read the pair
+        // belonging to the agent this draft names.
+        let (workflow_model, workflow_strong) = self.workflow_selects(drafted.default_agent);
+        drafted.workflow_model = selected(&workflow_model, cx);
+        drafted.workflow_strong_model = selected(&workflow_strong, cx);
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
         drafted.default_account = self.default_account.clone();
         drafted
+    }
+
+    /// The workflow pair's selects for `agent`.
+    fn workflow_selects(&self, agent: CodingAgent) -> (ChoiceSelect, ChoiceSelect) {
+        match agent {
+            CodingAgent::Claude => (
+                self.workflow_model_select.clone(),
+                self.workflow_strong_model_select.clone(),
+            ),
+            CodingAgent::Codex => (
+                self.codex_workflow_model_select.clone(),
+                self.codex_workflow_strong_model_select.clone(),
+            ),
+        }
+    }
+
+    /// EXP-1020: the agent the DEFAULT ACCOUNT names — what the workflow
+    /// pair belongs to. Not [`Self::agent_tab`], which is only which tab of
+    /// the defaults card is open.
+    fn default_agent(&self, cx: &App) -> CodingAgent {
+        CodingAgent::parse(&selected(&self.agent_select, cx))
+            .unwrap_or(self.seeded.default_agent)
     }
 
     fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>) {
@@ -1042,17 +1180,14 @@ impl DeviceSettingsView {
             // server copy via device_sync).
             let hub = CodingHub::global(cx);
             let mut settings = hub.read(cx).settings.clone();
-            settings.default_agent = drafted.default_agent;
-            settings.claude_model = drafted.claude_model.clone();
-            settings.claude_effort = drafted.claude_effort.clone();
-            settings.codex_model = drafted.codex_model.clone();
-            settings.codex_effort = drafted.codex_effort.clone();
             // EXP-746: the overlay is field-by-field, not a struct
-            // assignment — a new launch default that misses a line here is
-            // saved everywhere EXCEPT on this machine's own row.
-            settings.claude_ultracode = drafted.claude_ultracode;
-            settings.claude_plan_mode = drafted.claude_plan_mode;
-            settings.default_account = drafted.default_account.clone();
+            // assignment — the CLI paths and the Tools pane's fields must
+            // survive a save from here. EXP-1020: it is `coding`'s ONE
+            // definition now, shared with the Agents pane. It used to be a
+            // hand-copied list, and the fields added after it was written
+            // (`claude_subagent_model`, the workflow pair) were saved
+            // everywhere EXCEPT on this machine's own row.
+            coding::overlay_launch_defaults(&mut settings, &drafted);
             self.set_error(
                 "defaults",
                 CodingHub::save_settings(&hub, settings, cx)
@@ -1569,15 +1704,15 @@ impl DeviceSettingsView {
             ),
         };
         // `Opus · Fable` ×4 — the same display labels the Model rows show,
-        // never the raw aliases.
+        // never the raw aliases. The pair belongs to the DEFAULT account's
+        // agent, so both the names and the list they are labelled against
+        // follow it rather than the open tab.
         let drafted = self.drafted(cx);
+        let workflow_choices = model_choices_for(drafted.default_agent);
         let workflow_summary = SharedString::from(format!(
             "{} · {}",
-            choice_label(model_choices_for(CodingAgent::Claude), &drafted.workflow_model),
-            choice_label(
-                model_choices_for(CodingAgent::Claude),
-                &drafted.workflow_strong_model,
-            ),
+            choice_label(workflow_choices, &drafted.workflow_model),
+            choice_label(workflow_choices, &drafted.workflow_strong_model),
         ));
         let mut group = AgentDefaultsGroup::new(
             "device-defaults",
@@ -1665,47 +1800,6 @@ impl DeviceSettingsView {
             body = body.child(error);
         }
         body
-    }
-
-    /// EXP-1020: the "Workflow settings" page — the model pair a workflow
-    /// started on this machine is seeded from. Both names come from CLAUDE's
-    /// vocabulary: the workflow engine's two-model policy is written in the
-    /// aliases `coding::settings::MODEL_ALIASES` clamps against.
-    fn render_workflow_page(&mut self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        v_flex()
-            .w_full()
-            .gap_2()
-            .child(surface::glass_group_rows(vec![
-                surface::glass_picker_row(
-                    "Model",
-                    None,
-                    surface::glass_picker_select(gpui_component::select::Select::new(
-                        &self.workflow_model_select,
-                    ))
-                    .into_any_element(),
-                    cx,
-                ),
-                surface::glass_picker_row(
-                    "Strong model",
-                    None,
-                    surface::glass_picker_select(gpui_component::select::Select::new(
-                        &self.workflow_strong_model_select,
-                    ))
-                    .into_any_element(),
-                    cx,
-                ),
-            ]))
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(
-                        "Leaf nodes and the subagents inside them run on the model. \
-                         Contract, integration and risky nodes, and every review, run \
-                         on the strong model.",
-                    ),
-            )
-            .into_any_element()
     }
 
     /// FEED-33: the Sharing group — one switch per team the signed-in user
@@ -2127,7 +2221,8 @@ impl Render for DeviceSettingsView {
         // on top) rather than opening a dialog on top of a dialog.
         let mut host = crate::sub_shell::SubShellHost::new(body.pr_2().pb_2());
         if self.nav.is_open() {
-            let page = self.render_workflow_page(cx);
+            let (model, strong_model) = self.workflow_selects(self.default_agent(cx));
+            let page = render_workflow_page(&model, &strong_model, cx);
             host = host.open(
                 crate::sub_shell::SubShellPage::new("Workflow settings", page),
                 cx.listener(|this: &mut Self, _, _window, cx| {
@@ -2138,16 +2233,15 @@ impl Render for DeviceSettingsView {
         }
         let body = div().w_full().child(host.render(window, cx));
 
-        // EXP-762: two columns, each its own scroll pane. The dialog is
-        // `self_scrolling` (see [`open`]) so this root gets a DEFINITE height
-        // and the panes resolve to the visible height, and each pane's scroll
-        // area is a BLOCK container: nothing inside can be flex-squeezed the
-        // way the shell's `overflow_y_scrollbar` wrapper squeezed the
-        // overflow-clipped agent card (a taffy scroll container has an
-        // automatic minimum size of ZERO, so it was the one thing in the
-        // column that could give — and the usage windows at its foot were what
-        // got cut). The settings column takes the wider share: its rows carry
-        // pickers and the account line, the worktree rows one mono path each.
+        // EXP-762: ONE scroll pane (EXP-1020 dropped the second column). The
+        // dialog is `self_scrolling` (see [`open`]) so this root gets a
+        // DEFINITE height and the pane resolves to the visible height, and
+        // the pane's scroll area is a BLOCK container: nothing inside can be
+        // flex-squeezed the way the shell's `overflow_y_scrollbar` wrapper
+        // squeezed the overflow-clipped agent card (a taffy scroll container
+        // has an automatic minimum size of ZERO, so it was the one thing in
+        // the column that could give — and the rows at its foot were what got
+        // cut).
         v_flex()
             .size_full()
             .min_w_0()

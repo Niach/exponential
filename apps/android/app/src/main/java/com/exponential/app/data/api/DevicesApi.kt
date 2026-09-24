@@ -17,10 +17,15 @@ import kotlinx.serialization.json.put
 // servers. Since EXP-481 the registry is server-authoritative synced state
 // (the `devices` + `device_worktrees` shapes — see DeviceEntity); this API
 // carries the curation mutations (rename/remove/update/share), the
-// server-authoritative launch-defaults edit, and the owner→device worktree
-// command queue (remove/prune — durable rows the machine picks up on its
-// heartbeat, online or not). The rows themselves come from sync; EXP-485
-// retired `devices.list` here for the informational `latestVersions` query.
+// server-authoritative launch-defaults edit, and the owner→device command
+// queue (durable rows the machine picks up on its heartbeat, online or not).
+// The rows themselves come from sync; EXP-485 retired `devices.list` here for
+// the informational `latestVersions` query.
+//
+// EXP-1043: this client no longer EMITS worktree commands — a machine's
+// worktrees are a local surface, the IDE's own. The `worktree_remove` /
+// `worktree_prune` kinds survive server-side only for machines still on an
+// older build; EXP-1060 retires that wire once the version floors pass.
 
 /**
  * Informational `CLIENT_LATEST_VERSION_*` values (null when unset
@@ -66,10 +71,10 @@ private data class SetDefaultInput(
 data class CreatedCommand(@SerialName("id") val id: String)
 
 /**
- * One queued owner→device command (EXP-481): `worktree_remove` /
- * `worktree_prune`, pending until the machine completes it. [result] carries
- * the device-reported message — the prune summary, or the refusal reason on a
- * `failed` row.
+ * One queued owner→device command (EXP-481) — an agent sign-in or a profile
+ * switch, pending until the machine completes it. [result] carries the
+ * device-reported message: the login URL, or the refusal reason on a `failed`
+ * row.
  */
 @Serializable
 data class DeviceCommandDto(
@@ -256,10 +261,11 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
     }
 
     /**
-     * `devices.createCommand` (EXP-481) — queue a worktree command for the
-     * machine. Durable: an OFFLINE machine runs it when it returns (the sheet
-     * says so instead of blocking). Build the payload with
-     * [worktreeRemoveCommand] / [worktreePruneCommand].
+     * `devices.createCommand` (EXP-481) — queue a command for the machine.
+     * Durable: an OFFLINE machine runs it when it returns (the sheet says so
+     * instead of blocking). Build the payload with [agentLoginCommand],
+     * [agentLoginCodeCommand] or [agentProfileUseCommand] — the worktree
+     * kinds are no longer emitted from here (see the file header).
      */
     suspend fun createCommand(
         accountId: String,
@@ -282,21 +288,6 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = CommandIdInput.serializer(),
             outputSerializer = DeviceCommandDto.serializer(),
         )
-}
-
-/** The `worktree_remove` input for [DevicesApi.createCommand]. */
-fun worktreeRemoveCommand(deviceId: String, repoFullName: String, branch: String): JsonObject =
-    buildJsonObject {
-        put("deviceId", deviceId)
-        put("kind", "worktree_remove")
-        put("repoFullName", repoFullName)
-        put("branch", branch)
-    }
-
-/** The `worktree_prune` input for [DevicesApi.createCommand]. */
-fun worktreePruneCommand(deviceId: String): JsonObject = buildJsonObject {
-    put("deviceId", deviceId)
-    put("kind", "worktree_prune")
 }
 
 /**

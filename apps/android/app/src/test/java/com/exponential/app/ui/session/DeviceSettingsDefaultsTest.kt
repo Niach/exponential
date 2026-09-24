@@ -4,6 +4,7 @@ import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentLaunchDefaults
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DeviceWorkflowDefaults
+import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.setLaunchDefaultsInput
 import com.exponential.app.domain.DomainContract
@@ -187,6 +188,42 @@ class DeviceSettingsDefaultsTest {
         assertEquals(JsonNull, sent["defaultAccount"])
         // The rest of the object still drops its nulls, as it always did.
         assertFalse(sent.getValue("agents").jsonObject.getValue("claude").jsonObject.containsValue(JsonNull))
+    }
+
+    /**
+     * EXP-1043: the AMBIENT login is a picker SENTINEL, never a stored
+     * profile id — and since every login-less agent now contributes one, it
+     * is the normal pick. The server clamp takes any non-empty string, so a
+     * leaked `"system"` would pin a profile the machine does not have; it
+     * clears, exactly as "nothing picked" does.
+     */
+    @Test
+    fun `the ambient login clears the pin instead of storing the sentinel`() {
+        val built = buildDefaults(
+            defaultAgent = "codex",
+            defaultAccount = SYSTEM_PROFILE_ID,
+            agents = listOf("claude", "codex"),
+            drafts = emptyMap(),
+        )
+        assertEquals("codex", built.defaultAgent)
+        assertNull(built.defaultAccount)
+        val sent = setLaunchDefaultsInput(deviceId = "dev-1", defaults = built)
+            .getValue("launchDefaults").jsonObject
+        assertEquals(JsonNull, sent["defaultAccount"])
+
+        // A REAL profile id on the same agent still rides as itself.
+        val pinned = buildDefaults(
+            defaultAgent = "codex",
+            defaultAccount = "work",
+            agents = listOf("claude", "codex"),
+            drafts = emptyMap(),
+        )
+        assertEquals("work", pinned.defaultAccount)
+        assertEquals(
+            JsonPrimitive("work"),
+            setLaunchDefaultsInput(deviceId = "dev-1", defaults = pinned)
+                .getValue("launchDefaults").jsonObject["defaultAccount"],
+        )
     }
 
     @Test

@@ -289,11 +289,4 @@ public enum DeviceQueries {
             .sorted(by: stableOrder)
         return own.map(mapped) + shared.map(mapped)
     }
-
-    /// One-shot worktree inventory read (the Start-coding sheet's resume
-    /// probe and the device-settings worktree list).
-    public static func worktrees(db: DatabaseManager, accountId: String) async -> [DeviceWorktreeEntity] {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return [] }
-        return (try? await pool.read { db in try DeviceWorktreeEntity.fetchAll(db) }) ?? []
-    }
 }
