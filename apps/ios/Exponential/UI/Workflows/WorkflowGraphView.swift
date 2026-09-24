@@ -8,19 +8,30 @@ import SwiftUI
 /// `Wave 2` … band per column and one row per node, in the server's own
 /// (`wave`, `lane`) order.
 ///
-/// EXP-1014 — a node row IS the app's established issue chip and nothing else:
-/// the glyph slot carries the node's own state (its live run's dot while the
-/// run is up, the state's glyph in the state's tone once it has one, the
-/// issue's status glyph before that), the identifier and title read exactly as
-/// they do in every other chip, and the state CAPTION sits at the row's
-/// trailing edge in the same tone. No second line, no kind or risk subtitle —
-/// what the plan declares is the node sheet's business. A compound node (a
-/// parent run as one batch with its sub-issues) is the STACKED chip.
+/// EXP-1014 — a node row IS the app's established issue chip: the glyph slot
+/// carries the node's own state (its live run's dot while the run is up, the
+/// state's glyph in the state's tone once it has one, the issue's status glyph
+/// before that), the identifier and title read exactly as they do in every
+/// other chip, and the state CAPTION sits at the row's trailing edge in the
+/// same tone. No kind or risk subtitle — what the plan declares is the node
+/// sheet's business. A compound node (a parent run as one batch with its
+/// sub-issues) is the STACKED chip.
 ///
-/// Nothing is laid out here: `wave` and `lane` come off the synced rows. A node
-/// whose issue row has not synced names itself by id rather than crashing.
+/// Under a node that has blockers sits the one dependency a phone CAN draw:
+/// the `Blocked by` chips, which ARE the edges the grid clients draw as lines,
+/// so they take the edge's own style (EXP-983 `WorkflowView.edgeStyle`) —
+/// landed green, stale or cyclic red, speculative a dashed border, plain the
+/// chip's default. Android's list draws the same row.
+///
+/// Nothing is laid out here: `wave` and `lane` come off the synced rows, and
+/// the edges come from `WorkflowView.edges` over the already synced `blocks`
+/// relations. A node whose issue row has not synced names itself by id rather
+/// than crashing.
 struct WorkflowGraphView: View {
     let nodes: [WorkflowNodeEntity]
+    /// The edges between the nodes (`WorkflowView.edges`) — what the
+    /// `Blocked by` chips under each row stand for.
+    let edges: [WorkflowView.Edge]
     /// contract `wfStatus` — a draft's nodes have no state worth a caption, so
     /// the rule gives them none.
     let workflowStatus: String
@@ -36,6 +47,12 @@ struct WorkflowGraphView: View {
     let onSelect: (WorkflowNodeEntity) -> Void
     /// Steer the node's run — the Running strip's tap.
     var onOpenRun: (String) -> Void = { _ in }
+
+    /// The nodes by id — an edge names NODES, so a blocker chip resolves its
+    /// issue through this.
+    private var nodesById: [String: WorkflowNodeEntity] {
+        Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    }
 
     /// The nodes grouped by column, in (wave, lane) order — the server's
     /// layout, read straight off the rows.
@@ -149,6 +166,9 @@ struct WorkflowGraphView: View {
 
     @ViewBuilder
     private func nodeRow(_ node: WorkflowNodeEntity) -> some View {
+        // The edges pointing AT this node: what blocks it inside the workflow,
+        // in the rule's edge order.
+        let incoming = edges.filter { $0.to == node.id }
         let caption = WorkflowView.nodeCaption(
             WorkflowView.CaptionNode(kind: node.kind, state: node.state, risk: node.risk),
             workflowStatus: workflowStatus
@@ -161,16 +181,19 @@ struct WorkflowGraphView: View {
         let run = runs[node.id].flatMap { $0.live ? $0 : nil }
         let captionColor = run.map { SessionStateDot.color($0.tone) } ?? Self.color(tone)
         Button { onSelect(node) } label: {
-            HStack(spacing: 8) {
-                nodeChip(node, tone: tone, run: run)
-                Spacer(minLength: 8)
-                if !caption.isEmpty {
-                    Text(caption)
-                        .font(.caption2)
-                        .foregroundStyle(captionColor)
-                        .lineLimit(1)
-                        .accessibilityIdentifier("workflow-node-caption")
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    nodeChip(node, tone: tone, run: run)
+                    Spacer(minLength: 8)
+                    if !caption.isEmpty {
+                        Text(caption)
+                            .font(.caption2)
+                            .foregroundStyle(captionColor)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("workflow-node-caption")
+                    }
                 }
+                blockedBy(node, incoming: incoming)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
@@ -180,6 +203,81 @@ struct WorkflowGraphView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("workflow-node-row")
+    }
+
+    /// What blocks this node inside the workflow, chipped. A phone draws no
+    /// lines, so each chip IS an edge and wears that edge's style; a wide
+    /// fan-in would push the row off the screen, so the chips scroll sideways
+    /// rather than wrapping.
+    @ViewBuilder
+    private func blockedBy(
+        _ node: WorkflowNodeEntity, incoming: [WorkflowView.Edge]
+    ) -> some View {
+        if !incoming.isEmpty {
+            HStack(spacing: 6) {
+                Text("Blocked by")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(incoming, id: \.from) { edge in
+                            if let blocker = nodesById[edge.from] {
+                                blockerChip(
+                                    blocker,
+                                    cycle: edge.cycle,
+                                    style: WorkflowView.edgeStyle(
+                                        edge, fromState: blocker.state, toState: node.state
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("workflow-node-blockers")
+        }
+    }
+
+    /// One blocker, as the shared issue chip standing in for the EDGE the grid
+    /// clients draw: the edge's colour where it has one (red on a cycle or a
+    /// stale upstream, green once the blocker landed), and the dashed hairline
+    /// a speculative edge wears.
+    @ViewBuilder
+    private func blockerChip(
+        _ node: WorkflowNodeEntity, cycle: Bool, style: WorkflowView.EdgeStyle
+    ) -> some View {
+        let issue = issues[node.issueId]
+        let status = IssueStatus.from(issue?.status)
+        IssueChip(
+            identifier: WorkflowView.nodeTitle(
+                identifier: issue?.identifier ?? node.issueId,
+                memberCount: node.memberIssueIds.count
+            ),
+            title: issue?.title,
+            iconName: status.iconName,
+            statusColor: cycle
+                ? DesignTokens.Semantic.red
+                : (Self.edgeColor(style) ?? status.color)
+        )
+        // The dashed hairline says "speculative" the way a dashed edge does.
+        .overlay {
+            if style == .speculative {
+                WorkflowChipRing(
+                    color: .white.opacity(TextOpacity.secondary), dashed: true
+                )
+            }
+        }
+    }
+
+    /// What an edge's style paints its chip in, or nil where the chip keeps the
+    /// issue's own status colour (`plain` and `speculative` — the latter says
+    /// what it is with the dash instead).
+    static func edgeColor(_ style: WorkflowView.EdgeStyle?) -> Color? {
+        switch style {
+        case .cycle, .stale: DesignTokens.Semantic.red
+        case .landed: DesignTokens.Semantic.green
+        default: nil
+        }
     }
 
     /// One node as the shared issue chip, with the workflow's own ring around

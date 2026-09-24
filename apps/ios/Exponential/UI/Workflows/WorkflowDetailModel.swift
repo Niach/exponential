@@ -15,9 +15,9 @@ struct WorkflowNodeRun: Equatable {
 }
 
 /// EXP-981 — one workflow's detail: the synced row, its nodes (the server's
-/// `wave`/`lane` layout) and the issues they cover, all LIVE off the two new
-/// shapes, plus the member-gated writes (`workflows.update` / `.updateNode` /
-/// `.delete`).
+/// `wave`/`lane` layout), the issues they cover and the `blocks` relations that
+/// ARE the edges, all LIVE off the two new shapes, plus the member-gated writes
+/// (`workflows.update` / `.updateNode` / `.delete`).
 ///
 /// EXP-1014: the screen configures NOTHING about the run any more. The stored
 /// launch (EXP-1029: one agent, a cheap model and a strong one) is CARRIED —
@@ -35,6 +35,9 @@ final class WorkflowDetailModel {
     /// The covered issues by id — a node whose row has not synced renders
     /// without one rather than disappearing.
     private(set) var issues: [String: IssueEntity] = [:]
+    /// The `blocks` relations between covered issues — the graph's EDGES, and
+    /// the only dependency a phone can draw (`Blocked by` chips under a node).
+    private(set) var relations: [IssueRelationEntity] = []
     /// The nodes' coding sessions by SESSION id — what the graph's live dots
     /// and the Running strip read. A session that has not synced is absent.
     private(set) var sessions: [String: CodingSessionEntity] = [:]
@@ -97,6 +100,14 @@ final class WorkflowDetailModel {
         )
     }
 
+    /// The edges between the nodes, from the synced `blocks` relations — the
+    /// shared rule, cycle edges included.
+    var edges: [WorkflowView.Edge] {
+        WorkflowView.edges(
+            nodes: nodes, relations: relations, cycleEdges: metrics.cycleEdges
+        )
+    }
+
     var boundDevice: SteerDevice? {
         guard let deviceId = workflow?.deviceId else { return nil }
         return devices.first { $0.deviceId == deviceId }
@@ -146,7 +157,8 @@ final class WorkflowDetailModel {
         let id = workflowId
         let observation = ValueObservation.tracking {
             db -> (
-                WorkflowEntity?, [WorkflowNodeEntity], [IssueEntity], [CodingSessionEntity]
+                WorkflowEntity?, [WorkflowNodeEntity], [IssueEntity], [IssueRelationEntity],
+                [CodingSessionEntity]
             ) in
             let workflow = try WorkflowEntity.fetchOne(db, key: id)
             let nodes = try WorkflowNodeEntity
@@ -160,13 +172,20 @@ final class WorkflowDetailModel {
                 ? []
                 : try CodingSessionEntity.filter(sessionIds.contains(Column("id"))).fetchAll(db)
             let covered = Array(Set(nodes.flatMap(\.coveredIssueIds)))
-            guard !covered.isEmpty else { return (workflow, nodes, [], sessions) }
+            guard !covered.isEmpty else { return (workflow, nodes, [], [], sessions) }
             let issues = try IssueEntity.filter(covered.contains(Column("id"))).fetchAll(db)
-            return (workflow, nodes, issues, sessions)
+            // Only the relations between COVERED issues can be edges; the rule
+            // drops the rest anyway, so they never need reading.
+            let relations = try IssueRelationEntity
+                .filter(Column("type") == IssueRelationType.blocks.rawValue)
+                .filter(covered.contains(Column("issue_id")))
+                .filter(covered.contains(Column("related_issue_id")))
+                .fetchAll(db)
+            return (workflow, nodes, issues, relations, sessions)
         }
         observationTask = Task { [weak self] in
             do {
-                for try await (workflow, nodes, issues, sessions)
+                for try await (workflow, nodes, issues, relations, sessions)
                     in observation.values(in: pool)
                 {
                     guard let self, !Task.isCancelled else { return }
@@ -175,6 +194,7 @@ final class WorkflowDetailModel {
                     self.issues = Dictionary(
                         issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
                     )
+                    self.relations = relations
                     self.sessions = Dictionary(
                         sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
                     )

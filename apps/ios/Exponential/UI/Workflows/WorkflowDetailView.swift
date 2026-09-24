@@ -217,6 +217,7 @@ struct WorkflowDetailView: View {
     private func graph(_ model: WorkflowDetailModel) -> some View {
         WorkflowGraphView(
             nodes: model.nodes,
+            edges: model.edges,
             workflowStatus: model.status,
             issues: model.issues,
             finalPrCaption: model.finalPrCaption,
