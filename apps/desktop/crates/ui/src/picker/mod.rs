@@ -16,10 +16,15 @@
 //! types, the two surfaces, and the typed pickers beside it that every IDE
 //! call site now goes through. The EXP-288 pickers in `pickers.rs` (status /
 //! priority / assignee / labels) moved onto it here; the due date is not one
-//! of the ten and keeps its calendar popover. EXP-1030 finished the sweep —
-//! the composer's `#` and ▶ tools, the launch pins, device settings and the
-//! workflow runner row all mount their surface here now, and the host-state
-//! predecessor (`pickers::searchable_picker`) is gone.
+//! of the ten and keeps its calendar popover. `pickers::searchable_picker`,
+//! the HOST-state predecessor, is GONE with its last caller — what is left
+//! in `pickers.rs` is the shared vocabulary the primitive itself rides
+//! (`picker_row`, `selection_glyph`, the cursor arithmetic, the chip
+//! trigger, `StatusPick` + `status_menu` for the row CONTEXT submenus a
+//! trigger-based picker cannot express).
+//! EXP-1030 finished the sweep: the composer's `#` and ▶ tools, the launch
+//! pins, device settings, the automation editor's runner and the workflow
+//! runner row all mount their surface here now.
 #![allow(dead_code)]
 
 use std::rc::Rc;
@@ -655,17 +660,17 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     // as the row's own highlight — fill plus the active
                     // stroke, never a circle. The stroke is also the third
                     // state: on ALL of a bulk edit's rows it is there, on
-                    // only SOME the wash stands alone.
-                    .when(multi && selected, |row| {
-                        let row = row.bg(t::glass::FILL_ACTIVE.to_hsla());
-                        match mark {
-                            PickerChecked::All => {
-                                row.border_color(t::glass::STROKE_ACTIVE.to_hsla())
-                            }
-                            _ => row,
-                        }
+                    // only SOME the wash stands alone. The cursor rides the
+                    // SAME fill, so both live in `row_fill` (below) — one
+                    // `bg` for the two of them, never one overpainting the
+                    // other.
+                    .when_some(
+                        row_fill(multi, mark, cursor_at == Some(position), list_active),
+                        |row, fill| row.bg(fill),
+                    )
+                    .when(multi && mark == PickerChecked::All, |row| {
+                        row.border_color(t::glass::STROKE_ACTIVE.to_hsla())
                     })
-                    .when(cursor_at == Some(position), |row| row.bg(list_active))
                     .when(disabled, |row| row.text_color(cx.theme().muted_foreground))
                     .on_hover(move |hovered, _window, cx| {
                         // ONE highlight: hovering MOVES the cursor onto the
@@ -725,6 +730,43 @@ fn draw_item<T: Clone>(
         Some(render) => render(item, cx),
         None => picker_item_body(item, cx),
     }
+}
+
+/// The one background a search-surface row paints: the keyboard cursor, the
+/// multi SELECTION wash, or BOTH stacked.
+///
+/// EXP-1045 review: the two used to be two `bg` calls, the cursor's last. It
+/// won — and `list_active` IS `glass::FILL_ACTIVE`, the very token the wash
+/// paints, so a [`PickerChecked::Some`] row (whose whole mark is that bare
+/// wash) read exactly like any hovered row under the pointer, i.e. unpicked.
+/// `All` rows only survived because of their stroke. Stacking the two says
+/// both at once: a picked row under the cursor sits visibly deeper than a
+/// merely hovered one, and it can never lose its mark.
+fn row_fill(multi: bool, mark: PickerChecked, at_cursor: bool, cursor: Hsla) -> Option<Hsla> {
+    let wash = (multi && mark != PickerChecked::None).then(|| t::glass::FILL_ACTIVE.to_hsla());
+    match (at_cursor.then_some(cursor), wash) {
+        (Some(cursor), Some(wash)) => Some(over(cursor, wash)),
+        (Some(fill), None) | (None, Some(fill)) => Some(fill),
+        (None, None) => None,
+    }
+}
+
+/// `top` composited over `bottom`, source-over, ALPHAS included — gpui's own
+/// `Hsla::blend` keeps the base alpha, which is exactly what two translucent
+/// glass washes must not do (they would stay one wash deep).
+fn over(bottom: Hsla, top: Hsla) -> Hsla {
+    let alpha = top.a + bottom.a * (1. - top.a);
+    if alpha <= 0. {
+        return top;
+    }
+    let (bottom_rgb, top_rgb) = (gpui::Rgba::from(bottom), gpui::Rgba::from(top));
+    let mix = |below: f32, above: f32| (above * top.a + below * bottom.a * (1. - top.a)) / alpha;
+    Hsla::from(gpui::Rgba {
+        r: mix(bottom_rgb.r, top_rgb.r),
+        g: mix(bottom_rgb.g, top_rgb.g),
+        b: mix(bottom_rgb.b, top_rgb.b),
+        a: alpha,
+    })
 }
 
 /// How tall a picker menu / row list grows before it scrolls.
@@ -1042,6 +1084,33 @@ mod tests {
         // …and the other way: in `value`, said to be off.
         let cleared = PickerItem::new("a".to_string(), "Alpha").checked(PickerChecked::None);
         assert_eq!(cleared.state(&picked), PickerChecked::None);
+    }
+
+    /// EXP-1045 review: a partly-picked row must keep its mark under the
+    /// pointer. The cursor tint and the selection wash are the SAME token,
+    /// so "cursor last" erased the only thing a `Some` row wears.
+    #[test]
+    fn a_partly_picked_row_keeps_its_mark_under_the_cursor() {
+        // What the theme hands the surface (`list_active`), by construction.
+        let cursor = t::glass::FILL_ACTIVE.to_hsla();
+        let at_rest = row_fill(true, PickerChecked::Some, false, cursor);
+        let hovered_unpicked = row_fill(true, PickerChecked::None, true, cursor);
+        let hovered_picked = row_fill(true, PickerChecked::Some, true, cursor);
+        assert_eq!(at_rest, Some(cursor), "a picked row at rest is the wash");
+        assert_eq!(hovered_unpicked, Some(cursor), "the cursor alone is the wash");
+        assert_ne!(
+            hovered_picked, hovered_unpicked,
+            "a partly-picked row under the cursor still says it is picked"
+        );
+        assert!(
+            hovered_picked.expect("a fill").a > hovered_unpicked.expect("a fill").a,
+            "the two stack, so the picked row reads deeper"
+        );
+        // A single pick marks by the trailing glyph, never by the wash —
+        // there the fill is the cursor's alone.
+        assert_eq!(row_fill(false, PickerChecked::All, true, cursor), Some(cursor));
+        assert_eq!(row_fill(false, PickerChecked::All, false, cursor), None);
+        assert_eq!(row_fill(true, PickerChecked::None, false, cursor), None);
     }
 
     /// Presentation belongs to the primitive: a caller asks for `search`,

@@ -27,8 +27,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.picker.Picker
+import com.exponential.app.ui.components.picker.PickerActionRow
 import com.exponential.app.ui.components.picker.PickerMode
-import com.exponential.app.ui.components.picker.iconPickerItems
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -99,41 +99,46 @@ fun IconPicker(
     }
     if (open) {
         // EXP-1021: the grid rides the shared picker as its PANEL — the sheet,
-        // its title and its dismiss are the primitive's, the 96-glyph grid is
-        // the body. A GlassSheet never scrolls its own slot, and the board set
-        // is taller than the fitted sheet's 85 % cap on every phone, so the
-        // scroller stays here.
+        // its title, its dismiss and the PICK are the primitive's; the grid
+        // reports the name it was tapped on through the panel's `pick` and the
+        // picker reports it on, then closes. There are no ROWS to hand it (the
+        // panel replaces them), so it gets none: resolving all 96 vectors for a
+        // list nothing renders was pure recomposition cost. A GlassSheet never
+        // scrolls its own slot, and the board set is taller than the fitted
+        // sheet's 85 % cap on every phone, so the scroller stays here.
         Picker(
-            items = iconPickerItems(pickable),
+            items = emptyList(),
             mode = PickerMode.Single,
             value = setOfNotNull(picked),
             onChange = { next -> next.firstOrNull()?.let(onSelect) },
             title = "Icon",
             open = true,
             onOpenChange = { next -> if (!next) open = false },
-            panel = {
+            footer = if (allowsNone && picked != null) {
+                {
+                    // "No icon" is a RESET, not an option: it clears the pick
+                    // and closes, the way the header action always did — in the
+                    // picker's own footer idiom, not another sheet's row.
+                    PickerActionRow(
+                        label = "No icon",
+                        onClick = {
+                            onSelect("")
+                            open = false
+                        },
+                    )
+                }
+            } else {
+                null
+            },
+            panel = { pick ->
                 Column(
                     modifier = Modifier
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 20.dp),
                 ) {
-                    if (allowsNone && picked != null) {
-                        // "No icon" is a RESET, not a row: it clears the pick
-                        // and closes, the way the header action always did.
-                        GlassSheetRow(
-                            label = "No icon",
-                            onClick = {
-                                onSelect("")
-                                open = false
-                            },
-                        )
-                    }
                     IconSwatchGrid(
                         selected = picked,
-                        onSelect = {
-                            onSelect(it)
-                            open = false
-                        },
+                        onSelect = pick,
                         accentColor = accentColor,
                         pickable = pickable,
                         modifier = Modifier.padding(bottom = 12.dp),

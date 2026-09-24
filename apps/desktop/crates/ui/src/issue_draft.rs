@@ -282,7 +282,10 @@ impl IssueDraft {
             crate::picker::assignee_picker::assignee_picker(
                 &users,
                 crate::picker::PickerMode::Single,
-                current.into_iter().collect(),
+                // Unassigned is a real ROW with a real value, so an
+                // unassigned draft PICKS it — an empty set would leave the
+                // picker with nothing marked at all.
+                vec![current.unwrap_or_else(|| UNASSIGNED_VALUE.to_string())],
                 true,
                 trigger,
                 Rc::new(move |picked, _window, cx| {

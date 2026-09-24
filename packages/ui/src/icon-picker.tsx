@@ -69,7 +69,10 @@ export function IconPicker<T extends string = BoardIcon>({
       disabled={disabled}
       mobileTitle={mobileTitle}
       align="start"
-      className="w-auto p-3"
+      // The grid is 8 × 1.75rem cells — wider than any of the four widths, so
+      // the surface hugs it instead (the padding lives on the panel, which
+      // the phone sheet renders too).
+      className="w-auto"
       trigger={
         <Button
           id={id}

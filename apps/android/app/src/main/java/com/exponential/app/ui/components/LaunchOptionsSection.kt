@@ -13,7 +13,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.ui.components.picker.DevicePicker
-import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.theme.TextEmphasis
 
 // The ONE device/agent/model/effort block every launch surface renders
@@ -155,30 +154,22 @@ internal fun LaunchOptionsSection(
             }
         } else if (automation || devices.size > 1) {
             // A single launch candidate needs no picker; a binding always names
-            // the machine it will fire on.
-            // A binding row says where it fires; a launch picks the device —
-            // same wording as web/iOS/desktop on both. EXP-1030: the list is
-            // the shared device picker (machine glyph + owner), the form row
-            // its trigger.
-            val label = if (automation) "Runs on" else "Device"
+            // the machine it will fire on, and says where it FIRES rather than
+            // what it picks — same wording as web/iOS/desktop on both.
+            val deviceLabel = if (automation) "Runs on" else "Device"
             OptionGroup {
+                // EXP-1021: the shared DevicePicker owns the sheet (each
+                // machine by its own glyph, one selection language); this
+                // surface keeps the form row as its trigger.
                 DevicePicker(
-                    devices = devices.map { row ->
-                        DevicePickerDevice(
-                            id = row.deviceId,
-                            name = deviceOptionLabel(row),
-                            icon = row.icon,
-                            isServer = row.isServer,
-                        )
-                    },
+                    devices = devices.map { it.toPickerDevice() },
                     value = device?.deviceId,
                     onChange = onDeviceChange,
-                    title = label,
+                    title = deviceLabel,
                     trigger = { open ->
                         PickerValueRow(
-                            label = label,
+                            label = deviceLabel,
                             value = device?.let(::deviceOptionLabel) ?: "Select",
-                            valueIcon = device?.let(::deviceIcon),
                             onClick = open,
                         )
                     },

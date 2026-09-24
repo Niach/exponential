@@ -165,6 +165,13 @@ interface ComboboxShellProps<TValue extends string> {
   /** Controlled-open with no trigger element: a host that opens the picker
    *  from its own menu item (the issue row's "Move to board"). */
   hideTrigger?: boolean
+  /** Extra classes on the SURFACE (the popover panel). `className` styles the
+   *  trigger, which a `renderTrigger` caller owns and styles itself — so a
+   *  host that builds its own trigger has no other way to size the panel it
+   *  opens (the icon grid is wider than any of the four widths). Applied
+   *  after `width`, so `w-auto` can hug a fixed-size body. The sheet arm is
+   *  the screen and ignores it. */
+  surfaceClassName?: string
   disabled?: boolean
   "data-testid"?: string
 }
@@ -353,6 +360,7 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
     open: openProp,
     onOpenChange,
     hideTrigger = false,
+    surfaceClassName,
     disabled = false,
     className,
     options,
@@ -458,7 +466,8 @@ function Combobox<TValue extends string>(props: ComboboxProps<TValue>) {
         data-testid={testId}
         className={cn(
           `flex max-h-(--radix-popover-content-available-height) flex-col overflow-hidden p-0`,
-          WIDTH_CLASS[width]
+          WIDTH_CLASS[width],
+          surfaceClassName
         )}
       >
         <ComboboxList {...listProps} className={undefined} />

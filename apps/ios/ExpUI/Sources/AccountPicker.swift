@@ -116,6 +116,35 @@ public struct AccountPickerTriggerLabel: View {
     }
 }
 
+/// What a login READS as, brand mark aside: the email, its health badge, and
+/// the EXP-992 bars under both. Shared by the `GlassMenu` row below and by the
+/// shared picker's own row (`AccountPicker`, EXP-1021), so the two surfaces
+/// cannot drift apart.
+struct AccountOptionBody: View {
+    let option: AccountOption
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(option.email)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let badge = option.health.badgeLabel {
+                    Text(badge)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                }
+            }
+            if let limits = option.limits {
+                AccountLimitBars(limits: limits)
+            }
+        }
+    }
+}
+
 /// THE account picker, as every launch surface names it: the trigger label
 /// above, and the SHARED picker (`AccountPicker`, EXP-1021) behind it — one
 /// sheet of plain rows, brand mark + email, the EXP-992 limit bars under

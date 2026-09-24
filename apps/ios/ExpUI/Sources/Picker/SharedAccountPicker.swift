@@ -1,32 +1,30 @@
 import ExpCore
 import SwiftUI
 
-// EXP-1029 contract — the account picker under the shared picker API.
+// EXP-1029 contract, EXP-1021 implementation — the account picker under the
+// shared picker API.
 //
 // The EXP-991 picker (`AccountPicker.swift`: `AccountPickerMenu` +
 // `AccountPickerTriggerLabel`, brand mark + login email per row, the EXP-992
-// rate-limit preview `AccountLimitBars` under the picked login) MOVED onto
-// `GlassPicker` here (EXP-1021/EXP-1030), keeping its options and its
-// preview: the agent's brand mark is the row's leading MARK, a dead
-// credential's badge its description, and the limit bars its DETAIL — a
-// drawing, so they ride `renderDetail` rather than a string. `GlassPicker`
-// owns the selection language, so the row's check is gone with the menu.
+// rate-limit preview `AccountLimitBars` under each login) rides `GlassPicker`
+// here, keeping its options AND its preview: the brand mark is the row's
+// MARK, and the email + badge + bars are the row's BODY (`renderItem`, the
+// one bespoke row body in the package — web's account picker does exactly the
+// same on the same seam). A row is keyed by `AccountOption.key`, never the
+// bare profile id: `system` repeats across agents.
 // (The file is not `AccountPicker.swift`: swiftc refuses two files of one
-// name in a module, and that one still holds the trigger label and the
-// `AccountPickerMenu` shim every launch surface names.)
+// name in a module, and that one still holds the menu the other launch
+// surfaces open.)
 
 public struct AccountPicker<Trigger: View>: View {
     public let options: [AccountOption]
-    /// The picked option's `AccountOption.key` (`<agent>:<profileId>`), or
-    /// nil while none is. EXP-1030: the KEY, never the profile id alone — a
-    /// machine that reports an ambient `system` login for two agents has the
-    /// same profile id twice, and a picker cannot key two rows the same.
+    /// The picked option's `key` (`<agent>:<profileId>`), or nil while none
+    /// is — the same value `onChange` reports back.
     public let value: String?
-    /// Reports the picked option's `key`.
     public let onChange: (String) -> Void
-    /// The agent's brand mark, resolved by the CALLER (`AgentBrandMark` lives
-    /// in the app target) so an id with no asset falls back exactly as it
-    /// does everywhere else.
+    /// The agent's brand mark, resolved by the CALLER (the assets live in the
+    /// app target), so an id with no asset falls back exactly as it does
+    /// everywhere else.
     public let mark: ((String) -> Image?)?
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
@@ -58,13 +56,14 @@ public struct AccountPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
+    /// One row per login: the email, its health badge as the muted second
+    /// line (the bars replace it when a row draws its own body), and both the
+    /// email and the agent as search keywords.
     nonisolated public static func items(_ options: [AccountOption]) -> [PickerItem<String>] {
         options.map { option in
             PickerItem(
                 value: option.key,
                 label: option.email,
-                // EXP-849: a login the agent REFUSED stays on offer wearing
-                // its badge — muted under the email, as the menu drew it.
                 description: option.health.badgeLabel,
                 keywords: [option.email, option.agent]
             )
@@ -82,15 +81,15 @@ public struct AccountPicker<Trigger: View>: View {
             value: value.map { [$0] } ?? [],
             onChange: { picked in picked.first.map(onChange) },
             title: "Account",
+            // A lone login is not a choice: the trigger still says which one
+            // it is, and there is no sheet to open (web collapses its inline
+            // word for the same reason).
+            disabled: options.count <= 1,
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,
-            // The brand mark is what makes a login row a LOGIN row, and an
-            // `Image` is not a `PickerItem` glyph (a picker icon is a
-            // registry name), so it draws over the primitive's mark.
             renderMark: { item in
-                guard let mark, let option = option(for: item.value),
-                      let image = mark(option.agent)
+                guard let image = option(for: item.value).flatMap({ mark?($0.agent) })
                 else { return nil }
                 return AnyView(
                     image
@@ -100,10 +99,14 @@ public struct AccountPicker<Trigger: View>: View {
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 )
             },
-            // EXP-992: the inline limits preview stays with the row.
-            renderDetail: { item in
-                guard let limits = option(for: item.value)?.limits else { return nil }
-                return AnyView(AccountLimitBars(limits: limits))
+            // EXP-992: the limits preview is why the account rows draw their
+            // own body — a phone has no hover, so the three bars sit inline
+            // under the email.
+            renderItem: { item in
+                guard let option = option(for: item.value) else { return nil }
+                // The bars make this the one row taller than the 44pt tap
+                // target, so it brings the breathing room with it.
+                return AnyView(AccountOptionBody(option: option).padding(.vertical, 8))
             },
             trigger: trigger
         )

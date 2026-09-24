@@ -1,16 +1,21 @@
 package com.exponential.app.ui.components
 
+import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.AccountOption
+import com.exponential.app.domain.AgentHealthRules
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.statusIcon
 import com.exponential.app.domain.issuePriorityOrder
+import com.exponential.app.ui.components.picker.AccountPickerOption
 import com.exponential.app.ui.components.picker.AssigneePickerMember
 import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.picker.IssuePickerIssue
 import com.exponential.app.ui.components.picker.LabelPickerLabel
 import com.exponential.app.ui.components.picker.PriorityPickerOption
@@ -82,6 +87,30 @@ fun IssueEntity.toPickerIssue(disabled: Boolean = false): IssuePickerIssue {
         color = statusColor(anchor),
     )
 }
+
+/**
+ * A machine as a device row (EXP-432: a teammate's shared server carries its
+ * owner, so [deviceOptionLabel] is what a machine READS as everywhere).
+ */
+fun SteerDevice.toPickerDevice(): DevicePickerDevice = DevicePickerDevice(
+    id = deviceId,
+    name = deviceOptionLabel(this),
+    icon = icon,
+    isServer = isServer,
+)
+
+/**
+ * One of a machine's logins (EXP-872) as an account row: the health verdict
+ * rides as the badge text and the EXP-992 windows as the row's limit preview,
+ * so the sheet row says exactly what the EXP-991 menu row said.
+ */
+fun AccountOption.toPickerAccount(): AccountPickerOption = AccountPickerOption(
+    key = key,
+    agent = agent,
+    email = email,
+    healthNote = AgentHealthRules.badgeLabel(health),
+    limits = limits,
+)
 
 /** The priority a picker value names. */
 fun pickedPriority(values: Set<String>): IssuePriority? =

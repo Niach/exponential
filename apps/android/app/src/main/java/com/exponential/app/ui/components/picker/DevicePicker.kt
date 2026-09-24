@@ -14,6 +14,12 @@ data class DevicePickerDevice(
     val name: String,
     /** Contract `deviceIcon`; null = the kind default. */
     val icon: String? = null,
+    /**
+     * A headless `exponential` daemon rather than the IDE — its KIND default
+     * is the server glyph, so the row cannot draw a laptop for a box in a
+     * rack.
+     */
+    val isServer: Boolean = false,
     /** A muted reason under the name (`Offline`, `Update to run workflows`). */
     val description: String? = null,
     val disabled: Boolean = false,

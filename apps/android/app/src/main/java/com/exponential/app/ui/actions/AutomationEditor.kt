@@ -32,8 +32,9 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.triggerEventLabel
 import com.exponential.app.domain.triggerWeekdayName
-import com.exponential.app.ui.components.AccountPickerPill
+import com.exponential.app.ui.components.AccountPill
 import com.exponential.app.ui.components.PickerValueRow
+import com.exponential.app.ui.components.picker.AccountPicker
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
@@ -48,6 +49,7 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.ambientAccountOptions
 import com.exponential.app.ui.components.availableAgentsFor
+import com.exponential.app.ui.components.toPickerAccount
 import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.agent.StartBoardOption
@@ -359,7 +361,7 @@ internal fun seedAutomationPin(
  * The binding half: which machine runs the automation, and the account pin
  * with its model/effort. EXP-615 retired the "Device default" agent option;
  * EXP-995 retired the agent strip itself — the card's first row is THE
- * account picker ([AccountPickerPill], brand mark + email over the bound
+ * account picker ([AccountPicker], brand mark + email over the bound
  * machine's logins, its default first) and a pick names the agent too. The
  * pin seeds to the bound machine's DEFAULT ACCOUNT (the composer's seed) and
  * the row saves that concrete agent + profile. Model/Effort speak the launch
@@ -435,25 +437,45 @@ internal fun AutomationBindingFields(
                         ),
                     )
                     Spacer(Modifier.weight(1f))
-                    AccountPickerPill(
-                        options = accountOptions,
-                        selectedKey = "${draft.agent}:${draft.account.ifEmpty { SYSTEM_PROFILE_ID }}",
-                        onSelect = { option ->
-                            // Only an AGENT change invalidates the vocabularies
-                            // below; another login of the same agent keeps
-                            // model and effort exactly as picked. "" is the
-                            // machine's ambient login, never an id on the wire.
-                            val agentChanged = option.agent != draft.agent
-                            onChange(
-                                draft.copy(
-                                    agent = option.agent,
-                                    account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
-                                    model = if (agentChanged) CLI_DEFAULT_MODEL else draft.model,
-                                    effort = if (agentChanged) CLI_DEFAULT_EFFORT else draft.effort,
-                                ),
+                    // The pin's own key, falling back to the first login the
+                    // way the pill always did — a draft can name an account
+                    // this machine no longer reports.
+                    val selectedKey = "${draft.agent}:${draft.account.ifEmpty { SYSTEM_PROFILE_ID }}"
+                    val current = accountOptions.firstOrNull { it.key == selectedKey }
+                        ?: accountOptions.first()
+                    // EXP-1021: the same capsule over the SHARED account sheet
+                    // — the login rows, their EXP-992 limit bars and the
+                    // highlight are the picker's now, not a menu of this
+                    // surface's own. A lone login is a statement, not a choice,
+                    // so it opens nothing.
+                    AccountPicker(
+                        options = accountOptions.map { it.toPickerAccount() },
+                        value = current.key,
+                        onChange = { key ->
+                            accountOptions.firstOrNull { it.key == key }?.let { option ->
+                                // Only an AGENT change invalidates the
+                                // vocabularies below; another login of the same
+                                // agent keeps model and effort exactly as
+                                // picked. "" is the machine's ambient login,
+                                // never an id on the wire.
+                                val agentChanged = option.agent != draft.agent
+                                onChange(
+                                    draft.copy(
+                                        agent = option.agent,
+                                        account = option.id.takeIf { it != SYSTEM_PROFILE_ID }.orEmpty(),
+                                        model = if (agentChanged) CLI_DEFAULT_MODEL else draft.model,
+                                        effort = if (agentChanged) CLI_DEFAULT_EFFORT else draft.effort,
+                                    ),
+                                )
+                            }
+                        },
+                        trigger = { open ->
+                            AccountPill(
+                                option = current,
+                                onClick = if (accountOptions.size > 1) open else null,
+                                modifier = Modifier.testTag("automation-account-pill"),
                             )
                         },
-                        modifier = Modifier.testTag("automation-account-pill"),
                     )
                 }
             }

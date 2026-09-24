@@ -53,6 +53,116 @@ class PickerContractTest {
         // `laptop` has been in it since EXP-924 and can never leave.
         assertTrue(iconPickerItems(IconPickerSet.Device).any { it.value == "laptop" })
         assertTrue(iconPickerItems(IconPickerSet.Board).none { it.value == "laptop" })
+        // A machine always resolves a glyph, and a SERVER never wears the
+        // desktop default.
+        val server = devicePickerItems(
+            listOf(DevicePickerDevice(id = "d", name = "buildbox", isServer = true)),
+        ).single()
+        assertEquals(ExpIcons.uiServer, server.icon)
+        assertEquals(
+            ExpIcons.uiDevice,
+            devicePickerItems(listOf(DevicePickerDevice(id = "d", name = "mbp"))).single().icon,
+        )
+        // A login row searches on its email AND its agent; the health badge is
+        // its note.
+        val account = accountPickerItems(
+            listOf(
+                AccountPickerOption(
+                    key = "claude:system",
+                    agent = "claude",
+                    email = "ada@example.com",
+                    healthNote = "Needs re-login",
+                ),
+            ),
+        ).single()
+        assertEquals("ada@example.com", account.label)
+        assertEquals("Needs re-login", account.description)
+        assertEquals(listOf("ada@example.com", "claude"), account.keywords)
+    }
+
+    /**
+     * EXP-992's rate-limit preview survived the move onto the primitive: the
+     * bars ride the option and the picker draws them in the row's own body
+     * ([Picker]'s `renderItem`), because they stack UNDER the email and a
+     * brand mark is a drawable rather than an `AppIcons` vector.
+     */
+    @Test
+    fun anAccountRowKeepsItsRateLimitPreview() {
+        val source = pickerSource("AccountPicker.kt")
+        assertTrue("the option carries the windows", source.contains("val limits: AccountLimits?"))
+        assertTrue("the row draws them", source.contains("AccountLimitBars("))
+        assertTrue("over the primitive's row", source.contains("renderItem = "))
+    }
+
+    /**
+     * A status row is a GLYPH row on every client: an unresolvable registry
+     * name degrades to the neutral backlog glyph rather than blanking the
+     * leading slot — a coloured row with no glyph would silently drop to the
+     * DOT a label row wears (`IssueVisuals`' `StatusIcon` rule).
+     */
+    @Test
+    fun aStatusRowCanNeverLoseItsGlyph() {
+        val rows = statusPickerItems(
+            listOf(
+                StatusPickerStatus(id = "s", name = "Shipping", category = "started"),
+                StatusPickerStatus(
+                    id = "t",
+                    name = "Unknown",
+                    category = "backlog",
+                    iconName = "not-a-registry-name",
+                    colorHex = "#EF4444",
+                ),
+            ),
+        )
+        assertTrue(rows.all { it.icon != null })
+        assertEquals(ExpIcons.statusBacklog, rows[1].icon)
+    }
+
+    /**
+     * The 44dp row is the HIGHLIGHT's height: the minimum has to sit ABOVE the
+     * inner padding in the modifier chain (`GlassSheetRow`'s order). Below it
+     * the padding is added on top of the minimum and a picker row stands ~18dp
+     * taller than the sheet rows beside it — the same list, two rhythms.
+     */
+    @Test
+    fun aRowIsTheSheetRowsHeightNotThatPlusItsPadding() {
+        val source = pickerSource("Picker.kt")
+        val minHeight = source.indexOf("defaultMinSize(minHeight = PickerDefaults.RowHeight)")
+        val innerPadding = source.indexOf("horizontal = PickerDefaults.RowInnerPadding")
+        assertTrue(minHeight > 0 && innerPadding > 0)
+        assertTrue("the min height goes above the inner padding", minHeight < innerPadding)
+        assertEquals(44, PickerDefaults.RowHeight.value.toInt())
+    }
+
+    /**
+     * The sheet carries ONE row idiom, footer included: an action row is the
+     * picker's own ([PickerActionRow]), never a row borrowed from another
+     * surface. The icon picker is the case that regressed — its "No icon"
+     * reset sat inside the sheet as a `GlassSheetRow`.
+     */
+    @Test
+    fun aFooterActionIsAPickerRowToo() {
+        val source = pickerSource("Picker.kt")
+        assertTrue(source.contains("fun PickerActionRow("))
+        val iconPicker = moduleFile("src/main/java/com/exponential/app/ui/components/IconPicker.kt").readText()
+        assertTrue(iconPicker.contains("PickerActionRow("))
+        assertFalse("no second row idiom in the sheet", iconPicker.contains("GlassSheetRow("))
+        val labelSheet = moduleFile("src/main/java/com/exponential/app/ui/issue/LabelPickerSheet.kt").readText()
+        assertTrue(labelSheet.contains("PickerActionRow("))
+        assertFalse("no second row idiom in the sheet", labelSheet.contains("GlassSheetRow("))
+    }
+
+    /**
+     * A panel REPLACES the rows, so it is handed none — and it does not get to
+     * invent its own pick either: it reports the value it was tapped on and
+     * the primitive folds it into the selection.
+     */
+    @Test
+    fun aPanelPicksThroughThePrimitive() {
+        assertTrue(pickerSource("Picker.kt").contains("panel: (@Composable (pick: (T) -> Unit) -> Unit)?"))
+        val iconPicker = moduleFile("src/main/java/com/exponential/app/ui/components/IconPicker.kt").readText()
+        assertTrue(iconPicker.contains("panel = { pick ->"))
+        assertTrue("no rows are built for a list nothing renders", iconPicker.contains("items = emptyList()"))
     }
 
     /**
@@ -78,6 +188,30 @@ class PickerContractTest {
         assertTrue(iconPicker.contains("Picker("))
         assertTrue(iconPicker.contains("panel = {"))
         assertFalse("the icon picker must not draw a sheet of its own", iconPicker.contains("GlassSheet("))
+    }
+
+    /**
+     * The other half of "one picker per thing": a typed picker with NO caller
+     * is not a sweep, it is a second implementation waiting to be skipped. The
+     * app must reach every one of the ten from a real surface.
+     */
+    @Test
+    fun everyTypedPickerHasACaller() {
+        val callers = moduleDir("src/main/java")
+            .walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            // The picker package declares them; so does the icon picker's own
+            // file. A declaration is not a caller.
+            .filterNot { it.parentFile?.name == "picker" || it.name == "IconPicker.kt" }
+            .map { it.readText() }
+            .toList()
+        val typed = listOf(
+            "BoardPicker", "IssuePicker", "ActionPicker", "AccountPicker", "DevicePicker",
+            "AssigneePicker", "StatusPicker", "PriorityPicker", "LabelPicker", "IconPicker",
+        )
+        for (name in typed) {
+            assertTrue("$name is rendered by nothing", callers.any { it.contains("$name(") })
+        }
     }
 
     /**
@@ -218,5 +352,12 @@ class PickerContractTest {
         listOf(path, "app/$path", "apps/android/app/$path")
             .map(::File)
             .firstOrNull { it.isFile }
+            ?: error("$path not found from ${File(".").absolutePath}")
+
+    /** [moduleFile] for a source ROOT — the sweep case walks one. */
+    private fun moduleDir(path: String): File =
+        listOf(path, "app/$path", "apps/android/app/$path")
+            .map(::File)
+            .firstOrNull { it.isDirectory }
             ?: error("$path not found from ${File(".").absolutePath}")
 }
