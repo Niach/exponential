@@ -58,7 +58,9 @@ public struct AccountPicker<Trigger: View>: View {
 
     /// One row per login: the email, its health badge as the muted second
     /// line (the bars replace it when a row draws its own body), and both the
-    /// email and the agent as search keywords.
+    /// email and the agent as search keywords — the agent because a row does
+    /// NOT spell it, it only wears its brand mark, so "codex" has nothing else
+    /// to match on.
     nonisolated public static func items(_ options: [AccountOption]) -> [PickerItem<String>] {
         options.map { option in
             PickerItem(
@@ -80,11 +82,18 @@ public struct AccountPicker<Trigger: View>: View {
             mode: .single,
             value: value.map { [$0] } ?? [],
             onChange: { picked in picked.first.map(onChange) },
+            // The rows carry the agent as a keyword, so they have to be
+            // filterable for it to mean anything: a machine signed into
+            // several agents lists a login per agent, and "codex" is the
+            // fastest way to the right one.
+            search: true,
             title: "Account",
             // A lone login is not a choice: the trigger still says which one
             // it is, and there is no sheet to open (web collapses its inline
             // word for the same reason).
             disabled: options.count <= 1,
+            // The header is singular ("Account"); the field searches the pool.
+            searchPlaceholder: "Search accounts",
             open: open,
             hideTrigger: hideTrigger,
             onDismiss: onDismiss,

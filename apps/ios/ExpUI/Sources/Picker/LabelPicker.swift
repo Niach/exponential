@@ -3,6 +3,20 @@ import SwiftUI
 // EXP-1029 contract — the label picker: ALWAYS multi, searchable, each row
 // its colour dot + name; the sheet stays open across toggles.
 
+/// What a labels picker with nothing to show says. TWO flows, two sentences,
+/// and both of them named HERE rather than typed at a call site: the flow that
+/// can turn the typed name into a label has to say so, and a literal at one
+/// call site is exactly how that hint went missing when the old labels sheet
+/// was replaced (EXP-1021 review r3).
+public enum LabelPickerEmpty {
+    /// No create row in this flow — the board's bulk label edit.
+    public static let plain = "No labels"
+    /// The query can BECOME the label: the issue's labels sheet, whose
+    /// `+ Create new label "…"` row is the answer to the same miss. Android's
+    /// `LabelPickerSheet` says the same sentence for the same reason.
+    public static let creatable = "No labels yet. Type a name to create one."
+}
+
 public struct LabelPickerLabel: Identifiable, Hashable {
     public let id: String
     public let name: String
@@ -36,8 +50,8 @@ public struct LabelPicker<Trigger: View>: View {
     /// The sheet headline; the default names the picker (Android's
     /// `LabelPicker.kt` carries the same parameter).
     public let title: String
-    /// What an empty list (or an empty search) reads as — the labels sheet
-    /// says "type a name to create one" instead.
+    /// What an empty list (or an empty search) reads as — one of
+    /// `LabelPickerEmpty`'s two sentences, never a literal.
     public let emptyText: String
     /// EXP-1021 — the surface controls every typed picker forwards verbatim
     /// (web's `PickerSurfaceProps`): a host that opens the picker from its own
@@ -55,7 +69,7 @@ public struct LabelPicker<Trigger: View>: View {
         onChange: @escaping (Set<String>) -> Void,
         query: Binding<String>? = nil,
         title: String = "Labels",
-        emptyText: String = "No labels",
+        emptyText: String = LabelPickerEmpty.plain,
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
