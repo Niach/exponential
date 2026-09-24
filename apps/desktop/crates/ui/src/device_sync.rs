@@ -61,6 +61,12 @@ struct DeviceSyncState {
     /// completed, and a login is completed only once its URL is on the grid —
     /// without this claim set the next beat would open a second tab.
     inflight_logins: Arc<Mutex<HashSet<String>>>,
+    /// An `agent_update` finished on its own thread: the hub's doctor must
+    /// re-probe (the Agents pane's version, the relay advertisement) and the
+    /// next beat must carry the moved `agent_accounts.<agent>.version`. The
+    /// thread cannot touch gpui, so it raises this and the loop's foreground
+    /// half runs the refresh.
+    doctor_soon: Arc<AtomicBool>,
 }
 
 struct DeviceSyncGlobal(gpui::Entity<DeviceSyncState>);
@@ -130,7 +136,7 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
     let state_entity = state(cx);
     let account_id = account.id.clone();
     let stop = Arc::new(AtomicBool::new(false));
-    let (check_in, report_soon, worker_busy) = state_entity.update(cx, |state, _| {
+    let (check_in, report_soon, worker_busy, doctor_soon) = state_entity.update(cx, |state, _| {
         if let Some(previous) = state.by_account.insert(account_id.clone(), stop.clone()) {
             previous.store(true, Ordering::SeqCst);
         }
@@ -138,6 +144,7 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             state.check_in.clone(),
             state.report_soon.clone(),
             state.worker_busy.clone(),
+            state.doctor_soon.clone(),
         )
     });
     // First-connect state: report the inventory once sessions settle.
@@ -217,6 +224,16 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             if outcome.beat_again {
                 // EXP-792: a forced usage refresh produced numbers AFTER this
                 // beat's body was built — send them on the next tick.
+                check_in.store(true, Ordering::SeqCst);
+            }
+            if doctor_soon.swap(false, Ordering::SeqCst) {
+                // An agent CLI was just updated here: re-probe so the hub
+                // (Settings → Agents, the advertisement) and the next beat's
+                // account rows name the new version.
+                let _ = cx.update(|cx| {
+                    let hub = CodingHub::global(cx);
+                    CodingHub::refresh_doctor(&hub, cx);
+                });
                 check_in.store(true, Ordering::SeqCst);
             }
             if let Some(status) = outcome.agent_status {
@@ -360,8 +377,11 @@ struct BeatSnapshot {
     /// the beat then simply reports no agent status.
     settings: coding::Settings,
     doctor: Option<coding::DoctorReport>,
-    /// EXP-484 (D): the shared `agent_login` claim set (see [`claim_login`]).
+    /// EXP-484 (D): the shared `agent_login` claim set (see [`claim_login`]);
+    /// an `agent_update` claims it too (its thread reports itself).
     inflight_logins: Arc<Mutex<HashSet<String>>>,
+    /// See [`DeviceSyncState::doctor_soon`].
+    doctor_soon: Arc<AtomicBool>,
 }
 
 /// What this loop last SENT, so an unchanged payload is left off the beat
@@ -426,6 +446,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
         (hub.settings.clone(), hub.doctor.report.clone())
     };
     let inflight_logins = inflight_logins(cx);
+    let doctor_soon = state(cx).read(cx).doctor_soon.clone();
     Some(BeatSnapshot {
         trpc,
         device_id,
@@ -441,6 +462,7 @@ fn snapshot_for(account_id: &str, cx: &mut App) -> Option<BeatSnapshot> {
         settings,
         doctor,
         inflight_logins,
+        doctor_soon,
     })
 }
 
@@ -470,6 +492,9 @@ enum CommandDisposition {
     /// A redelivery of a command this process is already running: do
     /// NOTHING. Completing it would answer the in-flight run's own row.
     AlreadyRunning,
+    /// Claimed and handed to its own thread (an `agent_update` — minutes of
+    /// download must not hold the beat); that thread reports the outcome.
+    Spawned,
 }
 
 /// One heartbeat + work pull + (when due) inventory report. Blocking.
@@ -565,7 +590,8 @@ fn beat(
                                 beat_again = true;
                             }
                             CommandDisposition::Completed
-                            | CommandDisposition::AlreadyRunning => {}
+                            | CommandDisposition::AlreadyRunning
+                            | CommandDisposition::Spawned => {}
                         }
                     }
                     worker_busy.store(false, Ordering::SeqCst);
@@ -806,6 +832,7 @@ pub(crate) fn push_local_defaults_if_changed(
         settings: settings.clone(),
         doctor: None,
         inflight_logins: Arc::new(Mutex::new(HashSet::new())),
+        doctor_soon: Arc::new(AtomicBool::new(false)),
     };
     push_defaults(&snapshot, &settings, &marker);
 }
@@ -852,6 +879,55 @@ fn run_device_command(
             return CommandDisposition::AlreadyRunning;
         }
         return CommandDisposition::Deferred(command.clone());
+    }
+    // The agent CLI's own self-updater (`claude update` / `codex update`),
+    // requested from the device settings dialog — the daemon's arm twin.
+    // Minutes of download, so it runs on its own thread and completes
+    // itself; the claim set keeps a redelivered id from starting a second
+    // updater. Live sessions keep running (their binary stays mapped); the
+    // finished thread raises `doctor_soon` so the hub re-probes and the next
+    // beat carries the new version.
+    if command.kind == coding::AGENT_UPDATE_COMMAND {
+        let agent = command.payload["agent"].as_str().unwrap_or_default();
+        let Some(agent) = coding::CodingAgent::parse(agent) else {
+            complete(snapshot, &command.id, false, "Malformed command payload.");
+            return CommandDisposition::Completed;
+        };
+        if !claim_login(&snapshot.inflight_logins, &command.id) {
+            return CommandDisposition::AlreadyRunning;
+        }
+        let trpc = Arc::clone(&snapshot.trpc);
+        let settings = snapshot.settings.clone();
+        let command_id = command.id.clone();
+        let claimed = Arc::clone(&snapshot.inflight_logins);
+        let doctor_soon = Arc::clone(&snapshot.doctor_soon);
+        let spawned = std::thread::Builder::new()
+            .name("exp-agent-update".to_string())
+            .spawn(move || {
+                log::info!("[device-sync] agent update: running {} update", agent.id());
+                let (ok, message) = match coding::update_agent(&settings, agent) {
+                    Ok(outcome) => (true, outcome.message()),
+                    Err(error) => (false, error),
+                };
+                log::info!("[device-sync] agent update ({}): {message}", agent.id());
+                if let Err(err) =
+                    api::devices::complete_command(&trpc, &command_id, ok, Some(&message))
+                {
+                    log::debug!("[device-sync] completeCommand failed (redelivery retries): {err}");
+                }
+                if let Ok(mut guard) = claimed.lock() {
+                    guard.remove(&command_id);
+                }
+                doctor_soon.store(true, Ordering::SeqCst);
+            });
+        if spawned.is_err() {
+            if let Ok(mut guard) = snapshot.inflight_logins.lock() {
+                guard.remove(&command.id);
+            }
+            complete(snapshot, &command.id, false, "This machine could not start the updater.");
+            return CommandDisposition::Completed;
+        }
+        return CommandDisposition::Spawned;
     }
     let (ok, message) = match command.kind.as_str() {
         "worktree_remove" => {

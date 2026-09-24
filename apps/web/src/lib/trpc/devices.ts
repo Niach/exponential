@@ -80,8 +80,8 @@ import {
 // (EXP-792: runs `mcp_oauth_*` and reports readiness), `agent-usage-refresh`
 // (EXP-747 C4), `update-now` (FEED-36: runs `update_now`) and
 // `account-remove` (EXP-862: runs `agent_profile_remove`) and `stacked-start`
-// (EXP-897: reads a start frame's `stack` payload). The daemon advertises 20
-// today (13 build + 7 action caps), so the ceiling sits at 24 with headroom,
+// (EXP-897: reads a start frame's `stack` payload). The daemon advertises 22
+// today (13 build + 9 action caps), so the ceiling sits at 24 with headroom,
 // not AT the count.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
@@ -204,6 +204,9 @@ const MAX_USAGE_KEY = 64
 const MAX_USAGE_LABEL = 32
 const MAX_ACCOUNT_EMAIL = 320
 const MAX_ACCOUNT_PLAN = 64
+/** The install's CLI version line (`2.1.281`) — the doctor's bare triple,
+ * with room for a prerelease suffix. */
+const MAX_AGENT_VERSION = 64
 const MAX_PROFILE_ID = 64
 const MAX_PROFILE_LABEL = 64
 
@@ -239,6 +242,9 @@ export function clampAgentAccounts(
     if (checkedAt) entry.checkedAt = checkedAt
     const health = clampAgentHealth(account.health)
     if (health) entry.health = health
+    if (typeof account.version === `string` && account.version.length > 0) {
+      entry.version = account.version.slice(0, MAX_AGENT_VERSION)
+    }
     // EXP-792 (EXP-747 B5): the device's profiles for this agent,
     // ≤`MAX_AGENT_PROFILES`. A profile without an id is dropped (nothing
     // could address it); the top-level fields above stay the ACTIVE profile
@@ -362,6 +368,9 @@ const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   `worktree_prune`,
   `agent_profile_use`,
   `agent_profile_remove`,
+  // "Update claude here" twice is one wish: the machine's updater is
+  // idempotent, and a second click while the first is queued reuses it.
+  `agent_update`,
 ])
 
 /** EXP-862: the ambient login's profile id — the agent CLI's own config dir,
@@ -983,7 +992,10 @@ export const devicesRouter = router({
   // EXP-747 C4 adds `agent_usage_refresh`: force one profile's usage
   // collection past the shared TTL (never past the rate-limit floor).
   // FEED-36 adds `update_now` (payload {}): end every live session on the
-  // machine and restart on the queued update, cap-gated on `update-now`. The
+  // machine and restart on the queued update, cap-gated on `update-now`.
+  // `agent_update` (payload {agent}): run that agent CLI's own self-updater
+  // on the machine (`claude update` / `codex update`); the completion names
+  // the version move (no cap: the release min-version gate covers it). The
   // EXP-792 `mcp_oauth_start`/`mcp_oauth_code` kinds are queued INTERNALLY
   // only (mcpServers.beginOAuth, the anonymous callback) and never accepted
   // here — a caller could otherwise relay an arbitrary code to a device.
@@ -1009,6 +1021,7 @@ export const devicesRouter = router({
           // server-wide), it only forgets the credential it holds.
           `agent_profile_remove`,
           `update_now`,
+          `agent_update`,
         ]),
         repoFullName: z.string().min(1).max(255).optional(),
         branch: z.string().min(1).max(255).optional(),
@@ -1209,6 +1222,16 @@ export const devicesRouter = router({
       }
 
       if (input.kind === `update_now`) assertUpdateNowCap(row)
+
+      if (input.kind === `agent_update`) {
+        if (!input.agent) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_update needs an agent`,
+          })
+        }
+        payload = { agent: input.agent }
+      }
 
       return queueDeviceCommand(ctx.db, {
         deviceRowId: row.id,

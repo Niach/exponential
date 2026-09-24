@@ -168,8 +168,9 @@ pub fn open(window: &mut Window, cx: &mut App, device_row_id: String) {
 /// One queued command the dialog tracks until terminal.
 struct TrackedCommand {
     id: String,
-    /// `prune`, `"{repo} {branch}"` for a removal, or `"login {agent}"` for
-    /// an EXP-484 sign-in — the inline error/result slot.
+    /// `prune`, `"{repo} {branch}"` for a removal, `"login {agent}"` for
+    /// an EXP-484 sign-in, or `"update {agent}"` for an agent CLI update —
+    /// the inline error/result slot.
     key: String,
 }
 
@@ -379,6 +380,10 @@ pub struct DeviceSettingsView {
     /// "nothing drafted" and drop the write.
     pending_push: Option<serde_json::Value>,
     section_errors: HashMap<String, SharedString>,
+    /// A finished command's device-reported SUCCESS message, per key — the
+    /// per-agent Update rows show theirs ("Claude Code updated: …") where a
+    /// worktree removal shows nothing (its row simply vanishes).
+    section_notes: HashMap<String, SharedString>,
     tracked: Vec<TrackedCommand>,
     polling: bool,
     /// EXP-909: what the Update section compares this device's version
@@ -554,6 +559,7 @@ impl DeviceSettingsView {
             queued: Vec::new(),
             pending_push: None,
             section_errors: HashMap::new(),
+            section_notes: HashMap::new(),
             tracked: Vec::new(),
             polling: false,
             latest_cli: None,
@@ -1142,6 +1148,42 @@ impl DeviceSettingsView {
         .detach();
     }
 
+    /// Queue an `agent_update` for `agent` on this machine — the agent CLI's
+    /// own self-updater, run remotely (the web dialog's twin). Tracked under
+    /// `update {agent}` so the outcome message lands under that row.
+    fn queue_agent_update(&mut self, agent: CodingAgent, cx: &mut gpui::Context<Self>) {
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let key = format!("update {}", agent.id());
+        let device_id = self.device_id.clone();
+        self.set_error(key.clone(), None);
+        self.section_notes.remove(&key);
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::devices::create_agent_update_command(&trpc, &device_id, agent.id())
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match result {
+                    Ok(created) => {
+                        this.tracked.push(TrackedCommand {
+                            id: created.id,
+                            key,
+                        });
+                        this.ensure_polling(cx);
+                    }
+                    Err(err) => this.set_error(key, Some(err.user_message().into())),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Poll queued commands until terminal — the durable outcome (a worktree
     /// vanishing) additionally streams in via sync when the machine
     /// re-reports. Retires itself when nothing is tracked; dialog close
@@ -1200,6 +1242,13 @@ impl DeviceSettingsView {
                                             || "The device reported a failure.".to_string(),
                                         ))),
                                     );
+                                } else if key.starts_with("update ") {
+                                    // The version move is the outcome — the
+                                    // row's version line follows on the next
+                                    // heartbeat; the message says it now.
+                                    if let Some(result) = row.result.filter(|r| !r.is_empty()) {
+                                        this.section_notes.insert(key, SharedString::from(result));
+                                    }
                                 }
                             }
                             // Pending / transient error — keep polling.
@@ -1403,6 +1452,16 @@ impl DeviceSettingsView {
             div()
                 .text_xs()
                 .text_color(cx.theme().danger)
+                .child(message.clone())
+        })
+    }
+
+    /// The muted twin of [`Self::error_line`] for a command's success message.
+    fn note_line(&self, key: &str, cx: &App) -> Option<gpui::Div> {
+        self.section_notes.get(key).map(|message| {
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
                 .child(message.clone())
         })
     }
@@ -1842,8 +1901,77 @@ impl DeviceSettingsView {
         &mut self,
         row: Option<&domain::rows::DeviceRow>,
         online: bool,
+        server: bool,
         cx: &mut gpui::Context<Self>,
     ) -> Div {
+        // The agent CLI rows: one per agent the machine reports an install
+        // for, its version off the heartbeat's account row and an "Update"
+        // that queues `agent_update` (the CLI's own self-updater, run there).
+        // No cap: every build past the release that shipped it runs it, and
+        // the min-version gate retires the ones that don't.
+        let (accounts, _) = self.reported_agent_status(cx);
+        let mut agent_rows: Vec<Div> = Vec::new();
+        for agent in CodingAgent::ALL {
+            let Some(account) = accounts.get(agent.id()) else {
+                continue;
+            };
+            let key = format!("update {}", agent.id());
+            let updating = self.tracked.iter().any(|command| command.key == key);
+            let mut agent_row = surface::glass_row_shell().min_w_0().gap_2().child(
+                v_flex().flex_1().min_w_0().gap_0p5().child(
+                    div().w_full().min_w_0().truncate().text_sm().child(SharedString::from(
+                        match account.version.as_deref() {
+                            Some(version) => format!("{} v{version}", agent.label()),
+                            None => format!("{} (version unknown)", agent.label()),
+                        },
+                    )),
+                ),
+            );
+            agent_row = agent_row.child(
+                gpui_component::button::Button::new(("device-agent-update", agent as usize))
+                    .ghost()
+                    .web_sm()
+                    .icon(Icon::new(registry::UI_UPDATE))
+                    .label(if updating { "Updating…" } else { "Update" })
+                    .loading(updating)
+                    .disabled(updating)
+                    .tooltip(if online {
+                        format!("Run `{} update` on this machine.", agent.id())
+                    } else {
+                        format!(
+                            "Run `{} update` on this machine (queued until it comes online).",
+                            agent.id()
+                        )
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.queue_agent_update(agent, cx);
+                    })),
+            );
+            let under = self
+                .error_line(&key, cx)
+                .or_else(|| self.note_line(&key, cx));
+            match under {
+                Some(line) => agent_rows.push(
+                    v_flex()
+                        .w_full()
+                        .child(agent_row)
+                        .child(div().px_4().pb_3().child(line)),
+                ),
+                None => agent_rows.push(agent_row),
+            }
+        }
+        if !server {
+            // Desktops update themselves (EXP-420/FEED-36): the section is
+            // the agent rows alone, and only while there is one to show.
+            if agent_rows.is_empty() {
+                return div();
+            }
+            return v_flex()
+                .w_full()
+                .gap_2()
+                .child(surface::glass_section_header("Update", None, cx))
+                .child(surface::glass_group_rows(agent_rows));
+        }
         self.ensure_latest_loaded(cx);
         let muted = cx.theme().muted_foreground;
         let amber = theme::tokens::YELLOW.to_hsla();
@@ -1928,15 +2056,17 @@ impl DeviceSettingsView {
             );
         }
 
+        let mut rows = vec![surface::glass_row_shell()
+            .min_w_0()
+            .gap_2()
+            .child(version_line)
+            .child(controls)];
+        rows.extend(agent_rows);
         let mut body = v_flex()
             .w_full()
             .gap_2()
             .child(surface::glass_section_header("Update", None, cx))
-            .child(surface::glass_group_rows(vec![surface::glass_row_shell()
-                .min_w_0()
-                .gap_2()
-                .child(version_line)
-                .child(controls)]));
+            .child(surface::glass_group_rows(rows));
         if queued {
             body = body.child(
                 div()
@@ -2087,10 +2217,9 @@ impl Render for DeviceSettingsView {
         // EXP-909: Update and Remove are the LAST two sections ×4 — the
         // device row carries one control now (the gear that opened this), so
         // these are the only place left that updates or removes a machine.
-        // Desktops update themselves: the Update section is the daemon's.
-        if server {
-            body = body.child(self.render_update_section(row.as_ref(), online, cx));
-        }
+        // Desktops update themselves: the daemon row is the server's; the
+        // agent CLI rows (claude/codex self-update) show for both kinds.
+        body = body.child(self.render_update_section(row.as_ref(), online, server, cx));
         let body = body.child(self.render_remove_section(row.as_ref(), cx));
         let worktrees_section = self.render_worktrees_section(online, cx);
 

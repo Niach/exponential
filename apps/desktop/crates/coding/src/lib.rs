@@ -41,6 +41,7 @@ pub mod agent;
 pub mod agent_accounts;
 pub mod agent_login;
 pub mod agent_profiles;
+pub mod agent_update;
 pub mod agent_usage;
 pub mod atomic_config;
 pub mod argv;
@@ -111,6 +112,7 @@ pub use doctor::{
     ToolCheck, ACTION_CAPS, DEVICE_CAPS, MIN_CLAUDE_ACP_VERSION,
     MIN_CLAUDE_VERSION, MIN_CODEX_ACP_VERSION,
 };
+pub use agent_update::{update_agent, AgentUpdateOutcome, AGENT_UPDATE_COMMAND};
 pub use account_option::{
     default_account_option, flatten_accounts, parse_account_option_key, AccountLimits,
     AccountModelLimit, AccountOption,

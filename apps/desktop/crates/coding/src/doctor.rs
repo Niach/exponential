@@ -430,7 +430,21 @@ impl DoctorReport {
                 accounts.insert(agent.id().to_string(), account);
             }
         }
+        self.stamp_versions(&mut accounts);
         accounts
+    }
+
+    /// Write each installed agent's CLI version onto its top-level account
+    /// row (`AgentAccount::version`). Runs LAST on every path that builds the
+    /// heartbeat map — the collector copies identity fields one by one and
+    /// a probe's row never carries a version, so a stamp taken earlier would
+    /// be lost. An agent the doctor could not run keeps no version.
+    pub fn stamp_versions(&self, accounts: &mut AgentAccounts) {
+        for agent in CodingAgent::ALL {
+            if let Some(account) = accounts.get_mut(agent.id()) {
+                account.version = self.check_for(agent).version.clone();
+            }
+        }
     }
 
     /// Whether the AMBIENT login of `agent` may be asked for usage windows
@@ -559,6 +573,9 @@ impl DoctorReport {
         }
         // EXP-1013: a signed-out login still names its last email.
         crate::agent_profiles::remember_emails(data_dir, &mut accounts);
+        // The rebuilt top-level rows above start from the probe's identity,
+        // which names no version — stamp last.
+        self.stamp_versions(&mut accounts);
         ProfileAccounts {
             accounts,
             usage_eligible,
@@ -1555,6 +1572,41 @@ mod tests {
         assert!(signed_out.contains(&"mcp".to_string()));
         assert!(signed_out.contains(&"agent-usage-refresh".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
+    }
+
+    /// The install's CLI version rides each installed agent's top-level
+    /// account row (the device settings' per-agent Update control reads it);
+    /// an agent the doctor could not run keeps none, and stamping never
+    /// invents a row.
+    #[test]
+    fn stamp_versions_names_the_installed_cli_on_the_account_row() {
+        let report = DoctorReport {
+            claude: green(Tool::Claude, "2.1.281"),
+            codex: red(Tool::Codex),
+            git: green(Tool::Git, "2.45.0"),
+        };
+        let mut accounts = AgentAccounts::new();
+        accounts.insert(
+            "claude".to_string(),
+            AgentAccount {
+                signed_in: true,
+                checked_at: "T".into(),
+                ..AgentAccount::default()
+            },
+        );
+        accounts.insert(
+            "codex".to_string(),
+            AgentAccount {
+                signed_in: true,
+                checked_at: "T".into(),
+                version: Some("stale".into()),
+                ..AgentAccount::default()
+            },
+        );
+        report.stamp_versions(&mut accounts);
+        assert_eq!(accounts["claude"].version.as_deref(), Some("2.1.281"));
+        assert_eq!(accounts["codex"].version, None);
+        assert_eq!(accounts.len(), 2);
     }
 
     /// EXP-897: the server refuses a `stack`/`stackOn` start to a device

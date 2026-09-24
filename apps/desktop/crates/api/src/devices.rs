@@ -141,8 +141,9 @@ pub struct PendingCommand {
     /// `worktree_remove` | `worktree_prune` | `agent_login` |
     /// `agent_login_code` | `mcp_oauth_start` | `mcp_oauth_code` |
     /// `agent_usage_refresh` | `agent_profile_use` |
-    /// `agent_profile_remove`; unknown kinds are completed `ok: false`
-    /// ("unsupported") by the executor, never dropped silently.
+    /// `agent_profile_remove` | `update_now` | `agent_update`; unknown kinds
+    /// are completed `ok: false` ("unsupported") by the executor, never
+    /// dropped silently.
     #[serde(default)]
     pub kind: String,
     /// `worktree_remove`: `{repoFullName, branch}`; `worktree_prune`: `{}`;
@@ -160,6 +161,11 @@ pub struct PendingCommand {
     /// `agent_profile_use` (EXP-849) and `agent_profile_remove` (EXP-862)
     /// carry the same `{agent, profileId}`: make that login the machine's
     /// default, or delete the machine's copy of it (never the account).
+    /// `update_now` (FEED-36): `{}` — end every live session and apply the
+    /// queued daemon self-update. `agent_update`: `{agent}` — run that agent
+    /// CLI's own self-updater here (`coding::update_agent`) and re-probe the
+    /// doctor so the heartbeat's `agent_accounts.<agent>.version` moves;
+    /// the completion names the version move.
     #[serde(default)]
     pub payload: serde_json::Value,
 }
@@ -687,6 +693,32 @@ pub fn create_agent_usage_refresh_command(
             kind: "agent_usage_refresh",
             agent,
             profile_id,
+        },
+    )
+}
+
+/// `devices.createCommand` for an `agent_update` — ask one of the CALLER's
+/// own machines to run `agent`'s self-updater (`claude update` /
+/// `codex update`) and report the version move. A repeat while one is queued
+/// reuses the pending row.
+pub fn create_agent_update_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_update",
+            agent,
         },
     )
 }
