@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.PlaceholderStatus
 import com.exponential.app.domain.githubConnectErrorMessage
+import com.exponential.app.domain.placeholderStatuses
 import com.exponential.app.data.api.BoardsApi
 import com.exponential.app.data.api.CreateLabelInput
 import com.exponential.app.data.api.GithubStatusResult
@@ -23,6 +25,7 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
+import com.exponential.app.data.db.TeamInviteEntity
 import com.exponential.app.data.db.TeamMemberEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -42,7 +45,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-data class MemberRow(val member: TeamMemberEntity, val user: UserEntity?)
+data class MemberRow(
+    val member: TeamMemberEntity,
+    val user: UserEntity?,
+    // EXP-630: set while an email invite bound to this member is still
+    // unaccepted — the row is on the roster but the person hasn't claimed it.
+    val placeholder: PlaceholderStatus? = null,
+)
 
 data class TeamSettingsState(
     val team: TeamEntity? = null,
@@ -112,6 +121,12 @@ class TeamSettingsViewModel @Inject constructor(
 
     private val membersFlow = dbAndSelected.flatMapLatest { (db, id) ->
         if (db == null || id == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(id)
+    }
+    // EXP-630: the team's UNACCEPTED invites (the DAO query filters accepted
+    // ones out already) — the only thing that says a roster row is a
+    // placeholder member waiting to be claimed.
+    private val invitesFlow = dbAndSelected.flatMapLatest { (db, id) ->
+        if (db == null || id == null) flowOf(emptyList()) else db.teamInviteDao().observeByTeam(id)
     }
     private val labelsFlow = dbAndSelected.flatMapLatest { (db, id) ->
         if (db == null || id == null) flowOf(emptyList()) else db.labelDao().observeByTeam(id)
@@ -239,6 +254,7 @@ class TeamSettingsViewModel @Inject constructor(
         listOf(
             teamFlow,
             membersFlow,
+            invitesFlow,
             labelsFlow,
             boardsFlow,
             _repos,
@@ -260,29 +276,38 @@ class TeamSettingsViewModel @Inject constructor(
         @Suppress("UNCHECKED_CAST")
         val members = values[1] as List<TeamMemberEntity>
         @Suppress("UNCHECKED_CAST")
-        val labels = values[2] as List<LabelEntity>
+        val invites = values[2] as List<TeamInviteEntity>
         @Suppress("UNCHECKED_CAST")
-        val boards = values[3] as List<BoardEntity>
+        val labels = values[3] as List<LabelEntity>
         @Suppress("UNCHECKED_CAST")
-        val repos = values[4] as List<TeamRepo>
-        val githubStatus = values[5] as GithubStatusResult?
+        val boards = values[4] as List<BoardEntity>
         @Suppress("UNCHECKED_CAST")
-        val users = values[6] as List<UserEntity>
-        val currentUserId = values[7] as String?
-        val instance = values[8] as String?
-        val transient = values[9] as String?
-        val deleted = values[10] as Boolean
-        val accountId = values[11] as String?
-        val reposLoaded = values[12] as Boolean
-        val resolvingRepoId = values[13] as String?
-        val githubFailed = values[14] as Boolean
-        val repositoriesError = values[15] as String?
+        val repos = values[5] as List<TeamRepo>
+        val githubStatus = values[6] as GithubStatusResult?
+        @Suppress("UNCHECKED_CAST")
+        val users = values[7] as List<UserEntity>
+        val currentUserId = values[8] as String?
+        val instance = values[9] as String?
+        val transient = values[10] as String?
+        val deleted = values[11] as Boolean
+        val accountId = values[12] as String?
+        val reposLoaded = values[13] as Boolean
+        val resolvingRepoId = values[14] as String?
+        val githubFailed = values[15] as Boolean
+        val repositoriesError = values[16] as String?
+        val placeholders = placeholderStatuses(invites)
         TeamSettingsState(
             team = team,
             // Rows whose user hasn't synced yet (user == null) still render
             // (userDisplayName degrades to a "Member <id>" placeholder).
             members = members
-                .map { m -> MemberRow(m, users.firstOrNull { it.id == m.userId }) },
+                .map { m ->
+                    MemberRow(
+                        m,
+                        users.firstOrNull { it.id == m.userId },
+                        placeholders[m.userId],
+                    )
+                },
             labels = labels,
             boards = boards,
             repos = repos,

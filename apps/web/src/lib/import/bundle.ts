@@ -348,11 +348,21 @@ export const labelPlanSchema = z.discriminatedUnion(`mode`, [
   z.object({ mode: z.literal(`skip`) }),
 ])
 
+// EXP-630: a source user maps to a team member — an existing one, or the
+// PLACEHOLDER member the wizard's inline invite created for them (they are on
+// the roster at once; their attributions carry over when they join) — or its
+// content is attributed to the importer.
 export const userPlanSchema = z.discriminatedUnion(`mode`, [
   z.object({ mode: z.literal(`member`), userId: z.string().min(1) }),
-  // Sends a team invite to the source email; content is attributed to the
-  // importer until (and after — imports never rewrite) they accept.
-  z.object({ mode: z.literal(`invite`) }),
+  // Invited when the import starts: a placeholder member with this name
+  // and address (editable in the wizard), claimed when the person signs in.
+  z.object({
+    mode: z.literal(`invite`),
+    name: z.string().trim().max(180),
+    email: z.string().trim().max(255),
+  }),
+  // Skipped: issues stay unassigned, comments post as the importer with the
+  // attribution line.
   z.object({ mode: z.literal(`self`) }),
 ])
 

@@ -263,6 +263,11 @@ pub const SHAPES: [ShapeSpec; 24] = [
             "invited_by_id",
             "role",
             "email",
+            // EXP-630: the placeholder member the invite created — the
+            // Members list badges that roster row "invited, not joined" while
+            // the invite is unaccepted. `heal_missing_columns` ALTERs it onto
+            // existing store tables and refetches the (tiny) table.
+            "placeholder_user_id",
             "accepted_at",
             "expires_at",
             "created_at",
@@ -1111,6 +1116,17 @@ mod tests {
         // It is a SUBSET of the runnable list, so both have to sync.
         assert!(spec.columns.contains(&"agents"));
         assert!(spec.columns.contains(&"unauthed_agents"));
+    }
+
+    #[test]
+    fn team_invites_sync_the_placeholder_binding_but_never_the_token() {
+        // EXP-630: the Members list badges a roster row "Invited" / "Invite
+        // expired" from THIS column — dropping it silently shows every
+        // not-yet-joined member as an ordinary one and hides "Resend invite".
+        let spec = shape_by_name("team_invites").unwrap();
+        assert!(spec.columns.contains(&"placeholder_user_id"));
+        // REV-4/14: the bearer secret stays out (module header).
+        assert!(!spec.columns.contains(&"token"), "bearer secret");
     }
 
     #[test]

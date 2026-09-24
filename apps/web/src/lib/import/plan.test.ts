@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { toLinearBundle } from "@/lib/import/linear/bundle"
-import { buildDefaultPlan, derivePrefix, evaluatePlan } from "@/lib/import/plan"
+import { buildDefaultPlan, derivePrefix, evaluatePlan, plannedInviteEmails } from "@/lib/import/plan"
 import { BOARD_PREFIX_PATTERN, type ImportPlan } from "@/lib/import/bundle"
 import {
   linearSnapshotFixture,
@@ -117,11 +117,21 @@ describe(`buildDefaultPlan`, () => {
     expect(plan.labels[`label:lb-ios`]).toEqual({ mode: `create` })
   })
 
-  it(`auto-matches members by case-insensitive email and falls back to self`, () => {
+  it(`auto-matches members by case-insensitive email, invites the rest while seats last, skips bots`, () => {
     expect(plan.users[`user:${U_HANNES}`]).toEqual({ mode: `member`, userId: `member-hannes` })
-    // dennis@ (Linear) vs danny@ (Exponential): the manual override is the feature.
-    expect(plan.users[`user:${U_DENNIS}`]).toEqual({ mode: `self` })
+    // dennis@ (Linear) vs danny@ (Exponential): no match, so an invite —
+    // the manual override in the wizard is the feature.
+    expect(plan.users[`user:${U_DENNIS}`]).toEqual({
+      mode: `invite`,
+      name: `dennis`,
+      email: `dennis@straehhuber.com`,
+    })
+    // Deactivated / bot accounts are never invited by default.
     expect(plan.users[`user:${U_BOT}`]).toEqual({ mode: `self` })
+    // No free seat → skipped instead of invited.
+    expect(
+      buildDefaultPlan(previewFixture(), teamStateFixture({ seatsLeft: 0 })).users[`user:${U_DENNIS}`]
+    ).toEqual({ mode: `self` })
     expect(plan.routing).toBe(`team`)
     expect(plan.importHistory).toBe(true)
   })
@@ -156,7 +166,6 @@ describe(`evaluatePlan`, () => {
       attachments: 2,
       assetBytes: 85_285,
       events: 5,
-      invites: 0,
       skippedIssues: 0,
     })
     expect(result.warnings.join(`\n`)).toMatch(/attributed to you/)
@@ -281,19 +290,34 @@ describe(`evaluatePlan`, () => {
     expect(result.warnings.join(`\n`)).toMatch(/get new numbers/)
   })
 
-  it(`blocks an invite the seat gate would refuse and counts one otherwise`, () => {
+  it(`counts planned invites against free seats and blocks past them`, () => {
     const invite: ImportPlan = {
       ...plan,
-      users: { ...plan.users, [`user:${U_DENNIS}`]: { mode: `invite` } },
+      users: {
+        ...plan.users,
+        [`user:${U_DENNIS}`]: { mode: `invite`, name: `Dennis`, email: `Dennis@straehhuber.com` },
+        // Same address twice = one seat; a member's address = none.
+        [`user:${U_BOT}`]: { mode: `invite`, name: `Bot`, email: `dennis@straehhuber.com` },
+      },
     }
-    expect(evaluatePlan(bundle, invite, teamStateFixture({ canInvite: false })).blockers.join(`\n`)).toMatch(
-      /exceed the team's seats/
-    )
+    expect(plannedInviteEmails(invite, state.members)).toEqual([`dennis@straehhuber.com`])
     expect(evaluatePlan(bundle, invite, state).counts.invites).toBe(1)
+    expect(evaluatePlan(bundle, invite, teamStateFixture({ seatsLeft: 1 })).blockers).toEqual([])
     expect(
-      evaluatePlan(bundle, invite, teamStateFixture({ pendingInviteEmails: [`Dennis@straehhuber.com`] })).counts
-        .invites
-    ).toBe(0)
+      evaluatePlan(bundle, invite, teamStateFixture({ seatsLeft: 0 })).blockers.join(`\n`)
+    ).toMatch(/Inviting 1 person needs 1 more seat/)
+    const known: ImportPlan = {
+      ...plan,
+      users: { ...plan.users, [`user:${U_DENNIS}`]: { mode: `invite`, name: `H`, email: `HANNES.ROBIER@youspi.com` } },
+    }
+    expect(evaluatePlan(bundle, known, teamStateFixture({ seatsLeft: 0 })).blockers).toEqual([])
+    const bad: ImportPlan = {
+      ...plan,
+      users: { ...plan.users, [`user:${U_DENNIS}`]: { mode: `invite`, name: `D`, email: `not-an-email` } },
+    }
+    expect(evaluatePlan(bundle, bad, state).blockers.join(`\n`)).toMatch(/valid email address/)
+    // Invited people are attributed to their placeholder, not to the importer.
+    expect(evaluatePlan(bundle, invite, state).warnings.join(`\n`)).not.toMatch(/dennis@straehhuber.com/)
   })
 
   it(`blocks a storage overflow on a limited plan`, () => {

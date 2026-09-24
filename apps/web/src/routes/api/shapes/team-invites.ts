@@ -29,6 +29,9 @@ export const Route = createFileRoute(`/api/shapes/team-invites`)({
           `invited_by_id`,
           `role`,
           `email`,
+          // EXP-630: the placeholder member the invite created — member
+          // lists badge that row "invited, not joined" while unaccepted.
+          `placeholder_user_id`,
           `accepted_at`,
           `expires_at`,
           `created_at`,

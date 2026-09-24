@@ -245,6 +245,11 @@ data class TeamInviteEntity(
     // Optional invited address (EXP-188 invite-by-email) — display metadata
     // for the pending list; the server mails the invite link when it's set.
     val email: String? = null,
+    // EXP-630: the placeholder member this email invite created — a roster row
+    // (users + team_members) that exists before the person signs in. Member
+    // lists badge it "Invited" / "Invite expired" while `accepted_at` is null.
+    // Null for link invites and for invites to an existing account.
+    @ColumnInfo(name = "placeholder_user_id") @SerialName("placeholder_user_id") @JsonNames("placeholderUserId") val placeholderUserId: String? = null,
     @ColumnInfo(name = "expires_at") @SerialName("expires_at") @JsonNames("expiresAt") val expiresAt: String,
     @ColumnInfo(name = "accepted_at") @SerialName("accepted_at") @JsonNames("acceptedAt") val acceptedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,

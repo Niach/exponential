@@ -7,6 +7,10 @@ struct TeamMembersSection: View {
     let teamId: String
     let members: [TeamMemberEntity]
     let users: [UserEntity]
+    /// The team's synced invites — read for the "Invited" / "Invite expired"
+    /// badge alone (EXP-630 placeholder members). Minting and resending stay
+    /// web-only surfaces.
+    var invites: [TeamInviteEntity] = []
     let currentUserId: String?
     let membersApi: TeamMembersApi
     // Owner-only controls (role change / remove) are HIDDEN for non-owners —
@@ -31,6 +35,12 @@ struct TeamMembersSection: View {
         members.filter { $0.role == DomainContract.teamRoleOwner }.count
     }
 
+    // EXP-630: member id → "invited, not joined" state, folded ONCE per render
+    // rather than per row.
+    private var placeholders: [String: PlaceholderStatus] {
+        placeholderStatuses(invites: invites)
+    }
+
     var body: some View {
         // EXP-818: the filled group band over flat rows (Boards/Labels
         // parity) — one table, not a stack of cards. The error caption and the
@@ -39,8 +49,9 @@ struct TeamMembersSection: View {
             VStack(alignment: .leading, spacing: 0) {
                 GlassSectionBand("Members")
 
+                let byMember = placeholders
                 ForEach(members, id: \.id) { member in
-                    memberRow(member)
+                    memberRow(member, placeholder: byMember[member.userId])
                 }
             }
 
@@ -70,7 +81,9 @@ struct TeamMembersSection: View {
     // MARK: - Member row
 
     @ViewBuilder
-    private func memberRow(_ member: TeamMemberEntity) -> some View {
+    private func memberRow(
+        _ member: TeamMemberEntity, placeholder: PlaceholderStatus?
+    ) -> some View {
         let user = users.first { $0.id == member.userId }
         let isSelf = member.userId == currentUserId
         let isLastOwner = member.role == DomainContract.teamRoleOwner && ownerCount <= 1
@@ -105,6 +118,19 @@ struct TeamMembersSection: View {
 
             // Role badge
             GlassPill(member.role)
+
+            // EXP-630: an emailed invite puts its recipient on the roster at
+            // once, so a row can be a member who has not joined yet. The badge
+            // says which — muted, right after the role, web parity
+            // (members-section.tsx). Resending is a web surface (EXP-725), so
+            // the badge is all iOS shows.
+            if let placeholder {
+                GlassPill(
+                    placeholder.label,
+                    icon: AppIcons.uiMail,
+                    tint: .white.opacity(TextOpacity.tertiary)
+                )
+            }
 
             // Actions menu — only rendered when there is at least one action to
             // offer. Each action is a precomputed boolean, and the ellipsis is

@@ -153,6 +153,23 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
   appBaseUrl: () => `http://localhost:3000`,
 }))
 
+// EXP-630: the placeholder-member library runs real SQL over the tx; here
+// the router's ORCHESTRATION is the contract (when a placeholder is created,
+// claimed or merged), so the three effectful helpers are stubbed and the
+// pure ones stay real.
+const createPlaceholderMember = vi.fn(async () => ({ userId: `ph-1` }))
+const claimPlaceholder = vi.fn(async () => {})
+const mergePlaceholderIntoUser = vi.fn(async () => ({ deletedPlaceholder: true }))
+vi.mock(`@/lib/placeholder-members`, async (importOriginal) => ({
+  // eslint-disable-next-line quotes
+  ...(await importOriginal<typeof import("@/lib/placeholder-members")>()),
+  createPlaceholderMember: (...args: unknown[]) =>
+    createPlaceholderMember(...(args as [])),
+  claimPlaceholder: (...args: unknown[]) => claimPlaceholder(...(args as [])),
+  mergePlaceholderIntoUser: (...args: unknown[]) =>
+    mergePlaceholderIntoUser(...(args as [])),
+}))
+
 import { inviteListSelection, teamInvitesRouter } from "@/lib/trpc/team-invites"
 import {
   conversionEvents,
@@ -191,6 +208,9 @@ beforeEach(() => {
   sendTeamInviteEmail.mockResolvedValue({ delivered: true })
   assertCanInviteMember.mockClear()
   assertCanInviteMember.mockResolvedValue(undefined)
+  createPlaceholderMember.mockClear()
+  claimPlaceholder.mockClear()
+  mergePlaceholderIntoUser.mockClear()
 })
 
 describe(`teamInvites.list selection contract`, () => {
@@ -206,6 +226,7 @@ describe(`teamInvites.list selection contract`, () => {
       `expiresAt`,
       `id`,
       `invitedById`,
+      `placeholderUserId`,
       `role`,
       `teamId`,
       `updatedAt`,
@@ -218,20 +239,39 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
     insertReturningQueue.push([
       { id: INVITE_ID, teamId: WS, email: `new@example.com` },
     ])
-    // Team-name lookup for the email subject/body.
+    // No account owns the address yet; then the team-name lookup for the
+    // email subject/body.
+    selectQueue.push([])
     selectQueue.push([{ name: `Acme` }])
 
     const result = await caller().create({
       teamId: WS,
-      email: `new@example.com`,
+      email: `New@Example.com`,
+      name: `New Person`,
     })
 
+    // EXP-630: the address is free, so the person joins at once as a
+    // placeholder member (seat gate first) and the invite is bound to it.
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
+    expect(createPlaceholderMember).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        teamId: WS,
+        role: `member`,
+        identity: { email: `new@example.com`, name: `New Person` },
+      })
+    )
+    expect(result.memberUserId).toBe(`ph-1`)
     // Three inserts: the invite row, the email_deliveries ledger row (every
     // invite-email attempt is ledgered so bounces trace per-message), and
     // the invite_sent conversion event (EXP-362).
     expect(inserts).toHaveLength(3)
     expect(inserts[0]!.table).toBe(teamInvites)
-    expect(inserts[0]!.values.email).toBe(`new@example.com`)
+    expect(inserts[0]!.inTx).toBe(true)
+    expect(inserts[0]!.values).toMatchObject({
+      email: `new@example.com`,
+      placeholderUserId: `ph-1`,
+    })
     expect(sendTeamInviteEmail).toHaveBeenCalledWith({
       to: `new@example.com`,
       teamName: `Acme`,
@@ -255,6 +295,7 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
     ])
     // 3 invite emails already sent to this address in the last 7 days.
     inviteEmailCountQueue.push(3)
+    selectQueue.push([])
 
     const result = await caller().create({
       teamId: WS,
@@ -288,6 +329,7 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
     insertReturningQueue.push([
       { id: INVITE_ID, teamId: WS, email: `new@example.com` },
     ])
+    selectQueue.push([])
     selectQueue.push([{ name: `Acme` }])
     sendTeamInviteEmail.mockRejectedValueOnce(new Error(`SES down`))
 
@@ -298,6 +340,203 @@ describe(`teamInvites.create — invite by email (EXP-188)`, () => {
 
     expect(result.invite).toMatchObject({ id: INVITE_ID })
     expect(result.emailDelivered).toBe(false)
+  })
+
+  it(`creates no placeholder for a link invite`, async () => {
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS, email: null }])
+    const result = await caller().create({ teamId: WS })
+    expect(createPlaceholderMember).not.toHaveBeenCalled()
+    expect(result.memberUserId).toBeNull()
+    expect(inserts[0]!.values.placeholderUserId).toBeNull()
+  })
+})
+
+describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
+  it(`invites an existing account the old way: no placeholder, they join by accepting`, async () => {
+    insertReturningQueue.push([
+      { id: INVITE_ID, teamId: WS, email: `real@example.com` },
+    ])
+    // The address belongs to a claimed account that is not a member.
+    selectQueue.push([{ id: `user-real`, placeholderAt: null }])
+    selectQueue.push([])
+    selectQueue.push([{ name: `Acme` }])
+
+    const result = await caller().create({ teamId: WS, email: `real@example.com` })
+
+    expect(createPlaceholderMember).not.toHaveBeenCalled()
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
+    expect(result.memberUserId).toBeNull()
+    expect(inserts[0]!.values.placeholderUserId).toBeNull()
+  })
+
+  it(`refuses an address that is already a (joined) member`, async () => {
+    selectQueue.push([{ id: `user-real`, placeholderAt: null }])
+    selectQueue.push([{ id: `member-row` }])
+
+    await expect(
+      caller().create({ teamId: WS, email: `real@example.com` })
+    ).rejects.toThrow(/already a member/)
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`re-links an unclaimed placeholder already on the roster instead of a second one`, async () => {
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([{ id: `ph-old`, placeholderAt: new Date() }])
+    selectQueue.push([{ id: `member-row` }])
+    selectQueue.push([{ name: `Acme` }])
+
+    const result = await caller().create({ teamId: WS, email: `old@example.com` })
+
+    expect(createPlaceholderMember).not.toHaveBeenCalled()
+    // No seat is taken — the placeholder holds one already.
+    expect(assertCanInviteMember).not.toHaveBeenCalled()
+    expect(result.memberUserId).toBe(`ph-old`)
+    // The earlier links stop working: expires_at = now on the pending rows.
+    expect(updates[0]!.table).toBe(teamInvites)
+    expect(updates[0]!.set.expiresAt).toBeInstanceOf(Date)
+    expect(inserts[0]!.values.placeholderUserId).toBe(`ph-old`)
+  })
+
+  it(`seats another team's unclaimed placeholder here too`, async () => {
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    selectQueue.push([{ id: `ph-elsewhere`, placeholderAt: new Date() }])
+    selectQueue.push([])
+    selectQueue.push([{ name: `Acme` }])
+
+    const result = await caller().create({ teamId: WS, email: `x@example.com`, role: `owner` })
+
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
+    expect(inserts[0]!.table).toBe(teamMembers)
+    expect(inserts[0]!.values).toMatchObject({ teamId: WS, userId: `ph-elsewhere`, role: `owner` })
+    expect(result.memberUserId).toBe(`ph-elsewhere`)
+  })
+
+  it(`re-invites a placeholder at a corrected address and name`, async () => {
+    insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
+    // The target placeholder (joined with its membership), then the
+    // free-address check for the new email.
+    selectQueue.push([{ id: `ph-1`, email: `wrong@example.com`, placeholderAt: new Date() }])
+    selectQueue.push([])
+    selectQueue.push([{ name: `Acme` }])
+
+    const result = await caller().create({
+      teamId: WS,
+      placeholderUserId: `ph-1`,
+      email: `Right@example.com`,
+      name: `Right Name`,
+    })
+
+    expect(result.memberUserId).toBe(`ph-1`)
+    expect(updates[0]!.table).toBe(users)
+    expect(updates[0]!.set).toMatchObject({ email: `right@example.com`, name: `Right Name` })
+    expect(updates[1]!.table).toBe(teamInvites)
+    expect(inserts[0]!.values).toMatchObject({
+      email: `right@example.com`,
+      placeholderUserId: `ph-1`,
+    })
+    expect(sendTeamInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: `right@example.com` })
+    )
+  })
+
+  it(`refuses to re-invite a member who has joined, or onto a taken address`, async () => {
+    selectQueue.push([{ id: `u-1`, email: `a@example.com`, placeholderAt: null }])
+    await expect(
+      caller().create({ teamId: WS, placeholderUserId: `u-1`, email: `a@example.com` })
+    ).rejects.toThrow(/already joined/)
+
+    selectQueue.push([{ id: `ph-1`, email: `a@example.com`, placeholderAt: new Date() }])
+    selectQueue.push([{ id: `someone-else` }])
+    await expect(
+      caller().create({ teamId: WS, placeholderUserId: `ph-1`, email: `b@example.com` })
+    ).rejects.toThrow(/belongs to another account/)
+  })
+})
+
+describe(`teamInvites.accept — placeholder invites (EXP-630)`, () => {
+  const placeholderInvite = {
+    id: INVITE_ID,
+    teamId: WS,
+    role: `member`,
+    acceptedAt: null,
+    expiresAt: new Date(Date.now() + 60_000),
+    placeholderUserId: `user-a`,
+  }
+
+  it(`claims the placeholder when the accepter signed in through its email`, async () => {
+    selectQueue.push([placeholderInvite])
+    // The placeholder IS a member already.
+    selectQueue.push([{ teamId: WS, userId: `user-a` }])
+    selectQueue.push([{ id: WS, name: `Acme` }])
+    updateReturningQueue.push([{ id: INVITE_ID }])
+
+    const result = await caller().accept({ token: `tok` })
+
+    expect(result).toMatchObject({ alreadyMember: false, txId: 42 })
+    expect(claimPlaceholder).toHaveBeenCalledWith(fakeDb, `user-a`, expect.any(Date))
+    expect(mergePlaceholderIntoUser).not.toHaveBeenCalled()
+    // No membership insert — the roster row exists; the invite is consumed.
+    expect(inserts.map((row) => row.table)).toEqual([conversionEvents])
+    expect(updates[1]!.table).toBe(teamInvites)
+    expect(assertCanInviteMember).not.toHaveBeenCalled()
+  })
+
+  it(`merges the placeholder into a different accepting account, handing over its seat`, async () => {
+    selectQueue.push([{ ...placeholderInvite, placeholderUserId: `ph-1`, role: `owner` }])
+    selectQueue.push([])
+    selectQueue.push([{ id: WS, name: `Acme` }])
+    // The placeholder still holds its seat → no seat gate.
+    selectQueue.push([{ id: `member-row` }])
+    updateReturningQueue.push([{ id: INVITE_ID }])
+
+    const result = await caller().accept({ token: `tok` })
+
+    expect(result).toMatchObject({ alreadyMember: false, txId: 42 })
+    expect(claimPlaceholder).not.toHaveBeenCalled()
+    expect(mergePlaceholderIntoUser).toHaveBeenCalledWith(fakeDb, {
+      placeholderId: `ph-1`,
+      userId: `user-a`,
+      teamId: WS,
+      userEmail: `a@example.com`,
+      role: `owner`,
+    })
+    expect(assertCanInviteMember).not.toHaveBeenCalled()
+    expect(inserts.map((row) => row.table)).toEqual([conversionEvents])
+  })
+
+  it(`takes a fresh seat only when the placeholder was removed meanwhile`, async () => {
+    selectQueue.push([{ ...placeholderInvite, placeholderUserId: `ph-1` }])
+    selectQueue.push([])
+    selectQueue.push([{ id: WS, name: `Acme` }])
+    selectQueue.push([])
+    updateReturningQueue.push([{ id: INVITE_ID }])
+
+    await caller().accept({ token: `tok` })
+
+    expect(assertCanInviteMember).toHaveBeenCalledWith(WS)
+    expect(mergePlaceholderIntoUser).toHaveBeenCalled()
+  })
+
+  it(`still refuses a used placeholder invite`, async () => {
+    selectQueue.push([placeholderInvite])
+    selectQueue.push([])
+    selectQueue.push([{ id: WS, name: `Acme` }])
+    updateReturningQueue.push([])
+
+    await expect(caller().accept({ token: `tok` })).rejects.toThrow(/already been used/)
+    expect(claimPlaceholder).not.toHaveBeenCalled()
+  })
+})
+
+describe(`teamInvites.revoke — placeholder invites (EXP-630)`, () => {
+  it(`expires a placeholder's invite instead of deleting the marker row`, async () => {
+    selectQueue.push([
+      { id: INVITE_ID, teamId: WS, placeholderUserId: `ph-1`, acceptedAt: null },
+    ])
+    await caller().revoke({ id: INVITE_ID })
+    expect(updates).toHaveLength(1)
+    expect(updates[0]!.table).toBe(teamInvites)
+    expect(updates[0]!.set.expiresAt).toBeInstanceOf(Date)
   })
 })
 

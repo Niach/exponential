@@ -29,8 +29,8 @@ import { router, type Context } from "@/lib/trpc"
 import { boardsRouter } from "@/lib/trpc/boards"
 import { statusesRouter } from "@/lib/trpc/statuses"
 import { labelsRouter } from "@/lib/trpc/labels"
-import { teamInvitesRouter } from "@/lib/trpc/team-invites"
 import { teamsRouter } from "@/lib/trpc/teams"
+import { teamInvitesRouter } from "@/lib/trpc/team-invites"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { deleteObject, uploadObject } from "@/lib/storage"
 import {
@@ -107,8 +107,8 @@ const importCaller = router({
   boards: boardsRouter,
   statuses: statusesRouter,
   labels: labelsRouter,
-  teamInvites: teamInvitesRouter,
   teams: teamsRouter,
+  teamInvites: teamInvitesRouter,
 })
 
 // The preserve-timestamps guard (0001_triggers.sql): transaction-local, so a
@@ -176,7 +176,6 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
         statuses: state.statuses,
         labels: state.labels,
         members: state.members,
-        pendingInviteEmails: state.pendingInviteEmails,
       }
     },
 
@@ -245,8 +244,13 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
       return { id: label.id }
     },
 
-    async createInvite(email) {
-      await caller.teamInvites.create({ teamId: job.teamId, email })
+    async createInvite(input) {
+      const { memberUserId } = await caller.teamInvites.create({
+        teamId: job.teamId,
+        email: input.email,
+        name: input.name,
+      })
+      return { memberUserId }
     },
 
     // EXP-500 archive (idempotent in the router): the archived-issues board

@@ -183,6 +183,7 @@ impl InviteLinkPanel {
                         &team_id,
                         api::teams::TeamRole::Member,
                         None,
+                        api::teams::InviteExtras::default(),
                     )
                 })
                 .await;

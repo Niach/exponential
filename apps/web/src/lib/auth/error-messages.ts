@@ -4,7 +4,9 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   INVALID_EMAIL_OR_PASSWORD: `Incorrect email or password.`,
   INVALID_PASSWORD: `Incorrect email or password.`,
   USER_NOT_FOUND: `Incorrect email or password.`,
-  USER_ALREADY_EXISTS: `An account with this email already exists. Sign in instead.`,
+  // EXP-630: the address may belong to a placeholder member an invite created
+  // — a sign-in code or Google/Apple lands on that account directly.
+  USER_ALREADY_EXISTS: `An account with this email already exists. Sign in instead — a sign-in code or Google/Apple works without a password.`,
   PASSWORD_TOO_SHORT: `Password is too short. Use at least 8 characters.`,
   PASSWORD_TOO_LONG: `Password is too long.`,
   INVALID_EMAIL: `Enter a valid email address.`,

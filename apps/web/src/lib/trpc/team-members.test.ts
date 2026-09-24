@@ -248,8 +248,9 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
 
     await callerFor(`user-a`).remove({ memberId: MEMBER_ID })
 
-    // The advisory lock is the first statement of the write transaction.
-    expect(executes).toHaveLength(1)
+    // The advisory lock is the first statement of the write transaction; the
+    // second raw statement is the EXP-630 orphaned-placeholder check.
+    expect(executes).toHaveLength(2)
     expect(executes[0]!.inTx).toBe(true)
     expect(lockKeyOf(executes[0]!.query)).toContain(`pg_advisory_xact_lock`)
     expect(lockKeyOf(executes[0]!.query)).toContain(`team_members:${WS}`)

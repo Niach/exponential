@@ -39,6 +39,10 @@ mod agents;
 mod api_keys;
 pub(crate) mod doctor_section;
 mod helpdesk;
+// EXP-630: THE invite-by-email form (the pane's own and the resend dialog's)
+// and the "Resend invite" window that hosts a prefilled copy of it.
+mod invite_form;
+mod resend_invite_dialog;
 mod issues;
 mod labels;
 // EXP-792: `pub(crate)` because the READINESS vocabulary lives here —

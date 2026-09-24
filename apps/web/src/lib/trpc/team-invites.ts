@@ -13,6 +13,13 @@ import { TRPCError } from "@trpc/server"
 import { db } from "@/db/connection"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
+import {
+  claimPlaceholder,
+  createPlaceholderMember,
+  mergePlaceholderIntoUser,
+  normalizeInviteEmail,
+  resolvePlaceholderIdentity,
+} from "@/lib/placeholder-members"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { assertCanInviteMember } from "@/lib/billing"
 import { deliveryStatus, sendTeamInviteEmail } from "@/lib/email"
@@ -62,11 +69,32 @@ export const inviteListSelection = {
   invitedById: teamInvites.invitedById,
   role: teamInvites.role,
   email: teamInvites.email,
+  placeholderUserId: teamInvites.placeholderUserId,
   acceptedAt: teamInvites.acceptedAt,
   expiresAt: teamInvites.expiresAt,
   createdAt: teamInvites.createdAt,
   updatedAt: teamInvites.updatedAt,
 } as const
+
+// A re-invite supersedes the placeholder's earlier links: they stop working
+// now, the rows stay (an unaccepted row bound to a placeholder is what member
+// lists read "invited, not joined" from).
+async function expirePendingInvitesFor(
+  tx: Pick<typeof db, `update`>,
+  placeholderUserId: string,
+  now: Date
+) {
+  await tx
+    .update(teamInvites)
+    .set({ expiresAt: now })
+    .where(
+      and(
+        eq(teamInvites.placeholderUserId, placeholderUserId),
+        isNull(teamInvites.acceptedAt),
+        gt(teamInvites.expiresAt, now)
+      )
+    )
+}
 
 export const teamInvitesRouter = router({
   create: authedProcedure
@@ -74,30 +102,173 @@ export const teamInvitesRouter = router({
       z.object({
         teamId: z.string().uuid(),
         role: z.enum([`owner`, `member`]).default(`member`),
-        // Optional recipient address (EXP-188): persisted for the pending
-        // list and used to deliver the invite link by email. Display/delivery
-        // metadata only — accept() stays token-bound.
+        // Recipient address (EXP-188 invite-by-email). EXP-630: an email
+        // invite also puts the person on the roster right away as a
+        // PLACEHOLDER member (lib/placeholder-members.ts) — assignable and
+        // attributable before they join. accept() stays token-bound.
         email: z.string().email().max(255).optional(),
+        // The placeholder's display name; empty = the mailbox local part.
+        name: z.string().trim().max(180).optional(),
+        // Re-invite an unclaimed placeholder member (Members "Resend invite"),
+        // optionally at a corrected address — the row keeps its attributions.
+        placeholderUserId: z.string().min(1).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       await assertCanManageMembers(ctx.session.user.id, input.teamId)
-      await assertCanInviteMember(input.teamId)
 
       const token = randomBytes(32).toString(`hex`)
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+      const now = new Date()
+      const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) // 7 days
+      const email = input.email ? normalizeInviteEmail(input.email) : null
 
-      const [invite] = await ctx.db
-        .insert(teamInvites)
-        .values({
-          teamId: input.teamId,
-          invitedById: ctx.session.user.id,
-          role: input.role,
-          token,
-          email: input.email,
-          expiresAt,
-        })
-        .returning()
+      let memberAdded = false
+      const { invite, placeholderUserId } = await ctx.db.transaction(
+        async (tx) => {
+          let placeholderUserId: string | null = null
+
+          if (input.placeholderUserId) {
+            if (!email) {
+              throw new TRPCError({
+                code: `BAD_REQUEST`,
+                message: `An email address is needed to re-invite a member.`,
+              })
+            }
+            const [target] = await tx
+              .select({
+                id: users.id,
+                email: users.email,
+                placeholderAt: users.placeholderAt,
+              })
+              .from(users)
+              .innerJoin(
+                teamMembers,
+                and(
+                  eq(teamMembers.userId, users.id),
+                  eq(teamMembers.teamId, input.teamId)
+                )
+              )
+              .where(eq(users.id, input.placeholderUserId))
+              .limit(1)
+            if (!target) {
+              throw new TRPCError({
+                code: `NOT_FOUND`,
+                message: `Member not found`,
+              })
+            }
+            if (!target.placeholderAt) {
+              throw new TRPCError({
+                code: `BAD_REQUEST`,
+                message: `That member has already joined.`,
+              })
+            }
+            if (email !== normalizeInviteEmail(target.email)) {
+              const [taken] = await tx
+                .select({ id: users.id })
+                .from(users)
+                .where(sql`lower(${users.email}) = ${email}`)
+                .limit(1)
+              if (taken) {
+                throw new TRPCError({
+                  code: `BAD_REQUEST`,
+                  message: `${email} already belongs to another account.`,
+                })
+              }
+            }
+            const identity = resolvePlaceholderIdentity({
+              email,
+              name: input.name,
+            })
+            await tx
+              .update(users)
+              .set({
+                email: identity.email,
+                ...(input.name?.trim() ? { name: identity.name } : {}),
+                updatedAt: now,
+              })
+              .where(eq(users.id, target.id))
+            await expirePendingInvitesFor(tx, target.id, now)
+            placeholderUserId = target.id
+          } else if (email) {
+            const [existing] = await tx
+              .select({ id: users.id, placeholderAt: users.placeholderAt })
+              .from(users)
+              .where(sql`lower(${users.email}) = ${email}`)
+              .limit(1)
+            const [member] = existing
+              ? await tx
+                  .select({ id: teamMembers.id })
+                  .from(teamMembers)
+                  .where(
+                    and(
+                      eq(teamMembers.teamId, input.teamId),
+                      eq(teamMembers.userId, existing.id)
+                    )
+                  )
+                  .limit(1)
+              : [undefined]
+            if (existing && member) {
+              if (!existing.placeholderAt) {
+                throw new TRPCError({
+                  code: `BAD_REQUEST`,
+                  message: `${email} is already a member of this team.`,
+                })
+              }
+              // An unclaimed placeholder already on the roster: a fresh link.
+              await expirePendingInvitesFor(tx, existing.id, now)
+              placeholderUserId = existing.id
+            } else if (existing?.placeholderAt) {
+              // Another team's unclaimed placeholder — the same person; seat
+              // them here as well.
+              await assertCanInviteMember(input.teamId)
+              await tx.insert(teamMembers).values({
+                teamId: input.teamId,
+                userId: existing.id,
+                role: input.role,
+              })
+              placeholderUserId = existing.id
+              memberAdded = true
+            } else if (existing) {
+              // A real account joins by accepting, as before.
+              await assertCanInviteMember(input.teamId)
+            } else {
+              await assertCanInviteMember(input.teamId)
+              const created = await createPlaceholderMember(tx, {
+                teamId: input.teamId,
+                role: input.role,
+                identity: resolvePlaceholderIdentity({
+                  email,
+                  name: input.name,
+                }),
+                now,
+              })
+              placeholderUserId = created.userId
+              memberAdded = true
+            }
+          } else {
+            await assertCanInviteMember(input.teamId)
+          }
+
+          const [invite] = await tx
+            .insert(teamInvites)
+            .values({
+              teamId: input.teamId,
+              invitedById: ctx.session.user.id,
+              role: input.role,
+              token,
+              email,
+              placeholderUserId,
+              expiresAt,
+            })
+            .returning()
+          return { invite, placeholderUserId }
+        }
+      )
+      // Post-commit (never inside the tx — a concurrent shape renewal would
+      // repopulate the cache with pre-commit membership).
+      if (memberAdded) {
+        invalidateMembershipCaches()
+      }
 
       // Email delivery is best-effort AFTER the insert — a transport failure
       // must never roll back the invite (the owner still holds the link and
@@ -106,16 +277,16 @@ export const teamInvitesRouter = router({
       // Every attempt is ledgered in email_deliveries (kind team_invite) so
       // bounces trace per-message.
       let emailDelivered: boolean | null = null
-      if (input.email) {
+      if (email) {
         try {
           const capped =
-            (await countRecentInviteEmails(input.email)) >=
+            (await countRecentInviteEmails(email)) >=
             INVITE_EMAILS_PER_ADDRESS_PER_WEEK
           if (capped) {
             emailDelivered = false
             await ctx.db.insert(emailDeliveries).values({
               userId: null,
-              toEmail: input.email,
+              toEmail: email,
               issueId: null,
               kind: `team_invite`,
               status: `suppressed`,
@@ -131,7 +302,7 @@ export const teamInvitesRouter = router({
               .where(eq(teams.id, input.teamId))
               .limit(1)
             const result = await sendTeamInviteEmail({
-              to: input.email,
+              to: email,
               teamName: team?.name ?? `a team`,
               inviterName:
                 ctx.session.user.name || ctx.session.user.email || `A teammate`,
@@ -140,7 +311,7 @@ export const teamInvitesRouter = router({
             emailDelivered = result.delivered
             await ctx.db.insert(emailDeliveries).values({
               userId: null,
-              toEmail: input.email,
+              toEmail: email,
               issueId: null,
               kind: `team_invite`,
               status: deliveryStatus(result),
@@ -166,7 +337,9 @@ export const teamInvitesRouter = router({
         properties: { teamId: input.teamId },
       })
 
-      return { invite, token, emailDelivered }
+      // memberUserId = the placeholder member this invite is bound to (null
+      // for link invites and invites to an existing account).
+      return { invite, token, emailDelivered, memberUserId: placeholderUserId }
     }),
 
   accept: authedProcedure
@@ -239,6 +412,60 @@ export const teamInvitesRouter = router({
               isNull(users.onboardingCompletedAt)
             )
           )
+
+        // EXP-630: an invite bound to a placeholder member is CLAIMED, not
+        // joined — the roster row exists already. Signed in through its
+        // email (OAuth link / sign-in code / password reset) the placeholder
+        // simply becomes this account; from any other account the
+        // placeholder's attributions and seat move here. Either way the
+        // single-use claim below still applies.
+        if (invite.placeholderUserId) {
+          const claimed = await tx
+            .update(teamInvites)
+            .set({ acceptedAt: now })
+            .where(
+              and(
+                eq(teamInvites.id, invite.id),
+                isNull(teamInvites.acceptedAt)
+              )
+            )
+            .returning({ id: teamInvites.id })
+          if (claimed.length === 0) {
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: `Invite has already been used`,
+            })
+          }
+          const txId = await generateTxId(tx)
+          if (invite.placeholderUserId === ctx.session.user.id) {
+            await claimPlaceholder(tx, ctx.session.user.id, now)
+          } else {
+            // The seat: the placeholder's, handed over. Only when it was
+            // removed meanwhile does the accepter take a NEW one.
+            if (!existing) {
+              const [seated] = await tx
+                .select({ id: teamMembers.id })
+                .from(teamMembers)
+                .where(
+                  and(
+                    eq(teamMembers.teamId, invite.teamId),
+                    eq(teamMembers.userId, invite.placeholderUserId)
+                  )
+                )
+                .limit(1)
+              if (!seated) await assertCanInviteMember(invite.teamId)
+            }
+            await mergePlaceholderIntoUser(tx, {
+              placeholderId: invite.placeholderUserId,
+              userId: ctx.session.user.id,
+              teamId: invite.teamId,
+              userEmail: ctx.session.user.email,
+              role: invite.role,
+            })
+          }
+          captured.joined = { teamId: invite.teamId, inviteId: invite.id }
+          return { team, alreadyMember: false, txId }
+        }
 
         // An existing member must not burn the single-use invite.
         if (existing) {
@@ -334,6 +561,17 @@ export const teamInvitesRouter = router({
       }
 
       await assertCanManageMembers(ctx.session.user.id, invite.teamId)
+
+      // EXP-630: a placeholder's invite row is what member lists read
+      // "invited, not joined" from — revoking kills the LINK (expires now)
+      // and keeps the row; the member stays until removed from the roster.
+      if (invite.placeholderUserId && !invite.acceptedAt) {
+        await ctx.db
+          .update(teamInvites)
+          .set({ expiresAt: new Date() })
+          .where(eq(teamInvites.id, input.id))
+        return { ok: true }
+      }
 
       await ctx.db.delete(teamInvites).where(eq(teamInvites.id, input.id))
 

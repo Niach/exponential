@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Crown,
   LoaderCircle,
@@ -23,7 +23,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Input,
   Separator,
   UserAvatar,
 } from "@exp/ui"
@@ -33,9 +32,11 @@ import type { User, TeamMember } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamInvites } from "@/hooks/use-team-data"
-import { getRuntimeConfig } from "@/lib/runtime-config"
 import { displayUserName } from "@/lib/user-display"
+import { getRuntimeConfig } from "@/lib/runtime-config"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
+import { InviteLinkRow, InviteMemberForm } from "./invite-member-form"
+import { PLACEHOLDER_LABELS, placeholderStatuses } from "@/lib/placeholder-status"
 
 // EXP-687: leaving a team is a sign-out, removing someone is a user-minus —
 // both red, both the same concepts the natives draw.
@@ -44,8 +45,7 @@ const UiRemoveMemberIcon = conceptIcon(`ui-remove-member`)
 // EXP-774: the invite glyphs are registry concepts so the IDE draws the same.
 const UiMailIcon = conceptIcon(`ui-mail`)
 const UiLinkIcon = conceptIcon(`ui-link`)
-const UiCopyIcon = conceptIcon(`ui-copy`)
-const UiCheckIcon = conceptIcon(`ui-check`)
+
 
 export function TeamMembersSection({
   currentUserId,
@@ -74,6 +74,15 @@ export function TeamMembersSection({
     displayName: string
   } | null>(null)
   const [removing, setRemoving] = useState(false)
+  // "Resend invite" for a placeholder member: the shared invite form,
+  // prefilled and editable, bound to that member's row.
+  const [resendTarget, setResendTarget] = useState<{
+    userId: string
+    name: string
+    email: string
+  } | null>(null)
+  const invites = useTeamInvites(teamId)
+  const placeholders = useMemo(() => placeholderStatuses(invites), [invites])
 
   const handleUpdateRole = async (
     memberId: string,
@@ -110,6 +119,7 @@ export function TeamMembersSection({
             const isSelf = member.userId === currentUserId
             const user = userMap.get(member.userId)
             const displayName = displayUserName(user, member.userId)
+            const placeholder = placeholders.get(member.userId)
             const roleIcon =
               member.role === `owner` ? (
                 <Crown className="size-3" />
@@ -141,6 +151,14 @@ export function TeamMembersSection({
                         )}
                       </span>
                       <Pill leading={roleIcon}>{member.role}</Pill>
+                      {placeholder && (
+                        <Pill
+                          leading={<UiMailIcon className="size-3" />}
+                          className="text-muted-foreground"
+                        >
+                          {PLACEHOLDER_LABELS[placeholder]}
+                        </Pill>
+                      )}
                     </div>
                     {user?.email && user.email !== displayName && (
                       <div className="truncate text-xs text-muted-foreground">
@@ -165,6 +183,20 @@ export function TeamMembersSection({
                       <DropdownMenuContent align="end">
                         {canManageMembers && !isSelf && (
                           <>
+                            {placeholder && (
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setResendTarget({
+                                    userId: member.userId,
+                                    name: user?.name ?? ``,
+                                    email: user?.email ?? ``,
+                                  })
+                                }
+                              >
+                                <UiMailIcon className="mr-2 h-4 w-4" />
+                                Resend invite
+                              </DropdownMenuItem>
+                            )}
                             {member.role !== `owner` && (
                               <DropdownMenuItem
                                 onClick={() =>
@@ -235,6 +267,36 @@ export function TeamMembersSection({
       </div>
 
       <Dialog
+        open={resendTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setResendTarget(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Resend invite</DialogTitle>
+            <DialogDescription>
+              {resendTarget?.name} is on the team but has not joined yet. Send
+              a fresh link — fix the address first if it was wrong.
+            </DialogDescription>
+          </DialogHeader>
+          {resendTarget && teamId && (
+            <InviteMemberForm
+              teamId={teamId}
+              defaultName={resendTarget.name}
+              defaultEmail={resendTarget.email}
+              placeholderUserId={resendTarget.userId}
+              layout="stack"
+              autoFocus="email"
+              onInvited={(invited) => {
+                if (invited.emailDelivered) setResendTarget(null)
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={removeTarget !== null}
         onOpenChange={(open) => {
           if (!open && !removing) setRemoveTarget(null)
@@ -272,18 +334,18 @@ export function TeamMembersSection({
 }
 
 function InviteControls({ teamId }: { teamId: string }) {
-  const [copied, setCopied] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
-  const [email, setEmail] = useState(``)
-  const [sending, setSending] = useState(false)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [productIds, setProductIds] = useState<{
     team: string | null
     teamYearly: string | null
   }>({ team: null, teamYearly: null })
+  const now = Date.now()
+  // Pending = unaccepted AND unexpired (an expired placeholder invite is a
+  // marker on the member row above, not a pending link).
   const invites = useTeamInvites(teamId).filter(
-    (invite) => !invite.acceptedAt
+    (invite) => !invite.acceptedAt && new Date(invite.expiresAt).getTime() > now
   )
 
   useEffect(() => {
@@ -318,167 +380,76 @@ function InviteControls({ teamId }: { teamId: string }) {
     }
   }
 
-  // Invite by email (EXP-188): the server persists the address on the invite
-  // and mails the link itself. Delivery is best-effort — when no transport is
-  // configured (or the send fails) we fall back to showing the link so the
-  // owner can share it by hand.
-  const handleSendEmail = async () => {
-    const to = email.trim()
-    if (!to) return
-    setSending(true)
-
-    try {
-      const { token, emailDelivered } = await trpc.teamInvites.create.mutate(
-        { teamId, email: to },
-        // The plan-limit (PRECONDITION_FAILED) case opens the upgrade dialog;
-        // the global mutation-error toast would be redundant noise on top of it.
-        { context: { skipErrorToast: true } }
-      )
-
-      if (emailDelivered) {
-        toast.success(`Invite sent to ${to}`)
-        setEmail(``)
-      } else {
-        setInviteUrl(`${window.location.origin}/invite/${token}`)
-        toast.error(
-          `Couldn't email the invite. Copy the link below and share it instead.`
-        )
-      }
-    } catch (err) {
-      if (isPlanLimitError(err)) {
-        setUpgradeOpen(true)
-      } else {
-        toast.error(`Couldn't create the invite`)
-      }
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const handleCopy = async () => {
-    if (!inviteUrl) {
-      return
-    }
-
-    await navigator.clipboard.writeText(inviteUrl)
-    setCopied(true)
-    toast.success(`Invite link copied`)
-
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   const handleRevoke = async (id: string) => {
     await trpc.teamInvites.revoke.mutate({ id })
   }
 
   return (
-    <>
-      <div className="space-y-4">
-        <div>
-          <div className="text-sm font-medium">Invite members</div>
-          <div className="text-xs text-muted-foreground">
-            Send an invite by email, or generate a link to share yourself
-          </div>
+    <div className="space-y-4">
+      <div>
+        <div className="text-sm font-medium">Invite members</div>
+        <div className="text-xs text-muted-foreground">
+          Send an invite by email — they join the team right away and can be
+          assigned work before they sign in — or generate a link to share
+          yourself
         </div>
-
-        <div className="flex items-center gap-2">
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="teammate@example.com"
-            aria-label="Invite email address"
-          />
-          <Button
-            className="shrink-0"
-            onClick={handleSendEmail}
-            disabled={sending || !email.trim()}
-          >
-            {sending ? (
-              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <UiMailIcon className="mr-2 h-4 w-4" />
-            )}
-            Send invite
-          </Button>
-        </div>
-
-        {inviteUrl && (
-          <div className="flex items-center gap-2">
-            <Input
-              value={inviteUrl}
-              readOnly
-              className="text-xs font-mono"
-              data-testid="invite-url-input"
-            />
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={handleCopy}
-              className="shrink-0"
-              aria-label="Copy invite URL"
-            >
-              {copied ? (
-                <UiCheckIcon className="h-4 w-4" />
-              ) : (
-                <UiCopyIcon className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-        )}
-
-        <Button
-          variant="outline"
-          onClick={handleGenerate}
-          disabled={generating}
-        >
-          {generating && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
-          <UiLinkIcon className="mr-2 h-4 w-4" />
-          Generate invite link
-        </Button>
-
-        {invites.length > 0 && (
-          <div className="pt-2">
-            <GlassSectionHeader label="Pending invites" />
-            {invites.map((invite) => (
-              <GlassRow
-                key={invite.id}
-                className="mb-2 justify-between px-3 py-2 text-sm last:mb-0"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <Pill leading={<UiMailIcon className="size-3" />}>
-                    {invite.role}
-                  </Pill>
-                  {/* EXP-698: a link invite carries no address, and an empty
-                      slot collapsed the row so the chips of a mixed list never
-                      lined up. It says what it is instead. */}
-                  {invite.email ? (
-                    <span className="min-w-0 truncate font-medium">
-                      {invite.email}
-                    </span>
-                  ) : (
-                    <span className="min-w-0 truncate text-muted-foreground">
-                      Link invite
-                    </span>
-                  )}
-                  <span className="shrink-0 text-muted-foreground">
-                    Expires{` `}
-                    {new Date(invite.expiresAt).toLocaleDateString()}
-                  </span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => handleRevoke(invite.id)}
-                  aria-label={`Revoke invite ${invite.id}`}
-                >
-                  <Trash2 />
-                </Button>
-              </GlassRow>
-            ))}
-          </div>
-        )}
       </div>
+
+      <InviteMemberForm teamId={teamId} />
+
+      {inviteUrl && <InviteLinkRow url={inviteUrl} />}
+
+      <Button
+        variant="outline"
+        onClick={handleGenerate}
+        disabled={generating}
+      >
+        {generating && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
+        <UiLinkIcon className="mr-2 h-4 w-4" />
+        Generate invite link
+      </Button>
+
+      {invites.length > 0 && (
+        <div className="pt-2">
+          <GlassSectionHeader label="Pending invites" />
+          {invites.map((invite) => (
+            <GlassRow
+              key={invite.id}
+              className="mb-2 justify-between px-3 py-2 text-sm last:mb-0"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <Pill leading={<UiMailIcon className="size-3" />}>
+                  {invite.role}
+                </Pill>
+                {/* EXP-698: a link invite carries no address, and an empty
+                    slot collapsed the row so the chips of a mixed list never
+                    lined up. It says what it is instead. */}
+                {invite.email ? (
+                  <span className="min-w-0 truncate font-medium">
+                    {invite.email}
+                  </span>
+                ) : (
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    Link invite
+                  </span>
+                )}
+                <span className="shrink-0 text-muted-foreground">
+                  Expires{` `}
+                  {new Date(invite.expiresAt).toLocaleDateString()}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => handleRevoke(invite.id)}
+                aria-label={`Revoke invite ${invite.id}`}
+              >
+                <Trash2 />
+              </Button>
+            </GlassRow>
+          ))}
+        </div>
+      )}
 
       <UpgradeDialog
         open={upgradeOpen}
@@ -489,6 +460,6 @@ function InviteControls({ teamId }: { teamId: string }) {
         teamYearlyProductId={productIds.teamYearly}
         teamId={teamId}
       />
-    </>
+    </div>
   )
 }

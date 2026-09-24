@@ -430,6 +430,13 @@ pub struct TeamInvite {
     /// invites).
     #[serde(default)]
     pub email: Option<String>,
+    /// EXP-630: the PLACEHOLDER member this invite created — the person is on
+    /// the roster (assignable, attributable) before they ever sign in. `None`
+    /// on link invites and on invites to an existing account;
+    /// [`crate::placeholder_status`] turns an unaccepted one into the member
+    /// row's "Invited" / "Invite expired" badge.
+    #[serde(default)]
+    pub placeholder_user_id: Option<String>,
     #[serde(default)]
     pub accepted_at: Option<String>,
     #[serde(default)]

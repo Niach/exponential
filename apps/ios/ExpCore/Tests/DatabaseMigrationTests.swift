@@ -118,7 +118,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
              "v51_automation_account",
-             "v52_issue_estimate"]
+             "v52_issue_estimate",
+             "v53_invite_placeholder"]
         )
     }
 
@@ -163,7 +164,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
              "v51_automation_account",
-             "v52_issue_estimate"]
+             "v52_issue_estimate",
+             "v53_invite_placeholder"]
         )
     }
 
@@ -285,6 +287,74 @@ final class DatabaseMigrationTests: XCTestCase {
         }
     }
 
+    // v53 (EXP-630 placeholder members): a store migrated through v52 carries
+    // `team_invites` without `placeholder_user_id`; the guarded ALTER adds it
+    // and the team-invites shape offset resets so already-synced invites
+    // re-arrive carrying the binding (shape key 'team-invites' WITH A DASH).
+    func testInvitePlaceholderColumnAddedToExistingStore() throws {
+        let pool = try makePool("invite-placeholder")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v52_issue_estimate")
+        try pool.write { db in
+            // Model the pre-v53 state: today's v1 create already declares the
+            // column, which is exactly the overlap the guarded ALTER tolerates.
+            if try db.columns(in: "team_invites").contains(where: { $0.name == "placeholder_user_id" }) {
+                try db.alter(table: "team_invites") { t in t.drop(column: "placeholder_user_id") }
+            }
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('team-invites', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertFalse(try columnNames(pool, "team_invites").contains("placeholder_user_id"))
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let column = try pool.read { db in
+            try db.columns(in: "team_invites").first { $0.name == "placeholder_user_id" }
+        }
+        XCTAssertNotNil(column)
+        XCTAssertFalse(column?.isNotNull ?? true)
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" WHERE \"shape\" = 'team-invites'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        // Idempotent: a second pass is a no-op, never a duplicate column.
+        XCTAssertNoThrow(try migrator.migrate(pool))
+    }
+
+    // v53 (EXP-630): a fresh store declares the column in v1, so the guarded
+    // migration must NOT reset the shape's offset (a re-snapshot for a store
+    // that already has the column is pure cost).
+    func testInvitePlaceholderMigrationLeavesFreshStoreOffsetAlone() throws {
+        let pool = try makePool("invite-placeholder-fresh")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v52_issue_estimate")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('team-invites', 'h', '0_0', 0, 1)
+                """)
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let untouched = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "needs_refetch" FROM "electric_offsets"
+                    WHERE "shape" = 'team-invites'
+                    """
+            )
+        }
+        XCTAssertEqual(untouched?["handle"] as String?, "h")
+        XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false)
+    }
+
     // v2 (EXP-180 helpdesk follow-up): a `-v5` store created before
     // notifications.team_id existed must gain the column via the guarded ALTER
     // and get its notifications shape offset reset so already-synced rows
@@ -354,7 +424,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
              "v51_automation_account",
-             "v52_issue_estimate"]
+             "v52_issue_estimate",
+             "v53_invite_placeholder"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -447,7 +518,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v49_workflow_node_checkpoint",
              "v50_workflow_node_review",
              "v51_automation_account",
-             "v52_issue_estimate"]
+             "v52_issue_estimate",
+             "v53_invite_placeholder"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1243,6 +1315,15 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(inviteEmail)
         XCTAssertFalse(inviteEmail?.isNotNull ?? true)
+
+        // team_invites.placeholder_user_id (nullable, EXP-630): the roster row
+        // an emailed invite created, so the member list can badge it "Invited"
+        // until it is claimed. NULL for link invites.
+        let invitePlaceholder = try pool.read { db in
+            try db.columns(in: "team_invites").first { $0.name == "placeholder_user_id" }
+        }
+        XCTAssertNotNil(invitePlaceholder)
+        XCTAssertFalse(invitePlaceholder?.isNotNull ?? true)
 
         // attachments.uploader_id (nullable, REV-7): the server column is
         // nullable — widget screenshots have no human uploader and the FK is ON

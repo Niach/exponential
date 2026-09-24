@@ -301,6 +301,9 @@ public final class DatabaseManager: @unchecked Sendable {
                 // Optional recipient address (EXP-188 invite-by-email) —
                 // synced for the pending-invite list.
                 t.column("email", .text)
+                // The placeholder member the invite created (EXP-630) —
+                // NULL for link invites and invites to an existing account.
+                t.column("placeholder_user_id", .text)
                 t.column("expires_at", .text).notNull()
                 t.column("accepted_at", .text)
                 t.column("created_at", .text).notNull()
@@ -1955,6 +1958,30 @@ public final class DatabaseManager: @unchecked Sendable {
                             """)
                     }
                 }
+            }
+        }
+
+        // v53 (EXP-630 placeholder members): `team_invites.placeholder_user_id`
+        // rides along on the team-invites shape — the credential-less roster
+        // row an emailed invite created, so the member list can badge it
+        // "Invited" / "Invite expired" until it is claimed. Additive ALTER for
+        // stores created before the column existed; guarded on column presence
+        // so fresh installs (which get it from the v1 create above) converge on
+        // the same schema, and the team-invites offset resets so already-synced
+        // rows re-snapshot carrying it (shape key 'team-invites' WITH A DASH).
+        migrator.registerMigration("v53_invite_placeholder") { db in
+            guard try db.tableExists("team_invites") else { return }
+            let existing = Set(try db.columns(in: "team_invites").map(\.name))
+            guard !existing.contains("placeholder_user_id") else { return }
+            try db.alter(table: "team_invites") { t in
+                t.add(column: "placeholder_user_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'team-invites'
+                    """)
             }
         }
 

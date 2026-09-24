@@ -479,6 +479,53 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(try fetchTeam("t-est")?.estimationType, "tshirt")
     }
 
+    // EXP-630: an emailed invite rides the team-invites shape carrying the
+    // placeholder member it created; a pre-EXP-630 server omits the key (and a
+    // link invite sends an explicit null), both of which decode as nil.
+    func testTeamInviteInsertPersistsPlaceholderUserId() async throws {
+        let json = """
+            {"id":"inv-1","team_id":"ws1","role":"member","email":"new@example.com",
+             "placeholder_user_id":"u-placeholder","expires_at":"2026-10-01 10:00:00+00",
+             "accepted_at":null,
+             "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
+            """
+        let invite = try JSONDecoder().decode(TeamInviteEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(invite.placeholderUserId, "u-placeholder")
+        // The bearer token is excluded by the shape's columns allowlist.
+        XCTAssertNil(invite.token)
+        let message = ShapeMessage<TeamInviteEntity>.insert(
+            key: #""public"."team_invites"/"inv-1""#, value: invite
+        )
+        try await applyBatch(
+            messages: [message], name: "team-invites", table: "team_invites", pool: pool
+        )
+        let stored = try await pool.read { try TeamInviteEntity.fetchOne($0, key: "inv-1") }
+        XCTAssertEqual(stored?.placeholderUserId, "u-placeholder")
+
+        // The claim lands as a partial update: accepted, binding cleared.
+        let claimed = ShapeMessage<TeamInviteEntity>.partialUpdate(
+            key: #""public"."team_invites"/"inv-1""#,
+            columns: columns([
+                "placeholder_user_id": NSNull(), "accepted_at": "2026-09-24 11:00:00+00",
+            ])
+        )
+        try await applyBatch(
+            messages: [claimed], name: "team-invites", table: "team_invites", pool: pool
+        )
+        let after = try await pool.read { try TeamInviteEntity.fetchOne($0, key: "inv-1") }
+        XCTAssertNil(after?.placeholderUserId)
+        XCTAssertEqual(after?.acceptedAt, "2026-09-24 11:00:00+00")
+
+        let older = """
+            {"id":"inv-2","team_id":"ws1","role":"member","email":null,
+             "expires_at":"2026-10-01 10:00:00+00","accepted_at":null,
+             "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
+            """
+        XCTAssertNil(
+            try JSONDecoder().decode(TeamInviteEntity.self, from: Data(older.utf8)).placeholderUserId
+        )
+    }
+
     // EXP-778: a pins row off the wire — `sort_order` arrives as Postgres
     // text like every numeric column, the two unused target columns as null.
     func testPinInsertDecodesWireSortOrderAndPersists() async throws {

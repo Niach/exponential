@@ -604,8 +604,18 @@ const descriptors: Array<Descriptor> = [
     tool: `exponential_invites_create`,
     pick: () => caller.teamInvites.create,
     args: { teamId: WS, role: `member` },
-    resolved: { invite: { id: INV }, token: `tok-abc`, emailDelivered: null },
-    expected: { invite: { id: INV }, token: `tok-abc`, emailDelivered: null },
+    resolved: {
+      invite: { id: INV },
+      token: `tok-abc`,
+      emailDelivered: null,
+      memberUserId: null,
+    },
+    expected: {
+      invite: { id: INV },
+      token: `tok-abc`,
+      emailDelivered: null,
+      memberUserId: null,
+    },
     calledWith: { teamId: WS, role: `member` },
   },
   {

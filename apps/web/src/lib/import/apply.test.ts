@@ -25,7 +25,6 @@ class MemoryPorts implements ApplyPorts {
     statuses: BUILTIN_ROWS.map(({ id, name, category, builtinKey }) => ({ id, name, category, builtinKey })),
     labels: [{ id: `label-bug`, name: `bug` }],
     members: [{ userId: `member-hannes`, email: `hannes.robier@youspi.com`, name: `Hannes` }],
-    pendingInviteEmails: [],
   }
   map = new Map<string, Map<string, string>>()
   created = { boards: [] as string[], statuses: [] as string[], labels: [] as string[], invites: [] as string[] }
@@ -74,8 +73,14 @@ class MemoryPorts implements ApplyPorts {
     this.state = { ...this.state, labels: [...this.state.labels, { id, name: input.name }] }
     return { id }
   }
-  async createInvite(email: string) {
-    this.created.invites.push(email)
+  async createInvite(input: { email: string; name: string }) {
+    this.created.invites.push(input.email)
+    const memberUserId = `placeholder-${input.email}`
+    this.state = {
+      ...this.state,
+      members: [...this.state.members, { userId: memberUserId, email: input.email, name: input.name }],
+    }
+    return { memberUserId }
   }
   async archiveBoard(boardId: string) {
     this.archived.push(boardId)
@@ -130,7 +135,7 @@ function plan(overrides: Partial<ImportPlan> = {}): ImportPlan {
       "st-dup": { mode: `builtin`, builtinKey: `duplicate` },
     },
     labels: { "lb-bug": { mode: `existing`, labelId: `label-bug` }, "lb-new": { mode: `create` } },
-    users: { "u-h": { mode: `member`, userId: `member-hannes` }, "u-x": { mode: `invite` } },
+    users: { "u-h": { mode: `member`, userId: `member-hannes` }, "u-x": { mode: `self` } },
     ...overrides,
   }
 }
@@ -163,13 +168,12 @@ describe(`applyBundle`, () => {
       boards: [`MAIN`],
       statuses: [`Doing`],
       labels: [`Brand new`],
-      invites: [`stranger@example.com`],
+      invites: [],
     })
     expect(result.counts).toMatchObject({
       boards: 1,
       statuses: 1,
       labels: 1,
-      invites: 1,
       issues: 3,
       comments: 2,
       attachments: 1,
@@ -200,13 +204,33 @@ describe(`applyBundle`, () => {
     ])
     expect(ports.batches[0]![0]!.issue.estimate).toBe(3)
     expect(tenWriteEstimate(ports)).toBeNull()
-    // The mapped member is the assignee; the invited stranger left the
-    // creator empty and their comment carries the attribution line.
+    // The mapped member is the assignee; the stranger attributed to the
+    // importer left the creator empty and their comment carries the
+    // attribution line.
     const tenWrite = ports.batches[0]![1]!
     expect(tenWrite.issue.assigneeId).toBe(`member-hannes`)
     expect(tenWrite.issue.creatorId).toBeNull()
     expect(tenWrite.comments[0]!.authorId).toBe(IMPORTER)
     expect(tenWrite.comments[0]!.body).toMatch(/^\*Imported from Test Tracker/)
+  })
+
+  it(`invites a planned person once, attributes their content to the placeholder, and reuses it on a re-run`, async () => {
+    const ports = new MemoryPorts()
+    const invited = plan({
+      users: { "u-h": { mode: `member`, userId: `member-hannes` }, "u-x": { mode: `invite`, name: `Stranger`, email: `Stranger@example.com` } },
+    })
+    const result = await applyBundle(bundleFixture(), invited, ports, options)
+    expect(ports.created.invites).toEqual([`Stranger@example.com`])
+    expect(result.counts.invites).toBe(1)
+    const tenWrite = ports.batches[0]![1]!
+    expect(tenWrite.issue.creatorId).toBe(`placeholder-Stranger@example.com`)
+    expect(tenWrite.comments[0]!.authorId).toBe(`placeholder-Stranger@example.com`)
+    expect(tenWrite.comments[0]!.body).not.toMatch(/^\*Imported from/)
+    expect(ports.map.get(`user`)?.get(`u-x`)).toBe(`placeholder-Stranger@example.com`)
+    // Second run: the placeholder is on the roster → no second invite.
+    const again = await applyBundle(bundleFixture(), invited, ports, options)
+    expect(ports.created.invites).toEqual([`Stranger@example.com`])
+    expect(again.counts.invites).toBe(0)
   })
 
   it(`re-running the same bundle creates nothing new`, async () => {
@@ -219,9 +243,9 @@ describe(`applyBundle`, () => {
       boards: [`MAIN`],
       statuses: [`Doing`],
       labels: [`Brand new`],
-      invites: [`stranger@example.com`],
+      invites: [],
     })
-    expect(result.counts).toMatchObject({ boards: 0, statuses: 0, labels: 0, invites: 0, issues: 0 })
+    expect(result.counts).toMatchObject({ boards: 0, statuses: 0, labels: 0, issues: 0 })
     // The links pass is idempotent on the executor side; here it just runs again.
     expect(result.counts.relations).toBe(4)
   })
@@ -348,7 +372,7 @@ describe(`applyBundle`, () => {
       labels: [...ports.state.labels, { id: `label-old`, name: `brand NEW` }],
     }
     await applyBundle(bundleFixture(), plan(), ports, options)
-    expect(ports.created).toEqual({ boards: [], statuses: [], labels: [], invites: [`stranger@example.com`] })
+    expect(ports.created).toEqual({ boards: [], statuses: [], labels: [], invites: [] })
     expect(ports.batches[0]![0]!.issue.boardId).toBe(`board-old`)
     expect(ports.batches[0]![0]!.issue.statusId).toBe(`status-old`)
   })
@@ -363,13 +387,6 @@ describe(`applyBundle`, () => {
     )
     expect(result.counts).toMatchObject({ issues: 0, skippedIssues: 3, statuses: 0, labels: 0 })
     expect(ports.batches).toEqual([])
-  })
-
-  it(`does not invite twice: a pending invite or a mapped one is left alone`, async () => {
-    const ports = new MemoryPorts()
-    ports.state = { ...ports.state, pendingInviteEmails: [`STRANGER@example.com`] }
-    await applyBundle(bundleFixture(), plan(), ports, options)
-    expect(ports.created.invites).toEqual([])
   })
 
   it(`stops at the next report when cancelled, and when the claim is lost`, async () => {

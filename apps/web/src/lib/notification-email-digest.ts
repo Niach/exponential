@@ -125,6 +125,9 @@ export async function runEmailDigestSweep(
       and(
         isNull(notifications.readAt),
         isNull(notifications.emailedAt),
+        // EXP-630: an unclaimed placeholder member has not joined — the only
+        // mail it gets is its invite. Rows wait (unclaimed) for the claim.
+        isNull(users.placeholderAt),
         gt(notifications.createdAt, maxAgeFloor),
         // Trashed-board rows are hidden in-app for the 48h trash window
         // (REV-109) — guaranteed still-unread — and their deep links dead-end;

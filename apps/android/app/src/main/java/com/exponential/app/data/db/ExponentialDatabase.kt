@@ -336,9 +336,14 @@ import androidx.room.TypeConverters
     //      .estimation_type (the scale the points render on). Both new on
     //      their shape allowlists; destructive fallback wipes + resyncs so
     //      every row arrives carrying them.
+    // v73 (EXP-630): team_invites.placeholder_user_id — the placeholder member
+    //      an email invite puts on the roster at once, so the Members list can
+    //      badge that row "Invited" / "Invite expired" until the person claims
+    //      it. Nullable, new on the team-invites shape allowlist; destructive
+    //      fallback wipes + resyncs so every invite row arrives carrying it.
     // No Migration object— DatabaseHolder uses destructive fallback + resync,
     // so a shape column change just wipes and re-syncs from Electric.
-    version = 72,
+    version = 73,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

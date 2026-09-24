@@ -14,6 +14,9 @@ struct TeamSettingsView: View {
     @State private var labels: [LabelEntity] = []
     @State private var boards: [BoardEntity] = []
     @State private var users: [UserEntity] = []
+    // Invites of this team — the Members list badges the placeholder members
+    // they created (EXP-630); minting/resending stays web-only.
+    @State private var invites: [TeamInviteEntity] = []
     // Each observation loop is stored and cancelled individually — a single
     // wrapper task would NOT propagate cancellation into unstructured inner
     // `Task {}` loops, and the view re-arms on every appear, so leaked loops
@@ -68,6 +71,7 @@ struct TeamSettingsView: View {
                         teamId: teamId,
                         members: members,
                         users: users,
+                        invites: invites,
                         currentUserId: deps.auth.userId,
                         membersApi: deps.teamMembersApi,
                         isOwner: isOwner
@@ -235,6 +239,16 @@ struct TeamSettingsView: View {
             do {
                 for try await items in obs.values(in: pool) {
                     await MainActor.run { boards = items }
+                }
+            } catch {}
+        })
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in
+                try TeamInviteEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            }
+            do {
+                for try await items in obs.values(in: pool) {
+                    await MainActor.run { invites = items }
                 }
             } catch {}
         })
