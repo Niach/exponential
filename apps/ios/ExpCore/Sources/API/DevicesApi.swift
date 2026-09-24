@@ -83,6 +83,20 @@ public struct AgentLaunchDefaultsInput: Encodable, Sendable {
     }
 }
 
+/// EXP-1029: the machine's WORKFLOW model pair in `devices.setLaunchDefaults`
+/// wire form — the cheap `model` (leaves + subagents) and the `strongModel`
+/// (contract, integration and risky nodes, every review). Only set fields
+/// ride, like the per-agent block above.
+public struct DeviceWorkflowDefaultsInput: Encodable, Sendable {
+    public let model: String?
+    public let strongModel: String?
+
+    public init(model: String? = nil, strongModel: String? = nil) {
+        self.model = model
+        self.strongModel = strongModel
+    }
+}
+
 /// EXP-481: the whole-object `launchDefaults` payload — the device settings
 /// sheet sends the full edited struct (UI edits omit `expectedUpdatedAt`
 /// server-side: unconditional last-write-wins between humans).
@@ -93,19 +107,26 @@ public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
     /// explicit JSON null (see `encode(to:)`): the clear.
     public let defaultAccount: String?
     public let agents: [String: AgentLaunchDefaultsInput]?
+    /// EXP-1029: the workflow pair. A whole-object save REPLACES the stored
+    /// defaults, so a sender that edits them has to include it in every
+    /// write or its own save clobbers the stored pair; absent entirely is an
+    /// older client that knows nothing about it.
+    public let workflow: DeviceWorkflowDefaultsInput?
 
     public init(
         defaultAgent: String? = nil,
         defaultAccount: String? = nil,
-        agents: [String: AgentLaunchDefaultsInput]? = nil
+        agents: [String: AgentLaunchDefaultsInput]? = nil,
+        workflow: DeviceWorkflowDefaultsInput? = nil
     ) {
         self.defaultAgent = defaultAgent
         self.defaultAccount = defaultAccount
         self.agents = agents
+        self.workflow = workflow
     }
 
     private enum CodingKeys: String, CodingKey {
-        case defaultAgent, defaultAccount, agents
+        case defaultAgent, defaultAccount, agents, workflow
     }
 
     /// Hand-written for ONE key: an unset default account beside a default
@@ -122,6 +143,7 @@ public struct DeviceLaunchDefaultsInput: Encodable, Sendable {
             try c.encodeNil(forKey: .defaultAccount)
         }
         try c.encodeIfPresent(agents, forKey: .agents)
+        try c.encodeIfPresent(workflow, forKey: .workflow)
     }
 }
 

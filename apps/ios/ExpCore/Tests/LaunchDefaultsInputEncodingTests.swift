@@ -36,6 +36,29 @@ final class LaunchDefaultsInputEncodingTests: XCTestCase {
         XCTAssertNil(object.index(forKey: "agents"))
     }
 
+    /// EXP-1029: a whole-object save replaces the stored defaults, so an
+    /// editor of the workflow pair has to send it on EVERY write.
+    func testTheWorkflowPairRidesThePayload() throws {
+        let object = try json(DeviceLaunchDefaultsInput(
+            defaultAgent: "claude",
+            defaultAccount: "0a1b2c3d",
+            workflow: DeviceWorkflowDefaultsInput(model: "opus", strongModel: "fable")
+        ))
+        let workflow = try XCTUnwrap(object["workflow"] as? [String: Any])
+        XCTAssertEqual(workflow["model"] as? String, "opus")
+        XCTAssertEqual(workflow["strongModel"] as? String, "fable")
+    }
+
+    /// And a sender that knows nothing about it writes no key at all — an
+    /// absent `workflow` leaves the stored pair alone.
+    func testAnAbsentWorkflowPairWritesNoKey() throws {
+        let object = try json(DeviceLaunchDefaultsInput(
+            defaultAgent: "claude",
+            defaultAccount: "0a1b2c3d"
+        ))
+        XCTAssertNil(object.index(forKey: "workflow"))
+    }
+
     func testNoDefaultAgentWritesNoAccountKey() throws {
         // The account is one of the default agent's logins: alone it names
         // nothing, so there is nothing to clear either.

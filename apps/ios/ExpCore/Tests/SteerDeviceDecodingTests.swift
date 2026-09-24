@@ -329,6 +329,51 @@ final class SteerDeviceDecodingTests: XCTestCase {
         XCTAssertNil(device.agentDefaults(for: "claude"))
     }
 
+    /// EXP-1029: the workflow pair must survive BOTH ways in — the tRPC/relay
+    /// payload above and the synced devices row's `launch_defaults` jsonb,
+    /// which `DeviceRows` re-builds field by field (dropping it there is how
+    /// the settings sheet would never see a stored pair at all).
+    func testTheWorkflowPairSurvivesTheDecodeAndTheRowMapping() throws {
+        let result = try decode("""
+        {"devices":[{"deviceId":"d13","deviceLabel":"macbook","agents":["claude"],
+        "caps":["actions"],"online":true,
+        "launchDefaults":{"defaultAgent":"claude",
+        "workflow":{"model":"sonnet","strongModel":"opus"}}}]}
+        """)
+        let device = try XCTUnwrap(result.devices.first)
+        XCTAssertEqual(device.launchDefaults?.workflow?.model, "sonnet")
+        XCTAssertEqual(device.launchDefaults?.workflow?.strongModel, "opus")
+
+        let mapped = SteerDevice(
+            entity: DeviceEntity(
+                id: "row-13",
+                userId: "u1",
+                deviceId: "d13",
+                label: "macbook",
+                agents: #"["claude"]"#,
+                launchDefaults: """
+                {"defaultAgent":"claude","workflow":{"model":"sonnet","strongModel":"opus"}}
+                """
+            ),
+            currentUserId: "u1"
+        )
+        XCTAssertEqual(mapped.launchDefaults?.workflow?.model, "sonnet")
+        XCTAssertEqual(mapped.launchDefaults?.workflow?.strongModel, "opus")
+        // A machine that predates the pair simply reports none.
+        XCTAssertNil(
+            SteerDevice(
+                entity: DeviceEntity(
+                    id: "row-14",
+                    userId: "u1",
+                    deviceId: "d14",
+                    label: "old-box",
+                    launchDefaults: #"{"defaultAgent":"claude"}"#
+                ),
+                currentUserId: "u1"
+            ).launchDefaults?.workflow
+        )
+    }
+
     /// A pre-EXP-432 server omits BOTH sharing fields. Every row must still
     /// decode, and read as the caller's own — never as somebody else's, which
     /// would hide the rename/remove actions on a perfectly ordinary machine.
