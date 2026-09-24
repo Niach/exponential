@@ -4,9 +4,11 @@
 //! (`apps/styleguide`) documents every platform's symbol per control. This
 //! module gives the IDE the SAME four ordered sections, read from the ONE
 //! index the web page reads (`apps/styleguide/src/sections/sections.json`,
-//! embedded at compile time), and one placeholder entry file per registered
-//! id (`entries/`), so a leaf fills its file on both platforms and never
-//! edits an index. EXP-1039 gave it its screen ([`screen`], a debug-only
+//! embedded at compile time), and one entry file per registered id
+//! (`entries/`), so a leaf fills its file on both platforms and never
+//! edits an index. EXP-1030 closed that sweep: every entry draws its demo
+//! now, and `toast` is the one placeholder left (EXP-1031 owns it).
+//! EXP-1039 gave it its screen ([`screen`], a debug-only
 //! `Screen::Styleguide` behind `EXP_DEV_STYLEGUIDE=1`) and the IDE's own
 //! starting set of live entries ([`native`], filed under the same four
 //! sections); the drift test below keeps the two indexes one.
@@ -83,12 +85,24 @@ mod tests {
         }
     }
 
+    /// EXP-1030: the entries are FILLED now — every one of them draws its own
+    /// demo, and `toast` is the single placeholder left (EXP-1031 owns it and
+    /// fills it in its own node). Every entry still names a real owner, and
+    /// the placeholder still says whose it is, which is the only thing a
+    /// placeholder ever has to do.
     #[test]
-    fn a_placeholder_renders_its_owner() {
-        // Every entry is a placeholder until its leaf lands; the demo is a
-        // `Div`, so the text is checked on the constants it is built from.
+    fn every_entry_is_filled_except_the_one_placeholder() {
+        const PLACEHOLDERS: [&str; 1] = ["toast"];
         for entry in entries::ENTRIES {
             assert!(entry.owner.starts_with("EXP-"), "{}", entry.id);
         }
+        let placeholders: Vec<&str> = entries::ENTRIES
+            .iter()
+            .filter(|entry| entries::is_placeholder(entry.id))
+            .map(|entry| entry.id)
+            .collect();
+        assert_eq!(placeholders, PLACEHOLDERS, "only `toast` is still a placeholder");
+        // The placeholder's one job: say whose it is.
+        assert_eq!(owner_of("toast").as_deref(), Some("EXP-1031"));
     }
 }

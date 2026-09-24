@@ -233,6 +233,12 @@ pub(crate) enum AccountTrigger {
 /// to plain text without a chevron (the mark and the email still say which
 /// login the run spends). An EMPTY list renders nothing at all — a caller
 /// with no login to offer builds its own fallback rows.
+///
+/// EXP-1030: the SURFACE is THE picker primitive's
+/// ([`crate::picker::account_picker`]) — this function is the trigger and the
+/// row body, nothing else. Every launch surface (the composer's account pin,
+/// the automation editor's, device settings, Settings → Agents) reaches the
+/// primitive through here, so none of them holds a menu of its own any more.
 pub(crate) fn account_picker(
     id: impl Into<gpui::ElementId>,
     options: &[coding::AccountOption],
@@ -243,7 +249,6 @@ pub(crate) fn account_picker(
 ) -> gpui::AnyElement {
     use gpui::{IntoElement as _, ParentElement as _, Styled as _};
     use gpui_component::button::ButtonVariants as _;
-    use gpui_component::menu::DropdownMenu as _;
 
     let Some(current) = options
         .iter()
@@ -267,10 +272,10 @@ pub(crate) fn account_picker(
             .child(label)
             .into_any_element();
     }
+    let id: gpui::ElementId = id.into();
     let current_key = current.account_option_key();
     let options: Vec<coding::AccountOption> = options.to_vec();
-    let on_pick = std::rc::Rc::new(on_pick);
-    gpui_component::button::Button::new(id)
+    let trigger = gpui_component::button::Button::new(id.clone())
         .ghost()
         .cursor_pointer()
         .h_auto()
@@ -283,14 +288,79 @@ pub(crate) fn account_picker(
                 .size(gpui::px(12.))
                 .text_color(muted),
         )
-        .dropdown_menu(move |menu, _window, _cx| {
-            let on_pick = on_pick.clone();
-            account_menu_items(
-                menu,
-                &options,
-                Some(current_key.as_str()),
-                move |option, window, cx| on_pick(option, window, cx),
-            )
+        .into_any_element();
+    let rows = options.clone();
+    crate::picker::deferred(move |window, cx| {
+        let on_change: crate::picker::OnPickerChange<String> = {
+            let options = options.clone();
+            std::rc::Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
+                let Some(key) = values.into_iter().next() else {
+                    return;
+                };
+                if let Some(option) = options
+                    .iter()
+                    .find(|option| option.account_option_key() == key)
+                {
+                    on_pick(option, window, cx);
+                }
+            })
+        };
+        crate::picker::account_picker::account_picker(
+            &options,
+            Some(current_key.to_string()),
+            trigger,
+            on_change,
+        )
+        // Several account pins can paint from one source line (the `⋯`
+        // overlay beside the composer's), so each one names itself.
+        .id(id.clone())
+        // The primitive's default body is mark + email; an account row also
+        // carries the health badge and the EXP-992 usage preview.
+        .render_item(move |item, cx| account_row_body(&rows, &item.value, cx))
+        .render(window, cx)
+    })
+    .into_any_element()
+}
+
+/// One account ROW inside the picker: [`account_label_row`] plus, for a login
+/// that reports usage, the EXP-992 rate-limit preview. It rides a TOOLTIP
+/// rather than an anchored card of its own — a picker row is already inside a
+/// deferred overlay (an absolute child would clip against the surface's
+/// bounds), and a tooltip is display-only, so hovering one can never swallow
+/// the click that picks it.
+fn account_row_body(
+    options: &[coding::AccountOption],
+    key: &str,
+    cx: &App,
+) -> gpui::AnyElement {
+    use gpui::prelude::FluentBuilder as _;
+    use gpui::{
+        InteractiveElement as _, IntoElement as _, ParentElement as _,
+        StatefulInteractiveElement as _, Styled as _,
+    };
+
+    let Some(option) = options
+        .iter()
+        .find(|option| option.account_option_key() == key)
+    else {
+        return gpui::div().into_any_element();
+    };
+    let limits = option.limits.clone();
+    gpui::div()
+        .id(SharedString::from(format!("account-option-{key}")))
+        .flex()
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .child(account_label_row(option, AccountTrigger::Row, cx))
+        .when_some(limits, |this, limits| {
+            this.tooltip(move |window, cx| {
+                let limits = limits.clone();
+                gpui_component::tooltip::Tooltip::element(move |_, cx| {
+                    crate::usage_bar::render_account_limits(&limits, cx)
+                })
+                .build(window, cx)
+            })
         })
         .into_any_element()
 }
@@ -332,60 +402,6 @@ fn account_label_row(
                 .text_color(muted)
                 .child(badge)
         }))
-}
-
-/// The rows of [`account_picker`]'s menu, on their own so any menu that
-/// offers accounts shows the SAME rows: brand mark + email (+ health badge),
-/// the current pick checked.
-///
-/// EXP-992: a row whose login reports usage carries a very small preview —
-/// `5h` / `week` / `<model>` over [`crate::usage_bar::meter`] bars. It rides
-/// a TOOLTIP rather than an anchored card of its own: a menu row is already
-/// inside a deferred overlay (an absolute child would clip against the popup's
-/// bounds), and a tooltip is display-only, so hovering one can never swallow
-/// the click that picks it.
-pub(crate) fn account_menu_items(
-    menu: gpui_component::menu::PopupMenu,
-    options: &[coding::AccountOption],
-    current_key: Option<&str>,
-    on_pick: impl Fn(&coding::AccountOption, &mut Window, &mut App) + 'static,
-) -> gpui_component::menu::PopupMenu {
-    use gpui::prelude::FluentBuilder as _;
-    use gpui::{InteractiveElement as _, ParentElement as _, StatefulInteractiveElement as _, Styled as _};
-    use gpui_component::menu::PopupMenuItem;
-
-    let on_pick = std::rc::Rc::new(on_pick);
-    let mut menu = menu;
-    for (index, option) in options.iter().enumerate() {
-        let checked = current_key == Some(option.account_option_key().as_str());
-        let row = option.clone();
-        let picked = option.clone();
-        let on_pick = on_pick.clone();
-        menu = menu.item(
-            PopupMenuItem::element(move |_window, cx| {
-                let row = row.clone();
-                let limits = row.limits.clone();
-                gpui::div()
-                    .id(("account-option", index))
-                    .flex()
-                    .min_w_0()
-                    .items_center()
-                    .child(account_label_row(&row, AccountTrigger::Row, cx))
-                    .when_some(limits, |this, limits| {
-                        this.tooltip(move |window, cx| {
-                            let limits = limits.clone();
-                            gpui_component::tooltip::Tooltip::element(move |_, cx| {
-                                crate::usage_bar::render_account_limits(&limits, cx)
-                            })
-                            .build(window, cx)
-                        })
-                    })
-            })
-            .checked(checked)
-            .on_click(move |_, window, cx| on_pick(&picked, window, cx)),
-        );
-    }
-    menu
 }
 
 /// Build a select over `choices`, preselecting `initial` by VALUE (falling

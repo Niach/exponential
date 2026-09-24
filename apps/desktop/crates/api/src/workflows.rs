@@ -103,11 +103,21 @@ struct WorkflowResponse {
 /// `workflows.create` — mutation, member-gated. `issue_ids` ride in DISPLAY
 /// order; the server names the workflow after the first identifier when
 /// `name` is omitted.
+///
+/// EXP-1032: `device_id` binds the runner MACHINE at creation, and the
+/// server seeds the workflow's `launch` (its two models, its account) from
+/// THAT machine's `launch_defaults.workflow` — so a workflow created on this
+/// IDE opens on the models this install already picked, not on the contract
+/// fallbacks. Omitted, the server seeds from the contract defaults and leaves
+/// the runner unbound. The server also re-checks the machine
+/// (`assertDeviceUsable`), so only ever name one that advertises the
+/// `workflows` capability.
 pub fn create(
     trpc: &TrpcClient,
     team_id: &str,
     issue_ids: &[String],
     name: Option<&str>,
+    device_id: Option<&str>,
 ) -> Result<Workflow, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -116,6 +126,8 @@ pub fn create(
         issue_ids: &'a [String],
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        device_id: Option<&'a str>,
     }
     let response: WorkflowResponse = trpc.mutation(
         "workflows.create",
@@ -123,6 +135,7 @@ pub fn create(
             team_id,
             issue_ids,
             name,
+            device_id,
         },
     )?;
     Ok(response.workflow)
@@ -533,7 +546,7 @@ mod tests {
                 "txId":"1"}}}"#,
         );
         let issues = vec!["i-1".to_string(), "i-2".to_string(), "i-3".to_string()];
-        let workflow = create(&client(&base), "team-1", &issues, None).unwrap();
+        let workflow = create(&client(&base), "team-1", &issues, None, None).unwrap();
         assert_eq!(workflow.id, "wf-1");
         assert_eq!(workflow.status, "draft");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -541,6 +554,32 @@ mod tests {
         assert!(request.contains(r#""issueIds":["i-1","i-2","i-3"]"#));
         // An omitted name lets the server derive one (zod .optional()).
         assert!(!request.contains(r#""name""#));
+        // …and an omitted machine leaves the runner unbound, so the server
+        // seeds the launch from the contract defaults.
+        assert!(!request.contains(r#""deviceId""#));
+    }
+
+    /// EXP-1032: a create that NAMES the machine rides its `deviceId`, which
+    /// is what makes the server seed the workflow's two models from that
+    /// machine's `launch_defaults.workflow`.
+    #[test]
+    fn create_names_the_runner_machine_when_it_has_one() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"workflow":{"id":"wf-1","teamId":"team-1",
+                "repositoryId":"repo-1","name":"EXP-1","status":"draft",
+                "deviceId":"dev-1","launch":{"agent":"claude","model":"sonnet",
+                "strongModel":"opus"},"startOn":"contract",
+                "integrationBranch":"exp/wf-abcdef12",
+                "metrics":{"nodes":1,"edges":0,"depth":1,"width":1,"cycles":[]}},
+                "txId":"1"}}}"#,
+        );
+        let issues = vec!["i-1".to_string()];
+        let workflow =
+            create(&client(&base), "team-1", &issues, None, Some("dev-1")).unwrap();
+        assert_eq!(workflow.device_id.as_deref(), Some("dev-1"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains(r#""deviceId":"dev-1""#));
     }
 
     #[test]

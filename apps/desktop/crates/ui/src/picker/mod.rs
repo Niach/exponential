@@ -16,10 +16,10 @@
 //! types, the two surfaces, and the typed pickers beside it that every IDE
 //! call site now goes through. The EXP-288 pickers in `pickers.rs` (status /
 //! priority / assignee / labels) moved onto it here; the due date is not one
-//! of the ten and keeps its calendar popover. `pickers::searchable_picker`
-//! stays as the HOST-state predecessor the surfaces EXP-1045 does not own
-//! (the composer, launch options, device settings, the workflow screens)
-//! still ride — the integration node retires it when those move too.
+//! of the ten and keeps its calendar popover. EXP-1030 finished the sweep —
+//! the composer's `#` and ▶ tools, the launch pins, device settings and the
+//! workflow runner row all mount their surface here now, and the host-state
+//! predecessor (`pickers::searchable_picker`) is gone.
 #![allow(dead_code)]
 
 use std::rc::Rc;
@@ -177,6 +177,20 @@ pub(crate) type PickerDismiss = Rc<dyn Fn(&mut Window, &mut App)>;
 /// so a grid still dismisses, anchors and keys like every other picker.
 pub(crate) type PickerPanel = Rc<dyn Fn(PickerDismiss, &mut Window, &mut App) -> AnyElement>;
 
+/// REPLACES [`filter_items`] — the rows a query leaves, by index, in the
+/// order they are to be drawn. The primitive's own filter is a substring
+/// match; a caller with a real RANKING (the composer's issue picker runs
+/// `domain::issue_search`, the ONE engine ×4) hands its order in here rather
+/// than sorting a list the primitive would then re-filter. `&mut App`,
+/// because a ranking that deep is memoised on the host (EXP-868).
+pub(crate) type PickerRank<T> = Rc<dyn Fn(&[PickerItem<T>], &str, &mut App) -> Vec<usize>>;
+
+/// Muted NOTE rows under the list, for what the rows themselves cannot say:
+/// how many matches the cap hid, that a query matched nothing. Returning
+/// `Some` for an EMPTY list also replaces [`Picker::empty_text`] — the caller
+/// that has something more precise to say gets to say it.
+pub(crate) type PickerFooter = Rc<dyn Fn(&str, &mut App) -> Option<AnyElement>>;
+
 /// THE picker. Built with the trigger the caller owns; `render` mounts the
 /// surface behind it.
 pub(crate) struct Picker<T: Clone> {
@@ -201,6 +215,20 @@ pub(crate) struct Picker<T: Clone> {
     pub render_item: Option<PickerRenderItem<T>>,
     /// An inline body instead of the rows ([`PickerPanel`]).
     pub panel: Option<PickerPanel>,
+    /// A wider (or narrower) searchable surface than the default. The
+    /// composer's pickers are the callers: their rows carry a whole issue
+    /// line, where a property chip's carry a word.
+    pub width: Option<gpui::Pixels>,
+    /// EXP-946 — the side this picker opens on and how tall it may be,
+    /// measured by the caller from where its trigger actually painted
+    /// ([`popover_fit`]). `None` = the surface's own placement, which only
+    /// ever opens DOWN: a picker low in the window (the composer's) has to
+    /// flip, everything anchored high never does.
+    pub fit: Option<(gpui::Anchor, gpui::Pixels)>,
+    /// A ranking that replaces the substring filter ([`PickerRank`]).
+    pub rank: Option<PickerRank<T>>,
+    /// Note rows under the list ([`PickerFooter`]).
+    pub footer: Option<PickerFooter>,
 }
 
 /// Which surface a picker mounts — the IDE's answer to the web primitive's
@@ -234,6 +262,10 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             id: None,
             render_item: None,
             panel: None,
+            width: None,
+            fit: None,
+            rank: None,
+            footer: None,
         }
     }
 
@@ -255,6 +287,10 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             id: None,
             render_item: None,
             panel: None,
+            width: None,
+            fit: None,
+            rank: None,
+            footer: None,
         }
     }
 
@@ -290,6 +326,41 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         panel: impl Fn(PickerDismiss, &mut Window, &mut App) -> AnyElement + 'static,
     ) -> Self {
         self.panel = Some(Rc::new(panel));
+        self
+    }
+
+    /// Widen (or narrow) the searchable surface. A caller only reaches for
+    /// this when its ROWS are a different shape from a property pick's — the
+    /// composer's issue rows are a whole issue line.
+    pub(crate) fn width(mut self, width: gpui::Pixels) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    /// EXP-946 — open on the side [`popover_fit`] measured, capped to the
+    /// room that side has. The composer sits at the BOTTOM of the window, so
+    /// its pickers open upward; nothing else has to care.
+    pub(crate) fn fit(mut self, fit: (gpui::Anchor, gpui::Pixels)) -> Self {
+        self.fit = Some(fit);
+        self
+    }
+
+    /// Rank the rows yourself ([`PickerRank`]) instead of taking the
+    /// primitive's substring filter.
+    pub(crate) fn rank(
+        mut self,
+        rank: impl Fn(&[PickerItem<T>], &str, &mut App) -> Vec<usize> + 'static,
+    ) -> Self {
+        self.rank = Some(Rc::new(rank));
+        self
+    }
+
+    /// Say what the rows cannot ([`PickerFooter`]).
+    pub(crate) fn footer(
+        mut self,
+        footer: impl Fn(&str, &mut App) -> Option<AnyElement> + 'static,
+    ) -> Self {
+        self.footer = Some(Rc::new(footer));
         self
     }
 
@@ -405,6 +476,10 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             empty_text,
             render_item,
             panel,
+            width,
+            fit,
+            rank,
+            footer,
             ..
         } = self;
         let multi = mode == PickerMode::Multi;
@@ -422,11 +497,16 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         let query_for_open = query.clone();
         let state_for_open = state.clone();
         let mut popover = Popover::new(key("surface")).p_1();
-        popover = if search {
-            popover.w(px(PICKER_SEARCH_WIDTH))
-        } else {
-            popover.min_w(px(PICKER_MENU_MIN_WIDTH))
+        popover = match width {
+            Some(width) => popover.w(width),
+            None if search => popover.w(px(PICKER_SEARCH_WIDTH)),
+            None => popover.min_w(px(PICKER_MENU_MIN_WIDTH)),
         };
+        // EXP-946: the side the caller measured (the composer's pickers flip
+        // above their trigger); everything else keeps the surface's default.
+        if let Some((anchor, _)) = fit {
+            popover = popover.anchor(anchor);
+        }
         popover
             .trigger(PickerTrigger::new(key("trigger"), trigger))
             .on_open_change(move |open, window, cx| {
@@ -449,6 +529,11 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 state.update(cx, |state, _| state.sync_query(&filter));
 
                 let mut column = v_flex().w_full();
+                // EXP-946: the whole surface shrinks with the room its side
+                // has, so a picker can never run off the window.
+                if let Some((_, max_height)) = fit {
+                    column = column.max_h(max_height);
+                }
                 // A panel REPLACES the field and the rows: the icon grid is
                 // its own body, the surface around it still the primitive's.
                 if let Some(panel) = &panel {
@@ -478,12 +563,21 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         );
                 }
 
-                let visible = filter_items(&items, &filter);
+                let visible = match &rank {
+                    Some(rank) => rank(&items, &filter, cx),
+                    None => filter_items(&items, &filter),
+                };
                 if visible.is_empty() {
                     // ONE copy for "nothing here" and "nothing matched" —
                     // the web primitive's `emptyText` is the same string on
-                    // both, so the IDE never invents a second one.
-                    return column.child(picker_empty_row(empty_text.clone(), cx));
+                    // both, so the IDE never invents a second one. A caller
+                    // whose footer has something MORE precise to say about
+                    // an empty list says it instead.
+                    let note = footer.as_ref().and_then(|footer| footer(&filter, cx));
+                    return match note {
+                        Some(note) => column.child(note),
+                        None => column.child(picker_empty_row(empty_text.clone(), cx)),
+                    };
                 }
 
                 // The keyboard model: which rows can be picked, where the
@@ -534,7 +628,10 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 let mut rows = v_flex()
                     .id(rows_id.clone())
                     .w_full()
-                    .max_h(px(PICKER_ROWS_MAX_HEIGHT))
+                    // A measured fit caps the whole COLUMN, so the rows take
+                    // whatever is left of it rather than a second ceiling.
+                    .when(fit.is_some(), |rows| rows.flex_1().min_h_0())
+                    .when(fit.is_none(), |rows| rows.max_h(px(PICKER_ROWS_MAX_HEIGHT)))
                     .overflow_y_scroll();
                 for (position, ix) in visible.into_iter().enumerate() {
                     let item = &items[ix];
@@ -607,6 +704,9 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         })
                     };
                     rows = rows.child(row);
+                }
+                if let Some(note) = footer.as_ref().and_then(|footer| footer(&filter, cx)) {
+                    rows = rows.child(note);
                 }
                 column.child(rows)
             })

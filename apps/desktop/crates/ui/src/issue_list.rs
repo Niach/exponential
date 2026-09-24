@@ -1456,6 +1456,13 @@ use gpui::prelude::FluentBuilder as _;
 /// selection clears and the new workflow's detail opens. A refusal (a
 /// started issue, two repositories, a board without one) is the server's own
 /// sentence — shown as the window's error notice.
+///
+/// EXP-1032: a workflow created HERE names this machine as its runner, so the
+/// server seeds its two models from THIS install's own workflow defaults
+/// (`launch_defaults.workflow`) rather than from the contract fallbacks. Only
+/// while this build actually advertises the engine capability — the server
+/// refuses a machine that cannot run workflows, and an un-run-able IDE must
+/// still be able to PLAN one.
 fn spawn_create_workflow<V: BulkSelectionHost>(
     team_id: String,
     issue_ids: Vec<String>,
@@ -1467,6 +1474,12 @@ fn spawn_create_workflow<V: BulkSelectionHost>(
         log::warn!("[ui] workflows.create skipped: no signed-in account");
         return;
     };
+    // Resolved on the UI thread: both reads want the app's globals.
+    let own_device_id = queries::own_device_id(cx);
+    let device_id = queries::device_caps(cx, &own_device_id)
+        .iter()
+        .any(|cap| cap == coding::doctor::WORKFLOWS_CAP)
+        .then_some(own_device_id);
     let _ = list.update(cx, |this, cx| {
         this.set_bulk_busy(true);
         cx.notify();
@@ -1475,7 +1488,15 @@ fn spawn_create_workflow<V: BulkSelectionHost>(
     cx.spawn(async move |cx| {
         let result = cx
             .background_executor()
-            .spawn(async move { api::workflows::create(&trpc, &team_id, &issue_ids, None) })
+            .spawn(async move {
+                api::workflows::create(
+                    &trpc,
+                    &team_id,
+                    &issue_ids,
+                    None,
+                    device_id.as_deref(),
+                )
+            })
             .await;
         let _ = list.update(cx, |this, cx| {
             this.set_bulk_busy(false);
