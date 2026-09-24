@@ -180,6 +180,31 @@ function clampLaunchDefaults(
     }
     if (Object.keys(agents).length > 0) out.agents = agents
   }
+  // EXP-1029: the workflow model defaults (`DeviceWorkflowDefaults`). Both
+  // names come out of the closed model vocabularies (the default account's
+  // agent decides which; the clamp accepts either); an incomplete or unknown
+  // pair is dropped whole — a workflow is never seeded from half a pair.
+  if (input.workflow) {
+    const models: readonly string[] = [
+      ...contract.codingModel.values,
+      ...contract.codexModel.values,
+    ]
+    const { model, strongModel } = input.workflow
+    if (
+      typeof model === `string` &&
+      typeof strongModel === `string` &&
+      models.includes(model) &&
+      models.includes(strongModel)
+    ) {
+      out.workflow = { model, strongModel }
+    }
+  } else if (input.workflow === undefined && existing?.workflow) {
+    // EXP-1020: the KEY is absent (an explicit null is a clear), so a client
+    // that predates the pair — every build before this one, since a save
+    // REPLACES the whole object — rides the stored one along instead of
+    // wiping what the "Workflow settings" sub-shell set.
+    out.workflow = existing.workflow
+  }
   return out
 }
 

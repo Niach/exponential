@@ -902,3 +902,27 @@ describe(`reviewOutcome`, () => {
     ).toMatchObject({ state: `waiting`, note: `Review did not converge after 3 rounds` })
   })
 })
+
+// EXP-1029 contract — "the workflow never completes". EXP-1014 owns the
+// diagnosis and the fix; these name the end states it must reach and
+// un-skips them with the fix.
+describe.skip(`workflow completion (EXP-1029 → EXP-1014)`, () => {
+  it(`every node landed + final PR merged -> status completed, endedAt set, member issues done`, async () => {
+    // Arrange: a running workflow whose nodes are all `landed` and whose
+    // final PR (`final_pr_url`) just synced `final_pr_state = merged`.
+    // Act: the merge path that flips the final PR.
+    // Assert: `workflows.status = completed`, `ended_at` set, and the
+    // status of EVERY covered issue (members included) is the team's
+    // PR-merge target (`done` by default), via lib/workflow-final-pr.ts.
+    expect.fail(`EXP-1014 implements the completion path`)
+  })
+
+  it(`a node merged outside the train still lets the workflow complete`, async () => {
+    // Arrange: one node's PR merged by hand into the integration branch
+    // (EXP-1010 territory: `pr_state = merged` with no `landNode` call).
+    // Act: the engine's next evaluation + the final PR merge.
+    // Assert: the hand-merged node counts as landed for the completion
+    // check; the workflow reaches `completed` like the case above.
+    expect.fail(`EXP-1014 implements the completion path`)
+  })
+})

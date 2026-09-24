@@ -162,7 +162,11 @@ public extension SteerDevice {
             // so it goes wherever the agent went — a default account naming a
             // retired agent's login must not outlive its agent.
             defaultAccount: defaultAgent == nil ? nil : decoded.defaultAccount,
-            agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) }
+            agents: decoded.agents?.filter { AgentUsagePresentation.isContractAgent($0.key) },
+            // EXP-1029: the workflow pair rides through untouched — it names
+            // MODELS, not agents, and `DeviceWorkflowSettings.resolve` is what
+            // clamps it to the default agent's vocabulary at read time.
+            workflow: decoded.workflow
         )
     }
 
@@ -284,12 +288,5 @@ public enum DeviceQueries {
             }
             .sorted(by: stableOrder)
         return own.map(mapped) + shared.map(mapped)
-    }
-
-    /// One-shot worktree inventory read (the Start-coding sheet's resume
-    /// probe and the device-settings worktree list).
-    public static func worktrees(db: DatabaseManager, accountId: String) async -> [DeviceWorktreeEntity] {
-        guard let pool = try? db.pool(forAccountId: accountId) else { return [] }
-        return (try? await pool.read { db in try DeviceWorktreeEntity.fetchAll(db) }) ?? []
     }
 }

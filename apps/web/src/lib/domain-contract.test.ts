@@ -25,6 +25,9 @@ import {
   wfStatusValues,
   WORKFLOW_MAX_ISSUES,
   WORKFLOW_MAX_PARALLEL_DEFAULT,
+  workflowLaunchAgentValues,
+  WORKFLOW_LAUNCH_DEFAULTS,
+  DEVICE_AGENT_DEFAULTS,
   codingSessionStatusValues,
   codingSessionEndedByValues,
   codingSessionBlockedKindValues,
@@ -187,6 +190,28 @@ describe(`domain-contract parity`, () => {
     expect([...wfRiskValues]).toEqual([...contract.wfRisk.values])
     expect(WORKFLOW_MAX_ISSUES).toBe(contract.workflow.maxIssues)
     expect(WORKFLOW_MAX_PARALLEL_DEFAULT).toBe(contract.workflow.maxParallelDefault)
+  })
+
+  // EXP-1029: the two-model workflow launch and a device's agent defaults.
+  it(`workflow launch and device agent defaults match the contract`, () => {
+    expect([...workflowLaunchAgentValues]).toEqual([...contract.workflowLaunch.agents])
+    expect(WORKFLOW_LAUNCH_DEFAULTS.claude).toEqual({
+      model: contract.workflowLaunch.claudeModel,
+      strongModel: contract.workflowLaunch.claudeStrongModel,
+    })
+    expect(WORKFLOW_LAUNCH_DEFAULTS.codex).toEqual({
+      model: contract.workflowLaunch.codexModel,
+      strongModel: contract.workflowLaunch.codexStrongModel,
+    })
+    expect(DEVICE_AGENT_DEFAULTS).toEqual({
+      account: null,
+      model: contract.deviceAgentDefaults.model,
+      subagentModel: contract.deviceAgentDefaults.subagentModel,
+      workflow: {
+        model: contract.deviceAgentDefaults.workflowModel,
+        strongModel: contract.deviceAgentDefaults.workflowStrongModel,
+      },
+    })
   })
 
   it(`coding session status values match the contract`, () => {

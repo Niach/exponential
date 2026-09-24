@@ -110,6 +110,8 @@ mod oauth;
 mod onboarding;
 pub mod os_notifications;
 mod pickers;
+// EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
+mod picker;
 mod pins;
 mod pr_diff;
 mod pr_graph;
@@ -147,6 +149,10 @@ mod workflow_host;
 mod workflow_view;
 mod workflows_view;
 pub mod steer_wiring;
+// EXP-1029: sub-shell navigation for the settings shell (EXP-1020) and the
+// IDE styleguide's section skeleton (EXP-1019 structures it).
+mod sub_shell;
+mod styleguide;
 mod support_thread;
 // EXP-837: the window-level disarm for a stuck text-selection drag.
 mod text_selection_guard;

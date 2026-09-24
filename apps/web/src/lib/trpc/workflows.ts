@@ -17,7 +17,7 @@ import {
   wfNodeKindSchema,
   wfRiskSchema,
   wfStartOnSchema,
-  type WorkflowLaunch,
+  type WorkflowLaunchStored,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -71,7 +71,7 @@ const WORKFLOW_DEVICE = {
   capMessage: `Update Exponential on that machine to run workflows`,
 }
 
-function assertLaunch(launch: WorkflowLaunch): void {
+function assertLaunch(launch: WorkflowLaunchStored): void {
   if (launch.agent && !codingAgentValues.includes(launch.agent)) {
     throw bad(`Unknown agent`)
   }
@@ -82,6 +82,7 @@ function assertLaunch(launch: WorkflowLaunch): void {
   // EXP-1002: the per-PHASE and risk overrides come out of the SAME closed set
   // as the workflow's own model — they only say which nodes take which.
   for (const phase of [
+    launch.strongModel,
     launch.contractModel,
     launch.integrationModel,
     launch.riskModel,
@@ -101,8 +102,15 @@ function assertLaunch(launch: WorkflowLaunch): void {
   }
 }
 
-// EXP-1002: the three pins older clients have never heard of.
-const PHASE_MODEL_KEYS = [`contractModel`, `integrationModel`, `riskModel`] as const
+// EXP-1002: the three pins older clients have never heard of — and, EXP-1029,
+// the `strongModel` they replace, carried by the same rule until every client
+// writes it (EXP-1014).
+const PHASE_MODEL_KEYS = [
+  `strongModel`,
+  `contractModel`,
+  `integrationModel`,
+  `riskModel`,
+] as const
 
 /**
  * The launch `workflows.update` stores. `launch` is replaced WHOLE, except the
@@ -111,10 +119,10 @@ const PHASE_MODEL_KEYS = [`contractModel`, `integrationModel`, `riskModel`] as c
  * absent keys ("absent = `model`").
  */
 export function mergeLaunch(
-  stored: WorkflowLaunch | null | undefined,
-  incoming: WorkflowLaunch
-): WorkflowLaunch {
-  const merged: WorkflowLaunch = { ...incoming }
+  stored: WorkflowLaunchStored | null | undefined,
+  incoming: WorkflowLaunchStored
+): WorkflowLaunchStored {
+  const merged: WorkflowLaunchStored = { ...incoming }
   // A carried pin belongs to the STORED agent's model vocabulary; across an
   // agent switch it would only be refused, so the new agent's shipped pin
   // stands in (what the web's Agent row does explicitly).

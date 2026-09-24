@@ -84,7 +84,8 @@ final class AgentsViewModel {
     /// are still derived but nothing is ever queued from there.
     var devicesApi: DevicesApi?
     /// EXP-481: the synced worktree inventory (shape 18) — the composer's
-    /// resume probe and the device-settings worktree list.
+    /// resume probe. EXP-1042: nothing else reads it on a phone; the
+    /// device-settings list left for the IDE.
     var worktrees: [DeviceWorktreeEntity] = []
     /// EXP-694: the synced actions/automations, account-wide (a session names
     /// its own team). The session rows' trailing control resolves its glyph and

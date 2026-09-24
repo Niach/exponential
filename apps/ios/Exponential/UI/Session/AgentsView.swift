@@ -36,8 +36,8 @@ struct AgentsView: View {
     /// nil until the relay config resolves.
     @State private var steerEnabled: Bool?
     /// EXP-909: the row's ONE action — the settings sheet it opens (name,
-    /// default device, sharing, launch defaults, worktrees, and now update +
-    /// remove, which used to be row-level handlers here).
+    /// default device, sharing, launch defaults, and now update + remove,
+    /// which used to be row-level handlers here).
     @State private var settingsTarget: DeviceSettingsTarget?
     /// EXP-862: the sign-in a chip (or the Accounts section) asked for, and
     /// the removal a chip is confirming.
@@ -194,7 +194,7 @@ struct AgentsView: View {
         // itself, so its content inset is the one that grows.
         .tabBarBottomInset()
         // EXP-481: the gear opens the sheet (name, default device, sharing,
-        // launch defaults, worktrees) — the row menu's rename alert retired
+        // launch defaults) — the row menu's rename alert retired
         // into it, and EXP-909 its update and remove actions too. EXP-490: it
         // takes the view model and the device id, not a snapshot — the sheet
         // renders the live row and auto-saves.

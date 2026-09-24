@@ -104,6 +104,15 @@ public enum DomainContract {
     public static let workflowMaxReviewRounds: Int = 3
     public static let workflowMaxParallelDefault: Int = 3
     public static let workflowMaxIssues: Int = 50
+    public static let workflowLaunchAgents: [String] = ["claude", "codex"]
+    public static let workflowLaunchClaudeModel: String = "opus"
+    public static let workflowLaunchClaudeStrongModel: String = "fable"
+    public static let workflowLaunchCodexModel: String = "gpt-5.6-sol"
+    public static let workflowLaunchCodexStrongModel: String = "gpt-5.6-luna"
+    public static let deviceAgentDefaultsModel: String = "fable"
+    public static let deviceAgentDefaultsSubagentModel: String = ""
+    public static let deviceAgentDefaultsWorkflowModel: String = "opus"
+    public static let deviceAgentDefaultsWorkflowStrongModel: String = "fable"
     public static let actionInputsMax: Int = 10
     public static let actionInputTextMax: Int = 4096
     public static let startPromptMaxLength: Int = 16384

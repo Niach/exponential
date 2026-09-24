@@ -20,6 +20,14 @@ import kotlinx.serialization.json.intOrNull
 data class WorkflowLaunch(
     val agent: String = "",
     val model: String = "",
+    /**
+     * EXP-1029: the STRONG model — contract, integration and `risk: high`
+     * nodes, and every agent review. The phase pins, [subagentModel] and
+     * [reviewModel] are deprecated (they fold into this one; EXP-1014 removes
+     * them). CARRIED like the pins: the phone never edits it, and the encoder
+     * omits it so the server keeps the stored value. null = not set.
+     */
+    val strongModel: String? = null,
     /** Claude only: the model its subagents run on. */
     val subagentModel: String = "",
     val effort: String = "",
@@ -97,6 +105,7 @@ fun workflowLaunch(raw: String?): WorkflowLaunch {
         maxParallel = obj.int("maxParallel")?.takeIf { it >= 1 }
             ?: DomainContract.workflowMaxParallelDefault,
         reviewModel = obj.string("reviewModel"),
+        strongModel = obj.string("strongModel").ifEmpty { null },
         contractModel = obj.string("contractModel").ifEmpty { null },
         integrationModel = obj.string("integrationModel").ifEmpty { null },
         riskModel = obj.string("riskModel").ifEmpty { null },
