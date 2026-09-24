@@ -98,6 +98,10 @@ interface PickerPropsBase<T extends string> extends PickerSurfaceProps {
   /** The sheet's title on phones (the popover has none). */
   mobileTitle?: string
   disabled?: boolean
+  /** Extra classes on the SURFACE — the popover panel the rows sit in. NOT
+   *  the trigger: the caller builds that element itself and styles it there.
+   *  Applied after the width, so `w-auto` hugs a fixed-size `panel` (the icon
+   *  grid). The phone sheet is the screen and ignores it. */
   className?: string
   /** Controlled search text — for an external ranking engine
    *  (`useIssueSearchResults`, EXP-892). With it, pass
@@ -273,7 +277,7 @@ export function Picker<T extends string = string>(props: PickerProps<T>) {
         align={align}
         width={width}
         disabled={disabled}
-        className={className}
+        surfaceClassName={className}
         data-testid={testId}
         renderOption={(option, state) => {
           const item = byValue.get(option.value)
