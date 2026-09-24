@@ -109,6 +109,8 @@ pub const SHAPES: [ShapeSpec; 24] = [
             "pr_merged_automation",
             // EXP-711: the merge-ends-sessions toggle.
             "end_sessions_on_merge",
+            // EXP-630: the estimate scale (Settings → Issues).
+            "estimation_type",
             "created_at",
             "updated_at",
         ],
@@ -1037,6 +1039,8 @@ mod tests {
         // EXP-711: the same card's merge-ends-sessions switch, and the
         // batch self-close predicate in coding_flow.
         assert!(spec.columns.contains(&"end_sessions_on_merge"));
+        // EXP-630: the Issues pane's estimate scale.
+        assert!(spec.columns.contains(&"estimation_type"));
     }
 
     #[test]

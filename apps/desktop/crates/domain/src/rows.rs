@@ -61,6 +61,11 @@ pub struct Team {
     /// enabled, matching the server DEFAULT true.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub end_sessions_on_merge: Option<bool>,
+    /// EXP-630: the estimate scale (contract `issueEstimation`): `none` (or
+    /// a pre-column `None`) = estimates off; the others pick the ladder and
+    /// how a value reads (t-shirt = XS…XL over the fibonacci points).
+    #[serde(default)]
+    pub estimation_type: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -68,6 +73,15 @@ pub struct Team {
 }
 
 impl Team {
+    /// The estimate scale, `"none"` for pre-column rows and unknown values
+    /// (a newer server's scale reads as off rather than as a stray label).
+    pub fn estimation(&self) -> &str {
+        match self.estimation_type.as_deref() {
+            Some(value) if crate::contract::ISSUE_ESTIMATION_VALUES.contains(&value) => value,
+            _ => crate::contract::ISSUE_ESTIMATION_NONE,
+        }
+    }
+
     /// Optimistic local row built from a mutation's own response (EXP-470) —
     /// identity fields only; everything else stays `None` (degrading like a
     /// pre-column row) until the Electric echo overwrites it.
@@ -83,6 +97,7 @@ impl Team {
             pr_merged_status_id: None,
             pr_merged_automation: None,
             end_sessions_on_merge: None,
+            estimation_type: None,
             created_at: None,
             updated_at: None,
         }
@@ -1977,6 +1992,14 @@ mod tests {
         assert_eq!(team.pr_merged_automation, None);
         assert_eq!(team.end_sessions_on_merge, None);
         assert!(team.ends_sessions_on_merge());
+        // EXP-630: no column, an unknown scale and an explicit none all read
+        // as off; a known scale reads as itself.
+        assert_eq!(team.estimation(), "none");
+        let mut scaled = team.clone();
+        scaled.estimation_type = Some("tshirt".to_string());
+        assert_eq!(scaled.estimation(), "tshirt");
+        scaled.estimation_type = Some("hexagonal".to_string());
+        assert_eq!(scaled.estimation(), "none");
     }
 
     #[test]

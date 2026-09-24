@@ -386,8 +386,7 @@ describe(`icon call sites`, () => {
     // EXP-771: + Helpdesk as its own Features entry beside Feedback widget.
     // EXP-792: + MCP servers (Features), web-only for now.
     // EXP-630: + Import (Team), web-only like Billing, and + Issues (Team),
-    // the parent entry Labels and Statuses now nest under (web-only nesting;
-    // the desktop keeps them flat).
+    // the parent entry Labels and Statuses now nest under on both clients.
     expect(webNav.size).toBe(16)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
@@ -395,12 +394,15 @@ describe(`icon call sites`, () => {
     // EXP-807: + MCP servers, the IDE pane the desktop sub-issue added — the
     // count the EXP-792 comment here predicted.
     // EXP-886: + Sessions (desktop-only, the This device group).
-    expect(desktopNav.size).toBe(19)
+    // EXP-630: + Issues, the parent pane Labels and Statuses nest under on
+    // both clients.
+    expect(desktopNav.size).toBe(20)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
       [`General`, `General`],
       [`Members`, `Members`],
+      [`Issues`, `Issues`],
       [`Labels`, `Labels`],
       [`Statuses`, `Statuses`],
       [`Storage`, `Storage`],

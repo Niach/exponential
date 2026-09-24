@@ -4,7 +4,7 @@
 //! Web parity targets: the `routes/t/$teamSlug/settings/` pages and
 //! their `components/team/*-section.tsx` + `components/account/*` cards. The
 //! screen mirrors the web's grouped master-detail layout (EXP-146): a fixed
-//! left nav with the groups — **Team** (General, Members, Labels, Statuses,
+//! left nav with the groups — **Team** (General, Members, Issues ⟩ Labels, Statuses,
 //! Storage — the EXP-297 owner-only attachment manager), **Boards**
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
 //! old flat Boards list into per-board detail pages), **Features**
@@ -39,6 +39,7 @@ mod agents;
 mod api_keys;
 pub(crate) mod doctor_section;
 mod helpdesk;
+mod issues;
 mod labels;
 // EXP-792: `pub(crate)` because the READINESS vocabulary lives here —
 // `launch_options`' multiselect greys a row with the same rule the pane's
@@ -134,6 +135,7 @@ use about::AboutPane;
 use account::AccountPane;
 use api_keys::ApiKeysPane;
 use helpdesk::HelpdeskPane;
+use issues::IssuesPane;
 use labels::LabelsPane;
 use mcp_servers::McpServersPane;
 use widget::WidgetPane;
@@ -158,6 +160,10 @@ use tools::ToolsPane;
 pub(crate) enum SettingsSection {
     General,
     Members,
+    /// EXP-630: how issues behave team-wide — the estimate scale and the PR
+    /// automation card; Labels and Statuses nest under it in the nav.
+    /// Member-visible (the scale control itself is owner-only).
+    Issues,
     Labels,
     /// EXP-314 per-team custom issue statuses. Member-editable like Labels
     /// (the server's writes are `mutate_resources`, NOT owner-only).
@@ -222,6 +228,28 @@ pub(crate) enum SettingsSection {
 struct NavItem {
     label: &'static str,
     section: SettingsSection,
+    /// EXP-630: sub-pages folded under this entry (Issues → Labels,
+    /// Statuses) — the web nav's `children`.
+    children: &'static [NavItem],
+}
+
+impl NavItem {
+    const fn leaf(label: &'static str, section: SettingsSection) -> Self {
+        Self {
+            label,
+            section,
+            children: &[],
+        }
+    }
+}
+
+/// Every nav entry in order, sub-pages right after their parent (the web's
+/// `flattenSettingsNav`) — what the fallback scan and the tests walk.
+fn flat_nav_items() -> impl Iterator<Item = &'static NavItem> {
+    NAV_GROUPS
+        .iter()
+        .flat_map(|group| group.items)
+        .flat_map(|item| std::iter::once(item).chain(item.children.iter()))
 }
 
 struct NavGroup {
@@ -240,44 +268,29 @@ const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
         label: "Team",
         items: &[
+            NavItem::leaf("General", SettingsSection::General),
+            NavItem::leaf("Members", SettingsSection::Members),
+            // EXP-630: Issues after Members, with Labels and Statuses
+            // (EXP-314; EXP-771: the web's label) as its sub-pages — the web
+            // nav's nested entry, verbatim.
             NavItem {
-                label: "General",
-                section: SettingsSection::General,
+                label: "Issues",
+                section: SettingsSection::Issues,
+                children: &[
+                    NavItem::leaf("Labels", SettingsSection::Labels),
+                    NavItem::leaf("Statuses", SettingsSection::Statuses),
+                ],
             },
-            NavItem {
-                label: "Members",
-                section: SettingsSection::Members,
-            },
-            NavItem {
-                label: "Labels",
-                section: SettingsSection::Labels,
-            },
-            // EXP-314: right after Labels — the two team vocabularies sit
-            // together, and both are member-editable. EXP-771: the label is
-            // the web's ("Statuses"), not the longer desktop-only one.
-            NavItem {
-                label: "Statuses",
-                section: SettingsSection::Statuses,
-            },
-            // EXP-297: after Labels — the web nav's Team group order minus
-            // the web-only Plan & Billing entry between them.
-            NavItem {
-                label: "Storage",
-                section: SettingsSection::Storage,
-            },
+            // EXP-297: the web nav's Team group order minus the web-only
+            // Plan & Billing and Import entries.
+            NavItem::leaf("Storage", SettingsSection::Storage),
         ],
     },
     NavGroup {
         label: "Boards",
         items: &[
-            NavItem {
-                label: "Archived boards",
-                section: SettingsSection::ArchivedBoards,
-            },
-            NavItem {
-                label: "Repositories",
-                section: SettingsSection::Repositories,
-            },
+            NavItem::leaf("Archived boards", SettingsSection::ArchivedBoards),
+            NavItem::leaf("Repositories", SettingsSection::Repositories),
         ],
     },
     // EXP-771: the web's Features group, verbatim — plus Helpdesk, which the
@@ -286,42 +299,21 @@ const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
         label: "Features",
         items: &[
-            NavItem {
-                label: "Feedback widget",
-                section: SettingsSection::Widget,
-            },
-            NavItem {
-                label: "Helpdesk",
-                section: SettingsSection::Helpdesk,
-            },
+            NavItem::leaf("Feedback widget", SettingsSection::Widget),
+            NavItem::leaf("Helpdesk", SettingsSection::Helpdesk),
             // EXP-792: member-visible, unlike its two neighbours — every
             // member reads the registry and signs in on their own machines
             // (the web nav's `visible: () => true`).
-            NavItem {
-                label: "MCP servers",
-                section: SettingsSection::McpServers,
-            },
+            NavItem::leaf("MCP servers", SettingsSection::McpServers),
         ],
     },
     NavGroup {
         label: "This device",
         items: &[
-            NavItem {
-                label: "Tools",
-                section: SettingsSection::Tools,
-            },
-            NavItem {
-                label: "Agents",
-                section: SettingsSection::Agents,
-            },
-            NavItem {
-                label: "Worktrees",
-                section: SettingsSection::LocalRepos,
-            },
-            NavItem {
-                label: "Sessions",
-                section: SettingsSection::Sessions,
-            },
+            NavItem::leaf("Tools", SettingsSection::Tools),
+            NavItem::leaf("Agents", SettingsSection::Agents),
+            NavItem::leaf("Worktrees", SettingsSection::LocalRepos),
+            NavItem::leaf("Sessions", SettingsSection::Sessions),
         ],
     },
     // EXP-238: the Personal group is ordinary nav now — the web merged the
@@ -331,22 +323,10 @@ const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
         label: "Personal",
         items: &[
-            NavItem {
-                label: "Account",
-                section: SettingsSection::Account,
-            },
-            NavItem {
-                label: "Notifications",
-                section: SettingsSection::Notifications,
-            },
-            NavItem {
-                label: "Security",
-                section: SettingsSection::ApiKeys,
-            },
-            NavItem {
-                label: "About",
-                section: SettingsSection::About,
-            },
+            NavItem::leaf("Account", SettingsSection::Account),
+            NavItem::leaf("Notifications", SettingsSection::Notifications),
+            NavItem::leaf("Security", SettingsSection::ApiKeys),
+            NavItem::leaf("About", SettingsSection::About),
         ],
     },
 ];
@@ -362,6 +342,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
     match section {
         SettingsSection::General => Icon::from(registry::SETTINGS_GENERAL),
         SettingsSection::Members => Icon::from(registry::SETTINGS_MEMBERS),
+        SettingsSection::Issues => Icon::from(registry::SETTINGS_ISSUES),
         SettingsSection::Labels => Icon::from(registry::SETTINGS_LABELS),
         SettingsSection::Statuses => Icon::from(registry::SETTINGS_STATUSES),
         SettingsSection::Storage => Icon::from(registry::SETTINGS_STORAGE),
@@ -441,9 +422,7 @@ fn effective_selection(
     if visible {
         return selected;
     }
-    NAV_GROUPS
-        .iter()
-        .flat_map(|group| group.items)
+    flat_nav_items()
         .map(|item| item.section.clone())
         .find(|section| section_visible(section, owner))
         .expect("Members is never gated")
@@ -460,6 +439,8 @@ pub struct SettingsView {
     nav: Entity<Navigation>,
     general: Entity<GeneralPane>,
     members: Entity<MembersPane>,
+    /// EXP-630: estimate scale + PR automation — un-gated (member-visible).
+    issues: Entity<IssuesPane>,
     labels: Entity<LabelsPane>,
     /// EXP-314 per-team issue statuses — un-gated (member-editable).
     statuses: Entity<StatusesPane>,
@@ -521,6 +502,7 @@ impl SettingsView {
         let shared = rail_shared_for_window(window, cx);
         let general = cx.new(|cx| GeneralPane::new(nav.clone(), window, cx));
         let members = cx.new(|cx| MembersPane::new(nav.clone(), window, cx));
+        let issues = cx.new(|cx| IssuesPane::new(nav.clone(), cx));
         let labels = cx.new(|cx| LabelsPane::new(nav.clone(), window, cx));
         let statuses = cx.new(|cx| StatusesPane::new(nav.clone(), window, cx));
         let storage = cx.new(|cx| StoragePane::new(nav.clone(), cx));
@@ -557,6 +539,7 @@ impl SettingsView {
             nav,
             general,
             members,
+            issues,
             labels,
             statuses,
             storage,
@@ -646,6 +629,7 @@ impl Render for SettingsView {
         let pane: gpui::AnyElement = match &effective {
             SettingsSection::General => self.general.clone().into_any_element(),
             SettingsSection::Members => self.members.clone().into_any_element(),
+            SettingsSection::Issues => self.issues.clone().into_any_element(),
             SettingsSection::Labels => self.labels.clone().into_any_element(),
             SettingsSection::Statuses => self.statuses.clone().into_any_element(),
             SettingsSection::Storage => self.storage.clone().into_any_element(),
@@ -755,6 +739,9 @@ pub(crate) fn detail_column() -> gpui::Div {
 /// writes the window's shared [`RailShared::settings_section`], so the detail
 /// view ([`SettingsView`]) always shows what this column highlights.
 pub struct SettingsNavPanel {
+    /// EXP-630: fold state of the nested entries, keyed by label. Unset =
+    /// unfolded while the parent or one of its sub-pages is selected.
+    folded: std::collections::HashMap<&'static str, bool>,
     nav: Entity<Navigation>,
     shared: Entity<RailShared>,
     _subscriptions: Vec<Subscription>,
@@ -778,6 +765,7 @@ impl SettingsNavPanel {
         Self {
             nav,
             shared,
+            folded: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -918,19 +906,69 @@ impl Render for SettingsNavPanel {
             for item in visible {
                 let section = item.section.clone();
                 let selected = section == effective;
-                list = list.child(
-                    Self::row(
-                        item.label,
-                        item.label,
-                        Some(section_icon(&section)),
-                        selected,
-                        cx,
-                    )
-                    .on_click(cx.listener(move |_, _, window, cx| {
-                        select_settings_section(window, cx, section.clone());
-                        navigate(window, cx, Screen::Settings);
-                    })),
-                );
+                let children: Vec<&NavItem> = item
+                    .children
+                    .iter()
+                    .filter(|child| section_visible(&child.section, owner))
+                    .collect();
+                // EXP-630: a nested entry starts unfolded while it or one of
+                // its sub-pages is open; the chevron overrides that.
+                let within = selected || children.iter().any(|child| child.section == effective);
+                let open = self.folded.get(item.label).map(|folded| !folded).unwrap_or(within);
+                let mut row = Self::row(
+                    item.label,
+                    item.label,
+                    Some(section_icon(&section)),
+                    selected,
+                    cx,
+                )
+                .on_click(cx.listener(move |_, _, window, cx| {
+                    select_settings_section(window, cx, section.clone());
+                    navigate(window, cx, Screen::Settings);
+                }));
+                if !children.is_empty() {
+                    let label = item.label;
+                    row = row.child(
+                        div()
+                            .id(SharedString::from(format!("settings-nav-fold-{label}")))
+                            .flex_shrink_0()
+                            .cursor_pointer()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(
+                                Icon::new(if open {
+                                    registry::UI_CHEVRON_DOWN
+                                } else {
+                                    registry::UI_CHEVRON_RIGHT
+                                })
+                                .size_3(),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.folded.insert(label, open);
+                                cx.notify();
+                            })),
+                    );
+                }
+                list = list.child(row);
+                if open {
+                    for child in children {
+                        let section = child.section.clone();
+                        let selected = section == effective;
+                        list = list.child(
+                            Self::row(
+                                child.label,
+                                child.label,
+                                Some(section_icon(&section)),
+                                selected,
+                                cx,
+                            )
+                            .pl_6()
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                select_settings_section(window, cx, section.clone());
+                                navigate(window, cx, Screen::Settings);
+                            })),
+                        );
+                    }
+                }
             }
         }
 
@@ -1303,17 +1341,12 @@ mod tests {
     /// a rename that moved the section would orphan every stored selection.
     #[test]
     fn the_personal_keys_entry_is_labelled_security() {
-        let entry = NAV_GROUPS
-            .iter()
-            .flat_map(|group| group.items)
+        let entry = flat_nav_items()
             .find(|item| item.section == SettingsSection::ApiKeys)
             .expect("the personal keys entry is in the nav");
         assert_eq!(entry.label, "Security");
         assert!(
-            !NAV_GROUPS
-                .iter()
-                .flat_map(|group| group.items)
-                .any(|item| item.label == "API keys"),
+            !flat_nav_items().any(|item| item.label == "API keys"),
             "the old label is gone everywhere"
         );
     }
@@ -1525,12 +1558,36 @@ mod tests {
     /// desktop-only "Issue statuses".
     #[test]
     fn statuses_nav_label_matches_the_web() {
-        let label = NAV_GROUPS
-            .iter()
-            .flat_map(|group| group.items)
+        let label = flat_nav_items()
             .find(|item| item.section == SettingsSection::Statuses)
             .map(|item| item.label);
         assert_eq!(label, Some("Statuses"));
+    }
+
+    /// EXP-630 (web parity): Issues follows Members in the Team group with
+    /// Labels then Statuses as its sub-pages, which are no top-level rows any
+    /// more; the flat walk lists the three in a row and every one of them
+    /// is member-visible.
+    #[test]
+    fn issues_nests_labels_and_statuses_like_the_web() {
+        let team = NAV_GROUPS.iter().find(|group| group.label == "Team").expect("Team group");
+        let members = team.items.iter().position(|item| item.label == "Members").unwrap();
+        let issues = &team.items[members + 1];
+        assert_eq!(issues.label, "Issues");
+        assert_eq!(issues.section, SettingsSection::Issues);
+        let children: Vec<(&str, &SettingsSection)> =
+            issues.children.iter().map(|item| (item.label, &item.section)).collect();
+        assert_eq!(
+            children,
+            vec![("Labels", &SettingsSection::Labels), ("Statuses", &SettingsSection::Statuses)]
+        );
+        assert!(!team.items.iter().any(|item| item.label == "Labels" || item.label == "Statuses"));
+        let flat: Vec<&str> = flat_nav_items().map(|item| item.label).collect();
+        let at = flat.iter().position(|label| *label == "Issues").unwrap();
+        assert_eq!(&flat[at..at + 3], ["Issues", "Labels", "Statuses"]);
+        for item in std::iter::once(issues).chain(issues.children.iter()) {
+            assert!(section_visible(&item.section, false), "{} is member-visible", item.label);
+        }
     }
 
     /// EXP-500: archiving the board whose settings pane is open drops it out

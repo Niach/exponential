@@ -5,7 +5,7 @@
 //! `team-invites.ts`:
 //!
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
-//! - `teams.update({teamId, name?, iconUrl?})` → `{team, txId}` (EXP-707)
+//! - `teams.update({teamId, name?, iconUrl?, helpdeskEnabled?, estimationType?})` → `{team, txId}` (EXP-707)
 //! - `teams.delete({teamId})` → `{ok, txId}`
 //! - `teams.inviteCapacity({teamId})` → `{remaining}` (query, EXP-725)
 //! - `teamMembers.updateRole({memberId, role})` → `{member}`
@@ -87,6 +87,9 @@ pub struct TeamsUpdateInput {
     /// caller must tell the two apart, not swallow both.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub helpdesk_enabled: Option<bool>,
+    /// EXP-630: the estimate scale (contract `issueEstimation`; `none` = off).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimation_type: Option<String>,
 }
 
 impl TeamsUpdateInput {
@@ -96,6 +99,7 @@ impl TeamsUpdateInput {
             name: None,
             icon_url: Patch::Omit,
             helpdesk_enabled: None,
+            estimation_type: None,
         }
     }
 }
