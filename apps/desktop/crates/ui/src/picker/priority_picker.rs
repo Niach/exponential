@@ -7,7 +7,7 @@ use gpui::AnyElement;
 use domain::options::ISSUE_PRIORITY_OPTIONS;
 use domain::IssuePriority;
 
-use super::{OnPickerChange, Picker, PickerItem};
+use super::{OnPickerChange, Picker, PickerItem, PickerMode};
 
 pub(crate) fn priority_items() -> Vec<PickerItem<IssuePriority>> {
     ISSUE_PRIORITY_OPTIONS
@@ -16,10 +16,17 @@ pub(crate) fn priority_items() -> Vec<PickerItem<IssuePriority>> {
         .collect()
 }
 
+/// `mode`: single for the issue chip / dialog, multi for the board filter.
 pub(crate) fn priority_picker(
-    value: Option<IssuePriority>,
+    mode: PickerMode,
+    value: Vec<IssuePriority>,
     trigger: AnyElement,
     on_change: OnPickerChange<IssuePriority>,
 ) -> Picker<IssuePriority> {
-    Picker::single(priority_items(), value, trigger, on_change)
+    match mode {
+        PickerMode::Single => {
+            Picker::single(priority_items(), value.into_iter().next(), trigger, on_change)
+        }
+        PickerMode::Multi => Picker::multi(priority_items(), value, trigger, on_change),
+    }
 }

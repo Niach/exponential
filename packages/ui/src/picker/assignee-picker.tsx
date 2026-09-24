@@ -4,8 +4,11 @@ import { Picker, type PickerItem } from "./picker"
 
 // EXP-1029 contract — the assignee picker: the team's members by avatar +
 // name, the email as the description and a search keyword; `Unassigned`
-// first. The issue properties, the create-issue dialog and the board filter
-// pick one (the filter may pick several).
+// first. The issue properties and the create-issue dialog pick one (single
+// mode: `null` = unassigned, `allowsNone` offers the `Unassigned` row); the
+// board filter picks several (multi mode, `allowsNone` ignored). The SAME
+// shape on the IDE, iOS and Android, where a single pick is an empty-or-one
+// set.
 
 export interface AssigneePickerMember {
   id: string
@@ -23,7 +26,7 @@ interface AssigneePickerBase {
   search?: boolean
   disabled?: boolean
   emptyText?: string
-  /** Offer the `Unassigned` row (single mode only). */
+  /** Offer the `Unassigned` row (single mode only; ignored in multi). */
   allowsNone?: boolean
   className?: string
 }

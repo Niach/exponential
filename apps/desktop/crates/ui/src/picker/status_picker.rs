@@ -7,7 +7,7 @@ use gpui::AnyElement;
 
 use domain::statuses::ResolvedStatus;
 
-use super::{OnPickerChange, Picker, PickerItem};
+use super::{OnPickerChange, Picker, PickerItem, PickerMode};
 
 pub(crate) fn status_items(statuses: &[ResolvedStatus]) -> Vec<PickerItem<String>> {
     statuses
@@ -16,11 +16,18 @@ pub(crate) fn status_items(statuses: &[ResolvedStatus]) -> Vec<PickerItem<String
         .collect()
 }
 
+/// `mode`: single for the issue chip / dialog, multi for the board filter.
 pub(crate) fn status_picker(
     statuses: &[ResolvedStatus],
-    value: Option<String>,
+    mode: PickerMode,
+    value: Vec<String>,
     trigger: AnyElement,
     on_change: OnPickerChange<String>,
 ) -> Picker<String> {
-    Picker::single(status_items(statuses), value, trigger, on_change)
+    match mode {
+        PickerMode::Single => {
+            Picker::single(status_items(statuses), value.into_iter().next(), trigger, on_change)
+        }
+        PickerMode::Multi => Picker::multi(status_items(statuses), value, trigger, on_change),
+    }
 }
