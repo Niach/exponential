@@ -327,6 +327,67 @@ describe(`teams.update helpdesk transport gate (REV2-10)`, () => {
   })
 })
 
+// EXP-1025: the team prompt — owner-written through `update`, capped in
+// UTF-8 bytes by the contract, stamped with its own clock, and read back by
+// any member through `getAgentPrompt` (it is not on the teams shape).
+describe(`teams.update / getAgentPrompt — the team prompt (EXP-1025)`, () => {
+  it(`writes the prompt with its own timestamp, trailing whitespace dropped`, async () => {
+    updateReturningQueue.push([{ id: WS, name: `Ship It` }])
+    await caller().update({ teamId: WS, agentPrompt: `# Rules\n\nBe terse.\n\n` })
+    expect(updates).toHaveLength(1)
+    const values = updates[0]!.values
+    expect(values.agentPrompt).toBe(`# Rules\n\nBe terse.`)
+    expect(values.agentPromptUpdatedAt).toBeInstanceOf(Date)
+    expect(values.updatedAt).toBeInstanceOf(Date)
+  })
+
+  it(`leaves the prompt alone when the patch omits it`, async () => {
+    updateReturningQueue.push([{ id: WS, name: `Ship It` }])
+    await caller().update({ teamId: WS, name: `Ship It` })
+    expect(updates[0]!.values).not.toHaveProperty(`agentPrompt`)
+    expect(updates[0]!.values).not.toHaveProperty(`agentPromptUpdatedAt`)
+  })
+
+  it(`accepts an empty string (no team prompt) and re-stamps the clock`, async () => {
+    updateReturningQueue.push([{ id: WS }])
+    await caller().update({ teamId: WS, agentPrompt: `` })
+    expect(updates[0]!.values.agentPrompt).toBe(``)
+    expect(updates[0]!.values.agentPromptUpdatedAt).toBeInstanceOf(Date)
+  })
+
+  it(`refuses a prompt over the contract's byte cap (bytes, not chars)`, async () => {
+    // 4097 three-byte characters = 12291 bytes, over 12288 while well under
+    // the cap in characters — the cap is what the context pays for.
+    const overByBytes = `€`.repeat(4097)
+    await expect(
+      caller().update({ teamId: WS, agentPrompt: overByBytes })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(updates).toHaveLength(0)
+    // Exactly at the cap passes.
+    updateReturningQueue.push([{ id: WS }])
+    await caller().update({ teamId: WS, agentPrompt: `€`.repeat(4096) })
+    expect(updates).toHaveLength(1)
+  })
+
+  it(`getAgentPrompt asserts membership (any role) and returns the text + cap`, async () => {
+    const stamp = new Date(`2026-09-24T05:00:00Z`)
+    selectQueue.push([{ agentPrompt: `Be terse.`, agentPromptUpdatedAt: stamp }])
+    const result = await caller().getAgentPrompt({ teamId: WS })
+    expect(assertTeamMember).toHaveBeenCalledWith(`user-a`, WS)
+    expect(result).toEqual({
+      agentPrompt: `Be terse.`,
+      agentPromptUpdatedAt: stamp,
+      maxBytes: 12288,
+    })
+  })
+
+  it(`getAgentPrompt is NOT_FOUND for a team that does not exist`, async () => {
+    await expect(caller().getAgentPrompt({ teamId: WS })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+  })
+})
+
 describe(`teams.delete (EXP-188: no last-team guard)`, () => {
   it(`deletes the user's only team, reclaiming storage`, async () => {
     // Only in-tx select left: attachments storage-key collection — there is

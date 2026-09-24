@@ -92,6 +92,10 @@ pub struct AdapterSpec {
     /// The claude `--settings <path>` reaper anchor (`{}`, no hooks). `None`
     /// for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
+    /// EXP-1025: the run playbook plus the team prompt, composed by the
+    /// launcher (`AcpLaunch::system_append`); claude `--append-system-prompt`,
+    /// codex `developer_instructions`, on start AND resume.
+    pub system_append: String,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of
     /// ours never records, and the run ends as `ended`.

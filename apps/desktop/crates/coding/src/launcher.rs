@@ -795,6 +795,14 @@ pub struct AcpLaunch {
     /// flag would be invisible to the quit sweep (EXP-300 all over again).
     /// `None` for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
+    /// EXP-1025: the text on the agent's additive system-prompt channel
+    /// (claude `--append-system-prompt`, codex `developer_instructions`):
+    /// the run playbook plus the team prompt, composed by
+    /// [`crate::skill::system_append`] from the team's `teams.getAgentPrompt`
+    /// at prepare time — start AND resume, so an edit reaches the next
+    /// resume of every existing run. A team without a prompt (or a fetch
+    /// that failed) gets the bare playbook.
+    pub system_append: String,
     /// EXP-792: the launch's team MCP servers, resolved (`exponential` is
     /// NOT among them — it stays [`Self::mcp`]). The adapters render them
     /// into their own config (claude inline, codex `thread/start`). Empty for
@@ -1953,7 +1961,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // Sessions have no action.
             action_id: String::new(),
             action_name: String::new(),
-            team_id,
+            team_id: team_id.clone(),
             issue_id: record_issue_id,
             issue_identifier: record_identifier,
             batch_id,
@@ -2110,6 +2118,7 @@ pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, Codi
             // relaunch is `prepare_resume_run`'s).
             resume: None,
             reaper_settings_path: reaper_anchor.clone(),
+            system_append: system_append_for_team(deps, &team_id),
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
@@ -2846,6 +2855,7 @@ fn prepare_action(
             session_id: session_id_for_acp.clone(),
             resume: None,
             reaper_settings_path: reaper_anchor.clone(),
+            system_append: system_append_for_team(deps, &req.team_id),
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
@@ -3630,6 +3640,7 @@ fn prepare_resume_run(
             session_id: session_id_for_acp.clone(),
             resume: acp_resume.clone(),
             reaper_settings_path: reaper_anchor.clone(),
+            system_append: system_append_for_team(deps, &record.team_id),
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
@@ -3642,6 +3653,25 @@ fn prepare_resume_run(
         codex_resume_id,
         launch_hold,
     }))
+}
+
+/// EXP-1025 — the system-prompt append for ONE launch: the run playbook plus
+/// the team prompt. Fetched at prepare time (start, resume and agent shell
+/// alike) beside the other blocking tRPC calls, BEST-EFFORT: a team without
+/// a prompt or a failed fetch degrades to the bare playbook and is logged,
+/// never a refused launch — the prompt is a nicety of the run, not a
+/// precondition of it.
+fn system_append_for_team(deps: &CodingDeps, team_id: &str) -> String {
+    if team_id.trim().is_empty() {
+        return crate::skill::system_append(None);
+    }
+    match api::teams::teams_get_agent_prompt(&deps.trpc, team_id) {
+        Ok(prompt) => crate::skill::system_append(Some(&prompt.agent_prompt)),
+        Err(err) => {
+            log::warn!("coding: team prompt for {team_id} unavailable, launching without it: {err}");
+            crate::skill::system_append(None)
+        }
+    }
 }
 
 /// An EXP-325 promptless agent-shell launch input: the terminal dock's "+"
@@ -3670,6 +3700,10 @@ pub struct AgentShellRequest {
     /// ([`crate::git_worktree::ensure_ignored`]) resolves the governing repo
     /// from the cwd itself.
     pub cwd_override: Option<PathBuf>,
+    /// EXP-1025: the active team, for its team prompt. A shell creates no
+    /// session row (nothing server-side names a team for it), so the caller
+    /// passes the team it is showing; `None` = the bare playbook.
+    pub team_id: Option<String>,
 }
 
 /// [`prepare_agent_shell`] done: everything the foreground needs to open the
@@ -3782,7 +3816,8 @@ pub fn prepare_agent_shell(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
-    let args = shell_args(options, &agent_mcp);
+    let system_append = system_append_for_team(deps, req.team_id.as_deref().unwrap_or(""));
+    let args = shell_args(options, &agent_mcp, &system_append);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
@@ -4440,6 +4475,7 @@ mod tests {
                 ..LaunchOptions::defaults_for(&Settings::default(), CodingAgent::Claude)
             },
             &crate::argv::AgentMcp::ClaudeFile,
+            crate::skill::RUN_SKILL,
         );
         let model_at = flag.iter().position(|arg| arg == "--model").expect("--model");
         assert_eq!(flag[model_at + 1], picked.env[1].1);
@@ -7649,6 +7685,7 @@ mod tests {
             repository_id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),
             cwd_override,
+            team_id: None,
         }
     }
 

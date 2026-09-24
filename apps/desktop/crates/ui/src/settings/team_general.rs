@@ -17,12 +17,12 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    input::{InputEvent, InputState},
+    input::{InputEvent, InputState, Textarea, TextareaState},
     v_flex, ActiveTheme as _,
 };
 use sync::Store;
 
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::{glass_input, web_textarea, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::Navigation;
 
@@ -50,10 +50,72 @@ struct Snapshot {
     name: String,
 }
 
+// EXP-1025: the team prompt editor's copy — byte-identical to the web
+// (`components/team/general-section.tsx`).
+const TEAM_PROMPT_TITLE: &str = "Team prompt";
+const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team should follow, as \
+markdown. Repo facts belong in CLAUDE.md; this is for team process, conventions and who to ask.";
+const TEAM_PROMPT_HELP: &str = "Appended to the agent's system prompt after the run playbook, on \
+every start and resume. Applies to runs started or resumed from now on.";
+
+/// `12.3k` / `840` — the counter's short form (web `formatByteCount`).
+fn format_byte_count(bytes: usize) -> String {
+    if bytes < 1000 {
+        bytes.to_string()
+    } else {
+        format!("{:.1}k", bytes as f64 / 1024.0)
+    }
+}
+
+/// The rough token readout beside the byte counter (web `approxTokens`):
+/// chars÷4, labelled ≈ so nobody reads it as a measurement.
+fn approx_tokens(bytes: usize) -> String {
+    let tokens = (bytes as f64 / 4.0).round() as usize;
+    if tokens < 1000 {
+        format!("≈{tokens} tokens")
+    } else {
+        format!("≈{:.1}k tokens", tokens as f64 / 1000.0)
+    }
+}
+
+/// The counter line: `1.2k / 12.0k bytes · ≈300 tokens`.
+fn prompt_counter(bytes: usize) -> String {
+    format!(
+        "{} / {} bytes · {}",
+        format_byte_count(bytes),
+        format_byte_count(domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES),
+        approx_tokens(bytes)
+    )
+}
+
+/// EXP-1025: the team prompt's fetch state. The text is NOT on the synced
+/// team row (server-only, like an action's body), so the pane loads it once
+/// per team and the field stays disabled until it lands — a blur can never
+/// save an empty draft over a prompt that has not arrived.
+#[derive(Default)]
+struct PromptState {
+    /// The team the loaded text belongs to; a team switch reloads.
+    team_id: Option<String>,
+    loading: bool,
+    /// What the server holds (trailing whitespace dropped, like it does).
+    saved: String,
+    /// ISO stamp of the last write, for the "Edited …" caption.
+    updated_at: Option<String>,
+    saving: bool,
+    error: Option<SharedString>,
+    /// Bumped per fetch so a slow reply for the previous team is dropped.
+    generation: u64,
+}
+
 pub struct GeneralPane {
     nav: Entity<Navigation>,
     name_input: Entity<InputState>,
     delete_input: Entity<InputState>,
+    /// EXP-1025: the team prompt — a RAW monospace field, never the markdown
+    /// WYSIWYG: a prompt is read by a model, so the bytes shown must be the
+    /// bytes it gets.
+    prompt_input: Entity<TextareaState>,
+    prompt: PromptState,
     snapshot: Option<Snapshot>,
     saving: bool,
     error: Option<SharedString>,
@@ -79,6 +141,7 @@ impl GeneralPane {
     ) -> Self {
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Team name"));
         let delete_input = cx.new(|cx| InputState::new(window, cx));
+        let prompt_input = cx.new(|cx| web_textarea(10, 40, window, cx).placeholder("Loading…"));
 
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
@@ -98,12 +161,21 @@ impl GeneralPane {
                 InputEvent::PressEnter { .. } | InputEvent::Blur => this.save(cx),
                 _ => {}
             }),
+            // EXP-1025: the prompt saves itself on blur too (Enter is a
+            // newline in a textarea); Change re-renders the counter.
+            cx.subscribe(&prompt_input, |this, _, event: &InputEvent, cx| match event {
+                InputEvent::Change => cx.notify(),
+                InputEvent::Blur => this.save_prompt(cx),
+                _ => {}
+            }),
         ];
 
         let mut this = Self {
             nav,
             name_input,
             delete_input,
+            prompt_input,
+            prompt: PromptState::default(),
             snapshot: None,
             saving: false,
             error: None,
@@ -181,10 +253,184 @@ impl GeneralPane {
         self.name_input.update(cx, |state, cx| {
             state.set_value(snapshot.name.clone(), window, cx);
         });
+        let team_changed = self.snapshot.as_ref().map(|held| &held.team_id) != Some(&snapshot.team_id);
         self.snapshot = Some(snapshot);
         // A refused delete belonged to the team that was selected then.
         self.delete_error = None;
+        if team_changed {
+            self.fetch_prompt(window, cx);
+        }
         cx.notify();
+    }
+
+    /// EXP-1025: the ONE read path for the team prompt (`teams.getAgentPrompt`;
+    /// the shape excludes it). Clears the field first so the previous team's
+    /// text never shows under the new team's name.
+    fn fetch_prompt(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(team_id) = self.snapshot.as_ref().map(|snapshot| snapshot.team_id.clone()) else {
+            return;
+        };
+        self.prompt.generation += 1;
+        let generation = self.prompt.generation;
+        self.prompt.team_id = Some(team_id.clone());
+        self.prompt.loading = true;
+        self.prompt.saved.clear();
+        self.prompt.updated_at = None;
+        self.prompt.error = None;
+        self.prompt_input.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.set_placeholder("Loading…", window, cx);
+        });
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            self.prompt.loading = false;
+            self.prompt.error = Some("Not signed in.".into());
+            return;
+        };
+        cx.spawn_in(window, async move |this, window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { api::teams::teams_get_agent_prompt(&trpc, &team_id) })
+                .await;
+            let _ = this.update_in(window, |view, window, cx| {
+                if view.prompt.generation != generation {
+                    return;
+                }
+                view.prompt.loading = false;
+                match result {
+                    Ok(prompt) => {
+                        view.prompt.saved = prompt.agent_prompt.clone();
+                        view.prompt.updated_at = prompt.agent_prompt_updated_at;
+                        view.prompt_input.update(cx, |state, cx| {
+                            state.set_value(prompt.agent_prompt, window, cx);
+                            state.set_placeholder(TEAM_PROMPT_PLACEHOLDER, window, cx);
+                        });
+                    }
+                    Err(err) => {
+                        view.prompt.error =
+                            Some(format!("Couldn't load the team prompt: {}", err.user_message()).into());
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn prompt_bytes(&self, cx: &App) -> usize {
+        self.prompt_input.read(cx).value().len()
+    }
+
+    fn prompt_dirty(&self, cx: &App) -> bool {
+        !self.prompt.loading
+            && self.prompt_input.read(cx).value().trim_end() != self.prompt.saved
+    }
+
+    /// EXP-1025: save on blur — the web `handleSavePrompt` twin. Over the
+    /// cap nothing is sent (the counter is already red and the server would
+    /// refuse it anyway).
+    fn save_prompt(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(team_id) = self.prompt.team_id.clone() else {
+            return;
+        };
+        if self.prompt.loading || self.prompt.saving || !self.prompt_dirty(cx) {
+            return;
+        }
+        if self.prompt_bytes(cx) > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        let text = self.prompt_input.read(cx).value().to_string();
+        let saved = text.trim_end().to_string();
+        let mut input = api::teams::TeamsUpdateInput::new(team_id);
+        input.agent_prompt = Some(text);
+
+        self.prompt.saving = true;
+        self.prompt.error = None;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::teams::teams_update(&trpc, &input) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.prompt.saving = false;
+                match result {
+                    Ok(_) => {
+                        this.prompt.saved = saved;
+                        this.prompt.updated_at = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                    Err(err) => {
+                        this.prompt.error = Some(
+                            format!("Couldn't save the team prompt: {}", err.user_message()).into(),
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// EXP-1025: the team prompt section — header with the save caption, the
+    /// raw monospace field in its own glass block, the help line and the
+    /// byte/token counter under it.
+    fn render_prompt_section(&self, owner: bool, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let bytes = self.prompt_bytes(cx);
+        let over = bytes > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES;
+        let dirty = self.prompt_dirty(cx);
+        let caption: Option<SharedString> = if self.prompt.saving {
+            Some("Saving…".into())
+        } else if dirty {
+            Some("Unsaved".into())
+        } else {
+            self.prompt
+                .updated_at
+                .as_deref()
+                .map(|stamp| format!("Edited {}", crate::inbox::relative_time(stamp)).into())
+        };
+        let trailing = caption.map(|caption| {
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(caption)
+                .into_any_element()
+        });
+        let field = Textarea::new(&self.prompt_input)
+            .appearance(false)
+            .w_full()
+            .px_4()
+            .py_3()
+            .font_family(theme::terminal::FONT_FAMILY)
+            .text_xs()
+            .disabled(!owner || self.prompt.loading);
+        let footer = h_flex()
+            .w_full()
+            .items_start()
+            .justify_between()
+            .gap_4()
+            .px_4()
+            .py_2()
+            .border_t_1()
+            .border_color(super::row_stroke(cx))
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(div().min_w_0().flex_1().child(TEAM_PROMPT_HELP))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .when(over, |counter| counter.text_color(cx.theme().danger))
+                    .child(prompt_counter(bytes)),
+            );
+        let mut body = section(cx)
+            .child(crate::surface::glass_section_header(TEAM_PROMPT_TITLE, trailing, cx))
+            .child(crate::surface::glass_group().child(field).child(footer));
+        if let Some(error) = &self.prompt.error {
+            body = body.child(error_notice(error.clone(), cx));
+        }
+        body
     }
 
     fn dirty(&self, cx: &App) -> bool {
@@ -475,6 +721,9 @@ impl Render for GeneralPane {
         }
 
         let mut pane = v_flex().gap_4().child(general);
+
+        // EXP-1025: the team prompt, right under the name (web parity).
+        pane = pane.child(self.render_prompt_section(owner, cx));
 
         // EXP-288: read-only Plan & Billing between the name card and the
         // Danger Zone (fetch kicked at render like the boards repo cache).

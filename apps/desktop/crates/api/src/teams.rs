@@ -5,7 +5,8 @@
 //! `team-invites.ts`:
 //!
 //! - `teams.create({name, iconUrl?})` → `{team, txId}`
-//! - `teams.update({teamId, name?, iconUrl?, helpdeskEnabled?, estimationType?})` → `{team, txId}` (EXP-707)
+//! - `teams.update({teamId, name?, iconUrl?, helpdeskEnabled?, estimationType?, agentPrompt?})` → `{team, txId}` (EXP-707, EXP-1025)
+//! - `teams.getAgentPrompt({teamId})` → `{agentPrompt, agentPromptUpdatedAt, maxBytes}` (query, EXP-1025)
 //! - `teams.delete({teamId})` → `{ok, txId}`
 //! - `teams.inviteCapacity({teamId})` → `{remaining}` (query, EXP-725)
 //! - `teamMembers.updateRole({memberId, role})` → `{member}`
@@ -91,6 +92,11 @@ pub struct TeamsUpdateInput {
     /// EXP-630: the estimate scale (contract `issueEstimation`; `none` = off).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimation_type: Option<String>,
+    /// EXP-1025: the team prompt, raw markdown; `Some("")` clears it. The
+    /// server refuses more than `domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES`
+    /// UTF-8 bytes (BAD_REQUEST), so the editor counts bytes, not chars.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_prompt: Option<String>,
 }
 
 impl TeamsUpdateInput {
@@ -101,8 +107,41 @@ impl TeamsUpdateInput {
             icon_url: Patch::Omit,
             helpdesk_enabled: None,
             estimation_type: None,
+            agent_prompt: None,
         }
     }
+}
+
+/// `teams.getAgentPrompt` output (EXP-1025).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamAgentPrompt {
+    /// The raw markdown; empty = the team has no prompt.
+    #[serde(default)]
+    pub agent_prompt: String,
+    /// ISO timestamp of the last write, `None` until the first one.
+    #[serde(default)]
+    pub agent_prompt_updated_at: Option<String>,
+    /// The server's cap in UTF-8 bytes (the contract value, echoed so an
+    /// older client never counts against a stale number).
+    #[serde(default)]
+    pub max_bytes: Option<usize>,
+}
+
+/// `teams.getAgentPrompt` — query, any member. The team prompt is NOT on the
+/// teams shape (server-only like `actions.body`), so this is the one read
+/// path: the Settings → General editor and the launcher at prepare/resume
+/// time both take it from here.
+pub fn teams_get_agent_prompt(
+    trpc: &TrpcClient,
+    team_id: &str,
+) -> Result<TeamAgentPrompt, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+    }
+    trpc.query_with_input("teams.getAgentPrompt", &Input { team_id })
 }
 
 /// `teams.update` — mutation.

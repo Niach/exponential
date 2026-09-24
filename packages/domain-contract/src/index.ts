@@ -96,6 +96,12 @@ export interface DomainContract {
    */
   device: { onlineWindowSeconds: number }
   /**
+   * EXP-1025: the team prompt's hard byte cap (`teams.agent_prompt`, UTF-8
+   * bytes): zod on `teams.update`, the editors' live counter, and the
+   * launcher's own guard before it appends the text to the system prompt.
+   */
+  team: { agentPromptMaxBytes: number }
+  /**
    * EXP-783: the steering transcript's shared numbers, mirrored ×4 (web
    * `agent-feed.ts`, desktop `steer::feed`, iOS `AgentFeed`, Android
    * `AgentFeed.kt`) and by the relay's page schema. `byteCap`/`itemCap`

@@ -167,6 +167,9 @@ impl EngineSession {
             replay: true,
             personal_key: personal_key.clone(),
             reaper_settings_path: None,
+            // A replay never prompts; the bare playbook keeps codex's
+            // `thread/resume` developer message stable.
+            system_append: coding::skill::system_append(None),
             exit: child_exit.clone(),
         })?;
 
@@ -413,6 +416,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         replay: false,
         personal_key: start.personal_key.clone(),
         reaper_settings_path: acp.reaper_settings_path.clone(),
+        system_append: acp.system_append.clone(),
     exit: child_exit.clone(),
 })?;
     start_with(

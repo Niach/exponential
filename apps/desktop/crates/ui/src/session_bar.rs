@@ -738,11 +738,16 @@ impl SessionBar {
             return;
         };
         let options = coding::LaunchOptions::defaults_for(&deps.settings, agent);
+        // EXP-1025: the shell rides the active team's prompt (a shell has no
+        // session row to name its team).
+        let nav = navigation::nav_for_window(window, cx);
+        let team_id = navigation::active_team_id(&nav, cx);
         let request = coding::AgentShellRequest {
             options,
             repository_id,
             full_name,
             cwd_override,
+            team_id,
         };
         cx.spawn_in(window, async move |this, cx| {
             let prepared = cx
